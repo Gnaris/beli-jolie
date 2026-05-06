@@ -119,6 +119,19 @@ function throwIfCancelled(isCancelled?: () => boolean): void {
 const PFS_LIST_PAGE_SIZE = 100;
 const DEEP_SCAN_SAMPLE_SIZE = 50; // nb de produits inspectés en profondeur (checkReference) pour composition / pays / saison
 
+/**
+ * Convertit le statut texte renvoyé par PFS en statut local boutique.
+ * READY_FOR_SALE = produit visible côté clients PFS → on met ONLINE chez nous.
+ * Tout le reste (DRAFT, NEW, ARCHIVED, DELETED, …) → OFFLINE par sécurité.
+ * La comparaison est insensible à la casse / aux espaces.
+ */
+export function pfsStatusToBjStatus(
+  pfsStatus: string | null | undefined,
+): "ONLINE" | "OFFLINE" {
+  if (typeof pfsStatus !== "string") return "OFFLINE";
+  return pfsStatus.trim().toUpperCase() === "READY_FOR_SALE" ? "ONLINE" : "OFFLINE";
+}
+
 /** Traduction des codes pays courants en noms français */
 const COUNTRY_LABELS_FR: Record<string, string> = {
   CN: "Chine", FR: "France", IT: "Italie", ES: "Espagne", DE: "Allemagne",
@@ -387,6 +400,73 @@ export function collectImagesForColors(
     else if (val) out.push(val);
   }
   return out;
+}
+
+/**
+ * Construit la liste d'images à charger pour une variante PFS, groupée par
+ * couleur locale. Pour chaque couple (colorId local, couleur PFS) :
+ *   1) on essaie d'abord les images portées par la variante (`variantImages`),
+ *   2) si rien ne matche, on retombe sur `productImages` pour cette couleur.
+ * URLs dédoublonnées par groupe. Aucun fallback "DEFAUT" / "première image"
+ * pour ne jamais mélanger les photos entre couleurs.
+ */
+export function buildVariantImagesByColor(
+  colorPairs: { localColorId: string; pfsColor: PfsColorInfo }[],
+  variantImages: Record<string, string | string[]> | null | undefined,
+  productImages: Record<string, string | string[]> | null | undefined,
+): { colorId: string; urls: string[] }[] {
+  return colorPairs.map(({ localColorId, pfsColor }) => {
+    const scope: PfsColorInfo[] = [pfsColor];
+    const fromVariant = collectImagesForColors(variantImages, scope);
+    const urls = fromVariant.length > 0
+      ? fromVariant
+      : collectImagesForColors(productImages, scope);
+    return { colorId: localColorId, urls: [...new Set(urls)] };
+  });
+}
+
+/**
+ * Planifie le téléchargement des images pour un ensemble de variantes
+ * importées. Une image n'est plannifiée qu'une fois par colorId — si une
+ * même couleur apparaît dans plusieurs variantes (ex: même couleur en UNIT
+ * et PACK, ou Kaki présent dans 2 packs), on ne charge ses photos qu'une
+ * fois et on les rattache à la première variante rencontrée. Les `order`
+ * sont consécutifs par couleur (0,1,2…) pour respecter la contrainte unique
+ * `(productId, colorId, order)` côté BDD.
+ */
+export interface PlannedImage {
+  variantId: string;
+  colorId: string;
+  url: string;
+  order: number;
+}
+export function planVariantImageDownloads(
+  variants: { id: string; imagesByColor: { colorId: string; urls: string[] }[] }[],
+): PlannedImage[] {
+  const planned: PlannedImage[] = [];
+  const seenByColor = new Map<string, Set<string>>();
+  const variantForColor = new Map<string, string>();
+  const orderByColor = new Map<string, number>();
+  for (const v of variants) {
+    for (const group of v.imagesByColor) {
+      if (!variantForColor.has(group.colorId)) {
+        variantForColor.set(group.colorId, v.id);
+      }
+      if (!seenByColor.has(group.colorId)) {
+        seenByColor.set(group.colorId, new Set());
+      }
+      const seen = seenByColor.get(group.colorId)!;
+      const targetVariantId = variantForColor.get(group.colorId)!;
+      for (const url of group.urls) {
+        if (seen.has(url)) continue;
+        seen.add(url);
+        const nextOrder = orderByColor.get(group.colorId) ?? 0;
+        planned.push({ variantId: targetVariantId, colorId: group.colorId, url, order: nextOrder });
+        orderByColor.set(group.colorId, nextOrder + 1);
+      }
+    }
+  }
+  return planned;
 }
 
 function uniqueMap<T>(arr: T[], keyFn: (x: T) => string): T[] {
@@ -664,45 +744,118 @@ export async function scanPfsAttributes(options?: {
   const countries = uniqueMap(rawCountries, (x) => x.pfsRef);
   const seasons = uniqueMap(rawSeasons, (x) => x.pfsRef);
 
-  // Vérification du mapping dans notre DB
+  // Vérification du mapping dans notre DB.
+  // Pour les attributs autres que catégorie, on accepte un match soit par
+  // référence PFS (champ `pfs*Ref`) soit par nom (déjà présent dans la
+  // bibliothèque même si la référence PFS n'avait jamais été enregistrée).
+  // Ça évite que le scan propose de re-créer une couleur/taille/etc. qui
+  // existe déjà chez nous sous un nom équivalent.
+  const colorRefs = colors.map((c) => c.pfsRef);
+  const colorLabels = colors.map((c) => c.label);
+  const sizeRefs = sizes.map((s) => s.pfsRef);
+  const sizeLabels = sizes.map((s) => s.label);
+  const compRefs = compositions.map((c) => c.pfsRef);
+  const compLabels = compositions.map((c) => c.label);
+  const countryRefs = countries.map((c) => c.pfsRef);
+  const countryLabels = countries.map((c) => c.label);
+  const seasonRefs = seasons.map((s) => s.pfsRef);
+  const seasonLabels = seasons.map((s) => s.label);
+
   const [localCategories, localColors, localSizes, localCompositions, localCountries, localSeasons] = await Promise.all([
     prisma.category.findMany({
       where: { pfsCategoryId: { in: categories.map((c) => c.pfsRef) } },
       select: { id: true, name: true, pfsCategoryId: true },
     }),
     prisma.color.findMany({
-      where: { name: { in: colors.map((c) => c.pfsRef) } },
-      select: { id: true, name: true },
+      where: {
+        OR: [
+          { pfsColorRef: { in: colorRefs } },
+          { name: { in: colorLabels } },
+        ],
+      },
+      select: { id: true, name: true, pfsColorRef: true },
     }),
     prisma.size.findMany({
-      where: { pfsSizeRef: { in: sizes.map((s) => s.pfsRef) } },
+      where: {
+        OR: [
+          { pfsSizeRef: { in: sizeRefs } },
+          { name: { in: sizeLabels } },
+        ],
+      },
       select: { id: true, name: true, pfsSizeRef: true },
     }),
     prisma.composition.findMany({
-      where: { pfsCompositionRef: { in: compositions.map((c) => c.pfsRef) } },
+      where: {
+        OR: [
+          { pfsCompositionRef: { in: compRefs } },
+          { name: { in: compLabels } },
+        ],
+      },
       select: { id: true, name: true, pfsCompositionRef: true },
     }),
     prisma.manufacturingCountry.findMany({
-      where: { pfsCountryRef: { in: countries.map((c) => c.pfsRef) } },
+      where: {
+        OR: [
+          { pfsCountryRef: { in: countryRefs } },
+          { name: { in: countryLabels } },
+        ],
+      },
       select: { id: true, name: true, pfsCountryRef: true },
     }),
     prisma.season.findMany({
-      where: { pfsRef: { in: seasons.map((s) => s.pfsRef) } },
+      where: {
+        OR: [
+          { pfsRef: { in: seasonRefs } },
+          { name: { in: seasonLabels } },
+        ],
+      },
       select: { id: true, name: true, pfsRef: true },
     }),
   ]);
 
-  const catMap = new Map(localCategories.map((c) => [c.pfsCategoryId!, c]));
-  const colMap = new Map(localColors.map((c) => [c.name, c]));
-  const szMap = new Map(localSizes.map((s) => [s.pfsSizeRef!, s]));
-  const cpMap = new Map(localCompositions.map((c) => [c.pfsCompositionRef!, c]));
-  const ctryMap = new Map(localCountries.map((c) => [c.pfsCountryRef!, c]));
-  const seaMap = new Map(localSeasons.map((s) => [s.pfsRef!, s]));
+  // Helper : normalisation pour comparer des libellés "à l'œil" (insensible à
+  // la casse / aux espaces de bordure). Les bibliothèques côté admin sont
+  // saisies en français — un libellé PFS « Doré » et un local « doré »
+  // doivent matcher.
+  const normalize = (s: string | null | undefined) =>
+    (s ?? "").trim().toLocaleLowerCase("fr-FR");
+
+  /**
+   * Construit deux index : par référence PFS et par nom normalisé.
+   * Permet ensuite de matcher un attribut PFS sur l'un ou l'autre.
+   */
+  function buildAttrIndex<T extends { id: string; name: string }>(
+    items: T[],
+    getRef: (item: T) => string | null | undefined,
+  ): { byRef: Map<string, T>; byName: Map<string, T> } {
+    const byRef = new Map<string, T>();
+    const byName = new Map<string, T>();
+    for (const item of items) {
+      const ref = getRef(item);
+      if (ref) byRef.set(ref, item);
+      const nameKey = normalize(item.name);
+      if (nameKey && !byName.has(nameKey)) byName.set(nameKey, item);
+    }
+    return { byRef, byName };
+  }
+
+  const catIndex = new Map(localCategories.map((c) => [c.pfsCategoryId!, c]));
+  const colIndex = buildAttrIndex(localColors, (c) => c.pfsColorRef);
+  const szIndex = buildAttrIndex(localSizes, (s) => s.pfsSizeRef);
+  const cpIndex = buildAttrIndex(localCompositions, (c) => c.pfsCompositionRef);
+  const ctryIndex = buildAttrIndex(localCountries, (c) => c.pfsCountryRef);
+  const seaIndex = buildAttrIndex(localSeasons, (s) => s.pfsRef);
+
+  const findLocal = <T extends { id: string; name: string }>(
+    index: { byRef: Map<string, T>; byName: Map<string, T> },
+    pfsRef: string,
+    label: string,
+  ): T | undefined => index.byRef.get(pfsRef) ?? index.byName.get(normalize(label));
 
   const out: PfsAttribute[] = [];
 
   for (const c of categories) {
-    const local = catMap.get(c.pfsRef);
+    const local = catIndex.get(c.pfsRef);
     out.push({
       type: "category",
       pfsRef: c.pfsRef,
@@ -718,7 +871,7 @@ export async function scanPfsAttributes(options?: {
     });
   }
   for (const c of colors) {
-    const local = colMap.get(c.pfsRef);
+    const local = findLocal(colIndex, c.pfsRef, c.label);
     out.push({
       type: "color",
       pfsRef: c.pfsRef,
@@ -730,19 +883,19 @@ export async function scanPfsAttributes(options?: {
     });
   }
   for (const s of sizes) {
-    const local = szMap.get(s.pfsRef);
+    const local = findLocal(szIndex, s.pfsRef, s.label);
     out.push({ type: "size", pfsRef: s.pfsRef, label: s.label, mapped: !!local, localId: local?.id, localName: local?.name });
   }
   for (const c of compositions) {
-    const local = cpMap.get(c.pfsRef);
+    const local = findLocal(cpIndex, c.pfsRef, c.label);
     out.push({ type: "composition", pfsRef: c.pfsRef, label: c.label, mapped: !!local, localId: local?.id, localName: local?.name });
   }
   for (const c of countries) {
-    const local = ctryMap.get(c.pfsRef);
+    const local = findLocal(ctryIndex, c.pfsRef, c.label);
     out.push({ type: "country", pfsRef: c.pfsRef, label: c.label, mapped: !!local, localId: local?.id, localName: local?.name });
   }
   for (const s of seasons) {
-    const local = seaMap.get(s.pfsRef);
+    const local = findLocal(seaIndex, s.pfsRef, s.label);
     out.push({ type: "season", pfsRef: s.pfsRef, label: s.label, mapped: !!local, localId: local?.id, localName: local?.name });
   }
 
@@ -856,20 +1009,24 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
 
     case "color": {
       const normalizedHex = normalizePfsHex(hex);
+      const trimmedRef = pfsRef.trim() || null;
       if (linkToExistingId) {
         const existing = await prisma.color.findUnique({
           where: { id: linkToExistingId },
-          select: { hex: true },
+          select: { hex: true, pfsColorRef: true },
         });
+        const data: { hex?: string; pfsColorRef?: string } = {};
+        if (normalizedHex && !existing?.hex) data.hex = normalizedHex;
+        if (trimmedRef && !existing?.pfsColorRef) data.pfsColorRef = trimmedRef;
         const upd = await prisma.color.update({
           where: { id: linkToExistingId },
-          data: normalizedHex && !existing?.hex ? { hex: normalizedHex } : {},
+          data,
           select: { id: true, name: true },
         });
         return { id: upd.id, name: upd.name, created: false };
       }
       const created = await prisma.color.create({
-        data: { name: label, hex: normalizedHex },
+        data: { name: label, hex: normalizedHex, pfsColorRef: trimmedRef },
         select: { id: true, name: true },
       });
       autoTranslateColor(created.id, created.name);
@@ -1041,7 +1198,21 @@ interface ResolvedVariant {
   packLines: ResolvedPackLine[];
   /** Tous les colorId présents dans le variant (utilisé pour le SKU multi). */
   allColorIds: string[];
-  imageUrls: string[];
+  /**
+   * Images groupées par couleur locale. Pour un UNIT ou un PACK mono-couleur,
+   * une seule entrée (la couleur principale). Pour un PACK multi-couleurs,
+   * une entrée par couleur du pack — chaque image sera enregistrée avec son
+   * propre `colorId` pour qu'elle apparaisse dans le bon onglet du modal
+   * d'images (ex: les photos KAKI restent dans l'onglet Kaki, pas Brun).
+   */
+  imagesByColor: { colorId: string; urls: string[] }[];
+  /**
+   * Mapping (réf + libellés PFS → colorId local) pour TOUTES les couleurs du
+   * variant (couleur principale + chaque ligne de pack pour un multi-couleurs).
+   * Sert à résoudre le `default_color` PFS, même quand celui-ci pointe vers
+   * une couleur qui vit uniquement dans un pack multi-couleurs.
+   */
+  pfsColorMappings: { reference: string; labels: string[]; localId: string }[];
 }
 
 /**
@@ -1120,6 +1291,61 @@ function detectPrimaryColorRef(
     variantRefs: normalizedVariantRefs,
     imagesKeys: productImages ? Object.keys(productImages) : [],
   });
+  return null;
+}
+
+/**
+ * Trouve le `colorId` local correspondant à la couleur principale PFS,
+ * en parcourant TOUTES les couleurs du produit (couleur principale de chaque
+ * variante + chaque ligne de pack multi-couleurs). Cas typique : FZEAFSDF
+ * envoie `default_color = "KAKI"` alors que Kaki vit uniquement dans le pack
+ * BROWN+KAKI — on le retrouve via les mappings de pack-line.
+ *
+ * Signaux dans l'ordre de fiabilité :
+ *   1) Image DEFAUT du produit dont l'URL matche celle d'une couleur connue.
+ *   2) `default_color` PFS, comparé à la fois à la référence et aux libellés.
+ *   3) Variante PFS marquée `is_star` → on prend sa couleur principale.
+ * Retourne null si aucun signal ne fonctionne.
+ */
+export function findPrimaryColorIdFromPfs(args: {
+  variants: Pick<ResolvedVariant, "primaryPfsColorRef" | "isStar" | "pfsColorMappings">[];
+  defaultColor: string | null | undefined;
+  productImages: Record<string, string | string[]> | null | undefined;
+}): string | null {
+  const { variants, defaultColor, productImages } = args;
+  // Index global PFS-ref/label (normalisés) → colorId local, en agrégeant
+  // toutes les variantes (couleur principale + pack-lines).
+  const refToLocal = new Map<string, string>();
+  for (const rv of variants) {
+    for (const m of rv.pfsColorMappings) {
+      refToLocal.set(normalizeKey(m.reference), m.localId);
+      for (const label of m.labels) {
+        const k = normalizeKey(label);
+        if (!refToLocal.has(k)) refToLocal.set(k, m.localId);
+      }
+    }
+  }
+
+  // 1) DEFAUT image match (le plus fiable)
+  const imgMatch = findPrimaryPfsColorRefFromImages(productImages);
+  if (imgMatch) {
+    const local = refToLocal.get(imgMatch);
+    if (local) return local;
+  }
+
+  // 2) default_color (peut être une référence OU un label localisé)
+  if (defaultColor && defaultColor.trim()) {
+    const local = refToLocal.get(normalizeKey(defaultColor));
+    if (local) return local;
+  }
+
+  // 3) Variante marquée is_star : prend sa couleur principale
+  const star = variants.find((rv) => rv.isStar);
+  if (star) {
+    const local = refToLocal.get(normalizeKey(star.primaryPfsColorRef));
+    if (local) return local;
+  }
+
   return null;
 }
 
@@ -1302,6 +1528,24 @@ export async function approveAndImportPfsProduct(
   // Dernier point d'arrêt avant création en DB
   throwIfCancelled(isCancelled);
 
+  // Couleur principale du produit : on essaie de la déduire depuis les signaux
+  // PFS (default_color, image DEFAUT, is_star). Si aucun ne fonctionne, on
+  // retombe plus bas sur la 1ʳᵉ couleur disponible — l'admin pourra toujours
+  // l'ajuster via le badge "couleur principale" dans le modal d'images.
+  const detectedPrimaryColorId = findPrimaryColorIdFromPfs({
+    variants: resolvedVariants,
+    defaultColor: detail?.default_color,
+    productImages,
+  });
+  const fallbackPrimaryColorId =
+    resolvedVariants.find((rv) => rv.allColorIds.length > 0)?.allColorIds[0] ??
+    resolvedVariants[0]?.colorId ??
+    null;
+  const initialPrimaryColorId = detectedPrimaryColorId ?? fallbackPrimaryColorId;
+  if (!detectedPrimaryColorId && detail?.default_color) {
+    warnings.push(`Couleur par défaut PFS "${detail.default_color}" non reconnue — couleur principale par défaut`);
+  }
+
   // Création du produit en statut SYNCING → passera en OFFLINE une fois les
   // images téléchargées. Le produit n'est pas marqué brouillon : il arrive
   // directement "Hors ligne" dans la liste admin.
@@ -1316,6 +1560,15 @@ export async function approveAndImportPfsProduct(
       manufacturingCountryId,
       seasonId,
       pfsProductId: product.id,
+      // Détail taille unique (ex: "52-56") renvoyé par PFS sur listProducts —
+      // alimente le champ "Taille Unique" du formulaire produit + suffixe "TU 52-56"
+      // affiché côté boutique pour les variantes en taille unique.
+      sizeDetailsTu: product.size_details_tu?.trim() || null,
+      // Couleur principale (badge "couleur principale" dans le modal d'images,
+      // image par défaut côté boutique). Peut pointer vers une couleur qui
+      // vit uniquement dans un pack multi-couleurs (cas FZEAFSDF où Kaki est
+      // la couleur principale alors qu'elle est dans le pack Brun+Kaki).
+      primaryColorId: initialPrimaryColorId,
       compositions: {
         create: compositionsInput.map((c) => ({ compositionId: c.compositionId, percentage: c.percentage })),
       },
@@ -1417,8 +1670,13 @@ export async function approveAndImportPfsProduct(
       productId: createdProduct.id,
     });
 
-    // Téléchargement des images (bloquant)
-    await downloadImagesWithPlaywright(createdProduct.id, createdVariantIds, { isCancelled });
+    // Téléchargement des images (bloquant). Le statut final boutique
+    // (ONLINE / OFFLINE) reflète le statut PFS du produit au moment de l'import.
+    const finalStatus = pfsStatusToBjStatus(product.status);
+    await downloadImagesWithPlaywright(createdProduct.id, createdVariantIds, {
+      isCancelled,
+      finalStatus,
+    });
   } catch (err) {
     const cancelled = err instanceof PfsImportCancelledError;
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -1445,9 +1703,21 @@ async function resolveColorIdForPfsInfo(c: PfsColorInfo): Promise<string | null>
   for (const candidate of candidates) {
     const found = await prisma.color.findFirst({
       where: { name: candidate },
-      select: { id: true },
+      select: { id: true, hex: true },
     });
-    if (found) return found.id;
+    if (!found) continue;
+    // PFS fournit un hex officiel (`c.value` ex: "#595F34" pour Kaki). Si la
+    // couleur locale n'en a pas, on la complète maintenant — sinon l'aperçu
+    // de couleur dans la modale d'images retombe sur le gris par défaut. On
+    // ne touche jamais à un hex déjà saisi par l'admin.
+    const pfsHex = normalizePfsHex(c.value);
+    if (pfsHex && !found.hex) {
+      await prisma.color.update({
+        where: { id: found.id },
+        data: { hex: pfsHex },
+      });
+    }
+    return found.id;
   }
   return null;
 }
@@ -1490,6 +1760,15 @@ async function resolveVariant(
   let resolvedPackLines: { colorId: string; sizeEntries: { sizeId: string; quantity: number }[] }[];
   let resolvedAllColorIds: string[];
   let primaryColorId: string;
+  // Couples (couleur PFS, colorId local) dans l'ordre d'apparition, dédupliqués
+  // par colorId. Sert ensuite à collecter les images couleur par couleur.
+  const colorPairs: { localColorId: string; pfsColor: PfsColorInfo }[] = [];
+  const seenLocalColorIds = new Set<string>();
+  const pushPair = (localColorId: string, pfsColor: PfsColorInfo) => {
+    if (seenLocalColorIds.has(localColorId)) return;
+    seenLocalColorIds.add(localColorId);
+    colorPairs.push({ localColorId, pfsColor });
+  };
 
   if (v.item) {
     // UNIT : une seule couleur, une seule taille.
@@ -1501,6 +1780,7 @@ async function resolveVariant(
       );
     }
     primaryColorId = primary;
+    pushPair(primary, v.item.color);
     resolvedSizeEntries = await resolveSizeEntries(
       v.item.size ? [{ size: v.item.size, qty: 1 }] : [],
       warnings,
@@ -1521,6 +1801,7 @@ async function resolveVariant(
           `Couleur "${pk.color.reference}" introuvable dans la bibliothèque (essayé : ${candidates.join(", ")})`,
         );
       }
+      pushPair(colorId, pk.color);
       const sizeEntries = await resolveSizeEntries(
         (pk.sizes ?? []).map((sz) => ({ size: sz.size, qty: sz.qty })),
         warnings,
@@ -1537,24 +1818,20 @@ async function resolveVariant(
     if (!primaryColorId) return null;
   }
 
-  // Images — uniquement celles qui correspondent à la **couleur principale**
-  // de cette variante. Pour un pack multi-couleurs, on n'attache PAS les
-  // images des autres couleurs du pack : sinon la variante (qui n'a qu'une
-  // couleur affichée = la principale) hériterait des photos d'autres
-  // couleurs et donnerait l'impression d'images mélangées. La composition
-  // détaillée du pack reste accessible dans le modal "Tailles & quantités du
-  // paquet". Jamais de fallback "DEFAUT" ni "première image" sinon toutes
-  // les variantes se retrouveraient avec les mêmes photos.
-  const imageColorScope: PfsColorInfo[] = [colors[0]];
-  const imageUrlsRaw: string[] = [
-    ...collectImagesForColors(v.images, imageColorScope),
-  ];
-  if (imageUrlsRaw.length === 0) {
-    imageUrlsRaw.push(...collectImagesForColors(productImages, imageColorScope));
-  }
+  // Collecte les images de **chaque** couleur de la variante. Pour un pack
+  // multi-couleurs (ex: BROWN+KAKI), on récupère les photos KAKI sous leur
+  // propre `colorId` afin qu'elles s'affichent dans l'onglet Kaki du modal
+  // d'images, et non sous l'onglet Brun.
+  const imagesByColor = buildVariantImagesByColor(colorPairs, v.images, productImages);
 
-  // Dédoublonne les URLs (même image apparaissant sous plusieurs clés)
-  const imageUrls = [...new Set(imageUrlsRaw)];
+  // Mapping PFS → local pour chaque couleur de la variante. Permet plus tard
+  // de retrouver le bon colorId à partir d'un default_color PFS — y compris
+  // quand celui-ci pointe vers une couleur "secondaire" d'un pack multi.
+  const pfsColorMappings = colorPairs.map(({ localColorId, pfsColor }) => ({
+    reference: pfsColor.reference,
+    labels: Object.values(pfsColor.labels ?? {}).filter((l): l is string => typeof l === "string" && l.length > 0),
+    localId: localColorId,
+  }));
 
   const primaryColorLabels = Object.values(colors[0]?.labels ?? {})
     .filter((l): l is string => typeof l === "string" && l.length > 0)
@@ -1574,7 +1851,8 @@ async function resolveVariant(
     sizeEntries: resolvedSizeEntries,
     packLines: resolvedPackLines,
     allColorIds: resolvedAllColorIds,
-    imageUrls,
+    imagesByColor,
+    pfsColorMappings,
   };
 }
 
@@ -1610,12 +1888,7 @@ const BROWSER_PROFILE_B = {
   },
 };
 
-interface PendingImage {
-  variantId: string;
-  colorId: string;
-  url: string;
-  order: number;
-}
+type PendingImage = PlannedImage;
 
 /**
  * Télécharge les images d'un produit en 2 passes :
@@ -1626,38 +1899,26 @@ interface PendingImage {
 async function downloadImagesWithPlaywright(
   productId: string,
   variants: { id: string; colorId: string; pfsVariant: ResolvedVariant }[],
-  options?: ImportCancellationOptions,
+  options?: ImportCancellationOptions & {
+    /** Statut final à appliquer au produit une fois les images en place. Par défaut OFFLINE. */
+    finalStatus?: "ONLINE" | "OFFLINE";
+  },
 ): Promise<void> {
   const isCancelled = options?.isCancelled;
+  const finalStatus = options?.finalStatus ?? "OFFLINE";
   const { chromium } = await import("playwright");
 
-  // Construire la liste d'images à télécharger, dédoublonnée par couleur.
-  // Plusieurs variantes peuvent partager la même couleur (ex. même couleur en
-  // UNIT et PACK, ou plusieurs tailles). On ne télécharge qu'une seule fois
-  // les images par couleur, en les rattachant à la première variante rencontrée.
-  const allImages: PendingImage[] = [];
-  const seenByColor = new Map<string, Set<string>>(); // colorId → Set<url>
-  for (const v of variants) {
-    if (!seenByColor.has(v.colorId)) {
-      seenByColor.set(v.colorId, new Set());
-    }
-    const seen = seenByColor.get(v.colorId)!;
-    for (let idx = 0; idx < v.pfsVariant.imageUrls.length; idx++) {
-      const url = v.pfsVariant.imageUrls[idx];
-      if (seen.has(url)) continue; // déjà planifié pour cette couleur
-      seen.add(url);
-      allImages.push({
-        variantId: v.id,
-        colorId: v.colorId,
-        url,
-        order: idx,
-      });
-    }
-  }
+  // Construire la liste d'images à télécharger via le helper extrait :
+  // dédoublonnage par colorId, photos KAKI d'un pack BROWN+KAKI rattachées
+  // à leur propre colorId pour s'afficher dans l'onglet Kaki.
+  const allImages: PendingImage[] = planVariantImageDownloads(
+    variants.map((v) => ({ id: v.id, imagesByColor: v.pfsVariant.imagesByColor })),
+  );
 
   if (allImages.length === 0) {
     throwIfCancelled(isCancelled);
-    // Pas d'images → passe directement en OFFLINE
+    // Pas d'images → on force OFFLINE (un produit ONLINE doit avoir au moins
+    // une image par couleur côté boutique).
     await prisma.product.update({ where: { id: productId }, data: { status: "OFFLINE" } });
     emitProductEvent({ type: "PRODUCT_UPDATED", productId });
     return;
@@ -1715,14 +1976,15 @@ async function downloadImagesWithPlaywright(
     }
   }
 
-  // Passe en statut OFFLINE une fois toutes les images OK
+  // Applique le statut cible (ONLINE si le produit était déjà en ligne sur PFS,
+  // OFFLINE sinon) une fois toutes les images en place.
   await prisma.product.update({
     where: { id: productId },
-    data: { status: "OFFLINE" },
+    data: { status: finalStatus },
   });
 
   emitProductEvent({ type: "PRODUCT_UPDATED", productId });
-  logger.info("[PFS Import] Images téléchargées, produit en OFFLINE", { productId });
+  logger.info("[PFS Import] Images téléchargées, produit prêt", { productId, status: finalStatus });
 }
 
 /**

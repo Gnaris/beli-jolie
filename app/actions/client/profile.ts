@@ -9,6 +9,10 @@ import { z } from "zod";
 // P3-06 — validation côté serveur des champs profil. Les longueurs maximales
 // suivent les colonnes Prisma. Téléphone : même regex international que
 // l'inscription (P3-07).
+//
+// L'adresse de la société n'est plus modifiable depuis l'espace pro :
+// elle est saisie à l'inscription dans des champs séparés et ne peut être
+// changée que par l'admin (impact TVA — voir lib/vat.ts).
 const ProfileSchema = z.object({
   firstName: z.string().trim().min(1, "Prénom requis.").max(80),
   lastName:  z.string().trim().min(1, "Nom requis.").max(80),
@@ -20,7 +24,6 @@ const ProfileSchema = z.object({
       /^(\+\d{1,3}|0)[1-9]\d{7,12}$/,
       "Numéro de téléphone invalide.",
     ),
-  address: z.string().trim().max(255).optional().or(z.literal("")),
   vatNumber: z
     .string()
     .trim()
@@ -35,7 +38,6 @@ export async function updateProfile(data: {
   lastName: string;
   company: string;
   phone: string;
-  address: string;
   vatNumber: string;
 }) {
   const session = await getServerSession(authOptions);
@@ -55,7 +57,6 @@ export async function updateProfile(data: {
       lastName:  parsed.data.lastName,
       company:   parsed.data.company,
       phone:     parsed.data.phone,
-      address:   parsed.data.address?.trim() || null,
       vatNumber: parsed.data.vatNumber?.trim() || null,
     },
   });

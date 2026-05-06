@@ -117,6 +117,7 @@ export async function POST(req: Request) {
 
   // Taux TVA recalculé côté serveur (jamais l'input client) :
   // exonération B2B intracom appliquée même en retrait si l'admin a validé.
+  // Le mode "private_carrier" est traité comme une livraison (TVA selon adresse).
   const isPickup = carrierId === "pickup_store";
   const tvaRate = resolveVatRate({
     countryCode: address.country,
@@ -124,8 +125,12 @@ export async function POST(req: Request) {
     vatExempt: user?.vatExempt ?? false,
   });
 
+  // Transporteur privé : le client gère lui-même l'expédition, frais = 0
+  const isPrivateCarrier = carrierId === "private_carrier";
+  const finalCarrierPrice = isPrivateCarrier ? 0 : effectiveCarrierPrice;
+
   const tvaAmount = subtotalAfterDiscount * tvaRate;
-  const totalTTC = subtotalAfterDiscount + tvaAmount + effectiveCarrierPrice;
+  const totalTTC = subtotalAfterDiscount + tvaAmount + finalCarrierPrice;
 
   const amountCents = Math.round(totalTTC * 100);
 

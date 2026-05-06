@@ -1,7 +1,7 @@
 /**
  * Tests P2-01 — transitions de statut de commande.
- * On vérifie qu'on ne peut pas faire revenir une commande livrée en préparation,
- * ni ressusciter une commande annulée.
+ * PENDING ↔ SHIPPED (réversible : l'admin peut remettre une commande
+ * expédiée en édition). PENDING → CANCELLED reste un état final.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -40,11 +40,9 @@ beforeEach(() => {
 
 describe("updateOrderStatus — transitions autorisées (P2-01)", () => {
   const allowed: Array<[string, string]> = [
-    ["PENDING", "PROCESSING"],
+    ["PENDING", "SHIPPED"],
     ["PENDING", "CANCELLED"],
-    ["PROCESSING", "SHIPPED"],
-    ["PROCESSING", "CANCELLED"],
-    ["SHIPPED", "DELIVERED"],
+    ["SHIPPED", "PENDING"],
   ];
 
   for (const [from, to] of allowed) {
@@ -56,11 +54,9 @@ describe("updateOrderStatus — transitions autorisées (P2-01)", () => {
   }
 
   const forbidden: Array<[string, string]> = [
-    ["DELIVERED", "PROCESSING"],
-    ["DELIVERED", "PENDING"],
-    ["CANCELLED", "PROCESSING"],
-    ["SHIPPED", "PENDING"],
-    ["PROCESSING", "PENDING"],
+    ["SHIPPED", "CANCELLED"],
+    ["CANCELLED", "PENDING"],
+    ["CANCELLED", "SHIPPED"],
   ];
 
   for (const [from, to] of forbidden) {
@@ -74,8 +70,8 @@ describe("updateOrderStatus — transitions autorisées (P2-01)", () => {
   }
 
   it("idempotent — accepte de re-passer une commande au même statut sans rien changer", async () => {
-    mockPrisma.order.findUnique.mockResolvedValue({ status: "DELIVERED" });
-    await expect(updateOrderStatus("o1", "DELIVERED")).resolves.toBeUndefined();
+    mockPrisma.order.findUnique.mockResolvedValue({ status: "SHIPPED" });
+    await expect(updateOrderStatus("o1", "SHIPPED")).resolves.toBeUndefined();
   });
 
   it("refuse un statut inconnu", async () => {
@@ -84,7 +80,7 @@ describe("updateOrderStatus — transitions autorisées (P2-01)", () => {
 
   it("refuse si la commande n'existe pas", async () => {
     mockPrisma.order.findUnique.mockResolvedValue(null);
-    await expect(updateOrderStatus("o1", "PROCESSING")).rejects.toThrow(
+    await expect(updateOrderStatus("o1", "SHIPPED")).rejects.toThrow(
       /introuvable/,
     );
   });

@@ -407,9 +407,7 @@
     "bankTransferPendingDesc": "Effettua il bonifico bancario con i dati seguenti. L'ordine verrà confermato automaticamente alla ricezione del pagamento (di solito entro 1 giorno lavorativo).",
     "statuses": {
       "PENDING": "In attesa",
-      "PROCESSING": "In preparazione",
       "SHIPPED": "Spedito",
-      "DELIVERED": "Consegnato",
       "CANCELLED": "Annullato"
     },
     "orderProgress": "Tracciamento ordine",

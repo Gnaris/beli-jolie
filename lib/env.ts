@@ -18,10 +18,12 @@ const envSchema = z.object({
   NEXTAUTH_URL: z.url("NEXTAUTH_URL must be a valid URL"),
   ENCRYPTION_KEY: z.string().min(1, "ENCRYPTION_KEY is required"),
 
-  // ── Optional — configurable via admin settings UI ─────────────────────────
-  STRIPE_PLATFORM_SECRET_KEY: z.string().optional(),
+  // ── Stripe (env-only, simple mode) ─────────────────────────────────────────
+  STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+
+  // ── Optional — configurable via admin settings UI ─────────────────────────
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.string().optional(),
   SMTP_SECURE: z.string().optional(),
@@ -29,11 +31,9 @@ const envSchema = z.object({
   SMTP_PASSWORD: z.string().optional(),
   SMTP_FROM_EMAIL: z.string().optional(),
   SMTP_FROM_NAME: z.string().optional(),
-  NOTIFY_EMAIL: z.string().optional(),
-  DEEPL_API_KEY: z.string().optional(),
-  PFS_EMAIL: z.string().optional(),
-  PFS_PASSWORD: z.string().optional(),
-  EASY_EXPRESS_API_KEY: z.string().optional(),
+  // Email destinataire des notifs admin : pris depuis Admin > Paramètres > Société.
+  // Clés DeepL, Easy-Express et PFS : uniquement dans Admin > Paramètres,
+  // donc plus de déclaration côté env.
 });
 
 type Env = z.infer<typeof envSchema>;

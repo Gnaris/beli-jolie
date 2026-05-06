@@ -407,9 +407,7 @@
     "bankTransferPendingDesc": "请按以下信息进行银行转账。收到款项后订单将自动确认（通常在1个工作日内）。",
     "statuses": {
       "PENDING": "待处理",
-      "PROCESSING": "处理中",
       "SHIPPED": "已发货",
-      "DELIVERED": "已送达",
       "CANCELLED": "已取消"
     },
     "orderProgress": "订单跟踪",

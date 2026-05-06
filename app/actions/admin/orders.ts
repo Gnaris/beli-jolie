@@ -14,20 +14,19 @@ async function requireAdmin() {
 }
 
 // Transitions autorisées entre statuts de commande.
-// Garde-fou : on ne peut plus repasser une commande livrée en préparation,
-// ni ressusciter une commande annulée.
+// PENDING ↔ SHIPPED : l'admin peut remettre une commande expédiée en
+// « Nouveau » pour permettre au client de modifier sa commande.
+// CANCELLED reste un état final (le stock a été rendu, on ne ressuscite pas).
 const VALID_ORDER_TRANSITIONS: Record<string, string[]> = {
-  PENDING:    ["PROCESSING", "CANCELLED"],
-  PROCESSING: ["SHIPPED", "CANCELLED"],
-  SHIPPED:    ["DELIVERED"],
-  DELIVERED:  [], // statut final
-  CANCELLED:  [], // statut final
+  PENDING:   ["SHIPPED", "CANCELLED"],
+  SHIPPED:   ["PENDING"],
+  CANCELLED: [],
 };
 
 export async function updateOrderStatus(orderId: string, status: string) {
   await requireAdmin();
 
-  const validStatuses = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"];
+  const validStatuses = ["PENDING", "SHIPPED", "CANCELLED"];
   if (!validStatuses.includes(status)) throw new Error("Statut invalide.");
 
   // Lire le statut précédent — sert à la fois pour valider la transition

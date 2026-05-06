@@ -17,11 +17,9 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export const STATUS_CONFIG: Record<string, { badgeClass: string }> = {
-  PENDING:    { badgeClass: "badge badge-warning" },
-  PROCESSING: { badgeClass: "badge badge-info" },
-  SHIPPED:    { badgeClass: "badge badge-purple" },
-  DELIVERED:  { badgeClass: "badge badge-success" },
-  CANCELLED:  { badgeClass: "badge badge-neutral" },
+  PENDING:   { badgeClass: "badge badge-warning" },
+  SHIPPED:   { badgeClass: "badge badge-success" },
+  CANCELLED: { badgeClass: "badge badge-neutral" },
 };
 
 export function getTrackingUrl(carrierName: string, trackingId: string): string | null {
@@ -108,7 +106,7 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
 
   // Pre-translate status labels
   const statusLabels: Record<string, string> = {};
-  for (const s of ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"]) {
+  for (const s of ["PENDING", "SHIPPED", "CANCELLED"]) {
     statusLabels[s] = t(`statuses.${s}`);
   }
 

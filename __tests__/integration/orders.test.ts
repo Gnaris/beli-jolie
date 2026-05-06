@@ -230,22 +230,10 @@ describe("Orders & Bestsellers (real DB)", () => {
       expect(Number(order.totalTTC)).toBe(60);
     });
 
-    it("should update order status PENDING → PROCESSING", async () => {
-      await updateOrderStatus(orderId, "PROCESSING");
-      const order = await prisma.order.findUnique({ where: { id: orderId } });
-      expect(order!.status).toBe("PROCESSING");
-    });
-
-    it("should update order status PROCESSING → SHIPPED", async () => {
+    it("should update order status PENDING → SHIPPED", async () => {
       await updateOrderStatus(orderId, "SHIPPED");
       const order = await prisma.order.findUnique({ where: { id: orderId } });
       expect(order!.status).toBe("SHIPPED");
-    });
-
-    it("should update order status SHIPPED → DELIVERED", async () => {
-      await updateOrderStatus(orderId, "DELIVERED");
-      const order = await prisma.order.findUnique({ where: { id: orderId } });
-      expect(order!.status).toBe("DELIVERED");
     });
 
     it("should reject invalid status", async () => {
@@ -261,7 +249,7 @@ describe("Orders & Bestsellers (real DB)", () => {
         data: {
           orderNumber: `${TEST_PREFIX}CMD-002`,
           userId,
-          status: "DELIVERED",
+          status: "SHIPPED",
           shipLabel: "Domicile",
           shipFirstName: "Test",
           shipLastName: "User",

@@ -62,7 +62,7 @@ export async function checkStockAvailability(productColorId: string, requestedQt
 
 /**
  * Decrement stock for all items in an order.
- * Called when order status changes to PROCESSING.
+ * Called at order creation (commande PENDING).
  */
 export async function decrementStockForOrder(orderId: string) {
   const order = await prisma.order.findUnique({

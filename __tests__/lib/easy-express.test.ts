@@ -61,6 +61,40 @@ describe("lib/easy-express", () => {
     fetchEasyExpressLabel = mod.fetchEasyExpressLabel;
   });
 
+  // ─── splitWeightIntoParcels ────────────────────────────────────
+
+  describe("splitWeightIntoParcels", () => {
+    it("returns single parcel with min 1kg for weights ≤ 25kg", async () => {
+      const mod = await import("@/lib/easy-express");
+      expect(mod.splitWeightIntoParcels(0)).toEqual([{ weight: 1 }]);
+      expect(mod.splitWeightIntoParcels(0.5)).toEqual([{ weight: 1 }]);
+      expect(mod.splitWeightIntoParcels(15)).toEqual([{ weight: 15 }]);
+      expect(mod.splitWeightIntoParcels(25)).toEqual([{ weight: 25 }]);
+    });
+
+    it("splits 26kg → 25kg + 1kg (last parcel min 1kg)", async () => {
+      const mod = await import("@/lib/easy-express");
+      const parcels = mod.splitWeightIntoParcels(26);
+      expect(parcels).toEqual([{ weight: 25 }, { weight: 1 }]);
+    });
+
+    it("splits 172.8kg → 6×25 + 22.8 (Boris cart case)", async () => {
+      const mod = await import("@/lib/easy-express");
+      const parcels = mod.splitWeightIntoParcels(172.8);
+      expect(parcels).toHaveLength(7);
+      expect(parcels.slice(0, 6).every((p) => p.weight === 25)).toBe(true);
+      expect(parcels[6].weight).toBeCloseTo(22.8, 1);
+    });
+
+    it("preserves total weight (rounded to 0.01)", async () => {
+      const mod = await import("@/lib/easy-express");
+      for (const total of [1, 12.5, 25, 26, 50, 99.9, 172.8, 500]) {
+        const sum = mod.splitWeightIntoParcels(total).reduce((s, p) => s + p.weight, 0);
+        expect(sum).toBeCloseTo(Math.max(1, total), 1);
+      }
+    });
+  });
+
   // ─── fetchEasyExpressRates ─────────────────────────────────────
 
   describe("fetchEasyExpressRates", () => {
@@ -125,7 +159,71 @@ describe("lib/easy-express", () => {
       });
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.parcels).toHaveLength(1);
       expect(body.parcels[0].weight).toBe(1); // clamped to 1
+    });
+
+    it("should split heavy weight into ≤25 kg parcels (international > 30kg fails otherwise)", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
+          Response: { Code: 200, Message: { transactionId: "tx", carriers: [] } },
+        })),
+      });
+
+      await fetchEasyExpressRates({
+        receiverCountry: "BE",
+        receiverZipCode: "4800",
+        weightKg: 172.8, // 4 packs × 12 × 3.6 kg
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      // 172.8 / 25 = 6.912 → 6 colis pleins de 25kg + 1 reste de 22.8kg = 7 colis
+      expect(body.parcels).toHaveLength(7);
+      expect(body.parcels.slice(0, 6).every((p: { weight: number }) => p.weight === 25)).toBe(true);
+      expect(body.parcels[6].weight).toBeCloseTo(22.8, 1);
+      // Somme conservée
+      const sum = body.parcels.reduce((s: number, p: { weight: number }) => s + p.weight, 0);
+      expect(sum).toBeCloseTo(172.8, 1);
+    });
+
+    it("should keep a single parcel if total ≤ 25 kg", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
+          Response: { Code: 200, Message: { transactionId: "tx", carriers: [] } },
+        })),
+      });
+
+      await fetchEasyExpressRates({
+        receiverCountry: "FR",
+        receiverZipCode: "75001",
+        weightKg: 12.5,
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.parcels).toHaveLength(1);
+      expect(body.parcels[0].weight).toBe(12.5);
+    });
+
+    it("should split exactly at boundary (50kg → 2×25kg)", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
+          Response: { Code: 200, Message: { transactionId: "tx", carriers: [] } },
+        })),
+      });
+
+      await fetchEasyExpressRates({
+        receiverCountry: "BE",
+        receiverZipCode: "1000",
+        weightKg: 50,
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.parcels).toHaveLength(2);
+      expect(body.parcels[0].weight).toBe(25);
+      expect(body.parcels[1].weight).toBe(25);
     });
 
     it("should return error when API key is missing", async () => {
@@ -235,6 +333,24 @@ describe("lib/easy-express", () => {
       expect(body.senderAddress.countryCode).toBe("FR"); // from "France" in company info
       expect(body.receiverAddress.countryCode).toBe("BE");
     });
+
+    it("should convert receiver country name (e.g. 'France') to ISO code", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
+          Response: { Code: 200, Message: { transactionId: "tx", carriers: [] } },
+        })),
+      });
+
+      await fetchEasyExpressRates({
+        receiverCountry: "France", // full name, not ISO
+        receiverZipCode: "75001",
+        weightKg: 1,
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.receiverAddress.countryCode).toBe("FR");
+    });
   });
 
   // ─── createEasyExpressShipment ─────────────────────────────────
@@ -335,6 +451,49 @@ describe("lib/easy-express", () => {
       if (!result.success) {
         expect(result.error).toContain("Impossible de contacter");
       }
+    });
+
+    it("should split heavy shipment weight into ≤25 kg parcels at checkout", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
+          Response: {
+            Code: 200,
+            Message: {
+              labels: "https://easy-express.fr/labels/x.pdf",
+              parcels: [{ tracking: "TRACK", ticket: "" }],
+            },
+          },
+        })),
+      });
+
+      await createEasyExpressShipment({ ...shipmentInput, weightKg: 60 });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.shipmentRequest.parcels).toHaveLength(3); // 25 + 25 + 10
+      expect(body.shipmentRequest.parcels[0].weight).toBe(25);
+      expect(body.shipmentRequest.parcels[1].weight).toBe(25);
+      expect(body.shipmentRequest.parcels[2].weight).toBe(10);
+    });
+
+    it("should convert receiver country name to ISO code in checkout", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({
+          Response: {
+            Code: 200,
+            Message: {
+              labels: "https://easy-express.fr/labels/x.pdf",
+              parcels: [{ tracking: "TRACK", ticket: "" }],
+            },
+          },
+        })),
+      });
+
+      await createEasyExpressShipment({ ...shipmentInput, toCountry: "Belgique" });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.shipmentRequest.receiverAddress.countryCode).toBe("BE");
     });
   });
 

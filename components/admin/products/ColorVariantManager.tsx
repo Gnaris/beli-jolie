@@ -877,6 +877,18 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   }
 
   function getSwatch(groupKey: string): { hex?: string | null; patternImage?: string | null } {
+    // 1) ColorImageState a déjà le bon hex (synchronisé depuis variants +
+    //    pack-lines par l'effet useEffect dans ProductForm). On l'utilise en
+    //    priorité — c'est la source de vérité quand la couleur ne vit que
+    //    dans un pack multi-couleurs (ex: Kaki dans le pack Brun+Kaki, où
+    //    aucune variante n'a v.colorId === col-kaki).
+    const cimg = colorImages.find((c) => c.groupKey === groupKey);
+    if (cimg) {
+      const opt = availableColors.find((c) => c.id === cimg.colorId);
+      return { hex: cimg.colorHex || opt?.hex, patternImage: opt?.patternImage ?? null };
+    }
+    // 2) Fallback : variante directe (pour les cas où colorImages n'aurait
+    //    pas encore été synchronisé).
     const v = findVariantByGroupKey(groupKey);
     if (!v) return { hex: "#9CA3AF" };
     const opt = availableColors.find((c) => c.id === v.colorId);

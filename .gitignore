@@ -58,3 +58,9 @@ docs/superpowers/
 # paquets de déploiement VPS (générés localement, ne pas committer)
 /beli-jolie-vps.tar.gz
 /beli-jolie-vps.zip
+
+# scripts de déploiement locaux (contiennent des secrets de prod)
+/scripts/deploy/
+
+# verrou Claude Code
+/.claude/scheduled_tasks.lock

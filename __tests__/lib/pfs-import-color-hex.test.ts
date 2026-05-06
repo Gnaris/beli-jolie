@@ -72,7 +72,7 @@ describe("createOrLinkMapping — code couleur PFS", () => {
       hex: "#C4A647",
     });
     expect(mockColorCreate).toHaveBeenCalledWith({
-      data: { name: "Doré", hex: "#c4a647" },
+      data: { name: "Doré", hex: "#c4a647", pfsColorRef: "GOLDEN" },
       select: { id: true, name: true },
     });
   });
@@ -86,7 +86,7 @@ describe("createOrLinkMapping — code couleur PFS", () => {
       hex: "000000",
     });
     expect(mockColorCreate).toHaveBeenCalledWith({
-      data: { name: "Noir", hex: "#000000" },
+      data: { name: "Noir", hex: "#000000", pfsColorRef: "BLACK" },
       select: { id: true, name: true },
     });
   });
@@ -100,7 +100,7 @@ describe("createOrLinkMapping — code couleur PFS", () => {
       hex: "pas-un-hex",
     });
     expect(mockColorCreate).toHaveBeenCalledWith({
-      data: { name: "Inconnu", hex: null },
+      data: { name: "Inconnu", hex: null, pfsColorRef: "UNKNOWN" },
       select: { id: true, name: true },
     });
   });
@@ -113,13 +113,13 @@ describe("createOrLinkMapping — code couleur PFS", () => {
       label: "Sans hex",
     });
     expect(mockColorCreate).toHaveBeenCalledWith({
-      data: { name: "Sans hex", hex: null },
+      data: { name: "Sans hex", hex: null, pfsColorRef: "NOHEX" },
       select: { id: true, name: true },
     });
   });
 
   it("remplit le hex d'une couleur existante qui n'en avait pas", async () => {
-    mockColorFindUnique.mockResolvedValue({ hex: null });
+    mockColorFindUnique.mockResolvedValue({ hex: null, pfsColorRef: "GOLDEN" });
     mockColorUpdate.mockResolvedValue({ id: "col-5", name: "Doré" });
     await createOrLinkMapping({
       type: "color",
@@ -136,7 +136,7 @@ describe("createOrLinkMapping — code couleur PFS", () => {
   });
 
   it("ne touche pas au hex d'une couleur existante qui en a déjà un", async () => {
-    mockColorFindUnique.mockResolvedValue({ hex: "#aabbcc" });
+    mockColorFindUnique.mockResolvedValue({ hex: "#aabbcc", pfsColorRef: "GOLDEN" });
     mockColorUpdate.mockResolvedValue({ id: "col-6", name: "Doré" });
     await createOrLinkMapping({
       type: "color",
@@ -147,6 +147,38 @@ describe("createOrLinkMapping — code couleur PFS", () => {
     });
     expect(mockColorUpdate).toHaveBeenCalledWith({
       where: { id: "col-6" },
+      data: {},
+      select: { id: true, name: true },
+    });
+  });
+
+  it("remplit pfsColorRef quand on relie à une couleur existante qui n'avait pas de référence PFS", async () => {
+    mockColorFindUnique.mockResolvedValue({ hex: "#aabbcc", pfsColorRef: null });
+    mockColorUpdate.mockResolvedValue({ id: "col-7", name: "Doré" });
+    await createOrLinkMapping({
+      type: "color",
+      pfsRef: "GOLDEN",
+      label: "Doré",
+      linkToExistingId: "col-7",
+    });
+    expect(mockColorUpdate).toHaveBeenCalledWith({
+      where: { id: "col-7" },
+      data: { pfsColorRef: "GOLDEN" },
+      select: { id: true, name: true },
+    });
+  });
+
+  it("ne touche pas au pfsColorRef d'une couleur existante qui en a déjà un", async () => {
+    mockColorFindUnique.mockResolvedValue({ hex: "#aabbcc", pfsColorRef: "OLD_REF" });
+    mockColorUpdate.mockResolvedValue({ id: "col-8", name: "Doré" });
+    await createOrLinkMapping({
+      type: "color",
+      pfsRef: "GOLDEN",
+      label: "Doré",
+      linkToExistingId: "col-8",
+    });
+    expect(mockColorUpdate).toHaveBeenCalledWith({
+      where: { id: "col-8" },
       data: {},
       select: { id: true, name: true },
     });

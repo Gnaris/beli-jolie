@@ -48,7 +48,6 @@ vi.mock("@/lib/stock", () => ({
 }));
 vi.mock("@/lib/stripe", () => ({
   getStripeInstance: vi.fn().mockResolvedValue(mockStripe),
-  getConnectedAccountId: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("@/lib/easy-express", () => ({
   createEasyExpressShipment: vi.fn().mockResolvedValue({ success: false, error: "skip" }),
@@ -98,6 +97,8 @@ const baseUser = {
   phone: "0600000000",
   siret: "12345678900015",
   vatNumber: null,
+  vatExempt: false,
+  addressCountry: "FR",
   discountType: null,
   discountValue: null,
   discountMode: "PERMANENT",
@@ -128,7 +129,6 @@ const baseInput = {
   transactionId: "tx-1",
   carrierName: "Retrait",
   carrierPrice: 0,
-  tvaRate: 0.2,
   stripePaymentIntentId: "pi_test",
 };
 

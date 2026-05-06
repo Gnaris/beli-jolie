@@ -407,9 +407,7 @@
     "bankTransferPendingDesc": "Please make the bank transfer using the details below. The order will be automatically confirmed upon receipt of payment (usually within 1 business day).",
     "statuses": {
       "PENDING": "Pending",
-      "PROCESSING": "Processing",
       "SHIPPED": "Shipped",
-      "DELIVERED": "Delivered",
       "CANCELLED": "Cancelled"
     },
     "orderProgress": "Order tracking",

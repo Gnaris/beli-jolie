@@ -179,14 +179,27 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     /**
      * jwt callback — enrichit le token avec les données custom
-     * Appelé à chaque création/refresh de token
+     * Appelé à chaque création/refresh de token. Lors d'un `update()` côté
+     * client, on relit le statut/role en base pour propager une approbation
+     * admin sans demander à l'utilisateur de se reconnecter.
      */
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id;
         token.role = (user as { role: Role }).role;
         token.status = (user as { status: UserStatus }).status;
         token.company = (user as { company: string }).company;
+      }
+      if (trigger === "update" && token.id) {
+        const fresh = await prisma.user.findUnique({
+          where: { id: token.id as string },
+          select: { status: true, role: true, company: true },
+        });
+        if (fresh) {
+          token.status = fresh.status;
+          token.role = fresh.role;
+          token.company = fresh.company;
+        }
       }
       return token;
     },

@@ -149,7 +149,6 @@ describe("lib/encryption", () => {
       "deepl_api_key",
       "pfs_email",
       "pfs_password",
-      "stripe_connect_account_id",
     ];
     for (const key of expected) {
       expect(SENSITIVE_KEYS.has(key)).toBe(true);

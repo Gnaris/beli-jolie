@@ -57,6 +57,26 @@ export const registerSchema = z.object({
     )
     .optional()
     .or(z.literal("")),
+  addressStreet: z
+    .string()
+    .min(1, "L'adresse est requise.")
+    .max(200, "Adresse trop longue."),
+  addressComplement: z
+    .string()
+    .max(200, "Complément d'adresse trop long.")
+    .optional()
+    .or(z.literal("")),
+  addressZip: z
+    .string()
+    .min(1, "Le code postal est requis.")
+    .max(20, "Code postal trop long."),
+  addressCity: z
+    .string()
+    .min(1, "La ville est requise.")
+    .max(100, "Nom de ville trop long."),
+  addressCountry: z
+    .string()
+    .regex(/^[A-Z]{2}$/, "Code pays invalide (format ISO-2, ex: FR)."),
   password: z
     .string()
     .min(8, "Le mot de passe doit contenir au moins 8 caractères.")

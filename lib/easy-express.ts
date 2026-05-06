@@ -17,6 +17,25 @@ import { logger } from "@/lib/logger";
 // TODO(2026-03): Consider moving to env var EASY_EXPRESS_BASE_URL for multi-environment support
 const BASE_URL = "https://easy-express.fr";
 
+/**
+ * Découpe un poids total (kg) en colis de max 25 kg chacun.
+ * Easy-Express refuse les colis > 30 kg à l'international (FedEx/UPS = 25, Chrono/GLS/DPD = 30,
+ * Colissimo Inter = 20). On choisit 25 kg comme plafond pour rester compatible avec la majorité.
+ */
+export const MAX_PARCEL_WEIGHT_KG = 25;
+export function splitWeightIntoParcels(totalKg: number): { weight: number }[] {
+  const total = Math.max(1, totalKg);
+  if (total <= MAX_PARCEL_WEIGHT_KG) return [{ weight: total }];
+  const parcels: { weight: number }[] = [];
+  let remaining = total;
+  while (remaining > MAX_PARCEL_WEIGHT_KG) {
+    parcels.push({ weight: MAX_PARCEL_WEIGHT_KG });
+    remaining -= MAX_PARCEL_WEIGHT_KG;
+  }
+  parcels.push({ weight: Math.max(1, Math.round(remaining * 100) / 100) });
+  return parcels;
+}
+
 /** Convertit un nom de pays ("France") ou code ISO en code 2 lettres pour Easy-Express */
 function countryToCode(country?: string | null): string {
   if (!country) return "FR";
@@ -87,10 +106,10 @@ export async function fetchEasyExpressRates(
       postalCode:  company?.postalCode ?? "",
     },
     receiverAddress: {
-      countryCode: input.receiverCountry,
+      countryCode: countryToCode(input.receiverCountry),
       postalCode:  input.receiverZipCode,
     },
-    parcels: [{ weight: Math.max(1, input.weightKg) }],
+    parcels: splitWeightIntoParcels(input.weightKg),
   };
 
   try {
@@ -194,7 +213,7 @@ export async function createEasyExpressShipment(
     transactionId: input.transactionId,
     carrierId:     input.carrierId,
     shipmentRequest: {
-      parcels: [{ weight: Math.max(1, input.weightKg) }],
+      parcels: splitWeightIntoParcels(input.weightKg),
       senderAddress: {
         company:       company?.name ?? shopName,
         shopName:      shopName,
@@ -221,7 +240,7 @@ export async function createEasyExpressShipment(
         city:               input.toCity,
         stateProvinceCode:  "",
         postalCode:         input.toZipCode,
-        countryCode:        input.toCountry,
+        countryCode:        countryToCode(input.toCountry),
         instructions:       "",
       },
     },

@@ -83,7 +83,6 @@ describe("notifyAdminNewOrder", () => {
     vi.clearAllMocks();
     cachedMock.getCachedShopName.mockResolvedValue("MaBoutique");
     cachedMock.getCachedCompanyInfo.mockResolvedValue({ email: "hello@maboutique.com" });
-    process.env.NOTIFY_EMAIL = "admin@maboutique.com";
   });
 
   it("envoie un email à l'admin avec le récap et le PDF en pièce jointe", async () => {
@@ -94,7 +93,7 @@ describe("notifyAdminNewOrder", () => {
 
     expect(sentMails).toHaveLength(1);
     const sent = sentMails[0];
-    expect(sent.to).toBe("admin@maboutique.com");
+    expect(sent.to).toBe("hello@maboutique.com");
     expect(sent.subject).toContain("K7X9M2PH");
     expect(sent.subject).toContain("ACME Corp");
     expect(sent.html).toContain("ACME Corp");
@@ -116,7 +115,6 @@ describe("notifyAdminNewOrder", () => {
 
   it("n'envoie rien si aucun email admin n'est configuré", async () => {
     cachedMock.getCachedCompanyInfo.mockResolvedValueOnce({ email: null } as never);
-    delete process.env.NOTIFY_EMAIL;
 
     await notifyAdminNewOrder({ orderId: "order-1", pdfBuffer: null });
 
@@ -158,13 +156,13 @@ describe("notifyOrderStatusChange — statut PENDING (confirmation commande)", (
     expect(sent.html).toContain("Produit A");
   });
 
-  it("envoie toujours un email pour DELIVERED", async () => {
+  it("envoie toujours un email pour SHIPPED", async () => {
     prismaMock.order.findUnique.mockResolvedValueOnce(buildFakeOrder());
 
-    await notifyOrderStatusChange({ orderId: "order-1", newStatus: "DELIVERED" });
+    await notifyOrderStatusChange({ orderId: "order-1", newStatus: "SHIPPED" });
 
     expect(sentMails).toHaveLength(1);
-    expect(sentMails[0].subject).toContain("livrée");
+    expect(sentMails[0].subject).toContain("expédiée");
   });
 
   it("envoie toujours un email pour CANCELLED", async () => {

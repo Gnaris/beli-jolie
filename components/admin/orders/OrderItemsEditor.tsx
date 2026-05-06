@@ -4,8 +4,24 @@ import { useState, useTransition } from "react";
 import { modifyOrderItems, revertOrderItemModification, revertAllOrderItemModifications } from "@/app/actions/admin/orders";
 import CustomSelect from "@/components/ui/CustomSelect";
 import OrderItemImage from "@/components/ui/OrderItemImage";
+import OrderItemsSortable from "@/components/ui/OrderItemsSortable";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+
+const SORT_LABELS = {
+  sortBy: "Trier",
+  default: "Ordre par défaut",
+  nameAsc: "Nom (A → Z)",
+  nameDesc: "Nom (Z → A)",
+  refAsc: "Référence (A → Z)",
+  refDesc: "Référence (Z → A)",
+  category: "Par catégorie",
+  priceAsc: "Prix croissant",
+  priceDesc: "Prix décroissant",
+  qtyAsc: "Quantité croissante",
+  qtyDesc: "Quantité décroissante",
+  uncategorized: "Sans catégorie",
+};
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -24,6 +40,7 @@ interface OrderItemForEdit {
   unitPrice: number;
   quantity: number;
   lineTotal: number;
+  variantSnapshot?: string | null;
 }
 
 interface Modification {
@@ -43,6 +60,7 @@ interface Props {
   orderId: string;
   items: OrderItemForEdit[];
   existingModifications: Modification[];
+  readOnly?: boolean;
 }
 
 const fmt = (n: number) => n.toFixed(2).replace(".", ",") + " €";
@@ -61,7 +79,7 @@ const REASON_LABELS: Record<string, string> = {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function OrderItemsEditor({ orderId, items, existingModifications }: Props) {
+export default function OrderItemsEditor({ orderId, items, existingModifications, readOnly = false }: Props) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const toast = useToast();
@@ -190,126 +208,127 @@ export default function OrderItemsEditor({ orderId, items, existingModifications
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* ── Articles Commandés ── */}
-        <section className="card overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-border table-header flex items-center justify-between">
-            <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
-              Articles commandés ({items.length})
-            </h2>
-            {!editing ? (
+      {/* ── Articles Commandés (pleine largeur) ── */}
+      <section className="card overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-border table-header flex items-center justify-between">
+          <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
+            Articles commandés ({items.length})
+          </h2>
+          {readOnly ? null : !editing ? (
+            <button
+              onClick={startEditing}
+              className="btn-secondary text-xs px-3 py-1.5"
+            >
+              Modifier les articles
+            </button>
+          ) : (
+            <div className="flex gap-2">
               <button
-                onClick={startEditing}
+                onClick={cancelEditing}
+                disabled={pending}
                 className="btn-secondary text-xs px-3 py-1.5"
               >
-                Modifier les articles
+                Annuler
               </button>
-            ) : (
-              <div className="flex gap-2">
-                <button
-                  onClick={cancelEditing}
-                  disabled={pending}
-                  className="btn-secondary text-xs px-3 py-1.5"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={pending}
-                  className="btn-primary text-xs px-3 py-1.5"
-                >
-                  {pending ? "Enregistrement…" : "Valider"}
-                </button>
-              </div>
-            )}
-          </div>
+              <button
+                onClick={handleSave}
+                disabled={pending}
+                className="btn-primary text-xs px-3 py-1.5"
+              >
+                {pending ? "Enregistrement…" : "Valider"}
+              </button>
+            </div>
+          )}
+        </div>
 
-          <div className="divide-y divide-border-light">
-            {items.map((item) => {
-              const mod = modMap.get(item.id);
-              const edit = edits[item.id];
+        <OrderItemsSortable
+          items={items}
+          labels={SORT_LABELS}
+          renderItem={(item) => {
+            const mod = modMap.get(item.id);
+            const edit = edits[item.id];
 
-              return (
-                <div key={item.id} className="flex gap-4 px-5 py-4">
-                  <OrderItemImage src={item.imagePath} alt={item.productName} sizeClass="w-12 h-12 sm:w-16 sm:h-16" />
+            return (
+              <div key={item.id} className="flex gap-5 px-5 py-5">
+                <OrderItemImage src={item.imagePath} alt={item.productName} sizeClass="w-20 h-20 sm:w-28 sm:h-28" />
 
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-text-primary font-body">
-                      {item.productName}
+                <div className="flex-1 min-w-0">
+                  <p className="text-base font-semibold text-text-primary font-body">
+                    {item.productName}
+                  </p>
+                  <p className="text-sm font-mono text-text-muted mt-1">{item.productRef}</p>
+
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    <span className="badge badge-neutral">{item.colorName}</span>
+                    {item.saleType === "PACK" && (
+                      <span className="badge badge-neutral">Paquet ×{item.packQty}</span>
+                    )}
+                    {renderSizes(item)}
+
+                    {/* Modification badge (non-edit mode) */}
+                    {!editing && mod && (
+                      mod.newQuantity === 0 ? (
+                        <span className="badge badge-error">Rupture de stock</span>
+                      ) : (
+                        <span className="badge badge-warning">Stock modifié</span>
+                      )
+                    )}
+                  </div>
+
+                  {/* Modification reason (non-edit mode) */}
+                  {!editing && mod && (
+                    <p className="text-xs text-text-muted mt-1 italic">
+                      Raison : {REASON_LABELS[mod.reason]}
                     </p>
-                    <p className="text-xs font-mono text-text-muted mt-0.5">{item.productRef}</p>
+                  )}
 
-                    <div className="flex flex-wrap gap-1.5 mt-1">
-                      <span className="badge badge-neutral">{item.colorName}</span>
-                      {item.saleType === "PACK" && (
-                        <span className="badge badge-neutral">Paquet ×{item.packQty}</span>
-                      )}
-                      {renderSizes(item)}
-
-                      {/* Modification badge (non-edit mode) */}
-                      {!editing && mod && (
-                        mod.newQuantity === 0 ? (
-                          <span className="badge badge-error">Rupture de stock</span>
-                        ) : (
-                          <span className="badge badge-warning">Stock modifié</span>
-                        )
+                  {/* Edit controls */}
+                  {editing && (
+                    <div className="flex items-center gap-3 mt-2">
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-xs text-text-muted">Qté :</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={mod ? mod.originalQuantity - 1 : item.quantity - 1}
+                          value={edit?.newQuantity ?? item.quantity}
+                          onChange={(e) =>
+                            updateEdit(item.id, "newQuantity", Math.max(0, parseInt(e.target.value) || 0))
+                          }
+                          className="w-16 px-2 py-1 text-xs border border-border rounded-lg text-center"
+                        />
+                      </div>
+                      {edit && edit.newQuantity !== item.quantity && (
+                        <CustomSelect
+                          value={edit.reason}
+                          onChange={(v) => updateEdit(item.id, "reason", v)}
+                          options={REASON_OPTIONS}
+                          size="sm"
+                          className="w-48"
+                        />
                       )}
                     </div>
-
-                    {/* Modification reason (non-edit mode) */}
-                    {!editing && mod && (
-                      <p className="text-xs text-text-muted mt-1 italic">
-                        Raison : {REASON_LABELS[mod.reason]}
-                      </p>
-                    )}
-
-                    {/* Edit controls */}
-                    {editing && (
-                      <div className="flex items-center gap-3 mt-2">
-                        <div className="flex items-center gap-1.5">
-                          <label className="text-xs text-text-muted">Qté :</label>
-                          <input
-                            type="number"
-                            min={0}
-                            max={mod ? mod.originalQuantity - 1 : item.quantity - 1}
-                            value={edit?.newQuantity ?? item.quantity}
-                            onChange={(e) =>
-                              updateEdit(item.id, "newQuantity", Math.max(0, parseInt(e.target.value) || 0))
-                            }
-                            className="w-16 px-2 py-1 text-xs border border-border rounded-lg text-center"
-                          />
-                        </div>
-                        {edit && edit.newQuantity !== item.quantity && (
-                          <CustomSelect
-                            value={edit.reason}
-                            onChange={(v) => updateEdit(item.id, "reason", v)}
-                            options={REASON_OPTIONS}
-                            size="sm"
-                            className="w-48"
-                          />
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold text-text-primary font-heading">
-                      {fmt(editing && edit ? edit.newQuantity * item.unitPrice : item.lineTotal)}
-                    </p>
-                    <p className="text-xs text-text-muted font-body mt-0.5">
-                      {editing && edit ? edit.newQuantity : item.quantity} × {fmt(item.unitPrice)}
-                    </p>
-                    {!editing && mod && (
-                      <p className="text-xs text-red-500 font-body mt-0.5 line-through">
-                        {mod.originalQuantity} × {fmt(item.unitPrice)}
-                      </p>
-                    )}
-                  </div>
+                  )}
                 </div>
-              );
-            })}
-          </div>
-        </section>
+
+                <div className="text-right shrink-0">
+                  <p className="text-lg font-semibold text-text-primary font-heading">
+                    {fmt(editing && edit ? edit.newQuantity * item.unitPrice : item.lineTotal)}
+                  </p>
+                  <p className="text-sm text-text-muted font-body mt-1">
+                    {editing && edit ? edit.newQuantity : item.quantity} × {fmt(item.unitPrice)}
+                  </p>
+                  {!editing && mod && (
+                    <p className="text-sm text-red-500 font-body mt-0.5 line-through">
+                      {mod.originalQuantity} × {fmt(item.unitPrice)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          }}
+        />
+      </section>
 
         {/* ── Articles Modifiés (filtre) ── */}
         {existingModifications.length > 0 && (
@@ -318,13 +337,15 @@ export default function OrderItemsEditor({ orderId, items, existingModifications
               <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
                 Articles modifiés ({existingModifications.length})
               </h2>
-              <button
-                onClick={handleRevertAll}
-                disabled={pending}
-                className="btn-secondary text-xs px-3 py-1.5 text-red-600 border-red-200 hover:bg-red-50"
-              >
-                {pending ? "…" : "Tout rétablir"}
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={handleRevertAll}
+                  disabled={pending}
+                  className="btn-secondary text-xs px-3 py-1.5 text-red-600 border-red-200 hover:bg-red-50"
+                >
+                  {pending ? "…" : "Tout rétablir"}
+                </button>
+              )}
             </div>
 
             <div className="divide-y divide-border-light">
@@ -367,13 +388,15 @@ export default function OrderItemsEditor({ orderId, items, existingModifications
                       <span className="text-red-600 font-semibold">
                         -{fmt(mod.priceDifference)}
                       </span>
-                      <button
-                        onClick={() => handleRevertOne(mod.orderItemId, mod.productName)}
-                        disabled={pending}
-                        className="text-blue-600 hover:text-blue-800 font-medium underline underline-offset-2"
-                      >
-                        Rétablir
-                      </button>
+                      {!readOnly && (
+                        <button
+                          onClick={() => handleRevertOne(mod.orderItemId, mod.productName)}
+                          disabled={pending}
+                          className="text-blue-600 hover:text-blue-800 font-medium underline underline-offset-2"
+                        >
+                          Rétablir
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -389,7 +412,6 @@ export default function OrderItemsEditor({ orderId, items, existingModifications
             </div>
           </section>
         )}
-      </div>
     </div>
   );
 }

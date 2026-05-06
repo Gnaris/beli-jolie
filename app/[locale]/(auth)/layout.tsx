@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Link } from "@/i18n/navigation";
-import { getCachedSiteConfig, getCachedProductCount, getCachedShopName } from "@/lib/cached-data";
+import { getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
 import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
 
 export const metadata: Metadata = {
@@ -14,13 +14,11 @@ interface AuthLayoutProps {
 
 export default async function AuthLayout({ children, params }: AuthLayoutProps) {
   const { locale: currentLocale } = await params;
-  const [config, productCount, shopName] = await Promise.all([
+  const [config, shopName] = await Promise.all([
     getCachedSiteConfig("maintenance_mode"),
-    getCachedProductCount(),
     getCachedShopName(),
   ]);
   const inMaintenance = config?.value === "true";
-  const formattedCount = new Intl.NumberFormat("fr-FR").format(productCount);
 
   return (
     <div className="min-h-screen flex flex-col bg-bg-primary">
@@ -57,61 +55,22 @@ export default async function AuthLayout({ children, params }: AuthLayoutProps) 
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border lg:hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
         <Link href="/" className="font-heading text-lg font-bold text-text-primary animate-blur-in">
           {shopName}
         </Link>
         <LanguageSwitcher currentLocale={currentLocale} />
       </div>
 
-      {/* Split layout: left brand panel (desktop) + right form */}
-      <main className="relative flex-1 flex">
-        {/* Left brand panel — desktop only, fixed height = viewport */}
-        <div className="hidden lg:flex lg:w-[45%] xl:w-[40%] bg-[#111111] relative overflow-hidden flex-col justify-between p-10 xl:p-14 sticky top-0 h-screen">
-          <div className="relative z-10">
-            <Link href="/" className="font-heading text-2xl font-bold text-white animate-blur-in">
-              {shopName}
-            </Link>
-          </div>
-
-          <div className="relative z-10 space-y-6">
-            <h2 className="font-heading text-3xl xl:text-4xl font-semibold text-white leading-tight">
-              Votre partenaire<br />
-              <span className="text-white/50">grossiste B2B</span>
-            </h2>
-            <p className="text-white/40 text-sm leading-relaxed font-body max-w-xs">
-              Accédez à notre catalogue de produits. Prix grossiste, livraison rapide, qualité premium.
-            </p>
-            <div className="flex gap-8 pt-4">
-              {[
-                { value: formattedCount, label: "Références" },
-                { value: "100%", label: "Qualité pro" },
-                { value: "B2B", label: "Professionnel" },
-              ].map((stat) => (
-                <div key={stat.label}>
-                  <p className="font-heading text-lg font-bold text-white">{stat.value}</p>
-                  <p className="text-white/30 text-xs font-body mt-0.5">{stat.label}</p>
-                </div>
-              ))}
-            </div>
-
-          </div>
-
-          <div className="relative z-10 flex items-center gap-3">
-            <LanguageSwitcher currentLocale={currentLocale} />
-          </div>
-        </div>
-
-        {/* Right form panel — scrollable */}
-        <div className="flex-1 relative flex items-center justify-center px-6 py-12 overflow-y-auto bg-bg-secondary">
-          <div className="relative z-10 w-full flex items-center justify-center">
-            {children}
-          </div>
+      {/* Centered form */}
+      <main className="relative flex-1 flex items-center justify-center px-6 py-12 bg-bg-secondary">
+        <div className="relative z-10 w-full flex items-center justify-center">
+          {children}
         </div>
       </main>
 
-      {/* Footer — mobile only */}
-      <footer className="px-6 py-4 border-t border-border text-center lg:hidden">
+      {/* Footer */}
+      <footer className="px-6 py-4 border-t border-border text-center">
         <p className="text-xs text-text-muted font-body">
           Plateforme réservée aux professionnels revendeurs
         </p>

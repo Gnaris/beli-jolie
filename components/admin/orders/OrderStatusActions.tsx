@@ -7,17 +7,14 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 const TRANSITIONS: Record<string, { next: string; label: string; variant: string }[]> = {
-  PENDING:    [
-    { next: "PROCESSING", label: "Passer en préparation", variant: "btn-primary" },
-    { next: "CANCELLED", label: "Annuler", variant: "btn-danger" },
+  PENDING: [
+    { next: "SHIPPED",   label: "Marquer comme expédiée", variant: "btn-primary" },
+    { next: "CANCELLED", label: "Annuler",                variant: "btn-danger"  },
   ],
-  PROCESSING: [
-    { next: "SHIPPED", label: "Marquer comme expédiée", variant: "btn-primary" },
-    { next: "CANCELLED", label: "Annuler", variant: "btn-danger" },
+  SHIPPED: [
+    { next: "PENDING",   label: "Remettre en « Nouveau »", variant: "btn-secondary" },
   ],
-  SHIPPED:    [{ next: "DELIVERED", label: "Marquer comme livrée", variant: "btn-primary" }],
-  DELIVERED:  [],
-  CANCELLED:  [],
+  CANCELLED: [],
 };
 
 export default function OrderStatusActions({
@@ -42,6 +39,16 @@ export default function OrderStatusActions({
         title: "Annuler cette commande ?",
         message: "Cette action est irréversible. La commande sera définitivement annulée.",
         confirmLabel: "Annuler la commande",
+        cancelLabel: "Retour",
+      });
+      if (!ok) return;
+    }
+    if (currentStatus === "SHIPPED" && nextStatus === "PENDING") {
+      const ok = await confirm({
+        title: "Remettre la commande en « Nouveau » ?",
+        message:
+          "La commande repassera en « En attente » côté client et redeviendra modifiable depuis cette page.",
+        confirmLabel: "Remettre en Nouveau",
         cancelLabel: "Retour",
       });
       if (!ok) return;

@@ -19,6 +19,11 @@ vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+const shopNameMock = vi.fn<() => Promise<string>>().mockResolvedValue("");
+vi.mock("@/lib/cached-data", () => ({
+  getCachedShopName: () => shopNameMock(),
+}));
+
 import {
   sendMail,
   validateSmtpConfig,
@@ -80,7 +85,8 @@ describe("lib/email — SMTP via nodemailer", () => {
     delete process.env.SMTP_USER;
     delete process.env.SMTP_PASSWORD;
     delete process.env.SMTP_FROM_EMAIL;
-    delete process.env.SMTP_FROM_NAME;
+    shopNameMock.mockReset();
+    shopNameMock.mockResolvedValue("");
   });
 
   afterEach(() => {
@@ -205,8 +211,8 @@ describe("lib/email — SMTP via nodemailer", () => {
       expect(captured.sent?.from).toBe("contact@maboutique.com");
     });
 
-    it('utilise "Nom <email>" quand fromName est fourni dans le config', async () => {
-      process.env.SMTP_FROM_NAME = "Ma Boutique";
+    it('utilise "Nom <email>" quand le nom de la boutique est configuré en admin', async () => {
+      shopNameMock.mockResolvedValue("Ma Boutique");
       const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
       __setTransporterFactoryForTests(
         buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
@@ -217,8 +223,8 @@ describe("lib/email — SMTP via nodemailer", () => {
       expect(captured.sent?.from).toBe("Ma Boutique <contact@maboutique.com>");
     });
 
-    it("fromName en params surcharge celui du config", async () => {
-      process.env.SMTP_FROM_NAME = "Defaut";
+    it("fromName en params surcharge le nom de boutique admin", async () => {
+      shopNameMock.mockResolvedValue("Defaut");
       const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
       __setTransporterFactoryForTests(
         buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never

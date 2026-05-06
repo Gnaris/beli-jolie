@@ -132,6 +132,8 @@ export async function recordLoginSuccess(email: string, ip: string): Promise<voi
 
 const REGISTRATION_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3 heures
 
+const REGISTRATION_SPAM_CHECK_ENABLED = true;
+
 /**
  * Vérifie si une inscription est autorisée (pas de spam).
  * Contrôle IP, email, phone, siret, company.
@@ -143,6 +145,8 @@ export async function checkRegistrationSpam(
   phone: string,
   siret: string,
 ): Promise<string | null> {
+  if (!REGISTRATION_SPAM_CHECK_ENABLED) return null;
+
   const since = new Date(Date.now() - REGISTRATION_COOLDOWN_MS);
 
   // Vérifier chaque critère en parallèle

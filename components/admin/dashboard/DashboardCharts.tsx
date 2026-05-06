@@ -41,17 +41,13 @@ interface Props {
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "#F59E0B",
-  PROCESSING: "#4B5563",
-  SHIPPED: "#8B5CF6",
-  DELIVERED: "#22C55E",
+  SHIPPED: "#22C55E",
   CANCELLED: "#9CA3AF",
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  PENDING: "En attente",
-  PROCESSING: "En cours",
+  PENDING: "Nouveau",
   SHIPPED: "Expédiée",
-  DELIVERED: "Livrée",
   CANCELLED: "Annulée",
 };
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { fetchEasyExpressRates } from "@/lib/easy-express";
+import { fetchEasyExpressRates, splitWeightIntoParcels } from "@/lib/easy-express";
 import { getCachedEasyExpressApiKey, getCachedShippingMargin } from "@/lib/cached-data";
 import { z } from "zod";
 import { logger } from "@/lib/logger";
@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { zipCode, country, weightKg } = parsed.data;
+  const parcelCount = splitWeightIntoParcels(weightKg).length;
 
   // Vérifier la clé API (DB uniquement, configurée via paramètres admin)
   const apiKey = await getCachedEasyExpressApiKey();
@@ -46,6 +47,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       transactionId: "",
       carriers: [],
+      parcelCount,
       noCarrierConfigured: true,
     });
   }
@@ -61,6 +63,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       transactionId: "",
       carriers: [],
+      parcelCount,
       noCarrierConfigured: true,
     });
   }
@@ -71,6 +74,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       transactionId: result.transactionId,
       carriers: [],
+      parcelCount,
       noCarrierConfigured: true,
     });
   }
@@ -80,6 +84,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     transactionId: result.transactionId,
+    parcelCount,
     carriers: result.carriers.map((c) => {
       let finalPrice = c.price;
       if (margin.value > 0) {

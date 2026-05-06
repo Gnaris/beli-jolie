@@ -13,7 +13,7 @@ interface AccountEditorProps {
     company: string;
     phone: string;
     siret: string;
-    address: string | null;
+    fullAddress: string | null;
     vatNumber: string | null;
   };
 }
@@ -30,7 +30,6 @@ export default function AccountEditor({ user }: AccountEditorProps) {
   const [lastName, setLastName] = useState(user.lastName);
   const [company, setCompany] = useState(user.company);
   const [phone, setPhone] = useState(user.phone);
-  const [address, setAddress] = useState(user.address ?? "");
   const [vatNumber, setVatNumber] = useState(user.vatNumber ?? "");
 
   function handleSave() {
@@ -42,7 +41,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
     showLoading();
     startTransition(async () => {
       try {
-        await updateProfile({ firstName, lastName, company, phone, address, vatNumber });
+        await updateProfile({ firstName, lastName, company, phone, vatNumber });
         setEditing(false);
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
@@ -59,7 +58,6 @@ export default function AccountEditor({ user }: AccountEditorProps) {
     setLastName(user.lastName);
     setCompany(user.company);
     setPhone(user.phone);
-    setAddress(user.address ?? "");
     setVatNumber(user.vatNumber ?? "");
     setEditing(false);
     setError("");
@@ -70,7 +68,6 @@ export default function AccountEditor({ user }: AccountEditorProps) {
     { label: t("lastName"), value: lastName, setter: setLastName, required: true },
     { label: t("company"), value: company, setter: setCompany, required: true },
     { label: t("phone"), value: phone, setter: setPhone, required: true },
-    { label: t("address"), value: address, setter: setAddress, required: false },
     { label: t("vatNumber"), value: vatNumber, setter: setVatNumber, required: false, mono: true },
   ];
 
@@ -129,10 +126,11 @@ export default function AccountEditor({ user }: AccountEditorProps) {
       )}
 
       <div className="divide-y divide-border-light">
-        {/* Email + SIRET (non editable) */}
+        {/* Email + SIRET + Adresse (non editable) */}
         {[
           { label: t("email"), value: user.email },
           { label: t("siret"), value: user.siret, mono: true },
+          { label: t("address"), value: user.fullAddress || t("notProvided") },
         ].map(({ label, value, mono }) => (
           <div key={label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3">
             <span className="text-xs font-body font-medium text-text-muted uppercase tracking-wider w-24 shrink-0">

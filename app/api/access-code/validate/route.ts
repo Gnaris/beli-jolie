@@ -56,11 +56,18 @@ export async function POST(request: NextRequest) {
 
     // Préparer les données de pré-remplissage (si l'admin les a renseignées)
     const prefill: Record<string, string> = {};
-    if (accessCode.prefillFirstName) prefill.firstName = accessCode.prefillFirstName;
-    if (accessCode.prefillLastName)  prefill.lastName  = accessCode.prefillLastName;
-    if (accessCode.prefillCompany)   prefill.company   = accessCode.prefillCompany;
-    if (accessCode.prefillEmail)     prefill.email     = accessCode.prefillEmail;
-    if (accessCode.prefillPhone)     prefill.phone     = accessCode.prefillPhone;
+    if (accessCode.prefillFirstName)         prefill.firstName         = accessCode.prefillFirstName;
+    if (accessCode.prefillLastName)          prefill.lastName          = accessCode.prefillLastName;
+    if (accessCode.prefillCompany)           prefill.company           = accessCode.prefillCompany;
+    if (accessCode.prefillEmail)             prefill.email             = accessCode.prefillEmail;
+    if (accessCode.prefillPhone)             prefill.phone             = accessCode.prefillPhone;
+    if (accessCode.prefillSiret)             prefill.siret             = accessCode.prefillSiret;
+    if (accessCode.prefillVatNumber)         prefill.vatNumber         = accessCode.prefillVatNumber;
+    if (accessCode.prefillAddressStreet)     prefill.addressStreet     = accessCode.prefillAddressStreet;
+    if (accessCode.prefillAddressComplement) prefill.addressComplement = accessCode.prefillAddressComplement;
+    if (accessCode.prefillAddressZip)        prefill.addressZip        = accessCode.prefillAddressZip;
+    if (accessCode.prefillAddressCity)       prefill.addressCity       = accessCode.prefillAddressCity;
+    if (accessCode.prefillAddressCountry)    prefill.addressCountry    = accessCode.prefillAddressCountry;
 
     // Set cookie et retourner success
     const response = NextResponse.json({

@@ -4,8 +4,7 @@
  * Manages Bearer token with in-memory cache.
  * Auto-refreshes 10 minutes before expiration.
  *
- * Credentials are read from admin settings (SiteConfig),
- * with fallback on PFS_EMAIL / PFS_PASSWORD env vars.
+ * Credentials are read from admin settings (SiteConfig) only.
  */
 
 import { getCachedPfsCredentials } from "@/lib/cached-data";
@@ -34,8 +33,8 @@ export async function getPfsToken(): Promise<string> {
   }
 
   const pfsCreds = await getCachedPfsCredentials();
-  const email = pfsCreds.email || process.env.PFS_EMAIL;
-  const password = pfsCreds.password || process.env.PFS_PASSWORD;
+  const email = pfsCreds.email;
+  const password = pfsCreds.password;
   if (!email || !password) {
     throw new Error("Identifiants PFS manquants — configurer dans Paramètres > Marketplaces");
   }

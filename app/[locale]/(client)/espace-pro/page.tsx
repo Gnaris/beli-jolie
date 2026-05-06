@@ -19,11 +19,9 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
-  PENDING:    { bg: "bg-amber-50",     text: "text-amber-800",   dot: "bg-warning"    },
-  PROCESSING: { bg: "bg-blue-50",     text: "text-blue-700",    dot: "bg-info"       },
-  SHIPPED:    { bg: "bg-purple-50",   text: "text-purple-700",  dot: "bg-purple-500" },
-  DELIVERED:  { bg: "bg-emerald-50",  text: "text-emerald-800", dot: "bg-success"    },
-  CANCELLED:  { bg: "bg-bg-secondary", text: "text-text-muted",  dot: "bg-text-muted" },
+  PENDING:   { bg: "bg-amber-50",      text: "text-amber-800",   dot: "bg-warning"    },
+  SHIPPED:   { bg: "bg-emerald-50",    text: "text-emerald-800", dot: "bg-success"    },
+  CANCELLED: { bg: "bg-bg-secondary",  text: "text-text-muted",  dot: "bg-text-muted" },
 };
 
 /* -- Mini bar chart (SVG) -- */
@@ -752,7 +750,12 @@ export default async function DashboardPage() {
             company: user.company,
             phone: user.phone,
             siret: user.siret,
-            address: (user as unknown as { address: string | null }).address,
+            fullAddress: [
+              user.addressStreet,
+              user.addressComplement,
+              [user.addressZip, user.addressCity].filter(Boolean).join(" "),
+              user.addressCountry,
+            ].filter(Boolean).join(" — ") || null,
             vatNumber: user.vatNumber,
           }} />
         </div>

@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { reinstateStockForOrder } from "@/lib/stock";
-import { resolveVatRate } from "@/lib/vat";
+import { resolveVatRate, EU_COUNTRIES } from "@/lib/vat";
 
 // Erreur typée pour différencier les ruptures de stock des autres erreurs.
 class StockError extends Error {
@@ -64,12 +64,16 @@ import { notifyAdminNewOrder, notifyOrderStatusChange } from "@/lib/notification
 
 export interface PlaceOrderInput {
   addressId:     string;
-  carrierId:     string;   // base64 carrierId Easy-Express (ou "fallback_*")
+  carrierId:     string;   // base64 carrierId Easy-Express (ou "fallback_*", "pickup_store", "private_carrier")
   transactionId: string;   // transactionId retourné par /api/carriers
   carrierName:   string;
   carrierPrice:  number;
   stripePaymentIntentId: string; // pi_xxx retourné par Stripe
   cgvAcceptedAt?: string; // ISO date when client accepted CGV
+  // Transporteur privé : email/téléphone OU bordereau
+  privateCarrierEmail?:     string;
+  privateCarrierPhone?:     string;
+  privateCarrierBordereau?: string; // path retourné par uploadBordereau
 }
 
 export interface PlaceOrderResult {
@@ -262,8 +266,12 @@ export async function placeOrder(
     return { success: false, error: `Montant minimum de commande non atteint. Minimum requis : ${minHT.toFixed(2)} € HT.` };
   }
 
+  // Transporteur privé : le client gère sa propre expédition, frais = 0
+  const isPrivateCarrier = input.carrierId === "private_carrier";
+
   // Remise livraison : shipping discount (% ou montant), freeShipping = legacy fallback
   const effectiveCarrierPrice = (() => {
+    if (isPrivateCarrier) return 0;
     if (clientFreeShipping) return 0;
     if (user.shippingDiscountType && user.shippingDiscountValue != null) {
       const sdv = Number(user.shippingDiscountValue);
@@ -277,6 +285,7 @@ export async function placeOrder(
 
   // Taux de TVA recalculé côté serveur (jamais confiance à l'input client) :
   // exonération B2B intracom appliquée même en retrait si l'admin a validé.
+  // Le transporteur privé est traité comme une livraison (TVA selon adresse).
   const isPickup = input.carrierId === "pickup_store";
   const tvaRate = resolveVatRate({
     countryCode: address.country,
@@ -447,6 +456,10 @@ export async function placeOrder(
       carrierId:    input.carrierId,
       carrierName:  input.carrierName,
       carrierPrice: effectiveCarrierPrice,
+      // Transporteur privé : email/tél du fournisseur du client OU bordereau joint
+      privateCarrierEmail:     isPrivateCarrier ? (input.privateCarrierEmail?.trim() || null) : null,
+      privateCarrierPhone:     isPrivateCarrier ? (input.privateCarrierPhone?.trim() || null) : null,
+      privateCarrierBordereau: isPrivateCarrier ? (input.privateCarrierBordereau?.trim() || null) : null,
       // Remise commerciale client
       clientDiscountType:  clientDiscountType,
       clientDiscountValue: clientDiscountValue,
@@ -508,11 +521,24 @@ export async function placeOrder(
 
   let labelBuffer: Buffer | null = null;
 
-  // Ne pas appeler Easy-Express si on est sur un carrier fallback ou retrait en boutique
-  const isFallbackCarrier = input.carrierId.startsWith("fallback_") || input.carrierId === "pickup_store";
+  // Ne pas appeler Easy-Express si on est sur un carrier fallback, retrait en boutique, ou transporteur privé
+  const isFallbackCarrier =
+    input.carrierId.startsWith("fallback_") ||
+    input.carrierId === "pickup_store" ||
+    input.carrierId === "private_carrier";
+
+  // Toute livraison hors UE (y compris DOM-TOM) : la génération du bordereau
+  // est différée côté admin. Easy-Express exige une facture proforma /
+  // déclaration douanière dans le payload qu'on ne sait pas encore renseigner
+  // automatiquement — l'admin génère le bordereau via le portail Easy-Express
+  // puis saisit le suivi à la main.
+  const country = address.country.toUpperCase();
+  const isOutsideEu = !EU_COUNTRIES.has(country);
 
   const eeResult = isFallbackCarrier
     ? { success: false as const, error: "Carrier fallback — pas d'expédition Easy-Express." }
+    : isOutsideEu
+    ? { success: false as const, error: "Livraison hors UE — bordereau différé côté admin." }
     : await createEasyExpressShipment({
         transactionId: input.transactionId,
         carrierId:     input.carrierId,

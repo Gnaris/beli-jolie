@@ -407,9 +407,7 @@
     "bankTransferPendingDesc": "Bitte führen Sie die Überweisung mit den untenstehenden Daten durch. Die Bestellung wird automatisch nach Zahlungseingang bestätigt (normalerweise innerhalb 1 Werktag).",
     "statuses": {
       "PENDING": "Ausstehend",
-      "PROCESSING": "In Bearbeitung",
       "SHIPPED": "Versendet",
-      "DELIVERED": "Zugestellt",
       "CANCELLED": "Storniert"
     },
     "orderProgress": "Bestellverfolgung",

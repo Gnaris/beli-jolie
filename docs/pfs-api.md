@@ -1,7 +1,7 @@
 # API Paris Fashion Shop - Documentation
 
 > Base URL: `https://wholesaler-api.parisfashionshops.com/api/v1` | CDN: `https://static.parisfashionshops.com`
-> Langues: fr, en, de, es, it | ~9 252 produits actifs | Env: `PFS_EMAIL`, `PFS_PASSWORD`
+> Langues: fr, en, de, es, it | ~9 252 produits actifs | Identifiants : Admin > Paramètres > Marketplaces (`SiteConfig.pfs_email` / `pfs_password`)
 
 ---
 

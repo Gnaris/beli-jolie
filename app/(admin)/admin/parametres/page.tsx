@@ -13,7 +13,6 @@ import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
 import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
 import ShippingMarginConfig from "@/components/admin/settings/ShippingMarginConfig";
-import StripeConfig from "@/components/admin/settings/StripeConfig";
 import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
 import DeeplApiKeyConfig from "@/components/admin/settings/DeeplApiKeyConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
@@ -25,7 +24,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: `Paramètres — ${shopName} Admin` };
 }
 
-const VALID_TABS = ["general", "societe", "catalogue", "carrousels", "stock", "maintenance", "paiement", "livraison", "marketplaces", "horaires", "traduction"] as const;
+const VALID_TABS = ["general", "societe", "catalogue", "carrousels", "stock", "maintenance", "livraison", "marketplaces", "horaires", "traduction"] as const;
 type Tab = (typeof VALID_TABS)[number];
 
 export default async function ParametresPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -58,7 +57,6 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           {activeTab === "carrousels" && <CarrouselsTab />}
           {activeTab === "stock" && <StockTab />}
           {activeTab === "maintenance" && <MaintenanceTab />}
-          {activeTab === "paiement" && <PaiementTab />}
           {activeTab === "livraison" && <LivraisonTab />}
           {activeTab === "marketplaces" && <MarketplacesTab />}
           {activeTab === "horaires" && <HorairesTab />}
@@ -276,24 +274,6 @@ async function MaintenanceTab() {
         </div>
       )}
       <MaintenanceModeToggle currentValue={inMaintenance} isAuto={isAutoMaintenance} />
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Paiement — Stripe
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function PaiementTab() {
-  const stripeConnectConfig = await prisma.siteConfig.findUnique({
-    where: { key: "stripe_connect_account_id" },
-    select: { key: true },
-  });
-
-  return (
-    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
-      <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Paiement Stripe</h3>
-      <p className="text-sm text-text-secondary font-body mb-4">Connectez votre compte Stripe pour accepter les paiements.</p>
-      <StripeConfig hasConnect={!!stripeConnectConfig} />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   dedupeSizeEntries,
   pfsColorMatchCandidates,
   buildPackLinesFromResolved,
+  pfsStatusToBjStatus,
 } from "@/lib/pfs-import";
 import type { PfsColorInfo } from "@/lib/pfs-api";
 
@@ -437,6 +438,31 @@ describe("pfs-import helpers", () => {
       expect(rouge?.sizeEntries).toHaveLength(2);
       expect(rouge?.sizeEntries.find((e) => e.sizeId === "size-M")?.quantity).toBe(2);
       expect(rouge?.sizeEntries.find((e) => e.sizeId === "size-L")?.quantity).toBe(1);
+    });
+  });
+
+  describe("pfsStatusToBjStatus", () => {
+    it("renvoie ONLINE pour READY_FOR_SALE", () => {
+      expect(pfsStatusToBjStatus("READY_FOR_SALE")).toBe("ONLINE");
+    });
+
+    it("ignore la casse et les espaces autour", () => {
+      expect(pfsStatusToBjStatus(" ready_for_sale ")).toBe("ONLINE");
+      expect(pfsStatusToBjStatus("Ready_For_Sale")).toBe("ONLINE");
+    });
+
+    it("renvoie OFFLINE pour DRAFT, NEW, ARCHIVED, DELETED", () => {
+      expect(pfsStatusToBjStatus("DRAFT")).toBe("OFFLINE");
+      expect(pfsStatusToBjStatus("NEW")).toBe("OFFLINE");
+      expect(pfsStatusToBjStatus("ARCHIVED")).toBe("OFFLINE");
+      expect(pfsStatusToBjStatus("DELETED")).toBe("OFFLINE");
+    });
+
+    it("renvoie OFFLINE pour null / undefined / chaîne vide / valeur inconnue", () => {
+      expect(pfsStatusToBjStatus(null)).toBe("OFFLINE");
+      expect(pfsStatusToBjStatus(undefined)).toBe("OFFLINE");
+      expect(pfsStatusToBjStatus("")).toBe("OFFLINE");
+      expect(pfsStatusToBjStatus("WHATEVER")).toBe("OFFLINE");
     });
   });
 });

@@ -8,6 +8,8 @@ import { updateUserStatus } from "@/app/actions/admin/updateUserStatus";
 import DeleteUserButton from "@/components/admin/users/DeleteUserButton";
 import ClientDiscountForm from "@/components/admin/users/ClientDiscountForm";
 import VatVerificationCard from "@/components/admin/users/VatVerificationCard";
+import VatExemptionToggle from "@/components/admin/users/VatExemptionToggle";
+import { getCountry } from "@/lib/vat";
 import CartModal from "@/components/admin/users/CartModal";
 import OrdersModal from "@/components/admin/users/OrdersModal";
 import type { UserStatus } from "@prisma/client";
@@ -102,6 +104,25 @@ export default async function ClientDetailPage({
   }
 
   if (!user || user.role === "ADMIN") notFound();
+
+  const validatorAdmin = user.vatValidatedBy
+    ? await prisma.user.findUnique({
+        where: { id: user.vatValidatedBy },
+        select: { firstName: true, lastName: true, email: true },
+      })
+    : null;
+  const validatedByLabel = validatorAdmin
+    ? `${validatorAdmin.firstName} ${validatorAdmin.lastName}`.trim() || validatorAdmin.email
+    : null;
+  const userCountryName = getCountry(user.addressCountry)?.name ?? user.addressCountry ?? null;
+  const fullAddress = [
+    user.addressStreet,
+    user.addressComplement,
+    [user.addressZip, user.addressCity].filter(Boolean).join(" "),
+    userCountryName,
+  ]
+    .filter(Boolean)
+    .join(" — ");
 
   const statusCfg = STATUS_CONFIG[user.status];
 
@@ -306,6 +327,7 @@ export default async function ClientDetailPage({
                   { label: "Téléphone", value: user.phone },
                   { label: "SIRET",     value: user.siret, mono: true },
                   { label: "N° TVA",    value: user.vatNumber ?? "—", mono: true },
+                  { label: "Adresse",   value: fullAddress || "—" },
                 ].map(({ label, value, mono }) => (
                   <div key={label}>
                     <p className="text-xs font-body font-semibold text-text-muted uppercase tracking-wider">{label}</p>
@@ -360,6 +382,15 @@ export default async function ClientDetailPage({
               viesRequestDate: user.viesRequestDate ?? null,
               viesError: user.viesError ?? null,
             }}
+          />
+
+          {/* Application de la TVA — interrupteur d'exonération (UE hors France) */}
+          <VatExemptionToggle
+            userId={user.id}
+            initialExempt={user.vatExempt}
+            validatedAt={user.vatValidatedAt}
+            validatedByLabel={validatedByLabel}
+            countryCode={user.addressCountry}
           />
 
           {/* Message d'inscription */}

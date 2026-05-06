@@ -407,9 +407,7 @@
     "bankTransferPendingDesc": "Por favor, realice la transferencia con los datos a continuación. El pedido se confirmará automáticamente tras la recepción del pago (normalmente en 1 día laborable).",
     "statuses": {
       "PENDING": "Pendiente",
-      "PROCESSING": "En preparación",
       "SHIPPED": "Enviado",
-      "DELIVERED": "Entregado",
       "CANCELLED": "Cancelado"
     },
     "orderProgress": "Seguimiento del pedido",

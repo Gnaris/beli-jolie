@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCart, getShippingAddresses } from "@/app/actions/client/cart";
 import CheckoutClient from "@/components/panier/CheckoutClient";
-import { isStripeConnectReady } from "@/lib/stripe";
+import { isStripeConfigured } from "@/lib/stripe";
 
 export const metadata: Metadata = {
   title: "Passer la commande",
@@ -25,16 +25,22 @@ export default async function CommandePage() {
     prisma.user.findUnique({
       where: { id: session.user.id },
       select: {
-        firstName:     true,
-        lastName:      true,
-        company:       true,
-        email:         true,
-        phone:         true,
-        siret:         true,
-        vatNumber:     true,
-        discountType:  true,
-        discountValue: true,
-        freeShipping:  true,
+        firstName:         true,
+        lastName:          true,
+        company:           true,
+        email:             true,
+        phone:             true,
+        siret:             true,
+        vatNumber:         true,
+        vatExempt:         true,
+        addressStreet:     true,
+        addressComplement: true,
+        addressZip:        true,
+        addressCity:       true,
+        addressCountry:    true,
+        discountType:      true,
+        discountValue:     true,
+        freeShipping:      true,
       },
     }),
     prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
@@ -42,9 +48,7 @@ export default async function CommandePage() {
 
   if (!cart || cart.items.length === 0) return redirect({href: "/panier", locale});
 
-  // Bloquer le checkout si Stripe n'est pas relié
-  const stripeReady = await isStripeConnectReady();
-  if (!stripeReady) return redirect({href: "/panier", locale});
+  if (!isStripeConfigured()) return redirect({href: "/panier", locale});
 
   // Vérification minimum commande (couche serveur — ne peut pas être contournée)
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;

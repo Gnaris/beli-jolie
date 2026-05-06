@@ -1,9 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { createAccessCode, deactivateAccessCode, reactivateAccessCode, deleteAccessCode } from "@/app/actions/admin/access-codes";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import CustomSelect, { type SelectOption } from "@/components/ui/CustomSelect";
+import { COUNTRIES } from "@/lib/vat";
+
+const EMPTY_PREFILL = {
+  firstName: "",
+  lastName: "",
+  company: "",
+  email: "",
+  phone: "",
+  siret: "",
+  vatNumber: "",
+  addressStreet: "",
+  addressComplement: "",
+  addressZip: "",
+  addressCity: "",
+  addressCountry: "",
+};
 
 interface AccessCodeItem {
   id: string;
@@ -49,9 +66,21 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
   const { confirm } = useConfirm();
   const [creating, setCreating] = useState(false);
   const [note, setNote] = useState("");
-  const [prefill, setPrefill] = useState({ firstName: "", lastName: "", company: "", email: "", phone: "" });
+  const [prefill, setPrefill] = useState({ ...EMPTY_PREFILL });
   const [showCreate, setShowCreate] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const countryOptions = useMemo<SelectOption[]>(() => {
+    const eu = COUNTRIES.filter((c) => c.region === "EU");
+    const dom = COUNTRIES.filter((c) => c.region === "DOM_TOM");
+    const world = COUNTRIES.filter((c) => c.region === "WORLD");
+    return [
+      { value: "", label: "— Aucun (laisser au client) —" },
+      ...eu.map((c) => ({ value: c.code, label: `🇪🇺  ${c.name}` })),
+      ...dom.map((c) => ({ value: c.code, label: `🏝  ${c.name}` })),
+      ...world.map((c) => ({ value: c.code, label: c.name })),
+    ];
+  }, []);
 
   async function handleCreate() {
     setCreating(true);
@@ -63,10 +92,17 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
         prefillCompany: prefill.company,
         prefillEmail: prefill.email,
         prefillPhone: prefill.phone,
+        prefillSiret: prefill.siret,
+        prefillVatNumber: prefill.vatNumber,
+        prefillAddressStreet: prefill.addressStreet,
+        prefillAddressComplement: prefill.addressComplement,
+        prefillAddressZip: prefill.addressZip,
+        prefillAddressCity: prefill.addressCity,
+        prefillAddressCountry: prefill.addressCountry,
       });
       if (result.success) {
         setNote("");
-        setPrefill({ firstName: "", lastName: "", company: "", email: "", phone: "" });
+        setPrefill({ ...EMPTY_PREFILL });
         setShowCreate(false);
         window.location.reload();
       }
@@ -147,68 +183,177 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
             </div>
 
             {/* Pré-remplissage inscription */}
-            <div>
-              <p className="text-xs font-body font-semibold text-text-muted uppercase tracking-widest mb-2">
-                Pré-remplir l&apos;inscription (optionnel)
-              </p>
-              <p className="text-xs text-text-muted mb-3">
-                Ces informations seront automatiquement remplies dans le formulaire d&apos;inscription du client.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="field-label" htmlFor="prefill-firstName">Prénom</label>
-                  <input
-                    id="prefill-firstName"
-                    type="text"
-                    value={prefill.firstName}
-                    onChange={(e) => setPrefill((p) => ({ ...p, firstName: e.target.value }))}
-                    placeholder="Marie"
-                    className="field-input"
-                  />
+            <div className="space-y-5">
+              <div>
+                <p className="text-xs font-body font-semibold text-text-muted uppercase tracking-widest">
+                  Pré-remplir l&apos;inscription (optionnel)
+                </p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Toutes les cases sont optionnelles — laissez vide pour que le client saisisse lui-même.
+                </p>
+              </div>
+
+              {/* Sous-section : Identité */}
+              <div>
+                <p className="text-[11px] font-body font-semibold text-text-secondary uppercase tracking-wider mb-2">
+                  Identité du contact
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="field-label" htmlFor="prefill-firstName">Prénom</label>
+                    <input
+                      id="prefill-firstName"
+                      type="text"
+                      value={prefill.firstName}
+                      onChange={(e) => setPrefill((p) => ({ ...p, firstName: e.target.value }))}
+                      placeholder="Marie"
+                      className="field-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="prefill-lastName">Nom</label>
+                    <input
+                      id="prefill-lastName"
+                      type="text"
+                      value={prefill.lastName}
+                      onChange={(e) => setPrefill((p) => ({ ...p, lastName: e.target.value }))}
+                      placeholder="Dupont"
+                      className="field-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="prefill-email">Email</label>
+                    <input
+                      id="prefill-email"
+                      type="email"
+                      value={prefill.email}
+                      onChange={(e) => setPrefill((p) => ({ ...p, email: e.target.value }))}
+                      placeholder="contact@societe.fr"
+                      className="field-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="prefill-phone">Téléphone</label>
+                    <input
+                      id="prefill-phone"
+                      type="tel"
+                      value={prefill.phone}
+                      onChange={(e) => setPrefill((p) => ({ ...p, phone: e.target.value }))}
+                      placeholder="0612345678"
+                      className="field-input"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="field-label" htmlFor="prefill-lastName">Nom</label>
-                  <input
-                    id="prefill-lastName"
-                    type="text"
-                    value={prefill.lastName}
-                    onChange={(e) => setPrefill((p) => ({ ...p, lastName: e.target.value }))}
-                    placeholder="Dupont"
-                    className="field-input"
-                  />
+              </div>
+
+              {/* Sous-section : Société */}
+              <div>
+                <p className="text-[11px] font-body font-semibold text-text-secondary uppercase tracking-wider mb-2">
+                  Société
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="field-label" htmlFor="prefill-company">Raison sociale</label>
+                    <input
+                      id="prefill-company"
+                      type="text"
+                      value={prefill.company}
+                      onChange={(e) => setPrefill((p) => ({ ...p, company: e.target.value }))}
+                      placeholder="Mon Entreprise SARL"
+                      className="field-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="prefill-siret">SIRET</label>
+                    <input
+                      id="prefill-siret"
+                      type="text"
+                      value={prefill.siret}
+                      onChange={(e) => setPrefill((p) => ({ ...p, siret: e.target.value.replace(/\D/g, "").slice(0, 14) }))}
+                      placeholder="12345678901234"
+                      maxLength={14}
+                      className="field-input font-mono tracking-wide"
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="prefill-vat">N° TVA intracommunautaire</label>
+                    <input
+                      id="prefill-vat"
+                      type="text"
+                      value={prefill.vatNumber}
+                      onChange={(e) => setPrefill((p) => ({ ...p, vatNumber: e.target.value.toUpperCase().replace(/\s/g, "") }))}
+                      placeholder="FR12345678901"
+                      maxLength={20}
+                      className="field-input font-mono tracking-wide"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="field-label" htmlFor="prefill-company">Société</label>
-                  <input
-                    id="prefill-company"
-                    type="text"
-                    value={prefill.company}
-                    onChange={(e) => setPrefill((p) => ({ ...p, company: e.target.value }))}
-                    placeholder="Mon Entreprise SARL"
-                    className="field-input"
-                  />
-                </div>
-                <div>
-                  <label className="field-label" htmlFor="prefill-email">Email</label>
-                  <input
-                    id="prefill-email"
-                    type="email"
-                    value={prefill.email}
-                    onChange={(e) => setPrefill((p) => ({ ...p, email: e.target.value }))}
-                    placeholder="contact@societe.fr"
-                    className="field-input"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="field-label" htmlFor="prefill-phone">Téléphone</label>
-                  <input
-                    id="prefill-phone"
-                    type="tel"
-                    value={prefill.phone}
-                    onChange={(e) => setPrefill((p) => ({ ...p, phone: e.target.value }))}
-                    placeholder="0612345678"
-                    className="field-input"
-                  />
+              </div>
+
+              {/* Sous-section : Adresse */}
+              <div>
+                <p className="text-[11px] font-body font-semibold text-text-secondary uppercase tracking-wider mb-2">
+                  Adresse de la société
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="field-label" htmlFor="prefill-street">Adresse</label>
+                    <input
+                      id="prefill-street"
+                      type="text"
+                      value={prefill.addressStreet}
+                      onChange={(e) => setPrefill((p) => ({ ...p, addressStreet: e.target.value }))}
+                      placeholder="12 rue des Lilas"
+                      className="field-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="prefill-complement">Complément d&apos;adresse</label>
+                    <input
+                      id="prefill-complement"
+                      type="text"
+                      value={prefill.addressComplement}
+                      onChange={(e) => setPrefill((p) => ({ ...p, addressComplement: e.target.value }))}
+                      placeholder="Bâtiment B, 3e étage"
+                      className="field-input"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="field-label" htmlFor="prefill-zip">Code postal</label>
+                      <input
+                        id="prefill-zip"
+                        type="text"
+                        value={prefill.addressZip}
+                        onChange={(e) => setPrefill((p) => ({ ...p, addressZip: e.target.value }))}
+                        placeholder="75011"
+                        className="field-input"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="field-label" htmlFor="prefill-city">Ville</label>
+                      <input
+                        id="prefill-city"
+                        type="text"
+                        value={prefill.addressCity}
+                        onChange={(e) => setPrefill((p) => ({ ...p, addressCity: e.target.value }))}
+                        placeholder="Paris"
+                        className="field-input"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="prefill-country">Pays</label>
+                    <CustomSelect
+                      id="prefill-country"
+                      value={prefill.addressCountry}
+                      onChange={(v) => setPrefill((p) => ({ ...p, addressCountry: v }))}
+                      options={countryOptions}
+                      searchable
+                      placeholder="— Aucun (laisser au client) —"
+                      aria-label="Pays de la société"
+                    />
+                  </div>
                 </div>
               </div>
             </div>

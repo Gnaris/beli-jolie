@@ -26,9 +26,7 @@ function escapeHtml(str: string): string {
 
 async function resolveNotifyEmail(): Promise<string | null> {
   const companyInfo = await getCachedCompanyInfo();
-  return (
-    process.env.NOTIFY_EMAIL || companyInfo?.email || null
-  );
+  return companyInfo?.email?.trim() || null;
 }
 
 interface NewClientInfo {
@@ -221,17 +219,9 @@ const STATUS_CONFIG: Record<string, {
     subject: (num, shop) => `${shop} — Confirmation de votre commande ${num}`,
     heading: "Merci pour votre commande",
     message: (num) =>
-      `Nous avons bien reçu votre commande <strong>${escapeHtml(num)}</strong>. Elle sera prise en charge par notre équipe dans les plus brefs délais. Vous recevrez un email dès qu'elle passe en préparation.`,
+      `Nous avons bien reçu votre commande <strong>${escapeHtml(num)}</strong>. Elle sera prise en charge par notre équipe dans les plus brefs délais. Vous recevrez un email dès qu'elle sera expédiée.`,
     color: "#1A1A1A",
     icon: "🧾",
-  },
-  PROCESSING: {
-    subject: (num, shop) => `${shop} — Commande ${num} en cours de préparation`,
-    heading: "Votre commande est en cours de préparation",
-    message: (num) =>
-      `Bonne nouvelle ! Votre commande <strong>${escapeHtml(num)}</strong> est en cours de préparation par notre équipe. Nous vous tiendrons informé(e) dès son expédition.`,
-    color: "#4B5563",
-    icon: "📦",
   },
   SHIPPED: {
     subject: (num, shop) => `${shop} — Commande ${num} expédiée`,
@@ -240,14 +230,6 @@ const STATUS_CONFIG: Record<string, {
       `Votre commande <strong>${escapeHtml(num)}</strong> a été expédiée ! Elle est en route vers votre adresse de livraison.`,
     color: "#374151",
     icon: "🚚",
-  },
-  DELIVERED: {
-    subject: (num, shop) => `${shop} — Commande ${num} livrée`,
-    heading: "Votre commande a été livrée",
-    message: (num) =>
-      `Votre commande <strong>${escapeHtml(num)}</strong> a été livrée avec succès. Nous espérons que vous en êtes satisfait(e).`,
-    color: "#16A34A",
-    icon: "✅",
   },
   CANCELLED: {
     subject: (num, shop) => `${shop} — Commande ${num} annulée`,
@@ -789,7 +771,7 @@ export async function notifyClientAccountRejected(params: {
   try {
     const shopName = await getCachedShopName();
     const companyInfo = await getCachedCompanyInfo();
-    const contactEmail = companyInfo?.email || process.env.NOTIFY_EMAIL || null;
+    const contactEmail = companyInfo?.email?.trim() || null;
 
     const reasonBlock = params.reason
       ? `<div style="background:#FEF3F2;border:1px solid #FECACA;border-radius:8px;padding:14px 18px;margin:16px 0;">

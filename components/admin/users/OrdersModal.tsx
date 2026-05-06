@@ -44,11 +44,9 @@ interface Order {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; badge: string }> = {
-  PENDING:    { label: "En attente",     badge: "badge badge-warning" },
-  PROCESSING: { label: "En préparation", badge: "badge badge-info" },
-  SHIPPED:    { label: "Expédiée",       badge: "badge badge-success" },
-  DELIVERED:  { label: "Livrée",         badge: "badge badge-success" },
-  CANCELLED:  { label: "Annulée",        badge: "badge badge-error" },
+  PENDING:   { label: "Nouveau",  badge: "badge badge-warning" },
+  SHIPPED:   { label: "Expédiée", badge: "badge badge-success" },
+  CANCELLED: { label: "Annulée",  badge: "badge badge-error"   },
 };
 
 export default function OrdersModal({ orders }: { orders: Order[] }) {

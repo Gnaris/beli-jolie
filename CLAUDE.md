@@ -127,7 +127,7 @@ NextAuth v4, Credentials + JWT (30d). New users = `PENDING` → admin approves. 
 
 ### Key Prisma enums
 
-`ProductStatus` (OFFLINE|ONLINE|ARCHIVED|SYNCING), `SaleType` (UNIT|PACK), `OrderStatus` (PENDING|PROCESSING|SHIPPED|DELIVERED|CANCELLED), `UserRole` (ADMIN|CLIENT), `UserStatus` (PENDING|APPROVED|REJECTED), `ImportDraftStatus`, `ImportJobStatus`. Full definitions in `prisma/schema.prisma`. (`PfsSyncStatus` / `PfsStagedStatus` et modèles `PfsSyncJob` / `PfsPrepareJob` / `PfsStagedProduct` / `PfsMapping` ont été retirés avec la bascule vers l'export Excel.)
+`ProductStatus` (OFFLINE|ONLINE|ARCHIVED|SYNCING), `SaleType` (UNIT|PACK), `OrderStatus` (PENDING|SHIPPED|CANCELLED — workflow simplifié : PENDING libellé « Nouveau » côté admin et « En attente » côté client, seule transition admin = PENDING → SHIPPED, annulation possible uniquement depuis PENDING. Emails client : à la création (PENDING) et à l'expédition. Plus de PROCESSING ni DELIVERED), `UserRole` (ADMIN|CLIENT), `UserStatus` (PENDING|APPROVED|REJECTED), `ImportDraftStatus`, `ImportJobStatus`. Full definitions in `prisma/schema.prisma`. (`PfsSyncStatus` / `PfsStagedStatus` et modèles `PfsSyncJob` / `PfsPrepareJob` / `PfsStagedProduct` / `PfsMapping` ont été retirés avec la bascule vers l'export Excel.)
 
 `StripeWebhookEvent` model exists for webhook deduplication (idempotency check before processing).
 
@@ -161,15 +161,15 @@ Vitest + `__tests__/` dir. Integration tests in `__tests__/integration/` (DB-bac
 
 **Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ENCRYPTION_KEY`
 
-**Optionnelles** : `STRIPE_PLATFORM_SECRET_KEY` (Stripe Connect platform mode)
+**Stripe (env-only, mode simple)** : `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` — pas d'UI admin, plus de Stripe Connect.
 
-**Email (env var uniquement)** : `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`, `NOTIFY_EMAIL`
+**Email (env var uniquement)** : `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`. Le destinataire des notifs admin (inscriptions, nouvelles commandes, demandes de déblocage, messages, réclamations) est lu depuis **Admin > Paramètres > Société > Email**, plus de `NOTIFY_EMAIL`.
 
-**Configurables via paramètres admin** (env var = fallback, admin UI prend priorité) : `EASY_EXPRESS_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `DEEPL_API_KEY`, `PFS_EMAIL`, `PFS_PASSWORD`
+**Configurables uniquement via paramètres admin** (chiffrés en BDD, plus de var d'env / fallback côté code) : clé Easy-Express, clé DeepL, identifiants PFS (email + mot de passe).
 
-### Stripe Connect
+### Stripe (mode simple)
 
-Dual-mode: **Platform** (`STRIPE_PLATFORM_SECRET_KEY` + per-client `stripe_connect_account_id` in DB) ou **Manual** (per-client `stripe_secret_key` in DB). Endpoints: `/api/stripe/connect`, `/api/stripe/disconnect`, `/api/stripe/reset`.
+Une seule paire de clés en `.env` : `STRIPE_SECRET_KEY` (serveur), `STRIPE_WEBHOOK_SECRET` (signature webhook), `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (frontend). Plus de Stripe Connect, plus de routes `/api/stripe/connect|disconnect|reset|callback`, plus d'UI admin Paiement, plus d'`application_fee_amount`. Helpers : `getStripeInstance()` / `getStripeWebhookSecret()` / `getStripePublishableKey()` / `isStripeConfigured()` dans `lib/stripe.ts`.
 
 ## Versions critiques
 

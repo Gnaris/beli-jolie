@@ -7,7 +7,7 @@ API Base: `https://wholesaler-api.parisfashionshops.com/api/v1`. CDN: `https://s
 
 ## Token Management (`lib/pfs-auth.ts`)
 
-In-memory cache, auto-refresh 10min before expiration. `POST /oauth/token` with PFS_EMAIL/PFS_PASSWORD.
+In-memory cache, auto-refresh 10min before expiration. `POST /oauth/token` with PFS credentials read from admin settings (`SiteConfig` keys `pfs_email` / `pfs_password`, chiffrés). Plus de fallback env var.
 
 ## API Client — Read (`lib/pfs-api.ts`)
 

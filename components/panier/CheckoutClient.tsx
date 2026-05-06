@@ -7,6 +7,8 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, useStripe, useElements, CardNumberElement, CardExpiryElement, CardCvcElement } from "@stripe/react-stripe-js";
 import { saveShippingAddress, deleteShippingAddress } from "@/app/actions/client/cart";
 import { placeOrder } from "@/app/actions/client/order";
+import { updateBillingInfo } from "@/app/actions/client/billing";
+import { uploadBordereau } from "@/app/actions/client/upload-bordereau";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import CustomSelect from "@/components/ui/CustomSelect";
 
@@ -84,6 +86,11 @@ interface UserInfo {
   siret: string;
   vatNumber: string | null;
   vatExempt: boolean;
+  addressStreet:     string | null;
+  addressComplement: string | null;
+  addressZip:        string | null;
+  addressCity:       string | null;
+  addressCountry:    string | null;
 }
 
 interface ClientDiscount {
@@ -291,17 +298,21 @@ const EMPTY_ADDR = {
 
 function AddressForm({
   initial,
+  initialIsDefault = false,
+  isEditing = false,
   onSave,
   onCancel,
   isSaving,
 }: {
   initial?: Partial<typeof EMPTY_ADDR>;
+  initialIsDefault?: boolean;
+  isEditing?: boolean;
   onSave: (data: typeof EMPTY_ADDR & { isDefault: boolean }) => void;
   onCancel: () => void;
   isSaving: boolean;
 }) {
   const [f, setF] = useState({ ...EMPTY_ADDR, ...initial });
-  const [isDefault, setIsDefault] = useState(false);
+  const [isDefault, setIsDefault] = useState(initialIsDefault);
 
   const set = (k: keyof typeof EMPTY_ADDR) => (v: string) => setF((p) => ({ ...p, [k]: v }));
 
@@ -343,7 +354,7 @@ function AddressForm({
       <div className="flex gap-3 pt-1">
         <button type="submit" disabled={isSaving}
           className="btn-primary flex-1 justify-center disabled:opacity-60">
-          {isSaving ? "Enregistrement…" : "Enregistrer l'adresse"}
+          {isSaving ? "Enregistrement…" : isEditing ? "Mettre à jour l'adresse" : "Enregistrer l'adresse"}
         </button>
         <button type="button" onClick={onCancel}
           className="btn-secondary px-4 py-2 text-sm">
@@ -628,21 +639,29 @@ export default function CheckoutClient({
   const [stripeError, setStripeError]         = useState("");
   const [cgvAccepted, setCgvAccepted]         = useState(false);
 
-  // Infos client editables (adresse de facturation)
+  // Adresse de facturation (modifiable depuis le checkout, persistée sur le compte au save)
   const [billingInfo, setBillingInfo] = useState({
     firstName: user.firstName,
     lastName:  user.lastName,
     company:   user.company,
     email:     user.email,
     phone:     user.phone,
-    address1:  "",
-    address2:  "",
-    zipCode:   "",
-    city:      "",
-    country:   "FR",
+    siret:     user.siret,
+    vatNumber: user.vatNumber ?? "",
+    address1:  user.addressStreet     ?? "",
+    address2:  user.addressComplement ?? "",
+    zipCode:   user.addressZip        ?? "",
+    city:      user.addressCity       ?? "",
+    country:   user.addressCountry    ?? "FR",
   });
   const [editingInfo, setEditingInfo] = useState(false);
   const [sameAsBilling, setSameAsBilling] = useState(false);
+  const [billingError, setBillingError] = useState("");
+  // Mémorise l'id de l'adresse "miroir" de la facturation (créée ou trouvée),
+  // pour ne PAS la recréer à chaque coche/décoche.
+  const [billingMirrorAddrId, setBillingMirrorAddrId] = useState<string | null>(null);
+  // Adresse sélectionnée AVANT la coche, pour pouvoir y revenir à la décoche.
+  const [previousAddrId, setPreviousAddrId] = useState<string | null>(null);
 
   // Adresses
   const [addresses, setAddresses]   = useState<Address[]>(initialAddresses);
@@ -650,10 +669,21 @@ export default function CheckoutClient({
     initialAddresses.find((a) => a.isDefault)?.id ?? initialAddresses[0]?.id ?? null
   );
   const [showAddressForm, setShowAddressForm] = useState(initialAddresses.length === 0);
+  // null = création nouvelle adresse, sinon = édition de l'adresse avec cet id
+  const [editingAddrId, setEditingAddrId] = useState<string | null>(null);
   const selectedAddr = addresses.find((a) => a.id === selectedAddrId) ?? null;
 
-  // Mode de livraison : "delivery" (par défaut) ou "pickup"
-  const [deliveryMode, setDeliveryMode] = useState<"delivery" | "pickup">("delivery");
+  // Mode de livraison : "delivery" (par défaut), "pickup" (retrait boutique) ou "private" (transporteur du client)
+  const [deliveryMode, setDeliveryMode] = useState<"delivery" | "pickup" | "private">("delivery");
+
+  // Transporteur privé : sous-mode + champs
+  const [privateMode, setPrivateMode] = useState<"contact" | "bordereau">("contact");
+  const [privateCarrierEmail,    setPrivateCarrierEmail]    = useState("");
+  const [privateCarrierPhone,    setPrivateCarrierPhone]    = useState("");
+  const [bordereauPath,          setBordereauPath]          = useState<string | null>(null);
+  const [bordereauName,          setBordereauName]          = useState<string>("");
+  const [bordereauUploading,     setBordereauUploading]     = useState(false);
+  const [bordereauError,         setBordereauError]         = useState("");
 
   // Transporteurs
   const [carriers, setCarriers]         = useState<Carrier[]>([]);
@@ -662,14 +692,18 @@ export default function CheckoutClient({
   const [carriersLoading, setCarriersLoading]     = useState(!!selectedAddrId);
   const [carriersError, setCarriersError]         = useState("");
   const [noCarrierConfigured, setNoCarrierConfigured] = useState(false);
+  const [parcelCount, setParcelCount]             = useState<number>(0);
   const selectedCarrier = deliveryMode === "pickup"
     ? { id: "pickup_store", name: "Retrait en boutique", price: 0, delay: "" }
-    : (carriers.find((c) => c.id === selectedCarrierId) ?? null);
+    : deliveryMode === "private"
+      ? { id: "private_carrier", name: "Transporteur privé", price: 0, delay: "" }
+      : (carriers.find((c) => c.id === selectedCarrierId) ?? null);
 
   // TVA — règles unifiées (lib/vat) :
   // France → 20 %, DOM-TOM → 0 %,
   // UE hors France + admin a validé l'exonération → 0 % sinon 20 %, hors UE → 0 %.
   // Le retrait en boutique n'écrase plus l'exonération B2B intracom validée.
+  // Le transporteur privé est traité comme une livraison classique (TVA selon adresse).
   const isPickup = deliveryMode === "pickup";
   const tvaRate = resolveVatRate({
     countryCode: selectedAddr?.country ?? null,
@@ -732,6 +766,7 @@ export default function CheckoutClient({
         else {
           setTransactionId(data.transactionId ?? "");
           setCarriers(data.carriers ?? []);
+          setParcelCount(typeof data.parcelCount === "number" ? data.parcelCount : 0);
           if (data.noCarrierConfigured) setNoCarrierConfigured(true);
         }
       })
@@ -762,33 +797,80 @@ export default function CheckoutClient({
     });
   }
 
+  // Compare deux adresses sur les champs significatifs (insensible à la casse + espaces).
+  function addrMatchesBilling(a: Address): boolean {
+    const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
+    return (
+      norm(a.address1) === norm(billingInfo.address1) &&
+      norm(a.address2) === norm(billingInfo.address2) &&
+      norm(a.zipCode)  === norm(billingInfo.zipCode)  &&
+      norm(a.city)     === norm(billingInfo.city)     &&
+      norm(a.country)  === norm(billingInfo.country)
+    );
+  }
+
   function handleSameAsBilling(checked: boolean) {
     setSameAsBilling(checked);
-    if (checked && billingInfo.address1 && billingInfo.zipCode && billingInfo.city) {
-      showLoading();
-      startTransition(async () => {
-        try {
-          const saved = await saveShippingAddress({
-            label: `Facturation — ${billingInfo.city}`,
-            firstName: billingInfo.firstName,
-            lastName:  billingInfo.lastName,
-            company:   billingInfo.company,
-            address1:  billingInfo.address1,
-            address2:  billingInfo.address2,
-            zipCode:   billingInfo.zipCode,
-            city:      billingInfo.city,
-            country:   billingInfo.country,
-            phone:     billingInfo.phone,
-            isDefault: false,
-          });
-          setAddresses((prev) => [...prev, saved as Address]);
-          setSelectedAddrId((saved as Address).id);
-          setShowAddressForm(false);
-        } finally {
-          hideLoading();
-        }
-      });
+
+    // Décoche : revenir à l'adresse précédente, ne RIEN supprimer en BDD.
+    if (!checked) {
+      if (previousAddrId && addresses.some((a) => a.id === previousAddrId)) {
+        setSelectedAddrId(previousAddrId);
+      }
+      return;
     }
+
+    if (!billingInfo.address1 || !billingInfo.zipCode || !billingInfo.city) return;
+
+    // Mémorise la sélection en cours pour pouvoir y revenir à la décoche.
+    setPreviousAddrId(selectedAddrId);
+
+    // 1) On a déjà créé/réutilisé une adresse miroir pendant cette session
+    //    et elle existe toujours → on la re-sélectionne, pas de doublon.
+    if (billingMirrorAddrId) {
+      const stillThere = addresses.find((a) => a.id === billingMirrorAddrId);
+      if (stillThere && addrMatchesBilling(stillThere)) {
+        setSelectedAddrId(billingMirrorAddrId);
+        setShowAddressForm(false);
+        return;
+      }
+    }
+
+    // 2) Une adresse existante correspond exactement à la facturation
+    //    → on l'utilise, pas de création.
+    const existing = addresses.find(addrMatchesBilling);
+    if (existing) {
+      setBillingMirrorAddrId(existing.id);
+      setSelectedAddrId(existing.id);
+      setShowAddressForm(false);
+      return;
+    }
+
+    // 3) Aucune adresse existante ne correspond → on en crée une seule fois.
+    showLoading();
+    startTransition(async () => {
+      try {
+        const saved = await saveShippingAddress({
+          label: `Facturation — ${billingInfo.city}`,
+          firstName: billingInfo.firstName,
+          lastName:  billingInfo.lastName,
+          company:   billingInfo.company,
+          address1:  billingInfo.address1,
+          address2:  billingInfo.address2,
+          zipCode:   billingInfo.zipCode,
+          city:      billingInfo.city,
+          country:   billingInfo.country,
+          phone:     billingInfo.phone,
+          isDefault: false,
+        });
+        setAddresses((prev) => [...prev, saved as Address]);
+        setBillingMirrorAddrId((saved as Address).id);
+        setSelectedAddrId((saved as Address).id);
+        setShowAddressForm(false);
+      } finally {
+        hideLoading();
+      }
+    });
   }
 
   function handleDeleteAddress(addrId: string) {
@@ -807,15 +889,111 @@ export default function CheckoutClient({
     });
   }
 
-  const canProceed = !!selectedAddr && !!selectedCarrier;
+  // Pour le transporteur privé : il faut soit (email + téléphone) soit un bordereau
+  const privateCarrierComplete = deliveryMode === "private"
+    ? (privateMode === "contact"
+        ? privateCarrierEmail.trim().length > 0 && privateCarrierPhone.trim().length > 0
+        : !!bordereauPath)
+    : true;
+
+  const canProceed = !!selectedAddr && !!selectedCarrier && privateCarrierComplete;
 
   // Reset Stripe + carriers quand le mode de livraison change
-  function handleDeliveryModeChange(mode: "delivery" | "pickup") {
+  function handleDeliveryModeChange(mode: "delivery" | "pickup" | "private") {
     setDeliveryMode(mode);
     setSelectedCarrierId(null);
     setClientSecret(null);
     setPaymentIntentId(null);
     setStripeError("");
+  }
+
+  // ── Upload bordereau (Transporteur Privé) ─────────────────────────────────
+  async function handleBordereauUpload(file: File) {
+    setBordereauError("");
+    setBordereauUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const result = await uploadBordereau(formData);
+      if (result.success) {
+        setBordereauPath(result.path);
+        setBordereauName(file.name);
+      } else {
+        setBordereauError(result.error);
+      }
+    } catch {
+      setBordereauError("Impossible d'envoyer le bordereau.");
+    } finally {
+      setBordereauUploading(false);
+    }
+  }
+
+  // ── Sauvegarde de la facturation (persistée sur le compte) ────────────────
+  function handleSaveBilling() {
+    setBillingError("");
+    showLoading();
+    startTransition(async () => {
+      try {
+        const result = await updateBillingInfo({
+          firstName:         billingInfo.firstName,
+          lastName:          billingInfo.lastName,
+          company:           billingInfo.company,
+          phone:             billingInfo.phone,
+          vatNumber:         billingInfo.vatNumber,
+          addressStreet:     billingInfo.address1,
+          addressComplement: billingInfo.address2,
+          addressZip:        billingInfo.zipCode,
+          addressCity:       billingInfo.city,
+          addressCountry:    billingInfo.country,
+        });
+        if (result.success) {
+          setEditingInfo(false);
+        } else {
+          setBillingError(result.error);
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  // ── Édition d'une adresse de livraison existante ──────────────────────────
+  function handleEditAddress(addr: Address) {
+    setEditingAddrId(addr.id);
+    setShowAddressForm(true);
+  }
+
+  function handleUpdateAddress(data: typeof EMPTY_ADDR & { isDefault: boolean }) {
+    if (!editingAddrId) return;
+    showLoading();
+    startTransition(async () => {
+      try {
+        const updated = await saveShippingAddress({
+          id:        editingAddrId,
+          label:     `${data.city} — ${data.address1}`.slice(0, 50),
+          firstName: data.firstName,
+          lastName:  data.lastName,
+          company:   data.company,
+          address1:  data.address1,
+          address2:  data.address2,
+          zipCode:   data.zipCode,
+          city:      data.city,
+          country:   data.country,
+          phone:     data.phone,
+          isDefault: data.isDefault,
+        });
+        setAddresses((prev) => {
+          const next = data.isDefault
+            ? prev.map((a) => ({ ...a, isDefault: false }))
+            : prev;
+          return next.map((a) => (a.id === editingAddrId ? (updated as Address) : a));
+        });
+        setEditingAddrId(null);
+        setShowAddressForm(false);
+      } finally {
+        hideLoading();
+      }
+    });
   }
 
   // Créer le Payment Intent Stripe uniquement quand le client clique "Procéder au paiement"
@@ -855,7 +1033,21 @@ export default function CheckoutClient({
     setClientSecret(null);
     setPaymentIntentId(null);
     setStripeError("");
-  }, [selectedAddrId, selectedCarrierId, deliveryMode]);
+  }, [selectedAddrId, selectedCarrierId, deliveryMode, privateMode, privateCarrierEmail, privateCarrierPhone, bordereauPath]);
+
+  // Si la facturation change après qu'on ait coché « même adresse », l'adresse
+  // miroir n'est plus à jour → on décoche pour éviter un envoi sur la mauvaise
+  // adresse, et on oublie la référence pour qu'un futur coche refasse le calcul.
+  useEffect(() => {
+    if (!sameAsBilling) return;
+    if (!billingMirrorAddrId) return;
+    const mirror = addresses.find((a) => a.id === billingMirrorAddrId);
+    if (!mirror || !addrMatchesBilling(mirror)) {
+      setSameAsBilling(false);
+      setBillingMirrorAddrId(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billingInfo.address1, billingInfo.address2, billingInfo.zipCode, billingInfo.city, billingInfo.country]);
 
   // Après paiement Stripe réussi (carte) → créer la commande et rediriger
   function handlePaymentSuccess(piId: string) {
@@ -871,6 +1063,15 @@ export default function CheckoutClient({
           carrierPrice:          effectiveCarrierPrice,
           stripePaymentIntentId: piId,
           cgvAcceptedAt:         new Date().toISOString(),
+          // Transporteur privé : on envoie soit email/tel soit le bordereau
+          ...(deliveryMode === "private"
+            ? privateMode === "contact"
+              ? {
+                  privateCarrierEmail: privateCarrierEmail.trim(),
+                  privateCarrierPhone: privateCarrierPhone.trim(),
+                }
+              : { privateCarrierBordereau: bordereauPath ?? undefined }
+            : {}),
         });
         if (result.success) {
           router.push(`/commandes/${result.orderId}?success=1`);
@@ -886,7 +1087,7 @@ export default function CheckoutClient({
   // Indicateurs de complétion pour les sections
   const section1Complete = !!(billingInfo.firstName && billingInfo.lastName && billingInfo.email);
   const section2Complete = !!selectedAddr;
-  const section3Complete = !!selectedCarrier;
+  const section3Complete = !!selectedCarrier && privateCarrierComplete;
 
   return (
     <div className="container-site py-10 md:py-14">
@@ -917,9 +1118,9 @@ export default function CheckoutClient({
         {/* ── Colonne principale ─────────────────── */}
         <div className="lg:col-span-2 space-y-6">
 
-          {/* ── 1. Informations client + adresse de facturation ── */}
+          {/* ── 1. Adresse de facturation ── */}
           <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
-            <SectionHeader step={1} title="Informations client" complete={section1Complete}>
+            <SectionHeader step={1} title="Adresse de facturation" complete={section1Complete}>
               <button type="button" onClick={() => setEditingInfo((v) => !v)}
                 className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors">
                 {editingInfo ? "Fermer" : "Modifier"}
@@ -929,22 +1130,41 @@ export default function CheckoutClient({
             {editingInfo ? (
               <div className="p-5 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <FieldInput id="bi-fn" label="Prenom" value={billingInfo.firstName} onChange={(v) => setBillingInfo((p) => ({ ...p, firstName: v }))} required />
+                  <FieldInput id="bi-fn" label="Prénom" value={billingInfo.firstName} onChange={(v) => setBillingInfo((p) => ({ ...p, firstName: v }))} required />
                   <FieldInput id="bi-ln" label="Nom" value={billingInfo.lastName} onChange={(v) => setBillingInfo((p) => ({ ...p, lastName: v }))} required />
                 </div>
-                <FieldInput id="bi-co" label="Societe" value={billingInfo.company} onChange={(v) => setBillingInfo((p) => ({ ...p, company: v }))} />
+                <FieldInput id="bi-co" label="Société" value={billingInfo.company} onChange={(v) => setBillingInfo((p) => ({ ...p, company: v }))} required />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <FieldInput id="bi-email" label="Email" value={billingInfo.email} onChange={(v) => setBillingInfo((p) => ({ ...p, email: v }))} type="email" />
-                  <FieldInput id="bi-phone" label="Telephone" value={billingInfo.phone} onChange={(v) => setBillingInfo((p) => ({ ...p, phone: v }))} type="tel" />
+                  <FieldInput id="bi-email" label="Email" value={billingInfo.email} onChange={(v) => setBillingInfo((p) => ({ ...p, email: v }))} type="email" required />
+                  <FieldInput id="bi-phone" label="Téléphone" value={billingInfo.phone} onChange={(v) => setBillingInfo((p) => ({ ...p, phone: v }))} type="tel" required />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-body font-medium text-text-primary mb-1.5">SIRET</label>
+                    <input
+                      type="text"
+                      value={billingInfo.siret}
+                      readOnly
+                      className="field-input w-full bg-bg-secondary text-text-muted cursor-not-allowed"
+                    />
+                  </div>
+                  <FieldInput
+                    id="bi-vat"
+                    label="N° TVA intracommunautaire"
+                    value={billingInfo.vatNumber}
+                    onChange={(v) => setBillingInfo((p) => ({ ...p, vatNumber: v.toUpperCase() }))}
+                    optional
+                    placeholder="FR12345678901"
+                  />
                 </div>
                 <div className="border-t border-border pt-4 mt-2">
-                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body mb-3">Adresse de facturation</p>
+                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body mb-3">Adresse</p>
                   <div className="space-y-4">
-                    <FieldInput id="bi-a1" label="Adresse" value={billingInfo.address1} onChange={(v) => setBillingInfo((p) => ({ ...p, address1: v }))} placeholder="12 rue des Fleurs" required />
-                    <FieldInput id="bi-a2" label="Complement" value={billingInfo.address2} onChange={(v) => setBillingInfo((p) => ({ ...p, address2: v }))} optional placeholder="Bat. A, porte 3" />
+                    <FieldInput id="bi-a1" label="Adresse" value={billingInfo.address1} onChange={(v) => setBillingInfo((p) => ({ ...p, address1: v }))} placeholder="12 rue des Fleurs" />
+                    <FieldInput id="bi-a2" label="Complément" value={billingInfo.address2} onChange={(v) => setBillingInfo((p) => ({ ...p, address2: v }))} optional placeholder="Bât. A, porte 3" />
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <FieldInput id="bi-zip" label="Code postal" value={billingInfo.zipCode} onChange={(v) => setBillingInfo((p) => ({ ...p, zipCode: v }))} required />
-                      <FieldInput id="bi-city" label="Ville" value={billingInfo.city} onChange={(v) => setBillingInfo((p) => ({ ...p, city: v }))} required />
+                      <FieldInput id="bi-zip" label="Code postal" value={billingInfo.zipCode} onChange={(v) => setBillingInfo((p) => ({ ...p, zipCode: v }))} />
+                      <FieldInput id="bi-city" label="Ville" value={billingInfo.city} onChange={(v) => setBillingInfo((p) => ({ ...p, city: v }))} />
                     </div>
                     <div>
                       <label htmlFor="bi-country" className="block text-sm font-body font-medium text-text-primary mb-1.5">Pays</label>
@@ -957,31 +1177,45 @@ export default function CheckoutClient({
                     </div>
                   </div>
                 </div>
-                <button type="button" onClick={() => setEditingInfo(false)} className="btn-primary text-sm">
-                  Enregistrer
-                </button>
+                {billingError && (
+                  <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] text-xs font-body px-3 py-2 rounded-lg">
+                    {billingError}
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  <button type="button" onClick={handleSaveBilling} disabled={isPending} className="btn-primary text-sm disabled:opacity-60">
+                    {isPending ? "Enregistrement…" : "Enregistrer"}
+                  </button>
+                  <button type="button" onClick={() => { setEditingInfo(false); setBillingError(""); }} className="btn-secondary text-sm">
+                    Annuler
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="p-5 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm font-body">
-                  <InfoLine label="Societe"   value={billingInfo.company} />
+                  <InfoLine label="Société"   value={billingInfo.company} />
                   <InfoLine label="Contact"   value={`${billingInfo.firstName} ${billingInfo.lastName}`} />
                   <InfoLine label="Email"     value={billingInfo.email} />
-                  <InfoLine label="Telephone" value={billingInfo.phone} />
-                  <InfoLine label="SIRET"     value={user.siret} mono />
-                  {user.vatNumber && <InfoLine label="N° TVA" value={user.vatNumber} mono />}
+                  <InfoLine label="Téléphone" value={billingInfo.phone} />
+                  <InfoLine label="SIRET"     value={billingInfo.siret} mono />
+                  <InfoLine label="N° TVA"    value={billingInfo.vatNumber || "—"} mono />
                 </div>
-                {billingInfo.address1 && (
-                  <div className="border-t border-border pt-3">
-                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wider font-body mb-1">Adresse de facturation</p>
-                    <p className="text-sm text-text-primary font-body">
-                      {billingInfo.address1}{billingInfo.address2 ? `, ${billingInfo.address2}` : ""}
-                    </p>
-                    <p className="text-sm text-text-secondary font-body">
-                      {billingInfo.zipCode} {billingInfo.city}, {EU_COUNTRY_OPTIONS.find((c) => c.code === billingInfo.country)?.label ?? billingInfo.country}
-                    </p>
-                  </div>
-                )}
+                <div className="border-t border-border pt-3">
+                  <p className="text-xs font-semibold text-text-muted uppercase tracking-wider font-body mb-1">Adresse</p>
+                  {billingInfo.address1 ? (
+                    <>
+                      <p className="text-sm text-text-primary font-body">
+                        {billingInfo.address1}{billingInfo.address2 ? `, ${billingInfo.address2}` : ""}
+                      </p>
+                      <p className="text-sm text-text-secondary font-body">
+                        {billingInfo.zipCode} {billingInfo.city}, {EU_COUNTRY_OPTIONS.find((c) => c.code === billingInfo.country)?.label ?? billingInfo.country}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-text-muted font-body italic">Aucune adresse renseignée — cliquez sur Modifier pour l&apos;ajouter.</p>
+                  )}
+                </div>
               </div>
             )}
           </section>
@@ -990,7 +1224,7 @@ export default function CheckoutClient({
           <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
             <SectionHeader step={2} title="Adresse de livraison" complete={section2Complete}>
               {!showAddressForm && (
-                <button type="button" onClick={() => setShowAddressForm(true)}
+                <button type="button" onClick={() => { setEditingAddrId(null); setShowAddressForm(true); }}
                   className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1.5">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
@@ -1000,16 +1234,27 @@ export default function CheckoutClient({
               )}
             </SectionHeader>
             <div className="p-5 space-y-3">
-              {/* Option: meme adresse que facturation */}
-              {billingInfo.address1 && billingInfo.zipCode && billingInfo.city && (
-                <label className="flex items-center gap-2.5 p-3 border border-border rounded-xl text-sm font-body text-text-primary cursor-pointer hover:bg-bg-secondary transition-colors">
+              {/* Option: meme adresse que facturation — mise en avant */}
+              {billingInfo.address1 && billingInfo.zipCode && billingInfo.city && !showAddressForm && (
+                <label className={`flex items-start gap-3 p-4 border-2 rounded-xl text-sm font-body cursor-pointer transition-all ${
+                  sameAsBilling
+                    ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.08)]"
+                    : "border-dashed border-border-dark bg-bg-primary hover:bg-bg-secondary hover:border-text-muted"
+                }`}>
                   <input
                     type="checkbox"
                     checked={sameAsBilling}
                     onChange={(e) => handleSameAsBilling(e.target.checked)}
-                    className="accent-text-primary w-4 h-4"
+                    className="accent-text-primary w-4 h-4 mt-0.5 shrink-0"
                   />
-                  Utiliser l&apos;adresse de facturation comme adresse de livraison
+                  <div className="min-w-0">
+                    <p className="font-semibold text-text-primary">
+                      Livrer à mon adresse de facturation
+                    </p>
+                    <p className="text-xs text-text-secondary mt-0.5">
+                      {billingInfo.address1}{billingInfo.address2 ? `, ${billingInfo.address2}` : ""} — {billingInfo.zipCode} {billingInfo.city}
+                    </p>
+                  </div>
                 </label>
               )}
 
@@ -1038,7 +1283,7 @@ export default function CheckoutClient({
                           {addr.firstName} {addr.lastName}
                           {addr.isDefault && (
                             <span className="ml-2 text-[10px] font-normal bg-bg-secondary text-text-secondary px-1.5 py-0.5 rounded-full">
-                              Par defaut
+                              Par défaut
                             </span>
                           )}
                         </p>
@@ -1051,7 +1296,18 @@ export default function CheckoutClient({
                       </div>
                     </div>
                   </button>
-                  <div className="flex justify-end mt-2">
+                  <div className="flex justify-end mt-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleEditAddress(addr)}
+                      disabled={isPending}
+                      className="text-[11px] text-text-muted hover:text-text-primary font-body transition-colors flex items-center gap-1"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                      </svg>
+                      Modifier
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleDeleteAddress(addr.id)}
@@ -1067,13 +1323,45 @@ export default function CheckoutClient({
                 </div>
               ))}
 
-              {/* Formulaire nouvelle adresse */}
+              {/* Formulaire nouvelle adresse OU édition d'une existante */}
               {showAddressForm && (
-                <AddressForm
-                  onSave={handleSaveAddress}
-                  onCancel={() => setShowAddressForm(false)}
-                  isSaving={isPending}
-                />
+                editingAddrId ? (
+                  (() => {
+                    const editing = addresses.find((a) => a.id === editingAddrId);
+                    if (!editing) return null;
+                    return (
+                      <>
+                        <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body">
+                          Modifier l&apos;adresse
+                        </p>
+                        <AddressForm
+                          isEditing
+                          initial={{
+                            firstName: editing.firstName,
+                            lastName:  editing.lastName,
+                            company:   editing.company ?? "",
+                            address1:  editing.address1,
+                            address2:  editing.address2 ?? "",
+                            zipCode:   editing.zipCode,
+                            city:      editing.city,
+                            country:   editing.country,
+                            phone:     editing.phone ?? "",
+                          }}
+                          initialIsDefault={editing.isDefault}
+                          onSave={handleUpdateAddress}
+                          onCancel={() => { setShowAddressForm(false); setEditingAddrId(null); }}
+                          isSaving={isPending}
+                        />
+                      </>
+                    );
+                  })()
+                ) : (
+                  <AddressForm
+                    onSave={handleSaveAddress}
+                    onCancel={() => setShowAddressForm(false)}
+                    isSaving={isPending}
+                  />
+                )
               )}
 
               {addresses.length === 0 && !showAddressForm && (
@@ -1088,8 +1376,8 @@ export default function CheckoutClient({
           <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
             <SectionHeader step={3} title="Mode de livraison" complete={section3Complete} />
             <div className="p-5 space-y-4">
-              {/* Choix livraison / retrait */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Choix livraison / retrait / transporteur privé */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <button
                   type="button"
                   onClick={() => handleDeliveryModeChange("delivery")}
@@ -1124,6 +1412,23 @@ export default function CheckoutClient({
                     Retrait en boutique
                   </span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeliveryModeChange("private")}
+                  className={`flex flex-col items-center gap-2 p-4 border rounded-xl transition-all ${
+                    deliveryMode === "private"
+                      ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.12)]"
+                      : "border-border bg-bg-primary hover:border-text-muted"
+                  }`}
+                >
+                  <svg className="w-6 h-6 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                      d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
+                  </svg>
+                  <span className="text-sm font-body font-semibold text-text-primary">
+                    Transporteur privé
+                  </span>
+                </button>
               </div>
 
               {/* Retrait en boutique — info */}
@@ -1145,6 +1450,165 @@ export default function CheckoutClient({
                       </p>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Transporteur privé — sous-options */}
+              {deliveryMode === "private" && (
+                <div className="space-y-3">
+                  <div className="bg-bg-secondary border border-border rounded-xl p-4">
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-accent-dark shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                      </svg>
+                      <div>
+                        <p className="text-sm font-body font-semibold text-text-primary">
+                          Vous gérez vous-même l&apos;expédition
+                        </p>
+                        <p className="text-xs text-text-secondary font-body mt-1">
+                          Aucun frais de port ne sera ajouté à votre commande. Indiquez-nous comment contacter votre transporteur, ou joignez directement votre bordereau d&apos;expédition.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Switch entre les 2 sous-modes */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setPrivateMode("contact")}
+                      className={`flex items-center gap-2 p-3 border rounded-xl transition-all text-sm font-body ${
+                        privateMode === "contact"
+                          ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.08)] font-semibold text-text-primary"
+                          : "border-border bg-bg-primary hover:border-text-muted text-text-secondary"
+                      }`}
+                    >
+                      <div className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${
+                        privateMode === "contact" ? "border-text-primary" : "border-text-muted"
+                      }`}>
+                        {privateMode === "contact" && <div className="w-2 h-2 rounded-full bg-text-primary" />}
+                      </div>
+                      Contacter mon transporteur
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrivateMode("bordereau")}
+                      className={`flex items-center gap-2 p-3 border rounded-xl transition-all text-sm font-body ${
+                        privateMode === "bordereau"
+                          ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.08)] font-semibold text-text-primary"
+                          : "border-border bg-bg-primary hover:border-text-muted text-text-secondary"
+                      }`}
+                    >
+                      <div className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${
+                        privateMode === "bordereau" ? "border-text-primary" : "border-text-muted"
+                      }`}>
+                        {privateMode === "bordereau" && <div className="w-2 h-2 rounded-full bg-text-primary" />}
+                      </div>
+                      J&apos;ai déjà un bordereau
+                    </button>
+                  </div>
+
+                  {/* Mode contact : email + téléphone */}
+                  {privateMode === "contact" && (
+                    <div className="space-y-4 border border-border rounded-xl p-4 bg-bg-primary">
+                      <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body">
+                        Coordonnées du transporteur
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <FieldInput
+                          id="pc-email"
+                          label="Email du transporteur"
+                          value={privateCarrierEmail}
+                          onChange={setPrivateCarrierEmail}
+                          type="email"
+                          placeholder="contact@transporteur.com"
+                          required
+                        />
+                        <FieldInput
+                          id="pc-phone"
+                          label="Téléphone du transporteur"
+                          value={privateCarrierPhone}
+                          onChange={setPrivateCarrierPhone}
+                          type="tel"
+                          placeholder="0612345678"
+                          required
+                        />
+                      </div>
+                      <p className="text-xs text-text-muted font-body">
+                        Notre équipe contactera votre transporteur dès la commande validée pour organiser le retrait.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Mode bordereau : upload fichier */}
+                  {privateMode === "bordereau" && (
+                    <div className="space-y-3 border border-border rounded-xl p-4 bg-bg-primary">
+                      <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body">
+                        Bordereau d&apos;expédition
+                      </p>
+                      {bordereauPath ? (
+                        <div className="flex items-center justify-between gap-3 p-3 bg-bg-secondary border border-border rounded-lg">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <svg className="w-5 h-5 text-success shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <p className="text-sm font-body text-text-primary truncate">
+                              {bordereauName || "Bordereau enregistré"}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setBordereauPath(null); setBordereauName(""); setBordereauError(""); }}
+                            className="text-xs text-text-muted hover:text-error font-body transition-colors shrink-0"
+                          >
+                            Remplacer
+                          </button>
+                        </div>
+                      ) : (
+                        <label className={`flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
+                          bordereauUploading
+                            ? "border-text-muted bg-bg-secondary"
+                            : "border-border-dark bg-bg-secondary/40 hover:bg-bg-secondary hover:border-text-muted"
+                        }`}>
+                          <input
+                            type="file"
+                            accept="application/pdf,image/jpeg,image/jpg,image/png"
+                            disabled={bordereauUploading}
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleBordereauUpload(file);
+                              e.target.value = "";
+                            }}
+                          />
+                          {bordereauUploading ? (
+                            <>
+                              <svg className="animate-spin w-5 h-5 text-text-muted" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                              </svg>
+                              <span className="text-sm font-body text-text-muted">Envoi en cours…</span>
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                              </svg>
+                              <span className="text-sm font-body font-medium text-text-primary">
+                                Déposer un fichier
+                              </span>
+                              <span className="text-xs text-text-muted font-body">
+                                PDF, JPG ou PNG — 5 Mo max
+                              </span>
+                            </>
+                          )}
+                        </label>
+                      )}
+                      {bordereauError && (
+                        <p className="text-xs text-error font-body">{bordereauError}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1178,6 +1642,22 @@ export default function CheckoutClient({
                       {noCarrierConfigured
                         ? "Aucun transporteur disponible, veuillez contacter le personnel du site."
                         : "Aucun transporteur disponible pour cette adresse."}
+                    </div>
+                  )}
+
+                  {selectedAddr && !carriersLoading && !carriersError && carriers.length > 0 && parcelCount > 1 && (
+                    <div className="flex items-center gap-3 bg-bg-secondary border border-border rounded-lg px-4 py-3 text-sm font-body text-text-secondary">
+                      <svg className="w-5 h-5 shrink-0 text-text-primary" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m3.27 6.96 8.73 5.04 8.73-5.04M12 22V12" />
+                      </svg>
+                      <span>
+                        Votre commande sera expédiée en{" "}
+                        <strong className="text-text-primary font-medium">
+                          {parcelCount} colis ({totalWeightKg.toFixed(1)} kg au total)
+                        </strong>
+                        {" "}— les transporteurs ci-dessous tiennent déjà compte du nombre de colis dans leur tarif.
+                      </span>
                     </div>
                   )}
 
@@ -1250,7 +1730,7 @@ function SummaryPanel({
   tvaLabel: string;
   tvaAmount: number;
   selectedAddr: Address | null;
-  deliveryMode: "delivery" | "pickup";
+  deliveryMode: "delivery" | "pickup" | "private";
   selectedCarrier: Carrier | { id: string; name: string; price: number; delay: string } | null;
   canProceed: boolean;
   totalTTC: number;
@@ -1358,13 +1838,19 @@ function SummaryPanel({
                 </span>
               </div>
               <div className="flex justify-between text-text-secondary">
-                <span>{deliveryMode === "pickup" ? "Retrait en boutique" : "Livraison"}</span>
+                <span>
+                  {deliveryMode === "pickup"
+                    ? "Retrait en boutique"
+                    : deliveryMode === "private"
+                      ? "Transporteur privé"
+                      : "Livraison"}
+                </span>
                 <span className={`font-medium ${
-                  (deliveryMode === "pickup" || (clientDiscount?.freeShipping && selectedCarrier))
+                  (deliveryMode === "pickup" || deliveryMode === "private" || (clientDiscount?.freeShipping && selectedCarrier))
                     ? "text-accent-dark"
                     : "text-text-primary"
                 }`}>
-                  {deliveryMode === "pickup"
+                  {deliveryMode === "pickup" || deliveryMode === "private"
                     ? "Gratuit"
                     : selectedCarrier
                       ? (clientDiscount?.freeShipping

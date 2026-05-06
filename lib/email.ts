@@ -4,7 +4,8 @@
  * Envoi d'emails via nodemailer (SMTP).
  *
  * La configuration (hôte, port, TLS, identifiants, expéditeur) est lue
- * depuis les variables d'environnement `SMTP_*`.
+ * depuis les variables d'environnement `SMTP_*`. Le nom d'expéditeur par
+ * défaut est repris du nom de boutique configuré en admin (CompanyInfo).
  *
  * Fire-and-forget : les erreurs sont loggées, jamais propagées aux callers.
  */
@@ -13,6 +14,7 @@ import fs from "fs/promises";
 import path from "path";
 import nodemailer, { type Transporter } from "nodemailer";
 import { logger } from "@/lib/logger";
+import { getCachedShopName } from "@/lib/cached-data";
 
 export interface MailAttachment {
   filename: string;
@@ -149,7 +151,6 @@ function parseSecure(
 function resolveSmtpConfig(): {
   connection: SmtpConnectionConfig | null;
   fromEmail: string | null;
-  fromName: string | null;
 } {
   const host = process.env.SMTP_HOST || null;
   const port = parsePort(process.env.SMTP_PORT ?? null);
@@ -158,10 +159,9 @@ function resolveSmtpConfig(): {
   const password = process.env.SMTP_PASSWORD || null;
 
   const fromEmail = process.env.SMTP_FROM_EMAIL || user || null;
-  const fromName = process.env.SMTP_FROM_NAME || null;
 
   if (!host || !port || !user || !password) {
-    return { connection: null, fromEmail, fromName };
+    return { connection: null, fromEmail };
   }
 
   return {
@@ -173,7 +173,6 @@ function resolveSmtpConfig(): {
       password,
     },
     fromEmail,
-    fromName,
   };
 }
 
@@ -188,8 +187,7 @@ function resolveSmtpConfig(): {
 export async function sendMail(
   params: SendMailParams
 ): Promise<SendMailResult> {
-  const { connection, fromEmail: cfgFromEmail, fromName: cfgFromName } =
-    resolveSmtpConfig();
+  const { connection, fromEmail: cfgFromEmail } = resolveSmtpConfig();
 
   if (!connection) {
     logger.warn("[email] Configuration SMTP incomplète — email ignoré.");
@@ -202,7 +200,15 @@ export async function sendMail(
     return { sent: false, reason: "no_from" };
   }
 
-  const fromName = params.fromName?.trim() || cfgFromName || undefined;
+  let fromName = params.fromName?.trim() || undefined;
+  if (!fromName) {
+    try {
+      const shopName = (await getCachedShopName()).trim();
+      fromName = shopName || undefined;
+    } catch {
+      fromName = undefined;
+    }
+  }
   const attachments = await buildAttachments(params.attachments);
 
   try {

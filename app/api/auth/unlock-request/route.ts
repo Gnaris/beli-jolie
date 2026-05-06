@@ -38,8 +38,7 @@ export async function POST(request: NextRequest) {
       getCachedShopName(),
       getCachedCompanyInfo(),
     ]);
-    const notifyEmail =
-      process.env.NOTIFY_EMAIL || companyInfo?.email;
+    const notifyEmail = companyInfo?.email?.trim() || null;
 
     if (notifyEmail) {
       await sendMail({

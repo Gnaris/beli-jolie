@@ -34,6 +34,13 @@ interface CreateAccessCodeInput {
   prefillCompany?: string;
   prefillEmail?: string;
   prefillPhone?: string;
+  prefillSiret?: string;
+  prefillVatNumber?: string;
+  prefillAddressStreet?: string;
+  prefillAddressComplement?: string;
+  prefillAddressZip?: string;
+  prefillAddressCity?: string;
+  prefillAddressCountry?: string;
 }
 
 export async function createAccessCode(input?: string | CreateAccessCodeInput) {
@@ -69,6 +76,13 @@ export async function createAccessCode(input?: string | CreateAccessCodeInput) {
       prefillCompany: params.prefillCompany?.trim() || null,
       prefillEmail: params.prefillEmail?.trim().toLowerCase() || null,
       prefillPhone: params.prefillPhone?.trim() || null,
+      prefillSiret: params.prefillSiret?.replace(/\D/g, "") || null,
+      prefillVatNumber: params.prefillVatNumber?.trim().toUpperCase().replace(/\s/g, "") || null,
+      prefillAddressStreet: params.prefillAddressStreet?.trim() || null,
+      prefillAddressComplement: params.prefillAddressComplement?.trim() || null,
+      prefillAddressZip: params.prefillAddressZip?.trim() || null,
+      prefillAddressCity: params.prefillAddressCity?.trim() || null,
+      prefillAddressCountry: params.prefillAddressCountry?.trim().toUpperCase() || null,
       expiresAt,
     },
   });

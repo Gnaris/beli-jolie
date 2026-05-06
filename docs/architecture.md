@@ -42,7 +42,7 @@ Prices: `unitPrice` = total for UNIT and PACK. PACK formula: `sum(size.qty * siz
 ## Order Data Model
 
 ```
-Order → OrderItem[], status (PENDING→PROCESSING→SHIPPED→DELIVERED|CANCELLED)
+Order → OrderItem[], status (PENDING→SHIPPED|CANCELLED — workflow simplifié, plus de PROCESSING/DELIVERED)
   orderNumber: BJ-YYYY-XXXXXX, carrier*, TVA*, Payment (Stripe), Easy-Express (tracking/label)
 ```
 
@@ -124,7 +124,7 @@ Rule: `unstable_cache` + unique key array + tags. Invalidate with `revalidateTag
 ## Integrations
 
 ### Easy-Express v3
-Base: `https://easy-express.fr`, Auth: Bearer `EASY_EXPRESS_API_KEY`.
+Base: `https://easy-express.fr`, Auth: Bearer (clé lue dans `SiteConfig.easy_express_api_key`, chiffrée — saisie via Admin > Paramètres).
 Flow: `POST /api/v3/shipments/rates` → transactionId → `POST /api/v3/shipments/checkout`.
 Prices in centimes (÷100). Min weight 1kg. +5EUR margin. transactionId expires fast. Fallback: hardcoded rates.
 

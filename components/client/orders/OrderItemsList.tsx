@@ -44,14 +44,14 @@ export default function ClientOrderItemsList({ items }: { items: ClientOrderItem
       items={items}
       labels={labels}
       renderItem={(item) => (
-        <div key={item.id} className="px-5 py-4 flex items-center gap-4">
-          <OrderItemImage src={item.imagePath} alt={item.productName} />
+        <div key={item.id} className="px-5 py-5 flex items-center gap-5">
+          <OrderItemImage src={item.imagePath} alt={item.productName} sizeClass="w-20 h-20 sm:w-28 sm:h-28" />
 
           <div className="flex-1 min-w-0">
-            <p className="font-body font-medium text-sm text-text-primary truncate">{item.productName}</p>
-            <p className="text-xs text-text-muted font-body mt-0.5 font-mono">{item.productRef}</p>
-            <div className="flex flex-wrap gap-2 mt-1">
-              <span className="badge badge-neutral text-[10px]">
+            <p className="font-body font-semibold text-base text-text-primary truncate">{item.productName}</p>
+            <p className="text-sm text-text-muted font-body mt-1 font-mono">{item.productRef}</p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              <span className="badge badge-neutral">
                 {item.colorName}
               </span>
               {(() => {
@@ -59,42 +59,42 @@ export default function ClientOrderItemsList({ items }: { items: ClientOrderItem
                   try {
                     const sizes: { name: string; quantity: number }[] = JSON.parse(item.sizesJson);
                     if (sizes.length > 0) return (
-                      <span className="badge badge-neutral text-[10px]">
+                      <span className="badge badge-neutral">
                         {sizes.map(s => `${s.name}×${s.quantity}`).join(", ")}
                       </span>
                     );
                   } catch { /* ignore */ }
                 }
                 if (item.size) return (
-                  <span className="badge badge-neutral text-[10px]">
+                  <span className="badge badge-neutral">
                     {t("sizeOption", { size: item.size })}
                   </span>
                 );
                 return null;
               })()}
-              <span className={`badge text-[10px] ${item.saleType === "PACK" ? "badge-purple" : "badge-info"}`}>
+              <span className={`badge ${item.saleType === "PACK" ? "badge-purple" : "badge-info"}`}>
                 {item.saleType === "PACK" ? t("packOption", { qty: item.packQty ?? 0 }) : t("unitOption")}
               </span>
               {item.modification && (
                 item.modification.newQuantity === 0
-                  ? <span className="badge badge-error text-[10px]">{t("outOfStock")}</span>
-                  : <span className="badge badge-warning text-[10px]">{t("stockModified")}</span>
+                  ? <span className="badge badge-error">{t("outOfStock")}</span>
+                  : <span className="badge badge-warning">{t("stockModified")}</span>
               )}
             </div>
             {item.modification && (
-              <p className="text-xs text-text-muted mt-1 italic">
+              <p className="text-sm text-text-muted mt-1.5 italic">
                 {t(`modificationReason_${item.modification.reason}`)}
               </p>
             )}
           </div>
 
           <div className="text-right shrink-0">
-            <p className="text-xs text-text-muted font-body">x{item.quantity}</p>
-            <p className="font-body font-semibold text-sm text-text-primary mt-0.5">
+            <p className="text-sm text-text-muted font-body">x{item.quantity}</p>
+            <p className="font-body font-semibold text-lg text-text-primary mt-1">
               {Number(item.lineTotal).toFixed(2)} {"\u20AC"}
             </p>
             {item.modification && (
-              <p className="text-xs text-red-500 font-body mt-0.5 line-through">
+              <p className="text-sm text-red-500 font-body mt-0.5 line-through">
                 x{item.modification.originalQuantity}
               </p>
             )}
