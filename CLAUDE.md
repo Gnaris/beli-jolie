@@ -141,6 +141,15 @@ NextAuth v4, Credentials + JWT (30d). New users = `PENDING` → admin approves. 
 - **Récap demande** : à la toute fin de chaque réponse, ajouter une petite section **« Ce que vous m'avez demandé »** qui résume en 1-3 phrases simples la demande initiale. Ça permet de garder une trace claire de ce qui a été fait et pourquoi.
 - **Impact croisé** : avant d'exécuter une tâche, vérifier si elle peut impacter d'autres fonctionnalités, données, pages ou comportements existants. Si oui, prévenir l'utilisatrice **avant** de toucher au code et lister les zones concernées en français simple, pour qu'elle puisse confirmer ou ajuster la demande.
 - **Suggestions d'amélioration** : quand une tâche est demandée et que tu vois une idée, recommandation ou variante qui pourrait l'améliorer (UX, robustesse, simplicité, perf, cohérence avec le reste du site), proposer cette idée à l'utilisatrice en plus de la demande initiale, en français simple. Elle décide ensuite si elle veut intégrer ta proposition.
+- **Déploiement complet (local + prod)** : quand l'utilisatrice demande de **corriger**, **réparer**, **rendre fonctionnel**, ou **mettre à jour** quelque chose qui touche au site en ligne, faire la boucle complète sans demander entre chaque étape :
+  1. Modifier les fichiers en local (`C:\Users\chenb\Desktop\beli-jolie\`)
+  2. `git add` + `git commit` + `git push origin master`
+  3. SSH au VPS (`ssh root@72.61.106.128`) : `cd /var/www/beliandjolie && git fetch origin master && git reset --hard origin/master`
+  4. `npm install --no-audit --no-fund` (seulement si dépendances modifiées) + `npx prisma generate && npx prisma db push --skip-generate` (seulement si schema modifié)
+  5. `NODE_OPTIONS='--max-old-space-size=4096' npm run build`
+  6. `pm2 restart beliandjolie`
+  7. **Vérification "parcours visiteur"** : `curl -sL` sur `https://beliandjolie.com/` ou la route concernée, suivre les redirections, vérifier que le `<title>` final correspond bien à ce qui est attendu (page de connexion, page produit, etc.) — **pas juste un endpoint interne**
+  À la fin, le code doit être strictement identique aux trois endroits (local, GitHub, VPS) — pareil pour les modifs de config serveur (nginx, swap, env). Demander confirmation **uniquement** avant les actions vraiment risquées (suppression de données, drop de tables, push --force, secrets).
 
 ## Commandes
 
