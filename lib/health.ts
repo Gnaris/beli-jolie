@@ -11,6 +11,7 @@ import { logger } from "@/lib/logger";
 const ERROR_THRESHOLD = 3;
 const RECOVERY_CHECK_INTERVAL_MS = 60_000; // Check recovery every 60s
 const ERROR_WINDOW_MS = 120_000; // Errors older than 2 minutes are forgotten
+const BOOT_GRACE_PERIOD_SEC = 90; // Ignore errors during the first 90s after process start (MySQL warm-up)
 
 interface HealthState {
   errors: number[];          // timestamps of recent errors
@@ -40,10 +41,33 @@ function pruneErrors(state: HealthState) {
 }
 
 /**
+ * True pendant les premières secondes après le démarrage du process Node.
+ * Pendant ce laps de temps, on suppose que MySQL est peut-être encore en train
+ * de redémarrer (cas du reboot serveur) — les erreurs DB ne doivent pas
+ * déclencher la maintenance automatique.
+ */
+export function isBootGracePeriod(): boolean {
+  return process.uptime() < BOOT_GRACE_PERIOD_SEC;
+}
+
+/**
  * Report a critical error (DB connection failure, unhandled API error, etc.)
  * Returns true if auto-maintenance was just triggered.
  */
 export function reportCriticalError(source?: string): boolean {
+  // Boot grace period : on ignore les erreurs des 90 premières secondes pour
+  // laisser à MySQL le temps de redémarrer après un reboot serveur sans
+  // basculer le site en maintenance.
+  if (isBootGracePeriod()) {
+    if (process.env.NODE_ENV === "development") {
+      logger.warn("[health] Critical error during boot grace period — ignored", {
+        source,
+        uptime: process.uptime(),
+      });
+    }
+    return false;
+  }
+
   const state = getState();
   state.errors.push(Date.now());
   pruneErrors(state);

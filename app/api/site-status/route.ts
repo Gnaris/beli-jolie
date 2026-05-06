@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { isAutoMaintenanceActive, attemptAutoRecovery, reportSuccess, reportCriticalError } from "@/lib/health";
+import {
+  isAutoMaintenanceActive,
+  attemptAutoRecovery,
+  reportSuccess,
+  reportCriticalError,
+  isBootGracePeriod,
+} from "@/lib/health";
 import { logger } from "@/lib/logger";
 
 /**
@@ -40,6 +46,21 @@ export async function GET() {
       }
     );
   } catch (err) {
+    // Pendant la fenêtre de boot (90s après le démarrage du process), on ne
+    // déclenche PAS la maintenance auto : MySQL est peut-être encore en train
+    // de redémarrer après un reboot serveur. On annonce "tout va bien" pour
+    // ne pas afficher la page rouge aux visiteurs.
+    if (isBootGracePeriod()) {
+      logger.warn("[site-status] DB unreachable during boot grace period — assuming OK", {
+        uptime: process.uptime(),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return NextResponse.json(
+        { maintenance: false, bootGrace: true },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
     // DB is unreachable — report critical error & enter maintenance
     reportCriticalError("site-status");
 
