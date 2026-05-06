@@ -36,7 +36,7 @@ async function main() {
 
   console.log("\n=== 2. Liste produits page 1 ===");
   const t1 = Date.now();
-  const res = await fetch(`${PFS_BASE_URL}/catalog/products?page=1&per_page=20`, {
+  const res = await fetch(`${PFS_BASE_URL}/catalog/listProducts?page=1&per_page=20&status=ACTIVE`, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
