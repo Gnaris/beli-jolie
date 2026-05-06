@@ -16,8 +16,12 @@ import type { MarketplacePublishOutcome } from "@/app/actions/admin/marketplace-
 
 export type QueueItemStatus = "queued" | "in_progress" | "done";
 
-/** "refresh" = renouveler un produit déjà publié. "publish" = première mise en ligne. */
-export type QueueItemMode = "refresh" | "publish";
+/**
+ * "refresh" = renouveler un produit déjà publié (recrée côté PFS).
+ * "publish" = première mise en ligne ou update incrémental.
+ * "resync" = renvoyer toutes les données sur le même pfsProductId.
+ */
+export type QueueItemMode = "refresh" | "publish" | "resync";
 
 export type TargetOutcome =
   | { ok: true; archived?: boolean; opId?: string; warning?: string }
@@ -156,7 +160,9 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
         const endpoint =
           item.mode === "publish"
             ? "/api/admin/marketplace-publish"
-            : "/api/admin/marketplace-refresh";
+            : item.mode === "resync"
+              ? "/api/admin/marketplace-resync"
+              : "/api/admin/marketplace-refresh";
         const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -168,7 +174,7 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
         }
         const outcome = await res.json();
         const parsed =
-          item.mode === "publish"
+          item.mode === "publish" || item.mode === "resync"
             ? outcomesFromPublishServer(outcome as MarketplacePublishOutcome)
             : outcomesFromServer(outcome as MarketplaceRefreshOutcome);
         setItems((prev) =>
