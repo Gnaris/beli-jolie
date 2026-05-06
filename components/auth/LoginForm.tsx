@@ -68,10 +68,11 @@ export default function LoginForm() {
     const sessionRes = await fetch("/api/auth/session");
     const session = await sessionRes.json();
     if (session?.user?.role === "ADMIN") {
-      router.push("/admin");
-    } else {
-      router.push(callbackUrl === "/connexion" ? "/" : callbackUrl);
+      // /admin est hors i18n : full reload pour éviter le préfixe de locale.
+      window.location.href = "/admin";
+      return;
     }
+    router.push(callbackUrl === "/connexion" ? "/" : callbackUrl);
     router.refresh();
   }
 
