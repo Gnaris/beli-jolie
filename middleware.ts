@@ -38,7 +38,13 @@ async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
   if (maintenanceCache && now - maintenanceCache.timestamp < CACHE_TTL_MS) {
     return maintenanceCache.value;
   }
-  const fetchUrl = new URL("/api/site-status", requestUrl).toString();
+  // Auto-appel HTTP en local : on cible explicitement 127.0.0.1:3000 plutôt
+  // que de reconstruire à partir de `requestUrl`. Derrière un reverse proxy
+  // (nginx → port 3000), `request.url` peut donner `https://localhost:3000`,
+  // qui échoue car Next.js n'écoute pas en HTTPS sur ce port. Le fail-safe
+  // bascule alors le site en maintenance à tort.
+  const internalPort = process.env.PORT || "3000";
+  const fetchUrl = `http://127.0.0.1:${internalPort}/api/site-status`;
   try {
     // `cache: "no-store"` : on évite la Data Cache de Next.js (sur disque)
     // qui peut survivre aux rebuilds et garder une vieille réponse "maintenance"
@@ -46,16 +52,13 @@ async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
     // ci-dessus, qui est réinitialisé à chaque redémarrage du process.
     const res = await fetch(fetchUrl, { cache: "no-store" });
     if (!res.ok) {
-      console.error(`[mw] site-status fetch !ok status=${res.status} url=${fetchUrl}`);
       // Fail-safe : on retourne true SANS cacher, pour retenter au prochain hit.
       return true;
     }
     const data = (await res.json()) as { maintenance: boolean };
-    console.log(`[mw] site-status ok maintenance=${data.maintenance} url=${fetchUrl}`);
     maintenanceCache = { value: !!data.maintenance, timestamp: now };
     return maintenanceCache.value;
-  } catch (err) {
-    console.error(`[mw] site-status fetch threw: ${err instanceof Error ? err.message : String(err)} url=${fetchUrl}`);
+  } catch {
     // Idem : pas de cache sur l'erreur, on retentera.
     return true;
   }
