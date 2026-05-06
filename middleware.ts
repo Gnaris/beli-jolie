@@ -23,6 +23,11 @@ function localeUrl(locale: string, path: string, request: NextRequest): URL {
 }
 
 // ── Cache maintenance status (module-level, resets every ~60s) ──────────────
+// Seuls les SUCCÈS sont mis en cache 60s. Les erreurs ne sont PAS cachées :
+// au démarrage de l'app, l'API peut ne pas être prête sur la 1re requête —
+// si on cachait l'erreur 60s, le site resterait bloqué en maintenance pendant
+// 1 min après chaque (re)démarrage. Mieux vaut retenter à chaque hit jusqu'à
+// avoir un vrai succès, puis cacher 60s.
 let maintenanceCache: { value: boolean; timestamp: number } | null = null;
 const CACHE_TTL_MS = 60_000;
 
@@ -38,14 +43,14 @@ async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
       next: { revalidate: 60 },
     });
     if (!res.ok) {
-      maintenanceCache = { value: true, timestamp: now };
+      // Fail-safe : on retourne true SANS cacher, pour retenter au prochain hit.
       return true;
     }
     const data = (await res.json()) as { maintenance: boolean };
     maintenanceCache = { value: !!data.maintenance, timestamp: now };
     return maintenanceCache.value;
   } catch {
-    maintenanceCache = { value: true, timestamp: now };
+    // Idem : pas de cache sur l'erreur, on retentera.
     return true;
   }
 }
