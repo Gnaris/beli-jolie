@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { setRequestLocale } from "next-intl/server";
 import { getCachedProductCount, getCachedShopName, getCachedBusinessHours } from "@/lib/cached-data";
 import { DEFAULT_BUSINESS_HOURS, getTodayHoursLabel } from "@/lib/business-hours";
 import type { BusinessHoursSchedule } from "@/lib/business-hours";
@@ -16,7 +17,13 @@ export async function generateMetadata(): Promise<Metadata> {
 /**
  * Page d'inscription BtoB
  */
-export default async function InscriptionPage() {
+export default async function InscriptionPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
   const [productCount, businessHours] = await Promise.all([
     getCachedProductCount(),
     getCachedBusinessHours(),

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getTranslations } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
 import { getCachedShopName } from "@/lib/cached-data";
@@ -9,7 +9,13 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: `Mot de passe oublié — ${shopName}` };
 }
 
-export default async function ForgotPasswordPage() {
+export default async function ForgotPasswordPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
   const t = await getTranslations("auth.forgotPassword");
   return (
     <div className="w-full max-w-md mx-auto">

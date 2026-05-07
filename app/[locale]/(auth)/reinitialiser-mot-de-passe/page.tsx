@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getTranslations } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import ResetPasswordForm from "@/components/auth/ResetPasswordForm";
 import { getCachedShopName } from "@/lib/cached-data";
@@ -9,7 +9,15 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: `Nouveau mot de passe — ${shopName}` };
 }
 
-export default async function ResetPasswordPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
+export default async function ResetPasswordPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<{ token?: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
   const t = await getTranslations("auth.resetPassword");
   const { token } = await searchParams;
   return (

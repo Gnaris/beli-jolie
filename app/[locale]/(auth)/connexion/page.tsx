@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { setRequestLocale } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import LoginForm from "@/components/auth/LoginForm";
 import { getCachedShopName } from "@/lib/cached-data";
@@ -12,7 +13,13 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function ConnexionPage() {
+export default async function ConnexionPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
   return (
     <div className="w-full max-w-md mx-auto">
 
