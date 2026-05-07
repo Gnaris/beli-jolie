@@ -431,12 +431,23 @@ export default function CatalogProductCard({
             >
               &minus;
             </button>
-            <span
-              className="w-8 h-8 flex items-center justify-center text-xs font-semibold text-[#1A1A1A]"
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              aria-label="Quantité"
+              value={quantity || ""}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/[^0-9]/g, "");
+                if (raw === "") { setQuantity(0); return; }
+                const n = parseInt(raw, 10);
+                if (!Number.isNaN(n)) setQuantity(Math.min(effectiveStock, Math.max(0, n)));
+              }}
+              onBlur={() => { if (quantity < 1) setQuantity(1); }}
+              onFocus={(e) => e.target.select()}
+              className="w-10 h-8 text-center text-xs font-semibold text-[#1A1A1A] bg-transparent outline-none focus:bg-white"
               style={{ fontFamily: "var(--font-poppins)" }}
-            >
-              {quantity}
-            </span>
+            />
             <button
               type="button"
               onClick={() => setQuantity(Math.min(effectiveStock, quantity + 1))}

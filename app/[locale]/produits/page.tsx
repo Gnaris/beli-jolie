@@ -152,13 +152,15 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   const hasFilters = !!(q || cat || subcat || collection || colorIds.length > 0 || tagId || bestseller_ || isNew_ || promo_ || ordered_ || notOrdered_ || hideOos_ || minPrice !== null || maxPrice !== null || exactRef);
 
   // ─── Fetch filter options + site config (cached — revalidate every hour) ───
-  const [categories, collections, colors, tags, stockProductsConfig] = await Promise.all([
+  const [categories, collections, colors, tags, stockProductsConfig, seoTextRow] = await Promise.all([
     getCachedCategories(),
     getCachedCollections(),
     getCachedColors(),
     getCachedTags(),
     getCachedSiteConfig("show_out_of_stock_products"),
+    getCachedSiteConfig("produits_seo_text"),
   ]);
+  const produitsSeoText = !hasFilters ? (seoTextRow?.value?.trim() ?? "") : "";
 
   const showOosProducts = stockProductsConfig?.value !== "false"; // default true
   // showOosToggle: only show the toggle if admin allows OOS products by default
@@ -283,6 +285,11 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
           <p className="text-sm text-text-muted font-body mt-0.5">
             {t("subtitle")}
           </p>
+          {produitsSeoText && (
+            <div className="mt-4 max-w-3xl text-sm font-body text-text-secondary leading-relaxed whitespace-pre-line">
+              {produitsSeoText}
+            </div>
+          )}
         </div>
       </div>
 

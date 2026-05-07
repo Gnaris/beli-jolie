@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getStripeInstance, isStripeConfigured } from "@/lib/stripe";
+import { buildStatementDescriptor, getStripeInstance, isStripeConfigured } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { getCachedShopName } from "@/lib/cached-data";
@@ -152,6 +152,8 @@ export async function POST(req: Request) {
   }
 
   try {
+    const statementDescriptor = buildStatementDescriptor(shopName);
+
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: "eur",
@@ -166,6 +168,7 @@ export async function POST(req: Request) {
       },
       receipt_email: user?.email ?? undefined,
       description: `${shopName} — ${user?.company ?? "Client"} (${user?.email ?? "?"}) — ${(totalTTC).toFixed(2)} € TTC`,
+      ...(statementDescriptor ? { statement_descriptor: statementDescriptor } : {}),
     });
 
     return NextResponse.json({

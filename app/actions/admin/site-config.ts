@@ -74,6 +74,47 @@ export async function updateBusinessHours(schedule: {
   }
 }
 
+/**
+ * Met à jour les textes SEO affichés sur la home et sur la page /produits.
+ * Ces textes apparaissent côté visiteur (utiles pour Google) et sont éditables
+ * dans Admin > Paramètres > onglet « Référencement ».
+ *
+ * Clés SiteConfig : `home_seo_text`, `produits_seo_text`. Une chaîne vide
+ * supprime simplement le bloc côté front.
+ */
+export async function updateSeoTexts(input: {
+  homeText: string;
+  produitsText: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const home = input.homeText.trim();
+    const produits = input.produitsText.trim();
+    const MAX = 5000;
+    if (home.length > MAX || produits.length > MAX) {
+      return { success: false, error: `Le texte ne doit pas dépasser ${MAX} caractères.` };
+    }
+    await Promise.all([
+      prisma.siteConfig.upsert({
+        where: { key: "home_seo_text" },
+        update: { value: home },
+        create: { key: "home_seo_text", value: home },
+      }),
+      prisma.siteConfig.upsert({
+        where: { key: "produits_seo_text" },
+        update: { value: produits },
+        create: { key: "produits_seo_text", value: produits },
+      }),
+    ]);
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    revalidatePath("/", "layout");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
 export async function updateStockDisplayConfig(config: {
   showOutOfStockVariants: boolean;
   showOutOfStockProducts: boolean;

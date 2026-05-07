@@ -10,8 +10,6 @@ import SessionProvider from "@/components/providers/SessionProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
 import { LoadingOverlayProvider } from "@/components/ui/LoadingOverlay";
-import AccessCodeTracker from "@/components/layout/AccessCodeTracker";
-import GuestBanner from "@/components/layout/GuestBanner";
 import { getCachedShopName, getCachedBusinessHours, getCachedSiteConfig } from "@/lib/cached-data";
 import { getCachedSeoConfig, buildOrganizationSchema, getSiteUrl } from "@/lib/seo";
 import AnnouncementBanner from "@/components/layout/AnnouncementBanner";
@@ -75,6 +73,9 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     robots: { index: true, follow: true },
     manifest: "/manifest.webmanifest",
+    verification: {
+      google: "RgVY8dXeiuin_PnyWCdNUiRmcLqFWv77fzM33tVD6Vc",
+    },
   };
 }
 
@@ -140,8 +141,6 @@ export default async function RootLayout({
             <ToastProvider>
               <ConfirmProvider>
                 <LoadingOverlayProvider>
-                  <GuestBanner />
-                  <AccessCodeTracker />
                   {children}
                   <ChatWidgetLoader businessHours={businessHours} />
                   <AdminChatWidgetLoader />

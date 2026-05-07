@@ -10,6 +10,7 @@ import { getProductTranslation } from "@/lib/translate";
 import { getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
 import { getImageSrc } from "@/lib/image-utils";
 import { buildAlternates, getSiteUrl } from "@/lib/seo";
+import { canSeePrices } from "@/lib/price-visibility";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductDetail from "@/components/produits/ProductDetail";
@@ -378,6 +379,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               discountPercent={product.discountPercent != null ? Number(product.discountPercent) : null}
               clientDiscount={clientDiscount}
               isAuthenticated={!!session?.user?.id}
+              showPrices={canSeePrices(session)}
             />
           </div>
         </main>

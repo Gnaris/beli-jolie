@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useRef, useEffect } from "react";
+import { useMemo, useState, useRef } from "react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { registerSchema } from "@/lib/validations/auth";
@@ -62,88 +62,8 @@ export default function RegisterForm({
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading]             = useState(false);
   const [showPassword, setShowPassword]   = useState(false);
-  const [autoApproved, setAutoApproved]       = useState(false);
-  const [inviteCode, setInviteCode]           = useState("");
-  const [inviteStatus, setInviteStatus]       = useState<"idle" | "validating" | "valid" | "error">("idle");
-  const [inviteError, setInviteError]         = useState("");
-  const [inviteOpen, setInviteOpen]           = useState(false);
   const fileInputRef                          = useRef<HTMLInputElement>(null);
   const docInputRef                           = useRef<HTMLInputElement>(null);
-
-  function applyPrefill(prefill: Record<string, string>) {
-    setFields((prev) => {
-      const updated = { ...prev };
-      // On ne pré-remplit jamais un champ déjà rempli par l'utilisateur
-      if (prefill.firstName && !prev.firstName)                 updated.firstName         = prefill.firstName;
-      if (prefill.lastName && !prev.lastName)                   updated.lastName          = prefill.lastName;
-      if (prefill.company && !prev.company)                     updated.company           = prefill.company;
-      if (prefill.email && !prev.email)                         updated.email             = prefill.email;
-      if (prefill.phone && !prev.phone)                         updated.phone             = prefill.phone;
-      if (prefill.siret && !prev.siret)                         updated.siret             = prefill.siret;
-      if (prefill.vatNumber && !prev.vatNumber)                 updated.vatNumber         = prefill.vatNumber;
-      if (prefill.addressStreet && !prev.addressStreet)         updated.addressStreet     = prefill.addressStreet;
-      if (prefill.addressComplement && !prev.addressComplement) updated.addressComplement = prefill.addressComplement;
-      if (prefill.addressZip && !prev.addressZip)               updated.addressZip        = prefill.addressZip;
-      if (prefill.addressCity && !prev.addressCity)             updated.addressCity       = prefill.addressCity;
-      // Pour le pays, on pré-remplit même si la valeur par défaut "FR" est encore là.
-      if (prefill.addressCountry && (prev.addressCountry === "FR" || !prev.addressCountry)) {
-        updated.addressCountry = prefill.addressCountry;
-      }
-      return updated;
-    });
-  }
-
-  // Pré-remplir si cookie bj_access_code existe
-  useEffect(() => {
-    const match = document.cookie.match(/bj_access_code=([^;]+)/);
-    if (match) {
-      const code = decodeURIComponent(match[1]);
-      setInviteCode(code);
-      setInviteStatus("valid");
-      setInviteOpen(true);
-      fetch("/api/access-code/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      })
-        .then((res) => res.json())
-        .then((json) => {
-          if (json.prefill) applyPrefill(json.prefill);
-        })
-        .catch(() => {});
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function validateInviteCode(code: string) {
-    const trimmed = code.trim();
-    if (!trimmed) {
-      setInviteStatus("idle");
-      setInviteError("");
-      return;
-    }
-    setInviteStatus("validating");
-    setInviteError("");
-    try {
-      const res = await fetch("/api/access-code/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: trimmed }),
-      });
-      const json = await res.json();
-      if (res.ok) {
-        setInviteStatus("valid");
-        setInviteError("");
-        if (json.prefill) applyPrefill(json.prefill);
-      } else {
-        setInviteStatus("error");
-        setInviteError(json.error ?? "Code invalide.");
-      }
-    } catch {
-      setInviteStatus("error");
-      setInviteError("Erreur de connexion.");
-    }
-  }
 
   function handleChange(field: keyof typeof fields, value: string) {
     setFields((prev) => ({ ...prev, [field]: value }));
@@ -235,7 +155,6 @@ export default function RegisterForm({
         setGlobalError(json.error ?? t("kbisRequired"));
         return;
       }
-      setAutoApproved(json.autoApproved === true);
       setSuccessMessage(json.message);
     } catch {
       setGlobalError(t("kbisRequired"));
@@ -262,8 +181,8 @@ export default function RegisterForm({
           <p className="font-body text-text-muted text-sm md:text-base leading-relaxed mb-8 max-w-md mx-auto">
             {successMessage}
           </p>
-          <Link href={autoApproved ? "/connexion" : "/"} className="btn-primary justify-center">
-            {autoApproved ? "Se connecter" : t("backHome")}
+          <Link href="/" className="btn-primary justify-center">
+            {t("backHome")}
           </Link>
         </div>
       </div>
@@ -329,29 +248,6 @@ export default function RegisterForm({
       <div className="mb-6">
         <StaffAvailability schedule={schedule} />
       </div>
-
-      {/* ── Bandeau Code d'invitation (collapsible) ── */}
-      <InviteCodeBanner
-        open={inviteOpen}
-        onToggle={() => setInviteOpen((v) => !v)}
-        code={inviteCode}
-        status={inviteStatus}
-        error={inviteError}
-        onCodeChange={(v) => {
-          setInviteCode(v.toUpperCase());
-          if (inviteStatus !== "idle") {
-            setInviteStatus("idle");
-            setInviteError("");
-          }
-        }}
-        onValidate={() => validateInviteCode(inviteCode)}
-        onClear={() => {
-          setInviteCode("");
-          setInviteStatus("idle");
-          setInviteError("");
-          document.cookie = "bj_access_code=; max-age=0; path=/";
-        }}
-      />
 
       {/* ── Erreur globale ── */}
       {globalError && (
@@ -819,106 +715,6 @@ function UploadField({
         )}
       </div>
       {error && <p className="text-xs text-error mt-1.5 font-body" role="alert">{error}</p>}
-    </div>
-  );
-}
-
-function InviteCodeBanner({
-  open, onToggle, code, status, error, onCodeChange, onValidate, onClear,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  code: string;
-  status: "idle" | "validating" | "valid" | "error";
-  error: string;
-  onCodeChange: (v: string) => void;
-  onValidate: () => void;
-  onClear: () => void;
-}) {
-  return (
-    <div className={`bg-bg-primary rounded-2xl border transition-all mb-6 overflow-hidden ${
-      status === "valid" ? "border-success/40 shadow-[0_0_0_3px_rgba(34,197,94,0.08)]" : "border-border"
-    }`}>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-bg-secondary/50 transition-colors text-left"
-        aria-expanded={open}
-      >
-        <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-            status === "valid" ? "bg-success/15" : "bg-bg-secondary"
-          }`}>
-            <svg className={`w-4.5 h-4.5 ${status === "valid" ? "text-success" : "text-text-muted"}`}
-              fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-sm font-body font-medium text-text-primary">
-              {status === "valid" ? "Code d'invitation validé" : "J'ai un code d'invitation"}
-            </p>
-            <p className="text-xs text-text-muted font-body">
-              {status === "valid"
-                ? "Activation immédiate après inscription, sans vérification."
-                : "Optionnel — accélère votre validation."}
-            </p>
-          </div>
-        </div>
-        <svg className={`w-4 h-4 text-text-muted transition-transform ${open ? "rotate-180" : ""}`}
-          fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="px-5 pb-5 border-t border-border-light pt-4">
-          <div className="flex gap-2">
-            <input
-              id="inviteCode"
-              type="text"
-              value={code}
-              onChange={(e) => onCodeChange(e.target.value)}
-              placeholder="Entrez votre code"
-              disabled={status === "valid"}
-              className={`field-input flex-1 text-sm uppercase tracking-[0.15em] font-mono ${
-                status === "valid" ? "border-success bg-[#F0FDF4]" : status === "error" ? "border-error" : ""
-              }`}
-            />
-            {status === "valid" ? (
-              <button
-                type="button"
-                onClick={onClear}
-                className="px-3 py-2 text-sm font-body text-text-muted hover:text-error border border-border rounded-lg transition-colors"
-                aria-label="Retirer le code"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={onValidate}
-                disabled={!code.trim() || status === "validating"}
-                className="btn-primary px-5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {status === "validating" ? (
-                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                ) : "Valider"}
-              </button>
-            )}
-          </div>
-
-          {status === "error" && error && (
-            <p className="mt-2 text-xs text-error font-body">{error}</p>
-          )}
-        </div>
-      )}
     </div>
   );
 }

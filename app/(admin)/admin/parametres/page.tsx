@@ -18,13 +18,14 @@ import DeeplApiKeyConfig from "@/components/admin/settings/DeeplApiKeyConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
 import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig";
 import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBannerConfig";
+import SeoTextsConfig from "@/components/admin/settings/SeoTextsConfig";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
   return { title: `Paramètres — ${shopName} Admin` };
 }
 
-const VALID_TABS = ["general", "societe", "catalogue", "carrousels", "stock", "maintenance", "livraison", "marketplaces", "horaires", "traduction"] as const;
+const VALID_TABS = ["general", "societe", "catalogue", "carrousels", "stock", "maintenance", "livraison", "marketplaces", "horaires", "traduction", "seo"] as const;
 type Tab = (typeof VALID_TABS)[number];
 
 export default async function ParametresPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -61,6 +62,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           {activeTab === "marketplaces" && <MarketplacesTab />}
           {activeTab === "horaires" && <HorairesTab />}
           {activeTab === "traduction" && <TraductionTab />}
+          {activeTab === "seo" && <SeoTab />}
         </div>
       </div>
     </div>
@@ -385,6 +387,31 @@ async function TraductionTab() {
           <AutoTranslateConfig enabled={autoTranslateConfig?.value === "true"} />
         </div>
       )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Référencement — textes SEO
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function SeoTab() {
+  const [homeRow, produitsRow] = await Promise.all([
+    prisma.siteConfig.findUnique({ where: { key: "home_seo_text" } }),
+    prisma.siteConfig.findUnique({ where: { key: "produits_seo_text" } }),
+  ]);
+
+  return (
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+      <h3 className="font-heading text-base font-semibold text-text-primary mb-1">
+        Textes pour Google
+      </h3>
+      <p className="text-sm text-text-secondary font-body mb-5">
+        Petits textes affichés sur la page d&apos;accueil et sur la page de tous les produits. Ils aident Google à comprendre ce que vous vendez et à mieux référencer le site.
+      </p>
+      <SeoTextsConfig
+        initialHomeText={homeRow?.value ?? ""}
+        initialProduitsText={produitsRow?.value ?? ""}
+      />
     </div>
   );
 }

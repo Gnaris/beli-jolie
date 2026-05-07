@@ -33,3 +33,13 @@ export function isStripeConfigured(): boolean {
 export function invalidateStripeCache() {
   _cachedStripe = null;
 }
+
+export function buildStatementDescriptor(shopName: string): string | undefined {
+  const cleaned = shopName
+    .replace(/[<>\\'"*]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 22);
+  if (cleaned.length < 5 || !/[a-zA-Z]/.test(cleaned)) return undefined;
+  return cleaned;
+}

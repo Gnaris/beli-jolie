@@ -27,8 +27,8 @@ async function main() {
   const ids = clients.map((c) => c.id);
 
   // Ordre : on coupe d'abord toutes les tables enfants qui n'ont pas onDelete:Cascade
-  // sur User. Cart, ShippingAddress, Favorite, AccessCode (côté client) ont déjà
-  // Cascade ; mais Order et OrderItem n'en ont pas — il faut les retirer manuellement.
+  // sur User. Cart, ShippingAddress, Favorite (côté client) ont déjà Cascade ;
+  // mais Order et OrderItem n'en ont pas — il faut les retirer manuellement.
   const orderIds = (await prisma.order.findMany({
     where: { userId: { in: ids } },
     select: { id: true },
@@ -47,9 +47,9 @@ async function main() {
   // Idem pour PriceHistory, ProductView : ces user-references côté admin n'existeront pas
   // pour des CLIENT, on peut donc supprimer directement.
 
-  // Supprimer les utilisateurs (les Cart, ShippingAddress, Favorite, AccessCode,
-  // RestockAlert, ProductView, Conversation, Message, Claim, Credit, PromotionUsage,
-  // ImportDraft, ImportJob ont onDelete:Cascade ou seront supprimés par le cascade).
+  // Supprimer les utilisateurs (Cart, ShippingAddress, Favorite, RestockAlert,
+  // ProductView, Conversation, Message, Claim, Credit, PromotionUsage, ImportDraft,
+  // ImportJob ont onDelete:Cascade ou seront supprimés par le cascade).
   const result = await prisma.user.deleteMany({ where: { role: "CLIENT" } });
   console.log(`✅ ${result.count} compte(s) CLIENT supprimé(s).`);
 

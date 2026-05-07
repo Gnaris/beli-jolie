@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Link } from "@/i18n/navigation";
 import LoginForm from "@/components/auth/LoginForm";
-import AccessCodeForm from "@/components/auth/AccessCodeForm";
 import { getCachedShopName } from "@/lib/cached-data";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -53,16 +52,6 @@ export default function ConnexionPage() {
           Mot de passe oublié ?
         </Link>
       </p>
-
-      {/* Séparateur */}
-      <div className="flex items-center gap-3 my-6">
-        <div className="flex-1 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
-        <span className="text-xs text-text-muted font-body">ou</span>
-        <div className="flex-1 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
-      </div>
-
-      {/* Code d'accès invité */}
-      <AccessCodeForm />
     </div>
   );
 }

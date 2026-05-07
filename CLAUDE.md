@@ -32,9 +32,11 @@ B2B SaaS e-commerce platform — generic wholesale for any product type. Next.js
 | `(auth)` | `/connexion`, `/inscription` | Unauthenticated only |
 | `(admin)` | `/admin/*` | ADMIN role |
 | `(client)` | `/espace-pro/*`, `/panier/*`, `/commandes/*`, `/favoris` | CLIENT (APPROVED) |
-| *(direct)* | `/produits/*`, `/collections/*`, `/categories` | Public / guest (`bj_access_code` cookie) |
+| *(direct)* | `/produits/*`, `/collections/*`, `/categories` | Public — visiteurs anonymes inclus, mais prix masqués tant que la session n'est pas APPROVED |
 
 Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback). Middleware also handles maintenance mode (60s module-level cache **only on success** — errors are not cached so a transient fetch failure at app startup doesn't lock the site in maintenance for 1 minute) and admin preview (`bj_admin_preview=1` cookie).
+
+**Visibilité des prix** : depuis mai 2026, le système de code d'accès invité (`bj_access_code`, modèle `AccessCode`, page `/admin/codes-acces`) est supprimé. Tout le monde peut consulter le site, mais les tarifs et les boutons d'achat sont masqués tant que la session n'est pas ADMIN ou CLIENT APPROVED. Logique centralisée dans `lib/price-visibility.ts` (`canSeePrices(session)`). Côté API publique (`/api/products`, `/api/products/search`, `/api/products/[id]/live`), les `unitPrice` et `discountPercent` sont remis à 0/null avant la réponse JSON quand le visiteur n'a pas le droit ; les filtres `minPrice/maxPrice` sont aussi ignorés pour empêcher la recherche par dichotomie. Côté UI, `ProductCard`, `ProductDetail`, `ProductCarousel` et `FeaturedProduct` affichent « Connectez-vous pour voir les prix » et un bouton « Créer un compte pour commander » à la place du bloc tarif/qty/CTA.
 
 ### Key layers
 
@@ -305,6 +307,17 @@ Quand un commit doit partir en prod :
 4. `npx prisma generate && npx prisma db push --skip-generate` (si schema changé)
 5. `NODE_OPTIONS='--max-old-space-size=4096' npm run build`
 6. `pm2 restart beliandjolie`
+
+### Playwright / Chromium (import images PFS)
+
+L'import PFS télécharge les images des produits via un Chromium headless (cf. `lib/pfs-import.ts` → `downloadImagesWithPlaywright`). Le binaire **n'est PAS installé par `npm install`** : il faut le télécharger à part, une fois après chaque déploiement initial ou montée de version Playwright :
+
+```
+ssh root@72.61.106.128 "cd /var/www/beliandjolie && npx playwright install --with-deps chromium"
+pm2 restart beliandjolie
+```
+
+Sans ça, l'import PFS plante avec `browserType.launch: Executable doesn't exist at /root/.cache/ms-playwright/...`. Le binaire vit dans `/root/.cache/ms-playwright/` (~500 Mo, hors repo).
 
 ### Accès administrateur côté cliente
 

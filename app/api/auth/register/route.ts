@@ -6,7 +6,6 @@ import { prisma } from "@/lib/prisma";
 import { registerSchema } from "@/lib/validations/auth";
 import { notifyNewClientRegistration } from "@/lib/notifications";
 import { checkRegistrationSpam, logRegistration, getClientIp } from "@/lib/security";
-import { cookies } from "next/headers";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 import { checkVies } from "@/lib/vies";
@@ -227,25 +226,6 @@ export async function POST(request: NextRequest) {
       documentPath = `private/uploads/documents/${docFilename}`;
     }
 
-    // ── Vérification code d'accès invité ──────────────────────────────
-    const cookieStore = await cookies();
-    const accessCodeCookie = cookieStore.get("bj_access_code")?.value;
-    let autoApproved = false;
-
-    if (accessCodeCookie) {
-      const accessCode = await prisma.accessCode.findUnique({
-        where: { code: accessCodeCookie },
-      });
-      if (
-        accessCode &&
-        accessCode.isActive &&
-        !accessCode.usedBy &&
-        new Date() <= accessCode.expiresAt
-      ) {
-        autoApproved = true;
-      }
-    }
-
     // ── Création de l'utilisateur ──────────────────────────────────────
 
     // Hash du mot de passe (12 rounds = bon équilibre sécurité/performance)
@@ -270,7 +250,7 @@ export async function POST(request: NextRequest) {
         documentPath,
         registrationMessage: data.registrationMessage?.trim() || null,
         role:                "CLIENT",
-        status:              autoApproved ? "APPROVED" : "PENDING",
+        status:              "PENDING",
       },
     });
 
@@ -297,18 +277,6 @@ export async function POST(request: NextRequest) {
     // ── Log anti-spam (cooldown 3h) ─────────────────────────────────────
     await logRegistration(clientIp, data.email, data.phone, data.siret, data.company);
 
-    // ── Marquer le code d'accès comme utilisé ──────────────────────────
-    if (autoApproved && accessCodeCookie) {
-      await prisma.accessCode.update({
-        where: { code: accessCodeCookie },
-        data: {
-          usedBy: newUser.id,
-          usedByName: `${newUser.firstName} ${newUser.lastName}`,
-          usedAt: new Date(),
-        },
-      });
-    }
-
     // Notification admin (email + Kbis en pièce jointe si fourni) — non bloquant
     notifyNewClientRegistration({
       firstName:           newUser.firstName,
@@ -324,18 +292,9 @@ export async function POST(request: NextRequest) {
       logger.error("[POST /api/auth/register] Notification échouée", { error: err instanceof Error ? err.message : String(err) })
     );
 
-    const message = autoApproved
-      ? "Votre compte a été créé et activé automatiquement. Vous pouvez vous connecter dès maintenant."
-      : "Votre demande d'accès a bien été enregistrée. Notre équipe va examiner votre dossier et vous contactera par email.";
+    const message = "Votre demande d'accès a bien été enregistrée. Notre équipe va examiner votre dossier et vous contactera par email.";
 
-    const response = NextResponse.json({ message, autoApproved }, { status: 201 });
-
-    // Supprimer le cookie access code après inscription
-    if (autoApproved) {
-      response.cookies.set("bj_access_code", "", { maxAge: 0, path: "/" });
-    }
-
-    return response;
+    return NextResponse.json({ message }, { status: 201 });
   } catch (error) {
     logger.error("[POST /api/auth/register]", { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(

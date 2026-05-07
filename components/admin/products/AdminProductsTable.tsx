@@ -491,12 +491,11 @@ function ProductRow({
   const { confirm } = useConfirm();
   const { refreshSingle } = useRefreshMarketplaceDialog();
 
-  // Grouper les variantes UNIT par colorId. PACK exclus.
+  // Toutes les couleurs uniques attribuées au produit (UNIT + PACK confondus).
   const uniqueColors = [...new Map(product.colors
-    .filter((c) => c.saleType !== "PACK" && c.colorId && c.color)
+    .filter((c) => c.colorId && c.color)
     .map((c) => [c.colorId!, c] as const)
   ).values()];
-  const packCount = product.colors.filter((c) => c.saleType === "PACK").length;
   const minPrice = product.colors.length > 0
     ? Math.min(...product.colors.map((c) => c.unitPrice))
     : NaN;
@@ -588,31 +587,21 @@ function ProductRow({
               const swatchStyle: React.CSSProperties = c.color.patternImage
                 ? { backgroundImage: `url(${c.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
                 : { backgroundColor: mainHex };
-              const isOos = c.stock === 0 && showStockBadges;
               return (
                 <span
                   key={c.colorId}
-                  title={`${fullName}${isOos ? " — Rupture" : ""}`}
+                  title={fullName}
                   className="inline-block w-5 h-5 rounded-full relative shrink-0"
                   style={{
                     ...swatchStyle,
                     border: '2px solid #fff',
                     boxShadow: '0 0 0 1px #D1D1D1',
                   }}
-                >
-                  {isOos && (
-                    <span className="absolute inset-[-2px] rounded-full border-[2.5px] border-[#EF4444] pointer-events-none" />
-                  )}
-                </span>
+                />
               );
             })}
             {uniqueColors.length > 6 && (
               <span className="text-[10px] text-text-muted font-semibold whitespace-nowrap">+{uniqueColors.length - 6}</span>
-            )}
-            {packCount > 0 && (
-              <span className="badge badge-purple text-[10px] shrink-0">
-                {packCount} pack{packCount > 1 ? "s" : ""}
-              </span>
             )}
           </div>
         </td>

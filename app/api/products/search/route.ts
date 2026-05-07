@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { canSeePrices } from "@/lib/price-visibility";
 
 /**
  * GET /api/products/search?q=xxx
@@ -7,6 +10,8 @@ import { NextRequest, NextResponse } from "next/server";
  * Priorité : référence > nom > description > catégorie > mots-clés
  */
 export async function GET(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  const showPrices = canSeePrices(session);
   const q = request.nextUrl.searchParams.get("q")?.trim() ?? "";
   const exactRef = request.nextUrl.searchParams.get("exactRef") === "1";
   if (q.length < 2) return NextResponse.json({ results: [] });
@@ -74,7 +79,7 @@ export async function GET(request: NextRequest) {
     reference: p.reference,
     category: p.category.name,
     image: firstImageMap.get(p.id) ?? null,
-    price: p.colors[0] ? Number(p.colors[0].unitPrice) : null,
+    price: showPrices && p.colors[0] ? Number(p.colors[0].unitPrice) : null,
   }));
 
   return NextResponse.json({ results });

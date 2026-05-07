@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
+import { canSeePrices } from "@/lib/price-visibility";
 
 /**
  * GET /api/products/[id]/live — fetch a single product in the same shape as the listing API.
@@ -8,6 +11,8 @@ import { getProductPrimaryColorId } from "@/lib/product-primary-color";
  */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const session = await getServerSession(authOptions);
+  const showPrices = canSeePrices(session);
 
   const product = await prisma.product.findUnique({
     where: { id },
@@ -79,18 +84,32 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     });
   }
 
+  let colors = [...colorMap.values()];
+  let discountPercent = product.discountPercent != null ? Number(product.discountPercent) : null;
+  if (!showPrices) {
+    discountPercent = null;
+    colors = colors.map((c) => {
+      const color = c as { unitPrice: number; variants: Array<{ unitPrice: number }> };
+      return {
+        ...color,
+        unitPrice: 0,
+        variants: color.variants.map((v) => ({ ...v, unitPrice: 0 })),
+      };
+    });
+  }
+
   return NextResponse.json({
     product: {
       id: product.id,
       name: product.name,
       reference: product.reference,
       isBestSeller: product.isBestSeller,
-      discountPercent: product.discountPercent != null ? Number(product.discountPercent) : null,
+      discountPercent,
       createdAt: product.createdAt,
       category: product.category,
       subCategories: product.subCategories,
       tags: product.tags,
-      colors: [...colorMap.values()],
+      colors,
       status: product.status,
     },
   });

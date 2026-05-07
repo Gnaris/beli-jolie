@@ -3,8 +3,10 @@
 import { Link } from "@/i18n/navigation";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
+import { useSession } from "next-auth/react";
 import { useScrollReveal } from "./useScrollReveal";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
+import { canSeePrices } from "@/lib/price-visibility";
 import type { CarouselProduct, ClientDiscountInfo } from "./ProductCarousel";
 
 interface Props {
@@ -32,7 +34,7 @@ function getMinPrice(product: CarouselProduct, clientDiscount?: ClientDiscountIn
   return { minBase, minDiscounted, finalPrice, hasAnyDiscount };
 }
 
-function CompactCard({ product, clientDiscount }: { product: CarouselProduct; clientDiscount?: ClientDiscountInfo | null }) {
+function CompactCard({ product, clientDiscount, showPrices }: { product: CarouselProduct; clientDiscount?: ClientDiscountInfo | null; showPrices: boolean }) {
   const { tp, tc } = useProductTranslation();
   const image = getProductImage(product);
   const { finalPrice, hasAnyDiscount, minBase } = getMinPrice(product, clientDiscount);
@@ -55,11 +57,15 @@ function CompactCard({ product, clientDiscount }: { product: CarouselProduct; cl
         <div className="p-3">
           <p className="font-body font-medium text-sm text-text-primary line-clamp-1">{tp(product.name)}</p>
           <p className="text-xs text-text-muted font-body mt-0.5">{tc(product.category)}</p>
-          <div className="flex items-baseline gap-1.5 mt-1.5">
-            {hasAnyDiscount && <span className="text-xs text-text-muted line-through font-body">{minBase.toFixed(2)} &euro;</span>}
-            <span className={`font-heading font-semibold text-sm ${hasAnyDiscount ? "text-[#EF4444]" : "text-text-primary"}`}>{finalPrice.toFixed(2)} &euro;</span>
-            <span className="text-[10px] text-text-muted font-body">{tProduct("htUnit")}</span>
-          </div>
+          {showPrices ? (
+            <div className="flex items-baseline gap-1.5 mt-1.5">
+              {hasAnyDiscount && <span className="text-xs text-text-muted line-through font-body">{minBase.toFixed(2)} &euro;</span>}
+              <span className={`font-heading font-semibold text-sm ${hasAnyDiscount ? "text-[#EF4444]" : "text-text-primary"}`}>{finalPrice.toFixed(2)} &euro;</span>
+              <span className="text-[10px] text-text-muted font-body">{tProduct("htUnit")}</span>
+            </div>
+          ) : (
+            <p className="text-xs text-text-secondary font-body mt-1.5">Connectez-vous pour voir le prix</p>
+          )}
         </div>
       </article>
     </Link>
@@ -71,6 +77,8 @@ export default function FeaturedProduct({ products, clientDiscount }: Props) {
   const { tp, tc } = useProductTranslation();
   const tProduct = useTranslations("product");
   const sectionRef = useScrollReveal();
+  const { data: session } = useSession();
+  const showPrices = canSeePrices(session);
 
   if (products.length === 0) return null;
 
@@ -107,11 +115,15 @@ export default function FeaturedProduct({ products, clientDiscount }: Props) {
                 <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-5">
                   <p className="font-heading font-semibold text-white text-lg">{tp(hero.name)}</p>
                   <p className="font-body text-white/70 text-sm mt-0.5">{tc(hero.category)}</p>
-                  <div className="flex items-baseline gap-2 mt-1.5">
-                    {hasAnyDiscount && <span className="text-sm text-white/50 line-through">{minBase.toFixed(2)} &euro;</span>}
-                    <span className={`font-heading font-bold text-lg ${hasAnyDiscount ? "text-[#EF4444]" : "text-white"}`}>{finalPrice.toFixed(2)} &euro;</span>
-                    <span className="text-xs text-white/50">{tProduct("htUnit")}</span>
-                  </div>
+                  {showPrices ? (
+                    <div className="flex items-baseline gap-2 mt-1.5">
+                      {hasAnyDiscount && <span className="text-sm text-white/50 line-through">{minBase.toFixed(2)} &euro;</span>}
+                      <span className={`font-heading font-bold text-lg ${hasAnyDiscount ? "text-[#EF4444]" : "text-white"}`}>{finalPrice.toFixed(2)} &euro;</span>
+                      <span className="text-xs text-white/50">{tProduct("htUnit")}</span>
+                    </div>
+                  ) : (
+                    <p className="font-body text-sm text-white/80 mt-1.5">Connectez-vous pour voir le prix</p>
+                  )}
                   {hero.colors.length > 1 && (
                     <div className="flex gap-1.5 mt-2">
                       {hero.colors.slice(0, 6).map((c) => (
@@ -127,7 +139,7 @@ export default function FeaturedProduct({ products, clientDiscount }: Props) {
           {/* Companion products */}
           <div className="lg:col-span-2 grid grid-cols-2 lg:grid-cols-1 gap-5">
             {companions.map((product) => (
-              <CompactCard key={product.id} product={product} clientDiscount={clientDiscount} />
+              <CompactCard key={product.id} product={product} clientDiscount={clientDiscount} showPrices={showPrices} />
             ))}
             <div className="col-span-2 lg:col-span-1 flex justify-center">
               <Link href="/produits" className="text-sm font-body text-text-secondary hover:text-text-primary transition-colors">

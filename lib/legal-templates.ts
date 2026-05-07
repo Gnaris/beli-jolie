@@ -279,7 +279,6 @@ export const DEFAULT_TEMPLATES = {
 <ul>
 <li><strong>Session d'authentification</strong> — Maintient votre connexion active (durée : session / 30 jours)</li>
 <li><strong>Préférences de langue</strong> (<code>bj_locale</code>) — Mémorise votre langue préférée (durée : 1 an)</li>
-<li><strong>Code d'accès invité</strong> (<code>bj_access_code</code>) — Permet la navigation sans inscription (durée : 1 an)</li>
 </ul>
 
 <h3>Cookies fonctionnels</h3>

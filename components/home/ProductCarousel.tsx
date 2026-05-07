@@ -9,6 +9,7 @@ import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { useScrollReveal } from "./useScrollReveal";
 import { addToCart } from "@/app/actions/client/cart";
 import ColorSwatch from "@/components/ui/ColorSwatch";
+import { canSeePrices } from "@/lib/price-visibility";
 
 interface CarouselVariant {
   id: string;
@@ -115,6 +116,7 @@ function CarouselCard({
   const { data: session } = useSession();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const showPrices = canSeePrices(session);
 
   const primaryColor = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
   const [selectedColorKey, setSelectedColorKey] = useState<string>(primaryColor?.groupKey ?? primaryColor?.id ?? "");
@@ -314,26 +316,48 @@ function CarouselCard({
         </p>
 
         {/* Price */}
-        <div className="flex items-baseline gap-1.5 flex-wrap">
-          {showStrikethrough && (
-            <span className="font-body text-xs text-text-muted line-through">
-              {strikethroughPrice.toFixed(2)} &euro;
+        {showPrices ? (
+          <div className="flex items-baseline gap-1.5 flex-wrap">
+            {showStrikethrough && (
+              <span className="font-body text-xs text-text-muted line-through">
+                {strikethroughPrice.toFixed(2)} &euro;
+              </span>
+            )}
+            {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
+              <span className="text-[10px] font-body text-[#EF4444] font-medium">
+                -{clientDiscount.discountValue}%
+              </span>
+            )}
+            <span className={`font-heading font-semibold ${isPremium ? "text-base" : "text-sm"} ${showStrikethrough ? "text-[#EF4444]" : "text-text-primary"}`}>
+              {(hasClientDiscount ? finalPrice : priceBeforeClient).toFixed(2)} &euro;
             </span>
-          )}
-          {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
-            <span className="text-[10px] font-body text-[#EF4444] font-medium">
-              -{clientDiscount.discountValue}%
+            <span className="text-[10px] text-text-muted font-body">
+              {tProduct("htUnit")}{activeVariant?.saleType === "PACK" && activeVariant.packQuantity ? ` / pack x${activeVariant.packQuantity}` : ""}
             </span>
-          )}
-          <span className={`font-heading font-semibold ${isPremium ? "text-base" : "text-sm"} ${showStrikethrough ? "text-[#EF4444]" : "text-text-primary"}`}>
-            {(hasClientDiscount ? finalPrice : priceBeforeClient).toFixed(2)} &euro;
-          </span>
-          <span className="text-[10px] text-text-muted font-body">
-            {tProduct("htUnit")}{activeVariant?.saleType === "PACK" && activeVariant.packQuantity ? ` / pack x${activeVariant.packQuantity}` : ""}
-          </span>
-        </div>
+          </div>
+        ) : (
+          <Link
+            href="/connexion"
+            className="inline-flex items-center gap-1.5 text-xs font-body text-text-secondary hover:text-text-primary underline-offset-4 hover:underline transition-colors"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+            </svg>
+            Connectez-vous pour voir les prix
+          </Link>
+        )}
 
         {/* Options: sale type + sizes + quantity + button */}
+        {!showPrices ? (
+          <div className="mt-auto pt-2 border-t border-border-light">
+            <Link
+              href="/inscription"
+              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-body font-medium bg-accent text-white hover:bg-accent-dark active:scale-[0.98] transition-all"
+            >
+              Créer un compte pour commander
+            </Link>
+          </div>
+        ) : (
         <div className="mt-auto space-y-2 pt-2 border-t border-border-light">
           {/* Sale type selector */}
           {saleOptions.length >= 1 && (
@@ -410,9 +434,23 @@ function CarouselCard({
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setQuantity(Math.max(1, quantity - 1)); }}
               className="w-8 h-7 flex items-center justify-center text-text-muted hover:bg-bg-secondary transition-colors text-sm"
             >&minus;</button>
-            <span className="w-8 h-7 flex items-center justify-center text-xs font-body text-text-primary">
-              {quantity}
-            </span>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              aria-label={tProduct("quantity") ?? "Quantité"}
+              value={quantity || ""}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/[^0-9]/g, "");
+                if (raw === "") { setQuantity(0); return; }
+                const n = parseInt(raw, 10);
+                if (!Number.isNaN(n)) setQuantity(Math.min(effectiveStock, Math.max(0, n)));
+              }}
+              onBlur={() => { if (quantity < 1) setQuantity(1); }}
+              onFocus={(e) => e.target.select()}
+              className="w-10 h-7 text-center text-xs font-body text-text-primary bg-transparent outline-none focus:bg-bg-secondary"
+            />
             <button
               type="button"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setQuantity(Math.min(effectiveStock, quantity + 1)); }}
@@ -464,6 +502,7 @@ function CarouselCard({
             )}
           </button>
         </div>
+        )}
       </div>
     </article>
   );

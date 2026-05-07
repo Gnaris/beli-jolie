@@ -77,6 +77,8 @@ interface ProductDetailProps {
   discountPercent?: number | null;
   clientDiscount?: ClientDiscountInfo | null;
   isAuthenticated?: boolean;
+  /** Si false : tarifs et boutons d'achat masqués (visiteur non APPROVED). */
+  showPrices?: boolean;
 }
 
 function computePrice(v: VariantData, discountPercent?: number | null): number {
@@ -86,7 +88,7 @@ function computePrice(v: VariantData, discountPercent?: number | null): number {
   return Math.max(0, total * (1 - discountPercent / 100));
 }
 
-function RelatedCard({ product }: { product: RelatedProduct }) {
+function RelatedCard({ product, showPrice }: { product: RelatedProduct; showPrice: boolean }) {
   const { tp } = useProductTranslation();
   return (
     <Link
@@ -117,9 +119,15 @@ function RelatedCard({ product }: { product: RelatedProduct }) {
         <p className="text-sm font-medium text-text-primary font-body mt-0.5 line-clamp-2">
           {tp(product.name)}
         </p>
-        <p className="text-sm font-heading font-semibold text-text-primary mt-1">
-          {product.minPrice.toFixed(2)} €
-        </p>
+        {showPrice ? (
+          <p className="text-sm font-heading font-semibold text-text-primary mt-1">
+            {product.minPrice.toFixed(2)} €
+          </p>
+        ) : (
+          <p className="text-xs font-body text-text-secondary mt-1">
+            Connectez-vous pour voir le prix
+          </p>
+        )}
       </div>
     </Link>
   );
@@ -133,7 +141,7 @@ function applyClientDiscount(price: number, discount: ClientDiscountInfo | null 
 
 export default function ProductDetail({
   productId, name, reference, description, category, subCategories, tags, variants,
-  colorImages, compositions, dimensions, similarProducts, bundleChildren, bundleParents, sizeDetailsTu, discountPercent, clientDiscount, isAuthenticated,
+  colorImages, compositions, dimensions, similarProducts, bundleChildren, bundleParents, sizeDetailsTu, discountPercent, clientDiscount, isAuthenticated, showPrices = true,
 }: ProductDetailProps) {
   const router = useRouter();
   const t = useTranslations("product");
@@ -402,24 +410,48 @@ export default function ProductDetail({
           </span>
 
           {/* Prix */}
-          <div>
-            {(hasClientDiscount || hasAnyProductDiscount) && (
-              <p className="font-body text-sm text-text-muted line-through">
-                {(hasClientDiscount ? minPrice : minBasePrice).toFixed(2)} €
-              </p>
-            )}
-            <div className="flex items-baseline gap-2">
-              {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
-                <span className="text-sm font-body text-[#EF4444] font-medium">
-                  -{clientDiscount.discountValue}%
-                </span>
+          {showPrices ? (
+            <div>
+              {(hasClientDiscount || hasAnyProductDiscount) && (
+                <p className="font-body text-sm text-text-muted line-through">
+                  {(hasClientDiscount ? minPrice : minBasePrice).toFixed(2)} €
+                </p>
               )}
-              <p className={`font-heading text-3xl font-semibold ${(hasClientDiscount || hasAnyProductDiscount) ? "text-[#EF4444]" : "text-text-primary"}`}>
-                {(hasClientDiscount ? minPriceAfterClient : minPrice).toFixed(2)} €
-                <span className="text-sm text-text-muted font-normal ml-1">{t("htUnit")}</span>
-              </p>
+              <div className="flex items-baseline gap-2">
+                {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
+                  <span className="text-sm font-body text-[#EF4444] font-medium">
+                    -{clientDiscount.discountValue}%
+                  </span>
+                )}
+                <p className={`font-heading text-3xl font-semibold ${(hasClientDiscount || hasAnyProductDiscount) ? "text-[#EF4444]" : "text-text-primary"}`}>
+                  {(hasClientDiscount ? minPriceAfterClient : minPrice).toFixed(2)} €
+                  <span className="text-sm text-text-muted font-normal ml-1">{t("htUnit")}</span>
+                </p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-bg-secondary border border-border rounded-2xl px-5 py-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-bg-primary border border-border flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <p className="font-heading text-base font-semibold text-text-primary leading-tight">
+                  Connectez-vous pour voir les prix
+                </p>
+                <p className="text-xs text-text-muted font-body mt-0.5">
+                  Réservé aux professionnels validés par notre équipe.
+                </p>
+              </div>
+              <Link
+                href="/connexion"
+                className="ml-auto shrink-0 text-xs font-body font-semibold bg-bg-dark text-text-inverse px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors"
+              >
+                Se connecter
+              </Link>
+            </div>
+          )}
 
           {/* Nom */}
           <h1 className="font-heading text-2xl font-semibold text-text-primary leading-snug">
@@ -539,7 +571,35 @@ export default function ProductDetail({
       </div>
 
       {/* -- Options de commande (2 colonnes : Unités gauche | Paquets droite) -- */}
-      {(selectedUnitVariants.length > 0 || selectedPackVariants.length > 0) && (
+      {!showPrices && (selectedUnitVariants.length > 0 || selectedPackVariants.length > 0) && (
+        <section className="mt-10 border-t border-border pt-8">
+          <div className="bg-bg-primary border border-border rounded-2xl px-6 py-8 text-center max-w-xl mx-auto shadow-card">
+            <div className="w-12 h-12 mx-auto rounded-full bg-bg-secondary flex items-center justify-center mb-4">
+              <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+              </svg>
+            </div>
+            <h2 className="font-heading text-lg font-semibold text-text-primary mb-2">
+              Tarifs réservés aux professionnels
+            </h2>
+            <p className="text-sm text-text-muted font-body mb-5 max-w-md mx-auto">
+              Créez votre compte pour découvrir nos prix grossistes et passer commande en quelques clics.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Link href="/inscription" className="btn-primary justify-center px-5">
+                Créer un compte pour commander
+              </Link>
+              <Link
+                href="/connexion"
+                className="inline-flex items-center justify-center text-sm font-body font-semibold text-text-secondary hover:text-text-primary px-5 py-2.5 rounded-lg border border-border hover:border-text-muted transition-colors"
+              >
+                J&apos;ai déjà un compte
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
+      {showPrices && (selectedUnitVariants.length > 0 || selectedPackVariants.length > 0) && (
         <section className="mt-10 border-t border-border pt-8">
           <h2 className="font-heading text-xl font-semibold text-text-primary mb-6 section-title">
             {t("orderOptions")}
@@ -711,7 +771,7 @@ export default function ProductDetail({
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {bundleChildren.map((p, i) => (
               <div key={p.id} className="animate-zoom-fade" style={{ animationDelay: `${i * 0.08}s` }}>
-                <RelatedCard product={p} />
+                <RelatedCard product={p} showPrice={showPrices} />
               </div>
             ))}
           </div>
@@ -727,7 +787,7 @@ export default function ProductDetail({
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {bundleParents.map((p, i) => (
               <div key={p.id} className="animate-zoom-fade" style={{ animationDelay: `${i * 0.08}s` }}>
-                <RelatedCard product={p} />
+                <RelatedCard product={p} showPrice={showPrices} />
               </div>
             ))}
           </div>
@@ -743,7 +803,7 @@ export default function ProductDetail({
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {similarProducts.map((p, i) => (
               <div key={p.id} className="animate-zoom-fade" style={{ animationDelay: `${i * 0.08}s` }}>
-                <RelatedCard product={p} />
+                <RelatedCard product={p} showPrice={showPrices} />
               </div>
             ))}
           </div>
@@ -751,7 +811,7 @@ export default function ProductDetail({
       )}
 
       {/* Sticky mobile add-to-cart bar */}
-      {selectedUnitVariants.length > 0 && (() => {
+      {showPrices && selectedUnitVariants.length > 0 && (() => {
         const firstV = selectedUnitVariants[0];
         const stickyPrice = computePrice(firstV, discountPercent);
         const stickyClientPrice = applyClientDiscount(stickyPrice, clientDiscount);

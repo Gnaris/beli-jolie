@@ -88,7 +88,6 @@ model User {
   favorites       Favorite[]
   importDrafts    ImportDraft[]
   importJobs      ImportJob[]
-  accessCodes     AccessCode[]
   restockAlerts   RestockAlert[]
   stockMovements  StockMovement[]   @relation("StockMovementCreator")
   conversations   Conversation[]
@@ -335,7 +334,6 @@ model Product {
   tags                   ProductTag[]
   translations           ProductTranslation[]
   catalogs               CatalogProduct[]
-  accessCodeViews        AccessCodeView[]
   restockAlerts          RestockAlert[]
   isBestSeller           Boolean               @default(false)
   status                 ProductStatus         @default(OFFLINE)
@@ -951,64 +949,6 @@ model CatalogProduct {
 
   @@unique([catalogId, productId])
 }
-
-// ─────────────────────────────────────────────
-// Codes d'accès invité
-// ─────────────────────────────────────────────
-
-model AccessCode {
-  id        String   @id @default(cuid())
-  code      String   @unique // ex: BELI-A3X7
-  note      String?  @db.Text // Note admin (à qui, pourquoi, etc.)
-  expiresAt DateTime // Expiration (1 semaine par défaut)
-  isActive  Boolean  @default(true)
-
-  // Pré-remplissage inscription (optionnel, renseigné par l'admin)
-  prefillFirstName         String?
-  prefillLastName          String?
-  prefillCompany           String?
-  prefillEmail             String?
-  prefillPhone             String?
-  prefillSiret             String?
-  prefillVatNumber         String?
-  prefillAddressStreet     String?
-  prefillAddressComplement String?
-  prefillAddressZip        String?
-  prefillAddressCity       String?
-  prefillAddressCountry    String? // code ISO-2 ex: "FR", "DE"
-
-  // Inscription via ce code
-  usedBy     String? // User.id du client inscrit
-  usedByName String? // Nom complet du client inscrit
-  usedAt     DateTime? // Date d'inscription
-  user       User?     @relation(fields: [usedBy], references: [id], onDelete: SetNull)
-
-  // Tracking navigation
-  firstAccessAt DateTime? // Première utilisation pour naviguer
-  lastAccessAt  DateTime? // Dernier accès
-  views         AccessCodeView[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([code])
-  @@index([expiresAt])
-}
-
-model AccessCodeView {
-  id           String     @id @default(cuid())
-  accessCodeId String
-  accessCode   AccessCode @relation(fields: [accessCodeId], references: [id], onDelete: Cascade)
-  productId    String?
-  product      Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
-  productName  String? // Snapshot du nom produit
-  pageUrl      String // URL visitée
-  createdAt    DateTime   @default(now())
-
-  @@index([accessCodeId])
-  @@index([productId])
-}
-
 
 // ─────────────────────────────────────────────
 // Configuration du site (clé/valeur)

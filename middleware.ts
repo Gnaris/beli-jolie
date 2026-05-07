@@ -69,8 +69,12 @@ async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
  * 1. Routes système (admin, api, maintenance, sitemap…) → pas de locale, auth classique
  * 2. Routes publiques → préfixe locale obligatoire (/fr/, /en/, etc.). next-intl gère la
  *    redirection des anciennes URLs (sans préfixe) vers la locale par défaut.
- * 3. Logique d'auth (admin, client, pending, codes accès, maintenance) appliquée
- *    sur le `rest` (path sans préfixe locale) pour rester lisible.
+ * 3. Logique d'auth (admin, client, pending, maintenance) appliquée sur le `rest`
+ *    (path sans préfixe locale) pour rester lisible.
+ *
+ * Visibilité des prix : tout le monde peut accéder à la home, aux fiches produit,
+ * aux collections et aux catégories. Le masquage des prix est géré côté composants
+ * via `lib/price-visibility.ts` — pas via une redirection middleware.
  */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -103,7 +107,6 @@ export async function middleware(request: NextRequest) {
   const isAdmin = token?.role === "ADMIN";
   const isPending = token?.status === "PENDING";
   const previewMode = request.cookies.get("bj_admin_preview")?.value === "1";
-  const hasAccessCode = !!request.cookies.get("bj_access_code")?.value;
 
   // Path "sans locale" pour matcher la logique métier (vide = "/")
   const { locale, rest } = stripLocale(pathname);
@@ -117,7 +120,6 @@ export async function middleware(request: NextRequest) {
     rest.startsWith("/inscription") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/api/access-code") ||
     pathname.startsWith("/api/internal") ||
     pathname.startsWith("/api/cart") ||
     rest.startsWith("/mentions-legales") ||
@@ -204,21 +206,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // ── Routes publiques avec code d'accès invité ─────────────────────────────
-  if (
-    rest === "/" ||
-    rest.startsWith("/produits") ||
-    rest.startsWith("/collections") ||
-    rest.startsWith("/categories")
-  ) {
-    if (!isAuthenticated && !hasAccessCode) {
-      const loginUrl = localeUrl(locale, "/connexion", request);
-      loginUrl.searchParams.set("callbackUrl", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-    return NextResponse.next();
-  }
-
+  // ── Routes publiques (home, produits, collections, catégories) ───────────
+  // Accessibles à tous les visiteurs, connectés ou non. Les prix sont
+  // masqués côté affichage tant que le compte n'est pas APPROVED par l'admin
+  // (cf. lib/price-visibility.ts + composants ProductCard / ProductDetail).
   return NextResponse.next();
 }
 

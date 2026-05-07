@@ -63,9 +63,6 @@ const TABLES_TO_CLEAR = [
   // Imports
   "ImportJob",
   "ImportDraft",
-  // Codes d'accès invité
-  "AccessCodeView",
-  "AccessCode",
   // Sécurité / auth transitoire
   "PasswordResetToken",
   "LoginOtp",

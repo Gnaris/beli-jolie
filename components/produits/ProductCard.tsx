@@ -9,6 +9,7 @@ import FavoriteToggle from "@/components/client/FavoriteToggle";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { useTranslations } from "next-intl";
 import { addToCart } from "@/app/actions/client/cart";
+import { canSeePrices } from "@/lib/price-visibility";
 
 interface VariantData {
   id: string;
@@ -73,6 +74,7 @@ export default function ProductCard({
   const { tp, tc } = useProductTranslation();
   const t = useTranslations("product");
   const [isPending, startTransition] = useTransition();
+  const showPrices = canSeePrices(session);
 
   // If color filters are active, auto-select the first matching color
   const primaryColor = colors.find((c) => c.isPrimary) ?? colors[0];
@@ -391,27 +393,53 @@ export default function ProductCard({
 
         {/* Prix */}
         <div>
-          <div className="flex items-baseline gap-1.5 flex-wrap">
-            {showStrikethrough && (
-              <span className="font-body text-xs text-text-muted line-through">
-                {strikethroughPrice.toFixed(2)} &euro;
+          {showPrices ? (
+            <div className="flex items-baseline gap-1.5 flex-wrap">
+              {showStrikethrough && (
+                <span className="font-body text-xs text-text-muted line-through">
+                  {strikethroughPrice.toFixed(2)} &euro;
+                </span>
+              )}
+              {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
+                <span className="text-[11px] font-body text-error font-medium">
+                  -{clientDiscount.discountValue}%
+                </span>
+              )}
+              <span className={`font-heading font-semibold text-lg ${showStrikethrough ? "text-error" : "text-bg-dark"}`}>
+                {displayedFinalPrice.toFixed(2)} &euro;
               </span>
-            )}
-            {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
-              <span className="text-[11px] font-body text-error font-medium">
-                -{clientDiscount.discountValue}%
+              <span className="text-xs text-text-muted font-body">
+                {t("htUnit")}{activeVariant?.saleType === "PACK" && activeVariant.packQuantity ? ` / pack x${activeVariant.packQuantity}` : ""}
               </span>
-            )}
-            <span className={`font-heading font-semibold text-lg ${showStrikethrough ? "text-error" : "text-bg-dark"}`}>
-              {displayedFinalPrice.toFixed(2)} &euro;
-            </span>
-            <span className="text-xs text-text-muted font-body">
-              {t("htUnit")}{activeVariant?.saleType === "PACK" && activeVariant.packQuantity ? ` / pack x${activeVariant.packQuantity}` : ""}
-            </span>
-          </div>
+            </div>
+          ) : (
+            <Link
+              href="/connexion"
+              className="inline-flex items-center gap-1.5 font-body text-sm text-text-secondary hover:text-text-primary underline-offset-4 hover:underline transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+              </svg>
+              Connectez-vous pour voir les prix
+            </Link>
+          )}
         </div>
 
         {/* Options: type de vente + tailles + quantité + bouton */}
+        {!showPrices ? (
+          <div className="mt-auto pt-3 border-t border-border-light">
+            <Link
+              href="/inscription"
+              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-body font-medium bg-accent text-white hover:bg-accent-dark active:scale-[0.98] transition-all"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM3 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 019.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
+              </svg>
+              Créer un compte pour commander
+            </Link>
+          </div>
+        ) : (
         <div className="mt-auto space-y-2 pt-3 border-t border-border-light">
 
           {/* Type de vente */}
@@ -486,9 +514,22 @@ export default function ProductCard({
               onClick={() => setQuantity((q) => Math.max(1, q - 1))}
               className="w-9 h-8 flex items-center justify-center text-text-muted hover:bg-bg-secondary transition-colors text-lg font-light"
             >&minus;</button>
-            <span className="w-10 h-8 flex items-center justify-center text-sm font-body text-text-primary">
-              {quantity}
-            </span>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              aria-label={t("quantity") ?? "Quantité"}
+              value={quantity || ""}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/[^0-9]/g, "");
+                if (raw === "") { setQuantity(0); return; }
+                const n = parseInt(raw, 10);
+                if (!Number.isNaN(n)) setQuantity(Math.max(0, n));
+              }}
+              onBlur={() => { if (quantity < 1) setQuantity(1); }}
+              onFocus={(e) => e.target.select()}
+              className="w-12 h-8 text-center text-sm font-body text-text-primary bg-transparent outline-none focus:bg-bg-secondary"
+            />
             <button
               type="button"
               aria-label={t("increase") ?? "Augmenter"}
@@ -561,6 +602,7 @@ export default function ProductCard({
             )}
           </div>
         </div>
+        )}
       </div>
     </article>
   );

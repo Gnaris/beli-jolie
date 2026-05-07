@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display";
 import { getCachedSiteConfig } from "@/lib/cached-data";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
+import { canSeePrices } from "@/lib/price-visibility";
 
 const PER_PAGE = 20;
 
@@ -115,8 +116,37 @@ export async function GET(request: NextRequest) {
   const showOosVariants = stockVariantsRow?.value !== "false"; // default true
   const shouldHideOos = !showOosProducts || hideOos;
 
-  // Fetch session for ordered/notOrdered filters
-  const session = (ordered || notOrdered) ? await getServerSession(authOptions) : null;
+  // Session : on en a besoin pour ordered/notOrdered ET pour le gating prix.
+  const session = await getServerSession(authOptions);
+  const showPrices = canSeePrices(session);
+
+  // Filtres minPrice / maxPrice : ignorés pour les visiteurs non APPROVED
+  // (sinon on peut deviner les prix en binary-search via les filtres).
+  const effectiveMinPrice = showPrices ? minPrice : null;
+  const effectiveMaxPrice = showPrices ? maxPrice : null;
+
+  /**
+   * Zéroïse les prix avant de renvoyer le JSON quand la session ne peut pas
+   * voir les prix. Le composant client garde sa structure (variants, sizes,
+   * stock…) mais l'`unitPrice` est mis à 0 et les remises sont retirées.
+   */
+  function stripPricesIfNeeded<T>(payload: T): T {
+    if (showPrices) return payload;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const list = (payload as any).products as any[] | undefined;
+    if (!list) return payload;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (payload as any).products = list.map((p: any) => ({
+      ...p,
+      discountPercent: null,
+      colors: (p.colors ?? []).map((c: any) => ({
+        ...c,
+        unitPrice: 0,
+        variants: (c.variants ?? []).map((v: any) => ({ ...v, unitPrice: 0 })),
+      })),
+    }));
+    return payload;
+  }
 
   // Fetch ordered product references for the current user
   let userOrderedRefs: string[] = [];
@@ -129,7 +159,7 @@ export async function GET(request: NextRequest) {
     userOrderedRefs = orderItems.map((oi) => oi.productRef);
   }
 
-  const hasFilters = !!(q || cat || subcat || collection || colorIds.length > 0 || tagId || bestseller || isNew || promo || ordered || notOrdered || hideOos || minPrice !== null || maxPrice !== null || exactRef);
+  const hasFilters = !!(q || cat || subcat || collection || colorIds.length > 0 || tagId || bestseller || isNew || promo || ordered || notOrdered || hideOos || effectiveMinPrice !== null || effectiveMaxPrice !== null || exactRef);
 
   // ─── Custom ordering (no filters) ──────────────────────────────────────────
   if (!hasFilters) {
@@ -170,10 +200,10 @@ export async function GET(request: NextRequest) {
         shaped = shaped.filter((p: any) => p.colors.some((c: any) => c.totalStock > 0));
       }
 
-      return NextResponse.json({
+      return NextResponse.json(stripPricesIfNeeded({
         products: shaped,
         hasMore: page * PER_PAGE < totalCount,
-      });
+      }));
     }
   }
 
@@ -185,8 +215,8 @@ export async function GET(request: NextRequest) {
   if (colorIds.length === 1) andConditions.push({ colors: { some: { colorId: colorIds[0] } } });
   else if (colorIds.length > 1) andConditions.push({ colors: { some: { colorId: { in: colorIds } } } });
   if (promo) andConditions.push({ discountPercent: { gt: 0 } });
-  if (minPrice !== null || maxPrice !== null) {
-    andConditions.push({ colors: { some: { unitPrice: { ...(minPrice !== null && { gte: minPrice }), ...(maxPrice !== null && { lte: maxPrice }) } } } });
+  if (effectiveMinPrice !== null || effectiveMaxPrice !== null) {
+    andConditions.push({ colors: { some: { unitPrice: { ...(effectiveMinPrice !== null && { gte: effectiveMinPrice }), ...(effectiveMaxPrice !== null && { lte: effectiveMaxPrice }) } } } });
   }
 
   const where: Record<string, unknown> = {
@@ -245,8 +275,8 @@ export async function GET(request: NextRequest) {
     shaped = shaped.filter((p: any) => p.colors.some((c: any) => c.totalStock > 0));
   }
 
-  return NextResponse.json({
+  return NextResponse.json(stripPricesIfNeeded({
     products: shaped,
     hasMore: products.length === PER_PAGE,
-  });
+  }));
 }

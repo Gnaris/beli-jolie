@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
-import { redirect } from "@/i18n/navigation";
 import { getServerSession } from "next-auth";
-import { getTranslations, getLocale } from "next-intl/server";
+import { getTranslations } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseDisplayConfig, fetchCarouselProducts, type HomepageCarousel } from "@/lib/product-display";
@@ -206,25 +204,23 @@ async function fetchReassortProducts(userId: string, quantity: number) {
 // Page
 // ─────────────────────────────────────────────
 export default async function HomePage() {
-  const [session, t, cookieStore] = await Promise.all([
+  const [session, t] = await Promise.all([
     getServerSession(authOptions),
     getTranslations("home"),
-    cookies(),
   ]);
-  const hasAccessCode = !!cookieStore.get("bj_access_code")?.value;
-  const locale = await getLocale();
-  if (!session && !hasAccessCode) redirect({href: "/connexion", locale});
   const userId  = session?.user?.id;
 
   // ── Load banner image + display config + shop name ─────────────────────────
-  const [bannerImageRow, configRow, bestsellerRefs, shopName] = await Promise.all([
+  const [bannerImageRow, configRow, bestsellerRefs, shopName, seoTextRow] = await Promise.all([
     getCachedSiteConfig("banner_image"),
     getCachedSiteConfig("product_display_config"),
     getCachedBestsellerRefs(30),
     getCachedShopName(),
+    getCachedSiteConfig("home_seo_text"),
   ]);
   const bannerImage = bannerImageRow?.value ?? null;
   const displayConfig = parseDisplayConfig(configRow?.value);
+  const homeSeoText = seoTextRow?.value?.trim() ?? "";
 
   // ── Fetch client discount ──────────────────────────────────────────────────
   const clientDiscount = userId
@@ -362,6 +358,17 @@ export default async function HomePage() {
 
           {/* 7. CTA banner */}
           <CtaBanner />
+
+          {/* 8. SEO text — affiché en bas de page pour Google */}
+          {homeSeoText && (
+            <section className="bg-bg-primary py-12 lg:py-16 border-t border-border">
+              <div className="container-site max-w-[900px] px-4">
+                <div className="prose prose-sm sm:prose-base max-w-none font-body text-text-secondary leading-relaxed whitespace-pre-line">
+                  {homeSeoText}
+                </div>
+              </div>
+            </section>
+          )}
       </main>
 
       <Footer shopName={shopName} />

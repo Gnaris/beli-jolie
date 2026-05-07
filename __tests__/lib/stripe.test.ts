@@ -90,6 +90,43 @@ describe("lib/stripe (mode simple — env-only)", () => {
     });
   });
 
+  describe("buildStatementDescriptor", () => {
+    it("retourne le nom de boutique tel quel s'il est valide", async () => {
+      const { buildStatementDescriptor } = await import("@/lib/stripe");
+      expect(buildStatementDescriptor("Beli & Jolie")).toBe("Beli & Jolie");
+    });
+
+    it("supprime les caractères interdits par Stripe", async () => {
+      const { buildStatementDescriptor } = await import("@/lib/stripe");
+      expect(buildStatementDescriptor('Boutique "Test"')).toBe("Boutique Test");
+      expect(buildStatementDescriptor("Shop <Promo*>")).toBe("Shop Promo");
+    });
+
+    it("tronque à 22 caractères maximum", async () => {
+      const { buildStatementDescriptor } = await import("@/lib/stripe");
+      const result = buildStatementDescriptor("Une Boutique Au Nom Beaucoup Trop Long");
+      expect(result?.length).toBeLessThanOrEqual(22);
+      expect(result).toBe("Une Boutique Au Nom Be");
+    });
+
+    it("retourne undefined si le nom est trop court après nettoyage", async () => {
+      const { buildStatementDescriptor } = await import("@/lib/stripe");
+      expect(buildStatementDescriptor("ABC")).toBeUndefined();
+      expect(buildStatementDescriptor('"\\*')).toBeUndefined();
+    });
+
+    it("retourne undefined si le résultat ne contient aucune lettre", async () => {
+      const { buildStatementDescriptor } = await import("@/lib/stripe");
+      expect(buildStatementDescriptor("12345")).toBeUndefined();
+      expect(buildStatementDescriptor("12345678")).toBeUndefined();
+    });
+
+    it("compresse les espaces multiples et trim", async () => {
+      const { buildStatementDescriptor } = await import("@/lib/stripe");
+      expect(buildStatementDescriptor("  Beli   Jolie  ")).toBe("Beli Jolie");
+    });
+  });
+
   describe("invalidateStripeCache", () => {
     it("force la recréation de l'instance Stripe", async () => {
       process.env.STRIPE_SECRET_KEY = "sk_first";

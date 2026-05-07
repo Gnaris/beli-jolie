@@ -7,10 +7,11 @@
 | `(auth)` | `/connexion`, `/inscription` | Unauthenticated only |
 | `(admin)` | `/admin/*` | ADMIN role |
 | `(client)` | `/espace-pro/*`, `/panier/*`, `/commandes/*`, `/favoris` | CLIENT (APPROVED) |
-| *(direct)* | `/produits/*`, `/collections/*`, `/categories` | Public / guest (`bj_access_code` cookie) |
+| *(direct)* | `/produits/*`, `/collections/*`, `/categories` | Public (visiteurs anonymes inclus) |
 
 Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback).
-Middleware: maintenance mode, guest access, admin redirect (bypass with `bj_admin_preview=1`).
+Middleware: maintenance mode, admin redirect (bypass with `bj_admin_preview=1`).
+Visibilité prix : tarifs et boutons d'achat masqués côté composants tant que la session n'est pas APPROVED — voir `lib/price-visibility.ts`.
 
 ## Auth Flow
 
@@ -68,7 +69,7 @@ Manual rotation: `POST /api/admin/products/images/rotate` → 90° CW all 3 size
 - `Favorite` (userId+productId unique), `SiteConfig` (key/value), `PasswordResetToken` (1h TTL, `used` flag)
 - `LoginAttempt` (email/ip/success), `AccountLockout` (progressive, 11 levels), `RegistrationLog` (3h cooldown)
 - `ImportJob` (bulk import history), `ImportDraft` (error rows PRODUCTS|IMAGES)
-- `AccessCode` (guest browsing, prefill fields, expiry), `Catalog`/`CatalogProduct` (shareable via token)
+- `Catalog`/`CatalogProduct` (shareable via token)
 - `TranslationQuota` (provider+monthYear)
 - `*Translation` tables: Category, SubCategory, Color, Composition, ManufacturingCountry, Season
 - `ManufacturingCountry` (name, isoCode, pfsCountryRef), `Season` (name, pfsSeasonRef)
