@@ -289,6 +289,18 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
         className="fixed left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-b border-border shadow-sm transition-all duration-200"
         style={{ top: "var(--announcement-height, 0px)" }}
       >
+        {/* Mobile : bande dédiée au nom de boutique (toute la largeur) */}
+        <div className="lg:hidden border-b border-border-light">
+          <div className="container-site h-10 flex items-center justify-center">
+            <Link
+              href="/"
+              className="font-heading text-base font-bold text-text-primary tracking-tight truncate max-w-[80vw]"
+            >
+              {shopName}
+            </Link>
+          </div>
+        </div>
+
         {/* Row 1: Logo — Search — Actions */}
         <div className="container-site h-16 flex lg:grid lg:grid-cols-[1fr_minmax(0,2fr)_1fr] items-center gap-4">
 
@@ -301,10 +313,10 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
             <IconMenu />
           </button>
 
-          {/* Logo */}
+          {/* Logo (desktop only — mobile a sa propre bande au-dessus) */}
           <Link
             href="/"
-            className="relative font-heading text-base font-bold text-text-primary tracking-tight shrink-0 group shimmer-overlay overflow-hidden max-lg:absolute max-lg:left-1/2 max-lg:-translate-x-1/2 lg:justify-self-start"
+            className="relative font-heading text-base font-bold text-text-primary tracking-tight shrink-0 group shimmer-overlay overflow-hidden hidden lg:block lg:justify-self-start"
           >
             {shopName}
           </Link>
@@ -694,8 +706,8 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
         </>
       )}
 
-      {/* Spacer for fixed navbar (row1 h-16 + row2 nav ~40px on desktop) */}
-      <div className="h-16 lg:h-[116px]" />
+      {/* Spacer for fixed navbar (mobile : bande nom h-10 + row1 h-16 ; desktop : row1 h-16 + nav ~40px) */}
+      <div className="h-[104px] lg:h-[116px]" />
 
       {/* Flying product images for add-to-cart animation */}
       {flyItems.length > 0 &&
