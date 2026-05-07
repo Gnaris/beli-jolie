@@ -55,11 +55,35 @@ export default async function AuthLayout({ children, params }: AuthLayoutProps) 
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-        <Link href="/" className="font-heading text-lg font-bold text-text-primary animate-blur-in">
-          {shopName}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border gap-4">
+        <Link
+          href="/"
+          aria-label={`Retour à l'accueil ${shopName}`}
+          className="group inline-flex items-center gap-2 font-heading text-lg font-bold text-text-primary animate-blur-in hover:text-text-secondary transition-colors"
+        >
+          <svg
+            className="w-5 h-5 text-text-muted group-hover:text-text-primary group-hover:-translate-x-0.5 transition-all"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+          </svg>
+          <span>{shopName}</span>
         </Link>
-        <LanguageSwitcher currentLocale={currentLocale} />
+        <div className="flex items-center gap-2">
+          <Link
+            href="/produits"
+            className="hidden sm:inline-flex items-center gap-1.5 text-sm font-body text-text-muted hover:text-text-primary px-3 py-1.5 rounded-lg hover:bg-bg-secondary transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+            </svg>
+            <span>Voir le catalogue</span>
+          </Link>
+          <LanguageSwitcher currentLocale={currentLocale} />
+        </div>
       </div>
 
       {/* Centered form */}
@@ -70,10 +94,23 @@ export default async function AuthLayout({ children, params }: AuthLayoutProps) 
       </main>
 
       {/* Footer */}
-      <footer className="px-6 py-4 border-t border-border text-center">
-        <p className="text-xs text-text-muted font-body">
-          Plateforme réservée aux professionnels revendeurs
-        </p>
+      <footer className="px-6 py-4 border-t border-border">
+        <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-2 text-xs font-body">
+          <p className="text-text-muted">
+            Plateforme réservée aux professionnels revendeurs
+          </p>
+          <nav className="flex items-center gap-4" aria-label="Liens rapides">
+            <Link href="/" className="text-text-muted hover:text-text-primary transition-colors">
+              Accueil
+            </Link>
+            <Link href="/produits" className="text-text-muted hover:text-text-primary transition-colors">
+              Catalogue
+            </Link>
+            <Link href="/categories" className="text-text-muted hover:text-text-primary transition-colors">
+              Catégories
+            </Link>
+          </nav>
+        </div>
       </footer>
     </div>
   );
