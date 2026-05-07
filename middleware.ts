@@ -91,11 +91,24 @@ export async function middleware(request: NextRequest) {
     pathname === "/apple-icon" ||
     pathname.startsWith("/_next");
 
-  // ── 2. Si la route DOIT être localisée et ne l'est pas, déléguer à next-intl
-  //      pour qu'il redirige (ex: /produits → /fr/produits)
-  if (!isUnlocalized && !LOCALE_PATTERN.test(pathname)) {
-    return intlMiddleware(request);
+  // ── 2. Si la route DOIT être localisée, on passe TOUJOURS par next-intl
+  //      pour qu'il pose le header `X-NEXT-INTL-LOCALE` sur la request rewrite.
+  //      Sans ça, getLocale() côté serveur retourne toujours la locale par
+  //      défaut et les <Link> côté client génèrent des URL en /fr même quand
+  //      le visiteur navigue sur /en, /de, etc.
+  let intlResponse: NextResponse | null = null;
+  if (!isUnlocalized) {
+    intlResponse = intlMiddleware(request) as NextResponse;
+    // intlMiddleware peut renvoyer une 30x (legacy URL → URL avec préfixe).
+    // Dans ce cas, on respecte sa décision et on s'arrête.
+    if (intlResponse.headers.get("location")) {
+      return intlResponse;
+    }
   }
+
+  // Helper : retourne une "next response" qui conserve les headers posés par
+  // next-intl (locale, cookies de détection éventuels, etc.).
+  const passThrough = () => intlResponse ?? NextResponse.next();
 
   // ── 3. À ce stade : soit la route est unlocalized (admin/api), soit elle a déjà un préfixe
   const token = await getToken({
@@ -144,7 +157,7 @@ export async function middleware(request: NextRequest) {
       const url = isAdmin ? new URL("/admin", request.url) : localeUrl(locale, target, request);
       return NextResponse.redirect(url);
     }
-    return NextResponse.next();
+    return passThrough();
   }
 
   // ── PENDING : limité à l'espace perso ─────────────────────────────────────
@@ -163,7 +176,7 @@ export async function middleware(request: NextRequest) {
     if (!pendingAllowed) {
       return NextResponse.redirect(localeUrl(locale, "/espace-pro", request));
     }
-    return NextResponse.next();
+    return passThrough();
   }
 
   // ── Admin ────────────────────────────────────────────────────────────────
@@ -176,7 +189,7 @@ export async function middleware(request: NextRequest) {
     if (!isAdmin) {
       return NextResponse.redirect(localeUrl(routing.defaultLocale, "/", request));
     }
-    return NextResponse.next();
+    return passThrough();
   }
 
   // ── Espace pro / panier / favoris / commandes (auth requis) ───────────────
@@ -188,11 +201,11 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
     if (isAdmin && !previewMode) {
-      const response = NextResponse.next();
+      const response = passThrough();
       response.cookies.set("bj_admin_preview", "1", { path: "/", httpOnly: false, sameSite: "lax", maxAge: 8 * 3600 });
       return response;
     }
-    return NextResponse.next();
+    return passThrough();
   }
 
   // ── Pages légales — public sans auth ──────────────────────────────────────
@@ -203,14 +216,14 @@ export async function middleware(request: NextRequest) {
     rest.startsWith("/confidentialite") ||
     rest.startsWith("/cookies")
   ) {
-    return NextResponse.next();
+    return passThrough();
   }
 
   // ── Routes publiques (home, produits, collections, catégories) ───────────
   // Accessibles à tous les visiteurs, connectés ou non. Les prix sont
   // masqués côté affichage tant que le compte n'est pas APPROVED par l'admin
   // (cf. lib/price-visibility.ts + composants ProductCard / ProductDetail).
-  return NextResponse.next();
+  return passThrough();
 }
 
 export const config = {
