@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import type { Role } from "@prisma/client";
 import { resolveImageUrl } from "@/lib/image-utils";
 

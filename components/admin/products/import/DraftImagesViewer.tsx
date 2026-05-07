@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import Link from "next/link";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import ColorSwatch from "@/components/ui/ColorSwatch";

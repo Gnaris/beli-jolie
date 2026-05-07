@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useTransition, useRef } from "react";
 import { Link } from "@/i18n/navigation";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import { useSession } from "next-auth/react";
 import { useRouter } from "@/i18n/navigation";
 import FavoriteToggle from "@/components/client/FavoriteToggle";

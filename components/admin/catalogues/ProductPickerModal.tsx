@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useTransition } from "react";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import CustomSelect, { type SelectOption } from "@/components/ui/CustomSelect";
 
 // ─── Types ───────────────────────────────────────────────────────────────────

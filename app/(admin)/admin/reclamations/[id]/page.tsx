@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import { authOptions } from "@/lib/auth";
 import { resolveImageUrl } from "@/lib/image-utils";
 import { getAdminClaim } from "@/app/actions/admin/claims";

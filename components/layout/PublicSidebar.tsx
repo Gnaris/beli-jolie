@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useTransition, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import { useSession, signOut } from "next-auth/react";
 import { useTranslations, useLocale } from "next-intl";
 import { disableAdminPreview } from "@/app/actions/admin/preview-mode";

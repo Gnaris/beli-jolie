@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Link } from "@/i18n/navigation";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";

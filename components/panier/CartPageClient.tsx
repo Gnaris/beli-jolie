@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";

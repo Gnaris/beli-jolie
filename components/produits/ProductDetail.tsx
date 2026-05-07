@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useCallback, useRef } from "react";
 import { Link } from "@/i18n/navigation";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import { useRouter } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";

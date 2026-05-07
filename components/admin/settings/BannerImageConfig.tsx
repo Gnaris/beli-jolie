@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import { updateBannerImage } from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
 

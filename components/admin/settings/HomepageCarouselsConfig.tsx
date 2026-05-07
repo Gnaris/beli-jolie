@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, useCallback, useRef, useEffect } from "react";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import { updateHomepageCarouselsConfig, searchProductsForCarousel, getProductsByIds, type CarouselProductInfo } from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";

@@ -1,7 +1,7 @@
 "use client";
 
 import { Link } from "@/i18n/navigation";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import { useTranslations } from "next-intl";
 import { useSession } from "next-auth/react";
 import { useScrollReveal } from "./useScrollReveal";

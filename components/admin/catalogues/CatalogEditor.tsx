@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import {
   updateCatalog,
   addProductToCatalog,

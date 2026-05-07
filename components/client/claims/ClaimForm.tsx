@@ -2,7 +2,7 @@
 
 import { useState, useRef, useTransition } from "react";
 import { useRouter } from "@/i18n/navigation";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import { createClaim } from "@/app/actions/client/claims";
 import { useToast } from "@/components/ui/Toast";
 import CustomSelect from "@/components/ui/CustomSelect";

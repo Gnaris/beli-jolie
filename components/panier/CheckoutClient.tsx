@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import { Link, useRouter } from "@/i18n/navigation";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, useStripe, useElements, CardNumberElement, CardExpiryElement, CardCvcElement } from "@stripe/react-stripe-js";

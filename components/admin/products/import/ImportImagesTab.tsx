@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
 

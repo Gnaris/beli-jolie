@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useTransition } from "react";
-import Image from "next/image";
+import Image from "@/components/ui/SmartImage";
 
 export interface ChatAttachment {
   fileName: string;
