@@ -18,6 +18,7 @@ import {
   type PfsVariantItem,
   type PfsColorInfo,
 } from "@/lib/pfs-api";
+import { getCachedPfsProductById } from "@/lib/pfs-list-cache";
 import { pfsGetCategories, pfsGetFamilies, type PfsAttributeCategory } from "@/lib/pfs-api-write";
 import { processProductImage } from "@/lib/image-processor";
 import { getImagePaths } from "@/lib/image-utils";
@@ -1402,15 +1403,7 @@ export async function approveAndImportPfsProduct(
   // Note : en v1 on recharge listProducts pour récupérer le produit — peu optimal mais suffisant
   const warnings: string[] = [];
 
-  const list = await pfsListProducts(1, PFS_LIST_PAGE_SIZE);
-  let product: PfsProduct | undefined = list.data.find((p) => p.id === pfsId);
-  if (!product) {
-    const totalPages = list.meta?.last_page ?? 1;
-    for (let p = 2; p <= totalPages && !product; p++) {
-      const pageData = await pfsListProducts(p, PFS_LIST_PAGE_SIZE);
-      product = pageData.data.find((x) => x.id === pfsId);
-    }
-  }
+  const product: PfsProduct | undefined = await getCachedPfsProductById(pfsId);
   if (!product) throw new Error(`Produit PFS introuvable : ${pfsId}`);
 
   const reference = product.reference.trim().toUpperCase();
@@ -1859,6 +1852,13 @@ async function resolveVariant(
 const RETRY_MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 3000;
 
+/**
+ * Nombre d'images téléchargées en parallèle pour un même produit.
+ * Au-delà de 3, le risque de 429/connection reset côté CDN PFS augmente
+ * et la mémoire Chromium grimpe vite (~80 Mo par page).
+ */
+const IMAGE_DOWNLOAD_CONCURRENCY = 3;
+
 // Profils navigateur distincts pour les 2 passes
 const BROWSER_PROFILE_A = {
   userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -1989,9 +1989,17 @@ async function downloadImagesWithPlaywright(
 
 /**
  * Télécharge un lot d'images via un contexte Playwright.
+ *
+ * Optimisations :
+ *   1. Téléchargements en parallèle (pool de `IMAGE_DOWNLOAD_CONCURRENCY` workers)
+ *   2. Une page Playwright par worker, réutilisée pour toutes les images du
+ *      worker (au lieu d'ouvrir/fermer une page par image).
+ *
  * Ne bloque jamais sur un échec — continue et renvoie la liste des échecs.
+ *
+ * Exporté pour les tests unitaires uniquement.
  */
-async function downloadImageBatch(
+export async function downloadImageBatch(
   context: import("playwright").BrowserContext,
   productId: string,
   images: PendingImage[],
@@ -2000,49 +2008,62 @@ async function downloadImageBatch(
 ): Promise<PendingImage[]> {
   const isCancelled = options?.isCancelled;
   const failed: PendingImage[] = [];
+  let nextIndex = 0;
 
-  for (const img of images) {
-    // Interruption : on laisse remonter l'erreur pour que l'appelant nettoie le produit
-    throwIfCancelled(isCancelled);
-    try {
-      const page = await context.newPage();
-      try {
-        const response = await page.goto(img.url, { waitUntil: "load", timeout: 30000 });
-        if (!response || !response.ok()) {
-          throw new Error(`HTTP ${response?.status() ?? "no response"}`);
-        }
-        const body = await response.body();
-        if (!body || body.length === 0) throw new Error("Empty response body");
-
-        // Traitement (conversion WebP 3 tailles + écriture stockage local)
-        const filename = `${Date.now()}_${img.variantId}_${img.order}`;
-        const { dbPath } = await processProductImage(body, "public/uploads/products", filename);
-
-        await prisma.productColorImage.create({
-          data: {
-            productId,
-            colorId: img.colorId,
-            productColorId: img.variantId,
-            path: dbPath,
-            order: img.order,
-          },
-        });
-
-        logger.info(`[PFS Import] [${passLabel}] Image saved`, {
-          productId, variant: img.variantId, order: img.order,
-        });
-      } finally {
-        await page.close();
-      }
-    } catch (err) {
-      // Une annulation doit toujours remonter, pas être traitée comme un échec retry
-      if (err instanceof PfsImportCancelledError) throw err;
-      logger.warn(`[PFS Import] [${passLabel}] Image failed`, {
-        url: img.url, err: (err as Error).message,
-      });
-      failed.push(img);
+  const downloadOne = async (
+    page: import("playwright").Page,
+    img: PendingImage,
+  ): Promise<void> => {
+    const response = await page.goto(img.url, { waitUntil: "load", timeout: 30000 });
+    if (!response || !response.ok()) {
+      throw new Error(`HTTP ${response?.status() ?? "no response"}`);
     }
-  }
+    const body = await response.body();
+    if (!body || body.length === 0) throw new Error("Empty response body");
+
+    const filename = `${Date.now()}_${img.variantId}_${img.order}`;
+    const { dbPath } = await processProductImage(body, "public/uploads/products", filename);
+
+    await prisma.productColorImage.create({
+      data: {
+        productId,
+        colorId: img.colorId,
+        productColorId: img.variantId,
+        path: dbPath,
+        order: img.order,
+      },
+    });
+
+    logger.info(`[PFS Import] [${passLabel}] Image saved`, {
+      productId, variant: img.variantId, order: img.order,
+    });
+  };
+
+  const worker = async (): Promise<void> => {
+    const page = await context.newPage();
+    try {
+      while (true) {
+        throwIfCancelled(isCancelled);
+        const i = nextIndex++;
+        if (i >= images.length) return;
+        const img = images[i];
+        try {
+          await downloadOne(page, img);
+        } catch (err) {
+          if (err instanceof PfsImportCancelledError) throw err;
+          logger.warn(`[PFS Import] [${passLabel}] Image failed`, {
+            url: img.url, err: (err as Error).message,
+          });
+          failed.push(img);
+        }
+      }
+    } finally {
+      await page.close().catch(() => { /* page peut déjà être fermée */ });
+    }
+  };
+
+  const workerCount = Math.min(IMAGE_DOWNLOAD_CONCURRENCY, images.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   return failed;
 }

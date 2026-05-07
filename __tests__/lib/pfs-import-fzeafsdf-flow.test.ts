@@ -111,6 +111,7 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 import { approveAndImportPfsProduct } from "@/lib/pfs-import";
+import { __resetPfsListCacheForTests } from "@/lib/pfs-list-cache";
 
 function mkPfsProduct() {
   // Produit en taille unique avec un détail (52-56) — comme FZEAFSDF côté PFS.
@@ -168,6 +169,7 @@ function mkPfsProduct() {
 describe("approveAndImportPfsProduct — corrections FZEAFSDF", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetPfsListCacheForTests();
 
     pfsListProductsSpy.mockResolvedValue({
       data: [mkPfsProduct()],

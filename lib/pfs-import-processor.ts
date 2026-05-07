@@ -12,6 +12,7 @@
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { approveAndImportPfsProduct, PfsImportCancelledError } from "@/lib/pfs-import";
+import { invalidatePfsListCache } from "@/lib/pfs-list-cache";
 import { emitProductEvent, type ImportProgressResult } from "@/lib/product-events";
 
 /** Intervalle entre deux vérifications DB du statut d'annulation (ms). */
@@ -76,6 +77,10 @@ export async function processPfsImport(jobId: string): Promise<void> {
     }));
     return;
   }
+
+  // Cache vidé : on veut une vue fraîche du catalogue PFS pour ce job (les
+  // workers se partageront ensuite le même index en mémoire).
+  invalidatePfsListCache();
 
   // Mark as processing
   await withRetry(() => prisma.importJob.update({
