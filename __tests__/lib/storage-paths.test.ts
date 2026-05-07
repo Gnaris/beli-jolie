@@ -1,0 +1,231 @@
+/**
+ * Tests for the new storage helpers in `lib/storage.ts`.
+ *
+ * Covers:
+ *   - `slugify` — accent retention, illegal char stripping, edge cases
+ *   - `productImageDir` / `productImageBaseName`
+ *   - `collectionImageDir`, `kbisDir`, `invoiceDir`, `claimDir`,
+ *     `bordereauDir`
+ *   - `renameProductFolder` — no-op, single file, multiple files, same name
+ */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import os from "node:os";
+
+import {
+  slugify,
+  productImageDir,
+  productImageBaseName,
+  collectionImageDir,
+  kbisDir,
+  clientDocumentsDir,
+  invoiceDir,
+  claimDir,
+  bordereauDir,
+  renameProductFolder,
+} from "@/lib/storage";
+
+describe("lib/storage — slugify", () => {
+  it("lowercases and trims", () => {
+    expect(slugify("  Hello WORLD  ")).toBe("hello-world");
+  });
+
+  it("replaces whitespace with single dash", () => {
+    expect(slugify("foo   bar  baz")).toBe("foo-bar-baz");
+  });
+
+  it("collapses repeated dashes", () => {
+    expect(slugify("foo---bar")).toBe("foo-bar");
+  });
+
+  it("keeps accents (UTF-8 filenames are supported)", () => {
+    expect(slugify("Doré")).toBe("doré");
+    expect(slugify("Été 2026")).toBe("été-2026");
+  });
+
+  it("strips Windows-illegal characters", () => {
+    expect(slugify('a\\b/c:d*e?f"g<h>i|j')).toBe("abcdefghij");
+  });
+
+  it("strips ASCII control chars and null bytes", () => {
+    expect(slugify("foo\x00bar\x01baz")).toBe("foobarbaz");
+  });
+
+  it("trims leading/trailing dashes and dots", () => {
+    expect(slugify("---hello---")).toBe("hello");
+    expect(slugify("...hello...")).toBe("hello");
+    expect(slugify(".-hello-.")).toBe("hello");
+  });
+
+  it("returns 'sans-nom' for empty / null / fully stripped input", () => {
+    expect(slugify("")).toBe("sans-nom");
+    expect(slugify("   ")).toBe("sans-nom");
+    expect(slugify("***")).toBe("sans-nom");
+    // @ts-expect-error testing null input
+    expect(slugify(null)).toBe("sans-nom");
+  });
+
+  it("handles multi-color labels (Brun + Kaki)", () => {
+    expect(slugify("Brun + Kaki")).toBe("brun-+-kaki");
+  });
+});
+
+describe("lib/storage — path helpers", () => {
+  it("productImageDir slugifies the reference", () => {
+    expect(productImageDir("E310B")).toBe("uploads/produits/e310b");
+    expect(productImageDir("ref 123")).toBe("uploads/produits/ref-123");
+  });
+
+  it("productImageBaseName with color → ref-color-n", () => {
+    expect(productImageBaseName("E310B", "Doré", 1)).toBe("e310b-doré-1");
+    expect(productImageBaseName("REF-123", "Bleu Roi", 3)).toBe("ref-123-bleu-roi-3");
+  });
+
+  it("productImageBaseName without color → ref-n", () => {
+    expect(productImageBaseName("E310B", null, 1)).toBe("e310b-1");
+    expect(productImageBaseName("E310B", "", 2)).toBe("e310b-2");
+    expect(productImageBaseName("E310B", "  ", 4)).toBe("e310b-4");
+  });
+
+  it("productImageBaseName clamps non-positive index to 1", () => {
+    expect(productImageBaseName("E310B", "Doré", 0)).toBe("e310b-doré-1");
+    expect(productImageBaseName("E310B", null, -3)).toBe("e310b-1");
+  });
+
+  it("collectionImageDir uses slug", () => {
+    expect(collectionImageDir("Été 2026")).toBe("uploads/collections/été-2026");
+  });
+
+  it("kbisDir / clientDocumentsDir live under private/", () => {
+    expect(kbisDir("user-123")).toBe("private/uploads/kbis/user-123");
+    expect(clientDocumentsDir("user-123")).toBe("private/uploads/documents/user-123");
+  });
+
+  it("invoiceDir groups by year", () => {
+    expect(invoiceDir(2026)).toBe("private/uploads/factures/2026");
+  });
+
+  it("claimDir uses commande-{ref} (PUBLIC for direct <img> rendering)", () => {
+    expect(claimDir("ABC-123")).toBe("uploads/reclamations/commande-abc-123");
+  });
+
+  it("bordereauDir uses client id", () => {
+    expect(bordereauDir("client-42")).toBe("uploads/bordereaux/client-42");
+  });
+});
+
+describe("lib/storage — renameProductFolder", () => {
+  let originalCwd: string;
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "storage-test-"));
+    await fs.mkdir(path.join(tmpDir, "public"), { recursive: true });
+    await fs.mkdir(path.join(tmpDir, "private"), { recursive: true });
+    originalCwd = process.cwd();
+    process.chdir(tmpDir);
+  });
+
+  afterEach(async () => {
+    process.chdir(originalCwd);
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  async function writeProductFile(slug: string, name: string, content = "x"): Promise<void> {
+    const dir = path.join(tmpDir, "public", "uploads", "produits", slug);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, name), content);
+  }
+
+  async function dirContents(slug: string): Promise<string[]> {
+    try {
+      return (await fs.readdir(path.join(tmpDir, "public", "uploads", "produits", slug))).sort();
+    } catch {
+      return [];
+    }
+  }
+
+  async function dirExists(slug: string): Promise<boolean> {
+    try {
+      await fs.stat(path.join(tmpDir, "public", "uploads", "produits", slug));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  it("is a no-op when the folder does not exist (product without images)", async () => {
+    const res = await renameProductFolder("OLD", "NEW");
+    expect(res.renamed).toEqual([]);
+    expect(await dirExists("old")).toBe(false);
+    expect(await dirExists("new")).toBe(false);
+  });
+
+  it("is a no-op when the slugified old/new are identical", async () => {
+    await writeProductFile("e310b", "e310b-doré-1.webp");
+    const res = await renameProductFolder("E310B", "e310b");
+    expect(res.renamed).toEqual([]);
+    expect(await dirExists("e310b")).toBe(true);
+    expect(await dirContents("e310b")).toEqual(["e310b-doré-1.webp"]);
+  });
+
+  it("renames a folder with a single file", async () => {
+    await writeProductFile("oldref", "oldref-doré-1.webp");
+    const res = await renameProductFolder("OLDREF", "NEWREF");
+
+    expect(await dirExists("oldref")).toBe(false);
+    expect(await dirExists("newref")).toBe(true);
+    expect(await dirContents("newref")).toEqual(["newref-doré-1.webp"]);
+
+    expect(res.renamed).toHaveLength(1);
+    expect(res.renamed[0].oldDbPath).toBe("/uploads/produits/oldref/oldref-doré-1.webp");
+    expect(res.renamed[0].newDbPath).toBe("/uploads/produits/newref/newref-doré-1.webp");
+  });
+
+  it("renames every file with the old prefix and reports DB swaps", async () => {
+    await writeProductFile("e310b", "e310b-doré-1.webp");
+    await writeProductFile("e310b", "e310b-doré-1-md.webp");
+    await writeProductFile("e310b", "e310b-doré-1-thumb.webp");
+    await writeProductFile("e310b", "e310b-bleu-2.webp");
+
+    const res = await renameProductFolder("E310B", "F999");
+
+    expect(await dirExists("e310b")).toBe(false);
+    expect(await dirExists("f999")).toBe(true);
+    expect(await dirContents("f999")).toEqual([
+      "f999-bleu-2.webp",
+      "f999-doré-1-md.webp",
+      "f999-doré-1-thumb.webp",
+      "f999-doré-1.webp",
+    ]);
+
+    // 4 files renamed
+    expect(res.renamed).toHaveLength(4);
+    const oldPaths = res.renamed.map((r) => r.oldDbPath).sort();
+    const newPaths = res.renamed.map((r) => r.newDbPath).sort();
+    expect(oldPaths).toEqual([
+      "/uploads/produits/e310b/e310b-bleu-2.webp",
+      "/uploads/produits/e310b/e310b-doré-1-md.webp",
+      "/uploads/produits/e310b/e310b-doré-1-thumb.webp",
+      "/uploads/produits/e310b/e310b-doré-1.webp",
+    ]);
+    expect(newPaths).toEqual([
+      "/uploads/produits/f999/f999-bleu-2.webp",
+      "/uploads/produits/f999/f999-doré-1-md.webp",
+      "/uploads/produits/f999/f999-doré-1-thumb.webp",
+      "/uploads/produits/f999/f999-doré-1.webp",
+    ]);
+  });
+
+  it("leaves files whose names don't match the old prefix untouched", async () => {
+    await writeProductFile("e310b", "e310b-doré-1.webp");
+    await writeProductFile("e310b", "manual-photo.jpg"); // unrelated
+
+    await renameProductFolder("E310B", "F999");
+
+    const contents = await dirContents("f999");
+    expect(contents).toContain("f999-doré-1.webp");
+    expect(contents).toContain("manual-photo.jpg"); // preserved as-is
+  });
+});

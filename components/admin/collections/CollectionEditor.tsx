@@ -135,6 +135,7 @@ export default function CollectionEditor({ collection, categories }: Props) {
 
     const fd = new FormData();
     fd.append("image", file);
+    if (name?.trim()) fd.append("slug", name.trim());
 
     const res = await fetch("/api/admin/collections/images", { method: "POST", body: fd });
     const data = await res.json();

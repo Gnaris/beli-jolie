@@ -10,7 +10,13 @@ import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { generateSku } from "@/lib/sku";
-import { deleteFiles, keyFromDbPath } from "@/lib/storage";
+import {
+  deleteFiles,
+  keyFromDbPath,
+  productImageDir,
+  renameProductFolder,
+  deleteDirectory,
+} from "@/lib/storage";
 import { getImagePaths } from "@/lib/image-utils";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { normalizePrimaryFlag } from "@/lib/normalize-primary-flag";
@@ -517,6 +523,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   const oldProduct = await prisma.product.findUnique({
     where: { id },
     select: {
+      reference: true,
       status: true,
       isBestSeller: true,
       name: true,
@@ -561,7 +568,64 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     )
   );
 
-  const { oldStockMap, oldVariantMap, variantIdMap } = await prisma.$transaction(async (tx) => {
+  // ── Renommage du dossier d'images si la référence change ───────
+  // On déplace le dossier `public/uploads/produits/{ancienne}` →
+  // `public/uploads/produits/{nouvelle}` et on calcule la map des swaps
+  // de paths à appliquer en BDD à l'intérieur de la transaction.
+  const newRefUpper = input.reference.trim().toUpperCase();
+  const oldRef = oldProduct?.reference ?? "";
+  let folderRenameSwaps: { oldDbPath: string; newDbPath: string }[] = [];
+  let folderRenamed = false;
+  if (oldRef && oldRef !== newRefUpper) {
+    try {
+      const { renamed } = await renameProductFolder(oldRef, newRefUpper);
+      folderRenameSwaps = renamed;
+      folderRenamed = true;
+    } catch (err) {
+      logger.error("[Storage] renameProductFolder failed", {
+        productId: id,
+        oldRef,
+        newRef: newRefUpper,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // On laisse passer : le swap de path ne sera pas effectué, mais la
+      // BDD reste cohérente. L'admin peut relancer un save plus tard.
+      folderRenameSwaps = [];
+    }
+  }
+
+  // Map BDD-path → BDD-path (toutes tailles : large/md/thumb).
+  const pathRenameMap = new Map<string, string>();
+  for (const { oldDbPath, newDbPath } of folderRenameSwaps) {
+    pathRenameMap.set(oldDbPath, newDbPath);
+  }
+
+  let txResult: {
+    oldStockMap: Map<string, number>;
+    oldVariantMap: Map<string, { stock: number; unitPrice: number; saleType: "UNIT" | "PACK"; packQuantity: number | null; totalPackQty: number }>;
+    variantIdMap: { colorInput: ColorInput; variantId: string; isNew: boolean }[];
+  } | null = null;
+  try {
+    txResult = await prisma.$transaction(async (tx) => {
+    // Si le dossier a été renommé sur le disque, mettre à jour les paths
+    // (large uniquement — md/thumb sont dérivés à la lecture) en BDD avant
+    // toute autre opération.
+    if (folderRenameSwaps.length > 0) {
+      const existingImages = await tx.productColorImage.findMany({
+        where: { productId: id },
+        select: { id: true, path: true },
+      });
+      for (const img of existingImages) {
+        const next = pathRenameMap.get(img.path);
+        if (next && next !== img.path) {
+          await tx.productColorImage.update({
+            where: { id: img.id },
+            data: { path: next },
+          });
+        }
+      }
+    }
+
     // Mise à jour des champs de base
     await tx.product.update({
       where: { id },
@@ -826,7 +890,29 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     }
 
     return { oldStockMap, oldVariantMap, variantIdMap };
-  }, { timeout: 30000 });
+    }, { timeout: 30000 });
+  } catch (err) {
+    // Si la transaction échoue après un rename de dossier, on remet le dossier
+    // à son ancien nom pour rester cohérent avec la BDD inchangée.
+    if (folderRenamed) {
+      try {
+        await renameProductFolder(newRefUpper, oldRef);
+      } catch (rollbackErr) {
+        logger.error("[Storage] Failed to rollback product folder rename", {
+          productId: id,
+          oldRef,
+          newRef: newRefUpper,
+          error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+        });
+      }
+    }
+    throw err;
+  }
+  if (!txResult) {
+    // Should be unreachable: the transaction either returns a value or throws.
+    throw new Error("Erreur interne : transaction sans résultat.");
+  }
+  const { oldStockMap, oldVariantMap, variantIdMap } = txResult;
 
   // Traductions : remplacer toutes les traductions existantes
   if (input.translations !== undefined) {
@@ -999,6 +1085,16 @@ export async function deleteProduct(id: string): Promise<{ action: "deleted" | "
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  // Supprime aussi le dossier dédié (rapide, propre — supprime également
+  // d'éventuels fichiers orphelins qui ne seraient plus référencés en BDD).
+  try {
+    await deleteDirectory(productImageDir(product.reference));
+  } catch (err) {
+    logger.error(`[Storage] Failed to delete product folder for ${id}`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   await prisma.product.delete({ where: { id } });
@@ -1241,6 +1337,20 @@ export async function bulkDeleteProducts(
         logger.info(`[Storage] Deleted ${keys.length} images for ${deletableIds.length} products`);
       } catch (err) {
         logger.error(`[Storage] Failed to delete images during bulk delete`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Suppression des dossiers produits (un par référence).
+    const deletableRefs = products
+      .filter((p) => deletableIds.includes(p.id))
+      .map((p) => p.reference);
+    for (const ref of deletableRefs) {
+      try {
+        await deleteDirectory(productImageDir(ref));
+      } catch (err) {
+        logger.error(`[Storage] Failed to delete product folder for ${ref}`, {
           error: err instanceof Error ? err.message : String(err),
         });
       }

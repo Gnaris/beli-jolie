@@ -15,6 +15,7 @@ import { logger } from "@/lib/logger";
 import * as XLSX from "xlsx";
 import { readFile, readdir, mkdir } from "fs/promises";
 import { processProductImage } from "@/lib/image-processor";
+import { productImageDir, productImageBaseName } from "@/lib/storage";
 import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import path from "path";
@@ -1011,9 +1012,6 @@ export async function processImageImport(jobId: string): Promise<void> {
     });
     const allDbRefs = allDbProducts.map((p) => p.reference);
 
-    // Destination dir — relative to project root (processProductImage adds process.cwd())
-    const productDir = "public/uploads/products";
-
     let successCount = 0;
     let processedCount = 0;
 
@@ -1128,8 +1126,10 @@ export async function processImageImport(jobId: string): Promise<void> {
           }
         }
 
-        // Process image through Sharp WebP pipeline
-        const safeFilename = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        // Nouveau rangement : public/uploads/produits/{ref}/{ref}-{couleur}-{n}-{stamp}.webp
+        const productDir = productImageDir(file.reference);
+        const stamp = Date.now().toString(36);
+        const safeFilename = `${productImageBaseName(file.reference, file.color, file.position)}-${stamp}`;
         const imageBuffer = await readFile(file.filePath);
         const result = await processProductImage(imageBuffer, productDir, safeFilename);
 

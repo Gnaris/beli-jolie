@@ -252,10 +252,41 @@ describe("approveAndImportPfsProduct — corrections FZEAFSDF", () => {
     expect(mockColorUpdate).not.toHaveBeenCalled();
   });
 
-  it("stocke `null` pour sizeDetailsTu si PFS renvoie une chaîne vide", async () => {
+  it("défaut sizeDetailsTu=\"0\" quand la variante utilise TU mais que PFS renvoie vide", async () => {
+    // Le produit a sizes:"TU" et la variante porte size:"TU" → on doit
+    // remplacer la chaîne vide par "0" pour satisfaire la validation
+    // « Détail taille unique obligatoire ». L'admin pourra ajuster ensuite.
     mockColorFindFirst.mockResolvedValue({ id: "col-kaki-local", hex: "#595F34" });
     pfsListProductsSpy.mockResolvedValueOnce({
       data: [{ ...mkPfsProduct(), size_details_tu: "  " }],
+      meta: { current_page: 1, last_page: 1, from: 1, per_page: 100, total: 1 },
+    });
+
+    await approveAndImportPfsProduct("pfs-fzeafsdf");
+
+    const createArgs = mockProductCreate.mock.calls[0][0];
+    expect(createArgs.data.sizeDetailsTu).toBe("0");
+  });
+
+  it("stocke null pour sizeDetailsTu si la variante n'utilise pas TU", async () => {
+    // Variante en taille classique (M) → pas de défaut "0", on garde null
+    // quand size_details_tu est vide.
+    mockColorFindFirst.mockResolvedValue({ id: "col-kaki-local", hex: "#595F34" });
+    const base = mkPfsProduct();
+    pfsListProductsSpy.mockResolvedValueOnce({
+      data: [
+        {
+          ...base,
+          sizes: "M",
+          size_details_tu: "",
+          variants: [
+            {
+              ...base.variants[0],
+              item: { ...base.variants[0].item, size: "M" },
+            },
+          ],
+        },
+      ],
       meta: { current_page: 1, last_page: 1, from: 1, per_page: 100, total: 1 },
     });
 

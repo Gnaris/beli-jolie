@@ -26,13 +26,16 @@ export async function GET(
   if (!order) return NextResponse.json({ error: "Commande introuvable." }, { status: 404 });
   if (!order.invoicePath) return NextResponse.json({ error: "Aucune facture disponible." }, { status: 404 });
 
-  const filePath = path.join(
-    process.cwd(),
-    "private",
-    "uploads",
-    "invoices",
-    path.basename(order.invoicePath)
-  );
+  // Compatible avec l'ancienne arbo (`<filename>` ou `private/uploads/invoices/<filename>`)
+  // ET la nouvelle (`private/uploads/factures/{annee}/commande-{ref}.pdf`).
+  const cwd = process.cwd();
+  const privateRoot = path.resolve(cwd, "private");
+  const filePath = order.invoicePath.startsWith("private/")
+    ? path.join(cwd, order.invoicePath)
+    : path.join(privateRoot, "uploads", "invoices", path.basename(order.invoicePath));
+  if (path.relative(privateRoot, filePath).startsWith("..")) {
+    return NextResponse.json({ error: "Chemin invalide." }, { status: 400 });
+  }
 
   try {
     await fs.access(filePath);

@@ -115,6 +115,10 @@ NextAuth v4, Credentials + JWT (30d). New users = `PENDING` → admin approves. 
 
 **Routing par préfixe d'URL** (next-intl 4.x). Chaque page publique vit sous `app/[locale]/...` et est servie sur `/{locale}/...` (ex: `/fr/produits/123`, `/en/produits/123`). Locales: fr (défaut), en, de, es, it, ar (RTL), zh. Messages: `messages/[locale].json`. Auto-translations: DeepL Free (500K chars/month). Auto-translate toggle: `auto_translate_enabled` in SiteConfig.
 
+**DeepL retry** : `lib/translate.ts` expose `translateWithRetry()` (5 essais, backoff exponentiel 1s→16s, `delayFn` injectable pour les tests) et `translateTextStrict()` qui retourne **`null`** quand DeepL plante après retry — au lieu de retourner le texte FR d'origine. `auto-translate.ts` utilise `translateTextStrict` et **ne fait pas d'upsert** quand null : l'icône d'alerte ⚠ existante reste visible côté UI. `translateToAllLocales()` omet les locales qui échouent (pas de fallback FR pour ne pas masquer les manquants). `translateText()` reste comme wrapper compat (retombe sur le texte d'origine) pour les usages product description.
+
+**Mapping PFS pays/composition** : depuis nov. 2026, le scan d'import (`lib/pfs-import.ts`) stocke et recherche les pays/compositions par leur **libellé FR** (ex: `pfsCountryRef = "Chine"`, `pfsCompositionRef = "Polyester"`) — pareil que les saisons. Cohérent avec ce qu'expose `pfsAnnexes.countries/compositions` au CustomSelect. Côté publication PFS (`lib/pfs-publish.ts`, `lib/pfs-refresh.ts`, `lib/pfs-update.ts`), `country_of_manufacture` envoyé à PFS suit la priorité **`isoCode → pfsCountryRef → "CN"`** pour rester compatible avec l'API PFS qui attend un code ISO.
+
 - **Config** : `i18n/routing.ts` (`localePrefix: "always"`, `localeDetection: false`), `i18n/navigation.ts` exporte `Link`, `redirect`, `useRouter`, `usePathname` localisés
 - **Request** : `i18n/request.ts` lit la locale depuis `requestLocale` (params URL). Plus de cookie `bj_locale`
 - **Routes hors i18n** : `/admin/*`, `/api/*`, `/maintenance`, `/sitemap.xml`, `/robots.txt`, `/manifest.webmanifest`, `/icon`, `/apple-icon`. Sans préfixe locale
@@ -224,12 +228,33 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwri
 - **PendingSimilar** : verifier a la creation produit
 - **OrderItem.sizesJson** : preferer sur `OrderItem.size` (string legacy)
 
-### Images (stockage local)
-- **Stockage** : toutes les images sont écrites sur le **disque local** dans `public/uploads/...`. Next.js sert le dossier `/public` automatiquement, donc une image écrite à `public/uploads/products/abc.webp` est accessible à `/uploads/products/abc.webp`. Module : `lib/storage.ts`
-- **Images produit** : `processProductImage()` → WebP 3 tailles (large/medium/thumb) → écriture disque. Utiliser `getImageSrc(path, size)` pour dériver les chemins. Max 5 images par couleur
-- **DB paths** : format `/uploads/products/abc.webp`. Pas de préfixe à ajouter — le chemin BDD est déjà l'URL publique
-- **Helpers stockage** : `uploadFile()`, `readFile()`, `deleteFile()`, `deleteFiles()`, `copyFile()`, `moveFile()`, `listFiles()`, `assertFileExists()` — tous dans `lib/storage.ts`
-- **Sauvegardes** : penser à sauvegarder régulièrement le dossier `public/uploads` du VPS — il n'est plus répliqué chez un service externe
+### Images & fichiers (stockage local)
+- **Module unique** : `lib/storage.ts` — slugify, helpers de chemin, renommage, suppression. Roots résolus en lazy via `process.cwd()` pour rester testables.
+- **Arbo publique** (`public/uploads/`) :
+  - `produits/{slug-ref}/{slug-ref}-{slug-couleur}-{n}.webp` (+ `-md.webp` + `-thumb.webp`) — 1 dossier par produit, nom de fichier parlant.
+  - `collections/{slug}/couverture.webp` (+ `-md.webp`)
+  - `motifs-couleurs/{slug-couleur}-{stamp}.{ext}` — anciens "patterns/"
+  - `banniere/accueil-{stamp}.webp`
+  - `catalogues/{nom-slugifié}.pdf`
+  - `bordereaux/{clientId}/commande-{ref}-{rand}.{ext}`
+  - `temp/chat/{nom}-{stamp}.webp`
+  - `reclamations/commande-{ref}/photo-{n}-{stamp}.webp` *(public car affiché par `<img src>` direct — déviation par rapport à la spec privée initiale, voir issue future)*
+- **Arbo privée** (`private/uploads/`, jamais servie publiquement) :
+  - `kbis/{siret}/kbis-{stamp}.{ext}`
+  - `documents/{siret}/{doc}-{stamp}.{ext}` (kit complémentaire client)
+  - `factures/{annee}/commande-{ref}.pdf`
+  - `pieces-jointes-email/{annee-mois}/...`
+  - `avoirs/...`
+- **Helpers de chemin** (à utiliser systématiquement, ne pas hardcoder) : `productImageDir(ref)`, `productImageBaseName(ref, color, n)`, `collectionImageDir(slug)`, `bannerDir()`, `colorPatternDir()`, `chatAttachmentDir()`, `bordereauDir(clientId)`, `kbisDir(siret)`, `clientDocumentsDir(siret)`, `invoiceDir(year)`, `claimDir(orderRef)`, `creditNoteDir()`, `emailAttachmentDir(yearMonth)`. `slugify()` : minuscules, accents conservés (UTF-8), espaces→tirets, supprime caractères Windows-illegaux, fallback `"sans-nom"`.
+- **Suffixes WebP** : écriture en `-md`/`-thumb` (tirets). Lecture compatible avec l'ancien `_md`/`_thumb` via `getImagePaths()` qui accepte les deux. Toujours utiliser `getImageSrc(path, size)`.
+- **Renommage automatique** : `renameProductFolder(oldRef, newRef)` et `renameCollectionFolder(oldSlug, newSlug)` retournent `{ renamed: [{ oldDbPath, newDbPath }] }` — appelés dans la transaction Prisma de `updateProduct`/`updateCollection`. Rollback du dossier si la transaction échoue. No-op si dossier absent.
+- **Suppression** : `deleteDirectory(dirKey)` (rm -rf). Appelé par `deleteProduct`/`deleteCollection` pour purger en cascade.
+- **Brouillons** : si l'admin upload une image avant d'avoir saisi la référence, le dossier est `uploads/produits/_brouillon/` (idem `collections/_brouillon/`). Le prochain save écrit les vrais paths.
+- **Helpers I/O** : `uploadFile`, `readFile`, `deleteFile`, `deleteFiles`, `copyFile`, `moveFile`, `listFiles`, `assertFileExists`, `deleteDirectory` — clés préfixées `private/...` résolues contre `<project>/private/`.
+- **Images produit** : `processProductImage()` → WebP 3 tailles (large/medium/thumb), max 5 images par couleur.
+- **DB paths** : format `/uploads/produits/{slug}/{base}.webp`. Le chemin BDD est déjà l'URL publique (pas de préfixe à ajouter).
+- **Sauvegardes** : penser à sauvegarder régulièrement les dossiers `public/uploads` ET `private/uploads` du VPS — pas de réplication externe.
+- **Reset complet** : `npx tsx scripts/wipe-data.ts` (double confirmation interactive). Préserve uniquement le compte ADMIN, `SiteConfig`, `TranslationQuota` et l'arborescence de dossiers.
 - **PFS image sync** : `DELETE /catalog/products/{id}/image` avec body `{ color, slot }`. Upload = POST multipart (JPEG uniquement, pas WebP). Logs détaillés via `[PFS Images]` prefix
 
 ### SEO

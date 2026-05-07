@@ -8,18 +8,45 @@
 
 /**
  * From a stored DB path (large), derive thumb and medium paths.
- * Input:  "/uploads/products/abc123.webp"
- * Output: { large: "...abc123.webp", medium: "...abc123_md.webp", thumb: "...abc123_thumb.webp" }
+ *
+ * Convention actuelle (tiret) :
+ *   "/uploads/produits/e310b/e310b-doré-1.webp"
+ *   → medium "...e310b-doré-1-md.webp"
+ *   → thumb  "...e310b-doré-1-thumb.webp"
+ *
+ * Rétro-compat (legacy underscore) :
+ *   si le chemin stocké contient déjà `_md` ou `_thumb` dans son basename
+ *   (ce qui ne devrait jamais arriver pour la "large", mais ça peut survenir
+ *   si le chemin fourni est lui-même un md/thumb), on le retourne tel quel
+ *   et on dérive les autres tailles avec le même séparateur.
+ *
+ * Toute nouvelle écriture utilise les tirets (`-md`, `-thumb`).
  */
 export function getImagePaths(storedPath: string) {
   const lastDot = storedPath.lastIndexOf(".");
-  if (lastDot === -1) return { large: storedPath, medium: storedPath, thumb: storedPath };
+  if (lastDot === -1) {
+    return { large: storedPath, medium: storedPath, thumb: storedPath };
+  }
   const base = storedPath.slice(0, lastDot);
   const ext = storedPath.slice(lastDot);
+
+  // If the path is already a medium/thumb variant, derive the others from
+  // the same root using the same separator (covers both legacy `_` and new `-`).
+  const variantMatch = base.match(/^(.+?)([-_])(md|thumb)$/);
+  if (variantMatch) {
+    const [, root, sep] = variantMatch;
+    return {
+      large:  `${root}${ext}`,
+      medium: `${root}${sep}md${ext}`,
+      thumb:  `${root}${sep}thumb${ext}`,
+    };
+  }
+
+  // New paths: hyphen suffixes
   return {
-    large: storedPath,
-    medium: `${base}_md${ext}`,
-    thumb: `${base}_thumb${ext}`,
+    large:  storedPath,
+    medium: `${base}-md${ext}`,
+    thumb:  `${base}-thumb${ext}`,
   };
 }
 

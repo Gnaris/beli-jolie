@@ -99,7 +99,7 @@ describe("downloadImageBatch — parallélisation", () => {
     const images = Array.from({ length: 6 }, (_, i) => makeImage(i));
     const { context, getPeakActive } = makeContext({ delayMs: 30 });
 
-    const failed = await downloadImageBatch(context, "p1", images, "A");
+    const failed = await downloadImageBatch(context, "p1", "REF", new Map(), images, "A");
 
     expect(failed).toHaveLength(0);
     expect(getPeakActive()).toBeGreaterThanOrEqual(2);
@@ -109,7 +109,7 @@ describe("downloadImageBatch — parallélisation", () => {
     const images = Array.from({ length: 10 }, (_, i) => makeImage(i));
     const { context, pages } = makeContext({ delayMs: 5 });
 
-    await downloadImageBatch(context, "p1", images, "A");
+    await downloadImageBatch(context, "p1", "REF", new Map(), images, "A");
 
     // 10 images, mais une page par worker — donc ≤ 3 pages créées
     expect(pages.length).toBeLessThanOrEqual(3);
@@ -121,7 +121,7 @@ describe("downloadImageBatch — parallélisation", () => {
     const images = [makeImage(0)];
     const { context, pages } = makeContext();
 
-    const failed = await downloadImageBatch(context, "p1", images, "A");
+    const failed = await downloadImageBatch(context, "p1", "REF", new Map(), images, "A");
 
     expect(failed).toHaveLength(0);
     expect(pages).toHaveLength(1);
@@ -133,7 +133,7 @@ describe("downloadImageBatch — parallélisation", () => {
     const failUrls = new Set([images[1].url, images[3].url]);
     const { context } = makeContext({ failUrls });
 
-    const failed = await downloadImageBatch(context, "p1", images, "A");
+    const failed = await downloadImageBatch(context, "p1", "REF", new Map(), images, "A");
 
     expect(failed).toHaveLength(2);
     expect(failed.map((f) => f.url).sort()).toEqual([images[1].url, images[3].url].sort());
@@ -149,7 +149,7 @@ describe("downloadImageBatch — parallélisation", () => {
 
     // On annule après quelques traitements (compteur synchrone côté test)
     await expect(
-      downloadImageBatch(context, "p1", images, "A", {
+      downloadImageBatch(context, "p1", "REF", new Map(), images, "A", {
         isCancelled: () => {
           processedCount++;
           return processedCount > 5;

@@ -6,6 +6,8 @@ import { authOptions } from "@/lib/auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 import { autoTranslateCollection } from "@/lib/auto-translate";
+import { renameCollectionFolder, deleteDirectory, collectionImageDir } from "@/lib/storage";
+import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -82,13 +84,55 @@ export async function updateCollection(id: string, formData: FormData) {
     return { error: parsed.error.issues[0].message };
   }
 
-  await prisma.collection.update({
+  // Si le nom change, on renomme le dossier d'images correspondant pour
+  // garder le lecteur réseau lisible. On dérive le slug du nom.
+  const previous = await prisma.collection.findUnique({
     where: { id },
-    data: {
-      name:  parsed.data.name,
-      image: parsed.data.image || null,
-    },
+    select: { name: true, image: true },
   });
+
+  let newImagePath = parsed.data.image || null;
+  let folderRenamed = false;
+  if (previous && previous.name !== parsed.data.name) {
+    try {
+      const { renamed } = await renameCollectionFolder(previous.name, parsed.data.name);
+      folderRenamed = renamed.length > 0;
+      // Si l'image actuelle pointe vers l'ancien dossier, swap aussi le path.
+      if (newImagePath) {
+        const swap = renamed.find((r) => r.oldDbPath === newImagePath);
+        if (swap) newImagePath = swap.newDbPath;
+      }
+    } catch (err) {
+      logger.error("[Storage] renameCollectionFolder failed", {
+        collectionId: id,
+        oldName: previous.name,
+        newName: parsed.data.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  try {
+    await prisma.collection.update({
+      where: { id },
+      data: {
+        name:  parsed.data.name,
+        image: newImagePath,
+      },
+    });
+  } catch (err) {
+    if (folderRenamed && previous) {
+      try {
+        await renameCollectionFolder(parsed.data.name, previous.name);
+      } catch (rollbackErr) {
+        logger.error("[Storage] Failed to rollback collection folder rename", {
+          collectionId: id,
+          error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+        });
+      }
+    }
+    throw err;
+  }
 
   // Save translations if present
   const locales = ["en", "ar", "zh", "de", "es", "it"];
@@ -119,7 +163,24 @@ export async function updateCollection(id: string, formData: FormData) {
 export async function deleteCollection(id: string) {
   await requireAdmin();
 
+  const previous = await prisma.collection.findUnique({
+    where: { id },
+    select: { name: true },
+  });
+
   await prisma.collection.delete({ where: { id } });
+
+  // Suppression du dossier d'images dédié, s'il existe.
+  if (previous?.name) {
+    try {
+      await deleteDirectory(collectionImageDir(previous.name));
+    } catch (err) {
+      logger.error(`[Storage] Failed to delete collection folder`, {
+        collectionId: id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   revalidatePath("/admin/collections");
   revalidateTag("collections", "default");

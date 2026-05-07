@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
-import { uploadFile } from "@/lib/storage";
+import { uploadFile, chatAttachmentDir, slugify } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 
 const MAX_FILES = 5;
@@ -49,9 +49,13 @@ export async function POST(request: NextRequest) {
   try {
     const attachments: { fileName: string; filePath: string; fileSize: number; mimeType: string }[] = [];
 
+    const dir = chatAttachmentDir();
     for (const file of files) {
       const buffer = Buffer.from(await file.arrayBuffer());
-      const filename = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const stamp = Date.now().toString(36);
+      const rand = Math.random().toString(36).slice(2, 8);
+      const original = slugify(file.name.replace(/\.[^.]+$/, "")).slice(0, 40) || "chat";
+      const filename = `${original}-${stamp}-${rand}`;
 
       const webpBuffer = await sharp(buffer)
         .rotate()
@@ -59,7 +63,7 @@ export async function POST(request: NextRequest) {
         .webp({ lossless: true, quality: 100, effort: 4 })
         .toBuffer();
 
-      const key = `uploads/chat/${filename}.webp`;
+      const key = `${dir}/${filename}.webp`;
       await uploadFile(key, webpBuffer);
 
       attachments.push({

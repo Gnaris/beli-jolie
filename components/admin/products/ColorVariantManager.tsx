@@ -855,7 +855,7 @@ function ImageGalleryModal({ open, onClose, images, colorName, colorHex }: {
 // ─────────────────────────────────────────────
 // ImageManagerModal
 // ─────────────────────────────────────────────
-function ImageManagerModal({ open, onClose, colorImages, onChange, variants, availableColors, primaryColorId, onChangePrimaryColorId }: {
+function ImageManagerModal({ open, onClose, colorImages, onChange, variants, availableColors, primaryColorId, onChangePrimaryColorId, productReference }: {
   open: boolean;
   onClose: () => void;
   colorImages: ColorImageState[];
@@ -866,6 +866,8 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   primaryColorId: string | null;
   /** Callback pour changer la couleur principale du produit. */
   onChangePrimaryColorId: (colorId: string) => void;
+  /** Référence du produit, utilisée pour ranger les images uploadées dans le bon dossier. */
+  productReference?: string;
 }) {
   const { confirm: confirmDialog } = useConfirm();
   const backdrop = useBackdropClose(onClose);
@@ -911,7 +913,11 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
       : c
     ));
     let path = "";
-    const fd = new FormData(); fd.append("image", file);
+    const fd = new FormData();
+    fd.append("image", file);
+    if (productReference) fd.append("reference", productReference);
+    if (state.colorName) fd.append("color", state.colorName);
+    fd.append("position", String(position + 1));
     try {
       const res = await fetch("/api/admin/products/images", { method: "POST", body: fd });
       const json = await res.json();
@@ -3026,6 +3032,7 @@ export default function ColorVariantManager({
         availableColors={availableColors}
         primaryColorId={primaryColorId}
         onChangePrimaryColorId={onChangePrimaryColorId}
+        productReference={productReference}
       />
 
       {sizeModalVariant && (

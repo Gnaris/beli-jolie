@@ -2,7 +2,11 @@
  * Local file storage.
  *
  * Files live under <project>/public/<key>. Next.js serves /public statically,
- * so a key like "uploads/products/abc.webp" is reachable at "/uploads/products/abc.webp".
+ * so a key like "uploads/produits/REF/REF-couleur-1.webp" is reachable at
+ * "/uploads/produits/REF/REF-couleur-1.webp".
+ *
+ * For private files (kbis, factures, réclamations, pièces-jointes-email)
+ * the key is prefixed with "private/" and resolved against <project>/private.
  */
 
 import { promises as fs } from "node:fs";
@@ -12,16 +16,31 @@ import path from "node:path";
 // Storage root
 // ─────────────────────────────────────────────
 
-const STORAGE_ROOT = path.resolve(process.cwd(), "public");
+/**
+ * Roots are resolved lazily so tests that `process.chdir` into a tmp
+ * directory still see the right paths.
+ */
+function publicRoot(): string {
+  return path.resolve(process.cwd(), "public");
+}
+function privateRoot(): string {
+  return path.resolve(process.cwd(), "private");
+}
 
 /**
  * Resolve a storage key to an absolute filesystem path, refusing any key
  * that would escape the storage root.
+ *
+ * Keys starting with "private/" are resolved against <project>/private,
+ * everything else under <project>/public.
  */
 function resolveKey(key: string): string {
   const normalized = key.replace(/^[/\\]+/, "");
-  const abs = path.resolve(STORAGE_ROOT, normalized);
-  const rel = path.relative(STORAGE_ROOT, abs);
+  const isPrivate = normalized.startsWith("private/");
+  const root = isPrivate ? privateRoot() : publicRoot();
+  const relativeKey = isPrivate ? normalized.slice("private/".length) : normalized;
+  const abs = path.resolve(root, relativeKey);
+  const rel = path.relative(root, abs);
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new Error(`Refusing key outside storage root: ${key}`);
   }
@@ -136,6 +155,9 @@ export async function moveFile(sourceKey: string, destKey: string): Promise<void
 export async function listFiles(prefix: string): Promise<string[]> {
   const cleanPrefix = prefix.replace(/^[/\\]+/, "");
   const root = resolveKey(cleanPrefix);
+  const isPrivate = cleanPrefix.startsWith("private/");
+  const baseRoot = isPrivate ? privateRoot() : publicRoot();
+  const keyPrefix = isPrivate ? "private/" : "";
 
   let stat: Awaited<ReturnType<typeof fs.stat>>;
   try {
@@ -156,12 +178,292 @@ export async function listFiles(prefix: string): Promise<string[]> {
       if (entry.isDirectory()) {
         await walk(full);
       } else if (entry.isFile()) {
-        const rel = path.relative(STORAGE_ROOT, full).split(path.sep).join("/");
-        out.push(rel);
+        const rel = path.relative(baseRoot, full).split(path.sep).join("/");
+        out.push(`${keyPrefix}${rel}`);
       }
     }
   }
 
   await walk(root);
   return out;
+}
+
+// ─────────────────────────────────────────────
+// Slugification (filesystem-safe)
+// ─────────────────────────────────────────────
+
+/**
+ * Make a filesystem-friendly slug.
+ *
+ * - lowercases
+ * - keeps accents (Linux/Windows both support UTF-8 filenames)
+ * - replaces whitespace with "-"
+ * - strips characters that are unsafe on Windows / SSHFS / shells
+ *   (\, /, :, *, ?, ", <, >, |) plus null bytes and ASCII control chars
+ * - collapses runs of "-" and trims leading/trailing "-" and "."
+ * - returns "sans-nom" if everything is stripped
+ */
+export function slugify(input: string): string {
+  if (input == null) return "sans-nom";
+  const stripped = String(input)
+    .normalize("NFC")
+    .toLowerCase()
+    .trim()
+    // Strip filesystem-illegal characters and ASCII control chars / null bytes.
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\\/:*?"<>|\x00-\x1F]/g, "")
+    // Whitespace -> "-"
+    .replace(/\s+/g, "-")
+    // Collapse repeated "-"
+    .replace(/-+/g, "-")
+    // Trim "-" and "." at the edges (Windows hates trailing ".")
+    .replace(/^[-.]+|[-.]+$/g, "");
+  return stripped || "sans-nom";
+}
+
+// ─────────────────────────────────────────────
+// Storage path helpers (new arborescence — see CLAUDE.md)
+// ─────────────────────────────────────────────
+
+/**
+ * Directory key for a product's images.
+ * `productImageDir("E310B")` → `"uploads/produits/e310b"`.
+ */
+export function productImageDir(reference: string): string {
+  return `uploads/produits/${slugify(reference)}`;
+}
+
+/**
+ * Base filename (no extension) for a product image.
+ * - With color: `"{ref}-{couleur}-{n}"`
+ * - Without color: `"{ref}-{n}"`
+ *
+ * `colorName` may be a single name ("Doré") or a multi-color label
+ * (e.g. "Doré + Argenté") — both pass through `slugify`.
+ */
+export function productImageBaseName(
+  reference: string,
+  colorName: string | null | undefined,
+  index: number,
+): string {
+  const ref = slugify(reference);
+  const safeIndex = Number.isFinite(index) && index > 0 ? Math.floor(index) : 1;
+  if (colorName && String(colorName).trim()) {
+    return `${ref}-${slugify(colorName)}-${safeIndex}`;
+  }
+  return `${ref}-${safeIndex}`;
+}
+
+/** Directory key for a collection's cover images. */
+export function collectionImageDir(slug: string): string {
+  return `uploads/collections/${slugify(slug)}`;
+}
+
+/** Directory key for the homepage banner. */
+export function bannerDir(): string {
+  return "uploads/banniere";
+}
+
+/** Directory key for color pattern images. */
+export function colorPatternDir(): string {
+  return "uploads/motifs-couleurs";
+}
+
+/** Directory key for chat attachments (lives under uploads/temp). */
+export function chatAttachmentDir(): string {
+  return "uploads/temp/chat";
+}
+
+/** Directory key for a client's bordereaux (public, lien direct). */
+export function bordereauDir(clientId: string): string {
+  return `uploads/bordereaux/${slugify(clientId)}`;
+}
+
+/** Directory key for a client's KBIS uploads (private). */
+export function kbisDir(clientId: string): string {
+  return `private/uploads/kbis/${slugify(clientId)}`;
+}
+
+/** Directory key for a client's complementary documents (private). */
+export function clientDocumentsDir(clientId: string): string {
+  return `private/uploads/documents/${slugify(clientId)}`;
+}
+
+/** Directory key for invoices (private), grouped by year. */
+export function invoiceDir(year: number): string {
+  return `private/uploads/factures/${year}`;
+}
+
+/**
+ * Directory key for claim attachments (public — servies via `<img src>`),
+ * une sous-arbo par commande.
+ *
+ * NB : la spec mentionne `private/uploads/reclamations/` mais l'UI affiche
+ * actuellement ces photos par URL directe. Les déplacer sous `private/`
+ * casserait `<img>` côté admin/client. On garde donc `public/uploads/reclamations/`
+ * et on note la déviation dans la doc.
+ */
+export function claimDir(orderRef: string): string {
+  return `uploads/reclamations/commande-${slugify(orderRef)}`;
+}
+
+/** Directory key for credit notes (private). */
+export function creditNoteDir(): string {
+  return "private/uploads/avoirs";
+}
+
+/** Directory key for email attachments (private), grouped by year-month. */
+export function emailAttachmentDir(yearMonth: string): string {
+  return `private/uploads/pieces-jointes-email/${slugify(yearMonth)}`;
+}
+
+// ─────────────────────────────────────────────
+// Folder rename helpers
+// ─────────────────────────────────────────────
+
+/**
+ * Rename a directory (move it from `oldKey` to `newKey`). No-op if
+ * `oldKey === newKey` or the source directory does not exist.
+ *
+ * Returns `true` if a rename actually happened, `false` otherwise.
+ */
+async function renameDirectory(oldKey: string, newKey: string): Promise<boolean> {
+  if (oldKey === newKey) return false;
+  const srcAbs = resolveKey(oldKey);
+  const dstAbs = resolveKey(newKey);
+
+  try {
+    await fs.stat(srcAbs);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw err;
+  }
+
+  await fs.mkdir(path.dirname(dstAbs), { recursive: true });
+  await fs.rename(srcAbs, dstAbs);
+  return true;
+}
+
+/**
+ * Rename every file inside `dirKey` whose basename starts with `oldPrefix`,
+ * replacing the prefix with `newPrefix`. Sub-directories are walked
+ * recursively.
+ *
+ * Returns the list of `{ oldName, newName, parentKey }` for each renamed file.
+ */
+async function renameFilesPrefixedIn(
+  dirKey: string,
+  oldPrefix: string,
+  newPrefix: string,
+): Promise<{ oldName: string; newName: string; parentKey: string }[]> {
+  if (oldPrefix === newPrefix) return [];
+
+  const dirAbs = resolveKey(dirKey);
+  const renamed: { oldName: string; newName: string; parentKey: string }[] = [];
+
+  async function walk(currentAbs: string, currentKey: string): Promise<void> {
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await fs.readdir(currentAbs, { withFileTypes: true });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw err;
+    }
+    for (const entry of entries) {
+      const fullAbs = path.join(currentAbs, entry.name);
+      const fullKey = `${currentKey}/${entry.name}`;
+      if (entry.isDirectory()) {
+        await walk(fullAbs, fullKey);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (!entry.name.startsWith(oldPrefix)) continue;
+      const newName = newPrefix + entry.name.slice(oldPrefix.length);
+      const newAbs = path.join(currentAbs, newName);
+      await fs.rename(fullAbs, newAbs);
+      renamed.push({ oldName: entry.name, newName, parentKey: currentKey });
+    }
+  }
+
+  await walk(dirAbs, dirKey);
+  return renamed;
+}
+
+/**
+ * Rename a product folder and all the files inside it (whose basenames
+ * begin with the slugified old reference) so they reflect the new
+ * reference. Returns the list of DB-path swaps the caller must apply to
+ * `ProductColorImage.path` rows in the same transaction.
+ *
+ * No-op if the folder does not exist (product without uploaded images).
+ */
+export async function renameProductFolder(
+  oldRef: string,
+  newRef: string,
+): Promise<{ renamed: { oldDbPath: string; newDbPath: string }[] }> {
+  const oldSlug = slugify(oldRef);
+  const newSlug = slugify(newRef);
+  if (oldSlug === newSlug) return { renamed: [] };
+
+  const oldDir = `uploads/produits/${oldSlug}`;
+  const newDir = `uploads/produits/${newSlug}`;
+
+  const moved = await renameDirectory(oldDir, newDir);
+  if (!moved) return { renamed: [] };
+
+  // After the rename the files still carry the *old* prefix; rename them so
+  // the new reference is reflected in their basenames too.
+  const renamed = await renameFilesPrefixedIn(newDir, `${oldSlug}-`, `${newSlug}-`);
+
+  return {
+    renamed: renamed.map(({ oldName, newName }) => ({
+      oldDbPath: `/${oldDir}/${oldName}`,
+      newDbPath: `/${newDir}/${newName}`,
+    })),
+  };
+}
+
+/**
+ * Same idea for collection folders. Returns DB-path swaps for the
+ * `Collection.image` field.
+ */
+export async function renameCollectionFolder(
+  oldSlug: string,
+  newSlug: string,
+): Promise<{ renamed: { oldDbPath: string; newDbPath: string }[] }> {
+  const o = slugify(oldSlug);
+  const n = slugify(newSlug);
+  if (o === n) return { renamed: [] };
+
+  const oldDir = `uploads/collections/${o}`;
+  const newDir = `uploads/collections/${n}`;
+
+  const moved = await renameDirectory(oldDir, newDir);
+  if (!moved) return { renamed: [] };
+
+  const renamed = await renameFilesPrefixedIn(newDir, `${o}-`, `${n}-`);
+  return {
+    renamed: renamed.map(({ oldName, newName }) => ({
+      oldDbPath: `/${oldDir}/${oldName}`,
+      newDbPath: `/${newDir}/${newName}`,
+    })),
+  };
+}
+
+// ─────────────────────────────────────────────
+// Recursive directory delete
+// ─────────────────────────────────────────────
+
+/**
+ * Recursively delete a directory (storage equivalent of `rm -rf dirKey`).
+ * No-op if it does not exist.
+ */
+export async function deleteDirectory(dirKey: string): Promise<void> {
+  const abs = resolveKey(dirKey);
+  try {
+    await fs.rm(abs, { recursive: true, force: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
 }

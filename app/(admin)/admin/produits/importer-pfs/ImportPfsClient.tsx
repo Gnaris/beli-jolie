@@ -1142,6 +1142,10 @@ function ProductsStep({
   );
 }
 
+type ImportItemState = "pending" | "running" | "ready" | "error" | "cancelled";
+
+type ImportFilter = "all" | ImportItemState;
+
 function ImportJobStep({
   job,
   onCancel,
@@ -1153,27 +1157,64 @@ function ImportJobStep({
   cancelling: boolean;
   onReset: () => void;
 }) {
+  const [filter, setFilter] = useState<ImportFilter>("all");
   const isRunning = job.status === "PENDING" || job.status === "PROCESSING";
-  const isDone = job.status === "COMPLETED" || job.status === "FAILED" || job.status === "CANCELLED";
-  const results = job.resultDetails?.results ?? [];
-  const items = job.resultDetails?.items ?? [];
+  const results = useMemo(() => job.resultDetails?.results ?? [], [job.resultDetails?.results]);
+  const items = useMemo(() => job.resultDetails?.items ?? [], [job.resultDetails?.items]);
   const progressPercent = job.totalItems > 0 ? Math.round((job.processedItems / job.totalItems) * 100) : 0;
   // Concurrence effective du worker : combien d'items affichent « en cours »
   // en même temps. Côté serveur IMPORT_CONCURRENCY = 5 ; si l'info n'est
   // pas reçue on retombe sur 1 (comportement séquentiel historique).
   const concurrency = Math.max(1, job.concurrency ?? 1);
-  const resultIds = new Set(results.map((r) => r.pfsId));
   // Ensemble des pfsId actuellement en cours d'import : on prend simplement
   // les `concurrency` premiers items qui n'ont pas encore de résultat —
   // c'est exactement ce que les workers sont en train de travailler.
-  const inFlightIds = new Set<string>();
-  if (isRunning) {
+  const inFlightIds = useMemo(() => {
+    const set = new Set<string>();
+    if (!isRunning) return set;
+    const resultIds = new Set(results.map((r) => r.pfsId));
     for (const it of items) {
       if (resultIds.has(it.pfsId)) continue;
-      inFlightIds.add(it.pfsId);
-      if (inFlightIds.size >= concurrency) break;
+      set.add(it.pfsId);
+      if (set.size >= concurrency) break;
     }
-  }
+    return set;
+  }, [isRunning, results, items, concurrency]);
+
+  // Calcule l'état de chaque item pour les filtres + le rendu
+  const itemStates = useMemo(() => {
+    const map = new Map<string, ImportItemState>();
+    for (const it of items) {
+      const result = results.find((r) => r.pfsId === it.pfsId);
+      if (result?.status === "ok") {
+        map.set(it.pfsId, "ready");
+      } else if (result?.status === "error") {
+        map.set(it.pfsId, "error");
+      } else if (inFlightIds.has(it.pfsId)) {
+        map.set(it.pfsId, "running");
+      } else if (isRunning) {
+        map.set(it.pfsId, "pending");
+      } else if (job.status === "CANCELLED") {
+        map.set(it.pfsId, "cancelled");
+      } else {
+        map.set(it.pfsId, "pending");
+      }
+    }
+    return map;
+  }, [items, results, inFlightIds, isRunning, job.status]);
+
+  const counts = useMemo(() => {
+    const c: Record<ImportItemState, number> = {
+      pending: 0, running: 0, ready: 0, error: 0, cancelled: 0,
+    };
+    for (const state of itemStates.values()) c[state]++;
+    return c;
+  }, [itemStates]);
+
+  const filteredItems = useMemo(() => {
+    if (filter === "all") return items;
+    return items.filter((it) => itemStates.get(it.pfsId) === filter);
+  }, [items, itemStates, filter]);
 
   return (
     <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-sm space-y-4">
@@ -1223,9 +1264,69 @@ function ImportJobStep({
         </div>
       )}
 
+      {/* Filtres par état */}
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <FilterChip
+          label="Tous"
+          count={items.length}
+          active={filter === "all"}
+          onClick={() => setFilter("all")}
+        />
+        {counts.pending > 0 && (
+          <FilterChip
+            label="En attente"
+            count={counts.pending}
+            active={filter === "pending"}
+            onClick={() => setFilter(filter === "pending" ? "all" : "pending")}
+            tone="neutral"
+          />
+        )}
+        {counts.running > 0 && (
+          <FilterChip
+            label="En cours"
+            count={counts.running}
+            active={filter === "running"}
+            onClick={() => setFilter(filter === "running" ? "all" : "running")}
+            tone="info"
+          />
+        )}
+        {counts.ready > 0 && (
+          <FilterChip
+            label="Prêt"
+            count={counts.ready}
+            active={filter === "ready"}
+            onClick={() => setFilter(filter === "ready" ? "all" : "ready")}
+            tone="success"
+          />
+        )}
+        {counts.error > 0 && (
+          <FilterChip
+            label="Erreur"
+            count={counts.error}
+            active={filter === "error"}
+            onClick={() => setFilter(filter === "error" ? "all" : "error")}
+            tone="error"
+          />
+        )}
+        {counts.cancelled > 0 && (
+          <FilterChip
+            label="Annulé"
+            count={counts.cancelled}
+            active={filter === "cancelled"}
+            onClick={() => setFilter(filter === "cancelled" ? "all" : "cancelled")}
+            tone="neutral"
+          />
+        )}
+      </div>
+
       {/* Product list */}
       <div className="space-y-2 max-h-[400px] overflow-y-auto">
-        {items.map((item) => {
+        {filteredItems.length === 0 && (
+          <div className="py-8 text-center text-sm text-text-muted">
+            Aucun produit dans cette catégorie.
+          </div>
+        )}
+        {filteredItems.map((item) => {
           const result = results.find((r) => r.pfsId === item.pfsId);
           const isCurrentlyRunning = !result && inFlightIds.has(item.pfsId);
           const isPending = !result && !isCurrentlyRunning && isRunning;
@@ -1283,5 +1384,53 @@ function ImportJobStep({
         )}
       </div>
     </div>
+  );
+}
+
+/** Pastille de filtre (Tous / En attente / Prêt / Erreur…) avec compteur. */
+function FilterChip({
+  label,
+  count,
+  active,
+  onClick,
+  tone = "neutral",
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  tone?: "neutral" | "info" | "success" | "error";
+}) {
+  const palette: Record<string, { bg: string; text: string; border: string; activeBg: string; activeText: string; activeBorder: string }> = {
+    neutral: {
+      bg: "bg-bg-muted", text: "text-text-secondary", border: "border-border",
+      activeBg: "bg-text-primary", activeText: "text-white", activeBorder: "border-text-primary",
+    },
+    info: {
+      bg: "bg-[#dbeafe]", text: "text-[#1e40af]", border: "border-[#bfdbfe]",
+      activeBg: "bg-[#1d4ed8]", activeText: "text-white", activeBorder: "border-[#1d4ed8]",
+    },
+    success: {
+      bg: "bg-[#dcfce7]", text: "text-[#15803d]", border: "border-[#bbf7d0]",
+      activeBg: "bg-[#15803d]", activeText: "text-white", activeBorder: "border-[#15803d]",
+    },
+    error: {
+      bg: "bg-[#fee2e2]", text: "text-[#b91c1c]", border: "border-[#fecaca]",
+      activeBg: "bg-[#b91c1c]", activeText: "text-white", activeBorder: "border-[#b91c1c]",
+    },
+  };
+  const p = palette[tone];
+  const cls = active
+    ? `${p.activeBg} ${p.activeText} ${p.activeBorder}`
+    : `${p.bg} ${p.text} ${p.border} hover:opacity-80`;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${cls}`}
+    >
+      <span>{label}</span>
+      <span className={`text-xs ${active ? "opacity-90" : "opacity-70"}`}>({count})</span>
+    </button>
   );
 }

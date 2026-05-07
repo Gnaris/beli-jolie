@@ -2,11 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { processProductImage } from "@/lib/image-processor";
+import { collectionImageDir, slugify } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 
 /**
  * POST /api/admin/collections/images
  * Upload d'une image de collection → conversion WebP + 3 tailles.
+ *
+ * FormData :
+ *   - `image` : fichier (obligatoire)
+ *   - `slug`  : slug de la collection (optionnel) — détermine le sous-dossier
+ *
+ * Sortie : `/uploads/collections/{slug}/couverture-XXXX.webp`.
  */
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -16,6 +23,7 @@ export async function POST(request: NextRequest) {
 
   const formData = await request.formData();
   const file = formData.get("image") as File | null;
+  const slug = ((formData.get("slug") as string | null) || "").trim();
 
   if (!file || file.size === 0) {
     return NextResponse.json({ error: "Aucun fichier reçu." }, { status: 400 });
@@ -38,9 +46,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const filename = `col_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const stamp = Date.now().toString(36);
+    const destDir = slug
+      ? collectionImageDir(slug)
+      : "uploads/collections/_brouillon";
+    const basename = slug
+      ? `${slugify(slug)}-couverture-${stamp}`
+      : `couverture-${stamp}`;
 
-    const result = await processProductImage(buffer, "public/uploads/collections", filename);
+    const result = await processProductImage(buffer, destDir, basename);
 
     return NextResponse.json({ path: result.dbPath }, { status: 201 });
   } catch (err) {

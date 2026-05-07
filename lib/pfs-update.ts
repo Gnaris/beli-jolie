@@ -411,8 +411,8 @@ function buildProductFieldsSnapshot(
     dimensions: buildDimensionsSuffix(product),
     composition,
     country:
-      product.manufacturingCountry?.pfsCountryRef ??
       product.manufacturingCountry?.isoCode ??
+      product.manufacturingCountry?.pfsCountryRef ??
       "CN",
     season: product.season?.pfsRef ?? "PE2026",
     brand: brandName,

@@ -7,7 +7,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { translateText, type Locale } from "@/lib/translate";
+import { translateTextStrict, type Locale } from "@/lib/translate";
 
 
 const TARGET_LOCALES: Locale[] = ["en", "ar", "zh", "de", "es", "it"];
@@ -44,8 +44,10 @@ async function autoTranslateEntity(entity: EntityTranslator) {
     // Translate each locale individually (graceful degradation on quota)
     for (const locale of localesToTranslate) {
       try {
-        const val = await translateText(entity.name, "fr", locale);
-        if (!val?.trim() || val === entity.name) continue;
+        const val = await translateTextStrict(entity.name, "fr", locale);
+        // null = retry exhausted → ne PAS écrire en BDD (l'icône ⚠ restera visible)
+        if (val === null) continue;
+        if (!val.trim() || val === entity.name) continue;
 
         switch (entity.table) {
           case "color":
@@ -182,15 +184,24 @@ async function _autoTranslateProduct(
 
     for (const locale of localesToTranslate) {
       const [translatedName, translatedDesc] = await Promise.all([
-        name.trim() ? translateText(name, "fr", locale) : Promise.resolve(""),
-        description.trim() ? translateText(description, "fr", locale) : Promise.resolve(""),
+        name.trim() ? translateTextStrict(name, "fr", locale) : Promise.resolve(""),
+        description.trim() ? translateTextStrict(description, "fr", locale) : Promise.resolve(""),
       ]);
 
-      if (translatedName.trim() || translatedDesc.trim()) {
+      // null = retry exhausted. Si NAME a échoué, on n'écrit rien (la fiche n'aura
+      // pas de traduction pour cette locale et l'icône ⚠ restera visible).
+      // Si DESC a échoué mais pas NAME, on garde le name et on met "" en desc
+      // pour ne pas créer une desc identique au FR.
+      if (translatedName === null) continue;
+
+      const finalName = translatedName.trim();
+      const finalDesc = translatedDesc === null ? "" : (translatedDesc ?? "");
+
+      if (finalName || finalDesc.trim()) {
         await prisma.productTranslation.upsert({
           where: { productId_locale: { productId, locale } },
-          update: { name: translatedName, description: translatedDesc },
-          create: { productId, locale, name: translatedName, description: translatedDesc },
+          update: { name: finalName, description: finalDesc },
+          create: { productId, locale, name: finalName, description: finalDesc },
         });
       }
     }

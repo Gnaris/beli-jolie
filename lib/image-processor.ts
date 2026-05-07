@@ -6,16 +6,23 @@
  *   - medium (800px)  — lossless WebP — for product cards, detail page
  *   - large  (1200px) — lossless WebP — for zoom, full quality
  *
- * Naming convention:
- *   DB stores: /uploads/products/abc123.webp       (= large)
- *   On disk:   public/uploads/products/abc123.webp        (large)
- *              public/uploads/products/abc123_md.webp     (medium)
- *              public/uploads/products/abc123_thumb.webp  (thumb)
+ * Naming convention (current — tirets):
+ *   DB stores: /uploads/produits/REF/REF-couleur-1.webp       (= large)
+ *   On disk:   public/uploads/produits/REF/REF-couleur-1.webp        (large)
+ *              public/uploads/produits/REF/REF-couleur-1-md.webp     (medium)
+ *              public/uploads/produits/REF/REF-couleur-1-thumb.webp  (thumb)
+ *
+ * Legacy (rétro-compat lecture) :  underscore suffixes `_md` / `_thumb`.
+ * `getImagePaths()` accepte les deux, mais on n'écrit plus que des tirets.
  *
  * Usage:
- *   const { dbPath } = await processProductImage(buffer, "public/uploads/products", "1710000000_1");
- *   // dbPath = "/uploads/products/1710000000_1.webp"
- *   // Also written: _md.webp and _thumb.webp
+ *   const { dbPath } = await processProductImage(
+ *     buffer,
+ *     productImageDir("E310B"),               // "uploads/produits/e310b"
+ *     productImageBaseName("E310B", "Doré", 1) // "e310b-doré-1"
+ *   );
+ *   // dbPath = "/uploads/produits/e310b/e310b-doré-1.webp"
+ *   // Also written: -md.webp and -thumb.webp
  */
 
 import sharp from "sharp";
@@ -51,8 +58,10 @@ interface ProcessResult {
  * Process a single image: convert to WebP, generate 3 sizes, write to local storage.
  *
  * @param buffer   Raw image buffer (any format: JPEG, PNG, GIF, TIFF, HEIC, BMP, WebP)
- * @param destDir  Logical directory (e.g. "public/uploads/products") — "public/" prefix is stripped
- * @param filename Base filename without extension (e.g. "1710000000_1")
+ * @param destDir  Logical directory. Accepts both legacy `"public/uploads/..."`
+ *                 (the "public/" prefix is stripped) and the new key form
+ *                 `"uploads/produits/{ref}"` from `productImageDir()`.
+ * @param filename Base filename without extension (e.g. "e310b-doré-1")
  */
 export async function processProductImage(
   buffer: Buffer,
@@ -61,9 +70,11 @@ export async function processProductImage(
 ): Promise<ProcessResult> {
   const prefix = keyPrefixFromDestDir(destDir);
 
+  // New convention: hyphen suffixes for medium / thumb (consistent with the
+  // hyphen-separated basenames produced by `productImageBaseName`).
   const webpKey = `${prefix}/${filename}.webp`;
-  const mdKey = `${prefix}/${filename}_md.webp`;
-  const thumbKey = `${prefix}/${filename}_thumb.webp`;
+  const mdKey = `${prefix}/${filename}-md.webp`;
+  const thumbKey = `${prefix}/${filename}-thumb.webp`;
 
   // Auto-rotate based on EXIF orientation before resizing (fixes rotated images from bulk import)
   const oriented = sharp(buffer).rotate();

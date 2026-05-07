@@ -3,13 +3,17 @@ import { getServerSession } from "next-auth";
 import path from "path";
 import fs from "fs/promises";
 import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 /**
  * GET /api/admin/kbis/[filename]
  *
  * Sert les fichiers Kbis de manière sécurisée.
- * Les fichiers sont stockés dans /private/ (hors /public/), donc jamais
- * accessibles directement — uniquement via cette route protégée.
+ * Les fichiers sont stockés dans /private/uploads/kbis/{siret}/{filename},
+ * jamais accessibles directement — uniquement via cette route protégée.
+ *
+ * `filename` ici = juste le nom de fichier (sans dossier). On retrouve le
+ * vrai chemin en cherchant le `User.kbisPath` qui se termine par ce nom.
  *
  * Sécurité :
  * - Vérifie que l'appelant est un ADMIN connecté
@@ -30,8 +34,24 @@ export async function GET(
   // Sanitize : on retire tout caractère de traversal de chemin
   const safeFilename = path.basename(filename);
 
-  // Construction du chemin absolu vers le fichier
-  const filePath = path.join(process.cwd(), "private", "uploads", "kbis", safeFilename);
+  // On retrouve le `User.kbisPath` qui se termine par ce nom de fichier.
+  // Pratique : ça gère à la fois l'ancienne arbo (`private/uploads/kbis/xxx.pdf`)
+  // et la nouvelle (`private/uploads/kbis/{siret}/kbis-xxx.pdf`).
+  const user = await prisma.user.findFirst({
+    where: { kbisPath: { endsWith: `/${safeFilename}` } },
+    select: { kbisPath: true },
+  });
+
+  // Fallback : ancien stockage à plat dans private/uploads/kbis/{filename}
+  const candidatePath = user?.kbisPath ?? `private/uploads/kbis/${safeFilename}`;
+
+  // On reconstruit le chemin absolu et on vérifie qu'on reste sous /private/.
+  const privateRoot = path.resolve(process.cwd(), "private");
+  const relative = candidatePath.replace(/^private[\\/]+/, "");
+  const filePath = path.resolve(privateRoot, relative);
+  if (path.relative(privateRoot, filePath).startsWith("..")) {
+    return NextResponse.json({ error: "Chemin invalide." }, { status: 400 });
+  }
 
   // Vérification que le fichier existe
   try {

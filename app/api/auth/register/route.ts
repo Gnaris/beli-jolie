@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import path from "path";
-import fs from "fs/promises";
 import { prisma } from "@/lib/prisma";
+import { uploadFile, kbisDir, clientDocumentsDir, slugify } from "@/lib/storage";
 import { registerSchema } from "@/lib/validations/auth";
 import { notifyNewClientRegistration } from "@/lib/notifications";
 import { checkRegistrationSpam, logRegistration, getClientIp } from "@/lib/security";
@@ -161,16 +160,14 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const uploadDir = path.join(process.cwd(), "private", "uploads", "kbis");
-      await fs.mkdir(uploadDir, { recursive: true });
-
-      const safeSiret = data.siret.replace(/\D/g, "");
+      const safeSiret = slugify(data.siret.replace(/\D/g, ""));
+      const dir = kbisDir(safeSiret);
       const timestamp = Date.now();
-      const filename = `kbis_${safeSiret}_${timestamp}.${ext}`;
-      const filepath = path.join(uploadDir, filename);
+      const filename = `kbis-${timestamp}.${ext}`;
+      const key = `${dir}/${filename}`;
 
-      await fs.writeFile(filepath, kbisBuffer);
-      kbisPath = `private/uploads/kbis/${filename}`;
+      await uploadFile(key, kbisBuffer, kbisFile.type);
+      kbisPath = key;
     }
 
     // ── Gestion du document complémentaire (optionnel) ───────────────
@@ -214,16 +211,14 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const docUploadDir = path.join(process.cwd(), "private", "uploads", "documents");
-      await fs.mkdir(docUploadDir, { recursive: true });
-
-      const safeSiret = data.siret.replace(/\D/g, "");
+      const safeSiret = slugify(data.siret.replace(/\D/g, ""));
+      const docDir = clientDocumentsDir(safeSiret);
       const timestamp = Date.now();
-      const docFilename = `doc_${safeSiret}_${timestamp}.${docExt}`;
-      const docFilepath = path.join(docUploadDir, docFilename);
+      const docFilename = `document-${timestamp}.${docExt}`;
+      const docKey = `${docDir}/${docFilename}`;
 
-      await fs.writeFile(docFilepath, docBuffer);
-      documentPath = `private/uploads/documents/${docFilename}`;
+      await uploadFile(docKey, docBuffer, docFile.type);
+      documentPath = docKey;
     }
 
     // ── Création de l'utilisateur ──────────────────────────────────────

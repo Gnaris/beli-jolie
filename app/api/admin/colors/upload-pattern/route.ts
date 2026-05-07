@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { randomUUID } from "crypto";
-import { uploadFile, deleteFile, keyFromDbPath } from "@/lib/storage";
+import { uploadFile, deleteFile, keyFromDbPath, colorPatternDir, slugify } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 
 const MAX_SIZE = 512 * 1024; // 500 KB
@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
+  const colorName = ((formData.get("colorName") as string | null) || "").trim();
   if (!file) {
     return NextResponse.json({ error: "Aucun fichier fourni." }, { status: 400 });
   }
@@ -42,18 +43,25 @@ export async function POST(req: NextRequest) {
   }
 
   const ext = file.name.split(".").pop()?.toLowerCase() || "png";
-  const filename = `${randomUUID()}.${ext}`;
+  const baseSlug = colorName ? slugify(colorName) : randomUUID();
+  // Suffixe court pour éviter la collision quand l'admin réimporte un motif
+  // pour la même couleur.
+  const stamp = Date.now().toString(36);
+  const filename = colorName
+    ? `${baseSlug}-${stamp}.${ext}`
+    : `${baseSlug}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
   const contentType = CONTENT_TYPE_MAP[ext] || "image/png";
 
+  const dir = colorPatternDir();
   try {
-    await uploadFile(`uploads/patterns/${filename}`, buffer, contentType);
+    await uploadFile(`${dir}/${filename}`, buffer, contentType);
   } catch (err) {
     logger.error("[upload-pattern] Upload error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Erreur lors de l'enregistrement du fichier." }, { status: 500 });
   }
 
-  return NextResponse.json({ path: `/uploads/patterns/${filename}` });
+  return NextResponse.json({ path: `/${dir}/${filename}` });
 }
 
 export async function DELETE(req: NextRequest) {
@@ -63,7 +71,12 @@ export async function DELETE(req: NextRequest) {
   }
 
   const { filePath } = await req.json();
-  if (!filePath || typeof filePath !== "string" || !filePath.startsWith("/uploads/patterns/")) {
+  // Accept both legacy `/uploads/patterns/...` and new `/uploads/motifs-couleurs/...`
+  if (
+    !filePath ||
+    typeof filePath !== "string" ||
+    !(filePath.startsWith("/uploads/motifs-couleurs/") || filePath.startsWith("/uploads/patterns/"))
+  ) {
     return NextResponse.json({ error: "Chemin invalide." }, { status: 400 });
   }
 

@@ -2,7 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { uploadFile } from "@/lib/storage";
+import { uploadFile, bordereauDir, slugify } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import crypto from "node:crypto";
 
@@ -34,7 +34,10 @@ export interface UploadBordereauError {
 
 /**
  * Upload d'un bordereau d'expédition fourni par le client (Transporteur Privé).
- * Stocke le fichier dans public/uploads/bordereaux/ et renvoie son chemin public.
+ *
+ * Range le fichier dans `public/uploads/bordereaux/{clientId}/commande-{orderRef}.{ext}`
+ * (ou avec un id aléatoire si la référence de commande n'est pas fournie),
+ * et renvoie son chemin public.
  */
 export async function uploadBordereau(
   formData: FormData,
@@ -61,8 +64,13 @@ export async function uploadBordereau(
   }
 
   const ext = EXTENSIONS[file.type] ?? "bin";
-  const uniqueId = crypto.randomBytes(12).toString("hex");
-  const key = `uploads/bordereaux/${session.user.id}-${uniqueId}.${ext}`;
+  const orderRef = ((formData.get("orderRef") as string | null) || "").trim();
+  const uniqueId = crypto.randomBytes(6).toString("hex");
+  const dir = bordereauDir(session.user.id);
+  const filename = orderRef
+    ? `commande-${slugify(orderRef)}-${uniqueId}.${ext}`
+    : `bordereau-${uniqueId}.${ext}`;
+  const key = `${dir}/${filename}`;
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());

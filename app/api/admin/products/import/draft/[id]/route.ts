@@ -356,12 +356,26 @@ async function handleImageRowFix(
     return NextResponse.json({ ok: false, errors: ["Variante introuvable sur ce produit."] }, { status: 400 });
   }
 
-  // Process image through Sharp WebP pipeline
+  // Process image through Sharp WebP pipeline using the new arborescence.
   const tempPath = String(row.tempPath);
   const fullTempPath = path.join(process.cwd(), "public", tempPath);
   const position = Number(row.position) || 1;
-  const safeFilename = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const destDir = "public/uploads/products";
+  // Look up the product reference + color name to compute a parlant filename.
+  const productMeta = await prisma.product.findUnique({
+    where: { id: productId },
+    select: {
+      reference: true,
+    },
+  });
+  const colorMeta = variant.colorId
+    ? await prisma.color.findUnique({ where: { id: variant.colorId }, select: { name: true } })
+    : null;
+  const reference = productMeta?.reference ?? String(row.reference ?? "produit");
+  const colorName = colorMeta?.name ?? String(row.color ?? "");
+  const stamp = Date.now().toString(36);
+  const { productImageDir, productImageBaseName } = await import("@/lib/storage");
+  const destDir = productImageDir(reference);
+  const safeFilename = `${productImageBaseName(reference, colorName, position)}-${stamp}`;
 
   try {
     const { readFile } = await import("fs/promises");

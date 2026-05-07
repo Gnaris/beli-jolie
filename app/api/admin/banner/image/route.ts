@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
-import { uploadFile } from "@/lib/storage";
+import { uploadFile, bannerDir } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 
 /**
@@ -39,7 +39,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const filename = `banner-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // Nom parlant + timestamp pour ne pas écraser une bannière précédente
+    // (utile pour conserver un historique sur le lecteur réseau).
+    const stamp = Date.now().toString(36);
+    const filename = `accueil-${stamp}`;
+    const dir = bannerDir();
 
     // Banner: wide format, 1920px max width, auto height
     const oriented = sharp(buffer).rotate();
@@ -58,11 +62,11 @@ export async function POST(request: NextRequest) {
     ]);
 
     await Promise.all([
-      uploadFile(`uploads/banner/${filename}.webp`, largeBuffer),
-      uploadFile(`uploads/banner/${filename}_md.webp`, mediumBuffer),
+      uploadFile(`${dir}/${filename}.webp`, largeBuffer),
+      uploadFile(`${dir}/${filename}-md.webp`, mediumBuffer),
     ]);
 
-    const dbPath = `/uploads/banner/${filename}.webp`;
+    const dbPath = `/${dir}/${filename}.webp`;
 
     return NextResponse.json({ path: dbPath });
   } catch (err) {

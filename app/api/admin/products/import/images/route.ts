@@ -6,6 +6,7 @@ import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { existsSync } from "fs";
 import { processProductImage } from "@/lib/image-processor";
+import { productImageDir, productImageBaseName } from "@/lib/storage";
 import { normalizeColorName } from "@/lib/import-processor";
 import { logger } from "@/lib/logger";
 
@@ -222,12 +223,12 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Valid — save image to product folder
+      // Valid — save image to product folder using the new arborescence.
       const matchedVariant = matchingVariants[0];
       const colorId = matchedVariant.colorId;
-      const productDir = "public/uploads/products";
-
-      const safeFilename = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const productDir = productImageDir(reference);
+      const stamp = Date.now().toString(36);
+      const safeFilename = `${productImageBaseName(reference, color, position)}-${stamp}`;
       const bytes = await file.arrayBuffer();
       const result = await processProductImage(Buffer.from(bytes), productDir, safeFilename);
 

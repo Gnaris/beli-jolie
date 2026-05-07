@@ -21,6 +21,7 @@ import {
 import { getCachedPfsProductById } from "@/lib/pfs-list-cache";
 import { pfsGetCategories, pfsGetFamilies, type PfsAttributeCategory } from "@/lib/pfs-api-write";
 import { processProductImage } from "@/lib/image-processor";
+import { productImageDir, productImageBaseName } from "@/lib/storage";
 import { getImagePaths } from "@/lib/image-utils";
 import { keyFromDbPath, deleteFiles } from "@/lib/storage";
 import { emitProductEvent } from "@/lib/product-events";
@@ -42,6 +43,7 @@ import {
   sanitizePfsFamilyName,
   inferPfsFamilyFromCategoryLabel,
 } from "@/lib/pfs-family-resolve";
+import { PROTECTED_SIZE_PFS_REF } from "@/lib/protected-sizes";
 
 // Re-export pour ne pas casser les imports existants de `pfs-import`.
 export { sanitizePfsFamilyName, inferPfsFamilyFromCategoryLabel };
@@ -721,13 +723,21 @@ export async function scanPfsAttributes(options?: {
 
       for (const mat of detail.material_composition ?? []) {
         const label = mat.labels?.fr ?? mat.labels?.en ?? mat.reference;
-        rawCompositions.push({ pfsRef: mat.reference, label });
+        // On stocke le libellé FR comme `pfsRef` : c'est lui qui sert
+        // d'identifiant côté CustomSelect du mapping et côté matching
+        // produit→composition (la référence brute renvoyée par PFS — souvent
+        // un code interne — n'est pas affichée dans l'UI).
+        rawCompositions.push({ pfsRef: label, label });
       }
 
       if (detail.country_of_manufacture) {
+        // Idem pour les pays : on stocke le libellé FR (ex: "Chine") plutôt
+        // que le code ISO ("CN"), pour rester cohérent avec ce que voit
+        // l'admin dans le menu déroulant.
+        const ctryLabel = countryLabel(detail.country_of_manufacture);
         rawCountries.push({
-          pfsRef: detail.country_of_manufacture,
-          label: countryLabel(detail.country_of_manufacture),
+          pfsRef: ctryLabel,
+          label: ctryLabel,
         });
       }
 
@@ -1076,8 +1086,12 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         });
         return { id: upd.id, name: upd.name, created: false };
       }
+      // `pfsRef` est désormais le libellé FR du pays (ex: "Chine"), pas le
+      // code ISO. On ne tente donc plus de le réutiliser comme `isoCode` —
+      // l'admin peut renseigner le code ISO manuellement depuis la modale
+      // d'édition du pays après la création.
       const created = await prisma.manufacturingCountry.create({
-        data: { name: label, pfsCountryRef: pfsRef, isoCode: pfsRef.length <= 3 ? pfsRef.toUpperCase() : null },
+        data: { name: label, pfsCountryRef: pfsRef, isoCode: null },
         select: { id: true, name: true },
       });
       autoTranslateManufacturingCountry(created.id, created.name);
@@ -1452,14 +1466,17 @@ export async function approveAndImportPfsProduct(
   }
 
   // Résolution pays (facultatif)
+  // Le mapping pays est stocké via le libellé FR (ex: "Chine"), pas le code
+  // ISO PFS ("CN"). On convertit donc avant de chercher en BDD.
   let manufacturingCountryId: string | null = null;
   if (detail?.country_of_manufacture) {
+    const ctryLabel = countryLabel(detail.country_of_manufacture);
     const c = await prisma.manufacturingCountry.findFirst({
-      where: { pfsCountryRef: detail.country_of_manufacture },
+      where: { pfsCountryRef: ctryLabel },
       select: { id: true },
     });
     if (c) manufacturingCountryId = c.id;
-    else warnings.push(`Pays "${detail.country_of_manufacture}" non mappé (produit créé sans pays)`);
+    else warnings.push(`Pays "${ctryLabel}" non mappé (produit créé sans pays)`);
   }
 
   // Résolution saison (facultatif)
@@ -1474,14 +1491,18 @@ export async function approveAndImportPfsProduct(
   }
 
   // Résolution compositions
+  // Idem que pour les pays : le mapping composition est stocké via le libellé
+  // FR (ex: "Polyester"), pas la référence brute PFS ("polyester" ou un code
+  // technique). On convertit donc avant de chercher en BDD.
   const compositionsInput: { compositionId: string; percentage: number }[] = [];
   for (const mat of detail?.material_composition ?? []) {
+    const matLabel = mat.labels?.fr ?? mat.labels?.en ?? mat.reference;
     const comp = await prisma.composition.findFirst({
-      where: { pfsCompositionRef: mat.reference },
+      where: { pfsCompositionRef: matLabel },
       select: { id: true },
     });
     if (comp) compositionsInput.push({ compositionId: comp.id, percentage: mat.percentage });
-    else warnings.push(`Composition "${mat.reference}" non mappée (ignorée)`);
+    else warnings.push(`Composition "${matLabel}" non mappée (ignorée)`);
   }
 
   // Récupère les variantes depuis l'endpoint dédié (données fiables : prix, poids, stock)
@@ -1539,6 +1560,21 @@ export async function approveAndImportPfsProduct(
     warnings.push(`Couleur par défaut PFS "${detail.default_color}" non reconnue — couleur principale par défaut`);
   }
 
+  // Détecte si au moins une variante PFS utilise la taille unique (référence "TU").
+  // Quand c'est le cas mais que PFS ne renvoie aucun détail (ex: "52-56"),
+  // on stocke "0" par défaut pour satisfaire la validation `assertTailleUniqueDetails`
+  // (le champ « Détail taille unique » est obligatoire dès qu'une variante l'utilise).
+  // L'admin pourra ensuite modifier la valeur depuis le formulaire produit.
+  const usesTailleUnique = variantsToResolve.some((v) => {
+    if (v.item?.size === PROTECTED_SIZE_PFS_REF) return true;
+    return (v.packs ?? []).some((pk) =>
+      (pk.sizes ?? []).some((sz) => sz.size === PROTECTED_SIZE_PFS_REF),
+    );
+  });
+  const rawSizeDetailsTu = product.size_details_tu?.trim() || null;
+  const sizeDetailsTuValue =
+    rawSizeDetailsTu ?? (usesTailleUnique ? "0" : null);
+
   // Création du produit en statut SYNCING → passera en OFFLINE une fois les
   // images téléchargées. Le produit n'est pas marqué brouillon : il arrive
   // directement "Hors ligne" dans la liste admin.
@@ -1555,8 +1591,9 @@ export async function approveAndImportPfsProduct(
       pfsProductId: product.id,
       // Détail taille unique (ex: "52-56") renvoyé par PFS sur listProducts —
       // alimente le champ "Taille Unique" du formulaire produit + suffixe "TU 52-56"
-      // affiché côté boutique pour les variantes en taille unique.
-      sizeDetailsTu: product.size_details_tu?.trim() || null,
+      // affiché côté boutique pour les variantes en taille unique. "0" par défaut
+      // si la variante utilise TU mais que PFS ne fournit pas de détail.
+      sizeDetailsTu: sizeDetailsTuValue,
       // Couleur principale (badge "couleur principale" dans le modal d'images,
       // image par défaut côté boutique). Peut pointer vers une couleur qui
       // vit uniquement dans un pack multi-couleurs (cas FZEAFSDF où Kaki est
@@ -1666,7 +1703,7 @@ export async function approveAndImportPfsProduct(
     // Téléchargement des images (bloquant). Le statut final boutique
     // (ONLINE / OFFLINE) reflète le statut PFS du produit au moment de l'import.
     const finalStatus = pfsStatusToBjStatus(product.status);
-    await downloadImagesWithPlaywright(createdProduct.id, createdVariantIds, {
+    await downloadImagesWithPlaywright(createdProduct.id, reference, colorNameMap, createdVariantIds, {
       isCancelled,
       finalStatus,
     });
@@ -1898,6 +1935,8 @@ type PendingImage = PlannedImage;
  */
 async function downloadImagesWithPlaywright(
   productId: string,
+  reference: string,
+  colorNames: Map<string, string>,
   variants: { id: string; colorId: string; pfsVariant: ResolvedVariant }[],
   options?: ImportCancellationOptions & {
     /** Statut final à appliquer au produit une fois les images en place. Par défaut OFFLINE. */
@@ -1931,7 +1970,7 @@ async function downloadImagesWithPlaywright(
   const browserA = await chromium.launch({ headless: true });
   try {
     const ctxA = await browserA.newContext(BROWSER_PROFILE_A);
-    failed = await downloadImageBatch(ctxA, productId, allImages, "A", { isCancelled });
+    failed = await downloadImageBatch(ctxA, productId, reference, colorNames, allImages, "A", { isCancelled });
     await ctxA.close();
   } finally {
     await browserA.close();
@@ -1960,7 +1999,7 @@ async function downloadImagesWithPlaywright(
         });
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
         throwIfCancelled(isCancelled);
-        stillFailing = await downloadImageBatch(ctxB, productId, stillFailing, "B", { isCancelled });
+        stillFailing = await downloadImageBatch(ctxB, productId, reference, colorNames, stillFailing, "B", { isCancelled });
       }
 
       await ctxB.close();
@@ -2002,6 +2041,8 @@ async function downloadImagesWithPlaywright(
 export async function downloadImageBatch(
   context: import("playwright").BrowserContext,
   productId: string,
+  reference: string,
+  colorNames: Map<string, string>,
   images: PendingImage[],
   passLabel: string,
   options?: ImportCancellationOptions,
@@ -2021,8 +2062,10 @@ export async function downloadImageBatch(
     const body = await response.body();
     if (!body || body.length === 0) throw new Error("Empty response body");
 
-    const filename = `${Date.now()}_${img.variantId}_${img.order}`;
-    const { dbPath } = await processProductImage(body, "public/uploads/products", filename);
+    const colorName = colorNames.get(img.colorId) ?? null;
+    const filename = productImageBaseName(reference, colorName, img.order + 1);
+    const destDir = `public/${productImageDir(reference)}`;
+    const { dbPath } = await processProductImage(body, destDir, filename);
 
     await prisma.productColorImage.create({
       data: {
@@ -2066,6 +2109,39 @@ export async function downloadImageBatch(
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   return failed;
+}
+
+/**
+ * Filet de sécurité : supprime tout produit resté en statut SYNCING parmi les
+ * pfsIds donnés et créé après la date `since`. Utilisé à l'arrêt manuel d'un
+ * job d'import pour nettoyer les produits qui auraient pu rester partiellement
+ * créés (cleanup unitaire raté, crash worker, etc.).
+ *
+ * Le filtre `createdAt >= since` évite de toucher à un produit déjà importé
+ * dans un job précédent — on ne supprime que ce qui appartient potentiellement
+ * au job en cours d'arrêt.
+ */
+export async function cleanupOrphanedSyncingProducts(
+  pfsIds: string[],
+  since: Date,
+): Promise<{ deletedCount: number; references: string[] }> {
+  if (pfsIds.length === 0) return { deletedCount: 0, references: [] };
+
+  const orphans = await prisma.product.findMany({
+    where: {
+      status: "SYNCING",
+      pfsProductId: { in: pfsIds },
+      createdAt: { gte: since },
+    },
+    select: { id: true, reference: true },
+  });
+
+  const references: string[] = [];
+  for (const p of orphans) {
+    await cleanupFailedProduct(p.id);
+    references.push(p.reference);
+  }
+  return { deletedCount: references.length, references };
 }
 
 /**

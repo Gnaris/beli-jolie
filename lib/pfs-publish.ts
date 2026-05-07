@@ -391,8 +391,8 @@ export async function pfsPublishProduct(
       description: translated.productDescription,
       material_composition: compositionArray,
       country_of_manufacture:
-        product.manufacturingCountry?.pfsCountryRef ??
         product.manufacturingCountry?.isoCode ??
+        product.manufacturingCountry?.pfsCountryRef ??
         PFS_DEFAULTS.country_of_manufacture,
       ...(product.sizeDetailsTu ? { size_details_tu: product.sizeDetailsTu } : {}),
       variants: [],

@@ -90,6 +90,11 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
     for (const img of images) {
       formData.append("images", img.file);
     }
+    // selectedOrder.orderNumber permet de ranger les photos dans
+    // /uploads/reclamations/commande-{orderNumber}/.
+    if (selectedOrder?.orderNumber) {
+      formData.append("orderRef", selectedOrder.orderNumber);
+    }
 
     const res = await fetch("/api/client/claims/upload", {
       method: "POST",
