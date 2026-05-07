@@ -293,7 +293,7 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
     }
   }, [step, productsLoaded, loadingProducts, loadProducts, importMode, validatedRefs]);
 
-  const MAX_IMPORT_ITEMS = 100;
+  const MAX_IMPORT_ITEMS = 1000;
 
   const toggleSelect = (pfsId: string) => {
     setSelected((prev) => {
@@ -647,12 +647,13 @@ function ScanStep({
                 <input
                   type="number"
                   min={1}
+                  max={1000}
                   placeholder="100"
                   value={productLimit}
                   onChange={(e) => onProductLimitChange(e.target.value)}
                   className="border border-border rounded-lg px-3 py-2 text-sm bg-bg-primary w-24 text-center"
                 />
-                <span className="text-xs text-text-muted">Par défaut : 100 produits max</span>
+                <span className="text-xs text-text-muted">Par défaut : 100 — Maximum : 1000</span>
               </div>
               <button onClick={() => onRunScan()} disabled={scanning} className="btn-primary">
                 {scanning ? "Scan en cours…" : "Scanner PFS"}
@@ -691,6 +692,7 @@ function ScanStep({
                 <input
                   type="number"
                   min={1}
+                  max={1000}
                   placeholder="100"
                   value={productLimit}
                   onChange={(e) => onProductLimitChange(e.target.value)}
@@ -787,7 +789,7 @@ function RefTagInput({
   const [inputValue, setInputValue] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const MAX_REFS = 100;
+  const MAX_REFS = 1000;
 
   const addReference = useCallback(async () => {
     const ref = inputValue.trim().toUpperCase();

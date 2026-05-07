@@ -15,7 +15,8 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const limitParam = searchParams.get("limit");
-    const maxProducts = limitParam ? parseInt(limitParam, 10) : 100;
+    const parsedLimit = limitParam ? parseInt(limitParam, 10) : 100;
+    const maxProducts = Math.min(Math.max(parsedLimit, 1), 1000);
 
     const products = await listImportablePfsProducts({ maxProducts });
     return NextResponse.json({ products, count: products.length });

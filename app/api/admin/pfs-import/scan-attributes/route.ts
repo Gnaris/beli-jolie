@@ -15,7 +15,8 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const limitParam = searchParams.get("limit");
-    const maxImportable = limitParam ? parseInt(limitParam, 10) : 100;
+    const parsedLimit = limitParam ? parseInt(limitParam, 10) : 100;
+    const maxImportable = Math.min(Math.max(parsedLimit, 1), 1000);
     const refsParam = searchParams.get("references");
     const references = refsParam ? refsParam.split(",").map((r) => r.trim()).filter(Boolean) : undefined;
 
