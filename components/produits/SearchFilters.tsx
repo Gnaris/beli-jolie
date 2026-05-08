@@ -11,12 +11,14 @@ interface Category    { id: string; name: string; subCategories: SubCategory[] }
 interface CollectionItem { id: string; name: string }
 interface ColorItem   { id: string; name: string; hex: string | null }
 interface TagItem     { id: string; name: string }
+interface CompositionItem { id: string; name: string }
 
 interface SearchFiltersProps {
   categories:  Category[];
   collections: CollectionItem[];
   colors:      ColorItem[];
   tags:        TagItem[];
+  compositions?: CompositionItem[];
   totalCount:  number;
   mobileMode?: boolean;
   basePath?:   string;
@@ -260,7 +262,7 @@ function ColorMultiSelect({
 
 // -- Main component ----------------------------------------------------------
 export default function SearchFilters({
-  categories, collections, colors, tags, totalCount, mobileMode = false, basePath = "/produits", showOosToggle = false,
+  categories, collections, colors, tags, compositions = [], totalCount, mobileMode = false, basePath = "/produits", showOosToggle = false,
 }: SearchFiltersProps) {
   const t            = useTranslations("products");
   const router       = useRouter();
@@ -278,6 +280,7 @@ export default function SearchFilters({
   const colorParam = searchParams.get("color")       ?? "";
   const selectedColorIds = colorParam ? colorParam.split(",").filter(Boolean) : [];
   const tagId      = searchParams.get("tag")        ?? "";
+  const compositionId = searchParams.get("composition") ?? "";
   const bestseller = searchParams.get("bestseller") === "1";
   const isNew      = searchParams.get("new")        === "1";
   const promo      = searchParams.get("promo")      === "1";
@@ -288,7 +291,7 @@ export default function SearchFilters({
   const maxPrice   = searchParams.get("maxPrice")   ?? "";
   const exactRef   = searchParams.get("exactRef")   === "1";
 
-  const hasAny = q || cat || subcat || collection || selectedColorIds.length > 0 || tagId || bestseller || isNew || promo || ordered || notOrdered || hideOos || minPrice || maxPrice || exactRef;
+  const hasAny = q || cat || subcat || collection || selectedColorIds.length > 0 || tagId || compositionId || bestseller || isNew || promo || ordered || notOrdered || hideOos || minPrice || maxPrice || exactRef;
 
   const update = useCallback(
     (key: string, value: string) => {
@@ -321,8 +324,9 @@ export default function SearchFilters({
     ? selectedCat.subCategories.map((sc) => ({ id: sc.id, label: sc.name }))
     : categories.flatMap((c) => c.subCategories.map((sc) => ({ id: sc.id, label: sc.name, prefix: c.name })));
 
-  const collectionOptions = collections.map((c) => ({ id: c.id, label: c.name }));
-  const tagOptions        = tags.map((t) => ({ id: t.id, label: `#${t.name}` }));
+  const collectionOptions  = collections.map((c) => ({ id: c.id, label: c.name }));
+  const tagOptions         = tags.map((t) => ({ id: t.id, label: `#${t.name}` }));
+  const compositionOptions = compositions.map((c) => ({ id: c.id, label: c.name }));
 
   const filterContent = (
     <div className="space-y-5">
@@ -426,6 +430,19 @@ export default function SearchFilters({
             placeholder={t("filterAllTags")}
             options={tagOptions}
             onChange={(v) => update("tag", v)}
+          />
+        </div>
+      )}
+
+      {/* Composition (matière) */}
+      {compositionOptions.length > 0 && (
+        <div>
+          <SectionLabel>{t("filterComposition")}</SectionLabel>
+          <CustomSelect
+            value={compositionId}
+            placeholder={t("filterAllCompositions")}
+            options={compositionOptions}
+            onChange={(v) => update("composition", v)}
           />
         </div>
       )}

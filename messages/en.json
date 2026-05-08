@@ -205,6 +205,8 @@
     "filterCollection": "Collection",
     "filterColor": "Color",
     "filterTag": "Keywords",
+    "filterComposition": "Composition",
+    "filterAllCompositions": "All compositions",
     "filterPrice": "Price excl. tax",
     "filterMin": "Min",
     "filterMax": "Max",

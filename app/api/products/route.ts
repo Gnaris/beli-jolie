@@ -106,6 +106,7 @@ export async function GET(request: NextRequest) {
   const colorParam  = searchParams.get("color")       ?? "";
   const colorIds    = colorParam ? colorParam.split(",").filter(Boolean) : [];
   const tagId       = searchParams.get("tag")        ?? "";
+  const compositionId = searchParams.get("composition") ?? "";
   const bestseller  = searchParams.get("bestseller") === "1";
   const isNew       = searchParams.get("new")        === "1";
   const promo       = searchParams.get("promo")      === "1";
@@ -172,7 +173,7 @@ export async function GET(request: NextRequest) {
     userOrderedRefs = orderItems.map((oi) => oi.productRef);
   }
 
-  const hasFilters = !!(q || cat || subcat || collection || colorIds.length > 0 || tagId || bestseller || isNew || promo || ordered || notOrdered || hideOos || effectiveMinPrice !== null || effectiveMaxPrice !== null || exactRef);
+  const hasFilters = !!(q || cat || subcat || collection || colorIds.length > 0 || tagId || compositionId || bestseller || isNew || promo || ordered || notOrdered || hideOos || effectiveMinPrice !== null || effectiveMaxPrice !== null || exactRef);
 
   // ─── Custom ordering (no filters) ──────────────────────────────────────────
   if (!hasFilters) {
@@ -246,10 +247,11 @@ export async function GET(request: NextRequest) {
             ],
           }
         : {}),
-    ...(cat        && { categoryId: cat }),
-    ...(subcat     && { subCategories: { some: { id: subcat } } }),
-    ...(collection && { collections: { some: { collectionId: collection } } }),
-    ...(tagId      && { tags: { some: { tagId } } }),
+    ...(cat            && { categoryId: cat }),
+    ...(subcat         && { subCategories: { some: { id: subcat } } }),
+    ...(collection     && { collections: { some: { collectionId: collection } } }),
+    ...(tagId          && { tags: { some: { tagId } } }),
+    ...(compositionId  && { compositions: { some: { compositionId } } }),
     ...(bestseller && { isBestSeller: true }),
     ...(isNew      && {
       OR: [

@@ -15,8 +15,12 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const limitParam = searchParams.get("limit");
-    const parsedLimit = limitParam ? parseInt(limitParam, 10) : 100;
-    const maxProducts = Math.min(Math.max(parsedLimit, 1), 1000);
+    // Plus de plafond : un champ vide ou "all" = pas de limite (importer tout
+    // le catalogue). Sinon on respecte la valeur saisie (>= 1).
+    const parsedLimit = limitParam && limitParam !== "all" ? parseInt(limitParam, 10) : NaN;
+    const maxProducts = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.max(parsedLimit, 1)
+      : undefined;
 
     const products = await listImportablePfsProducts({ maxProducts });
     return NextResponse.json({ products, count: products.length });

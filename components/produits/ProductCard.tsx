@@ -52,6 +52,7 @@ interface ProductCardProps {
   discountPercent?: number | null;
   clientDiscount?: ClientDiscountInfo | null;
   filteredColorIds?: string[];
+  onFavoriteChange?: (isFavorite: boolean) => void;
 }
 
 function computeVariantPrice(v: VariantData, discountPercent?: number | null): number {
@@ -67,7 +68,7 @@ function applyClientDiscount(price: number, discount: ClientDiscountInfo | null 
 }
 
 export default function ProductCard({
-  id, name, reference, category, subCategory, colors, tags = [], isFavorite = false, isBestSeller = false, isNew = false, discountPercent, clientDiscount, filteredColorIds = [],
+  id, name, reference, category, subCategory, colors, tags = [], isFavorite = false, isBestSeller = false, isNew = false, discountPercent, clientDiscount, filteredColorIds = [], onFavoriteChange,
 }: ProductCardProps) {
   const { data: session } = useSession();
   const router = useRouter();
@@ -306,7 +307,7 @@ export default function ProductCard({
                 {t("colorCount", { count: colors.length })}
               </span>
             )}
-            <FavoriteToggle productId={id} isFavorite={isFavorite} />
+            <FavoriteToggle productId={id} isFavorite={isFavorite} onChange={onFavoriteChange} />
           </div>
 
           {/* Shimmer overlay on hover */}

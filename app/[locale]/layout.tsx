@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { hasLocale } from "next-intl";
 import { setRequestLocale } from "next-intl/server";
 import { routing } from "@/i18n/routing";
+import TrackVisitPixel from "@/components/analytics/TrackVisitPixel";
 
 interface LocaleLayoutProps {
   children: React.ReactNode;
@@ -12,5 +13,10 @@ export default async function LocaleLayout({ children, params }: LocaleLayoutPro
   const { locale } = await params;
   if (!hasLocale(routing.locales, locale)) notFound();
   setRequestLocale(locale);
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <TrackVisitPixel />
+    </>
+  );
 }

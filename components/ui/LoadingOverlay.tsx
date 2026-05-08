@@ -62,8 +62,19 @@ function NavigationLoader() {
   // Intercept <a> clicks for Next.js navigation
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      const anchor = (e.target as HTMLElement).closest("a");
+      const target = e.target as HTMLElement;
+      const anchor = target.closest("a");
       if (!anchor) return;
+
+      // Si le clic se fait sur un <button> imbriqué dans le lien (ex : cœur
+      // favoris, bouton + au panier sur une carte produit), c'est ce bouton
+      // qui gère l'action — on ne change pas de page, donc pas d'overlay.
+      const button = target.closest("button");
+      if (button && anchor.contains(button)) return;
+
+      // Idem pour un input, un label, etc. cliqué à l'intérieur du lien.
+      const interactive = target.closest("button, input, select, textarea, [role='button']");
+      if (interactive && anchor.contains(interactive) && interactive !== anchor) return;
 
       const href = anchor.getAttribute("href");
       if (!href || href.startsWith("http") || href.startsWith("#") || href.startsWith("mailto:")) return;

@@ -5,7 +5,7 @@ import { getTranslations, getLocale } from "next-intl/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display";
-import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
+import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedSiteConfig, getCachedShopName, getCachedCompositions } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import SearchFilters from "@/components/produits/SearchFilters";
@@ -52,6 +52,7 @@ interface PageProps {
   searchParams: Promise<{
     q?: string; cat?: string; subcat?: string;
     collection?: string; color?: string; tag?: string;
+    composition?: string;
     bestseller?: string; new?: string;
     promo?: string; ordered?: string; notOrdered?: string;
     hideOos?: string;
@@ -127,20 +128,32 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   ]);
   const productInclude = buildProductInclude(locale);
 
-  // Fetch client discount
-  const clientDiscount = session?.user?.id
-    ? await prisma.user.findUnique({
-        where: { id: session.user.id },
-        select: { discountType: true, discountValue: true },
-      }).then((u) =>
-        u?.discountType && u.discountValue
-          ? { discountType: u.discountType as "PERCENT" | "AMOUNT", discountValue: Number(u.discountValue) }
-          : null
-      )
-    : null;
+  // Fetch client discount + IDs des produits favoris (en parallèle).
+  // On lit les favoris côté serveur pour que les cœurs soient déjà bien
+  // affichés au tout premier rendu — pas de "flash" où ils paraissent vides
+  // pendant que le navigateur appelle /api/favorites.
+  const [clientDiscount, favoriteIdsArr] = await Promise.all([
+    session?.user?.id
+      ? prisma.user.findUnique({
+          where: { id: session.user.id },
+          select: { discountType: true, discountValue: true },
+        }).then((u) =>
+          u?.discountType && u.discountValue
+            ? { discountType: u.discountType as "PERCENT" | "AMOUNT", discountValue: Number(u.discountValue) }
+            : null
+        )
+      : Promise.resolve(null),
+    session?.user?.id
+      ? prisma.favorite.findMany({
+          where: { userId: session.user.id },
+          select: { productId: true },
+        }).then((rows) => rows.map((r) => r.productId))
+      : Promise.resolve([]),
+  ]);
   const {
     q = "", cat = "", subcat = "",
     collection = "", color: colorParam = "", tag: tagId = "",
+    composition: compositionId = "",
     bestseller, new: isNewParam,
     promo: promoParam, ordered: orderedParam, notOrdered: notOrderedParam,
     hideOos: hideOosParam,
@@ -159,14 +172,15 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   const maxPrice    = maxPriceParam ? parseFloat(maxPriceParam) : null;
   const exactRef    = exactRefParam === "1";
 
-  const hasFilters = !!(q || cat || subcat || collection || colorIds.length > 0 || tagId || bestseller_ || isNew_ || promo_ || ordered_ || notOrdered_ || hideOos_ || minPrice !== null || maxPrice !== null || exactRef);
+  const hasFilters = !!(q || cat || subcat || collection || colorIds.length > 0 || tagId || compositionId || bestseller_ || isNew_ || promo_ || ordered_ || notOrdered_ || hideOos_ || minPrice !== null || maxPrice !== null || exactRef);
 
   // ─── Fetch filter options + site config (cached — revalidate every hour) ───
-  const [categories, collections, colors, tags, stockProductsConfig, seoTextRow] = await Promise.all([
+  const [categories, collections, colors, tags, compositions, stockProductsConfig, seoTextRow] = await Promise.all([
     getCachedCategories(),
     getCachedCollections(),
     getCachedColors(),
     getCachedTags(),
+    getCachedCompositions(),
     getCachedSiteConfig("show_out_of_stock_products"),
     getCachedSiteConfig("produits_seo_text"),
   ]);
@@ -249,10 +263,11 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
               ],
             }
           : {}),
-      ...(cat        && { categoryId: cat }),
-      ...(subcat     && { subCategories: { some: { id: subcat } } }),
-      ...(collection && { collections: { some: { collectionId: collection } } }),
-      ...(tagId      && { tags: { some: { tagId } } }),
+      ...(cat            && { categoryId: cat }),
+      ...(subcat         && { subCategories: { some: { id: subcat } } }),
+      ...(collection     && { collections: { some: { collectionId: collection } } }),
+      ...(tagId          && { tags: { some: { tagId } } }),
+      ...(compositionId  && { compositions: { some: { compositionId } } }),
       ...(bestseller_ && { isBestSeller: true }),
       ...(isNew_      && {
         OR: [
@@ -312,6 +327,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
               collections={collections}
               colors={colors}
               tags={tags}
+              compositions={compositions}
               totalCount={totalCount}
               showOosToggle={showOosToggle}
             />
@@ -328,6 +344,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
                 collections={collections}
                 colors={colors}
                 tags={tags}
+                compositions={compositions}
                 totalCount={totalCount}
                 showOosToggle={showOosToggle}
                 mobileMode
@@ -341,6 +358,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
               initialProducts={products}
               initialHasMore={initialHasMore}
               clientDiscount={clientDiscount}
+              initialFavoriteIds={favoriteIdsArr}
             />
           </Suspense>
         </div>

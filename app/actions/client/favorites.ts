@@ -1,7 +1,6 @@
 "use server";
 
 import { getServerSession } from "next-auth";
-import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -14,19 +13,20 @@ async function requireClient() {
 export async function toggleFavorite(productId: string) {
   const userId = await requireClient();
 
-  const existing = await prisma.favorite.findUnique({
-    where: { userId_productId: { userId, productId } },
+  // Toggle en 1 ou 2 requêtes max : on tente la suppression, et si rien n'a
+  // été supprimé (count=0), c'est qu'il n'y avait pas de favori → on crée.
+  // Évite le findUnique préalable. Pas de revalidatePath : la page favoris
+  // n'est pas cachée (elle dépend de la session, recalculée à chaque visite).
+  const deleted = await prisma.favorite.deleteMany({
+    where: { userId, productId },
   });
 
-  if (existing) {
-    await prisma.favorite.delete({ where: { id: existing.id } });
-    revalidatePath("/favoris");
+  if (deleted.count > 0) {
     return { isFavorite: false };
-  } else {
-    await prisma.favorite.create({ data: { userId, productId } });
-    revalidatePath("/favoris");
-    return { isFavorite: true };
   }
+
+  await prisma.favorite.create({ data: { userId, productId } });
+  return { isFavorite: true };
 }
 
 export async function getFavoriteIds(): Promise<string[]> {

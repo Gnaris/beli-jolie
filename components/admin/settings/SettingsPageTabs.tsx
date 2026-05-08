@@ -110,11 +110,12 @@ export default function SettingsPageTabs({ activeTab, variant = "desktop" }: Pro
           return (
             <button
               key={tab.key}
+              type="button"
               onClick={() => handleTabChange(tab.key)}
-              className={`px-4 py-2.5 text-sm font-body rounded-full transition-colors whitespace-nowrap min-h-[44px] ${
+              className={`px-4 py-2.5 text-sm font-body rounded-full whitespace-nowrap min-h-[44px] cursor-pointer border transition-all duration-150 ${
                 isActive
-                  ? "bg-bg-dark text-text-inverse font-medium"
-                  : "bg-bg-secondary text-text-secondary hover:bg-bg-secondary/80"
+                  ? "bg-bg-dark text-text-inverse font-medium border-bg-dark shadow-sm"
+                  : "bg-bg-primary text-text-secondary border-border hover:bg-bg-dark hover:text-text-inverse hover:border-bg-dark hover:shadow-sm hover:-translate-y-0.5 active:translate-y-0"
               }`}
             >
               {tab.label}
@@ -132,7 +133,7 @@ export default function SettingsPageTabs({ activeTab, variant = "desktop" }: Pro
           <p className="text-[11px] font-heading font-semibold uppercase tracking-wider text-text-muted px-3 mb-2">
             {group.label}
           </p>
-          <div className="flex flex-col gap-0.5">
+          <div className="flex flex-col gap-1">
             {group.keys.map((key) => {
               const tab = TAB_MAP.get(key);
               if (!tab) return null;
@@ -140,11 +141,12 @@ export default function SettingsPageTabs({ activeTab, variant = "desktop" }: Pro
               return (
                 <button
                   key={tab.key}
+                  type="button"
                   onClick={() => handleTabChange(tab.key)}
-                  className={`flex items-center gap-3 px-3 py-2.5 text-sm font-body rounded-xl transition-colors text-left min-h-[44px] w-full ${
+                  className={`group flex items-center gap-3 px-3 py-2.5 text-sm font-body rounded-xl text-left min-h-[44px] w-full cursor-pointer border transition-all duration-150 ${
                     isActive
-                      ? "bg-bg-dark text-text-inverse font-medium"
-                      : "text-text-secondary hover:bg-bg-secondary"
+                      ? "bg-bg-dark text-text-inverse font-medium border-bg-dark shadow-sm"
+                      : "bg-bg-primary text-text-secondary border-border hover:bg-bg-dark hover:text-text-inverse hover:border-bg-dark hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
                   }`}
                 >
                   <svg className="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

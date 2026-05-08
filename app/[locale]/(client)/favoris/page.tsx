@@ -5,9 +5,9 @@ import { redirect, Link } from "@/i18n/navigation";
 import { getTranslations, getLocale } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedShopName } from "@/lib/cached-data";
+import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedShopName, getCachedCompositions } from "@/lib/cached-data";
 import SearchFilters from "@/components/produits/SearchFilters";
-import ProductCard from "@/components/produits/ProductCard";
+import FavoritesGrid, { type FavoritesGridItem } from "@/components/produits/FavoritesGrid";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -22,7 +22,9 @@ interface PageProps {
   searchParams: Promise<{
     q?: string; cat?: string; subcat?: string;
     collection?: string; color?: string; tag?: string;
+    composition?: string;
     bestseller?: string; new?: string;
+    promo?: string;
     minPrice?: string; maxPrice?: string;
     exactRef?: string;
     page?: string;
@@ -43,23 +45,37 @@ export default async function FavorisPage({ searchParams }: PageProps) {
 
   const {
     q = "", cat = "", subcat = "",
-    collection = "", color: colorId = "", tag: tagId = "",
-    bestseller, new: isNewParam,
+    collection = "", color: colorParam = "", tag: tagId = "",
+    composition: compositionId = "",
+    bestseller, new: isNewParam, promo: promoParam,
     minPrice: minPriceParam, maxPrice: maxPriceParam,
     exactRef: exactRefParam,
     page: pageParam,
   } = await searchParams;
 
+  const colorIds    = colorParam ? colorParam.split(",").filter(Boolean) : [];
   const bestseller_ = bestseller === "1";
   const isNew_      = isNewParam === "1";
+  const promo_      = promoParam === "1";
   const minPrice    = minPriceParam ? parseFloat(minPriceParam) : null;
   const maxPrice    = maxPriceParam ? parseFloat(maxPriceParam) : null;
   const exactRef    = exactRefParam === "1";
   const page        = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
   const PAGE_SIZE   = 20;
 
-  // Build the product filter (mirrors /produits logic)
+  // Build the product filter (mirrors /produits logic) — utilise AND[] pour
+  // permettre plusieurs clauses sur `colors` sans collision (multi-couleurs +
+  // fourchette de prix).
+  const andConditions: Record<string, unknown>[] = [];
+  if (colorIds.length === 1) andConditions.push({ colors: { some: { colorId: colorIds[0] } } });
+  else if (colorIds.length > 1) andConditions.push({ colors: { some: { colorId: { in: colorIds } } } });
+  if (promo_) andConditions.push({ discountPercent: { gt: 0 } });
+  if (minPrice !== null || maxPrice !== null) {
+    andConditions.push({ colors: { some: { unitPrice: { ...(minPrice !== null && { gte: minPrice }), ...(maxPrice !== null && { lte: maxPrice }) } } } });
+  }
+
   const productWhere: Record<string, unknown> = {
+    ...(andConditions.length > 0 && { AND: andConditions }),
     ...(q && exactRef
       ? { reference: { equals: q.toUpperCase() } }
       : q
@@ -71,31 +87,21 @@ export default async function FavorisPage({ searchParams }: PageProps) {
             ],
           }
         : {}),
-    ...(cat        && { categoryId: cat }),
-    ...(subcat     && { subCategories: { some: { id: subcat } } }),
-    ...(collection && { collections: { some: { collectionId: collection } } }),
-    ...(colorId    && { colors: { some: { colorId } } }),
-    ...(tagId      && { tags: { some: { tagId } } }),
-    ...(bestseller_ && { isBestSeller: true }),
-    ...(isNew_      && {
+    ...(cat            && { categoryId: cat }),
+    ...(subcat         && { subCategories: { some: { id: subcat } } }),
+    ...(collection     && { collections: { some: { collectionId: collection } } }),
+    ...(tagId          && { tags: { some: { tagId } } }),
+    ...(compositionId  && { compositions: { some: { compositionId } } }),
+    ...(bestseller_    && { isBestSeller: true }),
+    ...(isNew_         && {
       OR: [
         { createdAt: { gte: new Date(Date.now() - NEW_THRESHOLD_MS) } },
         { lastRefreshedAt: { gte: new Date(Date.now() - NEW_THRESHOLD_MS) } },
       ],
     }),
-    ...((minPrice !== null || maxPrice !== null) && {
-      colors: {
-        some: {
-          unitPrice: {
-            ...(minPrice !== null && { gte: minPrice }),
-            ...(maxPrice !== null && { lte: maxPrice }),
-          },
-        },
-      },
-    }),
   };
 
-  const [rawFavorites, totalCount, categories, collections, colors, tags] = await Promise.all([
+  const [rawFavorites, totalCount, categories, collections, colors, tags, compositions] = await Promise.all([
     prisma.favorite.findMany({
       where: { userId: session.user.id, product: productWhere },
       include: {
@@ -131,6 +137,7 @@ export default async function FavorisPage({ searchParams }: PageProps) {
     getCachedCollections(),
     getCachedColors(),
     getCachedTags(),
+    getCachedCompositions(),
   ]);
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
@@ -206,6 +213,7 @@ export default async function FavorisPage({ searchParams }: PageProps) {
               collections={collections}
               colors={colors}
               tags={tags}
+              compositions={compositions}
               totalCount={totalCount}
             />
           </Suspense>
@@ -221,6 +229,7 @@ export default async function FavorisPage({ searchParams }: PageProps) {
                 collections={collections}
                 colors={colors}
                 tags={tags}
+                compositions={compositions}
                 totalCount={totalCount}
                 mobileMode
               />
@@ -243,7 +252,7 @@ export default async function FavorisPage({ searchParams }: PageProps) {
                     d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"
                   />
                 </svg>
-                {totalCount === 0 && !q && !cat && !subcat && !collection && !colorId && !tagId && !bestseller_ && !isNew_ && minPrice === null && maxPrice === null ? (
+                {totalCount === 0 && !q && !cat && !subcat && !collection && colorIds.length === 0 && !tagId && !compositionId && !bestseller_ && !isNew_ && !promo_ && minPrice === null && maxPrice === null ? (
                   <>
                     <p className="font-body font-medium text-text-secondary mb-1">
                       {tFav("empty")}
@@ -276,52 +285,65 @@ export default async function FavorisPage({ searchParams }: PageProps) {
                 )}
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-                {favorites.map(({ product }) => (
-                  <ProductCard
-                    key={product.id}
-                    id={product.id}
-                    name={product.name}
-                    reference={product.reference}
-                    category={product.category.name}
-                    subCategory={product.subCategories[0]?.name ?? null}
-                    colors={product.colors}
-                    tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
-                    isFavorite={true}
-                    isBestSeller={product.isBestSeller}
-                    isNew={Math.max(
-                      product.createdAt.getTime(),
-                      product.lastRefreshedAt ? product.lastRefreshedAt.getTime() : 0,
-                    ) > now - NEW_THRESHOLD_MS}
-                  />
-                ))}
-              </div>
+              <FavoritesGrid
+                items={favorites.map(({ product }): FavoritesGridItem => ({
+                  id: product.id,
+                  name: product.name,
+                  reference: product.reference,
+                  category: product.category.name,
+                  subCategory: product.subCategories[0]?.name ?? null,
+                  colors: product.colors,
+                  tags: product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name })),
+                  isBestSeller: product.isBestSeller,
+                  isNew: Math.max(
+                    product.createdAt.getTime(),
+                    product.lastRefreshedAt ? product.lastRefreshedAt.getTime() : 0,
+                  ) > now - NEW_THRESHOLD_MS,
+                }))}
+              />
             )}
 
             {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 mt-6">
-                {page > 1 && (
-                  <Link
-                    href={`/favoris?${new URLSearchParams({ ...(q && { q }), ...(cat && { cat }), ...(subcat && { subcat }), ...(collection && { collection }), ...(colorId && { color: colorId }), ...(tagId && { tag: tagId }), page: String(page - 1) }).toString()}`}
-                    className="px-3 py-2 text-sm font-body text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
-                  >
-                    &larr;
-                  </Link>
-                )}
-                <span className="text-sm font-body text-text-muted">
-                  {page} / {totalPages}
-                </span>
-                {page < totalPages && (
-                  <Link
-                    href={`/favoris?${new URLSearchParams({ ...(q && { q }), ...(cat && { cat }), ...(subcat && { subcat }), ...(collection && { collection }), ...(colorId && { color: colorId }), ...(tagId && { tag: tagId }), page: String(page + 1) }).toString()}`}
-                    className="px-3 py-2 text-sm font-body text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
-                  >
-                    &rarr;
-                  </Link>
-                )}
-              </div>
-            )}
+            {totalPages > 1 && (() => {
+              const baseParams = {
+                ...(q && { q }),
+                ...(exactRef && { exactRef: "1" }),
+                ...(cat && { cat }),
+                ...(subcat && { subcat }),
+                ...(collection && { collection }),
+                ...(colorParam && { color: colorParam }),
+                ...(tagId && { tag: tagId }),
+                ...(compositionId && { composition: compositionId }),
+                ...(bestseller_ && { bestseller: "1" }),
+                ...(isNew_ && { new: "1" }),
+                ...(promo_ && { promo: "1" }),
+                ...(minPrice !== null && { minPrice: String(minPrice) }),
+                ...(maxPrice !== null && { maxPrice: String(maxPrice) }),
+              };
+              return (
+                <div className="flex items-center justify-center gap-2 mt-6">
+                  {page > 1 && (
+                    <Link
+                      href={`/favoris?${new URLSearchParams({ ...baseParams, page: String(page - 1) }).toString()}`}
+                      className="px-3 py-2 text-sm font-body text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+                    >
+                      &larr;
+                    </Link>
+                  )}
+                  <span className="text-sm font-body text-text-muted">
+                    {page} / {totalPages}
+                  </span>
+                  {page < totalPages && (
+                    <Link
+                      href={`/favoris?${new URLSearchParams({ ...baseParams, page: String(page + 1) }).toString()}`}
+                      className="px-3 py-2 text-sm font-body text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+                    >
+                      &rarr;
+                    </Link>
+                  )}
+                </div>
+              );
+            })()}
         </div>
       </div>
     </>

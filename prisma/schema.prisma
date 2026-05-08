@@ -1519,3 +1519,22 @@ model PriceHistory {
 
   @@index([productColorId, createdAt])
 }
+
+// ─────────────────────────────────────────────
+// Visites du site (anonymes + connectés)
+// ─────────────────────────────────────────────
+// Une ligne par visiteur unique par jour. Un visiteur connecté est identifié
+// par son userId, un visiteur anonyme par un cookie aléatoire (`bj_visitor_id`).
+// Le couple visitorId+date est unique → un rafraîchissement de page ou plusieurs
+// pages visitées dans la même journée ne dupliquent pas le compteur.
+model Visit {
+  id              String   @id @default(cuid())
+  visitorId       String // userId si connecté, sinon UUID stocké en cookie
+  isAuthenticated Boolean  @default(false)
+  date            String // Format YYYY-MM-DD (UTC simplifié pour l'agrégation)
+  createdAt       DateTime @default(now())
+
+  @@unique([visitorId, date])
+  @@index([date])
+  @@index([isAuthenticated, date])
+}

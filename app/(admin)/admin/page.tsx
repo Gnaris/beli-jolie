@@ -5,7 +5,9 @@ import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedDashboardStats, getCachedLowStockCount } from "@/lib/cached-data";
+import { getVisitStats } from "@/lib/visit-stats";
 import DashboardChartsLoader from "@/components/admin/dashboard/DashboardChartsLoader";
+import VisitorStats from "@/components/admin/dashboard/VisitorStats";
 import type { MonthlyPoint, StatusPoint, TopProduct } from "@/components/admin/dashboard/DashboardCharts";
 
 export const metadata: Metadata = {
@@ -25,6 +27,7 @@ export default async function AdminDashboardPage() {
     rejectedCount,
     latestPending,
     lowStockCount,
+    visitStats,
   ] = await Promise.all([
     getCachedDashboardStats(),
     prisma.user.count({ where: { status: "PENDING" } }),
@@ -39,6 +42,7 @@ export default async function AdminDashboardPage() {
       },
     }),
     getCachedLowStockCount(),
+    getVisitStats(),
   ]);
 
   const {
@@ -202,6 +206,9 @@ export default async function AdminDashboardPage() {
           </Link>
         </div>
       </section>
+
+      {/* ── VISITEURS ── */}
+      <VisitorStats stats={visitStats} />
 
       {/* ── VUE D'ENSEMBLE (totaux secondaires) ── */}
       <section>

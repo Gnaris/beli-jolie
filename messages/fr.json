@@ -226,6 +226,8 @@
     "filterCollection": "Collection",
     "filterColor": "Couleur",
     "filterTag": "Mots-clés",
+    "filterComposition": "Composition",
+    "filterAllCompositions": "Toutes les compositions",
     "filterPrice": "Prix HT",
     "filterMin": "Min",
     "filterMax": "Max",

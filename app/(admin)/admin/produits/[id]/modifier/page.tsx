@@ -9,6 +9,7 @@ import type { ProductFormHeaderState, StockState } from "@/components/admin/prod
 import { DraftPageWrapper, DraftPageToggle } from "./DraftPageWrapper";
 import { ProductEditRefreshButton } from "@/components/admin/products/ProductEditRefreshButton";
 import { MarketplaceStatusButtons } from "@/components/admin/products/MarketplaceStatusButtons";
+import ProductStatsModal from "@/components/admin/products/ProductStatsModal";
 import { getCachedPfsEnabled } from "@/lib/cached-data";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
@@ -408,6 +409,11 @@ export default async function ModifierProduitPage({
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <ProductStatsModal
+                productId={product.id}
+                productName={product.name}
+                reference={product.reference}
+              />
               <ProductEditRefreshButton
                 productId={product.id}
                 reference={product.reference}

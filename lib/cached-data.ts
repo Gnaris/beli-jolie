@@ -97,6 +97,17 @@ export const getCachedSeasons = unstable_cache(
   { revalidate: 60, tags: ["seasons"] }
 );
 
+// ─── Compositions (id + name only, for public product filters) ──────────────
+export const getCachedCompositions = unstable_cache(
+  async () =>
+    prisma.composition.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+  ["filter-compositions"],
+  { revalidate: 60 * 60, tags: ["compositions"] }
+);
+
 // ─── SiteConfig (clé unique — used heavily, short TTL) ─────────────────────────
 // Each key gets its own cache entry to avoid collisions
 export function getCachedSiteConfig(key: string) {

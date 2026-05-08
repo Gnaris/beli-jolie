@@ -1,11 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { useTranslations, useLocale } from "next-intl";
 import ProductCard from "./ProductCard";
-import { useProductStream, type ProductEvent } from "@/hooks/useProductStream";
 
 type VariantItem = {
   id:           string;
@@ -50,13 +48,13 @@ interface Props {
   initialProducts: ProductItem[];
   initialHasMore:  boolean;
   clientDiscount?: ClientDiscountInfo | null;
+  initialFavoriteIds?: string[];
 }
 
-export default function ProductsInfiniteScroll({ initialProducts, initialHasMore, clientDiscount }: Props) {
+export default function ProductsInfiniteScroll({ initialProducts, initialHasMore, clientDiscount, initialFavoriteIds = [] }: Props) {
   const t = useTranslations("products");
   const locale = useLocale();
   const searchParams = useSearchParams();
-  const { data: session } = useSession();
   const q          = searchParams.get("q")          ?? "";
   const cat        = searchParams.get("cat")        ?? "";
   const subcat     = searchParams.get("subcat")     ?? "";
@@ -64,6 +62,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
   const colorParam = searchParams.get("color")       ?? "";
   const filteredColorIds = colorParam ? colorParam.split(",").filter(Boolean) : [];
   const tagId      = searchParams.get("tag")        ?? "";
+  const compositionId = searchParams.get("composition") ?? "";
   const bestseller = searchParams.get("bestseller") ?? "";
   const isNew      = searchParams.get("new")        ?? "";
   const promo      = searchParams.get("promo")      ?? "";
@@ -78,73 +77,13 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
   const [hasMore,     setHasMore]     = useState(initialHasMore);
   const [loading,     setLoading]     = useState(false);
   const [loadError,   setLoadError]   = useState<string | null>(null);
-  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  // Track product IDs that were just updated via SSE (for animation)
-  const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set());
-  // Track newly appeared product IDs (for entrance animation)
-  const [newlyAddedIds, setNewlyAddedIds] = useState<Set<string>>(new Set());
-
-  // SSE: listen for real-time product events
-  const handleProductEvent = useCallback(async (event: ProductEvent) => {
-    try {
-      const res = await fetch(`/api/products/${event.productId}/live?locale=${encodeURIComponent(locale)}`);
-      const data = await res.json();
-      if (!data.product) return;
-      const p = data.product;
-
-      if (event.type === "PRODUCT_ONLINE" && p.status === "ONLINE") {
-        // New product appeared — add to top with entrance animation
-        setProducts((prev) => {
-          if (prev.some((x) => x.id === p.id)) return prev;
-          return [p, ...prev];
-        });
-        setNewlyAddedIds((prev) => new Set(prev).add(p.id));
-        setTimeout(() => setNewlyAddedIds((prev) => { const s = new Set(prev); s.delete(p.id); return s; }), 1500);
-      } else if (event.type === "PRODUCT_OFFLINE" && p.status !== "ONLINE") {
-        // Product removed — fade out then remove
-        setAnimatingIds((prev) => new Set(prev).add(p.id));
-        setTimeout(() => {
-          setProducts((prev) => prev.filter((x) => x.id !== p.id));
-          setAnimatingIds((prev) => { const s = new Set(prev); s.delete(p.id); return s; });
-        }, 500);
-      } else {
-        // Update existing card (stock, bestseller, price changes)
-        // If createdAt was refreshed, move to top
-        const isRefreshed = p.createdAt && new Date(p.createdAt).getTime() > Date.now() - 5000;
-        setProducts((prev) => {
-          const without = prev.filter((x) => x.id !== p.id);
-          if (isRefreshed && prev.length > 0 && prev[0].id !== p.id) {
-            return [p, ...without];
-          }
-          return prev.map((x) => x.id === p.id ? p : x);
-        });
-        if (isRefreshed) {
-          setNewlyAddedIds((prev) => new Set(prev).add(p.id));
-          setTimeout(() => setNewlyAddedIds((prev) => { const s = new Set(prev); s.delete(p.id); return s; }), 1500);
-        } else {
-          setAnimatingIds((prev) => new Set(prev).add(p.id));
-          setTimeout(() => setAnimatingIds((prev) => { const s = new Set(prev); s.delete(p.id); return s; }), 1200);
-        }
-      }
-    } catch { /* ignore fetch errors */ }
-  }, [locale]);
-
-  useProductStream(handleProductEvent);
-
-  // Fetch favorites client-side once (CLIENT role only)
-  useEffect(() => {
-    if (session?.user?.role !== "CLIENT") return;
-    const controller = new AbortController();
-    fetch("/api/favorites", { signal: controller.signal })
-      .then((r) => r.json())
-      .then((data: { ids: string[] }) => setFavoriteIds(new Set(data.ids)))
-      .catch(() => {});
-    return () => controller.abort();
-  }, [session]);
+  // Initialisé avec les IDs déjà connus côté serveur — plus besoin d'attendre
+  // le fetch /api/favorites avant d'afficher les bons cœurs.
+  const [favoriteIds] = useState<Set<string>>(() => new Set(initialFavoriteIds));
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<() => void>(() => {});
-  const filtersKey  = `${q}||${cat}||${subcat}||${collection}||${colorParam}||${tagId}||${bestseller}||${isNew}||${promo}||${ordered}||${notOrdered}||${hideOos}||${minPrice}||${maxPrice}`;
+  const filtersKey  = `${q}||${cat}||${subcat}||${collection}||${colorParam}||${tagId}||${compositionId}||${bestseller}||${isNew}||${promo}||${ordered}||${notOrdered}||${hideOos}||${minPrice}||${maxPrice}`;
   const prevFilters = useRef(filtersKey);
 
   // Reset when filters change
@@ -177,6 +116,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
     if (collection) params.set("collection", collection);
     if (colorParam) params.set("color",      colorParam);
     if (tagId)      params.set("tag",        tagId);
+    if (compositionId) params.set("composition", compositionId);
     if (bestseller) params.set("bestseller", bestseller);
     if (isNew)      params.set("new",        isNew);
     if (promo)      params.set("promo",      promo);
@@ -243,15 +183,8 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
     <>
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 lg:gap-6">
         {products.map((product) => {
-          const isNewlyAdded = newlyAddedIds.has(product.id);
-          const isAnimating = animatingIds.has(product.id);
           return (
-          <div
-            key={product.id}
-            className={`stagger-card transition-all duration-500 ${
-              isNewlyAdded ? "animate-live-pop" : ""
-            } ${isAnimating && !isNewlyAdded ? "animate-live-pulse" : ""}`}
-          >
+          <div key={product.id} className="stagger-card">
           <ProductCard
             id={product.id}
             name={product.name}

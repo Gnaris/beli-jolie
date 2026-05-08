@@ -241,9 +241,13 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
           <button
             type="button"
             onClick={resetAll}
-            className="text-xs text-text-muted hover:text-text-primary font-body underline shrink-0 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-body font-medium border border-[#FECACA] bg-[#FEF2F2] text-[#DC2626] rounded-lg hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors shrink-0"
+            title="Effacer tous les filtres et revenir à la liste complète"
           >
-            Réinitialiser
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            Effacer les filtres
           </button>
         )}
 

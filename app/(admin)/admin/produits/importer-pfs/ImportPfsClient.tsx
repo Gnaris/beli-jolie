@@ -73,6 +73,7 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
   // Step 3 — import (server-side job)
   const [activeJob, setActiveJob] = useState<PfsJob | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [submittingImport, setSubmittingImport] = useState(false);
 
   // ── Check for active job on mount
   useEffect(() => {
@@ -327,10 +328,12 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
 
   // ── Step 3 — start server-side import
   const startImport = useCallback(async () => {
+    if (submittingImport) return; // garde-fou anti-double-clic
     const items = products
       .filter((p) => selected.has(p.pfsId))
       .map((p) => ({ pfsId: p.pfsId, reference: p.reference, name: p.name }));
 
+    setSubmittingImport(true);
     try {
       const res = await fetch("/api/admin/pfs-import/start-job", {
         method: "POST",
@@ -351,8 +354,10 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
       setStep("import");
     } catch (err) {
       toast.error((err as Error).message);
+    } finally {
+      setSubmittingImport(false);
     }
-  }, [products, selected, toast]);
+  }, [products, selected, toast, submittingImport]);
 
   // ── Cancel job
   const cancelJob = useCallback(async () => {
@@ -449,6 +454,7 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
           onToggleAll={toggleAll}
           onBack={() => setStep("scan")}
           onNext={startImport}
+          submitting={submittingImport}
         />
       )}
 
@@ -646,18 +652,17 @@ function ScanStep({
               <p className="text-text-muted">
                 Lancez un scan du catalogue PFS pour vérifier que toutes les correspondances existent chez vous.
               </p>
-              <div className="flex items-center justify-center gap-3">
+              <div className="flex items-center justify-center gap-3 flex-wrap">
                 <label className="text-sm text-text-secondary">Nombre de produits :</label>
                 <input
                   type="number"
                   min={1}
-                  max={1000}
-                  placeholder="100"
+                  placeholder="Tous"
                   value={productLimit}
                   onChange={(e) => onProductLimitChange(e.target.value)}
-                  className="border border-border rounded-lg px-3 py-2 text-sm bg-bg-primary w-24 text-center"
+                  className="border border-border rounded-lg px-3 py-2 text-sm bg-bg-primary w-28 text-center"
                 />
-                <span className="text-xs text-text-muted">Par défaut : 100 — Maximum : 1000</span>
+                <span className="text-xs text-text-muted">Vide = importer la totalité du catalogue PFS</span>
               </div>
               <button onClick={() => onRunScan()} disabled={scanning} className="btn-primary">
                 {scanning ? "Scan en cours…" : "Scanner PFS"}
@@ -696,11 +701,11 @@ function ScanStep({
                 <input
                   type="number"
                   min={1}
-                  max={1000}
-                  placeholder="100"
+                  placeholder="Tous"
                   value={productLimit}
                   onChange={(e) => onProductLimitChange(e.target.value)}
-                  className="border border-border rounded-lg px-2 py-1.5 text-sm bg-bg-primary w-20 text-center"
+                  title="Vide = importer la totalité du catalogue"
+                  className="border border-border rounded-lg px-2 py-1.5 text-sm bg-bg-primary w-24 text-center"
                 />
               )}
               <button onClick={() => onRunScan(importMode === "byRef" ? validatedRefs.map((r) => r.reference) : undefined)} disabled={scanning} className="btn-secondary">
@@ -937,6 +942,7 @@ function ProductsStep({
   onToggleAll,
   onBack,
   onNext,
+  submitting,
 }: {
   loading: boolean;
   products: ImportablePfsProduct[];
@@ -945,6 +951,7 @@ function ProductsStep({
   onToggleAll: () => void;
   onBack: () => void;
   onNext: () => void;
+  submitting: boolean;
 }) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -1137,9 +1144,20 @@ function ProductsStep({
       )}
 
       <div className="flex justify-between pt-2">
-        <button onClick={onBack} className="btn-secondary">← Retour</button>
-        <button onClick={onNext} disabled={selected.size === 0} className="btn-primary">
-          Importer les {selected.size} produit(s) →
+        <button onClick={onBack} className="btn-secondary" disabled={submitting}>← Retour</button>
+        <button
+          onClick={onNext}
+          disabled={selected.size === 0 || submitting}
+          className="btn-primary inline-flex items-center gap-2"
+        >
+          {submitting ? (
+            <>
+              <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              Préparation de l&apos;import…
+            </>
+          ) : (
+            <>Importer les {selected.size} produit(s) →</>
+          )}
         </button>
       </div>
     </div>
