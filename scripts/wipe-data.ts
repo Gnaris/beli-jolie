@@ -477,29 +477,38 @@ async function main() {
   console.log(formatCountReport(report));
   console.log("");
 
-  // 2. Premiere confirmation
-  const rl = readline.createInterface({ input: stdin, output: stdout });
-  try {
-    const answer1 = (await rl.question("Pour continuer, tapez exactement EFFACER : ")).trim();
-    if (answer1 !== "EFFACER") {
-      console.log("\nAnnule. Aucune donnee n'a ete modifiee.\n");
-      await prisma.$disconnect();
-      return;
-    }
+  // 2. Confirmations : interactives par defaut. Le flag --unsafe-yes saute
+  //    les prompts (utile pour un deploiement automatise via SSH/CI ou la
+  //    readline ne fonctionne pas avec un stdin pipe). A n'utiliser que
+  //    quand on sait exactement ce qu'on fait : c'est destructif et non
+  //    reversible sans backup prealable.
+  const skipPrompts = process.argv.includes("--unsafe-yes");
+  if (skipPrompts) {
+    console.log("[--unsafe-yes] Confirmations sautees, lancement immediat.\n");
+  } else {
+    const rl = readline.createInterface({ input: stdin, output: stdout });
+    try {
+      const answer1 = (await rl.question("Pour continuer, tapez exactement EFFACER : ")).trim();
+      if (answer1 !== "EFFACER") {
+        console.log("\nAnnule. Aucune donnee n'a ete modifiee.\n");
+        await prisma.$disconnect();
+        return;
+      }
 
-    // 3. Deuxieme confirmation : nom de base
-    const expectedDb = databaseNameFromUrl(process.env.DATABASE_URL);
-    const dbPrompt = expectedDb
-      ? `Tapez le nom de la base de donnees pour confirmer (${expectedDb}) : `
-      : "Tapez le nom de la base de donnees pour confirmer : ";
-    const answer2 = (await rl.question(dbPrompt)).trim();
-    if (!expectedDb || answer2 !== expectedDb) {
-      console.log("\nAnnule. Le nom de la base ne correspond pas.\n");
-      await prisma.$disconnect();
-      return;
+      // 3. Deuxieme confirmation : nom de base
+      const expectedDb = databaseNameFromUrl(process.env.DATABASE_URL);
+      const dbPrompt = expectedDb
+        ? `Tapez le nom de la base de donnees pour confirmer (${expectedDb}) : `
+        : "Tapez le nom de la base de donnees pour confirmer : ";
+      const answer2 = (await rl.question(dbPrompt)).trim();
+      if (!expectedDb || answer2 !== expectedDb) {
+        console.log("\nAnnule. Le nom de la base ne correspond pas.\n");
+        await prisma.$disconnect();
+        return;
+      }
+    } finally {
+      rl.close();
     }
-  } finally {
-    rl.close();
   }
 
   console.log("\nConfirme. Lancement de l'effacement...\n");
