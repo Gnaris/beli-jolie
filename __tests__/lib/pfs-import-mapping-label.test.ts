@@ -351,7 +351,7 @@ describe("approveAndImportPfsProduct — matching pays/composition par libellé 
       }
       return null;
     });
-    mockCompositionFindFirst.mockResolvedValue(null);
+    mockCompositionFindMany.mockResolvedValue([]);
 
     await approveAndImportPfsProduct("pfs-approve-1");
 
@@ -367,18 +367,22 @@ describe("approveAndImportPfsProduct — matching pays/composition par libellé 
 
   it("raccroche le produit à la composition existante dont pfsCompositionRef vaut le libellé FR (Polyester)", async () => {
     mockCountryFindFirst.mockResolvedValue(null);
-    mockCompositionFindFirst.mockImplementation(async (args: { where: { pfsCompositionRef: string } }) => {
-      if (args.where.pfsCompositionRef === "Polyester") {
-        return { id: "comp-poly-local" };
+    // Le matching se fait désormais via un findMany batch (toutes les
+    // compositions du produit en une seule requête, regroupées par libellé).
+    mockCompositionFindMany.mockImplementation(async (args: { where: { pfsCompositionRef: { in: string[] } } }) => {
+      const labels = args.where.pfsCompositionRef.in;
+      const out: { id: string; pfsCompositionRef: string }[] = [];
+      if (labels.includes("Polyester")) {
+        out.push({ id: "comp-poly-local", pfsCompositionRef: "Polyester" });
       }
-      return null;
+      return out;
     });
 
     await approveAndImportPfsProduct("pfs-approve-1");
 
-    expect(mockCompositionFindFirst).toHaveBeenCalledWith({
-      where: { pfsCompositionRef: "Polyester" },
-      select: { id: true },
+    expect(mockCompositionFindMany).toHaveBeenCalledWith({
+      where: { pfsCompositionRef: { in: ["Polyester"] } },
+      select: { id: true, pfsCompositionRef: true },
     });
     // La composition a été ajoutée au produit créé via la relation imbriquée.
     const createArgs = mockProductCreate.mock.calls[0][0];
@@ -391,7 +395,7 @@ describe("approveAndImportPfsProduct — matching pays/composition par libellé 
 
   it("ajoute un avertissement avec le libellé FR quand le pays n'est pas mappé", async () => {
     mockCountryFindFirst.mockResolvedValue(null);
-    mockCompositionFindFirst.mockResolvedValue(null);
+    mockCompositionFindMany.mockResolvedValue([]);
 
     const result = await approveAndImportPfsProduct("pfs-approve-1");
 
@@ -404,7 +408,7 @@ describe("approveAndImportPfsProduct — matching pays/composition par libellé 
 
   it("ajoute un avertissement avec le libellé FR quand la composition n'est pas mappée", async () => {
     mockCountryFindFirst.mockResolvedValue(null);
-    mockCompositionFindFirst.mockResolvedValue(null);
+    mockCompositionFindMany.mockResolvedValue([]);
 
     const result = await approveAndImportPfsProduct("pfs-approve-1");
 

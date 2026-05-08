@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import ProductCard from "./ProductCard";
 import { useProductStream, type ProductEvent } from "@/hooks/useProductStream";
 
@@ -54,6 +54,7 @@ interface Props {
 
 export default function ProductsInfiniteScroll({ initialProducts, initialHasMore, clientDiscount }: Props) {
   const t = useTranslations("products");
+  const locale = useLocale();
   const searchParams = useSearchParams();
   const { data: session } = useSession();
   const q          = searchParams.get("q")          ?? "";
@@ -86,7 +87,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
   // SSE: listen for real-time product events
   const handleProductEvent = useCallback(async (event: ProductEvent) => {
     try {
-      const res = await fetch(`/api/products/${event.productId}/live`);
+      const res = await fetch(`/api/products/${event.productId}/live?locale=${encodeURIComponent(locale)}`);
       const data = await res.json();
       if (!data.product) return;
       const p = data.product;
@@ -126,7 +127,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
         }
       }
     } catch { /* ignore fetch errors */ }
-  }, []);
+  }, [locale]);
 
   useProductStream(handleProductEvent);
 
@@ -184,6 +185,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
     if (hideOos)    params.set("hideOos",    hideOos);
     if (minPrice)   params.set("minPrice",   minPrice);
     if (maxPrice)   params.set("maxPrice",   maxPrice);
+    if (locale)     params.set("locale",     locale);
     params.set("page", String(nextPage));
 
     try {

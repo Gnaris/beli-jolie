@@ -8,9 +8,10 @@
 
 import { prisma } from "@/lib/prisma";
 import { translateTextStrict, type Locale } from "@/lib/translate";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 
-const TARGET_LOCALES: Locale[] = ["en", "ar", "zh", "de", "es", "it"];
+const TARGET_LOCALES: Locale[] = NON_DEFAULT_LOCALES;
 
 /** Check if auto-translate is enabled in SiteConfig */
 export async function isAutoTranslateEnabled(): Promise<boolean> {

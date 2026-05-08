@@ -7,33 +7,43 @@ import { getCachedSiteConfig } from "@/lib/cached-data";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { canSeePrices } from "@/lib/price-visibility";
 
+import { VALID_LOCALES } from "@/i18n/locales";
+
 const PER_PAGE = 20;
 
-const PRODUCT_INCLUDE = {
-  category:      { select: { name: true } },
-  subCategories: { select: { name: true }, take: 1 },
-  tags:          { include: { tag: { select: { id: true, name: true } } } },
-  colors: {
-    where: { disabled: false },
-    select: {
-      id:            true,
-      colorId:       true,
-      unitPrice:     true,
-      stock:         true,
-      isPrimary:     true,
-      saleType:      true,
-      packQuantity:  true,
-      color:         { select: { name: true, hex: true, patternImage: true } },
-      variantSizes:  { orderBy: { size: { position: "asc" } }, include: { size: true } },
+function buildProductInclude(locale: string) {
+  return {
+    category:      { select: { name: true } },
+    subCategories: { select: { name: true }, take: 1 },
+    tags:          { include: { tag: { select: { id: true, name: true } } } },
+    colors: {
+      where: { disabled: false },
+      select: {
+        id:            true,
+        colorId:       true,
+        unitPrice:     true,
+        stock:         true,
+        isPrimary:     true,
+        saleType:      true,
+        packQuantity:  true,
+        color:         { select: { name: true, hex: true, patternImage: true } },
+        variantSizes:  { orderBy: { size: { position: "asc" } }, include: { size: true } },
+      },
     },
-  },
-} as const;
+    ...(locale !== "fr" && {
+      translations: { where: { locale }, select: { name: true }, take: 1 },
+    }),
+  } as const;
+}
 
 // Shape products: group variants by color group key (colorId) + attach first image
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function shapeProducts(products: any[], imageMap: Map<string, Map<string, string>>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return products.map((p: any) => {
+    // Si une traduction existe pour la locale demandée, on remplace `name`.
+    const translatedName: string | undefined = p.translations?.[0]?.name;
+    if (translatedName) p = { ...p, name: translatedName };
     // Determine the primary color via the helper (reads Product.primaryColorId
     // with fallback on ProductColor.isPrimary for non-migrated products).
     const primaryColorId = getProductPrimaryColorId({
@@ -106,6 +116,9 @@ export async function GET(request: NextRequest) {
   const maxPrice    = searchParams.get("maxPrice") ? parseFloat(searchParams.get("maxPrice")!) : null;
   const exactRef    = searchParams.get("exactRef") === "1";
   const page        = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
+  const localeParam = searchParams.get("locale") ?? "fr";
+  const locale      = (VALID_LOCALES as readonly string[]).includes(localeParam) ? localeParam : "fr";
+  const productInclude = buildProductInclude(locale);
 
   // Stock display config
   const [stockProductsRow, stockVariantsRow] = await Promise.all([
@@ -177,7 +190,7 @@ export async function GET(request: NextRequest) {
 
       const products = await prisma.product.findMany({
         where: { id: { in: pageIds } },
-        include: PRODUCT_INCLUDE,
+        include: productInclude,
       });
 
       // Re-sort to match ordered IDs
@@ -255,7 +268,7 @@ export async function GET(request: NextRequest) {
       : { createdAt: "desc" },
     skip:    (page - 1) * PER_PAGE,
     take:    PER_PAGE,
-    include: PRODUCT_INCLUDE,
+    include: productInclude,
   });
 
   const productIds = products.map((p) => p.id);

@@ -7,7 +7,7 @@ import CompletenessChecklist, { computeChecklist } from "./CompletenessChecklist
 import ProductFormNav from "./ProductFormNav";
 import { createProduct, updateProduct, saveProductTranslations, fetchProductFormAttributes } from "@/app/actions/admin/products";
 
-import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
+import { VALID_LOCALES, LOCALE_LABELS, NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
 import QuickCreateModal, { QuickCreateType } from "./QuickCreateModal";
 import CustomSelect from "@/components/ui/CustomSelect";
@@ -851,7 +851,7 @@ export default function ProductForm({
       const descIdx = name.trim() && description.trim() ? 1 : description.trim() ? 0 : -1;
 
       const newTranslations: Record<string, { name: string; description: string }> = {};
-      for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+      for (const locale of NON_DEFAULT_LOCALES) {
         newTranslations[locale] = {
           name: nameIdx >= 0 ? (results[nameIdx]?.[locale] ?? "") : "",
           description: descIdx >= 0 ? (results[descIdx]?.[locale] ?? "") : "",
@@ -860,7 +860,7 @@ export default function ProductForm({
 
       setTranslations((prev) => {
         const next = { ...prev };
-        for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+        for (const locale of NON_DEFAULT_LOCALES) {
           next[locale] = {
             name: newTranslations[locale].name || (next[locale]?.name ?? ""),
             description: newTranslations[locale].description || (next[locale]?.description ?? ""),

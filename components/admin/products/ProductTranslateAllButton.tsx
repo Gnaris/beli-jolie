@@ -6,6 +6,7 @@ import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { batchTranslateProducts } from "@/app/actions/admin/batch-translations";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useToast } from "@/components/ui/Toast";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 interface ProductItem {
   id: string;
@@ -13,7 +14,7 @@ interface ProductItem {
   translationLocales: string[];
 }
 
-const ALL_NON_FR_LOCALES = ["en", "ar", "zh", "de", "es", "it"];
+const ALL_NON_FR_LOCALES = NON_DEFAULT_LOCALES;
 
 export default function ProductTranslateAllButton({ products }: { products: ProductItem[] }) {
   const router = useRouter();

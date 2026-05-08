@@ -110,7 +110,7 @@ describe("translateWithRetry", () => {
     ]);
 
     const { translateWithRetry } = await import("@/lib/translate");
-    const result = await translateWithRetry("Bonjour", "fr", "de", 5, () => 0);
+    const result = await translateWithRetry("Bonjour", "fr", "en", 5, () => 0);
 
     expect(result).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(5);
@@ -135,7 +135,7 @@ describe("translateTextStrict", () => {
     ]);
 
     const { translateTextStrict } = await import("@/lib/translate");
-    const result = await translateTextStrict("Bonjour le monde", "fr", "de", {
+    const result = await translateTextStrict("Bonjour le monde", "fr", "en", {
       delayFn: () => 0,
     });
 
@@ -148,7 +148,7 @@ describe("translateTextStrict", () => {
     buildFetchSequence([{ ok: true, translation: "Hallo Welt" }]);
 
     const { translateTextStrict } = await import("@/lib/translate");
-    const result = await translateTextStrict("Bonjour le monde", "fr", "de", {
+    const result = await translateTextStrict("Bonjour le monde", "fr", "en", {
       delayFn: () => 0,
     });
 
@@ -167,39 +167,29 @@ describe("translateToAllLocales", () => {
   });
 
   it("returns only the locales that succeeded (no FR fallback)", async () => {
-    // Order in lib/translate.ts : ["en", "ar", "zh", "de", "es", "it"]
-    // Plan : en ok, ar ok, zh ok, de fail x5, es ok, it fail x5
-    // Total fetch calls : 1 + 1 + 1 + 5 + 1 + 5 = 14
-    let call = 0;
-    const fetchMock = vi.fn(async () => {
-      call++;
-      // en (1)
-      if (call === 1) return { ok: true, status: 200, json: async () => ({ translations: [{ text: "EN" }] }) } as unknown as Response;
-      // ar (2)
-      if (call === 2) return { ok: true, status: 200, json: async () => ({ translations: [{ text: "AR" }] }) } as unknown as Response;
-      // zh (3)
-      if (call === 3) return { ok: true, status: 200, json: async () => ({ translations: [{ text: "ZH" }] }) } as unknown as Response;
-      // de fails 5× (4-8)
-      if (call >= 4 && call <= 8) return { ok: false, status: 429, json: async () => ({}) } as unknown as Response;
-      // es (9)
-      if (call === 9) return { ok: true, status: 200, json: async () => ({ translations: [{ text: "ES" }] }) } as unknown as Response;
-      // it fails 5× (10-14)
-      return { ok: false, status: 429, json: async () => ({}) } as unknown as Response;
-    });
+    // Seul EN est cible. On simule un succès direct.
+    const fetchMock = vi.fn(async () =>
+      ({ ok: true, status: 200, json: async () => ({ translations: [{ text: "EN" }] }) } as unknown as Response)
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const { translateToAllLocales } = await import("@/lib/translate");
     const result = await translateToAllLocales("Bonjour", "fr", { delayFn: () => 0 });
 
-    expect(Object.keys(result).sort()).toEqual(["ar", "en", "es", "zh"]);
+    expect(Object.keys(result).sort()).toEqual(["en"]);
     expect(result.en).toBe("EN");
-    expect(result.ar).toBe("AR");
-    expect(result.zh).toBe("ZH");
-    expect(result.es).toBe("ES");
-    // de & it omitted entirely — no FR fallback
-    expect(result.de).toBeUndefined();
-    expect(result.it).toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledTimes(14);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits a locale when DeepL fails 5×", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: false, status: 429, json: async () => ({}) } as unknown as Response));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { translateToAllLocales } = await import("@/lib/translate");
+    const result = await translateToAllLocales("Bonjour", "fr", { delayFn: () => 0 });
+
+    expect(result).toEqual({});
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 });
 
@@ -212,7 +202,6 @@ describe("autoTranslateEntity", () => {
   });
 
   it("does NOT upsert in prisma when DeepL returns null after retries", async () => {
-    // All 6 locales fail every retry → 6 × 5 = 30 failing fetches
     const fetchMock = vi.fn(async () => ({
       ok: false,
       status: 429,

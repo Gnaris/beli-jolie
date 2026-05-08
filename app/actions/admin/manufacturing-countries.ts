@@ -5,6 +5,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { autoTranslateManufacturingCountry } from "@/lib/auto-translate";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -47,7 +48,7 @@ export async function updateManufacturingCountry(id: string, formData: FormData)
   }
   await prisma.manufacturingCountry.update({ where: { id }, data: { name, isoCode: rawIso } });
 
-  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = (formData.get(`name_${locale}`) as string)?.trim();
     if (val) {
       await prisma.manufacturingCountryTranslation.upsert({
@@ -88,7 +89,7 @@ export async function updateManufacturingCountryDirect(
   }
   await prisma.manufacturingCountry.update({ where: { id }, data: { name: name.trim(), isoCode: normalizedIso } });
 
-  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = translations[locale]?.trim();
     if (val) {
       await prisma.manufacturingCountryTranslation.upsert({

@@ -9,6 +9,7 @@ import { invalidateProductTranslations } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import { generateSku } from "@/lib/sku";
 import {
   deleteFiles,
@@ -1532,7 +1533,7 @@ export async function updateTagDirect(
   if (!name.trim()) throw new Error("Le nom est requis.");
   await prisma.tag.update({ where: { id }, data: { name: name.trim() } });
 
-  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = translations[locale]?.trim();
     if (val) {
       await prisma.tagTranslation.upsert({
@@ -1584,7 +1585,7 @@ export async function updateTag(id: string, formData: FormData) {
 
   await prisma.tag.update({ where: { id }, data: { name } });
 
-  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = (formData.get(`name_${locale}`) as string)?.trim();
     if (val) {
       await prisma.tagTranslation.upsert({

@@ -20,15 +20,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Body JSON invalide" }, { status: 400 });
   }
 
-  const { type, pfsRef, label, linkToExistingId, pfsGender, pfsFamilyName, pfsCategoryName, hex } = body as {
+  const { type, pfsRef, label, enLabel, linkToExistingId, pfsGender, pfsFamilyName, pfsCategoryName, hex, isoCode } = body as {
     type?: unknown;
     pfsRef?: unknown;
     label?: unknown;
+    enLabel?: unknown;
     linkToExistingId?: unknown;
     pfsGender?: unknown;
     pfsFamilyName?: unknown;
     pfsCategoryName?: unknown;
     hex?: unknown;
+    isoCode?: unknown;
   };
 
   if (typeof type !== "string" || !ALLOWED_TYPES.includes(type as PfsAttributeType)) {
@@ -49,11 +51,13 @@ export async function POST(req: Request) {
       type: type as PfsAttributeType,
       pfsRef: pfsRef.trim(),
       label: label.trim(),
+      enLabel: typeof enLabel === "string" ? enLabel : null,
       linkToExistingId: (linkToExistingId as string | undefined) ?? undefined,
       pfsGender: typeof pfsGender === "string" ? pfsGender : undefined,
       pfsFamilyName: typeof pfsFamilyName === "string" ? pfsFamilyName : undefined,
       pfsCategoryName: typeof pfsCategoryName === "string" ? pfsCategoryName : undefined,
       hex: typeof hex === "string" ? hex : null,
+      isoCode: typeof isoCode === "string" ? isoCode : null,
     });
 
     // Invalider les caches correspondants

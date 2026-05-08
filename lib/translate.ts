@@ -12,8 +12,9 @@
 
 import { prisma } from "@/lib/prisma";
 import { decryptIfSensitive } from "@/lib/encryption";
+import { NON_DEFAULT_LOCALES, type Locale } from "@/i18n/locales";
 
-export type Locale = "fr" | "en" | "ar" | "zh" | "de" | "es" | "it";
+export type { Locale };
 
 /** Récupère la clé API DeepL depuis la DB (déchiffrée), sans fallback env. */
 async function getDeeplApiKey(): Promise<string | null> {
@@ -30,11 +31,6 @@ const DEFAULT_MAX_RETRIES = 5;
 const DEEPL_LANG: Record<Locale, string> = {
   fr: "FR",
   en: "EN-GB",
-  ar: "AR",
-  zh: "ZH-HANS",
-  de: "DE",
-  es: "ES",
-  it: "IT",
 };
 
 // ── Quota management ─────────────────────────────────────────────────────────
@@ -241,7 +237,7 @@ export async function translateToAllLocales(
 ): Promise<Record<string, string>> {
   if (!text.trim()) return {};
 
-  const targetLocales: Locale[] = ["en", "ar", "zh", "de", "es", "it"];
+  const targetLocales: Locale[] = NON_DEFAULT_LOCALES;
   const totalChars = text.length * targetLocales.length;
 
   // Pre-check quota

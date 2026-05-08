@@ -18,6 +18,7 @@ import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useProductStream } from "@/hooks/useProductStream";
 import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
 import { usePfsRefreshQueue } from "@/components/admin/products/PfsRefreshContext";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
 
@@ -506,7 +507,7 @@ function ProductRow({
   // Drafts & archived products don't expose a "rupture" state — they're not live.
   const showStockBadges = computeShowStockBadges({ status: product.status, isIncomplete: product.isIncomplete });
 
-  const allNonFrLocales = ["en", "ar", "zh", "de", "es", "it"];
+  const allNonFrLocales = NON_DEFAULT_LOCALES;
   const existingLocales = new Set(product.translations.map((t) => t.locale));
   const missingLocales = allNonFrLocales.filter((l) => !existingLocales.has(l));
   const hasMissingTranslations = missingLocales.length > 0;

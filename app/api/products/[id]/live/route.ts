@@ -4,15 +4,19 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { canSeePrices } from "@/lib/price-visibility";
+import { VALID_LOCALES } from "@/i18n/locales";
 
 /**
  * GET /api/products/[id]/live — fetch a single product in the same shape as the listing API.
  * Used by SSE clients to refresh a product card after a real-time event.
  */
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await getServerSession(authOptions);
   const showPrices = canSeePrices(session);
+
+  const localeParam = req.nextUrl.searchParams.get("locale") ?? "fr";
+  const locale = (VALID_LOCALES as readonly string[]).includes(localeParam) ? localeParam : "fr";
 
   const product = await prisma.product.findUnique({
     where: { id },
@@ -29,6 +33,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           variantSizes: { orderBy: { size: { position: "asc" } }, include: { size: true } },
         },
       },
+      ...(locale !== "fr" && {
+        translations: { where: { locale }, select: { name: true }, take: 1 },
+      }),
     },
   });
 
@@ -98,10 +105,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     });
   }
 
+  // Si une traduction existe pour la locale demandée, on remplace `name`.
+  const translatedName = (product as { translations?: { name: string }[] }).translations?.[0]?.name;
+  const displayName = translatedName ?? product.name;
+
   return NextResponse.json({
     product: {
       id: product.id,
-      name: product.name,
+      name: displayName,
       reference: product.reference,
       isBestSeller: product.isBestSeller,
       discountPercent,

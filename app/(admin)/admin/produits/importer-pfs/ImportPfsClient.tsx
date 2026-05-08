@@ -216,12 +216,16 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
         type: a.type,
         pfsRef: a.pfsRef,
         label: a.label,
+        // Libellé EN venant directement de PFS (sauter DeepL côté serveur).
+        ...(a.enLabel ? { enLabel: a.enLabel } : {}),
         ...(a.type === "category" && a.meta ? {
           pfsGender: a.meta.pfsGender ?? undefined,
           pfsFamilyName: a.meta.pfsFamilyName ?? undefined,
           pfsCategoryName: a.meta.pfsCategoryName ?? undefined,
         } : {}),
         ...(a.type === "color" && a.meta?.hex ? { hex: a.meta.hex } : {}),
+        // Code ISO pays (ex: "CN") — pré-rempli à la création.
+        ...(a.type === "country" && a.meta?.isoCode ? { isoCode: a.meta.isoCode } : {}),
       }));
       const res = await fetch("/api/admin/pfs-import/bulk-create-mappings", {
         method: "POST",

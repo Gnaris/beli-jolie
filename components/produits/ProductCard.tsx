@@ -379,7 +379,7 @@ export default function ProductCard({
                   onClick={(e) => e.stopPropagation()}
                   className="text-[11px] px-2 py-0.5 rounded-full bg-bg-secondary text-text-muted border border-border-light font-body hover:bg-bg-tertiary transition-colors"
                 >
-                  {tp(tag.name)}
+                  {tc(tag.name)}
                 </Link>
               ))}
               {tags.length > 3 && (

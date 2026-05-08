@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
-import { getTranslations } from "next-intl/server";
+import { getTranslations, getLocale } from "next-intl/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display";
@@ -23,25 +23,30 @@ export async function generateMetadata(): Promise<Metadata> {
 
 const PER_PAGE = 20;
 
-const PRODUCT_INCLUDE = {
-  category:      { select: { name: true } },
-  subCategories: { select: { name: true }, take: 1 },
-  tags:          { include: { tag: { select: { id: true, name: true } } } },
-  colors: {
-    where: { disabled: false },
-    select: {
-      id:            true,
-      colorId:       true,
-      unitPrice:     true,
-      stock:         true,
-      isPrimary:     true,
-      saleType:      true,
-      packQuantity:  true,
-      color:         { select: { name: true, hex: true, patternImage: true } },
-      variantSizes:  { orderBy: { size: { position: "asc" } }, include: { size: true } },
+function buildProductInclude(locale: string) {
+  return {
+    category:      { select: { name: true } },
+    subCategories: { select: { name: true }, take: 1 },
+    tags:          { include: { tag: { select: { id: true, name: true } } } },
+    colors: {
+      where: { disabled: false },
+      select: {
+        id:            true,
+        colorId:       true,
+        unitPrice:     true,
+        stock:         true,
+        isPrimary:     true,
+        saleType:      true,
+        packQuantity:  true,
+        color:         { select: { name: true, hex: true, patternImage: true } },
+        variantSizes:  { orderBy: { size: { position: "asc" } }, include: { size: true } },
+      },
     },
-  },
-} as const;
+    ...(locale !== "fr" && {
+      translations: { where: { locale }, select: { name: true }, take: 1 },
+    }),
+  } as const;
+}
 
 interface PageProps {
   searchParams: Promise<{
@@ -60,6 +65,9 @@ interface PageProps {
 function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, string>>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return rawProducts.map((p: any) => {
+    // Si une traduction existe pour la locale demandée, on remplace `name`.
+    const translatedName: string | undefined = p.translations?.[0]?.name;
+    if (translatedName) p = { ...p, name: translatedName };
     // Couleur principale via helper (Product.primaryColorId + fallback isPrimary).
     const primaryColorId = getProductPrimaryColorId({
       primaryColorId: p.primaryColorId,
@@ -111,11 +119,13 @@ async function fetchImages(productIds: string[]) {
 }
 
 export default async function ProduitsPage({ searchParams }: PageProps) {
-  const [t, session, shopName] = await Promise.all([
+  const [t, session, shopName, locale] = await Promise.all([
     getTranslations("products"),
     getServerSession(authOptions),
     getCachedShopName(),
+    getLocale(),
   ]);
+  const productInclude = buildProductInclude(locale);
 
   // Fetch client discount
   const clientDiscount = session?.user?.id
@@ -199,7 +209,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
       if (pageIds.length > 0) {
         const rawProducts = await prisma.product.findMany({
           where: { id: { in: pageIds } },
-          include: PRODUCT_INCLUDE,
+          include: productInclude,
         });
         // Re-sort to match ordered IDs
         const idOrder = new Map(pageIds.map((id, i) => [id, i]));
@@ -261,7 +271,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
           ? [{ lastRefreshedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
           : { createdAt: "desc" },
         take: PER_PAGE,
-        include: PRODUCT_INCLUDE,
+        include: productInclude,
       }),
       prisma.product.count({ where }),
     ]);

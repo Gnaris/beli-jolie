@@ -5,6 +5,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { translateText, type Locale } from "@/lib/translate";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -30,10 +31,8 @@ export async function batchUpdateTranslations(
 ) {
   await requireAdmin();
 
-  const locales = ["en", "ar", "zh", "de", "es", "it"];
-
   for (const item of items) {
-    for (const locale of locales) {
+    for (const locale of NON_DEFAULT_LOCALES) {
       const val = item.translations[locale]?.trim();
       if (!val) continue;
 
@@ -141,7 +140,7 @@ export async function batchTranslateProducts(
 ) {
   await requireAdmin();
 
-  const TARGET_LOCALES: Locale[] = ["en", "ar", "zh", "de", "es", "it"];
+  const TARGET_LOCALES: Locale[] = NON_DEFAULT_LOCALES;
 
   for (const item of items) {
     // Fetch the product description

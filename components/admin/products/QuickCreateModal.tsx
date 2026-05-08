@@ -104,7 +104,7 @@ const PLACEHOLDERS: Record<QuickCreateType, string> = {
 };
 
 const MAPPABLE_TYPES: Set<string> = new Set(["category", "color", "composition", "country", "season"]);
-const RTL = ["ar"];
+const RTL: string[] = [];
 
 export default function QuickCreateModal({
   type, open, onClose, onCreated, categoryId, defaultName, defaultPfsRef,

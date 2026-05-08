@@ -11,10 +11,12 @@ interface BulkItem {
   type: string;
   pfsRef: string;
   label: string;
+  enLabel?: string | null;
   pfsGender?: string;
   pfsFamilyName?: string;
   pfsCategoryName?: string;
   hex?: string | null;
+  isoCode?: string | null;
 }
 
 /**
@@ -53,7 +55,7 @@ export async function POST(req: Request) {
   };
 
   for (const item of items as BulkItem[]) {
-    const { type, pfsRef, label, pfsGender, pfsFamilyName, pfsCategoryName, hex } = item;
+    const { type, pfsRef, label, enLabel, pfsGender, pfsFamilyName, pfsCategoryName, hex, isoCode } = item;
     if (!type || !ALLOWED_TYPES.includes(type as PfsAttributeType) || !pfsRef?.trim() || !label?.trim()) {
       results.push({ pfsRef: pfsRef ?? "", type: type ?? "", ok: false, error: "Données invalides" });
       continue;
@@ -63,10 +65,12 @@ export async function POST(req: Request) {
         type: type as PfsAttributeType,
         pfsRef: pfsRef.trim(),
         label: label.trim(),
+        enLabel: typeof enLabel === "string" ? enLabel : null,
         pfsGender,
         pfsFamilyName,
         pfsCategoryName,
         hex: typeof hex === "string" ? hex : null,
+        isoCode: typeof isoCode === "string" ? isoCode : null,
       });
       results.push({ pfsRef, type, id: result.id, name: result.name, ok: true });
       tagsToInvalidate.add(tagByType[type] ?? type);

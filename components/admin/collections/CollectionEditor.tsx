@@ -12,7 +12,7 @@ import {
   reorderCollectionProducts,
 } from "@/app/actions/admin/collections";
 import TranslateButton from "@/components/admin/TranslateButton";
-import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
+import { VALID_LOCALES, LOCALE_FULL_NAMES, NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import ProductPickerModal, { type PickerProduct } from "@/components/admin/catalogues/ProductPickerModal";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -159,7 +159,7 @@ export default function CollectionEditor({ collection, categories }: Props) {
     fd.append("name", name);
     if (image) fd.append("image", image);
 
-    for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+    for (const locale of NON_DEFAULT_LOCALES) {
       if (translations[locale]) {
         fd.append(`translation_${locale}`, translations[locale]);
       }
@@ -703,7 +703,7 @@ export default function CollectionEditor({ collection, categories }: Props) {
                     }
                     className="field-input text-sm mt-1"
                     placeholder={LOCALE_FULL_NAMES[locale]}
-                    dir={locale === "ar" ? "rtl" : undefined}
+                    dir={undefined}
                   />
                 </div>
               ))}

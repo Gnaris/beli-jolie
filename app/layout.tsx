@@ -111,7 +111,7 @@ export default async function RootLayout({
     } catch { /* ignore invalid JSON */ }
   }
 
-  const isRTL = RTL_LOCALES.includes(locale as "ar");
+  const isRTL = (RTL_LOCALES as string[]).includes(locale);
 
   return (
     <html

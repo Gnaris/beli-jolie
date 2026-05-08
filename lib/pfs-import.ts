@@ -43,7 +43,7 @@ import {
   sanitizePfsFamilyName,
   inferPfsFamilyFromCategoryLabel,
 } from "@/lib/pfs-family-resolve";
-import { PROTECTED_SIZE_PFS_REF } from "@/lib/protected-sizes";
+import { PROTECTED_SIZE_NAME, PROTECTED_SIZE_PFS_REF, isProtectedSizeName } from "@/lib/protected-sizes";
 
 // Re-export pour ne pas casser les imports existants de `pfs-import`.
 export { sanitizePfsFamilyName, inferPfsFamilyFromCategoryLabel };
@@ -64,6 +64,9 @@ export interface PfsAttribute {
   type: PfsAttributeType;
   pfsRef: string;
   label: string;
+  /** Libellé EN extrait directement de PFS — null si PFS ne l'a pas. Utilisé
+   *  pour sauter DeepL au moment de la création locale de l'attribut. */
+  enLabel?: string | null;
   mapped: boolean;
   localId?: string;
   localName?: string;
@@ -78,6 +81,8 @@ export interface PfsAttribute {
     pfsCategoryName?: string | null;
     /** Code hex PFS (#RRGGBB) — rempli pour le type "color" uniquement. */
     hex?: string | null;
+    /** Code ISO pays (ex: "CN") — rempli pour le type "country" uniquement. */
+    isoCode?: string | null;
   };
 }
 
@@ -150,9 +155,31 @@ const COUNTRY_LABELS_FR: Record<string, string> = {
   MD: "Moldavie", ET: "Éthiopie", MG: "Madagascar", MU: "Maurice", SN: "Sénégal",
 };
 
+/** Traduction des codes pays courants en noms anglais (évite un appel DeepL). */
+const COUNTRY_LABELS_EN: Record<string, string> = {
+  CN: "China", FR: "France", IT: "Italy", ES: "Spain", DE: "Germany",
+  TR: "Turkey", PT: "Portugal", IN: "India", BD: "Bangladesh", VN: "Vietnam",
+  MA: "Morocco", TN: "Tunisia", PK: "Pakistan", TH: "Thailand", GB: "United Kingdom",
+  US: "United States", BE: "Belgium", NL: "Netherlands", PL: "Poland", RO: "Romania",
+  GR: "Greece", BG: "Bulgaria", KH: "Cambodia", MM: "Myanmar", LK: "Sri Lanka",
+  EG: "Egypt", JP: "Japan", KR: "South Korea", TW: "Taiwan", ID: "Indonesia",
+  MX: "Mexico", BR: "Brazil", CZ: "Czechia", HU: "Hungary", AT: "Austria",
+  CH: "Switzerland", DK: "Denmark", SE: "Sweden", FI: "Finland", NO: "Norway",
+  IE: "Ireland", HR: "Croatia", SK: "Slovakia", SI: "Slovenia", LT: "Lithuania",
+  LV: "Latvia", EE: "Estonia", AL: "Albania", RS: "Serbia", UA: "Ukraine",
+  MD: "Moldova", ET: "Ethiopia", MG: "Madagascar", MU: "Mauritius", SN: "Senegal",
+};
+
 function countryLabel(code: string): string {
   const upper = code.trim().toUpperCase();
   return COUNTRY_LABELS_FR[upper] ?? code;
+}
+
+/** Libellé EN d'un pays à partir d'un code ISO. Renvoie null si inconnu. */
+function countryLabelEn(code: string | null | undefined): string | null {
+  if (!code) return null;
+  const upper = code.trim().toUpperCase();
+  return COUNTRY_LABELS_EN[upper] ?? null;
 }
 
 /**
@@ -192,6 +219,20 @@ export function normalizePfsGenderCode(raw: string | null | undefined): string |
     L: "SUPPLIES", S: "SUPPLIES", LIFESTYLE: "SUPPLIES",
   };
   return abbrev[upper] ?? null;
+}
+
+/** Extrait le libellé EN d'un objet `labels` PFS (ou null si absent). PFS
+ *  peut renvoyer `en`, `EN`, `en_US`, `EN_US`, `en-GB`… on accepte tout. */
+function pickEnLabel(labels: Record<string, string> | null | undefined): string | null {
+  if (!labels) return null;
+  for (const [k, v] of Object.entries(labels)) {
+    if (typeof v !== "string" || !v.trim()) continue;
+    const normalized = k.toLowerCase().replace(/[-_]/g, "");
+    if (normalized === "en" || normalized === "enus" || normalized === "engb") {
+      return v.trim();
+    }
+  }
+  return null;
 }
 
 /** Extrait le meilleur libellé humain possible d'un objet `labels` PFS. */
@@ -613,11 +654,12 @@ export async function scanPfsAttributes(options?: {
   const rawCategories: {
     pfsRef: string;
     label: string;
+    enLabel: string | null;
     pfsGender: string | null;
     pfsFamilyName: string | null;
     pfsCategoryName: string | null;
   }[] = [];
-  const rawColors: { pfsRef: string; label: string; hex: string | null }[] = [];
+  const rawColors: { pfsRef: string; label: string; enLabel: string | null; hex: string | null }[] = [];
   const rawSizes: { pfsRef: string; label: string }[] = [];
 
   for (const prod of products) {
@@ -629,6 +671,7 @@ export async function scanPfsAttributes(options?: {
       // retombe sur labels embarqués sur le produit. JAMAIS sur l'ID ni sur
       // `prod.family` — sinon la modale affiche un code au lieu d'un vrai nom.
       const catLabel = pickBestLabel(refCategory?.labels) ?? pickBestLabel(prod.category.labels);
+      const catEnLabel = pickEnLabel(refCategory?.labels) ?? pickEnLabel(prod.category.labels);
       const rawFamily = prod.family?.trim() || null;
       // Résolution famille en cascade :
       //   1) Référentiel PFS (label propre, ex: "Bijoux_Fantaisie")
@@ -651,6 +694,7 @@ export async function scanPfsAttributes(options?: {
       rawCategories.push({
         pfsRef: prod.category.id,
         label: catLabel ?? familyName ?? prod.category.id,
+        enLabel: catEnLabel,
         pfsGender,
         pfsFamilyName: familyName,
         pfsCategoryName: catLabel,
@@ -662,6 +706,7 @@ export async function scanPfsAttributes(options?: {
       rawCategories.push({
         pfsRef: prod.family,
         label: familyName ?? rawFamily,
+        enLabel: null,
         pfsGender:
           normalizePfsGenderCode(prod.gender) ??
           inferPfsGenderFromFamily(familyName) ??
@@ -682,8 +727,9 @@ export async function scanPfsAttributes(options?: {
       for (const col of colors) {
         if (col?.reference) {
           const frLabel = col.labels?.fr ?? col.labels?.en ?? col.reference;
+          const enLabel = pickEnLabel(col.labels);
           const hex = typeof col.value === "string" && col.value.trim() ? col.value.trim() : null;
-          rawColors.push({ pfsRef: col.reference, label: frLabel, hex });
+          rawColors.push({ pfsRef: col.reference, label: frLabel, enLabel, hex });
         }
       }
       // tailles visibles dans les variantes
@@ -699,9 +745,9 @@ export async function scanPfsAttributes(options?: {
   }
 
   // Scan profond (checkReference) pour compositions / pays / saisons — par lots de 5
-  const rawCompositions: { pfsRef: string; label: string }[] = [];
-  const rawCountries: { pfsRef: string; label: string }[] = [];
-  const rawSeasons: { pfsRef: string; label: string }[] = [];
+  const rawCompositions: { pfsRef: string; label: string; enLabel: string | null }[] = [];
+  const rawCountries: { pfsRef: string; label: string; enLabel: string | null; isoCode: string | null }[] = [];
+  const rawSeasons: { pfsRef: string; label: string; enLabel: string | null }[] = [];
 
   const DEEP_SCAN_BATCH = 5;
   const sample = products.slice(0, deepSampleSize);
@@ -723,27 +769,34 @@ export async function scanPfsAttributes(options?: {
 
       for (const mat of detail.material_composition ?? []) {
         const label = mat.labels?.fr ?? mat.labels?.en ?? mat.reference;
+        const enLabel = pickEnLabel(mat.labels);
         // On stocke le libellé FR comme `pfsRef` : c'est lui qui sert
         // d'identifiant côté CustomSelect du mapping et côté matching
         // produit→composition (la référence brute renvoyée par PFS — souvent
         // un code interne — n'est pas affichée dans l'UI).
-        rawCompositions.push({ pfsRef: label, label });
+        rawCompositions.push({ pfsRef: label, label, enLabel });
       }
 
       if (detail.country_of_manufacture) {
         // Idem pour les pays : on stocke le libellé FR (ex: "Chine") plutôt
         // que le code ISO ("CN"), pour rester cohérent avec ce que voit
-        // l'admin dans le menu déroulant.
+        // l'admin dans le menu déroulant. Le code ISO ("CN") est conservé
+        // à part dans `isoCode` pour pouvoir être enregistré à la création.
+        const isoCode = detail.country_of_manufacture.trim().toUpperCase() || null;
         const ctryLabel = countryLabel(detail.country_of_manufacture);
+        const ctryEnLabel = countryLabelEn(detail.country_of_manufacture);
         rawCountries.push({
           pfsRef: ctryLabel,
           label: ctryLabel,
+          enLabel: ctryEnLabel,
+          isoCode,
         });
       }
 
       if (detail.collection?.reference) {
         const seasonLabel = detail.collection.labels?.fr ?? detail.collection.labels?.en ?? detail.collection.reference;
-        rawSeasons.push({ pfsRef: detail.collection.reference, label: seasonLabel });
+        const seasonEnLabel = pickEnLabel(detail.collection.labels);
+        rawSeasons.push({ pfsRef: detail.collection.reference, label: seasonLabel, enLabel: seasonEnLabel });
       }
     }
   }
@@ -791,6 +844,13 @@ export async function scanPfsAttributes(options?: {
         OR: [
           { pfsSizeRef: { in: sizeRefs } },
           { name: { in: sizeLabels } },
+          // Cas spécial : si PFS envoie "TU" et qu'on a déjà la taille
+          // protégée « Taille unique » sans pfsSizeRef renseigné, on veut
+          // quand même la trouver pour la rattacher au lieu de proposer
+          // une nouvelle création.
+          ...(sizeRefs.includes(PROTECTED_SIZE_PFS_REF)
+            ? [{ name: PROTECTED_SIZE_NAME }]
+            : []),
         ],
       },
       select: { id: true, name: true, pfsSizeRef: true },
@@ -857,6 +917,20 @@ export async function scanPfsAttributes(options?: {
   const ctryIndex = buildAttrIndex(localCountries, (c) => c.pfsCountryRef);
   const seaIndex = buildAttrIndex(localSeasons, (s) => s.pfsRef);
 
+  // Cas spécial taille TU : on indexe la taille protégée « Taille unique »
+  // sous la référence "TU" et le nom "tu" pour que findLocal la retrouve même
+  // quand elle a été créée à la main avant que `pfsSizeRef` n'existe.
+  const protectedSize = localSizes.find((s) => isProtectedSizeName(s.name));
+  if (protectedSize) {
+    if (!szIndex.byRef.has(PROTECTED_SIZE_PFS_REF)) {
+      szIndex.byRef.set(PROTECTED_SIZE_PFS_REF, protectedSize);
+    }
+    const tuKey = normalize(PROTECTED_SIZE_PFS_REF);
+    if (!szIndex.byName.has(tuKey)) {
+      szIndex.byName.set(tuKey, protectedSize);
+    }
+  }
+
   const findLocal = <T extends { id: string; name: string }>(
     index: { byRef: Map<string, T>; byName: Map<string, T> },
     pfsRef: string,
@@ -871,6 +945,7 @@ export async function scanPfsAttributes(options?: {
       type: "category",
       pfsRef: c.pfsRef,
       label: c.label,
+      enLabel: c.enLabel,
       mapped: !!local,
       localId: local?.id,
       localName: local?.name,
@@ -887,6 +962,7 @@ export async function scanPfsAttributes(options?: {
       type: "color",
       pfsRef: c.pfsRef,
       label: c.label,
+      enLabel: c.enLabel,
       mapped: !!local,
       localId: local?.id,
       localName: local?.name,
@@ -895,19 +971,42 @@ export async function scanPfsAttributes(options?: {
   }
   for (const s of sizes) {
     const local = findLocal(szIndex, s.pfsRef, s.label);
-    out.push({ type: "size", pfsRef: s.pfsRef, label: s.label, mapped: !!local, localId: local?.id, localName: local?.name });
+    // Pour la taille TU on affiche le nom canonique « Taille unique » côté
+    // admin : c'est plus parlant et c'est exactement comme ça qu'elle sera
+    // créée si on déclenche la création.
+    const displayLabel =
+      s.pfsRef.trim().toUpperCase() === PROTECTED_SIZE_PFS_REF
+        ? PROTECTED_SIZE_NAME
+        : s.label;
+    out.push({
+      type: "size",
+      pfsRef: s.pfsRef,
+      label: displayLabel,
+      mapped: !!local,
+      localId: local?.id,
+      localName: local?.name,
+    });
   }
   for (const c of compositions) {
     const local = findLocal(cpIndex, c.pfsRef, c.label);
-    out.push({ type: "composition", pfsRef: c.pfsRef, label: c.label, mapped: !!local, localId: local?.id, localName: local?.name });
+    out.push({ type: "composition", pfsRef: c.pfsRef, label: c.label, enLabel: c.enLabel, mapped: !!local, localId: local?.id, localName: local?.name });
   }
   for (const c of countries) {
     const local = findLocal(ctryIndex, c.pfsRef, c.label);
-    out.push({ type: "country", pfsRef: c.pfsRef, label: c.label, mapped: !!local, localId: local?.id, localName: local?.name });
+    out.push({
+      type: "country",
+      pfsRef: c.pfsRef,
+      label: c.label,
+      enLabel: c.enLabel,
+      mapped: !!local,
+      localId: local?.id,
+      localName: local?.name,
+      meta: { isoCode: c.isoCode },
+    });
   }
   for (const s of seasons) {
     const local = findLocal(seaIndex, s.pfsRef, s.label);
-    out.push({ type: "season", pfsRef: s.pfsRef, label: s.label, mapped: !!local, localId: local?.id, localName: local?.name });
+    out.push({ type: "season", pfsRef: s.pfsRef, label: s.label, enLabel: s.enLabel, mapped: !!local, localId: local?.id, localName: local?.name });
   }
 
   return {
@@ -925,6 +1024,9 @@ export interface CreateMappingInput {
   type: PfsAttributeType;
   pfsRef: string;
   label: string;
+  /** Libellé EN venant directement de PFS — sauvé comme traduction et évite
+   *  l'appel DeepL. Ignoré pour le type "size" (pas de traduction). */
+  enLabel?: string | null;
   // Lier à une entité existante au lieu de créer (facultatif)
   linkToExistingId?: string;
   // Métadonnées catégorie (genre / famille / sous-catégorie PFS)
@@ -933,6 +1035,8 @@ export interface CreateMappingInput {
   pfsCategoryName?: string | null;
   // Code hex PFS (#RRGGBB) — appliqué uniquement pour le type "color"
   hex?: string | null;
+  /** Code ISO pays (ex: "CN") — appliqué uniquement pour le type "country" */
+  isoCode?: string | null;
 }
 
 /** Normalise un code hex PFS en #RRGGBB (ou null si invalide). */
@@ -952,6 +1056,11 @@ export interface CreateMappingResult {
 
 export async function createOrLinkMapping(input: CreateMappingInput): Promise<CreateMappingResult> {
   const { type, pfsRef, label, linkToExistingId, pfsGender, pfsFamilyName, pfsCategoryName, hex } = input;
+  // Libellé EN PFS : utilisé pour préremplir la traduction sans appeler DeepL.
+  // Même quand l'EN est identique au FR (ex: "Bracelets"), on stocke et on
+  // skippe DeepL : PFS confirme explicitement que la version anglaise c'est ça.
+  const trimmedEn = input.enLabel?.trim() || null;
+  const enLabel = trimmedEn;
 
   switch (type) {
     case "category": {
@@ -1014,7 +1123,15 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         data: { name: label, slug, ...catData },
         select: { id: true, name: true },
       });
-      autoTranslateCategory(created.id, created.name);
+      if (enLabel) {
+        await prisma.categoryTranslation.upsert({
+          where: { categoryId_locale: { categoryId: created.id, locale: "en" } },
+          update: { name: enLabel },
+          create: { categoryId: created.id, locale: "en", name: enLabel },
+        });
+      } else {
+        autoTranslateCategory(created.id, created.name);
+      }
       return { id: created.id, name: created.name, created: true };
     }
 
@@ -1040,7 +1157,15 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         data: { name: label, hex: normalizedHex, pfsColorRef: trimmedRef },
         select: { id: true, name: true },
       });
-      autoTranslateColor(created.id, created.name);
+      if (enLabel) {
+        await prisma.colorTranslation.upsert({
+          where: { colorId_locale: { colorId: created.id, locale: "en" } },
+          update: { name: enLabel },
+          create: { colorId: created.id, locale: "en", name: enLabel },
+        });
+      } else {
+        autoTranslateColor(created.id, created.name);
+      }
       return { id: created.id, name: created.name, created: true };
     }
 
@@ -1052,6 +1177,37 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
           select: { id: true, name: true },
         });
         return { id: upd.id, name: upd.name, created: false };
+      }
+      // Garde-fou : si PFS demande "TU", on a deux scénarios :
+      //   1) Notre taille protégée « Taille unique » existe déjà → on rattache
+      //      (et on complète son pfsSizeRef si manquant).
+      //   2) Elle n'existe pas → on la CRÉE avec le bon nom canonique
+      //      « Taille unique » + pfsSizeRef « TU », au lieu de créer une
+      //      ligne « TU » qui ferait doublon plus tard.
+      if (pfsRef.trim().toUpperCase() === PROTECTED_SIZE_PFS_REF) {
+        const protectedRow = await prisma.size.findFirst({
+          where: { name: PROTECTED_SIZE_NAME },
+          select: { id: true, name: true, pfsSizeRef: true },
+        });
+        if (protectedRow) {
+          if (!protectedRow.pfsSizeRef) {
+            await prisma.size.update({
+              where: { id: protectedRow.id },
+              data: { pfsSizeRef: PROTECTED_SIZE_PFS_REF },
+            });
+          }
+          return { id: protectedRow.id, name: protectedRow.name, created: false };
+        }
+        // « Taille unique » n'existe pas → on la crée avec le bon nom
+        const createdProtected = await prisma.size.create({
+          data: {
+            name: PROTECTED_SIZE_NAME,
+            pfsSizeRef: PROTECTED_SIZE_PFS_REF,
+            position: 0,
+          },
+          select: { id: true, name: true },
+        });
+        return { id: createdProtected.id, name: createdProtected.name, created: true };
       }
       const created = await prisma.size.create({
         data: { name: label, pfsSizeRef: pfsRef },
@@ -1073,28 +1229,55 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         data: { name: label, pfsCompositionRef: pfsRef },
         select: { id: true, name: true },
       });
-      autoTranslateComposition(created.id, created.name);
+      if (enLabel) {
+        await prisma.compositionTranslation.upsert({
+          where: { compositionId_locale: { compositionId: created.id, locale: "en" } },
+          update: { name: enLabel },
+          create: { compositionId: created.id, locale: "en", name: enLabel },
+        });
+      } else {
+        autoTranslateComposition(created.id, created.name);
+      }
       return { id: created.id, name: created.name, created: true };
     }
 
     case "country": {
+      // Validation simple : code ISO sur 2 lettres (ex: "CN", "FR"). null sinon.
+      const cleanIso = (input.isoCode ?? "").trim().toUpperCase();
+      const isoCode = /^[A-Z]{2}$/.test(cleanIso) ? cleanIso : null;
+
       if (linkToExistingId) {
+        // Si l'entité existe déjà mais sans isoCode, on profite du nouvel
+        // import pour le compléter (sans jamais écraser un code déjà présent).
+        const existing = await prisma.manufacturingCountry.findUnique({
+          where: { id: linkToExistingId },
+          select: { isoCode: true },
+        });
+        const data: { pfsCountryRef: string; isoCode?: string } = { pfsCountryRef: pfsRef };
+        if (isoCode && !existing?.isoCode) data.isoCode = isoCode;
         const upd = await prisma.manufacturingCountry.update({
           where: { id: linkToExistingId },
-          data: { pfsCountryRef: pfsRef },
+          data,
           select: { id: true, name: true },
         });
         return { id: upd.id, name: upd.name, created: false };
       }
-      // `pfsRef` est désormais le libellé FR du pays (ex: "Chine"), pas le
-      // code ISO. On ne tente donc plus de le réutiliser comme `isoCode` —
-      // l'admin peut renseigner le code ISO manuellement depuis la modale
-      // d'édition du pays après la création.
+      // `pfsRef` est le libellé FR du pays (ex: "Chine"), pas le code ISO.
+      // Le code ISO ("CN") est passé séparément via `input.isoCode` et
+      // enregistré directement, évitant à l'admin de le saisir à la main.
       const created = await prisma.manufacturingCountry.create({
-        data: { name: label, pfsCountryRef: pfsRef, isoCode: null },
+        data: { name: label, pfsCountryRef: pfsRef, isoCode },
         select: { id: true, name: true },
       });
-      autoTranslateManufacturingCountry(created.id, created.name);
+      if (enLabel) {
+        await prisma.manufacturingCountryTranslation.upsert({
+          where: { manufacturingCountryId_locale: { manufacturingCountryId: created.id, locale: "en" } },
+          update: { name: enLabel },
+          create: { manufacturingCountryId: created.id, locale: "en", name: enLabel },
+        });
+      } else {
+        autoTranslateManufacturingCountry(created.id, created.name);
+      }
       return { id: created.id, name: created.name, created: true };
     }
 
@@ -1111,7 +1294,15 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         data: { name: label, pfsRef },
         select: { id: true, name: true },
       });
-      autoTranslateSeason(created.id, created.name);
+      if (enLabel) {
+        await prisma.seasonTranslation.upsert({
+          where: { seasonId_locale: { seasonId: created.id, locale: "en" } },
+          update: { name: enLabel },
+          create: { seasonId: created.id, locale: "en", name: enLabel },
+        });
+      } else {
+        autoTranslateSeason(created.id, created.name);
+      }
       return { id: created.id, name: created.name, created: true };
     }
 
@@ -1424,8 +1615,17 @@ export async function approveAndImportPfsProduct(
   const existing = await prisma.product.findUnique({ where: { reference } });
   if (existing) throw new Error(`Produit déjà importé : ${reference}`);
 
-  // Détails produit (composition, pays, saison, description)
-  const refData = await pfsCheckReference(product.reference);
+  // ── Phase parallèle 1 : appels PFS qui ne dépendent que du `product`
+  // Concurrence limitée côté PFS par PFS_MAX_CONCURRENT (cf. pfs-api.ts) — donc
+  // ces 3 appels ne saturent pas le rate-limit ; le gain vient quand le slot
+  // est libre, on évite l'aller-retour séquentiel.
+  const [refData, variantResponseResult, families] = await Promise.all([
+    pfsCheckReference(product.reference),
+    pfsGetVariants(product.id)
+      .then((r) => ({ ok: true as const, data: r }))
+      .catch((err: unknown) => ({ ok: false as const, err })),
+    pfsGetFamilies().catch(() => [] as Awaited<ReturnType<typeof pfsGetFamilies>>),
+  ]);
   const detail = refData.product;
 
   // Résolution catégorie — cherche par pfsCategoryId (précis), sinon par pfsFamilyName (legacy).
@@ -1439,83 +1639,104 @@ export async function approveAndImportPfsProduct(
   // ID brut) pour maximiser les chances de retrouver la catégorie en DB.
   const familyLookupValues: string[] = [];
   if (rawFamily) familyLookupValues.push(rawFamily);
-  try {
-    const families = await pfsGetFamilies();
-    const match = families.find((f) => f.id === rawFamily);
-    const label = pickBestLabel(match?.labels);
-    if (label && !familyLookupValues.includes(label)) familyLookupValues.push(label);
-    const underscored = label?.replace(/\s+/g, "_");
-    if (underscored && !familyLookupValues.includes(underscored)) familyLookupValues.push(underscored);
-  } catch { /* ignoré — on retombe sur l'ID brut */ }
-  // Priorité au match exact sur pfsCategoryId, puis fallback sur pfsFamilyName
-  let category = pfsCatId
-    ? await prisma.category.findFirst({
-        where: { pfsCategoryId: pfsCatId },
-        select: { id: true, name: true },
-      })
-    : null;
-  if (!category && familyLookupValues.length > 0) {
-    category = await prisma.category.findFirst({
-      where: { pfsFamilyName: { in: familyLookupValues } },
-      select: { id: true, name: true },
-    });
-  }
+  const familyMatch = families.find((f) => f.id === rawFamily);
+  const familyLabel = pickBestLabel(familyMatch?.labels);
+  if (familyLabel && !familyLookupValues.includes(familyLabel)) familyLookupValues.push(familyLabel);
+  const familyUnderscored = familyLabel?.replace(/\s+/g, "_");
+  if (familyUnderscored && !familyLookupValues.includes(familyUnderscored)) familyLookupValues.push(familyUnderscored);
+
+  // ── Phase parallèle 2 : toutes les résolutions Prisma indépendantes
+  // (catégorie + fallback famille + pays + saison + compositions). Tous ces
+  // lookups touchent des tables différentes et n'ont aucune dépendance entre
+  // eux : on les lance ensemble pour économiser ~4 aller-retours séquentiels.
+  const ctryCode = detail?.country_of_manufacture ?? null;
+  const ctryLabelFr = ctryCode ? countryLabel(ctryCode) : null;
+  const seasonRef = detail?.collection?.reference ?? null;
+  const materialEntries = (detail?.material_composition ?? []).map((mat) => ({
+    label: mat.labels?.fr ?? mat.labels?.en ?? mat.reference,
+    percentage: mat.percentage,
+  }));
+
+  const [
+    primaryCategory,
+    fallbackCategory,
+    countryRow,
+    seasonRow,
+    compositionRows,
+  ] = await Promise.all([
+    pfsCatId
+      ? prisma.category.findFirst({
+          where: { pfsCategoryId: pfsCatId },
+          select: { id: true, name: true },
+        })
+      : Promise.resolve(null),
+    familyLookupValues.length > 0
+      ? prisma.category.findFirst({
+          where: { pfsFamilyName: { in: familyLookupValues } },
+          select: { id: true, name: true },
+        })
+      : Promise.resolve(null),
+    ctryLabelFr
+      ? prisma.manufacturingCountry.findFirst({
+          where: { pfsCountryRef: ctryLabelFr },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
+    seasonRef
+      ? prisma.season.findFirst({
+          where: { pfsRef: seasonRef },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
+    materialEntries.length > 0
+      ? prisma.composition.findMany({
+          where: { pfsCompositionRef: { in: materialEntries.map((m) => m.label) } },
+          select: { id: true, pfsCompositionRef: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const category = primaryCategory ?? fallbackCategory;
   if (!category) {
     const catLabel = product.category?.labels?.fr ?? product.family;
     throw new Error(`Catégorie non mappée : "${catLabel}". Créez d'abord la correspondance.`);
   }
 
-  // Résolution pays (facultatif)
-  // Le mapping pays est stocké via le libellé FR (ex: "Chine"), pas le code
-  // ISO PFS ("CN"). On convertit donc avant de chercher en BDD.
+  // Pays (facultatif)
   let manufacturingCountryId: string | null = null;
-  if (detail?.country_of_manufacture) {
-    const ctryLabel = countryLabel(detail.country_of_manufacture);
-    const c = await prisma.manufacturingCountry.findFirst({
-      where: { pfsCountryRef: ctryLabel },
-      select: { id: true },
-    });
-    if (c) manufacturingCountryId = c.id;
-    else warnings.push(`Pays "${ctryLabel}" non mappé (produit créé sans pays)`);
+  if (ctryLabelFr) {
+    if (countryRow) manufacturingCountryId = countryRow.id;
+    else warnings.push(`Pays "${ctryLabelFr}" non mappé (produit créé sans pays)`);
   }
 
-  // Résolution saison (facultatif)
-  let seasonId: string | null = null;
-  if (detail?.collection?.reference) {
-    const s = await prisma.season.findFirst({
-      where: { pfsRef: detail.collection.reference },
-      select: { id: true },
-    });
-    if (s) seasonId = s.id;
-    else warnings.push(`Saison "${detail.collection.reference}" non mappée (produit créé sans saison)`);
+  // Saison (facultatif)
+  const seasonId: string | null = seasonRow?.id ?? null;
+  if (seasonRef && !seasonRow) {
+    warnings.push(`Saison "${seasonRef}" non mappée (produit créé sans saison)`);
   }
 
-  // Résolution compositions
-  // Idem que pour les pays : le mapping composition est stocké via le libellé
-  // FR (ex: "Polyester"), pas la référence brute PFS ("polyester" ou un code
-  // technique). On convertit donc avant de chercher en BDD.
+  // Compositions — on regroupe par libellé pour détecter les non-mappées
+  const compositionByLabel = new Map(compositionRows.map((c) => [c.pfsCompositionRef, c]));
   const compositionsInput: { compositionId: string; percentage: number }[] = [];
-  for (const mat of detail?.material_composition ?? []) {
-    const matLabel = mat.labels?.fr ?? mat.labels?.en ?? mat.reference;
-    const comp = await prisma.composition.findFirst({
-      where: { pfsCompositionRef: matLabel },
-      select: { id: true },
-    });
+  for (const mat of materialEntries) {
+    const comp = compositionByLabel.get(mat.label);
     if (comp) compositionsInput.push({ compositionId: comp.id, percentage: mat.percentage });
-    else warnings.push(`Composition "${matLabel}" non mappée (ignorée)`);
+    else warnings.push(`Composition "${mat.label}" non mappée (ignorée)`);
   }
 
-  // Récupère les variantes depuis l'endpoint dédié (données fiables : prix, poids, stock)
-  // Fallback sur product.variants si l'appel échoue
+  // Variantes depuis l'endpoint dédié (déjà appelé en parallèle plus haut).
+  // Fallback sur product.variants si l'appel a échoué.
   let variantsToResolve: PfsVariantItem[] = product.variants ?? [];
-  try {
-    const variantResponse = await pfsGetVariants(product.id);
-    if (variantResponse.data?.length > 0) {
-      variantsToResolve = variantResponse.data;
-      logger.info("[PFS Import] Using variants endpoint data", { reference, count: variantResponse.data.length });
+  if (variantResponseResult.ok) {
+    if (variantResponseResult.data.data?.length > 0) {
+      variantsToResolve = variantResponseResult.data.data;
+      logger.info("[PFS Import] Using variants endpoint data", { reference, count: variantResponseResult.data.data.length });
     }
-  } catch (err) {
-    logger.warn("[PFS Import] Variants endpoint failed, using listProducts data", { reference, err: (err as Error).message });
+  } else {
+    logger.warn("[PFS Import] Variants endpoint failed, using listProducts data", {
+      reference,
+      err: variantResponseResult.err instanceof Error ? variantResponseResult.err.message : String(variantResponseResult.err),
+    });
   }
 
   // Images produit (fallback quand les images variante sont vides)
@@ -1538,6 +1759,10 @@ export async function approveAndImportPfsProduct(
 
   const name = product.labels?.fr ?? product.labels?.en ?? product.reference;
   const description = detail?.description?.fr ?? detail?.description?.en ?? "";
+  // Versions EN renvoyées par PFS — utilisées telles quelles pour éviter
+  // l'appel DeepL au moment de la création du produit.
+  const nameEn = pickEnLabel(product.labels);
+  const descriptionEn = pickEnLabel(detail?.description);
 
   // Dernier point d'arrêt avant création en DB
   throwIfCancelled(isCancelled);
@@ -1606,7 +1831,26 @@ export async function approveAndImportPfsProduct(
     select: { id: true, reference: true, name: true },
   });
 
-  autoTranslateProduct(createdProduct.id, name, description);
+  // Si PFS donne au moins l'un des deux libellés (nom ou description) en
+  // anglais, on l'enregistre directement comme traduction et on n'appelle pas
+  // DeepL — autoTranslateProduct est explicitement conçu pour skipper les
+  // locales déjà présentes (cf. existingLocales). Si PFS ne donne RIEN en EN,
+  // on retombe sur DeepL pour ne pas avoir une fiche sans traduction.
+  if (nameEn || descriptionEn) {
+    await prisma.productTranslation.upsert({
+      where: { productId_locale: { productId: createdProduct.id, locale: "en" } },
+      update: { name: nameEn ?? "", description: descriptionEn ?? "" },
+      create: {
+        productId: createdProduct.id,
+        locale: "en",
+        name: nameEn ?? "",
+        description: descriptionEn ?? "",
+      },
+    });
+    autoTranslateProduct(createdProduct.id, name, description, ["en"]);
+  } else {
+    autoTranslateProduct(createdProduct.id, name, description);
+  }
 
   // À partir d'ici, toute erreur (y compris annulation) doit nettoyer le produit
   // partiel pour qu'on n'ait jamais de produit incomplet en BDD.
@@ -1640,58 +1884,62 @@ export async function approveAndImportPfsProduct(
       warnings,
     );
 
-    // Création des variantes
-    const createdVariantIds: { id: string; colorId: string; pfsVariant: ResolvedVariant }[] = [];
-    for (let i = 0; i < resolvedVariants.length; i++) {
-      throwIfCancelled(isCancelled);
-      const rv = resolvedVariants[i];
-      const skuColorIds = rv.allColorIds.length > 0 ? rv.allColorIds : [rv.colorId];
-      const skuColorNames = skuColorIds.map((id) => colorNameMap.get(id) ?? "COLOR");
-      const variant = await prisma.productColor.create({
-        data: {
-          productId: createdProduct.id,
-          colorId: rv.colorId,
-          unitPrice: rv.unitPrice,
-          weight: rv.weight,
-          stock: rv.stock,
-          isPrimary: i === primaryIndex,
-          saleType: rv.saleType,
-          packQuantity: rv.packQuantity,
-          sku: generateSku(reference, skuColorNames, rv.saleType, i + 1),
-          pfsVariantId: rv.pfsVariantId,
-        },
-        select: { id: true, colorId: true },
-      });
-      if (rv.packLines.length > 0) {
-        // PACK multi-couleurs : composition dans PackColorLine + PackColorLineSize.
-        // sizeEntries reste vide côté ProductColor pour respecter l'invariant.
-        for (let li = 0; li < rv.packLines.length; li++) {
-          const line = rv.packLines[li];
-          await prisma.packColorLine.create({
-            data: {
+    // Création des variantes en parallèle. Les variantes ne se référencent
+    // pas entre elles (chacune ne dépend que de createdProduct.id) : on peut
+    // toutes les insérer simultanément. `Promise.all` préserve l'ordre, donc
+    // l'index `i` (qui pilote `isPrimary` et le suffixe SKU) reste cohérent.
+    throwIfCancelled(isCancelled);
+    const createdVariantIds: { id: string; colorId: string; pfsVariant: ResolvedVariant }[] = await Promise.all(
+      resolvedVariants.map(async (rv, i) => {
+        const skuColorIds = rv.allColorIds.length > 0 ? rv.allColorIds : [rv.colorId];
+        const skuColorNames = skuColorIds.map((id) => colorNameMap.get(id) ?? "COLOR");
+        const variant = await prisma.productColor.create({
+          data: {
+            productId: createdProduct.id,
+            colorId: rv.colorId,
+            unitPrice: rv.unitPrice,
+            weight: rv.weight,
+            stock: rv.stock,
+            isPrimary: i === primaryIndex,
+            saleType: rv.saleType,
+            packQuantity: rv.packQuantity,
+            sku: generateSku(reference, skuColorNames, rv.saleType, i + 1),
+            pfsVariantId: rv.pfsVariantId,
+          },
+          select: { id: true, colorId: true },
+        });
+        if (rv.packLines.length > 0) {
+          // PACK multi-couleurs : 1 ligne PackColorLine par couleur du pack,
+          // créées en parallèle (l'ordre est porté par `position`).
+          await Promise.all(
+            rv.packLines.map((line, li) =>
+              prisma.packColorLine.create({
+                data: {
+                  productColorId: variant.id,
+                  colorId: line.colorId,
+                  position: li,
+                  sizes: {
+                    create: line.sizeEntries.map((se) => ({
+                      sizeId: se.sizeId,
+                      quantity: se.quantity,
+                    })),
+                  },
+                },
+              }),
+            ),
+          );
+        } else if (rv.sizeEntries.length > 0) {
+          await prisma.variantSize.createMany({
+            data: rv.sizeEntries.map((se) => ({
               productColorId: variant.id,
-              colorId: line.colorId,
-              position: li,
-              sizes: {
-                create: line.sizeEntries.map((se) => ({
-                  sizeId: se.sizeId,
-                  quantity: se.quantity,
-                })),
-              },
-            },
+              sizeId: se.sizeId,
+              quantity: se.quantity,
+            })),
           });
         }
-      } else if (rv.sizeEntries.length > 0) {
-        await prisma.variantSize.createMany({
-          data: rv.sizeEntries.map((se) => ({
-            productColorId: variant.id,
-            sizeId: se.sizeId,
-            quantity: se.quantity,
-          })),
-        });
-      }
-      createdVariantIds.push({ id: variant.id, colorId: rv.colorId, pfsVariant: rv });
-    }
+        return { id: variant.id, colorId: rv.colorId, pfsVariant: rv };
+      }),
+    );
 
     logger.info("[PFS Import] Produit créé (SYNCING)", { productId: createdProduct.id, reference });
 
@@ -1890,11 +2138,37 @@ const RETRY_MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 3000;
 
 /**
- * Nombre d'images téléchargées en parallèle pour un même produit.
+ * Nombre d'images téléchargées en parallèle pour un même produit via Playwright.
  * Au-delà de 3, le risque de 429/connection reset côté CDN PFS augmente
  * et la mémoire Chromium grimpe vite (~80 Mo par page).
  */
 const IMAGE_DOWNLOAD_CONCURRENCY = 3;
+
+/**
+ * Nombre d'images téléchargées en parallèle via fetch HTTP direct (passe rapide).
+ * Pas de coût mémoire navigateur → on peut monter beaucoup plus haut.
+ * 8 reste prudent pour ne pas saturer le CDN PFS sur de gros lots.
+ */
+const HTTP_IMAGE_DOWNLOAD_CONCURRENCY = 8;
+
+/**
+ * Headers HTTP utilisés pour la passe fetch directe. Mime un Chrome récent
+ * pour rester cohérent avec le BROWSER_PROFILE_A — quelques CDN refusent les
+ * User-Agents génériques (Node, curl…).
+ */
+const HTTP_IMAGE_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+  "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+  "Sec-Fetch-Dest": "image",
+  "Sec-Fetch-Mode": "no-cors",
+  "Sec-Fetch-Site": "cross-site",
+};
+
+/** Timeout fetch images PFS (ms). Au-delà on considère qu'un Chromium a une
+ *  meilleure chance de réussir et on bascule la passe Playwright. */
+const HTTP_IMAGE_TIMEOUT_MS = 20000;
 
 // Profils navigateur distincts pour les 2 passes
 const BROWSER_PROFILE_A = {
@@ -1965,18 +2239,12 @@ async function downloadImagesWithPlaywright(
 
   throwIfCancelled(isCancelled);
 
-  // ── Passe 1 : Navigateur A (Chrome/Windows) ──
-  let failed: PendingImage[] = [];
-  const browserA = await chromium.launch({ headless: true });
-  try {
-    const ctxA = await browserA.newContext(BROWSER_PROFILE_A);
-    failed = await downloadImageBatch(ctxA, productId, reference, colorNames, allImages, "A", { isCancelled });
-    await ctxA.close();
-  } finally {
-    await browserA.close();
-  }
+  // ── Passe 1 : fetch HTTP direct (rapide, pas de Chromium) ──
+  // ~3-4× plus rapide qu'un Chromium pour le cas nominal et bien plus
+  // léger en RAM → permet de monter la concurrence à 8.
+  let failed = await downloadImageBatchHttp(productId, reference, colorNames, allImages, "HTTP", { isCancelled });
 
-  logger.info("[PFS Import] Pass A done", {
+  logger.info("[PFS Import] Pass HTTP done", {
     productId,
     total: allImages.length,
     ok: allImages.length - failed.length,
@@ -1985,7 +2253,26 @@ async function downloadImagesWithPlaywright(
 
   throwIfCancelled(isCancelled);
 
-  // ── Passe 2 : Navigateur B (Safari/Mac) — reprend les échecs avec retries ──
+  // ── Passe 2 : Chromium A (filet de sécurité pour les images bloquées par anti-bot) ──
+  if (failed.length > 0) {
+    const browserA = await chromium.launch({ headless: true });
+    try {
+      const ctxA = await browserA.newContext(BROWSER_PROFILE_A);
+      failed = await downloadImageBatch(ctxA, productId, reference, colorNames, failed, "A", { isCancelled });
+      await ctxA.close();
+    } finally {
+      await browserA.close();
+    }
+
+    logger.info("[PFS Import] Pass A done", {
+      productId,
+      remaining: failed.length,
+    });
+  }
+
+  throwIfCancelled(isCancelled);
+
+  // ── Passe 3 : Chromium B (Safari/Mac) — reprend les échecs avec retries ──
   if (failed.length > 0) {
     const browserB = await chromium.launch({ headless: true });
     try {
@@ -2024,6 +2311,95 @@ async function downloadImagesWithPlaywright(
 
   emitProductEvent({ type: "PRODUCT_UPDATED", productId });
   logger.info("[PFS Import] Images téléchargées, produit prêt", { productId, status: finalStatus });
+}
+
+/**
+ * Télécharge un lot d'images via fetch HTTP direct — sans navigateur, donc
+ * sans coût mémoire Chromium (chaque page ~80 Mo).
+ *
+ * Concurrence : pool de `HTTP_IMAGE_DOWNLOAD_CONCURRENCY` workers. Bien plus
+ * léger que Playwright donc on peut monter à 8.
+ *
+ * Ne bloque jamais sur un échec — continue et renvoie la liste des échecs
+ * (qui seront repris par les passes Playwright A puis B en filet de sécurité).
+ *
+ * Exporté pour les tests unitaires uniquement. `fetchImpl` injectable pour
+ * isoler les tests du global fetch.
+ */
+export async function downloadImageBatchHttp(
+  productId: string,
+  reference: string,
+  colorNames: Map<string, string>,
+  images: PendingImage[],
+  passLabel: string,
+  options?: ImportCancellationOptions & { fetchImpl?: typeof fetch },
+): Promise<PendingImage[]> {
+  const isCancelled = options?.isCancelled;
+  const fetchImpl = options?.fetchImpl ?? fetch;
+  const failed: PendingImage[] = [];
+  let nextIndex = 0;
+
+  const downloadOne = async (img: PendingImage): Promise<void> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), HTTP_IMAGE_TIMEOUT_MS);
+    try {
+      const res = await fetchImpl(img.url, {
+        method: "GET",
+        headers: HTTP_IMAGE_HEADERS,
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const arrayBuf = await res.arrayBuffer();
+      const body = Buffer.from(arrayBuf);
+      if (body.length === 0) throw new Error("Empty response body");
+
+      const colorName = colorNames.get(img.colorId) ?? null;
+      const filename = productImageBaseName(reference, colorName, img.order + 1);
+      const destDir = `public/${productImageDir(reference)}`;
+      const { dbPath } = await processProductImage(body, destDir, filename);
+
+      await prisma.productColorImage.create({
+        data: {
+          productId,
+          colorId: img.colorId,
+          productColorId: img.variantId,
+          path: dbPath,
+          order: img.order,
+        },
+      });
+
+      logger.info(`[PFS Import] [${passLabel}] Image saved`, {
+        productId, variant: img.variantId, order: img.order,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const worker = async (): Promise<void> => {
+    while (true) {
+      throwIfCancelled(isCancelled);
+      const i = nextIndex++;
+      if (i >= images.length) return;
+      const img = images[i];
+      try {
+        await downloadOne(img);
+      } catch (err) {
+        if (err instanceof PfsImportCancelledError) throw err;
+        logger.warn(`[PFS Import] [${passLabel}] Image failed`, {
+          url: img.url, err: (err as Error).message,
+        });
+        failed.push(img);
+      }
+    }
+  };
+
+  const workerCount = Math.min(HTTP_IMAGE_DOWNLOAD_CONCURRENCY, images.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  return failed;
 }
 
 /**

@@ -22,8 +22,10 @@ import { emitProductEvent, type ImportProgressResult } from "@/lib/product-event
 /** Intervalle entre deux vérifications DB du statut d'annulation (ms). */
 const CANCEL_POLL_INTERVAL_MS = 2000;
 
-/** Nombre de produits traités en parallèle. */
-const IMPORT_CONCURRENCY = 5;
+/** Nombre de produits traités en parallèle.
+ *  6 = bon compromis sur le VPS Hostinger (4 cores) — au-delà, le sharp WebP
+ *  lossless en parallèle sature le CPU et ralentit l'ensemble. */
+const IMPORT_CONCURRENCY = 6;
 
 /**
  * Exécute une opération Prisma avec retry automatique en cas de déconnexion.

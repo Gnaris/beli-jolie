@@ -8,6 +8,7 @@ import { z } from "zod";
 import { autoTranslateCollection } from "@/lib/auto-translate";
 import { renameCollectionFolder, deleteDirectory, collectionImageDir } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -135,8 +136,7 @@ export async function updateCollection(id: string, formData: FormData) {
   }
 
   // Save translations if present
-  const locales = ["en", "ar", "zh", "de", "es", "it"];
-  for (const locale of locales) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = (formData.get(`translation_${locale}`) as string)?.trim();
     if (val) {
       await prisma.collectionTranslation.upsert({

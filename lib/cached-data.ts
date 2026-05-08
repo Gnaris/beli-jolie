@@ -5,6 +5,7 @@ import { pfsGetColors } from "@/lib/pfs-api-write";
 import { PFS_COLORS } from "@/lib/marketplace-excel/pfs-taxonomy";
 import { hexForPfsColor } from "@/lib/marketplace-excel/pfs-color-hex";
 import { logger } from "@/lib/logger";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 export interface PfsLiveColor {
   reference: string;   // PFS API reference (e.g. "GOLDEN", "SILVER")
@@ -276,7 +277,7 @@ export const getCachedBestsellerRefs = unstable_cache(
 );
 
 // ─── Admin layout warning counts (7 queries, cache 5min) ────────────────────
-const NON_FR_LOCALES = ["en", "ar", "zh", "de", "es", "it"];
+const NON_FR_LOCALES = NON_DEFAULT_LOCALES;
 
 export const getCachedAdminWarnings = unstable_cache(
   async () => {

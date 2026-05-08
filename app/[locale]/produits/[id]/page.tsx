@@ -20,11 +20,14 @@ interface PageProps {
   params: Promise<{ id: string; locale: string }>;
 }
 
-const getProduct = cache(async (id: string) => {
+const getProduct = cache(async (id: string, locale: string) => {
+  const categorySelect = locale === "fr"
+    ? { name: true }
+    : { name: true, translations: { where: { locale }, select: { name: true }, take: 1 } };
   return prisma.product.findUnique({
     where: { id },
     include: {
-      category:      { select: { name: true } },
+      category:      { select: categorySelect },
       subCategories: { select: { name: true } },
       tags:          { include: { tag: { select: { id: true, name: true } } } },
       colors: {
@@ -97,7 +100,7 @@ const getProduct = cache(async (id: string) => {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id, locale } = await params;
   const [product, firstImage] = await Promise.all([
-    getProduct(id),
+    getProduct(id, locale),
     prisma.productColorImage.findFirst({
       where: { productId: id },
       orderBy: { order: "asc" },
@@ -134,11 +137,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function ProduitDetailPage({ params }: PageProps) {
-  const { id } = await params;
+  const { id, locale: routeLocale } = await params;
 
   // Fetch product, session, config, and locale in parallel
   const [product, session, stockVariantsConfig, locale, shopName] = await Promise.all([
-    getProduct(id),
+    getProduct(id, routeLocale),
     getServerSession(authOptions),
     getCachedSiteConfig("show_out_of_stock_variants"),
     getLocale(),
@@ -253,11 +256,15 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     const seen = new Set<string>();
     return { groupKey: gk, images: imgs.filter(img => { if (seen.has(img.path)) return false; seen.add(img.path); return true; }) };
   });
-  const translated = await getProductTranslation(product.id, locale as "fr" | "en" | "ar", {
+  const translated = await getProductTranslation(product.id, locale as "fr" | "en", {
     name: product.name,
     description: product.description,
   });
   const tProducts = await getTranslations("products");
+
+  // Catégorie : si une traduction existe pour la locale courante, on l'utilise (fil d'Ariane + JSON-LD)
+  const categoryRaw = product.category as { name: string; translations?: { name: string }[] };
+  const translatedCategoryName = categoryRaw.translations?.[0]?.name ?? categoryRaw.name;
 
   function toRelated(p: { id: string; name: string; reference: string; colors: { colorId: string | null; unitPrice: any; color: { name: string } | null }[] }) {
     const pc  = p.colors[0];
@@ -289,7 +296,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     name: translated.name,
     description: translated.description.slice(0, 500),
     sku: product.reference,
-    category: product.category.name,
+    category: translatedCategoryName,
     ...(firstImg && { image: getImageSrc(firstImg, "large") }),
     brand: {
       "@type": "Brand",
@@ -310,7 +317,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     "@type": "BreadcrumbList",
     itemListElement: [
       { "@type": "ListItem", position: 1, name: "Produits", item: `${process.env.NEXTAUTH_URL || ""}/produits` },
-      { "@type": "ListItem", position: 2, name: product.category.name, item: `${process.env.NEXTAUTH_URL || ""}/produits?cat=${product.categoryId}` },
+      { "@type": "ListItem", position: 2, name: translatedCategoryName, item: `${process.env.NEXTAUTH_URL || ""}/produits?cat=${product.categoryId}` },
       { "@type": "ListItem", position: 3, name: translated.name },
     ],
   };
@@ -331,7 +338,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               </Link>
               <span className="text-border">/</span>
               <Link href={`/produits?cat=${product.categoryId}`} className="hover:text-text-primary transition-colors">
-                {product.category.name}
+                {translatedCategoryName}
               </Link>
               <span className="text-border">/</span>
               <span className="text-text-secondary truncate">{translated.name}</span>

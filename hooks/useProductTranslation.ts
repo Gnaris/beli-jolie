@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocale } from "next-intl";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { translateProduct } from "@/lib/product-translations";
 
 // Module-level cache so we only fetch once per locale per browser session
@@ -39,13 +39,22 @@ async function fetchEntityTranslations(locale: string): Promise<Record<string, s
  */
 export function useProductTranslation() {
   const locale = useLocale();
-  const translationsRef = useRef<Record<string, string>>(dbCache[locale] ?? {});
+  const [translations, setTranslations] = useState<Record<string, string>>(
+    () => dbCache[locale] ?? {}
+  );
 
   useEffect(() => {
-    if (locale === "fr") return;
+    if (locale === "fr") {
+      setTranslations({});
+      return;
+    }
+    let cancelled = false;
     fetchEntityTranslations(locale).then((data) => {
-      translationsRef.current = data;
+      if (!cancelled) setTranslations(data);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [locale]);
 
   const tp = useCallback(
@@ -58,12 +67,12 @@ export function useProductTranslation() {
       if (!name) return "";
       if (locale === "fr") return name;
       // DB translation takes priority
-      const dbResult = translationsRef.current[name.toLowerCase()];
+      const dbResult = translations[name.toLowerCase()];
       if (dbResult) return dbResult;
       // Fallback to dictionary-based translation
       return translateProduct(name, locale);
     },
-    [locale]
+    [locale, translations]
   );
 
   return { tp, tc, locale };

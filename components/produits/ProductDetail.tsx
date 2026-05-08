@@ -349,7 +349,7 @@ export default function ProductDetail({
               <div className="absolute inset-0">
                 <Image
                   src={displayedImage}
-                  alt={`${tp(name)} — ${tp(displayedColorName)}`}
+                  alt={`${tp(name)} — ${tc(displayedColorName)}`}
                   fill
                   sizes="(max-width: 1024px) 100vw, 50vw"
                   className="object-contain"
@@ -467,7 +467,7 @@ export default function ProductDetail({
                   href={`/produits?tag=${tag.id}`}
                   className="text-xs px-3 py-1 rounded-full bg-bg-secondary text-text-secondary border border-border font-body hover:bg-bg-tertiary transition-colors"
                 >
-                  {tp(tag.name)}
+                  {tc(tag.name)}
                 </Link>
               ))}
             </div>
@@ -477,14 +477,14 @@ export default function ProductDetail({
           {uniqueColors.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">
-                {t("color")} — <span className="font-normal text-text-primary">{tp(displayedColorName)}</span>
+                {t("color")} — <span className="font-normal text-text-primary">{tc(displayedColorName)}</span>
               </p>
               <div className="flex gap-4 sm:gap-3 flex-wrap">
                 {uniqueColors.map((c) => (
                   <button
                     key={c.groupKey}
                     type="button"
-                    title={tp(getFullColorName(c.groupKey))}
+                    title={tc(getFullColorName(c.groupKey))}
                     onMouseEnter={() => setHoveredGroupKey(c.groupKey)}
                     onMouseLeave={() => setHoveredGroupKey(null)}
                     onClick={() => handleColorClick(c.groupKey)}
@@ -540,7 +540,7 @@ export default function ProductDetail({
                       key={comp.name}
                       className="inline-flex items-center gap-1 text-xs bg-bg-tertiary text-text-primary px-2.5 py-1 rounded-full font-body border border-border"
                     >
-                      {tp(comp.name)}
+                      {tc(comp.name)}
                       <span className="text-text-secondary">— {comp.percentage}%</span>
                     </span>
                   ))}
@@ -614,7 +614,7 @@ export default function ProductDetail({
             {selectedUnitVariants.length > 0 && (
               <div className="space-y-3">
                 <h3 className="font-heading text-sm font-semibold text-text-primary pb-3 border-b border-border">
-                  Unités
+                  {t("unitsSection")}
                 </h3>
                 {selectedUnitVariants.map((v) => {
                   const price        = computePrice(v, discountPercent);
@@ -640,7 +640,7 @@ export default function ProductDetail({
                           />
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-text-primary font-body truncate">
-                              {fullColorName || t("unitOption")}
+                              {fullColorName ? tc(fullColorName) : t("unitOption")}
                             </p>
                             {v.sizes?.length > 0 && (
                               <p className="text-xs text-text-muted font-body mt-0.5">
@@ -689,7 +689,7 @@ export default function ProductDetail({
             {selectedPackVariants.length > 0 && (
               <div className="space-y-3">
                 <h3 className="font-heading text-sm font-semibold text-text-primary pb-3 border-b border-border">
-                  Paquets
+                  {t("packsSection")}
                 </h3>
                 {selectedPackVariants.map((v) => {
                   const price        = computePrice(v, discountPercent);

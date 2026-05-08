@@ -2,9 +2,11 @@
 
 import { useState, useTransition, useRef, useEffect, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
-import { usePathname, useRouter } from "@/i18n/navigation";
+import { usePathname as useRawPathname } from "next/navigation";
+import { useRouter } from "@/i18n/navigation";
+import { stripLocalePrefix, detectLocaleInPath } from "@/lib/locale-path";
 
-type Locale = "fr" | "en" | "ar" | "zh" | "de" | "es" | "it";
+type Locale = "fr" | "en";
 
 function Flag({ code, className = "" }: { code: Locale; className?: string }) {
   const common = { viewBox: "0 0 24 16", className: `rounded-sm shrink-0 ${className}` };
@@ -27,58 +29,12 @@ function Flag({ code, className = "" }: { code: Locale; className?: string }) {
           <path d="M12 0v16M0 8h24" stroke="#C8102E" strokeWidth="2" />
         </svg>
       );
-    case "ar":
-      return (
-        <svg {...common}>
-          <rect width="24" height="16" fill="#006C35" />
-          <text x="12" y="11" textAnchor="middle" fontSize="6" fill="#FFFFFF" fontFamily="serif">☪</text>
-        </svg>
-      );
-    case "zh":
-      return (
-        <svg {...common}>
-          <rect width="24" height="16" fill="#EE1C25" />
-          <polygon points="5,3 5.7,4.8 7.6,4.8 6.1,5.9 6.6,7.7 5,6.6 3.4,7.7 3.9,5.9 2.4,4.8 4.3,4.8" fill="#FFDE00" />
-          <circle cx="9" cy="2.5" r="0.5" fill="#FFDE00" />
-          <circle cx="10.5" cy="4" r="0.5" fill="#FFDE00" />
-          <circle cx="10.5" cy="6" r="0.5" fill="#FFDE00" />
-          <circle cx="9" cy="7.5" r="0.5" fill="#FFDE00" />
-        </svg>
-      );
-    case "de":
-      return (
-        <svg {...common}>
-          <rect width="24" height="5.33" fill="#000000" />
-          <rect y="5.33" width="24" height="5.33" fill="#DD0000" />
-          <rect y="10.67" width="24" height="5.33" fill="#FFCE00" />
-        </svg>
-      );
-    case "es":
-      return (
-        <svg {...common}>
-          <rect width="24" height="16" fill="#AA151B" />
-          <rect y="4" width="24" height="8" fill="#F1BF00" />
-        </svg>
-      );
-    case "it":
-      return (
-        <svg {...common}>
-          <rect width="8" height="16" fill="#009246" />
-          <rect x="8" width="8" height="16" fill="#FFFFFF" />
-          <rect x="16" width="8" height="16" fill="#CE2B37" />
-        </svg>
-      );
   }
 }
 
 const LANGUAGES: { code: Locale; label: string }[] = [
   { code: "fr", label: "Français" },
   { code: "en", label: "English" },
-  { code: "ar", label: "العربية" },
-  { code: "zh", label: "中文" },
-  { code: "de", label: "Deutsch" },
-  { code: "es", label: "Español" },
-  { code: "it", label: "Italiano" },
 ];
 
 const MENU_WIDTH = 180;
@@ -96,9 +52,13 @@ export default function LanguageSwitcher({ currentLocale }: Props) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const pathname = usePathname();
+  const rawPathname = useRawPathname() || "/";
+  const pathname = stripLocalePrefix(rawPathname);
+  const localeInUrl = detectLocaleInPath(rawPathname);
+  // Locale "vraie" : on fait confiance à l'URL avant tout, et seulement à la prop si l'URL n'a pas de préfixe.
+  const effectiveLocale: Locale = (localeInUrl ?? (currentLocale as Locale)) as Locale;
 
-  const current = LANGUAGES.find((l) => l.code === currentLocale) ?? LANGUAGES[0];
+  const current = LANGUAGES.find((l) => l.code === effectiveLocale) ?? LANGUAGES[0];
 
   useEffect(() => {
     setMounted(true);
@@ -144,7 +104,7 @@ export default function LanguageSwitcher({ currentLocale }: Props) {
 
   function handleSelect(code: Locale) {
     setOpen(false);
-    if (code === currentLocale) return;
+    if (code === effectiveLocale) return;
     startTransition(() => {
       // Pousse la même URL en changeant uniquement le préfixe locale
       router.replace(pathname, { locale: code });
@@ -163,16 +123,16 @@ export default function LanguageSwitcher({ currentLocale }: Props) {
           key={lang.code}
           onClick={() => handleSelect(lang.code)}
           className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-bg-secondary transition-colors text-left ${
-            lang.code === currentLocale
+            lang.code === effectiveLocale
               ? "bg-bg-secondary font-semibold text-text-primary"
               : "text-text-secondary"
           }`}
           role="option"
-          aria-selected={lang.code === currentLocale}
+          aria-selected={lang.code === effectiveLocale}
         >
           <Flag code={lang.code} className="w-5 h-[14px] border border-black/10" />
           <span>{lang.label}</span>
-          {lang.code === currentLocale && (
+          {lang.code === effectiveLocale && (
             <svg className="w-3.5 h-3.5 text-[#22C55E] ml-auto" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
             </svg>

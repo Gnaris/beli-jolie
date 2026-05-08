@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { autoTranslateColor } from "@/lib/auto-translate";
 import { getCachedPfsColors } from "@/lib/cached-data";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -43,7 +44,7 @@ export async function updateColor(id: string, formData: FormData) {
 
   await prisma.color.update({ where: { id }, data: { name, hex } });
 
-  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = (formData.get(`name_${locale}`) as string)?.trim();
     if (val) {
       await prisma.colorTranslation.upsert({
@@ -84,7 +85,7 @@ export async function updateColorDirect(
 
   await prisma.color.update({ where: { id }, data });
 
-  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = translations[locale]?.trim();
     if (val) {
       await prisma.colorTranslation.upsert({

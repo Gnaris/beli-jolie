@@ -5,6 +5,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { autoTranslateCategory, autoTranslateSubCategory } from "@/lib/auto-translate";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 /** Génère un slug à partir d'un nom */
 function toSlug(name: string): string {
@@ -147,7 +148,7 @@ export async function updateCategoryDirect(
   if (!name.trim()) throw new Error("Le nom est requis.");
   await prisma.category.update({ where: { id }, data: { name: name.trim(), slug: toSlug(name.trim()) } });
 
-  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = translations[locale]?.trim();
     if (val) {
       await prisma.categoryTranslation.upsert({
@@ -173,7 +174,7 @@ export async function updateSubCategoryDirect(
   if (!name.trim()) throw new Error("Le nom est requis.");
   await prisma.subCategory.update({ where: { id }, data: { name: name.trim(), slug: toSlug(name.trim()) } });
 
-  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = translations[locale]?.trim();
     if (val) {
       await prisma.subCategoryTranslation.upsert({
@@ -197,7 +198,7 @@ export async function updateCategory(id: string, formData: FormData) {
 
   await prisma.category.update({ where: { id }, data: { name, slug: toSlug(name) } });
 
-  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = (formData.get(`name_${locale}`) as string)?.trim();
     if (val) {
       await prisma.categoryTranslation.upsert({
@@ -221,7 +222,7 @@ export async function updateSubCategory(id: string, formData: FormData) {
 
   await prisma.subCategory.update({ where: { id }, data: { name, slug: toSlug(name) } });
 
-  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = (formData.get(`name_${locale}`) as string)?.trim();
     if (val) {
       await prisma.subCategoryTranslation.upsert({

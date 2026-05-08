@@ -5,6 +5,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { autoTranslateComposition } from "@/lib/auto-translate";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -26,7 +27,7 @@ export async function updateComposition(id: string, formData: FormData) {
   if (!name) throw new Error("Le nom est requis.");
   await prisma.composition.update({ where: { id }, data: { name } });
 
-  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = (formData.get(`name_${locale}`) as string)?.trim();
     if (val) {
       await prisma.compositionTranslation.upsert({
@@ -51,7 +52,7 @@ export async function updateCompositionDirect(
   if (!name.trim()) throw new Error("Le nom est requis.");
   await prisma.composition.update({ where: { id }, data: { name: name.trim() } });
 
-  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+  for (const locale of NON_DEFAULT_LOCALES) {
     const val = translations[locale]?.trim();
     if (val) {
       await prisma.compositionTranslation.upsert({
