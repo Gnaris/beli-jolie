@@ -2,7 +2,6 @@
 
 import React, { useState, useTransition, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   bulkUpdateProductStatus,
@@ -1247,7 +1246,6 @@ function TableWithTopScroll({
 // ─── Main Table ────────────────────────────────────────────────────────────────
 
 export default function AdminProductsTable({ products, totalCount: _totalCount, hasPfsConfig }: Props) {
-  const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
