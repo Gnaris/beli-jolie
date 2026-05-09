@@ -13,7 +13,6 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import {
   approveAndImportPfsProduct,
-  cleanupOrphanedSyncingProducts,
   PfsImportCancelledError,
 } from "@/lib/pfs-import";
 import { invalidatePfsListCache } from "@/lib/pfs-list-cache";
@@ -279,28 +278,6 @@ export async function processPfsImport(jobId: string): Promise<void> {
 
   if (jobCancelled) {
     logger.info("[PFS Import Processor] Job cancelled", { jobId, processed });
-
-    // Filet de sécurité : balaye et supprime tout produit resté en statut
-    // SYNCING parmi les pfsIds de ce job. Le cleanup unitaire dans
-    // approveAndImportPfsProduct gère le cas normal, mais ce sweep couvre les
-    // edge cases (cleanup raté, worker tué, race condition) pour qu'aucun
-    // produit partiel ne traîne dans le catalogue après un arrêt.
-    try {
-      const pfsIds = items.map((it) => it.pfsId);
-      const sweep = await cleanupOrphanedSyncingProducts(pfsIds, job.createdAt);
-      if (sweep.deletedCount > 0) {
-        logger.info("[PFS Import Processor] Orphan SYNCING products cleaned up after cancel", {
-          jobId,
-          deletedCount: sweep.deletedCount,
-          references: sweep.references,
-        });
-      }
-    } catch (err) {
-      logger.warn("[PFS Import Processor] Orphan sweep failed", {
-        jobId,
-        err: (err as Error).message,
-      });
-    }
 
     await withRetry(() => prisma.importJob.update({
       where: { id: jobId },

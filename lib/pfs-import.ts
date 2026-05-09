@@ -22,8 +22,6 @@ import { getCachedPfsProductById } from "@/lib/pfs-list-cache";
 import { pfsGetCategories, pfsGetFamilies, type PfsAttributeCategory } from "@/lib/pfs-api-write";
 import { processProductImage } from "@/lib/image-processor";
 import { productImageDir, productImageBaseName, deleteDirectory } from "@/lib/storage";
-import { getImagePaths } from "@/lib/image-utils";
-import { keyFromDbPath, deleteFiles } from "@/lib/storage";
 import { emitProductEvent } from "@/lib/product-events";
 import { generateSku } from "@/lib/sku";
 import {
@@ -2644,64 +2642,3 @@ export async function downloadImageBatch(
   return { downloaded, failed };
 }
 
-/**
- * Filet de sécurité : supprime tout produit resté en statut SYNCING parmi les
- * pfsIds donnés et créé après la date `since`. Utilisé à l'arrêt manuel d'un
- * job d'import pour nettoyer les produits qui auraient pu rester partiellement
- * créés (cleanup unitaire raté, crash worker, etc.).
- *
- * Le filtre `createdAt >= since` évite de toucher à un produit déjà importé
- * dans un job précédent — on ne supprime que ce qui appartient potentiellement
- * au job en cours d'arrêt.
- */
-export async function cleanupOrphanedSyncingProducts(
-  pfsIds: string[],
-  since: Date,
-): Promise<{ deletedCount: number; references: string[] }> {
-  if (pfsIds.length === 0) return { deletedCount: 0, references: [] };
-
-  const orphans = await prisma.product.findMany({
-    where: {
-      status: "SYNCING",
-      pfsProductId: { in: pfsIds },
-      createdAt: { gte: since },
-    },
-    select: { id: true, reference: true },
-  });
-
-  const references: string[] = [];
-  for (const p of orphans) {
-    await cleanupFailedProduct(p.id);
-    references.push(p.reference);
-  }
-  return { deletedCount: references.length, references };
-}
-
-/**
- * Supprime un produit et toutes ses données associées (variantes, images, tailles).
- * Utilisé quand le téléchargement des images échoue.
- */
-async function cleanupFailedProduct(productId: string): Promise<void> {
-  try {
-    // Supprime les images déjà écrites sur disque
-    const images = await prisma.productColorImage.findMany({
-      where: { productId },
-      select: { path: true },
-    });
-    if (images.length > 0) {
-      const keys = images.flatMap(({ path }) => {
-        const paths = getImagePaths(path);
-        return [paths.large, paths.medium, paths.thumb].map(keyFromDbPath);
-      });
-      await deleteFiles(keys).catch((err) => {
-        logger.warn("[PFS Import] Storage cleanup partial failure", { productId, err: (err as Error).message });
-      });
-    }
-
-    // Supprime le produit (cascade supprime variantes, tailles, images, compositions)
-    await prisma.product.delete({ where: { id: productId } });
-    logger.info("[PFS Import] Cleaned up failed product", { productId });
-  } catch (err) {
-    logger.error("[PFS Import] Cleanup failed", { productId, err: (err as Error).message });
-  }
-}
