@@ -2597,8 +2597,9 @@ export async function downloadImageBatch(
   images: PendingImage[],
   passLabel: string,
   options?: ImportCancellationOptions,
-): Promise<PendingImage[]> {
+): Promise<{ downloaded: DownloadedImage[]; failed: PendingImage[] }> {
   const isCancelled = options?.isCancelled;
+  const downloaded: DownloadedImage[] = [];
   const failed: PendingImage[] = [];
   let nextIndex = 0;
 
@@ -2613,22 +2614,9 @@ export async function downloadImageBatch(
     const body = await response.body();
     if (!body || body.length === 0) throw new Error("Empty response body");
 
-    const colorName = colorNames.get(img.colorId) ?? null;
-    const filename = productImageBaseName(reference, colorName, img.order + 1);
-    const destDir = `public/${productImageDir(reference)}`;
-    const { dbPath } = await processProductImage(body, destDir, filename);
+    downloaded.push({ img, body });
 
-    await prisma.productColorImage.create({
-      data: {
-        productId,
-        colorId: img.colorId,
-        productColorId: img.variantId,
-        path: dbPath,
-        order: img.order,
-      },
-    });
-
-    logger.info(`[PFS Import] [${passLabel}] Image saved`, {
+    logger.info(`[PFS Import] [${passLabel}] Image downloaded`, {
       productId, variant: img.variantId, order: img.order,
     });
   };
@@ -2659,7 +2647,9 @@ export async function downloadImageBatch(
   const workerCount = Math.min(IMAGE_DOWNLOAD_CONCURRENCY, images.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
-  return failed;
+  void reference; void colorNames;
+
+  return { downloaded, failed };
 }
 
 /**
