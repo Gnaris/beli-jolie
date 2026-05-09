@@ -110,7 +110,7 @@ export async function updateClaimStatus(claimId: string, newStatus: string, mess
     claimId,
   }).catch((err) =>
     logger.error("[admin/claims] Email client réclamation échoué", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     }),
   );
 

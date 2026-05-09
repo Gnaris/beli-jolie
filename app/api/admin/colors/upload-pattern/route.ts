@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   try {
     await uploadFile(`${dir}/${filename}`, buffer, contentType);
   } catch (err) {
-    logger.error("[upload-pattern] Upload error", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[upload-pattern] Upload error", { error: err });
     return NextResponse.json({ error: "Erreur lors de l'enregistrement du fichier." }, { status: 500 });
   }
 

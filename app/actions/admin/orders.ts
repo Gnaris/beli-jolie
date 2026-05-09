@@ -57,14 +57,14 @@ export async function updateOrderStatus(orderId: string, status: string) {
   // une commande qui n'était pas déjà annulée.
   if (status === "CANCELLED" && previous && previous.status !== "CANCELLED") {
     await reinstateStockForOrder(orderId).catch((err) =>
-      logger.error("[updateOrderStatus] Stock reinstate error", { error: err instanceof Error ? err.message : String(err) })
+      logger.error("[updateOrderStatus] Stock reinstate error", { error: err })
     );
   }
 
   // Notify client by email on every status change (PENDING est géré à la création).
   if (status !== "PENDING") {
     notifyOrderStatusChange({ orderId, newStatus: status }).catch((err) =>
-      logger.error("[updateOrderStatus] Email notification error", { error: err instanceof Error ? err.message : String(err) })
+      logger.error("[updateOrderStatus] Email notification error", { error: err })
     );
   }
 
@@ -209,14 +209,14 @@ export async function modifyOrderItems(
     });
     notifyClientOrderModified({ orderId, modifications: modSummary }).catch((err) =>
       logger.error("[modifyOrderItems] Email client error", {
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       }),
     );
 
     return { success: true, creditTotal: totalCredit };
   } catch (err) {
     logger.error("[modifyOrderItems] Error", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
     return { success: false, error: "Erreur lors de la modification." };
   }
@@ -272,7 +272,7 @@ export async function revertOrderItemModification(
     return { success: true };
   } catch (err) {
     logger.error("[revertOrderItemModification] Error", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
     return { success: false, error: "Erreur lors du rétablissement." };
   }
@@ -328,7 +328,7 @@ export async function revertAllOrderItemModifications(
     return { success: true };
   } catch (err) {
     logger.error("[revertAllOrderItemModifications] Error", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
     return { success: false, error: "Erreur lors du rétablissement." };
   }

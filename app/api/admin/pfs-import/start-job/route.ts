@@ -41,14 +41,14 @@ export async function POST(req: NextRequest) {
     processPfsImport(job.id).catch((err) => {
       logger.error("[pfs-import/start-job] Background processing error", {
         jobId: job.id,
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
     });
 
     return NextResponse.json({ jobId: job.id });
   } catch (err) {
     logger.error("[pfs-import/start-job] POST error", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }

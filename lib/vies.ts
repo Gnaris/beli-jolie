@@ -136,7 +136,7 @@ export async function checkVies(rawVat: string): Promise<ViesResult> {
 
       logger.error("[VIES] fetch failed after retries", {
         countryCode,
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
       return {
         valid: false,

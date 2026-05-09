@@ -80,12 +80,12 @@ export async function POST(req: NextRequest) {
 
     // Fire-and-forget: start background processing
     processProductImport(job.id, maxProducts > 0 ? maxProducts : undefined).catch((err) => {
-      logger.error("[import-jobs] Background processing error", { error: err instanceof Error ? err.message : String(err) });
+      logger.error("[import-jobs] Background processing error", { error: err });
     });
 
     return NextResponse.json({ jobId: job.id });
   } catch (err) {
-    logger.error("[import-jobs] POST error", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[import-jobs] POST error", { error: err });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }
@@ -118,7 +118,7 @@ export async function GET() {
 
     return NextResponse.json({ jobs });
   } catch (err) {
-    logger.error("[import-jobs] GET error", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[import-jobs] GET error", { error: err });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

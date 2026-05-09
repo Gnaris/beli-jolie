@@ -265,7 +265,7 @@ export async function POST(request: NextRequest) {
           })
         )
         .catch((err) =>
-          logger.error("[Register] VIES check failed", { error: err instanceof Error ? err.message : String(err) })
+          logger.error("[Register] VIES check failed", { error: err })
         );
     }
 
@@ -284,14 +284,14 @@ export async function POST(request: NextRequest) {
       documentPath:        newUser.documentPath ?? undefined,
       registrationMessage: newUser.registrationMessage ?? undefined,
     }).catch((err) =>
-      logger.error("[POST /api/auth/register] Notification échouée", { error: err instanceof Error ? err.message : String(err) })
+      logger.error("[POST /api/auth/register] Notification échouée", { error: err })
     );
 
     const message = "Votre demande d'accès a bien été enregistrée. Notre équipe va examiner votre dossier et vous contactera par email.";
 
     return NextResponse.json({ message }, { status: 201 });
   } catch (error) {
-    logger.error("[POST /api/auth/register]", { error: error instanceof Error ? error.message : String(error) });
+    logger.error("[POST /api/auth/register]", { error });
     return NextResponse.json(
       { error: "Une erreur serveur est survenue. Veuillez réessayer." },
       { status: 500 }

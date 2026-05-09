@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     await prisma.passwordResetToken.update({ where: { token }, data: { used: true } });
     return NextResponse.json({ success: true });
   } catch (e) {
-    logger.error("[reset-password]", { error: e instanceof Error ? e.message : String(e) });
+    logger.error("[reset-password]", { error: e });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

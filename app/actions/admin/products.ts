@@ -587,7 +587,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
         productId: id,
         oldRef,
         newRef: newRefUpper,
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
       // On laisse passer : le swap de path ne sera pas effectué, mais la
       // BDD reste cohérente. L'admin peut relancer un save plus tard.
@@ -903,7 +903,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
           productId: id,
           oldRef,
           newRef: newRefUpper,
-          error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+          error: rollbackErr,
         });
       }
     }
@@ -1083,7 +1083,7 @@ export async function deleteProduct(id: string): Promise<{ action: "deleted" | "
       logger.info(`[Storage] Deleted ${keys.length} images for product ${id}`);
     } catch (err) {
       logger.error(`[Storage] Failed to delete images for product ${id}`, {
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
     }
   }
@@ -1094,7 +1094,7 @@ export async function deleteProduct(id: string): Promise<{ action: "deleted" | "
     await deleteDirectory(productImageDir(product.reference));
   } catch (err) {
     logger.error(`[Storage] Failed to delete product folder for ${id}`, {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
   }
 
@@ -1338,7 +1338,7 @@ export async function bulkDeleteProducts(
         logger.info(`[Storage] Deleted ${keys.length} images for ${deletableIds.length} products`);
       } catch (err) {
         logger.error(`[Storage] Failed to delete images during bulk delete`, {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
       }
     }
@@ -1352,7 +1352,7 @@ export async function bulkDeleteProducts(
         await deleteDirectory(productImageDir(ref));
       } catch (err) {
         logger.error(`[Storage] Failed to delete product folder for ${ref}`, {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
       }
     }

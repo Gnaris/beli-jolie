@@ -120,7 +120,7 @@ export async function sendAdminReply(
         conversationId: conversation.id,
       }).catch((err) =>
         logger.error("[sendAdminReply] Email client échoué", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         }),
       );
     }

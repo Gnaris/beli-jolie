@@ -53,7 +53,7 @@ export async function GET() {
     if (isBootGracePeriod()) {
       logger.warn("[site-status] DB unreachable during boot grace period — assuming OK", {
         uptime: process.uptime(),
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
       return NextResponse.json(
         { maintenance: false, bootGrace: true },
@@ -64,7 +64,7 @@ export async function GET() {
     // DB is unreachable — report critical error & enter maintenance
     reportCriticalError("site-status");
 
-    logger.error("[site-status] DB unreachable", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[site-status] DB unreachable", { error: err });
 
     return NextResponse.json(
       { maintenance: true, auto: true },

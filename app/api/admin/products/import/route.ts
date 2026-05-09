@@ -560,7 +560,7 @@ export async function POST(req: NextRequest) {
 
     // Fire-and-forget: create products in background
     createProductsInBackground(readyProducts, job.id).catch((err) => {
-      logger.error("[import/products] Background import failed", { jobId: job.id, error: err instanceof Error ? err.message : String(err) });
+      logger.error("[import/products] Background import failed", { jobId: job.id, error: err });
       prisma.importJob.update({ where: { id: job.id }, data: { status: "FAILED", errorMessage: err instanceof Error ? err.message : "Unknown error" } }).catch(() => {});
     });
 
@@ -575,7 +575,7 @@ export async function POST(req: NextRequest) {
       background: true,
     });
   } catch (err) {
-    logger.error("[import/products]", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[import/products]", { error: err });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erreur serveur." }, { status: 500 });
   }
 }

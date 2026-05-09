@@ -39,14 +39,14 @@ export async function cancelOrder(orderId: string): Promise<void> {
   // bas dans le fichier mais reste hoisté au niveau module par TypeScript.
   notifyOrderStatusChange({ orderId, newStatus: "CANCELLED" }).catch((err) =>
     logger.error("[cancelOrder] Email client annulation error", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     }),
   );
 
   // Le stock a été déduit à la commande — on le remet en stock.
   await reinstateStockForOrder(orderId).catch((err) =>
     logger.error("[cancelOrder] Stock reinstate error", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     }),
   );
 
@@ -202,7 +202,7 @@ export async function placeOrder(
     const stripe = await getStripeInstance();
     paymentIntent = await stripe.paymentIntents.retrieve(input.stripePaymentIntentId);
   } catch (err) {
-    logger.error("[placeOrder] Erreur retrieve PI", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[placeOrder] Erreur retrieve PI", { error: err });
     return { success: false, error: "Payment Intent introuvable." };
   }
   // Carte uniquement — le paiement doit être confirmé
@@ -512,7 +512,7 @@ export async function placeOrder(
       return { success: false, error: err.message };
     }
     logger.error("[placeOrder] Transaction error", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
     return { success: false, error: "Impossible de finaliser la commande. Merci de réessayer." };
   }
@@ -607,16 +607,16 @@ export async function placeOrder(
       items:           orderItems,
     });
   } catch (err) {
-    logger.error("[placeOrder] PDF error", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[placeOrder] PDF error", { error: err });
   }
 
   // ── Emails (fire-and-forget) ─────────────────
   // Notif admin (avec PDF en pièce jointe si dispo) + confirmation client.
   notifyAdminNewOrder({ orderId: order.id, pdfBuffer }).catch((err) =>
-    logger.error("[placeOrder] Notif admin error", { error: err instanceof Error ? err.message : String(err) })
+    logger.error("[placeOrder] Notif admin error", { error: err })
   );
   notifyOrderStatusChange({ orderId: order.id, newStatus: "PENDING" }).catch((err) =>
-    logger.error("[placeOrder] Confirmation client error", { error: err instanceof Error ? err.message : String(err) })
+    logger.error("[placeOrder] Confirmation client error", { error: err })
   );
 
   // ── 7. Auto-suppression remise NEXT_ORDER ──────────────────────────────

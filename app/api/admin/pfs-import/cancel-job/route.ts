@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (err) {
     logger.error("[pfs-import/cancel-job] POST error", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }

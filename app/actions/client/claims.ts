@@ -87,7 +87,7 @@ export async function createClaim(input: CreateClaimInput) {
       claimId: claim.id,
     }).catch((err) =>
       logger.error("[createClaim] Email admin échoué", {
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       }),
     );
 

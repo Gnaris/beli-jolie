@@ -51,7 +51,7 @@ export async function createSupportConversation(subject: string, message: string
       conversationId: conversation.id,
     }).catch((err) =>
       logger.error("[createSupportConversation] Email admin échoué", {
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       }),
     );
 

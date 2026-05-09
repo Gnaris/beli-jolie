@@ -283,7 +283,7 @@ export async function POST(req: NextRequest) {
       draftId,
     });
   } catch (err) {
-    logger.error("[import/images]", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[import/images]", { error: err });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erreur serveur." }, { status: 500 });
   }
 }

@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
       totalPages,
     });
   } catch (err) {
-    logger.error("[import-jobs/history] GET error", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[import-jobs/history] GET error", { error: err });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

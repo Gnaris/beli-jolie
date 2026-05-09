@@ -426,7 +426,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (err) {
-    logger.error("[import/preview]", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[import/preview]", { error: err });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erreur." }, { status: 500 });
   }
 }

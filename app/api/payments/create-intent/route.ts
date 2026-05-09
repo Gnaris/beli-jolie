@@ -176,7 +176,7 @@ export async function POST(req: Request) {
       paymentIntentId: paymentIntent.id,
     });
   } catch (err) {
-    logger.error("[create-intent] Erreur création PI", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[create-intent] Erreur création PI", { error: err });
     return NextResponse.json({ error: "Impossible de créer le paiement." }, { status: 500 });
   }
 }

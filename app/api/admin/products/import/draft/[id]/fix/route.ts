@@ -163,7 +163,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
   } catch (err) {
-    logger.error("[draft/fix]", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[draft/fix]", { error: err });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erreur." }, { status: 500 });
   }
 }

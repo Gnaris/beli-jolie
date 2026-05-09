@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ paths });
   } catch (err) {
     logger.error("[claims/upload] Processing error", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
     return NextResponse.json({ error: "Erreur de traitement des images." }, { status: 500 });
   }

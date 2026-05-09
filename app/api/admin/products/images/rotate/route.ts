@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     const cacheBuster = Date.now();
     return NextResponse.json({ success: true, cacheBuster }, { status: 200 });
   } catch (err) {
-    logger.error("[products/images/rotate] Error", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[products/images/rotate] Error", { error: err });
     return NextResponse.json({ error: "Erreur lors de la rotation." }, { status: 500 });
   }
 }

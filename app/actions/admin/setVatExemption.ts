@@ -63,7 +63,7 @@ export async function setVatExemption(
     return { success: true };
   } catch (err) {
     logger.error("[setVatExemption] update failed", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
       userId,
       exempt,
     });

@@ -59,7 +59,7 @@ export async function updateUserStatus(userId: string, status: UserStatus) {
         firstName: user.firstName,
       }).catch((err) =>
         logger.error("[updateUserStatus] Email approbation échoué", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         }),
       );
     } else if (status === "REJECTED") {
@@ -68,7 +68,7 @@ export async function updateUserStatus(userId: string, status: UserStatus) {
         firstName: user.firstName,
       }).catch((err) =>
         logger.error("[updateUserStatus] Email refus échoué", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         }),
       );
     }

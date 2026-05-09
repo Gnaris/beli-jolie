@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    logger.error("[variants/POST]", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[variants/POST]", { error: err });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erreur." }, { status: 500 });
   }
 }

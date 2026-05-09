@@ -208,7 +208,7 @@ async function buildColorLabelToRefMap(): Promise<Map<string, string>> {
     }
   } catch (err) {
     logger.warn("[PFS Update] Failed to load PFS color references", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
   }
   return map;
@@ -313,7 +313,7 @@ async function resolvePfsCategoryIds(category: {
     }
   } catch (err) {
     logger.warn("[PFS Update] Failed to auto-resolve PFS category IDs", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
   }
 
@@ -650,7 +650,7 @@ export async function pfsUpdateProductInPlace(
       existingPfsVariants = pfsVariantsResp.data ?? [];
     } catch (err) {
       logger.warn("[PFS Update] Could not fetch existing PFS variants", {
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
     }
 
@@ -705,7 +705,7 @@ export async function pfsUpdateProductInPlace(
         });
       } catch (err) {
         logger.error("[PFS Update] Failed to patch variants", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
       }
     } else if (variantsToUpdate.length > 0) {
@@ -779,7 +779,7 @@ export async function pfsUpdateProductInPlace(
         logger.info("[PFS Update] Created new variants", { count: newIdUpdates.length });
       } catch (err) {
         logger.error("[PFS Update] Failed to create new variants", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
       }
     }
@@ -796,7 +796,7 @@ export async function pfsUpdateProductInPlace(
         } catch (err) {
           logger.warn("[PFS Update] Failed to delete variant", {
             pfsVariantId: v.id,
-            error: err instanceof Error ? err.message : String(err),
+            error: err,
           });
         }
       }
@@ -828,7 +828,7 @@ export async function pfsUpdateProductInPlace(
         } catch (err) {
           logger.warn("[PFS Update] Failed to delete image", {
             colorRef, slot,
-            error: err instanceof Error ? err.message : String(err),
+            error: err,
           });
         }
       }
@@ -844,7 +844,7 @@ export async function pfsUpdateProductInPlace(
         } catch (err) {
           logger.warn("[PFS Update] Image upload failed", {
             colorRef, slot,
-            error: err instanceof Error ? err.message : String(err),
+            error: err,
           });
         }
       }
@@ -866,7 +866,7 @@ export async function pfsUpdateProductInPlace(
         committedSnapshot.defaultColor = primaryColorRef;
       } catch (err) {
         logger.warn("[PFS Update] Failed to set default_color", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
       }
     }
@@ -891,7 +891,7 @@ export async function pfsUpdateProductInPlace(
         committedSnapshot.status = targetStatus;
       } catch (err) {
         logger.warn("[PFS Update] Failed to update status", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
       }
     }
@@ -906,7 +906,7 @@ export async function pfsUpdateProductInPlace(
           committedSnapshot.isBestSeller = true;
         } catch (err) {
           logger.warn("[PFS Update] Failed to STAR product", {
-            error: err instanceof Error ? err.message : String(err),
+            error: err,
           });
         }
       } else {
@@ -917,7 +917,7 @@ export async function pfsUpdateProductInPlace(
           committedSnapshot.isBestSeller = false;
         } catch (err) {
           logger.warn("[PFS Update] Failed to REMOVE_STAR product", {
-            error: err instanceof Error ? err.message : String(err),
+            error: err,
           });
         }
       }

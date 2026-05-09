@@ -108,7 +108,7 @@ export async function updateCollection(id: string, formData: FormData) {
         collectionId: id,
         oldName: previous.name,
         newName: parsed.data.name,
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
     }
   }
@@ -128,7 +128,7 @@ export async function updateCollection(id: string, formData: FormData) {
       } catch (rollbackErr) {
         logger.error("[Storage] Failed to rollback collection folder rename", {
           collectionId: id,
-          error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+          error: rollbackErr,
         });
       }
     }
@@ -177,7 +177,7 @@ export async function deleteCollection(id: string) {
     } catch (err) {
       logger.error(`[Storage] Failed to delete collection folder`, {
         collectionId: id,
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
     }
   }

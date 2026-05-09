@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ conflicts });
   } catch (err) {
-    logger.error("[check-conflicts]", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[check-conflicts]", { error: err });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Erreur serveur." },
       { status: 500 }

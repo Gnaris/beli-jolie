@@ -78,7 +78,7 @@ export async function uploadBordereau(
     return { success: true, path: `/${key}` };
   } catch (err) {
     logger.error("[uploadBordereau] erreur écriture fichier", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
     return { success: false, error: "Impossible d'enregistrer le bordereau." };
   }

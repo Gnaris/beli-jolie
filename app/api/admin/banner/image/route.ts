@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ path: dbPath });
   } catch (err) {
-    logger.error("[banner/image] Processing error", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[banner/image] Processing error", { error: err });
     return NextResponse.json({ error: "Erreur de traitement de l'image." }, { status: 500 });
   }
 }

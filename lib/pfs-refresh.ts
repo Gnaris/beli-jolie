@@ -145,7 +145,7 @@ async function buildColorLabelToRefMap(): Promise<Map<string, string>> {
     }
   } catch (err) {
     logger.warn("[PFS Refresh] Failed to load PFS color references", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
   }
   return map;
@@ -325,7 +325,7 @@ async function resolvePfsCategoryIds(category: {
     }
   } catch (err) {
     logger.warn("[PFS Refresh] Failed to auto-resolve PFS category IDs", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
   }
 
@@ -557,7 +557,7 @@ export async function pfsRefreshProduct(
         });
       } catch (err) {
         logger.warn("[PFS Refresh] Batch variant create failed, falling back to individual", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
         for (const item of variantCreateData) {
           try {
@@ -566,7 +566,7 @@ export async function pfsRefreshProduct(
           } catch (err2) {
             logger.error("[PFS Refresh] Failed individual variant create", {
               variantData: item.pfsData,
-              error: err2 instanceof Error ? err2.message : String(err2),
+              error: err2,
             });
           }
         }
@@ -600,7 +600,7 @@ export async function pfsRefreshProduct(
             await pfsPatchVariants(zeroStockPatches);
           } catch (err) {
             logger.warn("[PFS Refresh] Failed to patch zero-stock variants", {
-              error: err instanceof Error ? err.message : String(err),
+              error: err,
             });
           }
         }
@@ -683,7 +683,7 @@ export async function pfsRefreshProduct(
         await pfsUpdateProduct(newPfsProductId, { default_color: primaryColorRef });
       } catch (err) {
         logger.warn("[PFS Refresh] Failed to set default_color", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
       }
     }
@@ -723,7 +723,7 @@ export async function pfsRefreshProduct(
     } catch (err) {
       logger.warn("[PFS Refresh] Failed to clear old product label/description", {
         oldPfsProductId,
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
     }
 
@@ -739,7 +739,7 @@ export async function pfsRefreshProduct(
           } catch (err) {
             logger.warn("[PFS Refresh] Failed to delete old image", {
               oldPfsProductId, colorRef, slot,
-              error: err instanceof Error ? err.message : String(err),
+              error: err,
             });
           }
         }
@@ -757,7 +757,7 @@ export async function pfsRefreshProduct(
           } catch (err) {
             logger.warn("[PFS Refresh] Failed to delete old variant", {
               oldPfsProductId, variantId: v.id,
-              error: err instanceof Error ? err.message : String(err),
+              error: err,
             });
           }
         }
@@ -769,7 +769,7 @@ export async function pfsRefreshProduct(
     } catch (err) {
       logger.warn("[PFS Refresh] Failed to fetch/delete old variants", {
         oldPfsProductId,
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
     }
 
@@ -810,7 +810,7 @@ export async function pfsRefreshProduct(
         logger.info("[PFS Refresh] Best-seller star applied", { newPfsProductId });
       } catch (err) {
         logger.warn("[PFS Refresh] Failed to STAR product (non-critical)", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
       }
     }
@@ -871,7 +871,7 @@ export async function pfsRefreshProduct(
         await pfsUpdateStatus([{ id: oldPfsProductId, status: originalPfsStatus as PfsStatus }]);
       } catch (restoreErr) {
         logger.error("[PFS Refresh] Failed to restore old product", {
-          error: restoreErr instanceof Error ? restoreErr.message : String(restoreErr),
+          error: restoreErr,
         });
       }
     }
@@ -883,7 +883,7 @@ export async function pfsRefreshProduct(
         await pfsUpdateStatus([{ id: newPfsProductId, status: "DELETED" }]);
       } catch (cleanupErr) {
         logger.error("[PFS Refresh] Cleanup failed", {
-          error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+          error: cleanupErr,
         });
       }
     }

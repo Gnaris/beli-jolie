@@ -94,12 +94,12 @@ export async function POST(
 
       // Fire-and-forget
       processImageImport(id).catch((err) => {
-        logger.error("[import-jobs] Image processing error", { error: err instanceof Error ? err.message : String(err) });
+        logger.error("[import-jobs] Image processing error", { error: err });
       });
 
       return NextResponse.json({ ok: true, totalImages: imageCount });
     } catch (err) {
-      logger.error("[import-jobs] Start error", { error: err instanceof Error ? err.message : String(err) });
+      logger.error("[import-jobs] Start error", { error: err });
       return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
     }
   }
@@ -149,7 +149,7 @@ export async function POST(
 
     return NextResponse.json({ saved, totalImages });
   } catch (err) {
-    logger.error("[import-jobs] Upload batch error", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[import-jobs] Upload batch error", { error: err });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

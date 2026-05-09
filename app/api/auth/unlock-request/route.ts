@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    logger.error("[POST /api/auth/unlock-request]", { error: error instanceof Error ? error.message : String(error) });
+    logger.error("[POST /api/auth/unlock-request]", { error });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

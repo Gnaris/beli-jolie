@@ -125,7 +125,7 @@ async function buildColorLabelToRefMap(): Promise<Map<string, string>> {
     }
   } catch (err) {
     logger.warn("[PFS Publish] Failed to load PFS color references", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
   }
   return map;
@@ -313,7 +313,7 @@ async function resolvePfsCategoryIds(category: {
     }
   } catch (err) {
     logger.warn("[PFS Publish] Failed to auto-resolve PFS category IDs", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
   }
 
@@ -520,7 +520,7 @@ export async function pfsPublishProduct(
         });
       } catch (err) {
         logger.warn("[PFS Publish] Batch variant create failed, falling back to individual", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
         for (const item of variantCreateData) {
           try {
@@ -529,7 +529,7 @@ export async function pfsPublishProduct(
           } catch (err2) {
             logger.error("[PFS Publish] Failed individual variant create", {
               variantData: item.pfsData,
-              error: err2 instanceof Error ? err2.message : String(err2),
+              error: err2,
             });
           }
         }
@@ -562,7 +562,7 @@ export async function pfsPublishProduct(
             await pfsPatchVariants(zeroStockPatches);
           } catch (err) {
             logger.warn("[PFS Publish] Failed to patch zero-stock variants", {
-              error: err instanceof Error ? err.message : String(err),
+              error: err,
             });
           }
         }
@@ -646,7 +646,7 @@ export async function pfsPublishProduct(
         await pfsUpdateProduct(createdPfsProductId, { default_color: primaryColorRef });
       } catch (err) {
         logger.warn("[PFS Publish] Failed to set default_color", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
       }
     }
@@ -686,7 +686,7 @@ export async function pfsPublishProduct(
         logger.info("[PFS Publish] Best-seller star applied", { pfsProductId: createdPfsProductId });
       } catch (err) {
         logger.warn("[PFS Publish] Failed to STAR product (non-critical)", {
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
       }
     }
@@ -749,7 +749,7 @@ export async function pfsPublishProduct(
         await pfsUpdateStatus([{ id: createdPfsProductId, status: "DELETED" }]);
       } catch (cleanupErr) {
         logger.error("[PFS Publish] Cleanup failed", {
-          error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+          error: cleanupErr,
         });
       }
     }

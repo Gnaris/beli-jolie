@@ -58,7 +58,7 @@ export async function POST(request: Request): Promise<NextResponse<CheckResponse
     });
   } catch (err) {
     logger.error("[check-reference-pfs] failed", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err,
     });
     return NextResponse.json({
       status: "error",

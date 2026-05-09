@@ -97,7 +97,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    logger.error("[pdf] Erreur génération PDF client", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[pdf] Erreur génération PDF client", { error: err });
     return new NextResponse("Erreur génération PDF", { status: 500 });
   }
 }

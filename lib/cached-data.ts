@@ -240,7 +240,7 @@ export const getCachedPfsColors = unstable_cache(
       });
     } catch (err) {
       logger.warn("[PFS colors] live fetch failed, using static fallback", {
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
       return staticPfsColorFallback();
     }

@@ -134,7 +134,7 @@ async function _fetchWithRetryInner(
         lastError = new Error(`PFS API ${res.status}: ${method} ${shortUrl} — ${errBody.slice(0, 200)}`);
         const jitter = Math.random() * 1000;
         const delay = Math.min(2000 * Math.pow(2, attempt) + jitter, 30000);
-        logger.warn("[PFS] HTTP error, retrying", { error: lastError.message, attempt: attempt + 1, maxRetries, delayMs: Math.round(delay) });
+        logger.warn("[PFS] HTTP error, retrying", { error: lastError, attempt: attempt + 1, maxRetries, delayMs: Math.round(delay) });
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
@@ -150,7 +150,7 @@ async function _fetchWithRetryInner(
       }
       const jitter = Math.random() * 1000;
       const delay = Math.min(2000 * Math.pow(2, attempt) + jitter, 30000);
-      logger.warn("[PFS] Request failed, retrying", { error: lastError.message, attempt: attempt + 1, maxRetries, delayMs: Math.round(delay) });
+      logger.warn("[PFS] Request failed, retrying", { error: lastError, attempt: attempt + 1, maxRetries, delayMs: Math.round(delay) });
       if (attempt < maxRetries) {
         await new Promise((r) => setTimeout(r, delay));
       }

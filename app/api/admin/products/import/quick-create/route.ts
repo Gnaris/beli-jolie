@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
   } catch (err) {
-    logger.error("[import/quick-create]", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[import/quick-create]", { error: err });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erreur." }, { status: 500 });
   }
 }
