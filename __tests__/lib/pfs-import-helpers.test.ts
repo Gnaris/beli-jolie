@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   pickDefaultImage,
   collectImagesForColors,
@@ -9,6 +9,7 @@ import {
   pfsColorMatchCandidates,
   buildPackLinesFromResolved,
   pfsStatusToBjStatus,
+  downloadImageBatchHttp,
 } from "@/lib/pfs-import";
 import type { PfsColorInfo } from "@/lib/pfs-api";
 
@@ -501,5 +502,56 @@ describe("pfs-import helpers", () => {
       expect(pfsStatusToBjStatus("")).toBe("OFFLINE");
       expect(pfsStatusToBjStatus("WHATEVER")).toBe("OFFLINE");
     });
+  });
+});
+
+describe("downloadImageBatchHttp — retourne les buffers téléchargés", () => {
+  it("retourne body + img dans `downloaded`, sans appeler processProductImage", async () => {
+    const fakeBody = Buffer.from("fake-image-bytes");
+    const fakeFetch = vi.fn(async () =>
+      new Response(fakeBody, { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const images = [
+      { variantId: "v1", colorId: "c1", url: "http://x/img1.jpg", order: 0 },
+      { variantId: "v1", colorId: "c1", url: "http://x/img2.jpg", order: 1 },
+    ];
+
+    const result = await downloadImageBatchHttp(
+      "p1",
+      "REF-A",
+      new Map([["c1", "Rouge"]]),
+      images,
+      "HTTP",
+      { fetchImpl: fakeFetch },
+    );
+
+    expect(result.downloaded).toHaveLength(2);
+    expect(result.downloaded[0].body.toString()).toBe("fake-image-bytes");
+    expect(result.downloaded[0].img.url).toBe("http://x/img1.jpg");
+    expect(result.failed).toEqual([]);
+  });
+
+  it("met les images en échec dans `failed` sans throw", async () => {
+    const fakeFetch = vi.fn(async (url: string) => {
+      if (url.includes("img2")) return new Response("nope", { status: 500 });
+      return new Response(Buffer.from("ok"), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const result = await downloadImageBatchHttp(
+      "p1",
+      "REF-A",
+      new Map(),
+      [
+        { variantId: "v1", colorId: "c1", url: "http://x/img1.jpg", order: 0 },
+        { variantId: "v1", colorId: "c1", url: "http://x/img2.jpg", order: 1 },
+      ],
+      "HTTP",
+      { fetchImpl: fakeFetch },
+    );
+
+    expect(result.downloaded).toHaveLength(1);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0].url).toBe("http://x/img2.jpg");
   });
 });
