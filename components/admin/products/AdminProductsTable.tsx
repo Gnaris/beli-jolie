@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useTransition, useCallback, useRef, useEffect, useMemo } from "react";
+import React, { useState, useTransition, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -15,7 +15,6 @@ import { deleteProductsOnPfs } from "@/app/actions/admin/marketplace-delete";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
-import { useProductStream } from "@/hooks/useProductStream";
 import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
 import { usePfsRefreshQueue } from "@/components/admin/products/PfsRefreshContext";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
@@ -471,7 +470,6 @@ function ProductRow({
   selectedVariantIds,
   onToggleVariant,
   onToggleAllVariants,
-  isNew = false,
   isDeleting = false,
 }: {
   product: AdminProduct;
@@ -483,7 +481,6 @@ function ProductRow({
   selectedVariantIds: Set<string>;
   onToggleVariant: (id: string) => void;
   onToggleAllVariants: (ids: string[], select: boolean) => void;
-  isNew?: boolean;
   isDeleting?: boolean;
 }) {
   const [refreshing, setRefreshing] = useState(false);
@@ -518,7 +515,7 @@ function ProductRow({
   return (
     <>
       <tr
-        className={`table-row transition-all duration-150 ${selected ? "bg-[#EEF2FF]" : ""} ${expanded ? "border-b-0" : ""} ${isNew ? "animate-product-pop" : ""} ${isDeleting ? "opacity-50 pointer-events-none" : ""}`}
+        className={`table-row transition-all duration-150 ${selected ? "bg-[#EEF2FF]" : ""} ${expanded ? "border-b-0" : ""} ${isDeleting ? "opacity-50 pointer-events-none" : ""}`}
       >
         {/* Checkbox */}
         <td className="px-4 py-3.5 w-10" onClick={(e) => e.stopPropagation()}>
@@ -1125,7 +1122,7 @@ function BulkVariantBar({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, hasPfsConfig, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, newProductIds, deletingIds,
+  products, hasPfsConfig, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, deletingIds,
 }: {
   products: AdminProduct[];
   hasPfsConfig: boolean;
@@ -1138,7 +1135,6 @@ function TableWithTopScroll({
   selectedVariantIds: Set<string>;
   toggleVariant: (id: string) => void;
   toggleAllVariants: (ids: string[], select: boolean) => void;
-  newProductIds: Set<string>;
   deletingIds: Set<string>;
 }) {
   const topScrollRef = useRef<HTMLDivElement>(null);
@@ -1238,7 +1234,6 @@ function TableWithTopScroll({
                 selectedVariantIds={selectedVariantIds}
                 onToggleVariant={toggleVariant}
                 onToggleAllVariants={toggleAllVariants}
-                isNew={newProductIds.has(product.id)}
                 isDeleting={deletingIds.has(product.id)}
               />
             ))}
@@ -1265,74 +1260,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
-  // ─── Real-time new products via SSE ──
-  const [liveProducts, setLiveProducts] = useState<AdminProduct[]>([]);
-  const [newProductIds, setNewProductIds] = useState<Set<string>>(new Set());
-  const existingIdsRef = useRef<Set<string>>(new Set(products.map((p) => p.id)));
-
-  // Keep existingIds in sync with server-rendered products
-  useEffect(() => {
-    existingIdsRef.current = new Set(products.map((p) => p.id));
-    // Clean up live products that are already in the server list (after navigation/revalidation)
-    setLiveProducts((prev) => prev.filter((p) => !existingIdsRef.current.has(p.id)));
-  }, [products]);
-
-  // Clear "new" animation after 4 seconds
-  useEffect(() => {
-    if (newProductIds.size === 0) return;
-    const timer = setTimeout(() => {
-      setNewProductIds(new Set());
-    }, 4000);
-    return () => clearTimeout(timer);
-  }, [newProductIds]);
-
-  // Track whether an import is in progress so we can refresh when it finishes
-  const importInProgressRef = useRef(false);
-
-  useProductStream(useCallback((event) => {
-    // When an import finishes, reload the full page data (counts, statuses, etc.)
-    if (event.type === "IMPORT_PROGRESS" && event.importProgress) {
-      const { status } = event.importProgress;
-      if (status === "PROCESSING") {
-        importInProgressRef.current = true;
-      } else if (status === "COMPLETED" || status === "FAILED") {
-        if (importInProgressRef.current) {
-          importInProgressRef.current = false;
-          // Small delay to let DB settle after last product insert
-          setTimeout(() => router.refresh(), 1500);
-        }
-      }
-      return;
-    }
-
-    if (event.type !== "PRODUCT_CREATED") return;
-    const productId = event.productId;
-
-    // Skip if already in the list
-    if (existingIdsRef.current.has(productId)) return;
-
-    // Fetch the product data and add it to the table
-    fetch(`/api/admin/products/${productId}`)
-      .then((res) => {
-        if (!res.ok) return null;
-        return res.json();
-      })
-      .then((product: AdminProduct | null) => {
-        if (!product) return;
-        // Avoid duplicates
-        if (existingIdsRef.current.has(product.id)) return;
-        existingIdsRef.current.add(product.id);
-        setLiveProducts((prev) => [product, ...prev]);
-        setNewProductIds((prev) => new Set(prev).add(product.id));
-      })
-      .catch(() => {});
-  }, [router]));
-
-  // Merge live products (prepended) with server products
-  const allProducts = useMemo(
-    () => [...liveProducts, ...products.filter((p) => !liveProducts.some((lp) => lp.id === p.id))],
-    [liveProducts, products],
-  );
+  const allProducts = products;
 
   const allPageIds = allProducts.map((p) => p.id);
   const allSelected = allPageIds.length > 0 && allPageIds.every((id) => selectedIds.has(id));
@@ -1760,7 +1688,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={allProducts} hasPfsConfig={hasPfsConfig} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} newProductIds={newProductIds} deletingIds={deletingIds} />
+      <TableWithTopScroll products={allProducts} hasPfsConfig={hasPfsConfig} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} deletingIds={deletingIds} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (
