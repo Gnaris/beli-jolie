@@ -85,3 +85,98 @@ export function extractSource(stack: string | undefined): string | null {
   }
   return null;
 }
+
+const SEPARATOR = "─".repeat(49);
+const LABEL_WIDTH = 14;
+
+const DATE_FMT = new Intl.DateTimeFormat("fr-FR", {
+  timeZone: "Europe/Paris",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
+function formatDate(d: Date): string {
+  // Intl renvoie "09/05/2026, 16:32:18" → on enlève la virgule
+  return DATE_FMT.format(d).replace(",", "");
+}
+
+function pad(label: string): string {
+  return label.padEnd(LABEL_WIDTH, " ");
+}
+
+function formatStack(stack: string | undefined): { lines: string[]; truncated: number } {
+  if (!stack) return { lines: [], truncated: 0 };
+  const all = stack.split("\n").slice(1).map((l) => l.trim()).filter(Boolean);
+  return { lines: all.slice(0, 5), truncated: Math.max(0, all.length - 5) };
+}
+
+const RESERVED_META_KEYS = new Set(["event", "error", "source"]);
+
+function formatCustomValue(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+  try { return JSON.stringify(v); } catch { return String(v); }
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+export type FormatBlockArgs = {
+  level: "error" | "warn";
+  message: string;
+  meta: Record<string, unknown>;
+  now?: Date;
+};
+
+export function formatErrorBlock(args: FormatBlockArgs): string {
+  const now = args.now ?? new Date();
+  const head = args.level === "error" ? "❌ ERREUR" : "⚠️  AVERTISSEMENT";
+  const date = formatDate(now);
+
+  const { event: autoEvent, cleanMessage } = deduceEvent(args.message);
+  const event = (args.meta.event as string | undefined) ?? autoEvent;
+
+  const errorObj = args.meta.error instanceof Error ? args.meta.error : null;
+  const cause = deduceCause(errorObj);
+  const sourceFromMeta = args.meta.source as string | undefined;
+  const sourceFromStack = errorObj ? extractSource(errorObj.stack) : null;
+  const source = sourceFromMeta ?? sourceFromStack;
+
+  const lines: string[] = [];
+  lines.push(SEPARATOR);
+  lines.push(`${head} · ${date}`);
+  lines.push(`   ${pad("Événement")}: ${event}`);
+  if (cleanMessage) lines.push(`   ${pad("Détail")}: ${cleanMessage}`);
+
+  for (const [k, v] of Object.entries(args.meta)) {
+    if (RESERVED_META_KEYS.has(k)) continue;
+    const formatted = formatCustomValue(v);
+    if (formatted === "") continue;
+    lines.push(`   ${pad(capitalize(k))}: ${formatted}`);
+  }
+
+  if (errorObj) {
+    lines.push(`   ${pad("Type erreur")}: ${errorObj.name || "Error"}`);
+    lines.push(`   ${pad("Message brut")}: ${errorObj.message}`);
+  }
+  if (cause) lines.push(`   ${pad("Cause probable")}: ${cause}`);
+  if (source) lines.push(`   ${pad("Source")}: ${source}`);
+
+  if (errorObj?.stack) {
+    const { lines: stackLines, truncated } = formatStack(errorObj.stack);
+    if (stackLines.length > 0) {
+      lines.push(`   ${pad("Stack")}:`);
+      for (const sl of stackLines) lines.push(`     ${sl}`);
+      if (truncated > 0) lines.push(`     ... (${truncated} autres lignes)`);
+    }
+  }
+
+  lines.push(SEPARATOR);
+  return lines.join("\n");
+}

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { deduceEvent, deduceCause, extractSource } from "@/lib/log-events";
+import {
+  deduceEvent,
+  deduceCause,
+  extractSource,
+  formatErrorBlock,
+} from "@/lib/log-events";
 
 describe("deduceEvent", () => {
   it("retourne le libellé FR pour un préfixe connu", () => {
@@ -190,5 +195,98 @@ describe("extractSource", () => {
     const stack = `Error: x
     at fn (C:\\Users\\chenb\\Desktop\\beli-jolie\\lib\\foo.ts:10:5)`;
     expect(extractSource(stack)).toBe("lib/foo.ts:10");
+  });
+});
+
+describe("formatErrorBlock", () => {
+  const FIXED_DATE = new Date("2026-05-09T14:32:18.000Z"); // = 16:32:18 Europe/Paris (CEST)
+
+  it("formate une erreur simple sans error object", () => {
+    const out = formatErrorBlock({
+      level: "error",
+      message: "[Storage] cannot write",
+      meta: {},
+      now: FIXED_DATE,
+    });
+    expect(out).toContain("❌ ERREUR");
+    expect(out).toContain("09/05/2026");
+    expect(out).toContain("Événement     : Stockage de fichier");
+    expect(out).toContain("Détail        : cannot write");
+    expect(out).not.toContain("Type erreur");
+    expect(out).not.toContain("Message brut");
+    expect(out).not.toContain("Stack");
+    // Encadré
+    expect(out.startsWith("─")).toBe(true);
+    expect(out.trim().endsWith("─")).toBe(true);
+  });
+
+  it("inclut type, message brut et stack quand error est un Error", () => {
+    const err = new Error("Connection timeout after 30000ms");
+    err.name = "TimeoutError";
+    err.stack = `TimeoutError: Connection timeout after 30000ms
+    at fetchPfsAuth (/app/lib/pfs-publish.ts:142:5)
+    at publishProductOnPfs (/app/lib/pfs-publish.ts:88:3)`;
+
+    const out = formatErrorBlock({
+      level: "error",
+      message: "[PFS] publication failed",
+      meta: { error: err, productRef: "ROBE-12345" },
+      now: FIXED_DATE,
+    });
+    expect(out).toContain("Événement     : Synchronisation PFS");
+    expect(out).toContain("Détail        : publication failed");
+    expect(out).toContain("Type erreur   : TimeoutError");
+    expect(out).toContain("Message brut  : Connection timeout after 30000ms");
+    expect(out).toContain("Cause probable: Délai d'attente dépassé");
+    expect(out).toContain("Source        : lib/pfs-publish.ts:142");
+    expect(out).toContain("Stack         :");
+    expect(out).toContain("at fetchPfsAuth");
+    expect(out).toContain("Productref    : ROBE-12345"); // champ custom (capitalisé)
+  });
+
+  it("force l'event quand meta.event est fourni", () => {
+    const out = formatErrorBlock({
+      level: "error",
+      message: "[Storage] x",
+      meta: { event: "Validation commande" },
+      now: FIXED_DATE,
+    });
+    expect(out).toContain("Événement     : Validation commande");
+  });
+
+  it("utilise ⚠️ AVERTISSEMENT pour warn", () => {
+    const out = formatErrorBlock({
+      level: "warn",
+      message: "low disk",
+      meta: {},
+      now: FIXED_DATE,
+    });
+    expect(out).toContain("⚠️");
+    expect(out).toContain("AVERTISSEMENT");
+  });
+
+  it("tronque la stack à 5 lignes et indique le reste", () => {
+    const err = new Error("x");
+    err.stack = ["Error: x", ...Array.from({ length: 10 }, (_, i) => `    at fn${i} (/app/lib/x.ts:${i}:1)`)].join("\n");
+    const out = formatErrorBlock({
+      level: "error",
+      message: "x",
+      meta: { error: err },
+      now: FIXED_DATE,
+    });
+    expect(out).toContain("at fn0");
+    expect(out).toContain("at fn4");
+    expect(out).not.toContain("at fn5");
+    expect(out).toContain("... (5 autres lignes)");
+  });
+
+  it("affiche la date au format JJ/MM/AAAA HH:MM:SS Europe/Paris", () => {
+    const out = formatErrorBlock({
+      level: "error",
+      message: "x",
+      meta: {},
+      now: new Date("2026-12-31T23:30:00.000Z"), // = 00:30:00 le 01/01/2027 Paris
+    });
+    expect(out).toContain("01/01/2027 00:30:00");
   });
 });
