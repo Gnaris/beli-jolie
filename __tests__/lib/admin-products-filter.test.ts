@@ -69,10 +69,9 @@ describe("buildAdminProductsWhere", () => {
     expect(where).toMatchObject({ status: "OFFLINE", isIncomplete: false });
   });
 
-  it("passes ONLINE / ARCHIVED / SYNCING through unchanged", () => {
+  it("passes ONLINE / ARCHIVED through unchanged", () => {
     expect(buildAdminProductsWhere({ status: "ONLINE" }).status).toBe("ONLINE");
     expect(buildAdminProductsWhere({ status: "ARCHIVED" }).status).toBe("ARCHIVED");
-    expect(buildAdminProductsWhere({ status: "SYNCING" }).status).toBe("SYNCING");
   });
 
   it("combines price min and max into a single colors.some clause", () => {

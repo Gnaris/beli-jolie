@@ -65,7 +65,7 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
   } else if (params.status === "OFFLINE") {
     where.status = "OFFLINE";
     where.isIncomplete = false;
-  } else if (params.status === "ONLINE" || params.status === "ARCHIVED" || params.status === "SYNCING") {
+  } else if (params.status === "ONLINE" || params.status === "ARCHIVED") {
     where.status = params.status;
   }
 

@@ -323,7 +323,6 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   { value: "OFFLINE", label: "Hors ligne" },
                   { value: "DRAFT", label: "Brouillons" },
                   { value: "ARCHIVED", label: "Archivé" },
-                  { value: "SYNCING", label: "Sync en cours" },
                 ]}
                 size="sm"
               />
