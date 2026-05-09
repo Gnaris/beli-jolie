@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deduceEvent, deduceCause } from "@/lib/log-events";
+import { deduceEvent, deduceCause, extractSource } from "@/lib/log-events";
 
 describe("deduceEvent", () => {
   it("retourne le libellé FR pour un préfixe connu", () => {
@@ -135,5 +135,60 @@ describe("deduceCause", () => {
     expect(deduceCause("foo")).toBeNull();
     expect(deduceCause(null)).toBeNull();
     expect(deduceCause(undefined)).toBeNull();
+  });
+});
+
+describe("extractSource", () => {
+  it("retourne la 1ère frame app dans /lib/", () => {
+    const stack = `Error: boom
+    at Object.<anonymous> (/var/www/beliandjolie/node_modules/foo/index.js:42:10)
+    at fetchPfsAuth (/var/www/beliandjolie/lib/pfs-publish.ts:142:5)
+    at publishProductOnPfs (/var/www/beliandjolie/lib/pfs-publish.ts:88:3)`;
+    expect(extractSource(stack)).toBe("lib/pfs-publish.ts:142");
+  });
+
+  it("retourne la 1ère frame app dans /app/", () => {
+    const stack = `Error: x
+    at handler (/var/www/beliandjolie/app/api/foo/route.ts:23:7)`;
+    expect(extractSource(stack)).toBe("app/api/foo/route.ts:23");
+  });
+
+  it("ignore les frames node_modules", () => {
+    const stack = `Error: x
+    at A (/var/www/beliandjolie/node_modules/prisma/runtime.js:12:1)
+    at B (/var/www/beliandjolie/node_modules/next/server.js:55:2)
+    at C (/var/www/beliandjolie/lib/foo.ts:9:1)`;
+    expect(extractSource(stack)).toBe("lib/foo.ts:9");
+  });
+
+  it("ignore .next/", () => {
+    const stack = `Error: x
+    at A (/var/www/beliandjolie/.next/server/chunks/123.js:1:1)
+    at B (/var/www/beliandjolie/lib/bar.ts:5:1)`;
+    expect(extractSource(stack)).toBe("lib/bar.ts:5");
+  });
+
+  it("retourne null si aucune frame app", () => {
+    const stack = `Error: x
+    at A (/var/www/beliandjolie/node_modules/foo/index.js:1:1)`;
+    expect(extractSource(stack)).toBeNull();
+  });
+
+  it("retourne null si stack vide ou undefined", () => {
+    expect(extractSource(undefined)).toBeNull();
+    expect(extractSource("")).toBeNull();
+  });
+
+  it("supporte les frames sans parenthèses (V8 minimal)", () => {
+    const stack = `Error: x
+    at /var/www/beliandjolie/lib/baz.ts:7:3`;
+    expect(extractSource(stack)).toBe("lib/baz.ts:7");
+  });
+
+  it("supporte les chemins Windows (\\)", () => {
+    // En template literal, \\ représente UN backslash dans la string.
+    const stack = `Error: x
+    at fn (C:\\Users\\chenb\\Desktop\\beli-jolie\\lib\\foo.ts:10:5)`;
+    expect(extractSource(stack)).toBe("lib/foo.ts:10");
   });
 });

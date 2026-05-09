@@ -62,3 +62,26 @@ export function deduceCause(error: unknown): string | null {
   }
   return null;
 }
+
+const APP_DIR_REGEX = /[\/\\](app|lib|components|hooks)[\/\\]/;
+// Capture le dernier "chemin:line:col" (avec ou sans parenthèses fermante) à la fin de la frame.
+const FRAME_REGEX = /([^\s()]+):(\d+):\d+\)?$/;
+
+export function extractSource(stack: string | undefined): string | null {
+  if (!stack) return null;
+  const lines = stack.split("\n");
+  for (const line of lines) {
+    if (line.includes("node_modules") || line.includes(".next/") || line.includes(".next\\")) {
+      continue;
+    }
+    if (!APP_DIR_REGEX.test(line)) continue;
+    const match = line.trim().match(FRAME_REGEX);
+    if (!match) continue;
+    const [, fullPath, lineNo] = match;
+    const normalized = fullPath.replace(/\\/g, "/");
+    const appMatch = normalized.match(/(?:.*\/)?(app|lib|components|hooks)\/(.+)$/);
+    if (!appMatch) continue;
+    return `${appMatch[1]}/${appMatch[2]}:${lineNo}`;
+  }
+  return null;
+}
