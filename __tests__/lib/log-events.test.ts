@@ -4,6 +4,7 @@ import {
   deduceCause,
   extractSource,
   formatErrorBlock,
+  formatInfoLine,
 } from "@/lib/log-events";
 
 describe("deduceEvent", () => {
@@ -288,5 +289,19 @@ describe("formatErrorBlock", () => {
       now: new Date("2026-12-31T23:30:00.000Z"), // = 00:30:00 le 01/01/2027 Paris
     });
     expect(out).toContain("01/01/2027 00:30:00");
+  });
+});
+
+describe("formatInfoLine", () => {
+  const FIXED_DATE = new Date("2026-05-09T14:32:18.000Z"); // 16:32:18 Paris
+
+  it("formate sur une ligne compacte avec date courte", () => {
+    const out = formatInfoLine({ message: "Server started", meta: { port: 3000 }, now: FIXED_DATE });
+    expect(out).toBe("[09/05 16:32:18] ℹ️  Server started {\"port\":3000}");
+  });
+
+  it("omet la meta vide", () => {
+    const out = formatInfoLine({ message: "ping", meta: {}, now: FIXED_DATE });
+    expect(out).toBe("[09/05 16:32:18] ℹ️  ping");
   });
 });

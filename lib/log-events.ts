@@ -180,3 +180,30 @@ export function formatErrorBlock(args: FormatBlockArgs): string {
   lines.push(SEPARATOR);
   return lines.join("\n");
 }
+
+const SHORT_DATE_FMT = new Intl.DateTimeFormat("fr-FR", {
+  timeZone: "Europe/Paris",
+  day: "2-digit",
+  month: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
+function formatShortDate(d: Date): string {
+  // "09/05, 16:32:18" → "09/05 16:32:18"
+  return SHORT_DATE_FMT.format(d).replace(",", "");
+}
+
+export type FormatInfoArgs = {
+  message: string;
+  meta: Record<string, unknown>;
+  now?: Date;
+};
+
+export function formatInfoLine(args: FormatInfoArgs): string {
+  const date = formatShortDate(args.now ?? new Date());
+  const metaStr = Object.keys(args.meta).length > 0 ? ` ${JSON.stringify(args.meta)}` : "";
+  return `[${date}] ℹ️  ${args.message}${metaStr}`;
+}
