@@ -123,8 +123,10 @@ function formatCustomValue(v: unknown): string {
   try { return JSON.stringify(v); } catch { return String(v); }
 }
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+function humanizeKey(s: string): string {
+  // camelCase → "Camel case"
+  const spaced = s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 export type FormatBlockArgs = {
@@ -158,7 +160,7 @@ export function formatErrorBlock(args: FormatBlockArgs): string {
     if (RESERVED_META_KEYS.has(k)) continue;
     const formatted = formatCustomValue(v);
     if (formatted === "") continue;
-    lines.push(`   ${pad(capitalize(k))}: ${formatted}`);
+    lines.push(`   ${pad(humanizeKey(k))}: ${formatted}`);
   }
 
   if (errorObj) {

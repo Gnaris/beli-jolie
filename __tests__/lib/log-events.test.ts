@@ -242,7 +242,17 @@ describe("formatErrorBlock", () => {
     expect(out).toContain("Source        : lib/pfs-publish.ts:142");
     expect(out).toContain("Stack         :");
     expect(out).toContain("at fetchPfsAuth");
-    expect(out).toContain("Productref    : ROBE-12345"); // champ custom (capitalisé)
+    expect(out).toContain("Product ref   : ROBE-12345"); // champ custom (humanisé)
+  });
+
+  it("humanise les clés camelCase à plusieurs mots", () => {
+    const out = formatErrorBlock({
+      level: "error",
+      message: "x",
+      meta: { pfsProductId: "abc-123" },
+      now: FIXED_DATE,
+    });
+    expect(out).toContain("Pfs product id: abc-123"); // 14 chars label
   });
 
   it("force l'event quand meta.event est fourni", () => {
