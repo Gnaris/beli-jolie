@@ -416,11 +416,25 @@ function normalizeKey(s: string): string {
 }
 
 /**
+ * PFS renvoie souvent les URLs d'images avec `?image_process=resize,w_450`
+ * (ou autres transformations type quality/format). Pour le téléchargement,
+ * on veut TOUJOURS la version originale pleine résolution → on retire la query
+ * entière. Idempotent : retourne l'URL telle quelle si pas de query.
+ */
+export function stripPfsImageProcessQuery(url: string): string {
+  if (!url) return url;
+  const idx = url.indexOf("?");
+  return idx === -1 ? url : url.slice(0, idx);
+}
+
+/**
  * Extrait les images d'un objet `Record<clé, url|url[]>` pour des couleurs données.
  * Compare la clé à la référence PFS (ex: "GOLDEN") et au label localisé (ex: "Doré"),
  * sans sensibilité à la casse ni aux accents.
  * Ne collecte JAMAIS les clés génériques ("DEFAUT", "DEFAULT") — elles ne sont pas
  * spécifiques à une couleur et produiraient la même image sur chaque variante.
+ * Les URLs sont nettoyées de leur query `?image_process=...` pour récupérer la pleine
+ * résolution (cf. stripPfsImageProcessQuery).
  */
 export function collectImagesForColors(
   source: Record<string, string | string[]> | null | undefined,
@@ -440,8 +454,13 @@ export function collectImagesForColors(
   for (const key of Object.keys(source)) {
     if (!wanted.has(normalizeKey(key))) continue;
     const val = source[key];
-    if (Array.isArray(val)) out.push(...val.filter((u) => !!u));
-    else if (val) out.push(val);
+    if (Array.isArray(val)) {
+      for (const u of val) {
+        if (u) out.push(stripPfsImageProcessQuery(u));
+      }
+    } else if (val) {
+      out.push(stripPfsImageProcessQuery(val));
+    }
   }
   return out;
 }

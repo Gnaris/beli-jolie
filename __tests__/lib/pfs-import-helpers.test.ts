@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   pickDefaultImage,
   collectImagesForColors,
+  stripPfsImageProcessQuery,
   findPrimaryPfsColorRef,
   findPrimaryPfsColorRefFromImages,
   dedupeSizeEntries,
@@ -160,6 +161,42 @@ describe("pfs-import helpers", () => {
         "https://pfs/gold.jpg",
         "https://pfs/gold-2.jpg",
       ]);
+    });
+
+    it("retire la query ?image_process=... pour récupérer la version pleine résolution", () => {
+      const images = {
+        GOLDEN: [
+          "https://static.pfs.com/img/dore_672fa.JPG?image_process=resize,w_450",
+          "https://static.pfs.com/img/dore_672fb.JPG?image_process=resize,w_900",
+        ],
+        SILVER: "https://static.pfs.com/img/argent_672fc.JPG?image_process=quality,q_80",
+      };
+      expect(collectImagesForColors(images, [mkColor("GOLDEN")])).toEqual([
+        "https://static.pfs.com/img/dore_672fa.JPG",
+        "https://static.pfs.com/img/dore_672fb.JPG",
+      ]);
+      expect(collectImagesForColors(images, [mkColor("SILVER")])).toEqual([
+        "https://static.pfs.com/img/argent_672fc.JPG",
+      ]);
+    });
+  });
+
+  describe("stripPfsImageProcessQuery", () => {
+    it("retire toute la query string", () => {
+      expect(
+        stripPfsImageProcessQuery(
+          "https://static.pfs.com/img/dore_672fa.JPG?image_process=resize,w_450",
+        ),
+      ).toBe("https://static.pfs.com/img/dore_672fa.JPG");
+    });
+
+    it("retourne l'URL telle quelle si pas de query (idempotent)", () => {
+      const url = "https://static.pfs.com/img/dore_672fa.JPG";
+      expect(stripPfsImageProcessQuery(url)).toBe(url);
+    });
+
+    it("gère les chaînes vides", () => {
+      expect(stripPfsImageProcessQuery("")).toBe("");
     });
   });
 
