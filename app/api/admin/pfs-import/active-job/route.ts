@@ -15,13 +15,19 @@ export async function GET() {
 
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
+  // Job en cours : visible par tous les admins (un seul peut tourner à la fois).
+  // Job terminé : limité à l'admin qui l'a lancé (pour ne pas voir l'historique
+  // des autres dans la timeline locale, qui filtre sur 1h).
   const job = await prisma.importJob.findFirst({
     where: {
-      adminId: session.user.id,
       type: "PFS_IMPORT",
       OR: [
         { status: { in: ["PENDING", "PROCESSING"] } },
-        { status: { in: ["COMPLETED", "FAILED", "CANCELLED"] }, updatedAt: { gte: oneHourAgo } },
+        {
+          adminId: session.user.id,
+          status: { in: ["COMPLETED", "FAILED", "CANCELLED"] },
+          updatedAt: { gte: oneHourAgo },
+        },
       ],
     },
     orderBy: { createdAt: "desc" },

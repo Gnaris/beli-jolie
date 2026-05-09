@@ -26,6 +26,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Aucun produit sélectionné" }, { status: 400 });
     }
 
+    // Verrou anti-double-import : un seul job PFS peut tourner à la fois,
+    // tous admins confondus. Empêche les double-clics et le scénario où l'UI
+    // a "oublié" un job en cours et propose de relancer.
+    const inFlight = await prisma.importJob.findFirst({
+      where: {
+        type: "PFS_IMPORT",
+        status: { in: ["PENDING", "PROCESSING"] },
+      },
+      select: { id: true },
+    });
+    if (inFlight) {
+      return NextResponse.json(
+        { error: "Un import PFS est déjà en cours. Veuillez attendre qu'il se termine avant d'en relancer un." },
+        { status: 409 },
+      );
+    }
+
     const job = await prisma.importJob.create({
       data: {
         type: "PFS_IMPORT",

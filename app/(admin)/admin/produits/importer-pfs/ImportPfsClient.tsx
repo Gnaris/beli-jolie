@@ -74,26 +74,53 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
   const [activeJob, setActiveJob] = useState<PfsJob | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [submittingImport, setSubmittingImport] = useState(false);
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
+
+  /**
+   * Interroge le serveur pour savoir si un job PFS est en cours
+   * (lancé par n'importe quel admin) ou récemment terminé. Si un job
+   * actif est trouvé, bascule l'UI sur la phase « import ».
+   *
+   * Utilisé au montage de la page ET via le bouton « Rafraîchir le statut »
+   * pour sortir l'UI d'un état où elle aurait perdu le lien avec un job
+   * en cours.
+   */
+  const checkActiveJob = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/admin/pfs-import/active-job");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.job) {
+          setActiveJob(data.job);
+          setStep("import");
+          return true;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  }, []);
 
   // ── Check for active job on mount
   useEffect(() => {
     (async () => {
-      try {
-        const res = await fetch("/api/admin/pfs-import/active-job");
-        if (res.ok) {
-          const data = await res.json();
-          if (data.job) {
-            setActiveJob(data.job);
-            setStep("import");
-          }
-        }
-      } catch {
-        // ignore
-      } finally {
-        setCheckingJob(false);
-      }
+      await checkActiveJob();
+      setCheckingJob(false);
     })();
-  }, []);
+  }, [checkActiveJob]);
+
+  const handleRefreshStatus = useCallback(async () => {
+    setRefreshingStatus(true);
+    try {
+      const found = await checkActiveJob();
+      if (!found) {
+        toast.success("Aucun import PFS en cours.");
+      }
+    } finally {
+      setRefreshingStatus(false);
+    }
+  }, [checkActiveJob, toast]);
 
   // ── Listen for SSE progress updates
   useProductStream(useCallback((event) => {
@@ -327,6 +354,14 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items }),
       });
+      // 409 = un autre import tourne déjà → on bascule l'UI sur ce job
+      // existant pour que l'utilisatrice puisse en suivre l'avancement.
+      if (res.status === 409) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error ?? "Un import PFS est déjà en cours.");
+        await checkActiveJob();
+        return;
+      }
       if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
       const data = await res.json();
       setActiveJob({
@@ -344,7 +379,7 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
     } finally {
       setSubmittingImport(false);
     }
-  }, [products, selected, toast, submittingImport]);
+  }, [products, selected, toast, submittingImport, checkActiveJob]);
 
   // ── Cancel job
   const cancelJob = useCallback(async () => {
@@ -402,12 +437,28 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
       )}
 
       {/* Stepper */}
-      <div className="flex items-center gap-2 text-sm">
-        <StepIndicator active={step === "scan"} done={step !== "scan"} label="1. Correspondances" />
-        <StepArrow />
-        <StepIndicator active={step === "products"} done={step === "import"} label="2. Sélection" />
-        <StepArrow />
-        <StepIndicator active={step === "import"} done={false} label="3. Import" />
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <div className="flex items-center gap-2">
+          <StepIndicator active={step === "scan"} done={step !== "scan"} label="1. Correspondances" />
+          <StepArrow />
+          <StepIndicator active={step === "products"} done={step === "import"} label="2. Sélection" />
+          <StepArrow />
+          <StepIndicator active={step === "import"} done={false} label="3. Import" />
+        </div>
+        {step !== "import" && (
+          <button
+            type="button"
+            onClick={handleRefreshStatus}
+            disabled={refreshingStatus}
+            className="flex items-center gap-1.5 text-xs text-[#666] hover:text-text-primary border border-border hover:border-bg-dark rounded-lg px-2.5 py-1.5 transition-colors disabled:opacity-50"
+            title="Vérifier si un import PFS est déjà en cours"
+          >
+            <svg className={`w-3.5 h-3.5 ${refreshingStatus ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.667 0l3.181-3.183m0-4.991V8.485m0 4.992h-4.99m4.99-4.992l-3.181-3.183a8.25 8.25 0 00-11.667 0L2.985 8.485" />
+            </svg>
+            {refreshingStatus ? "Vérification..." : "Rafraîchir le statut"}
+          </button>
+        )}
       </div>
 
       {/* Step content */}
