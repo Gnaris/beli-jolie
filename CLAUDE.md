@@ -44,7 +44,8 @@ Protection : `middleware.ts` (edge) + group `layout.tsx` (server fallback). Midd
 
 ### Observability & Data flow
 
-- **`lib/logger.ts`** — structured logger (JSON en prod, lisible en dev). Utiliser `logger.info/warn/error()` au lieu de `console.*`.
+- **`lib/logger.ts`** + **`lib/log-events.ts`** — logger structuré. En prod : `error`/`warn` → bloc multi-ligne FR encadré (date Europe/Paris, événement déduit du préfixe `[Storage]`/`[PFS]`/etc. ou de `meta.event`, type d'erreur + message brut + cause probable + source extraite de la stack), `info` → ligne compacte, `debug` filtré. En dev : format coloré historique inchangé. Pour activer Type erreur + Stack, **toujours passer l'objet Error** : `logger.error("[X] msg", { error: err })`. Helper `formatErrorBlock` testable indépendamment.
+- **`instrumentation.ts`** (racine) — capte `uncaughtException` et `unhandledRejection` au démarrage Node.js et les loggue via le format multi-ligne (visible dans `pm2 logs`). Garde anti double-enregistrement via Symbol global.
 - **`lib/env.ts`** — Zod validation des env vars au startup, importé dans le root layout. Ajouter les nouvelles vars requises ici.
 - Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib/cached-data.ts`. Invalidation : `revalidateTag(tag, "default")` (2 args obligatoires Next 16). Server actions return `{ success: boolean, error?: string }` consistently.
 
