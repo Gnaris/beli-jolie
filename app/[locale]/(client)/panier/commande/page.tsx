@@ -1,17 +1,21 @@
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
 import { redirect } from "@/i18n/navigation";
-import { getLocale } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCart, getShippingAddresses } from "@/app/actions/client/cart";
 import CheckoutClient from "@/components/panier/CheckoutClient";
 import { isStripeConfigured } from "@/lib/stripe";
 
-export const metadata: Metadata = {
-  title: "Passer la commande",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const tCheckout = await getTranslations({ locale, namespace: "checkout" });
+  return {
+    title: tCheckout("title"),
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function CommandePage() {
   const session = await getServerSession(authOptions);

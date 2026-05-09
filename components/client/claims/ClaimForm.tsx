@@ -1,19 +1,12 @@
 "use client";
 
-import { useState, useRef, useTransition } from "react";
+import { useState, useRef, useTransition, useMemo } from "react";
 import { useRouter } from "@/i18n/navigation";
 import Image from "@/components/ui/SmartImage";
+import { useTranslations } from "next-intl";
 import { createClaim } from "@/app/actions/client/claims";
 import { useToast } from "@/components/ui/Toast";
 import CustomSelect from "@/components/ui/CustomSelect";
-
-const REASONS = [
-  { value: "DEFECTIVE", label: "Défectueux" },
-  { value: "WRONG_ITEM", label: "Mauvais article" },
-  { value: "MISSING", label: "Manquant" },
-  { value: "DAMAGED", label: "Endommagé" },
-  { value: "OTHER", label: "Autre" },
-];
 
 interface Order {
   id: string;
@@ -29,6 +22,7 @@ interface ImagePreview {
 const MAX_IMAGES = 5;
 
 export default function ClaimForm({ orders, preselectedOrderId }: { orders: Order[]; preselectedOrderId?: string }) {
+  const t = useTranslations("claimForm");
   const [type, setType] = useState<"ORDER_CLAIM" | "GENERAL">(preselectedOrderId ? "ORDER_CLAIM" : "GENERAL");
   const [orderId, setOrderId] = useState(preselectedOrderId || "");
   const [description, setDescription] = useState("");
@@ -39,6 +33,14 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
   const toast = useToast();
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const REASONS = useMemo(() => [
+    { value: "DEFECTIVE", label: t("reasonDefective") },
+    { value: "WRONG_ITEM", label: t("reasonWrong") },
+    { value: "MISSING", label: t("reasonMissing") },
+    { value: "DAMAGED", label: t("reasonDamaged") },
+    { value: "OTHER", label: t("reasonOther") },
+  ], [t]);
 
   const selectedOrder = orders.find((o) => o.id === orderId);
 
@@ -59,7 +61,7 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
 
     const remaining = MAX_IMAGES - images.length;
     if (remaining <= 0) {
-      toast.error(`Maximum ${MAX_IMAGES} images.`);
+      toast.error(t("toastMaxImages", { max: MAX_IMAGES }));
       return;
     }
 
@@ -90,8 +92,6 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
     for (const img of images) {
       formData.append("images", img.file);
     }
-    // selectedOrder.orderNumber permet de ranger les photos dans
-    // /uploads/reclamations/commande-{orderNumber}/.
     if (selectedOrder?.orderNumber) {
       formData.append("orderRef", selectedOrder.orderNumber);
     }
@@ -103,7 +103,7 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
 
     if (!res.ok) {
       const data = await res.json();
-      throw new Error(data.error || "Erreur upload");
+      throw new Error(data.error || t("toastErrorUpload"));
     }
 
     const data = await res.json();
@@ -138,20 +138,20 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
         });
 
         if (result.success && result.claimId) {
-          toast.success("Réclamation créée avec succès");
+          toast.success(t("toastSuccess"));
           router.push(`/espace-pro/reclamations/${result.claimId}`);
         } else {
-          toast.error(result.error || "Erreur");
+          toast.error(result.error || t("toastError"));
         }
       } catch {
         setUploading(false);
-        toast.error("Erreur lors de l'envoi des images.");
+        toast.error(t("toastErrorImages"));
       }
     });
   }
 
   const orderOptions = [
-    { value: "", label: "Sélectionnez une commande" },
+    { value: "", label: t("selectOrderPlaceholder") },
     ...orders.map((o) => ({ value: o.id, label: o.orderNumber })),
   ];
 
@@ -159,37 +159,37 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
     <form onSubmit={handleSubmit} className="space-y-5">
       {/* Type selection */}
       <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-sm">
-        <h3 className="font-heading font-bold text-text-primary mb-1">Type de réclamation</h3>
+        <h3 className="font-heading font-bold text-text-primary mb-1">{t("typeTitle")}</h3>
         <p className="text-xs text-text-muted font-body mb-4">
-          Sélectionnez si votre réclamation concerne une commande spécifique ou un sujet général.
+          {t("typeDesc")}
         </p>
         <div className="grid grid-cols-2 gap-3">
           {([
-            { key: "ORDER_CLAIM" as const, label: "Liée à une commande", desc: "Problème avec un ou plusieurs articles", icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" },
-            { key: "GENERAL" as const, label: "Générale", desc: "Question, suggestion, autre demande", icon: "M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" },
-          ]).map((t) => (
+            { key: "ORDER_CLAIM" as const, label: t("typeOrderClaimLabel"), desc: t("typeOrderClaimDesc"), icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" },
+            { key: "GENERAL" as const, label: t("typeGeneralLabel"), desc: t("typeGeneralDesc"), icon: "M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" },
+          ]).map((opt) => (
             <button
-              key={t.key}
+              key={opt.key}
               type="button"
-              onClick={() => { setType(t.key); if (t.key === "GENERAL") { setOrderId(""); setSelectedItems({}); } }}
+              onClick={() => { setType(opt.key); if (opt.key === "GENERAL") { setOrderId(""); setSelectedItems({}); } }}
               className={`relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-center ${
-                type === t.key
+                type === opt.key
                   ? "border-[#1A1A1A] bg-[#1A1A1A]/[0.03]"
                   : "border-border hover:border-[#1A1A1A]/20"
               }`}
             >
               <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                type === t.key ? "bg-[#1A1A1A] text-white" : "bg-bg-secondary text-text-muted"
+                type === opt.key ? "bg-[#1A1A1A] text-white" : "bg-bg-secondary text-text-muted"
               }`}>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={t.icon} />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={opt.icon} />
                 </svg>
               </div>
-              <span className={`text-sm font-semibold font-body ${type === t.key ? "text-text-primary" : "text-text-muted"}`}>
-                {t.label}
+              <span className={`text-sm font-semibold font-body ${type === opt.key ? "text-text-primary" : "text-text-muted"}`}>
+                {opt.label}
               </span>
-              <span className="text-xs text-text-muted/70 font-body leading-tight">{t.desc}</span>
-              {type === t.key && (
+              <span className="text-xs text-text-muted/70 font-body leading-tight">{opt.desc}</span>
+              {type === opt.key && (
                 <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#1A1A1A] flex items-center justify-center">
                   <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4.5 12.75l6 6 9-13.5" />
@@ -205,15 +205,15 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
       {type === "ORDER_CLAIM" && (
         <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-sm space-y-4">
           <div>
-            <h3 className="font-heading font-bold text-text-primary mb-1">Commande concernée</h3>
+            <h3 className="font-heading font-bold text-text-primary mb-1">{t("orderTitle")}</h3>
             <p className="text-xs text-text-muted font-body mb-3">
-              Sélectionnez la commande concernée par votre réclamation.
+              {t("orderDesc")}
             </p>
             <CustomSelect
               value={orderId}
               onChange={(v) => { setOrderId(v); setSelectedItems({}); }}
               options={orderOptions}
-              placeholder="Sélectionnez une commande"
+              placeholder={t("selectOrderPlaceholder")}
             />
           </div>
 
@@ -221,10 +221,10 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-xs uppercase tracking-wider text-text-muted font-semibold font-body">
-                  Articles concernés
+                  {t("itemsTitle")}
                 </p>
                 <p className="text-xs text-text-muted font-body">
-                  Cochez les articles qui posent problème
+                  {t("itemsHint")}
                 </p>
               </div>
               <div className="space-y-2">
@@ -255,7 +255,7 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
                         />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-body font-medium text-text-primary truncate">{item.productName}</p>
-                          <p className="text-xs text-text-muted font-body">Quantité commandée : {item.quantity}</p>
+                          <p className="text-xs text-text-muted font-body">{t("itemQuantityOrdered")} {item.quantity}</p>
                         </div>
                       </label>
 
@@ -264,7 +264,7 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
                         <div className="px-3.5 pb-3.5 pt-0 border-t border-border/50">
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
                             <div className="sm:col-span-2">
-                              <label className="block text-xs text-text-muted font-body mb-1">Motif</label>
+                              <label className="block text-xs text-text-muted font-body mb-1">{t("reasonLabel")}</label>
                               <CustomSelect
                                 value={selectedItems[item.id].reason}
                                 onChange={(v) => setSelectedItems((prev) => ({
@@ -276,7 +276,7 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
                               />
                             </div>
                             <div>
-                              <label className="block text-xs text-text-muted font-body mb-1">Quantité</label>
+                              <label className="block text-xs text-text-muted font-body mb-1">{t("quantityLabel")}</label>
                               <input
                                 type="number"
                                 min={1}
@@ -292,7 +292,7 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
                           </div>
                           {selectedItems[item.id].reason === "OTHER" && (
                             <div className="mt-3">
-                              <label className="block text-xs text-text-muted font-body mb-1">Précisez le motif</label>
+                              <label className="block text-xs text-text-muted font-body mb-1">{t("reasonDetailLabel")}</label>
                               <input
                                 type="text"
                                 value={selectedItems[item.id].reasonDetail}
@@ -300,7 +300,7 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
                                   ...prev,
                                   [item.id]: { ...prev[item.id], reasonDetail: e.target.value },
                                 }))}
-                                placeholder="Décrivez le problème..."
+                                placeholder={t("reasonDetailPlaceholder")}
                                 className="w-full border border-border bg-bg-primary px-3 py-1.5 text-sm rounded-lg font-body text-text-primary focus:outline-none focus:border-[#1A1A1A]"
                               />
                             </div>
@@ -318,27 +318,27 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
 
       {/* Description */}
       <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-sm">
-        <h3 className="font-heading font-bold text-text-primary mb-1">Description du problème</h3>
+        <h3 className="font-heading font-bold text-text-primary mb-1">{t("descriptionTitle")}</h3>
         <p className="text-xs text-text-muted font-body mb-3">
-          Décrivez le problème rencontré avec le plus de détails possible.
+          {t("descriptionHint")}
         </p>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Décrivez votre problème en détail..."
+          placeholder={t("descriptionPlaceholder")}
           rows={5}
           className="w-full border border-border bg-bg-primary px-4 py-3 text-sm rounded-xl text-text-primary font-body resize-none focus:outline-none focus:border-[#1A1A1A] transition-colors"
         />
         <p className="text-xs text-text-muted/60 font-body mt-1 text-right">
-          {description.length} caractère{description.length !== 1 ? "s" : ""}
+          {t("charsCount", { count: description.length })}
         </p>
       </div>
 
       {/* Images upload */}
       <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-sm">
-        <h3 className="font-heading font-bold text-text-primary mb-1">Pièces jointes</h3>
+        <h3 className="font-heading font-bold text-text-primary mb-1">{t("attachmentsTitle")}</h3>
         <p className="text-xs text-text-muted font-body mb-4">
-          Ajoutez des photos pour illustrer le problème (max {MAX_IMAGES} images, 5 Mo chacune).
+          {t("attachmentsHint", { max: MAX_IMAGES })}
         </p>
 
         {/* Image previews */}
@@ -348,7 +348,7 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
               <div key={index} className="relative group aspect-square rounded-xl overflow-hidden border border-border bg-bg-secondary">
                 <Image
                   src={img.url}
-                  alt={`Pièce jointe ${index + 1}`}
+                  alt={t("attachmentAlt", { index: index + 1 })}
                   fill
                   className="object-cover"
                   unoptimized
@@ -380,10 +380,10 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
               </svg>
             </div>
             <span className="text-sm font-body text-text-muted">
-              Cliquez pour ajouter des photos
+              {t("uploadCta")}
             </span>
             <span className="text-xs font-body text-text-muted/50">
-              JPG, PNG ou WEBP — {images.length}/{MAX_IMAGES} images
+              {t("uploadFormats", { current: images.length, max: MAX_IMAGES })}
             </span>
           </button>
         )}
@@ -410,14 +410,14 @@ export default function ClaimForm({ orders, preselectedOrderId }: { orders: Orde
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            {uploading ? "Envoi des images..." : "Création en cours..."}
+            {uploading ? t("uploadingImages") : t("creating")}
           </>
         ) : (
           <>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
             </svg>
-            Envoyer la réclamation
+            {t("submit")}
           </>
         )}
       </button>

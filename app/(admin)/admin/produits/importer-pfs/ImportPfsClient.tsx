@@ -298,31 +298,18 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
     }
   }, [step, productsLoaded, loadingProducts, loadProducts, importMode, validatedRefs]);
 
-  const MAX_IMPORT_ITEMS = 1000;
-
   const toggleSelect = (pfsId: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(pfsId)) {
-        next.delete(pfsId);
-      } else {
-        if (next.size >= MAX_IMPORT_ITEMS) {
-          toast.error(`Maximum ${MAX_IMPORT_ITEMS} produits par import.`);
-          return prev;
-        }
-        next.add(pfsId);
-      }
+      if (next.has(pfsId)) next.delete(pfsId);
+      else next.add(pfsId);
       return next;
     });
   };
   const toggleAll = () => {
     setSelected((prev) => {
       if (prev.size === products.length || prev.size > 0) return new Set();
-      const limited = products.slice(0, MAX_IMPORT_ITEMS).map((p) => p.pfsId);
-      if (products.length > MAX_IMPORT_ITEMS) {
-        toast.info(`Les ${MAX_IMPORT_ITEMS} premiers produits ont été sélectionnés (maximum par import).`);
-      }
-      return new Set(limited);
+      return new Set(products.map((p) => p.pfsId));
     });
   };
 
@@ -798,7 +785,6 @@ function RefTagInput({
   const [inputValue, setInputValue] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const MAX_REFS = 1000;
 
   const addReference = useCallback(async () => {
     const ref = inputValue.trim().toUpperCase();
@@ -807,11 +793,6 @@ function RefTagInput({
     // Check duplicate in already validated refs
     if (validatedRefs.some((r) => r.reference === ref)) {
       setError(`La référence ${ref} est déjà dans la liste`);
-      return;
-    }
-
-    if (validatedRefs.length >= MAX_REFS) {
-      setError(`Maximum ${MAX_REFS} références par import`);
       return;
     }
 
@@ -858,7 +839,7 @@ function RefTagInput({
   return (
     <div className="space-y-4">
       <p className="text-text-muted text-sm">
-        Tapez une référence produit PFS et appuyez sur Entrée pour l&apos;ajouter. Maximum {MAX_REFS} références.
+        Tapez une référence produit PFS et appuyez sur Entrée pour l&apos;ajouter.
       </p>
 
       {/* Input */}

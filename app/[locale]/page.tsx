@@ -19,17 +19,19 @@ import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
-  const shopName = await getCachedShopName();
+  const [shopName, tMeta] = await Promise.all([
+    getCachedShopName(),
+    getTranslations({ locale, namespace: "meta" }),
+  ]);
   return {
-    title: `${shopName} — Grossiste B2B`,
-    description:
-      `${shopName}, votre plateforme grossiste B2B. Catalogue complet pour revendeurs et professionnels.`,
+    title: tMeta("homeTitle", { shopName }),
+    description: tMeta("homeDescription", { shopName }),
     alternates: buildAlternates("/", locale),
     openGraph: {
       type: "website",
       siteName: shopName,
-      title: `${shopName} — Grossiste B2B`,
-      description: `Catalogue ${shopName}. Tarifs grossiste pour revendeurs et professionnels.`,
+      title: tMeta("homeTitle", { shopName }),
+      description: tMeta("homeOgDescription", { shopName }),
       url: `${getSiteUrl()}/${locale}`,
     },
   };

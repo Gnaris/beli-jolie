@@ -12,11 +12,15 @@ import SearchFilters from "@/components/produits/SearchFilters";
 import ProductsInfiniteScroll from "@/components/produits/ProductsInfiniteScroll";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const shopName = await getCachedShopName();
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const [shopName, tMeta] = await Promise.all([
+    getCachedShopName(),
+    getTranslations({ locale, namespace: "meta" }),
+  ]);
   return {
-    title: `Catalogue Produits — ${shopName}`,
-    description: "Parcourez notre catalogue de produits. Prix grossiste, livraison rapide, qualité premium pour revendeurs.",
+    title: tMeta("productsTitle", { shopName }),
+    description: tMeta("productsDescription"),
     alternates: { canonical: "/produits" },
   };
 }
@@ -357,6 +361,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
             <ProductsInfiniteScroll
               initialProducts={products}
               initialHasMore={initialHasMore}
+              totalCount={totalCount}
               clientDiscount={clientDiscount}
               initialFavoriteIds={favoriteIdsArr}
             />

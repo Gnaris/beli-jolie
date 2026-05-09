@@ -801,7 +801,38 @@ export async function scanPfsAttributes(options?: {
     }
   }
 
-  const categories = uniqueMap(rawCategories, (x) => x.pfsRef);
+  // Dédoublonnage catégorie. PFS expose parfois deux catégories différentes
+  // avec le MÊME libellé mais deux IDs (ancien obsolète + nouveau actif).
+  // Stratégie : si plusieurs entrées partagent le même libellé, on privilégie
+  // celle dont l'ID est encore présent dans `pfsGetCategories()` (le
+  // référentiel officiel = source qui fait autorité). Si aucune n'y figure
+  // ou si toutes y figurent, on garde la 1ère rencontrée.
+  const dedupedCategoriesByLabel = new Map<string, typeof rawCategories[number]>();
+  const droppedStaleCategoryIds: string[] = [];
+  for (const c of rawCategories) {
+    const key = (c.label ?? c.pfsRef).trim().toLowerCase();
+    const existing = dedupedCategoriesByLabel.get(key);
+    if (!existing) {
+      dedupedCategoriesByLabel.set(key, c);
+      continue;
+    }
+    if (existing.pfsRef === c.pfsRef) continue; // même ID, déjà connu
+    const existingIsOfficial = categoryById.has(existing.pfsRef);
+    const candidateIsOfficial = categoryById.has(c.pfsRef);
+    if (candidateIsOfficial && !existingIsOfficial) {
+      droppedStaleCategoryIds.push(existing.pfsRef);
+      dedupedCategoriesByLabel.set(key, c);
+    } else {
+      droppedStaleCategoryIds.push(c.pfsRef);
+    }
+  }
+  if (droppedStaleCategoryIds.length > 0) {
+    logger.info("[PFS Import] Catégories doublons écartées (ID absent du référentiel)", {
+      droppedCount: droppedStaleCategoryIds.length,
+      sampleIds: droppedStaleCategoryIds.slice(0, 10),
+    });
+  }
+  const categories = uniqueMap(Array.from(dedupedCategoriesByLabel.values()), (x) => x.pfsRef);
   const colors = uniqueMap(rawColors, (x) => x.pfsRef);
   const sizes = uniqueMap(rawSizes, (x) => x.pfsRef);
   const compositions = uniqueMap(rawCompositions, (x) => x.pfsRef);
@@ -1094,23 +1125,35 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         });
         return { id: existingByPfsId.id, name: existingByPfsId.name, created: false };
       }
-      // Sinon chercher par nom, mais SEULEMENT si cette catégorie n'a pas
-      // déjà un pfsCategoryId différent (sinon on écraserait sa correspondance PFS)
+      // Sinon chercher par nom. Si une catégorie locale du même nom existe
+      // déjà mais avec un AUTRE pfsCategoryId (= PFS expose un doublon avec
+      // ID ancien obsolète + ID nouveau actif), on alias silencieusement :
+      // on garde le mapping existant intact et on renvoie OK pour ne pas
+      // bloquer le bulk-create. Cas couverts :
+      //   1) cat sans pfsCategoryId → on remplit
+      //   2) cat avec même pfsRef    → on met à jour les méta
+      //   3) cat avec autre pfsRef   → alias, on ne touche à rien
       const existingByName = await prisma.category.findFirst({
-        where: {
-          name: label,
-          OR: [
-            { pfsCategoryId: null },
-            { pfsCategoryId: "" },
-            { pfsCategoryId: pfsRef },
-          ],
-        },
+        where: { name: label },
       });
       if (existingByName) {
-        await prisma.category.update({
-          where: { id: existingByName.id },
-          data: catData,
-        });
+        const sameOrEmpty =
+          !existingByName.pfsCategoryId ||
+          existingByName.pfsCategoryId === "" ||
+          existingByName.pfsCategoryId === pfsRef;
+        if (sameOrEmpty) {
+          await prisma.category.update({
+            where: { id: existingByName.id },
+            data: catData,
+          });
+        } else {
+          logger.warn("[PFS Import] Doublon PFS catégorie — alias silencieux", {
+            categoryId: existingByName.id,
+            categoryName: existingByName.name,
+            keptPfsCategoryId: existingByName.pfsCategoryId,
+            ignoredPfsCategoryId: pfsRef,
+          });
+        }
         return { id: existingByName.id, name: existingByName.name, created: false };
       }
       const slug = label
@@ -1152,6 +1195,32 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
           select: { id: true, name: true },
         });
         return { id: upd.id, name: upd.name, created: false };
+      }
+      // Doublon PFS : si une couleur du même nom existe déjà localement, on
+      // alias plutôt que de planter sur la contrainte unique de Color.name.
+      const existingByName = await prisma.color.findFirst({
+        where: { name: label },
+        select: { id: true, name: true, hex: true, pfsColorRef: true },
+      });
+      if (existingByName) {
+        const data: { hex?: string; pfsColorRef?: string } = {};
+        if (normalizedHex && !existingByName.hex) data.hex = normalizedHex;
+        if (trimmedRef && !existingByName.pfsColorRef) data.pfsColorRef = trimmedRef;
+        if (Object.keys(data).length > 0) {
+          await prisma.color.update({ where: { id: existingByName.id }, data });
+        } else if (
+          existingByName.pfsColorRef &&
+          trimmedRef &&
+          existingByName.pfsColorRef !== trimmedRef
+        ) {
+          logger.warn("[PFS Import] Doublon PFS couleur — alias silencieux", {
+            colorId: existingByName.id,
+            colorName: existingByName.name,
+            keptPfsColorRef: existingByName.pfsColorRef,
+            ignoredPfsColorRef: trimmedRef,
+          });
+        }
+        return { id: existingByName.id, name: existingByName.name, created: false };
       }
       const created = await prisma.color.create({
         data: { name: label, hex: normalizedHex, pfsColorRef: trimmedRef },
@@ -1209,6 +1278,27 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         });
         return { id: createdProtected.id, name: createdProtected.name, created: true };
       }
+      // Doublon PFS : si une taille du même nom existe déjà, on alias.
+      const existingSizeByName = await prisma.size.findFirst({
+        where: { name: label },
+        select: { id: true, name: true, pfsSizeRef: true },
+      });
+      if (existingSizeByName) {
+        if (!existingSizeByName.pfsSizeRef) {
+          await prisma.size.update({
+            where: { id: existingSizeByName.id },
+            data: { pfsSizeRef: pfsRef },
+          });
+        } else if (existingSizeByName.pfsSizeRef !== pfsRef) {
+          logger.warn("[PFS Import] Doublon PFS taille — alias silencieux", {
+            sizeId: existingSizeByName.id,
+            sizeName: existingSizeByName.name,
+            keptPfsSizeRef: existingSizeByName.pfsSizeRef,
+            ignoredPfsSizeRef: pfsRef,
+          });
+        }
+        return { id: existingSizeByName.id, name: existingSizeByName.name, created: false };
+      }
       const created = await prisma.size.create({
         data: { name: label, pfsSizeRef: pfsRef },
         select: { id: true, name: true },
@@ -1224,6 +1314,27 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
           select: { id: true, name: true },
         });
         return { id: upd.id, name: upd.name, created: false };
+      }
+      // Doublon PFS : si une composition du même nom existe déjà, on alias.
+      const existingCompoByName = await prisma.composition.findFirst({
+        where: { name: label },
+        select: { id: true, name: true, pfsCompositionRef: true },
+      });
+      if (existingCompoByName) {
+        if (!existingCompoByName.pfsCompositionRef) {
+          await prisma.composition.update({
+            where: { id: existingCompoByName.id },
+            data: { pfsCompositionRef: pfsRef },
+          });
+        } else if (existingCompoByName.pfsCompositionRef !== pfsRef) {
+          logger.warn("[PFS Import] Doublon PFS composition — alias silencieux", {
+            compositionId: existingCompoByName.id,
+            compositionName: existingCompoByName.name,
+            keptPfsCompositionRef: existingCompoByName.pfsCompositionRef,
+            ignoredPfsCompositionRef: pfsRef,
+          });
+        }
+        return { id: existingCompoByName.id, name: existingCompoByName.name, created: false };
       }
       const created = await prisma.composition.create({
         data: { name: label, pfsCompositionRef: pfsRef },
@@ -1262,6 +1373,35 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         });
         return { id: upd.id, name: upd.name, created: false };
       }
+      // Doublon PFS : si un pays du même nom existe déjà, on alias plutôt
+      // que de planter sur la contrainte unique de ManufacturingCountry.name
+      // (ou de pfsCountryRef/isoCode).
+      const existingCountryByName = await prisma.manufacturingCountry.findFirst({
+        where: { name: label },
+        select: { id: true, name: true, pfsCountryRef: true, isoCode: true },
+      });
+      if (existingCountryByName) {
+        const data: { pfsCountryRef?: string; isoCode?: string } = {};
+        if (!existingCountryByName.pfsCountryRef) data.pfsCountryRef = pfsRef;
+        if (isoCode && !existingCountryByName.isoCode) data.isoCode = isoCode;
+        if (Object.keys(data).length > 0) {
+          await prisma.manufacturingCountry.update({
+            where: { id: existingCountryByName.id },
+            data,
+          });
+        } else if (
+          existingCountryByName.pfsCountryRef &&
+          existingCountryByName.pfsCountryRef !== pfsRef
+        ) {
+          logger.warn("[PFS Import] Doublon PFS pays — alias silencieux", {
+            countryId: existingCountryByName.id,
+            countryName: existingCountryByName.name,
+            keptPfsCountryRef: existingCountryByName.pfsCountryRef,
+            ignoredPfsCountryRef: pfsRef,
+          });
+        }
+        return { id: existingCountryByName.id, name: existingCountryByName.name, created: false };
+      }
       // `pfsRef` est le libellé FR du pays (ex: "Chine"), pas le code ISO.
       // Le code ISO ("CN") est passé séparément via `input.isoCode` et
       // enregistré directement, évitant à l'admin de le saisir à la main.
@@ -1289,6 +1429,27 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
           select: { id: true, name: true },
         });
         return { id: upd.id, name: upd.name, created: false };
+      }
+      // Doublon PFS : si une saison du même nom existe déjà, on alias.
+      const existingSeasonByName = await prisma.season.findFirst({
+        where: { name: label },
+        select: { id: true, name: true, pfsRef: true },
+      });
+      if (existingSeasonByName) {
+        if (!existingSeasonByName.pfsRef) {
+          await prisma.season.update({
+            where: { id: existingSeasonByName.id },
+            data: { pfsRef },
+          });
+        } else if (existingSeasonByName.pfsRef !== pfsRef) {
+          logger.warn("[PFS Import] Doublon PFS saison — alias silencieux", {
+            seasonId: existingSeasonByName.id,
+            seasonName: existingSeasonByName.name,
+            keptPfsRef: existingSeasonByName.pfsRef,
+            ignoredPfsRef: pfsRef,
+          });
+        }
+        return { id: existingSeasonByName.id, name: existingSeasonByName.name, created: false };
       }
       const created = await prisma.season.create({
         data: { name: label, pfsRef },

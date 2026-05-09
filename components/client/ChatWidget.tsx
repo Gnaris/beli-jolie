@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useTransition, useCallback } from "react";
+import { useTranslations, useLocale } from "next-intl";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -28,6 +29,8 @@ interface Props {
 }
 
 export default function ChatWidget({ businessHours }: Props) {
+  const t = useTranslations("chat");
+  const locale = useLocale();
   // Panel state
   const [isOpen, setIsOpen] = useState(false);
   // "loading" = fetching active conv, "new" = no conv yet, "conversation" = showing messages
@@ -155,7 +158,7 @@ export default function ChatWidget({ businessHours }: Props) {
         setActiveConvSubject("");
         setMessages([]);
         setView("new");
-        toast.toast({ type: "info", title: "La conversation a été clôturée" });
+        toast.toast({ type: "info", title: t("conversationClosedToast") });
       }
     },
     [activeConvId, view, isOpen, toast]
@@ -222,7 +225,7 @@ export default function ChatWidget({ businessHours }: Props) {
         setSubject("");
         setNewMessage("");
         setView("conversation");
-        toast.success("Message envoyé");
+        toast.success(t("messageSentToast"));
       } else {
         toast.error(result.error || "Erreur");
       }
@@ -233,9 +236,9 @@ export default function ChatWidget({ businessHours }: Props) {
   async function handleCloseConversation() {
     if (!activeConvId) return;
     const ok = await confirm({
-      title: "Clôturer la conversation",
-      message: "Voulez-vous vraiment clôturer cette conversation ? Les messages seront supprimés.",
-      confirmLabel: "Clôturer",
+      title: t("closeConfirmTitle"),
+      message: t("closeConfirmMessage"),
+      confirmLabel: t("closeLabel"),
     });
     if (!ok) return;
     startTransition(async () => {
@@ -247,7 +250,7 @@ export default function ChatWidget({ businessHours }: Props) {
         setSubject("");
         setNewMessage("");
         setView("new");
-        toast.success("Conversation clôturée");
+        toast.success(t("conversationClosedSuccess"));
       } else {
         toast.error(result.error || "Erreur");
       }
@@ -271,7 +274,7 @@ export default function ChatWidget({ businessHours }: Props) {
   }
 
   function formatTime(dateStr: string) {
-    return new Date(dateStr).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    return new Date(dateStr).toLocaleTimeString(locale === "fr" ? "fr-FR" : "en-US", { hour: "2-digit", minute: "2-digit" });
   }
 
   return (
@@ -284,19 +287,19 @@ export default function ChatWidget({ businessHours }: Props) {
             <div className="flex items-center gap-2">
               <div className="min-w-0">
                 <h3 className="font-heading text-sm font-semibold text-text-primary truncate">
-                  {view === "new" ? "Nouveau message" : activeConvSubject || "Support"}
+                  {view === "new" ? t("newMessage") : activeConvSubject || t("support")}
                 </h3>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-green-500" : "bg-red-400"}`} />
                   <span className="text-[11px] font-body text-text-muted">
-                    {isOnline ? "En ligne" : "Hors ligne"}
+                    {isOnline ? t("online") : t("offline")}
                   </span>
                   {!isOnline && nextSlot && (
                     <button
                       onClick={() => setShowSchedule(!showSchedule)}
                       className="text-[11px] font-body text-text-muted hover:text-text-secondary underline ml-1"
                     >
-                      Horaires
+                      {t("hours")}
                     </button>
                   )}
                 </div>
@@ -306,7 +309,7 @@ export default function ChatWidget({ businessHours }: Props) {
               {view === "conversation" && activeConvStatus === "OPEN" && (
                 <button
                   onClick={handleCloseConversation}
-                  title="Clôturer la conversation"
+                  title={t("closeConversation")}
                   className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 text-text-muted hover:text-red-500 transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -328,18 +331,18 @@ export default function ChatWidget({ businessHours }: Props) {
           {/* Schedule dropdown */}
           {showSchedule && businessHours && (
             <div className="px-4 py-3 border-b border-border bg-bg-secondary/50 space-y-1.5 shrink-0">
-              <p className="text-xs font-medium font-body text-text-secondary mb-2">Horaires d&apos;ouverture</p>
+              <p className="text-xs font-medium font-body text-text-secondary mb-2">{t("businessHoursTitle")}</p>
               {scheduleRows.map((row) => (
                 <div key={row.day} className="flex items-center justify-between text-xs font-body">
                   <span className="text-text-secondary">{row.day}</span>
-                  <span className={row.hours === "Fermé" ? "text-text-muted italic" : "text-text-primary"}>
+                  <span className={row.hours === "Fermé" || row.hours === t("closedDay") ? "text-text-muted italic" : "text-text-primary"}>
                     {row.hours}
                   </span>
                 </div>
               ))}
               {nextSlot && (
                 <p className="text-xs font-body text-text-muted mt-2 pt-2 border-t border-border">
-                  Prochaine ouverture : {nextSlot.day} à {nextSlot.time}
+                  {t("nextOpening", { day: nextSlot.day, time: nextSlot.time })}
                 </p>
               )}
             </div>
@@ -360,27 +363,27 @@ export default function ChatWidget({ businessHours }: Props) {
                 {!isOnline && (
                   <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
                     <p className="text-xs font-body text-amber-800">
-                      Nous sommes actuellement fermés. Vous pouvez laisser un message, nous vous répondrons dès que possible.
+                      {t("offlineNotice")}
                     </p>
                   </div>
                 )}
                 <div>
-                  <label className="block text-xs font-medium font-body text-text-secondary mb-1">Sujet</label>
+                  <label className="block text-xs font-medium font-body text-text-secondary mb-1">{t("subject")}</label>
                   <input
                     type="text"
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
-                    placeholder="Ex: Question sur une commande"
+                    placeholder={t("subjectPlaceholder")}
                     className="w-full px-3 py-2 border border-border bg-bg-primary rounded-xl text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-[#1A1A1A]"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium font-body text-text-secondary mb-1">Message</label>
+                  <label className="block text-xs font-medium font-body text-text-secondary mb-1">{t("message")}</label>
                   <textarea
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Écrivez votre message..."
+                    placeholder={t("writeMessagePlaceholder")}
                     rows={3}
                     className="w-full px-3 py-2 border border-border bg-bg-primary rounded-xl text-sm font-body text-text-primary placeholder:text-text-muted resize-none focus:outline-none focus:border-[#1A1A1A]"
                   />
@@ -390,7 +393,7 @@ export default function ChatWidget({ businessHours }: Props) {
                   disabled={!subject.trim() || !newMessage.trim() || isPending}
                   className="w-full py-2.5 bg-[#1A1A1A] text-white text-sm font-medium rounded-xl hover:bg-[#333] disabled:opacity-40 transition-colors"
                 >
-                  {isPending ? "Envoi..." : "Envoyer"}
+                  {isPending ? t("sending") : t("send")}
                 </button>
               </div>
             ) : (
@@ -439,7 +442,7 @@ export default function ChatWidget({ businessHours }: Props) {
                     handleTextareaInput();
                   }}
                   onKeyDown={handleKeyDown}
-                  placeholder="Écrivez votre message..."
+                  placeholder={t("writeMessagePlaceholder")}
                   disabled={isPending}
                   rows={1}
                   className="flex-1 resize-none border border-border bg-bg-primary rounded-xl px-3 py-2 text-sm text-text-primary font-body placeholder:text-text-muted focus:outline-none focus:border-[#1A1A1A] disabled:opacity-50"

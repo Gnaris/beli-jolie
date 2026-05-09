@@ -1,14 +1,19 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { getTranslations } from "next-intl/server";
 import { loadLegalPage } from "@/lib/legal-page";
 import LegalPageClient from "@/components/legal/LegalPageClient";
 import { getCachedShopName } from "@/lib/cached-data";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const shopName = await getCachedShopName();
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const [shopName, tMeta] = await Promise.all([
+    getCachedShopName(),
+    getTranslations({ locale, namespace: "meta" }),
+  ]);
   return {
-    title: `Politique de cookies — ${shopName}`,
-    description: `Politique de cookies du site ${shopName}.`,
+    title: tMeta("cookiesTitle", { shopName }),
+    description: tMeta("cookiesDescription", { shopName }),
   };
 }
 

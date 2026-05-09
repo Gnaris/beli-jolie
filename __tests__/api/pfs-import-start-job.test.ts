@@ -46,20 +46,20 @@ beforeEach(() => {
   (prisma.importJob.create as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "job-1" });
 });
 
-describe("POST /api/admin/pfs-import/start-job — plafond produits", () => {
-  it("accepte exactement 1000 produits", async () => {
+describe("POST /api/admin/pfs-import/start-job — pas de plafond produits", () => {
+  it("accepte 1000 produits sans erreur", async () => {
     const res = await POST(makeReq({ items: makeItems(1000) }));
     expect(res.status).toBe(200);
     expect(prisma.importJob.create).toHaveBeenCalledOnce();
     expect(processPfsImport).toHaveBeenCalledWith("job-1");
   });
 
-  it("refuse 1001 produits avec un message qui mentionne la limite 1000", async () => {
-    const res = await POST(makeReq({ items: makeItems(1001) }));
-    expect(res.status).toBe(400);
-    const json = (await res.json()) as { error: string };
-    expect(json.error).toContain("1000");
-    expect(prisma.importJob.create).not.toHaveBeenCalled();
+  it("accepte plus de 1000 produits (plus de plafond)", async () => {
+    const res = await POST(makeReq({ items: makeItems(2500) }));
+    expect(res.status).toBe(200);
+    expect(prisma.importJob.create).toHaveBeenCalledOnce();
+    const createArgs = (prisma.importJob.create as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(createArgs.data.totalItems).toBe(2500);
   });
 
   it("refuse une sélection vide", async () => {

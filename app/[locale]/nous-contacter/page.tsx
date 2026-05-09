@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import { getCachedShopName, getCachedCompanyInfo, getCachedBusinessHours } from "@/lib/cached-data";
 import { isWithinBusinessHours, getNextOpenSlot, formatScheduleForDisplay } from "@/lib/business-hours";
 import type { BusinessHoursSchedule } from "@/lib/business-hours";
@@ -7,11 +8,15 @@ import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ContactPageClient from "./ContactPageClient";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const shopName = await getCachedShopName();
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const [shopName, tMeta] = await Promise.all([
+    getCachedShopName(),
+    getTranslations({ locale, namespace: "meta" }),
+  ]);
   return {
-    title: `Nous contacter — ${shopName}`,
-    description: `Contactez ${shopName} par téléphone, WhatsApp ou messagerie.`,
+    title: tMeta("contactTitle", { shopName }),
+    description: tMeta("contactDescription", { shopName }),
   };
 }
 

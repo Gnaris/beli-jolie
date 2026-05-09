@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Link } from "@/i18n/navigation";
+import { useLocale } from "next-intl";
 import ReorderButton from "./ReorderButton";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
 
@@ -53,10 +54,11 @@ interface Props {
 }
 
 export default function OrdersTableClient({ orders, statusLabels, statusConfig, translations: t }: Props) {
+  const locale = useLocale();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   function formatDate(iso: string) {
-    return new Date(iso).toLocaleDateString("fr-FR", {
+    return new Date(iso).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",

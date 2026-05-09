@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTranslations } from "next-intl";
 import type { BusinessHoursSchedule } from "@/lib/business-hours";
 import { isWithinBusinessHours, getNextOpenSlot, DEFAULT_BUSINESS_HOURS } from "@/lib/business-hours";
 
@@ -15,6 +16,7 @@ export default function StaffAvailability({
   variant?: "light" | "dark";
   schedule?: BusinessHoursSchedule;
 }) {
+  const t = useTranslations("auth.register");
   const effectiveSchedule = schedule ?? DEFAULT_BUSINESS_HOURS;
   const [isOnline, setIsOnline] = useState<boolean | null>(null);
   const [nextSlot, setNextSlot] = useState<{ day: string; time: string } | null>(null);
@@ -46,15 +48,15 @@ export default function StaffAvailability({
         <p className={`text-xs font-body leading-relaxed ${
           dark ? "text-white/50" : "text-text-secondary"
         }`}>
-          <span className={`font-semibold ${dark ? "text-[#4ADE80]" : "text-[#22C55E]"}`}>Staff en ligne</span> — Notre équipe est disponible et valide les inscriptions en quelques secondes.
+          <span className={`font-semibold ${dark ? "text-[#4ADE80]" : "text-[#22C55E]"}`}>{t("staffOnline")}</span> — {t("staffOnlineDesc")}
         </p>
       </div>
     );
   }
 
   const nextOpeningText = nextSlot
-    ? `Votre inscription sera vérifiée dès ${nextSlot.day} ${nextSlot.time}.`
-    : "Votre inscription sera vérifiée à la prochaine ouverture.";
+    ? t("staffNextSlot", { day: nextSlot.day, time: nextSlot.time })
+    : t("staffNextSlotFallback");
 
   return (
     <div className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${
@@ -70,7 +72,7 @@ export default function StaffAvailability({
       <p className={`text-xs font-body leading-relaxed ${
         dark ? "text-white/50" : "text-text-secondary"
       }`}>
-        <span className={`font-semibold ${dark ? "text-[#FBBF24]" : "text-[#F59E0B]"}`}>Hors horaires</span> — Notre équipe n&apos;est plus en service actuellement. {nextOpeningText}
+        <span className={`font-semibold ${dark ? "text-[#FBBF24]" : "text-[#F59E0B]"}`}>{t("staffOffline")}</span> — {t("staffOfflineDesc")} {nextOpeningText}
       </p>
     </div>
   );

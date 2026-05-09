@@ -4,12 +4,16 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import ClaimForm from "@/components/client/claims/ClaimForm";
-import { getLocale } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import type { Metadata } from "next";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const shopName = await getCachedShopName();
-  return { title: `Nouvelle réclamation — ${shopName}` };
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const [shopName, tClaims] = await Promise.all([
+    getCachedShopName(),
+    getTranslations({ locale, namespace: "claims" }),
+  ]);
+  return { title: tClaims("metaNewTitle", { shopName }) };
 }
 
 export default async function NewClaimPage({ searchParams }: { searchParams: Promise<{ order?: string }> }) {
@@ -18,6 +22,7 @@ export default async function NewClaimPage({ searchParams }: { searchParams: Pro
   if (!session) return redirect({href: "/connexion", locale});
   if (session.user.status !== "APPROVED") return redirect({href: "/espace-pro", locale});
 
+  const t = await getTranslations({ locale, namespace: "claims" });
   const { order: preselectedOrderId } = await searchParams;
 
   const orders = await prisma.order.findMany({
@@ -45,11 +50,11 @@ export default async function NewClaimPage({ searchParams }: { searchParams: Pro
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
-          Retour aux réclamations
+          {t("backToList")}
         </Link>
-        <h1 className="font-heading text-2xl font-bold text-text-primary mt-3">Nouvelle réclamation</h1>
+        <h1 className="font-heading text-2xl font-bold text-text-primary mt-3">{t("newClaim")}</h1>
         <p className="text-sm text-text-muted font-body mt-1">
-          Décrivez votre problème et notre équipe vous répondra dans les plus brefs délais.
+          {t("newPageIntro")}
         </p>
       </div>
       <ClaimForm orders={orders} preselectedOrderId={preselectedOrderId} />

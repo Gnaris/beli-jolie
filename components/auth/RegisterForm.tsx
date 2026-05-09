@@ -104,12 +104,12 @@ export default function RegisterForm({
     const ext = "." + (file.name.split(".").pop()?.toLowerCase() ?? "");
 
     if (!allowedTypes.includes(file.type) || !allowedExtensions.includes(ext)) {
-      setDocError("Format invalide. Accepté : PDF, JPG, PNG, DOC, DOCX.");
+      setDocError(t("docInvalidFormat"));
       setDocFile(null);
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      setDocError("Le fichier ne doit pas dépasser 10 Mo.");
+      setDocError(t("docTooBig"));
       setDocFile(null);
       return;
     }
@@ -204,7 +204,7 @@ export default function RegisterForm({
           <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="4" />
           </svg>
-          Espace professionnel B2B
+          {t("heroBanner")}
         </div>
         <h1 className="font-heading text-3xl md:text-4xl font-bold text-text-primary tracking-tight leading-tight">
           {t("title")}
@@ -219,7 +219,7 @@ export default function RegisterForm({
         {formattedCount && (
           <TrustStat
             value={formattedCount}
-            label="références en ligne"
+            label={t("trustReferences")}
             icon={
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
@@ -227,16 +227,16 @@ export default function RegisterForm({
           />
         )}
         <TrustStat
-          value={todayHoursLabel ?? "9h — 22h"}
-          label={todayHoursLabel === "Fermé" ? "aujourd'hui" : "validation rapide"}
+          value={todayHoursLabel ?? t("trustHoursDefault")}
+          label={todayHoursLabel === "Fermé" ? t("trustToday") : t("trustValidation")}
           icon={
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
           }
         />
         <TrustStat
-          value="Prix HT"
-          label="tarifs grossiste"
+          value={t("trustHTPrice")}
+          label={t("trustWholesale")}
           icon={
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941" />
@@ -265,8 +265,8 @@ export default function RegisterForm({
         {/* ── Section 1 : Vous ── */}
         <SectionCard
           step={1}
-          title="Vous"
-          description="Vos coordonnées personnelles. Elles ne seront jamais visibles publiquement."
+          title={t("section1Title")}
+          description={t("section1Desc")}
           icon={
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.25a7.5 7.5 0 0115 0v.75H4.5v-.75z" />
@@ -275,21 +275,21 @@ export default function RegisterForm({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField id="firstName" label={t("firstName")} type="text"
               value={fields.firstName} error={fieldErrors.firstName}
-              placeholder="Marie" autoComplete="given-name" optional
+              placeholder={t("firstNamePlaceholder")} autoComplete="given-name" optional
               onChange={(v) => handleChange("firstName", v)} />
             <FormField id="lastName" label={t("lastName")} type="text"
               value={fields.lastName} error={fieldErrors.lastName}
-              placeholder="Dupont" autoComplete="family-name" optional
+              placeholder={t("lastNamePlaceholder")} autoComplete="family-name" optional
               onChange={(v) => handleChange("lastName", v)} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField id="email" label={t("email")} type="email"
               value={fields.email} error={fieldErrors.email}
-              placeholder="contact@societe.fr" autoComplete="email"
+              placeholder={t("emailPlaceholder")} autoComplete="email"
               onChange={(v) => handleChange("email", v)} />
             <FormField id="phone" label={t("phone")} type="tel"
               value={fields.phone} error={fieldErrors.phone}
-              placeholder="0612345678" autoComplete="tel"
+              placeholder={t("phonePlaceholder")} autoComplete="tel"
               onChange={(v) => handleChange("phone", v)} />
           </div>
         </SectionCard>
@@ -297,8 +297,8 @@ export default function RegisterForm({
         {/* ── Section 2 : Votre société ── */}
         <SectionCard
           step={2}
-          title="Votre société"
-          description="Informations légales de votre entreprise — vérifiées par notre équipe."
+          title={t("section2Title")}
+          description={t("section2Desc")}
           icon={
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
@@ -306,11 +306,11 @@ export default function RegisterForm({
         >
           <FormField id="company" label={t("company")} type="text"
             value={fields.company} error={fieldErrors.company}
-            placeholder="Mon Entreprise SARL" autoComplete="organization"
+            placeholder={t("companyPlaceholder")} autoComplete="organization"
             onChange={(v) => handleChange("company", v)} />
           <FormField id="siret" label={t("siret")} type="text"
             value={fields.siret} error={fieldErrors.siret}
-            placeholder="12345678901234" maxLength={14} mono
+            placeholder={t("siretPlaceholder")} maxLength={14} mono
             onChange={(v) => handleChange("siret", v.replace(/\D/g, ""))} />
 
           {/* TVA */}
@@ -319,7 +319,7 @@ export default function RegisterForm({
             <input
               id="vatNumber" type="text" value={fields.vatNumber}
               onChange={(e) => handleChange("vatNumber", e.target.value.toUpperCase().replace(/\s/g, ""))}
-              placeholder="FR12345678901" maxLength={20}
+              placeholder={t("vatPlaceholder")} maxLength={20}
               className={`field-input font-mono tracking-wide ${fieldErrors.vatNumber ? "border-error" : ""}`}
             />
             <p className="text-xs text-text-muted mt-1.5 font-body">{t("vatNumberHint")}</p>
@@ -333,11 +333,10 @@ export default function RegisterForm({
                   </svg>
                 </div>
                 <div className="text-sm font-body text-[#7C2D12] leading-relaxed">
-                  <p className="font-semibold mb-1.5">Pays UE — recommandation TVA</p>
+                  <p className="font-semibold mb-1.5">{t("euVatTitle")}</p>
                   <p className="text-xs leading-relaxed">
-                    Si votre société est assujettie à la TVA, renseignez ci-dessus votre <strong>numéro de TVA intracommunautaire valide</strong>.
-                    Notre équipe le vérifiera à l&apos;examen de votre dossier.
-                    À défaut de validation, <strong>20 % de TVA française seront appliqués automatiquement</strong> à vos commandes.
+                    {t("euVatDescPart1")} <strong>{t("euVatDescStrong1")}</strong>
+                    {t("euVatDescPart2")} <strong>{t("euVatDescStrong2")}</strong> {t("euVatDescPart3")}
                   </p>
                 </div>
               </div>
@@ -348,52 +347,52 @@ export default function RegisterForm({
         {/* ── Section 3 : Adresse ── */}
         <SectionCard
           step={3}
-          title="Adresse de la société"
-          description="Le siège social. Cette adresse détermine la TVA appliquée à vos commandes."
+          title={t("section3Title")}
+          description={t("section3Desc")}
           icon={
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
           }
         >
           <FormField
-            id="addressStreet" label="Adresse" type="text"
+            id="addressStreet" label={t("addressLabel")} type="text"
             value={fields.addressStreet} error={fieldErrors.addressStreet}
-            placeholder="12 rue des Lilas" autoComplete="street-address"
+            placeholder={t("addressStreetPlaceholder")} autoComplete="street-address"
             onChange={(v) => handleChange("addressStreet", v)}
           />
           <FormField
-            id="addressComplement" label="Complément d'adresse" type="text"
+            id="addressComplement" label={t("addressComplement")} type="text"
             value={fields.addressComplement} error={fieldErrors.addressComplement}
-            placeholder="Bâtiment B, 3e étage" autoComplete="address-line2"
+            placeholder={t("addressComplementPlaceholder")} autoComplete="address-line2"
             optional
             onChange={(v) => handleChange("addressComplement", v)}
           />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <FormField
-              id="addressZip" label="Code postal" type="text"
+              id="addressZip" label={t("addressZip")} type="text"
               value={fields.addressZip} error={fieldErrors.addressZip}
-              placeholder="75011" autoComplete="postal-code"
+              placeholder={t("addressZipPlaceholder")} autoComplete="postal-code"
               onChange={(v) => handleChange("addressZip", v)}
             />
             <div className="sm:col-span-2">
               <FormField
-                id="addressCity" label="Ville" type="text"
+                id="addressCity" label={t("addressCity")} type="text"
                 value={fields.addressCity} error={fieldErrors.addressCity}
-                placeholder="Paris" autoComplete="address-level2"
+                placeholder={t("addressCityPlaceholder")} autoComplete="address-level2"
                 onChange={(v) => handleChange("addressCity", v)}
               />
             </div>
           </div>
           <div>
-            <FieldLabel id="addressCountry">Pays</FieldLabel>
+            <FieldLabel id="addressCountry">{t("addressCountry")}</FieldLabel>
             <CustomSelect
               id="addressCountry"
               value={fields.addressCountry}
               onChange={(v) => handleChange("addressCountry", v)}
               options={countryOptions}
               searchable
-              placeholder="Sélectionnez un pays"
-              aria-label="Pays de la société"
+              placeholder={t("selectCountry")}
+              aria-label={t("countryAriaLabel")}
             />
             {fieldErrors.addressCountry && (
               <p className="text-xs text-error mt-1 font-body">{fieldErrors.addressCountry}</p>
@@ -404,8 +403,8 @@ export default function RegisterForm({
         {/* ── Section 4 : Justificatifs ── */}
         <SectionCard
           step={4}
-          title="Justificatifs"
-          description="Aidez-nous à valider rapidement votre dossier — tous les fichiers sont optionnels."
+          title={t("section4Title")}
+          description={t("section4Desc")}
           icon={
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
@@ -424,8 +423,8 @@ export default function RegisterForm({
           />
           <UploadField
             id="document"
-            label="Document complémentaire"
-            description="PDF, JPG, PNG, DOC, DOCX — max 10 Mo. Licence, attestation, etc."
+            label={t("documentLabel")}
+            description={t("documentDesc")}
             file={docFile}
             error={docError}
             inputRef={docInputRef}
@@ -448,7 +447,7 @@ export default function RegisterForm({
             />
             <div className="flex items-center justify-between mt-1.5">
               <p className="text-xs text-text-muted font-body">
-                Présentez votre activité, vos volumes habituels…
+                {t("messageHint")}
               </p>
               <span className="text-xs text-text-muted font-body tabular-nums">
                 {fields.registrationMessage.length}/2000
@@ -463,8 +462,8 @@ export default function RegisterForm({
         {/* ── Section 5 : Sécurité ── */}
         <SectionCard
           step={5}
-          title="Mot de passe"
-          description="Au moins 8 caractères, une majuscule et un chiffre."
+          title={t("section5Title")}
+          description={t("section5Desc")}
           icon={
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
@@ -607,11 +606,12 @@ function SectionCard({
 }
 
 function FieldLabel({ id, children, optional }: { id: string; children: React.ReactNode; optional?: boolean }) {
+  const t = useTranslations("auth.register");
   return (
     <label htmlFor={id} className="flex items-baseline justify-between text-sm font-body font-medium text-text-primary mb-1.5">
       <span>{children}</span>
       {optional ? (
-        <span className="text-xs text-text-muted font-normal normal-case">Optionnel</span>
+        <span className="text-xs text-text-muted font-normal normal-case">{t("optionalLabel")}</span>
       ) : (
         <span className="text-xs text-error font-normal" aria-hidden>•</span>
       )}
@@ -657,6 +657,7 @@ function UploadField({
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClear: () => void;
 }) {
+  const tReg = useTranslations("auth.register");
   return (
     <div>
       <FieldLabel id={id} optional>{label}</FieldLabel>
@@ -708,7 +709,7 @@ function UploadField({
               </svg>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-body font-medium text-text-primary">Cliquez pour téléverser</p>
+              <p className="text-sm font-body font-medium text-text-primary">{tReg("uploadTeleverser")}</p>
               <p className="text-xs text-text-muted font-body mt-0.5">{description}</p>
             </div>
           </div>
@@ -720,10 +721,11 @@ function UploadField({
 }
 
 function PasswordStrength({ password }: { password: string }) {
+  const t = useTranslations("auth.register");
   const checks = [
-    { label: "8 caractères", ok: password.length >= 8 },
-    { label: "1 majuscule", ok: /[A-Z]/.test(password) },
-    { label: "1 chiffre", ok: /[0-9]/.test(password) },
+    { label: t("requirements8chars"), ok: password.length >= 8 },
+    { label: t("requirementsUppercase"), ok: /[A-Z]/.test(password) },
+    { label: t("requirementsDigit"), ok: /[0-9]/.test(password) },
   ];
   if (!password) {
     return (

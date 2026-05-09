@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations, useLocale } from "next-intl";
 import ProductCard from "./ProductCard";
+import { buildLoadMoreQuery, getLoadMoreUiState } from "./products-load-more";
 
 type VariantItem = {
   id:           string;
@@ -47,11 +48,12 @@ interface ClientDiscountInfo {
 interface Props {
   initialProducts: ProductItem[];
   initialHasMore:  boolean;
+  totalCount:      number;
   clientDiscount?: ClientDiscountInfo | null;
   initialFavoriteIds?: string[];
 }
 
-export default function ProductsInfiniteScroll({ initialProducts, initialHasMore, clientDiscount, initialFavoriteIds = [] }: Props) {
+export default function ProductsInfiniteScroll({ initialProducts, initialHasMore, totalCount, clientDiscount, initialFavoriteIds = [] }: Props) {
   const t = useTranslations("products");
   const locale = useLocale();
   const searchParams = useSearchParams();
@@ -81,8 +83,6 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
   // le fetch /api/favorites avant d'afficher les bons cœurs.
   const [favoriteIds] = useState<Set<string>>(() => new Set(initialFavoriteIds));
 
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  const loadMoreRef = useRef<() => void>(() => {});
   const filtersKey  = `${q}||${cat}||${subcat}||${collection}||${colorParam}||${tagId}||${compositionId}||${bestseller}||${isNew}||${promo}||${ordered}||${notOrdered}||${hideOos}||${minPrice}||${maxPrice}`;
   const prevFilters = useRef(filtersKey);
 
@@ -103,33 +103,24 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialProducts]);
 
-  // Keep loadMore ref up-to-date
-  loadMoreRef.current = async () => {
+  const loadMore = async () => {
     if (loading || !hasMore) return;
     setLoading(true);
 
     const nextPage = page + 1;
-    const params   = new URLSearchParams();
-    if (q)          params.set("q",          q);
-    if (cat)        params.set("cat",        cat);
-    if (subcat)     params.set("subcat",     subcat);
-    if (collection) params.set("collection", collection);
-    if (colorParam) params.set("color",      colorParam);
-    if (tagId)      params.set("tag",        tagId);
-    if (compositionId) params.set("composition", compositionId);
-    if (bestseller) params.set("bestseller", bestseller);
-    if (isNew)      params.set("new",        isNew);
-    if (promo)      params.set("promo",      promo);
-    if (ordered)    params.set("ordered",    ordered);
-    if (notOrdered) params.set("notOrdered", notOrdered);
-    if (hideOos)    params.set("hideOos",    hideOos);
-    if (minPrice)   params.set("minPrice",   minPrice);
-    if (maxPrice)   params.set("maxPrice",   maxPrice);
-    if (locale)     params.set("locale",     locale);
-    params.set("page", String(nextPage));
+    const queryString = buildLoadMoreQuery(
+      {
+        q, cat, subcat, collection,
+        color: colorParam, tag: tagId, composition: compositionId,
+        bestseller, new: isNew, promo,
+        ordered, notOrdered, hideOos, minPrice, maxPrice,
+      },
+      nextPage,
+      locale,
+    );
 
     try {
-      const res  = await fetch(`/api/products?${params.toString()}`);
+      const res  = await fetch(`/api/products?${queryString}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setProducts((prev) => {
@@ -142,23 +133,11 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
       setLoadError(null);
     } catch {
       // P3-04 — afficher un message au lieu de masquer silencieusement.
-      setLoadError("Impossible de charger plus de produits. Vérifiez votre connexion et réessayez.");
+      setLoadError(t("loadError"));
     } finally {
       setLoading(false);
     }
   };
-
-  // IntersectionObserver — mount once
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) loadMoreRef.current();
-      },
-      { threshold: 0.1 }
-    );
-    if (sentinelRef.current) observer.observe(sentinelRef.current);
-    return () => observer.disconnect();
-  }, []);
 
   if (products.length === 0) {
     return (
@@ -178,6 +157,8 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
       </div>
     );
   }
+
+  const ui = getLoadMoreUiState({ hasMore, loadError, productCount: products.length });
 
   return (
     <>
@@ -210,30 +191,42 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
         })}
       </div>
 
-      {/* Sentinel pour l'infinite scroll */}
-      <div ref={sentinelRef} className="h-8" />
-
-      {loading && (
-        <div className="flex justify-center py-6">
-          <div className="w-6 h-6 border-2 border-border border-t-text-primary rounded-full animate-spin" />
-        </div>
-      )}
-
-      {loadError && !loading && (
-        <div className="flex flex-col items-center gap-3 py-6">
-          <p className="text-sm text-red-600 font-body text-center max-w-md">{loadError}</p>
+      {ui.showLoadMoreButton && (
+        <div className="flex flex-col items-center gap-2 py-8">
           <button
             type="button"
-            onClick={() => loadMoreRef.current()}
-            className="text-xs font-medium text-text-primary border border-border rounded-lg px-4 py-2 hover:bg-bg-secondary transition-colors font-body"
+            onClick={loadMore}
+            disabled={loading}
+            className="inline-flex items-center justify-center gap-2 min-w-[220px] px-6 py-3 rounded-xl border border-border bg-bg-primary text-sm font-medium text-text-primary font-body shadow-sm hover:bg-bg-secondary hover:shadow-md transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Réessayer
+            {loading ? (
+              <>
+                <span className="w-4 h-4 border-2 border-border border-t-text-primary rounded-full animate-spin" />
+                {t("loading")}
+              </>
+            ) : (
+              t("loadMoreCount", { shown: products.length, total: totalCount })
+            )}
           </button>
         </div>
       )}
 
-      {!hasMore && products.length > 0 && (
-        <p className="text-center text-sm text-text-muted font-body py-4">
+      {ui.showErrorBlock && (
+        <div className="flex flex-col items-center gap-3 py-6">
+          <p className="text-sm text-red-600 font-body text-center max-w-md">{loadError}</p>
+          <button
+            type="button"
+            onClick={loadMore}
+            disabled={loading}
+            className="text-xs font-medium text-text-primary border border-border rounded-lg px-4 py-2 hover:bg-bg-secondary transition-colors font-body"
+          >
+            {t("retry")}
+          </button>
+        </div>
+      )}
+
+      {ui.showAllShownMessage && (
+        <p className="text-center text-sm text-text-muted font-body py-6">
           {t("allProductsShown", { count: products.length })}
         </p>
       )}

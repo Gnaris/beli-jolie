@@ -9,11 +9,15 @@ import Footer from "@/components/layout/Footer";
 
 export const revalidate = 7200; // ISR: revalidate every 2 hours
 
-export async function generateMetadata(): Promise<Metadata> {
-  const shopName = await getCachedShopName();
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const [shopName, tMeta] = await Promise.all([
+    getCachedShopName(),
+    getTranslations({ locale, namespace: "meta" }),
+  ]);
   return {
-    title: `Collections — ${shopName}`,
-    description: "Découvrez nos collections de produits. Sélections tendance pour revendeurs et professionnels.",
+    title: tMeta("collectionsTitle", { shopName }),
+    description: tMeta("collectionsDescription"),
     alternates: { canonical: "/collections" },
   };
 }

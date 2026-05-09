@@ -145,8 +145,8 @@ describe("POST /api/client/claims/upload", () => {
 
     expect(res.status).toBe(200);
     expect(body.paths).toHaveLength(2);
-    expect(body.paths[0]).toMatch(/^\/uploads\/claims\/claim-.*\.webp$/);
-    expect(body.paths[1]).toMatch(/^\/uploads\/claims\/claim-.*\.webp$/);
+    expect(body.paths[0]).toMatch(/^\/uploads\/reclamations\/_brouillon\/1\/photo-1-.*\.webp$/);
+    expect(body.paths[1]).toMatch(/^\/uploads\/reclamations\/_brouillon\/1\/photo-2-.*\.webp$/);
     expect(uploadFile).toHaveBeenCalledTimes(2);
   });
 });

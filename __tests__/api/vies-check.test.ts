@@ -74,7 +74,7 @@ describe("GET /api/admin/vies-check", () => {
     const res = await GET(makeReq("US123456789"));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toMatch(/US/);
+    expect(body.error).toMatch(/Format invalide|pays/i);
   });
 
   it("accepts spaces/dots in input (normalizes)", async () => {
@@ -142,7 +142,7 @@ describe("GET /api/admin/vies-check", () => {
     // SERVICE_UNAVAILABLE is retryable — mock returns it every time → after retries it surfaces
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
+      vi.fn().mockImplementation(async () =>
         new Response(JSON.stringify({ isValid: false, userError: "SERVICE_UNAVAILABLE" }), { status: 200 })
       )
     );

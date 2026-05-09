@@ -1,15 +1,19 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { setRequestLocale } from "next-intl/server";
+import { setRequestLocale, getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import LoginForm from "@/components/auth/LoginForm";
 import { getCachedShopName } from "@/lib/cached-data";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const shopName = await getCachedShopName();
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const [shopName, tMeta] = await Promise.all([
+    getCachedShopName(),
+    getTranslations({ locale, namespace: "meta" }),
+  ]);
   return {
-    title: "Connexion — Espace Professionnel B2B",
-    description: `Connectez-vous à votre espace professionnel ${shopName}. Boutique réservée aux professionnels.`,
+    title: tMeta("loginTitle"),
+    description: tMeta("loginDescription", { shopName }),
   };
 }
 
@@ -20,6 +24,7 @@ export default async function ConnexionPage({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
+  const tLogin = await getTranslations({ locale, namespace: "auth.login" });
   return (
     <div className="w-full max-w-md mx-auto">
 
@@ -29,13 +34,13 @@ export default async function ConnexionPage({
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
           </svg>
-          Espace B2B
+          {tLogin("b2bSpace")}
         </div>
         <h2 className="font-heading text-lg font-semibold text-text-primary mb-2">
-          Boutique réservée aux professionnels
+          {tLogin("proOnly")}
         </h2>
         <p className="text-sm text-text-muted font-body leading-relaxed max-w-sm mx-auto">
-          Cette boutique est exclusivement réservée aux revendeurs et professionnels.
+          {tLogin("proOnlyDesc")}
         </p>
       </div>
 
@@ -51,12 +56,12 @@ export default async function ConnexionPage({
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM3 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 019.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
           </svg>
-          Créer un compte professionnel
+          {tLogin("createProAccount")}
         </Link>
       </p>
       <p className="text-center mt-3">
         <Link href="/mot-de-passe-oublie" className="text-sm text-text-muted font-body hover:text-text-secondary transition-colors">
-          Mot de passe oublié ?
+          {tLogin("forgotPassword")}
         </Link>
       </p>
     </div>

@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import ConversationThread from "@/components/shared/ConversationThread";
 import MessageInput from "@/components/shared/MessageInput";
 import ClaimTimeline from "@/components/client/claims/ClaimTimeline";
@@ -24,6 +25,7 @@ interface ClaimData {
 }
 
 export default function ClaimDetailClient({ claim }: { claim: ClaimData }) {
+  const t = useTranslations("claims");
   const [messages, setMessages] = useState<ThreadMessage[]>(claim.conversation?.messages || []);
   const [status, setStatus] = useState(claim.status);
   const toast = useToast();
@@ -67,7 +69,7 @@ export default function ClaimDetailClient({ claim }: { claim: ClaimData }) {
       setMessages((prev) => [...prev, result.message as unknown as ThreadMessage]);
       router.refresh();
     } else {
-      toast.error(result.error || "Erreur");
+      toast.error(result.error || t("errorGeneric"));
     }
   }
 
@@ -83,11 +85,11 @@ export default function ClaimDetailClient({ claim }: { claim: ClaimData }) {
             <ConversationThread
               messages={messages}
               currentUserRole="CLIENT"
-              subject="Échanges"
+              subject={t("conversationSubject")}
             />
             {status === "CLOSED" ? (
               <div className="border-t border-border px-4 py-3 text-center">
-                <p className="text-sm text-text-muted font-body">Cette réclamation est clôturée.</p>
+                <p className="text-sm text-text-muted font-body">{t("conversationClosedNotice")}</p>
               </div>
             ) : (
               <MessageInput onSend={handleSendMessage} />

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Link } from "@/i18n/navigation";
+import { getTranslations } from "next-intl/server";
 import { getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
 import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
 
@@ -14,9 +15,10 @@ interface AuthLayoutProps {
 
 export default async function AuthLayout({ children, params }: AuthLayoutProps) {
   const { locale: currentLocale } = await params;
-  const [config, shopName] = await Promise.all([
+  const [config, shopName, tMeta] = await Promise.all([
     getCachedSiteConfig("maintenance_mode"),
     getCachedShopName(),
+    getTranslations({ locale: currentLocale, namespace: "meta" }),
   ]);
   const inMaintenance = config?.value === "true";
 
@@ -42,12 +44,10 @@ export default async function AuthLayout({ children, params }: AuthLayoutProps) 
             </svg>
             <div>
               <p className="font-body text-sm font-semibold text-[#7C3900]">
-                Site en maintenance
+                {tMeta("authLayoutMaintenanceTitle")}
               </p>
               <p className="font-body text-sm text-[#92400E] mt-0.5">
-                Notre plateforme est temporairement indisponible. Vous pouvez vous connecter
-                ou créer un compte, mais l&apos;accès au site sera limité jusqu&apos;à la fin de la
-                maintenance.
+                {tMeta("authLayoutMaintenanceDesc")}
               </p>
             </div>
           </div>
@@ -75,14 +75,14 @@ export default async function AuthLayout({ children, params }: AuthLayoutProps) 
         <div className="flex items-center gap-2">
           <Link
             href="/produits"
-            aria-label="Voir le catalogue"
+            aria-label={tMeta("authLayoutCatalogueLong")}
             className="inline-flex items-center gap-1.5 text-sm font-body font-semibold text-text-inverse bg-bg-dark border border-bg-dark px-3 sm:px-4 py-2 rounded-lg shadow-sm hover:opacity-90 transition-opacity"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
             </svg>
-            <span className="hidden sm:inline">Voir le catalogue</span>
-            <span className="sm:hidden">Catalogue</span>
+            <span className="hidden sm:inline">{tMeta("authLayoutCatalogueLong")}</span>
+            <span className="sm:hidden">{tMeta("authLayoutCatalogueShort")}</span>
           </Link>
           <LanguageSwitcher currentLocale={currentLocale} />
         </div>
@@ -99,17 +99,17 @@ export default async function AuthLayout({ children, params }: AuthLayoutProps) 
       <footer className="px-6 py-4 border-t border-border">
         <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-2 text-xs font-body">
           <p className="text-text-muted">
-            Plateforme réservée aux professionnels revendeurs
+            {tMeta("authLayoutFooterReserved")}
           </p>
-          <nav className="flex items-center gap-4" aria-label="Liens rapides">
+          <nav className="flex items-center gap-4" aria-label={tMeta("authLayoutQuickLinks")}>
             <Link href="/" className="text-text-muted hover:text-text-primary transition-colors">
-              Accueil
+              {tMeta("authLayoutLinkHome")}
             </Link>
             <Link href="/produits" className="text-text-muted hover:text-text-primary transition-colors">
-              Catalogue
+              {tMeta("authLayoutLinkCatalogue")}
             </Link>
             <Link href="/categories" className="text-text-muted hover:text-text-primary transition-colors">
-              Catégories
+              {tMeta("authLayoutLinkCategories")}
             </Link>
           </nav>
         </div>

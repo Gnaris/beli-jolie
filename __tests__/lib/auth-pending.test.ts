@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const mockPrisma = vi.hoisted(() => ({
   user: {
     findUnique: vi.fn(),
+    update: vi.fn(),
   },
 }));
 
@@ -62,6 +63,7 @@ describe("auth authorize — PENDING login", () => {
     mockSecurity.recordLoginFailure.mockResolvedValue(undefined);
     mockSecurity.recordLoginSuccess.mockResolvedValue(undefined);
     mockBcrypt.compare.mockResolvedValue(true);
+    mockPrisma.user.update.mockResolvedValue({});
   });
 
   it("PENDING peut se connecter", async () => {

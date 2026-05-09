@@ -251,18 +251,29 @@ describe("Product CRUD (real DB)", () => {
             saleType: "PACK",
             packQuantity: 6,
             sizeEntries: [],
+            // Règle PFS : toutes les couleurs du pack doivent avoir le même
+            // ensemble de tailles (les quantités peuvent différer).
             packLines: [
               {
                 colorId: entities.color1.id,
-                sizeEntries: [{ sizeId: entities.sizeS.id, quantity: 2 }, { sizeId: entities.sizeM.id, quantity: 1 }],
+                sizeEntries: [
+                  { sizeId: entities.sizeS.id, quantity: 2 },
+                  { sizeId: entities.sizeM.id, quantity: 1 },
+                ],
               },
               {
                 colorId: entities.color2.id,
-                sizeEntries: [{ sizeId: entities.sizeM.id, quantity: 2 }],
+                sizeEntries: [
+                  { sizeId: entities.sizeS.id, quantity: 1 },
+                  { sizeId: entities.sizeM.id, quantity: 1 },
+                ],
               },
               {
                 colorId: entities.color3.id,
-                sizeEntries: [{ sizeId: entities.sizeM.id, quantity: 1 }],
+                sizeEntries: [
+                  { sizeId: entities.sizeS.id, quantity: 1 },
+                  { sizeId: entities.sizeM.id, quantity: 1 },
+                ],
               },
             ],
           },

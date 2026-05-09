@@ -22,10 +22,44 @@ import { emitProductEvent, type ImportProgressResult } from "@/lib/product-event
 /** Intervalle entre deux vérifications DB du statut d'annulation (ms). */
 const CANCEL_POLL_INTERVAL_MS = 2000;
 
-/** Nombre de produits traités en parallèle.
- *  6 = bon compromis sur le VPS Hostinger (4 cores) — au-delà, le sharp WebP
- *  lossless en parallèle sature le CPU et ralentit l'ensemble. */
-const IMPORT_CONCURRENCY = 6;
+/** Au-delà de ce nombre d'items, on bascule en mode "gros import" pour
+ *  ménager PFS et le VPS : concurrence réduite + pauses entre lots. */
+const LARGE_IMPORT_THRESHOLD = 1000;
+
+/** Concurrence "normale" : bon compromis sur le VPS Hostinger (4 cores) —
+ *  au-delà, le sharp WebP lossless en parallèle sature le CPU. */
+const SMALL_IMPORT_CONCURRENCY = 6;
+
+/** Concurrence "gros import" : on tape PFS avec moitié moins de calls
+ *  parallèles, pour rester sous le rate-limit côté Salesforce. */
+const LARGE_IMPORT_CONCURRENCY = 3;
+
+/** Nombre de produits traités d'affilée avant une pause inter-lots. */
+const IMPORT_CHUNK_SIZE = 500;
+
+/** Pause à la fin de chaque lot (ms). Laisse PFS reprendre son souffle
+ *  pendant 5 s avant de relancer la cadence. */
+const IMPORT_CHUNK_PAUSE_MS = 5000;
+
+export interface ImportPacing {
+  concurrency: number;
+  chunkSize: number;
+  chunkPauseMs: number;
+}
+
+/**
+ * Calcule la cadence d'import (concurrence + pauses) en fonction du volume.
+ * Petits imports : on garde la cadence rapide. Gros imports : on ralentit
+ * pour ménager l'API PFS et le VPS.
+ */
+export function getImportPacing(itemsCount: number): ImportPacing {
+  const isLarge = itemsCount > LARGE_IMPORT_THRESHOLD;
+  return {
+    concurrency: isLarge ? LARGE_IMPORT_CONCURRENCY : SMALL_IMPORT_CONCURRENCY,
+    chunkSize: IMPORT_CHUNK_SIZE,
+    chunkPauseMs: isLarge ? IMPORT_CHUNK_PAUSE_MS : 0,
+  };
+}
 
 /**
  * Exécute une opération Prisma avec retry automatique en cas de déconnexion.
@@ -88,13 +122,24 @@ export async function processPfsImport(jobId: string): Promise<void> {
   // workers se partageront ensuite le même index en mémoire).
   invalidatePfsListCache();
 
+  // Cadence adaptée au volume : les gros imports (> 1000 produits) tournent
+  // en concurrence réduite et avec une pause entre chaque lot.
+  const pacing = getImportPacing(items.length);
+  logger.info("[PFS Import Processor] Import démarré", {
+    jobId,
+    itemsCount: items.length,
+    concurrency: pacing.concurrency,
+    chunkSize: pacing.chunkSize,
+    chunkPauseMs: pacing.chunkPauseMs,
+  });
+
   // Mark as processing
   await withRetry(() => prisma.importJob.update({
     where: { id: jobId },
     data: { status: "PROCESSING", totalItems: items.length },
   }));
 
-  emitProgress(jobId, 0, items.length, 0, 0, "PROCESSING", [], IMPORT_CONCURRENCY);
+  emitProgress(jobId, 0, items.length, 0, 0, "PROCESSING", [], pacing.concurrency);
 
   // Sondage périodique du statut en DB pour détecter l'annulation
   // AUSSI pendant qu'un produit est en cours d'import (téléchargement d'images).
@@ -119,6 +164,31 @@ export async function processPfsImport(jobId: string): Promise<void> {
   let processed = 0;
   let nextIndex = 0;
 
+  // Gestion des pauses entre lots de `chunkSize` items. Tous les workers
+  // attendent ensemble la même pause via une promesse partagée — quand le
+  // 1er à franchir la limite la crée, les autres s'y greffent.
+  let chunkPausePromise: Promise<void> | null = null;
+  let lastPausedAtChunk = 0;
+  const maybeChunkPause = async (): Promise<void> => {
+    if (pacing.chunkPauseMs <= 0) return;
+    if (chunkPausePromise) {
+      await chunkPausePromise;
+      return;
+    }
+    const currentChunk = Math.floor(nextIndex / pacing.chunkSize);
+    if (currentChunk <= lastPausedAtChunk) return;
+    if (nextIndex === 0 || nextIndex >= items.length) return;
+    lastPausedAtChunk = currentChunk;
+    logger.info("[PFS Import Processor] Pause entre lots PFS", {
+      jobId,
+      reachedAt: nextIndex,
+      chunkPauseMs: pacing.chunkPauseMs,
+    });
+    chunkPausePromise = new Promise<void>((r) => setTimeout(r, pacing.chunkPauseMs))
+      .then(() => { chunkPausePromise = null; });
+    await chunkPausePromise;
+  };
+
   const worker = async (): Promise<void> => {
     while (true) {
       // Double-vérif synchrone avant de réclamer le prochain produit (au cas où
@@ -130,6 +200,11 @@ export async function processPfsImport(jobId: string): Promise<void> {
         }));
         if (current?.status === "CANCELLED") jobCancelled = true;
       }
+      if (jobCancelled) return;
+
+      // Si on entame un nouveau lot, on observe la pause inter-lots avant de
+      // claim le prochain index. Tous les workers attendent ensemble.
+      await maybeChunkPause();
       if (jobCancelled) return;
 
       const i = nextIndex++;
@@ -190,13 +265,13 @@ export async function processPfsImport(jobId: string): Promise<void> {
         },
       }));
 
-      emitProgress(jobId, processed, items.length, success, errors, "PROCESSING", results, IMPORT_CONCURRENCY);
+      emitProgress(jobId, processed, items.length, success, errors, "PROCESSING", results, pacing.concurrency);
     }
   };
 
   try {
     await Promise.all(
-      Array.from({ length: Math.min(IMPORT_CONCURRENCY, items.length) }, () => worker()),
+      Array.from({ length: Math.min(pacing.concurrency, items.length) }, () => worker()),
     );
   } finally {
     clearInterval(cancelPoller);
@@ -236,7 +311,7 @@ export async function processPfsImport(jobId: string): Promise<void> {
         resultDetails: { items, results },
       },
     }));
-    emitProgress(jobId, processed, items.length, success, errors, "FAILED", results, IMPORT_CONCURRENCY);
+    emitProgress(jobId, processed, items.length, success, errors, "FAILED", results, pacing.concurrency);
     return;
   }
 
@@ -259,7 +334,7 @@ export async function processPfsImport(jobId: string): Promise<void> {
     },
   }));
 
-  emitProgress(jobId, items.length, items.length, success, errors, finalStatus, results, IMPORT_CONCURRENCY);
+  emitProgress(jobId, items.length, items.length, success, errors, finalStatus, results, pacing.concurrency);
   logger.info("[PFS Import Processor] Job completed", { jobId, success, errors, summary });
 }
 

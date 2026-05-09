@@ -14,10 +14,14 @@ import { STATUS_CONFIG, getTrackingUrl } from "@/app/[locale]/(client)/commandes
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const shopName = await getCachedShopName();
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const [shopName, tMeta] = await Promise.all([
+    getCachedShopName(),
+    getTranslations({ locale, namespace: "meta" }),
+  ]);
   return {
-    title: `Detail commande — ${shopName}`,
+    title: tMeta("orderDetailTitle", { shopName }),
     robots: { index: false, follow: false },
   };
 }
@@ -48,7 +52,7 @@ export default async function CommandeDetailPage({
 
   const cfg = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.PENDING;
   const trackingUrl = order.eeTrackingId ? getTrackingUrl(order.carrierName, order.eeTrackingId) : null;
-  const date = new Date(order.createdAt).toLocaleDateString("fr-FR", {
+  const date = new Date(order.createdAt).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US", {
     day: "numeric",
     month: "long",
     year: "numeric",

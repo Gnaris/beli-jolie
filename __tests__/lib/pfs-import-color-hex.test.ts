@@ -21,11 +21,20 @@ const {
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     category: { update: vi.fn(), create: vi.fn(), findFirst: vi.fn() },
-    color: { update: mockColorUpdate, create: mockColorCreate, findUnique: mockColorFindUnique },
-    size: { update: vi.fn(), create: vi.fn() },
-    composition: { update: vi.fn(), create: vi.fn() },
-    manufacturingCountry: { update: vi.fn(), create: vi.fn() },
-    season: { update: vi.fn(), create: vi.fn() },
+    color: {
+      update: mockColorUpdate,
+      create: mockColorCreate,
+      findUnique: mockColorFindUnique,
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    size: { update: vi.fn(), create: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
+    composition: { update: vi.fn(), create: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
+    manufacturingCountry: {
+      update: vi.fn(),
+      create: vi.fn(),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    season: { update: vi.fn(), create: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
   },
 }));
 

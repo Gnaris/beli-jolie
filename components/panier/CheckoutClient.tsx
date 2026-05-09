@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition, useEffect, useMemo } from "react";
 import Image from "@/components/ui/SmartImage";
 import { Link, useRouter } from "@/i18n/navigation";
+import { useTranslations, useLocale } from "next-intl";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, useStripe, useElements, CardNumberElement, CardExpiryElement, CardCvcElement } from "@stripe/react-stripe-js";
 import { saveShippingAddress, deleteShippingAddress } from "@/app/actions/client/cart";
@@ -11,6 +12,20 @@ import { updateBillingInfo } from "@/app/actions/client/billing";
 import { uploadBordereau } from "@/app/actions/client/upload-bordereau";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import CustomSelect from "@/components/ui/CustomSelect";
+
+const COUNTRY_CODES = [
+  "FR", "BE", "LU", "CH", "DE", "ES", "IT", "NL", "PT", "AT",
+  "PL", "SE", "DK", "FI", "IE", "CZ", "RO", "HU", "GR",
+  "US", "GB", "CA", "AU", "JP",
+];
+
+function useCountryOptions() {
+  const locale = useLocale();
+  return useMemo(() => {
+    const dn = new Intl.DisplayNames([locale], { type: "region" });
+    return COUNTRY_CODES.map((code) => ({ code, label: dn.of(code) ?? code }));
+  }, [locale]);
+}
 
 // ─────────────────────────────────────────────
 // Stripe (clé publique chargée dynamiquement depuis la DB)
@@ -113,20 +128,21 @@ interface Carrier {
 
 import { resolveVatRate, isDomTom, isEuNonFrance, EU_COUNTRIES } from "@/lib/vat";
 
-function getTvaLabel(rate: number, address: Address | null, isPickup: boolean, vatExempt: boolean): string {
+type TvaT = (key: string) => string;
+
+function getTvaLabel(rate: number, address: Address | null, isPickup: boolean, vatExempt: boolean, t: TvaT): string {
   if (!address) {
-    // Pas d'adresse renseignée : seul le retrait permet de fixer un taux (20 % FR).
     if (isPickup) return "20 %";
-    return "Calculée après sélection de l'adresse";
+    return t("tvaCalculatedAfter");
   }
   const country = address.country;
   if (rate === 0) {
-    if (isDomTom(country)) return "0 % (DOM-TOM)";
-    if (isEuNonFrance(country) && vatExempt) return "0 % (auto-liquidation — TVA validée)";
-    if (!EU_COUNTRIES.has(country)) return "0 % (exportation hors UE)";
+    if (isDomTom(country)) return t("tvaDomTom");
+    if (isEuNonFrance(country) && vatExempt) return t("tvaReverseCharge");
+    if (!EU_COUNTRIES.has(country)) return t("tvaExportNonEu");
   }
   if (rate > 0 && isEuNonFrance(country) && !vatExempt) {
-    return "20 % (TVA non encore validée par notre équipe)";
+    return t("tvaPendingValidation");
   }
   return `${(rate * 100).toFixed(0)} %`;
 }
@@ -148,10 +164,11 @@ function computeUnitPrice(v: VariantData): number {
 // ─────────────────────────────────────────────
 
 function CheckoutStepper({ currentStep }: { currentStep: number }) {
+  const t = useTranslations("cart");
   const steps = [
-    { label: "Panier", href: "/panier" },
-    { label: "Commande", href: "/panier/commande" },
-    { label: "Confirmation", href: null },
+    { label: t("stepCart"), href: "/panier" },
+    { label: t("stepCheckout"), href: "/panier/commande" },
+    { label: t("stepConfirmation"), href: null },
   ];
 
   return (
@@ -238,43 +255,17 @@ function SectionHeader({ step, title, complete, children }: {
 // Composants petits
 // ─────────────────────────────────────────────
 
-const EU_COUNTRY_OPTIONS = [
-  { code: "FR", label: "France" },
-  { code: "BE", label: "Belgique" },
-  { code: "LU", label: "Luxembourg" },
-  { code: "CH", label: "Suisse" },
-  { code: "DE", label: "Allemagne" },
-  { code: "ES", label: "Espagne" },
-  { code: "IT", label: "Italie" },
-  { code: "NL", label: "Pays-Bas" },
-  { code: "PT", label: "Portugal" },
-  { code: "AT", label: "Autriche" },
-  { code: "PL", label: "Pologne" },
-  { code: "SE", label: "Suède" },
-  { code: "DK", label: "Danemark" },
-  { code: "FI", label: "Finlande" },
-  { code: "IE", label: "Irlande" },
-  { code: "CZ", label: "République tchèque" },
-  { code: "RO", label: "Roumanie" },
-  { code: "HU", label: "Hongrie" },
-  { code: "GR", label: "Grèce" },
-  { code: "US", label: "États-Unis" },
-  { code: "GB", label: "Royaume-Uni" },
-  { code: "CA", label: "Canada" },
-  { code: "AU", label: "Australie" },
-  { code: "JP", label: "Japon" },
-];
-
 function FieldInput({
   id, label, value, onChange, type = "text", placeholder, required = false, optional = false,
 }: {
   id: string; label: string; value: string; onChange: (v: string) => void;
   type?: string; placeholder?: string; required?: boolean; optional?: boolean;
 }) {
+  const t = useTranslations("checkout");
   return (
     <div>
       <label htmlFor={id} className="block text-sm font-body font-medium text-text-primary mb-1.5">
-        {label}{optional && <span className="text-text-muted font-normal ml-1">(optionnel)</span>}
+        {label}{optional && <span className="text-text-muted font-normal ml-1">{t("fieldOptional")}</span>}
         {required && <span className="text-text-primary ml-0.5">*</span>}
       </label>
       <input
@@ -311,6 +302,9 @@ function AddressForm({
   onCancel: () => void;
   isSaving: boolean;
 }) {
+  const t = useTranslations("checkout");
+  const tCommon = useTranslations("common");
+  const countryOptions = useCountryOptions();
   const [f, setF] = useState({ ...EMPTY_ADDR, ...initial });
   const [isDefault, setIsDefault] = useState(initialIsDefault);
 
@@ -324,41 +318,41 @@ function AddressForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <FieldInput id="addr-fn" label="Prénom" value={f.firstName} onChange={set("firstName")} required />
-        <FieldInput id="addr-ln" label="Nom" value={f.lastName} onChange={set("lastName")} required />
+        <FieldInput id="addr-fn" label={t("addressFirstName")} value={f.firstName} onChange={set("firstName")} required />
+        <FieldInput id="addr-ln" label={t("addressLastName")} value={f.lastName} onChange={set("lastName")} required />
       </div>
-      <FieldInput id="addr-co" label="Société" value={f.company} onChange={set("company")} optional />
-      <FieldInput id="addr-a1" label="Adresse" value={f.address1} onChange={set("address1")} placeholder="12 rue des Fleurs" required />
-      <FieldInput id="addr-a2" label="Complément" value={f.address2} onChange={set("address2")} optional placeholder="Bât. A, porte 3" />
+      <FieldInput id="addr-co" label={t("addressCompany")} value={f.company} onChange={set("company")} optional />
+      <FieldInput id="addr-a1" label={t("addressLine1")} value={f.address1} onChange={set("address1")} placeholder={t("addressLine1Placeholder")} required />
+      <FieldInput id="addr-a2" label={t("addressLine2")} value={f.address2} onChange={set("address2")} optional placeholder={t("addressLine2Placeholder")} />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <FieldInput id="addr-zip" label="Code postal" value={f.zipCode} onChange={set("zipCode")} required />
-        <FieldInput id="addr-city" label="Ville" value={f.city} onChange={set("city")} required />
+        <FieldInput id="addr-zip" label={t("addressZipCode")} value={f.zipCode} onChange={set("zipCode")} required />
+        <FieldInput id="addr-city" label={t("addressCity")} value={f.city} onChange={set("city")} required />
       </div>
       <div>
         <label htmlFor="addr-country" className="block text-sm font-body font-medium text-text-primary mb-1.5">
-          Pays <span className="text-text-primary">*</span>
+          {t("addressCountry")} <span className="text-text-primary">*</span>
         </label>
         <CustomSelect
           id="addr-country"
           value={f.country}
           onChange={(v) => set("country")(v)}
-          options={EU_COUNTRY_OPTIONS.map((c) => ({ value: c.code, label: c.label }))}
+          options={countryOptions.map((c) => ({ value: c.code, label: c.label }))}
         />
       </div>
-      <FieldInput id="addr-phone" label="Téléphone" value={f.phone} onChange={set("phone")} type="tel" optional placeholder="0612345678" />
+      <FieldInput id="addr-phone" label={t("addressPhone")} value={f.phone} onChange={set("phone")} type="tel" optional placeholder={t("phonePlaceholder")} />
       <label className="flex items-center gap-2 text-sm font-body text-text-primary cursor-pointer">
         <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)}
           className="accent-text-primary w-4 h-4" />
-        Définir comme adresse par défaut
+        {t("defineAsDefault")}
       </label>
       <div className="flex gap-3 pt-1">
         <button type="submit" disabled={isSaving}
           className="btn-primary flex-1 justify-center disabled:opacity-60">
-          {isSaving ? "Enregistrement…" : isEditing ? "Mettre à jour l'adresse" : "Enregistrer l'adresse"}
+          {isSaving ? t("saving") : isEditing ? t("updateAddressBtn") : t("saveAddressBtn")}
         </button>
         <button type="button" onClick={onCancel}
           className="btn-secondary px-4 py-2 text-sm">
-          Annuler
+          {tCommon("cancel")}
         </button>
       </div>
     </form>
@@ -374,6 +368,7 @@ function CarrierCard({
 }: {
   carrier: Carrier; selected: boolean; onClick: () => void;
 }) {
+  const t = useTranslations("checkout");
   return (
     <button
       type="button"
@@ -398,7 +393,7 @@ function CarrierCard({
         </p>
       </div>
       <p className="font-heading font-semibold text-sm text-text-primary shrink-0">
-        {carrier.price === 0 ? "Gratuit" : `${carrier.price.toFixed(2)} €`}
+        {carrier.price === 0 ? t("free") : `${carrier.price.toFixed(2)} €`}
       </p>
     </button>
   );
@@ -435,6 +430,7 @@ function StripePaymentForm({
   disabled: boolean;
   clientSecret: string;
 }) {
+  const t = useTranslations("checkout");
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
@@ -453,7 +449,7 @@ function StripePaymentForm({
 
     const cardElement = elements.getElement(CardNumberElement);
     if (!cardElement) {
-      onError("Erreur d'initialisation du formulaire de paiement.");
+      onError(t("paymentInitError"));
       setProcessing(false);
       return;
     }
@@ -464,12 +460,12 @@ function StripePaymentForm({
     );
 
     if (error) {
-      onError(error.message ?? "Erreur lors du paiement.");
+      onError(error.message ?? t("paymentError"));
       setProcessing(false);
     } else if (paymentIntent && paymentIntent.status === "succeeded") {
       onSuccess(paymentIntent.id);
     } else {
-      onError("Le paiement n'a pas abouti. Veuillez réessayer.");
+      onError(t("paymentNotCompleted"));
       setProcessing(false);
     }
   }
@@ -511,7 +507,7 @@ function StripePaymentForm({
         {/* Card number */}
         <div>
           <label className="flex items-center justify-between mb-2">
-            <span className="text-[0.8rem] font-medium text-text-secondary font-body">Numéro de carte</span>
+            <span className="text-[0.8rem] font-medium text-text-secondary font-body">{t("cardNumber")}</span>
             <div className="flex items-center gap-1.5">
               {/* Brand logos always visible, active one highlighted */}
               <span className={`transition-opacity duration-200 ${cardBrand === "visa" ? "opacity-100" : "opacity-30"}`}>
@@ -544,7 +540,7 @@ function StripePaymentForm({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-[0.8rem] font-medium text-text-secondary font-body mb-2 block">
-              Date d&apos;expiration
+              {t("expiryDate")}
             </label>
             <div className={`${fieldBaseClass} ${focused === "expiry" ? fieldFocusClass : fieldIdleClass}`}>
               <CardExpiryElement
@@ -563,7 +559,7 @@ function StripePaymentForm({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M12 18h.01" />
                 </svg>
                 <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 bg-bg-dark text-white text-[10px] rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none font-body">
-                  3 chiffres au dos de la carte
+                  {t("cvcTooltip")}
                 </span>
               </span>
             </label>
@@ -584,7 +580,7 @@ function StripePaymentForm({
         <svg className="w-3.5 h-3.5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
         </svg>
-        <span className="text-[11px] text-text-muted font-body">Paiement sécurisé — chiffrement SSL 256 bits</span>
+        <span className="text-[11px] text-text-muted font-body">{t("paymentSecureLong")}</span>
       </div>
 
       {/* Submit button */}
@@ -596,7 +592,7 @@ function StripePaymentForm({
         {processing ? (
           <>
             <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            Paiement en cours…
+            {t("paymentInProgress")}
           </>
         ) : (
           <>
@@ -604,7 +600,7 @@ function StripePaymentForm({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
             </svg>
-            Confirmer et payer
+            {t("confirmAndPay")}
           </>
         )}
       </button>
@@ -628,6 +624,10 @@ export default function CheckoutClient({
   clientDiscount?: ClientDiscount;
 }) {
   const router = useRouter();
+  const t = useTranslations("checkout");
+  const tCommon = useTranslations("common");
+  const locale = useLocale();
+  const countryOptions = useCountryOptions();
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const [orderError, setOrderError] = useState("");
@@ -694,9 +694,9 @@ export default function CheckoutClient({
   const [noCarrierConfigured, setNoCarrierConfigured] = useState(false);
   const [parcelCount, setParcelCount]             = useState<number>(0);
   const selectedCarrier = deliveryMode === "pickup"
-    ? { id: "pickup_store", name: "Retrait en boutique", price: 0, delay: "" }
+    ? { id: "pickup_store", name: t("modePickup"), price: 0, delay: "" }
     : deliveryMode === "private"
-      ? { id: "private_carrier", name: "Transporteur privé", price: 0, delay: "" }
+      ? { id: "private_carrier", name: t("modePrivate"), price: 0, delay: "" }
       : (carriers.find((c) => c.id === selectedCarrierId) ?? null);
 
   // TVA — règles unifiées (lib/vat) :
@@ -710,7 +710,7 @@ export default function CheckoutClient({
     isPickup,
     vatExempt: user.vatExempt,
   });
-  const tvaLabel = getTvaLabel(tvaRate, selectedAddr, isPickup, user.vatExempt);
+  const tvaLabel = getTvaLabel(tvaRate, selectedAddr, isPickup, user.vatExempt, t);
 
   // Totaux
   const subtotalHT = cart.items.reduce(
@@ -770,7 +770,7 @@ export default function CheckoutClient({
           if (data.noCarrierConfigured) setNoCarrierConfigured(true);
         }
       })
-      .catch((err) => { if (err.name !== "AbortError") setCarriersError("Impossible de charger les transporteurs."); })
+      .catch((err) => { if (err.name !== "AbortError") setCarriersError(t("carriersFetchError")); })
       .finally(() => setCarriersLoading(false));
 
     return () => controller.abort();
@@ -851,7 +851,7 @@ export default function CheckoutClient({
     startTransition(async () => {
       try {
         const saved = await saveShippingAddress({
-          label: `Facturation — ${billingInfo.city}`,
+          label: `${t("billingTitle")} — ${billingInfo.city}`,
           firstName: billingInfo.firstName,
           lastName:  billingInfo.lastName,
           company:   billingInfo.company,
@@ -922,7 +922,7 @@ export default function CheckoutClient({
         setBordereauError(result.error);
       }
     } catch {
-      setBordereauError("Impossible d'envoyer le bordereau.");
+      setBordereauError(t("uploadBordereauError"));
     } finally {
       setBordereauUploading(false);
     }
@@ -1022,7 +1022,7 @@ export default function CheckoutClient({
         setPaymentIntentId(data.paymentIntentId);
       }
     } catch {
-      setStripeError("Impossible d'initialiser le paiement.");
+      setStripeError(t("paymentInitFailed"));
     } finally {
       setStripeLoading(false);
     }
@@ -1098,10 +1098,10 @@ export default function CheckoutClient({
       <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="font-heading text-2xl md:text-3xl font-bold text-text-primary">
-            Finaliser la commande
+            {t("finalize")}
           </h1>
           <p className="text-sm font-body text-text-secondary mt-1">
-            Vérifiez vos informations et choisissez votre mode de livraison.
+            {t("finalizeDesc")}
           </p>
         </div>
         <Link href="/panier"
@@ -1109,7 +1109,7 @@ export default function CheckoutClient({
           <svg className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
           </svg>
-          Retour au panier
+          {t("backToCart")}
         </Link>
       </div>
 
@@ -1120,27 +1120,27 @@ export default function CheckoutClient({
 
           {/* ── 1. Adresse de facturation ── */}
           <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
-            <SectionHeader step={1} title="Adresse de facturation" complete={section1Complete}>
+            <SectionHeader step={1} title={t("billingTitle")} complete={section1Complete}>
               <button type="button" onClick={() => setEditingInfo((v) => !v)}
                 className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors">
-                {editingInfo ? "Fermer" : "Modifier"}
+                {editingInfo ? t("close") : t("edit")}
               </button>
             </SectionHeader>
 
             {editingInfo ? (
               <div className="p-5 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <FieldInput id="bi-fn" label="Prénom" value={billingInfo.firstName} onChange={(v) => setBillingInfo((p) => ({ ...p, firstName: v }))} required />
-                  <FieldInput id="bi-ln" label="Nom" value={billingInfo.lastName} onChange={(v) => setBillingInfo((p) => ({ ...p, lastName: v }))} required />
+                  <FieldInput id="bi-fn" label={t("addressFirstName")} value={billingInfo.firstName} onChange={(v) => setBillingInfo((p) => ({ ...p, firstName: v }))} required />
+                  <FieldInput id="bi-ln" label={t("addressLastName")} value={billingInfo.lastName} onChange={(v) => setBillingInfo((p) => ({ ...p, lastName: v }))} required />
                 </div>
-                <FieldInput id="bi-co" label="Société" value={billingInfo.company} onChange={(v) => setBillingInfo((p) => ({ ...p, company: v }))} required />
+                <FieldInput id="bi-co" label={t("addressCompany")} value={billingInfo.company} onChange={(v) => setBillingInfo((p) => ({ ...p, company: v }))} required />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <FieldInput id="bi-email" label="Email" value={billingInfo.email} onChange={(v) => setBillingInfo((p) => ({ ...p, email: v }))} type="email" required />
-                  <FieldInput id="bi-phone" label="Téléphone" value={billingInfo.phone} onChange={(v) => setBillingInfo((p) => ({ ...p, phone: v }))} type="tel" required />
+                  <FieldInput id="bi-email" label={t("billingEmail")} value={billingInfo.email} onChange={(v) => setBillingInfo((p) => ({ ...p, email: v }))} type="email" required />
+                  <FieldInput id="bi-phone" label={t("addressPhone")} value={billingInfo.phone} onChange={(v) => setBillingInfo((p) => ({ ...p, phone: v }))} type="tel" required />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-body font-medium text-text-primary mb-1.5">SIRET</label>
+                    <label className="block text-sm font-body font-medium text-text-primary mb-1.5">{t("billingSiret")}</label>
                     <input
                       type="text"
                       value={billingInfo.siret}
@@ -1150,29 +1150,29 @@ export default function CheckoutClient({
                   </div>
                   <FieldInput
                     id="bi-vat"
-                    label="N° TVA intracommunautaire"
+                    label={t("vatNumber")}
                     value={billingInfo.vatNumber}
                     onChange={(v) => setBillingInfo((p) => ({ ...p, vatNumber: v.toUpperCase() }))}
                     optional
-                    placeholder="FR12345678901"
+                    placeholder={t("vatPlaceholder")}
                   />
                 </div>
                 <div className="border-t border-border pt-4 mt-2">
-                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body mb-3">Adresse</p>
+                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body mb-3">{t("addressLabelShort")}</p>
                   <div className="space-y-4">
-                    <FieldInput id="bi-a1" label="Adresse" value={billingInfo.address1} onChange={(v) => setBillingInfo((p) => ({ ...p, address1: v }))} placeholder="12 rue des Fleurs" />
-                    <FieldInput id="bi-a2" label="Complément" value={billingInfo.address2} onChange={(v) => setBillingInfo((p) => ({ ...p, address2: v }))} optional placeholder="Bât. A, porte 3" />
+                    <FieldInput id="bi-a1" label={t("addressLine1")} value={billingInfo.address1} onChange={(v) => setBillingInfo((p) => ({ ...p, address1: v }))} placeholder={t("addressLine1Placeholder")} />
+                    <FieldInput id="bi-a2" label={t("addressLine2")} value={billingInfo.address2} onChange={(v) => setBillingInfo((p) => ({ ...p, address2: v }))} optional placeholder={t("addressLine2Placeholder")} />
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <FieldInput id="bi-zip" label="Code postal" value={billingInfo.zipCode} onChange={(v) => setBillingInfo((p) => ({ ...p, zipCode: v }))} />
-                      <FieldInput id="bi-city" label="Ville" value={billingInfo.city} onChange={(v) => setBillingInfo((p) => ({ ...p, city: v }))} />
+                      <FieldInput id="bi-zip" label={t("addressZipCode")} value={billingInfo.zipCode} onChange={(v) => setBillingInfo((p) => ({ ...p, zipCode: v }))} />
+                      <FieldInput id="bi-city" label={t("addressCity")} value={billingInfo.city} onChange={(v) => setBillingInfo((p) => ({ ...p, city: v }))} />
                     </div>
                     <div>
-                      <label htmlFor="bi-country" className="block text-sm font-body font-medium text-text-primary mb-1.5">Pays</label>
+                      <label htmlFor="bi-country" className="block text-sm font-body font-medium text-text-primary mb-1.5">{t("addressCountry")}</label>
                       <CustomSelect
                         id="bi-country"
                         value={billingInfo.country}
                         onChange={(v) => setBillingInfo((p) => ({ ...p, country: v }))}
-                        options={EU_COUNTRY_OPTIONS.map((c) => ({ value: c.code, label: c.label }))}
+                        options={countryOptions.map((c) => ({ value: c.code, label: c.label }))}
                       />
                     </div>
                   </div>
@@ -1184,36 +1184,36 @@ export default function CheckoutClient({
                 )}
                 <div className="flex gap-3">
                   <button type="button" onClick={handleSaveBilling} disabled={isPending} className="btn-primary text-sm disabled:opacity-60">
-                    {isPending ? "Enregistrement…" : "Enregistrer"}
+                    {isPending ? t("saving") : t("save")}
                   </button>
                   <button type="button" onClick={() => { setEditingInfo(false); setBillingError(""); }} className="btn-secondary text-sm">
-                    Annuler
+                    {tCommon("cancel")}
                   </button>
                 </div>
               </div>
             ) : (
               <div className="p-5 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm font-body">
-                  <InfoLine label="Société"   value={billingInfo.company} />
-                  <InfoLine label="Contact"   value={`${billingInfo.firstName} ${billingInfo.lastName}`} />
-                  <InfoLine label="Email"     value={billingInfo.email} />
-                  <InfoLine label="Téléphone" value={billingInfo.phone} />
-                  <InfoLine label="SIRET"     value={billingInfo.siret} mono />
-                  <InfoLine label="N° TVA"    value={billingInfo.vatNumber || "—"} mono />
+                  <InfoLine label={t("addressCompany")} value={billingInfo.company} />
+                  <InfoLine label={t("contact")}        value={`${billingInfo.firstName} ${billingInfo.lastName}`} />
+                  <InfoLine label={t("billingEmail")}   value={billingInfo.email} />
+                  <InfoLine label={t("addressPhone")}   value={billingInfo.phone} />
+                  <InfoLine label={t("billingSiret")}   value={billingInfo.siret} mono />
+                  <InfoLine label={t("vatNumberShort")} value={billingInfo.vatNumber || "—"} mono />
                 </div>
                 <div className="border-t border-border pt-3">
-                  <p className="text-xs font-semibold text-text-muted uppercase tracking-wider font-body mb-1">Adresse</p>
+                  <p className="text-xs font-semibold text-text-muted uppercase tracking-wider font-body mb-1">{t("addressLabelShort")}</p>
                   {billingInfo.address1 ? (
                     <>
                       <p className="text-sm text-text-primary font-body">
                         {billingInfo.address1}{billingInfo.address2 ? `, ${billingInfo.address2}` : ""}
                       </p>
                       <p className="text-sm text-text-secondary font-body">
-                        {billingInfo.zipCode} {billingInfo.city}, {EU_COUNTRY_OPTIONS.find((c) => c.code === billingInfo.country)?.label ?? billingInfo.country}
+                        {billingInfo.zipCode} {billingInfo.city}, {countryOptions.find((c) => c.code === billingInfo.country)?.label ?? billingInfo.country}
                       </p>
                     </>
                   ) : (
-                    <p className="text-sm text-text-muted font-body italic">Aucune adresse renseignée — cliquez sur Modifier pour l&apos;ajouter.</p>
+                    <p className="text-sm text-text-muted font-body italic">{t("noBillingAddress")}</p>
                   )}
                 </div>
               </div>
@@ -1222,14 +1222,14 @@ export default function CheckoutClient({
 
           {/* ── 2. Adresse de livraison ── */}
           <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
-            <SectionHeader step={2} title="Adresse de livraison" complete={section2Complete}>
+            <SectionHeader step={2} title={t("shippingAddressTitle")} complete={section2Complete}>
               {!showAddressForm && (
                 <button type="button" onClick={() => { setEditingAddrId(null); setShowAddressForm(true); }}
                   className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1.5">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
                   </svg>
-                  Nouvelle adresse
+                  {t("newAddress")}
                 </button>
               )}
             </SectionHeader>
@@ -1249,7 +1249,7 @@ export default function CheckoutClient({
                   />
                   <div className="min-w-0">
                     <p className="font-semibold text-text-primary">
-                      Livrer à mon adresse de facturation
+                      {t("billToBilling")}
                     </p>
                     <p className="text-xs text-text-secondary mt-0.5">
                       {billingInfo.address1}{billingInfo.address2 ? `, ${billingInfo.address2}` : ""} — {billingInfo.zipCode} {billingInfo.city}
@@ -1283,7 +1283,7 @@ export default function CheckoutClient({
                           {addr.firstName} {addr.lastName}
                           {addr.isDefault && (
                             <span className="ml-2 text-[10px] font-normal bg-bg-secondary text-text-secondary px-1.5 py-0.5 rounded-full">
-                              Par défaut
+                              {t("defaultBadge")}
                             </span>
                           )}
                         </p>
@@ -1306,7 +1306,7 @@ export default function CheckoutClient({
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                       </svg>
-                      Modifier
+                      {t("edit")}
                     </button>
                     <button
                       type="button"
@@ -1317,7 +1317,7 @@ export default function CheckoutClient({
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                       </svg>
-                      Supprimer
+                      {t("delete")}
                     </button>
                   </div>
                 </div>
@@ -1332,7 +1332,7 @@ export default function CheckoutClient({
                     return (
                       <>
                         <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body">
-                          Modifier l&apos;adresse
+                          {t("editAddressTitle")}
                         </p>
                         <AddressForm
                           isEditing
@@ -1366,7 +1366,7 @@ export default function CheckoutClient({
 
               {addresses.length === 0 && !showAddressForm && (
                 <p className="text-sm text-text-muted font-body text-center py-4">
-                  Aucune adresse enregistrée.
+                  {t("noAddress")}
                 </p>
               )}
             </div>
@@ -1374,7 +1374,7 @@ export default function CheckoutClient({
 
           {/* ── 3. Mode de livraison ── */}
           <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
-            <SectionHeader step={3} title="Mode de livraison" complete={section3Complete} />
+            <SectionHeader step={3} title={t("deliveryModeTitle")} complete={section3Complete} />
             <div className="p-5 space-y-4">
               {/* Choix livraison / retrait / transporteur privé */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1392,7 +1392,7 @@ export default function CheckoutClient({
                       d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0H21M3.375 14.25h3.75L8.25 9.75H3.375m0 4.5V5.625c0-.621.504-1.125 1.125-1.125h9.75c.621 0 1.125.504 1.125 1.125v4.125m-13.5 4.5h13.5m0 0l1.125-4.5h2.25c.621 0 1.125.504 1.125 1.125v3.375" />
                   </svg>
                   <span className="text-sm font-body font-semibold text-text-primary">
-                    Livraison
+                    {t("modeDelivery")}
                   </span>
                 </button>
                 <button
@@ -1409,7 +1409,7 @@ export default function CheckoutClient({
                       d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016A3.001 3.001 0 0021 9.349m-18 0a2.999 2.999 0 00.97-1.599L5.03 3.75h13.94l1.06 4A2.999 2.999 0 003 9.349" />
                   </svg>
                   <span className="text-sm font-body font-semibold text-text-primary">
-                    Retrait en boutique
+                    {t("modePickup")}
                   </span>
                 </button>
                 <button
@@ -1426,7 +1426,7 @@ export default function CheckoutClient({
                       d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
                   </svg>
                   <span className="text-sm font-body font-semibold text-text-primary">
-                    Transporteur privé
+                    {t("modePrivate")}
                   </span>
                 </button>
               </div>
@@ -1443,10 +1443,10 @@ export default function CheckoutClient({
                     </svg>
                     <div>
                       <p className="text-sm font-body font-semibold text-text-primary">
-                        Retrait gratuit en boutique
+                        {t("pickupFreeTitle")}
                       </p>
                       <p className="text-xs text-text-secondary font-body mt-1">
-                        Vous serez notifié par email lorsque votre commande sera prête à retirer.
+                        {t("pickupFreeDesc")}
                       </p>
                     </div>
                   </div>
@@ -1463,10 +1463,10 @@ export default function CheckoutClient({
                       </svg>
                       <div>
                         <p className="text-sm font-body font-semibold text-text-primary">
-                          Vous gérez vous-même l&apos;expédition
+                          {t("privateSelfTitle")}
                         </p>
                         <p className="text-xs text-text-secondary font-body mt-1">
-                          Aucun frais de port ne sera ajouté à votre commande. Indiquez-nous comment contacter votre transporteur, ou joignez directement votre bordereau d&apos;expédition.
+                          {t("privateSelfDesc")}
                         </p>
                       </div>
                     </div>
@@ -1488,7 +1488,7 @@ export default function CheckoutClient({
                       }`}>
                         {privateMode === "contact" && <div className="w-2 h-2 rounded-full bg-text-primary" />}
                       </div>
-                      Contacter mon transporteur
+                      {t("privateContactMode")}
                     </button>
                     <button
                       type="button"
@@ -1504,7 +1504,7 @@ export default function CheckoutClient({
                       }`}>
                         {privateMode === "bordereau" && <div className="w-2 h-2 rounded-full bg-text-primary" />}
                       </div>
-                      J&apos;ai déjà un bordereau
+                      {t("privateBordereauMode")}
                     </button>
                   </div>
 
@@ -1512,12 +1512,12 @@ export default function CheckoutClient({
                   {privateMode === "contact" && (
                     <div className="space-y-4 border border-border rounded-xl p-4 bg-bg-primary">
                       <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body">
-                        Coordonnées du transporteur
+                        {t("carrierContactTitle")}
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <FieldInput
                           id="pc-email"
-                          label="Email du transporteur"
+                          label={t("carrierEmail")}
                           value={privateCarrierEmail}
                           onChange={setPrivateCarrierEmail}
                           type="email"
@@ -1526,16 +1526,16 @@ export default function CheckoutClient({
                         />
                         <FieldInput
                           id="pc-phone"
-                          label="Téléphone du transporteur"
+                          label={t("carrierPhone")}
                           value={privateCarrierPhone}
                           onChange={setPrivateCarrierPhone}
                           type="tel"
-                          placeholder="0612345678"
+                          placeholder={t("phonePlaceholder")}
                           required
                         />
                       </div>
                       <p className="text-xs text-text-muted font-body">
-                        Notre équipe contactera votre transporteur dès la commande validée pour organiser le retrait.
+                        {t("carrierContactNotice")}
                       </p>
                     </div>
                   )}
@@ -1544,7 +1544,7 @@ export default function CheckoutClient({
                   {privateMode === "bordereau" && (
                     <div className="space-y-3 border border-border rounded-xl p-4 bg-bg-primary">
                       <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body">
-                        Bordereau d&apos;expédition
+                        {t("bordereauTitle")}
                       </p>
                       {bordereauPath ? (
                         <div className="flex items-center justify-between gap-3 p-3 bg-bg-secondary border border-border rounded-lg">
@@ -1553,7 +1553,7 @@ export default function CheckoutClient({
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                             <p className="text-sm font-body text-text-primary truncate">
-                              {bordereauName || "Bordereau enregistré"}
+                              {bordereauName || t("bordereauSaved")}
                             </p>
                           </div>
                           <button
@@ -1561,7 +1561,7 @@ export default function CheckoutClient({
                             onClick={() => { setBordereauPath(null); setBordereauName(""); setBordereauError(""); }}
                             className="text-xs text-text-muted hover:text-error font-body transition-colors shrink-0"
                           >
-                            Remplacer
+                            {t("replace")}
                           </button>
                         </div>
                       ) : (
@@ -1587,7 +1587,7 @@ export default function CheckoutClient({
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                               </svg>
-                              <span className="text-sm font-body text-text-muted">Envoi en cours…</span>
+                              <span className="text-sm font-body text-text-muted">{t("uploadingBordereau")}</span>
                             </>
                           ) : (
                             <>
@@ -1595,10 +1595,10 @@ export default function CheckoutClient({
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                               </svg>
                               <span className="text-sm font-body font-medium text-text-primary">
-                                Déposer un fichier
+                                {t("uploadDrop")}
                               </span>
                               <span className="text-xs text-text-muted font-body">
-                                PDF, JPG ou PNG — 5 Mo max
+                                {t("uploadFormatsBordereau")}
                               </span>
                             </>
                           )}
@@ -1617,7 +1617,7 @@ export default function CheckoutClient({
                 <div className="space-y-3">
                   {!selectedAddr && (
                     <p className="text-sm text-text-muted font-body text-center py-3">
-                      Sélectionnez une adresse de livraison pour voir les transporteurs disponibles.
+                      {t("selectAddressFirst")}
                     </p>
                   )}
 
@@ -1627,7 +1627,7 @@ export default function CheckoutClient({
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
-                      <span className="text-sm font-body">Chargement des transporteurs…</span>
+                      <span className="text-sm font-body">{t("carriersLoadingShort")}</span>
                     </div>
                   )}
 
@@ -1640,8 +1640,8 @@ export default function CheckoutClient({
                   {selectedAddr && !carriersLoading && !carriersError && carriers.length === 0 && (
                     <div className={`text-sm font-body text-center py-3 ${noCarrierConfigured ? "bg-[#FEF3C7] border border-[#FDE68A] text-[#92400E] px-4 rounded-lg" : "text-text-muted"}`}>
                       {noCarrierConfigured
-                        ? "Aucun transporteur disponible, veuillez contacter le personnel du site."
-                        : "Aucun transporteur disponible pour cette adresse."}
+                        ? t("noCarriersConfigured")
+                        : t("noCarriersAvailable")}
                     </div>
                   )}
 
@@ -1652,11 +1652,7 @@ export default function CheckoutClient({
                         <path strokeLinecap="round" strokeLinejoin="round" d="m3.27 6.96 8.73 5.04 8.73-5.04M12 22V12" />
                       </svg>
                       <span>
-                        Votre commande sera expédiée en{" "}
-                        <strong className="text-text-primary font-medium">
-                          {parcelCount} colis ({totalWeightKg.toFixed(1)} kg au total)
-                        </strong>
-                        {" "}— les transporteurs ci-dessous tiennent déjà compte du nombre de colis dans leur tarif.
+                        {t("multipleParcelsInfo", { count: parcelCount, weight: totalWeightKg.toFixed(1) })}
                       </span>
                     </div>
                   )}
@@ -1715,7 +1711,7 @@ export default function CheckoutClient({
 
 function SummaryPanel({
   cart, computeUnitPrice: computePrice, subtotalHT, clientDiscountAmt, clientDiscount,
-  subtotalAfterDiscount, tvaRate, tvaLabel, tvaAmount, selectedAddr, deliveryMode,
+  subtotalAfterDiscount, tvaLabel, tvaAmount, selectedAddr, deliveryMode,
   selectedCarrier, canProceed, totalTTC, orderError, stripeError, cgvAccepted,
   setCgvAccepted, clientSecret, stripeLoading, handleInitiatePayment,
   handlePaymentSuccess, setStripeError, isPending,
@@ -1745,6 +1741,9 @@ function SummaryPanel({
   setStripeError: (v: string) => void;
   isPending: boolean;
 }) {
+  const t = useTranslations("checkout");
+  const tCart = useTranslations("cart");
+  const locale = useLocale();
   const [mobileOpen, setMobileOpen] = useState(true);
   const itemCount = cart.items.reduce((s, i) => s + i.quantity, 0);
 
@@ -1757,11 +1756,11 @@ function SummaryPanel({
         className="w-full px-5 py-4 border-b border-border-light bg-bg-secondary/50 flex items-center justify-between lg:cursor-default"
       >
         <h3 className="font-heading text-sm font-semibold text-text-primary">
-          Récapitulatif
+          {t("summaryTitle")}
         </h3>
         <div className="flex items-center gap-2">
           <span className="text-xs font-body text-text-muted lg:hidden">
-            {itemCount} article{itemCount !== 1 ? "s" : ""} {canProceed ? `— ${totalTTC.toFixed(2)} \u20AC` : ""}
+            {tCart("categoryItemsCount", { count: itemCount })} {canProceed ? `— ${totalTTC.toFixed(2)} \u20AC` : ""}
           </span>
           <svg className={`w-4 h-4 text-text-muted transition-transform lg:hidden ${mobileOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -1805,7 +1804,7 @@ function SummaryPanel({
             {/* Totaux */}
             <div className="px-5 py-4 space-y-2 text-sm font-body">
               <div className="flex justify-between text-text-secondary">
-                <span>Sous-total HT</span>
+                <span>{t("subtotalHT")}</span>
                 <span className="font-medium text-text-primary">{subtotalHT.toFixed(2)} €</span>
               </div>
 
@@ -1816,7 +1815,7 @@ function SummaryPanel({
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M17 17h.01M7 17h.01M17 7h.01M3 12h18M12 3v18" />
                     </svg>
-                    Remise{clientDiscount?.discountType === "PERCENT" && clientDiscount.discountValue
+                    {t("discount")}{clientDiscount?.discountType === "PERCENT" && clientDiscount.discountValue
                       ? ` (${clientDiscount.discountValue}%)`
                       : ""}
                   </span>
@@ -1826,13 +1825,13 @@ function SummaryPanel({
 
               {clientDiscountAmt > 0 && (
                 <div className="flex justify-between text-text-secondary">
-                  <span>Sous-total après remise</span>
+                  <span>{t("subtotalAfterDiscount")}</span>
                   <span className="font-medium text-text-primary">{subtotalAfterDiscount.toFixed(2)} €</span>
                 </div>
               )}
 
               <div className="flex justify-between text-text-secondary">
-                <span>TVA <span className="text-xs text-text-muted">({tvaLabel})</span></span>
+                <span>{t("tva")} <span className="text-xs text-text-muted">({tvaLabel})</span></span>
                 <span className="font-medium text-text-primary">
                   {selectedAddr ? `${tvaAmount.toFixed(2)} €` : "—"}
                 </span>
@@ -1840,10 +1839,10 @@ function SummaryPanel({
               <div className="flex justify-between text-text-secondary">
                 <span>
                   {deliveryMode === "pickup"
-                    ? "Retrait en boutique"
+                    ? t("modePickup")
                     : deliveryMode === "private"
-                      ? "Transporteur privé"
-                      : "Livraison"}
+                      ? t("modePrivate")
+                      : t("shippingMode")}
                 </span>
                 <span className={`font-medium ${
                   (deliveryMode === "pickup" || deliveryMode === "private" || (clientDiscount?.freeShipping && selectedCarrier))
@@ -1851,17 +1850,17 @@ function SummaryPanel({
                     : "text-text-primary"
                 }`}>
                   {deliveryMode === "pickup" || deliveryMode === "private"
-                    ? "Gratuit"
+                    ? t("free")
                     : selectedCarrier
                       ? (clientDiscount?.freeShipping
-                          ? "Offerte"
-                          : selectedCarrier.price === 0 ? "Gratuit" : `${selectedCarrier.price.toFixed(2)} €`)
+                          ? t("offered")
+                          : selectedCarrier.price === 0 ? t("free") : `${selectedCarrier.price.toFixed(2)} €`)
                       : "—"}
                 </span>
               </div>
 
               <div className="border-t border-border pt-3 flex justify-between items-center mt-2">
-                <span className="font-semibold text-text-primary">Total TTC</span>
+                <span className="font-semibold text-text-primary">{t("totalTTC")}</span>
                 <span className="font-heading font-semibold text-lg text-text-primary">
                   {canProceed ? `${totalTTC.toFixed(2)} €` : "—"}
                 </span>
@@ -1878,7 +1877,7 @@ function SummaryPanel({
 
               {!canProceed && (
                 <p className="text-xs text-text-muted font-body text-center py-2">
-                  Sélectionnez une adresse et un transporteur pour procéder au paiement.
+                  {t("selectAddressCarrierForPayment")}
                 </p>
               )}
 
@@ -1892,14 +1891,15 @@ function SummaryPanel({
                     className="checkbox-custom mt-0.5 shrink-0"
                   />
                   <span className="text-xs text-text-secondary font-body leading-relaxed">
-                    J&apos;ai lu et j&apos;accepte les{" "}
+                    {t("cgvAcceptanceBefore")}
                     <Link href="/cgv" target="_blank" className="text-accent underline hover:text-accent-dark">
-                      Conditions Générales de Vente
-                    </Link>{" "}
-                    et la{" "}
+                      {t("cgvLinkLabel")}
+                    </Link>
+                    {t("cgvAcceptanceMiddle")}
                     <Link href="/confidentialite" target="_blank" className="text-accent underline hover:text-accent-dark">
-                      Politique de confidentialité
-                    </Link>.
+                      {t("privacyLinkLabel")}
+                    </Link>
+                    {t("cgvAcceptanceAfter")}
                   </span>
                 </label>
               )}
@@ -1916,7 +1916,7 @@ function SummaryPanel({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                       d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
                   </svg>
-                  Procéder au paiement — {totalTTC.toFixed(2)} €
+                  {t("proceedToPayment")} — {totalTTC.toFixed(2)} €
                 </button>
               )}
 
@@ -1926,7 +1926,7 @@ function SummaryPanel({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span className="text-xs font-body">Préparation du paiement…</span>
+                  <span className="text-xs font-body">{t("preparingPayment")}</span>
                 </div>
               )}
 
@@ -1934,7 +1934,7 @@ function SummaryPanel({
                 <>
                   <div className="border-t border-border pt-3">
                     <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body mb-3">
-                      Paiement sécurisé
+                      {t("securePayment")}
                     </p>
                   </div>
                   <Elements
@@ -1952,7 +1952,7 @@ function SummaryPanel({
                           borderRadius: "8px",
                         },
                       },
-                      locale: "fr",
+                      locale: locale === "fr" ? "fr" : "en",
                     }}
                   >
                     <StripePaymentForm
@@ -1971,7 +1971,7 @@ function SummaryPanel({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span className="text-xs font-body">Création de la commande…</span>
+                  <span className="text-xs font-body">{t("creatingOrder")}</span>
                 </div>
               )}
 

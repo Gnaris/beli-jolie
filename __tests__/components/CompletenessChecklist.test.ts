@@ -41,7 +41,7 @@ function makeInput(overrides: Partial<ChecklistInput> = {}): ChecklistInput {
   return {
     reference: "BJ-TEST-001",
     name: "Produit test",
-    description: "Description test",
+    description: "Description test suffisamment longue pour la checklist.",
     categoryId: "cat1",
     compositions: [{ compositionId: "comp1", percentage: "100" }],
     variants: [makeVariant()],

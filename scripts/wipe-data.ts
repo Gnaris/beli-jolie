@@ -11,14 +11,11 @@
  * Usage :
  *   npx tsx scripts/wipe-data.ts
  *
- * Une double confirmation interactive est demandee (mot "EFFACER" puis nom de
- * la base) avant la moindre operation destructive.
+ * Aucune confirmation interactive : la commande s'execute immediatement.
  */
 
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
-import * as readline from "node:readline/promises";
-import { stdin, stdout } from "node:process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -67,23 +64,20 @@ export interface PurgeUploadsOptions {
 
 export const UPLOAD_DIRS: string[] = [
   "public/uploads/produits",
-  "public/uploads/products", // legacy
   "public/uploads/collections",
   "public/uploads/motifs-couleurs",
-  "public/uploads/patterns", // legacy
   "public/uploads/banniere",
-  "public/uploads/banner", // legacy
   "public/uploads/catalogues",
-  "public/uploads/catalogs", // legacy
   "public/uploads/bordereaux",
+  "public/uploads/reclamations",
   "public/uploads/temp",
   "private/uploads/kbis",
+  "private/uploads/documents",
   "private/uploads/factures",
-  "private/uploads/invoices", // legacy
+  "private/uploads/avoirs",
   "private/uploads/reclamations",
-  "private/uploads/claims", // legacy
+  "private/uploads/import-jobs",
   "private/uploads/pieces-jointes-email",
-  "private/uploads/email-attachments", // legacy
 ];
 
 // ---------------------------------------------
@@ -477,41 +471,8 @@ async function main() {
   console.log(formatCountReport(report));
   console.log("");
 
-  // 2. Confirmations : interactives par defaut. Le flag --unsafe-yes saute
-  //    les prompts (utile pour un deploiement automatise via SSH/CI ou la
-  //    readline ne fonctionne pas avec un stdin pipe). A n'utiliser que
-  //    quand on sait exactement ce qu'on fait : c'est destructif et non
-  //    reversible sans backup prealable.
-  const skipPrompts = process.argv.includes("--unsafe-yes");
-  if (skipPrompts) {
-    console.log("[--unsafe-yes] Confirmations sautees, lancement immediat.\n");
-  } else {
-    const rl = readline.createInterface({ input: stdin, output: stdout });
-    try {
-      const answer1 = (await rl.question("Pour continuer, tapez exactement EFFACER : ")).trim();
-      if (answer1 !== "EFFACER") {
-        console.log("\nAnnule. Aucune donnee n'a ete modifiee.\n");
-        await prisma.$disconnect();
-        return;
-      }
-
-      // 3. Deuxieme confirmation : nom de base
-      const expectedDb = databaseNameFromUrl(process.env.DATABASE_URL);
-      const dbPrompt = expectedDb
-        ? `Tapez le nom de la base de donnees pour confirmer (${expectedDb}) : `
-        : "Tapez le nom de la base de donnees pour confirmer : ";
-      const answer2 = (await rl.question(dbPrompt)).trim();
-      if (!expectedDb || answer2 !== expectedDb) {
-        console.log("\nAnnule. Le nom de la base ne correspond pas.\n");
-        await prisma.$disconnect();
-        return;
-      }
-    } finally {
-      rl.close();
-    }
-  }
-
-  console.log("\nConfirme. Lancement de l'effacement...\n");
+  // Plus de confirmation interactive : lancement immediat.
+  console.log("Lancement de l'effacement...\n");
 
   // 4. Purge BDD
   console.log("--- Suppression des donnees en base ---");

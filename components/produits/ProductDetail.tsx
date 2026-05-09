@@ -306,15 +306,15 @@ export default function ProductDetail({
     return (
       <div className="flex items-center gap-3">
         <div className="flex items-center border border-border rounded-lg overflow-hidden">
-          <button type="button" aria-label="Diminuer la quantité"
+          <button type="button" aria-label={t("decreaseQuantity")}
             onClick={() => setQuantities((q) => ({ ...q, [v.id]: Math.max(1, (q[v.id] ?? 1) - 1) }))}
             className="w-9 h-10 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
           >−</button>
-          <input type="number" min={1} max={effectiveStock || undefined} value={qty} aria-label="Quantité"
+          <input type="number" min={1} max={effectiveStock || undefined} value={qty} aria-label={t("quantity")}
             onChange={(e) => { const val = parseInt(e.target.value); if (!isNaN(val) && val >= 1) setQuantities((q) => ({ ...q, [v.id]: val })); }}
             className="w-12 h-10 text-center text-sm font-body text-text-primary border-x border-border focus:outline-none bg-bg-primary"
           />
-          <button type="button" aria-label="Augmenter la quantité"
+          <button type="button" aria-label={t("increaseQuantity")}
             onClick={() => setQuantities((q) => ({ ...q, [v.id]: (q[v.id] ?? 1) + 1 }))}
             className="w-9 h-10 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
           >+</button>
@@ -438,17 +438,17 @@ export default function ProductDetail({
               </div>
               <div className="min-w-0">
                 <p className="font-heading text-base font-semibold text-text-primary leading-tight">
-                  Connectez-vous pour voir les prix
+                  {t("loginToSeePrices")}
                 </p>
                 <p className="text-xs text-text-muted font-body mt-0.5">
-                  Réservé aux professionnels validés par notre équipe.
+                  {t("proRestrictedDesc")}
                 </p>
               </div>
               <Link
                 href="/connexion"
                 className="ml-auto shrink-0 text-xs font-body font-semibold bg-bg-dark text-text-inverse px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors"
               >
-                Se connecter
+                {t("signIn")}
               </Link>
             </div>
           )}
@@ -580,20 +580,20 @@ export default function ProductDetail({
               </svg>
             </div>
             <h2 className="font-heading text-lg font-semibold text-text-primary mb-2">
-              Tarifs réservés aux professionnels
+              {t("proPricesReserved")}
             </h2>
             <p className="text-sm text-text-muted font-body mb-5 max-w-md mx-auto">
-              Créez votre compte pour découvrir nos prix grossistes et passer commande en quelques clics.
+              {t("proPricesReservedDesc")}
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Link href="/inscription" className="btn-primary justify-center px-5">
-                Créer un compte pour commander
+                {t("createAccountToOrder")}
               </Link>
               <Link
                 href="/connexion"
                 className="inline-flex items-center justify-center text-sm font-body font-semibold text-text-secondary hover:text-text-primary px-5 py-2.5 rounded-lg border border-border hover:border-text-muted transition-colors"
               >
-                J&apos;ai déjà un compte
+                {t("alreadyHaveAccount")}
               </Link>
             </div>
           </div>

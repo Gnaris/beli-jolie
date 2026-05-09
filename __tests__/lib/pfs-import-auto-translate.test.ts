@@ -63,11 +63,25 @@ const {
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     category: { update: mockCategoryUpdate, create: mockCategoryCreate, findFirst: mockCategoryFindFirst },
-    color: { update: mockColorUpdate, create: mockColorCreate, findUnique: vi.fn().mockResolvedValue({ hex: null }) },
-    size: { update: mockSizeUpdate, create: mockSizeCreate },
-    composition: { update: mockCompositionUpdate, create: mockCompositionCreate },
-    manufacturingCountry: { update: mockCountryUpdate, create: mockCountryCreate, findUnique: mockCountryFindUnique },
-    season: { update: mockSeasonUpdate, create: mockSeasonCreate },
+    color: {
+      update: mockColorUpdate,
+      create: mockColorCreate,
+      findUnique: vi.fn().mockResolvedValue({ hex: null }),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    size: { update: mockSizeUpdate, create: mockSizeCreate, findFirst: vi.fn().mockResolvedValue(null) },
+    composition: {
+      update: mockCompositionUpdate,
+      create: mockCompositionCreate,
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    manufacturingCountry: {
+      update: mockCountryUpdate,
+      create: mockCountryCreate,
+      findUnique: mockCountryFindUnique,
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    season: { update: mockSeasonUpdate, create: mockSeasonCreate, findFirst: vi.fn().mockResolvedValue(null) },
     categoryTranslation: { upsert: mockCategoryTranslationUpsert },
     colorTranslation: { upsert: mockColorTranslationUpsert },
     compositionTranslation: { upsert: mockCompositionTranslationUpsert },

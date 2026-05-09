@@ -3,7 +3,6 @@
 import { useState, useTransition, useRef, useEffect, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import { usePathname as useRawPathname } from "next/navigation";
-import { useRouter } from "@/i18n/navigation";
 import { stripLocalePrefix, detectLocaleInPath } from "@/lib/locale-path";
 
 type Locale = "fr" | "en";
@@ -51,7 +50,6 @@ export default function LanguageSwitcher({ currentLocale }: Props) {
   const [isPending, startTransition] = useTransition();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const router = useRouter();
   const rawPathname = useRawPathname() || "/";
   const pathname = stripLocalePrefix(rawPathname);
   const localeInUrl = detectLocaleInPath(rawPathname);
@@ -106,8 +104,12 @@ export default function LanguageSwitcher({ currentLocale }: Props) {
     setOpen(false);
     if (code === effectiveLocale) return;
     startTransition(() => {
-      // Pousse la même URL en changeant uniquement le préfixe locale
-      router.replace(pathname, { locale: code });
+      // Full navigation forces the root layout (qui charge les messages next-intl)
+      // à se re-rendre avec la nouvelle locale. Sans ça, les composants client
+      // (PublicSidebar, footer…) restent sur l'ancienne locale jusqu'au prochain refresh.
+      const target = `/${code}${pathname || "/"}`;
+      const cleanTarget = target.replace(/\/+/g, "/");
+      window.location.href = cleanTarget + window.location.search + window.location.hash;
     });
   }
 

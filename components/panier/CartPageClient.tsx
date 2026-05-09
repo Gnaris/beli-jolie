@@ -69,10 +69,11 @@ function computeUnitPrice(v: VariantData): number {
 // ─────────────────────────────────────────────
 
 function CheckoutStepper({ currentStep }: { currentStep: number }) {
+  const t = useTranslations("cart");
   const steps = [
-    { label: "Panier", href: "/panier" },
-    { label: "Commande", href: "/panier/commande" },
-    { label: "Confirmation", href: null },
+    { label: t("stepCart"), href: "/panier" },
+    { label: t("stepCheckout"), href: "/panier/commande" },
+    { label: t("stepConfirmation"), href: null },
   ];
 
   return (
@@ -398,22 +399,22 @@ export default function CartPageClient({ cart, minOrderHT, stripeReady = true }:
               </div>
               <div>
                 <p className="font-heading font-semibold text-text-primary text-base mb-1">
-                  Vider le panier ?
+                  {t("clearConfirmTitle")}
                 </p>
                 <p className="text-sm font-body text-text-secondary">
-                  Tous les articles seront supprimés. Cette action est irréversible.
+                  {t("clearConfirmDesc")}
                 </p>
               </div>
               <div className="flex gap-3 w-full mt-1">
                 <button type="button" onClick={() => setShowClearModal(false)} disabled={isPending}
                   className="flex-1 py-2.5 border border-border rounded-lg text-sm font-body text-text-secondary hover:border-text-muted transition-all disabled:opacity-50">
-                  Annuler
+                  {t("cancel")}
                 </button>
                 <button type="button" onClick={handleClearCart} disabled={isPending}
                   className="flex-1 py-2.5 bg-error hover:bg-error/90 rounded-lg text-sm font-body font-medium text-text-inverse transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
                   {isPending ? (
                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : "Vider"}
+                  ) : t("clear")}
                 </button>
               </div>
             </div>
@@ -432,7 +433,7 @@ export default function CartPageClient({ cart, minOrderHT, stripeReady = true }:
                 <h2 className="font-heading text-xs font-semibold text-text-secondary uppercase tracking-wider">
                   {translateCat(category)}
                 </h2>
-                <span className="text-xs text-text-muted font-body ml-auto">{items.length} article{items.length > 1 ? "s" : ""}</span>
+                <span className="text-xs text-text-muted font-body ml-auto">{t("categoryItemsCount", { count: items.length })}</span>
               </div>
               <div className="px-5">
                 {items.map((item) => (
@@ -448,28 +449,28 @@ export default function CartPageClient({ cart, minOrderHT, stripeReady = true }:
           <div className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden">
             {/* En-tête */}
             <div className="px-5 py-4 border-b border-border-light bg-bg-secondary/50">
-              <h3 className="font-heading text-sm font-semibold text-text-primary">Récapitulatif</h3>
+              <h3 className="font-heading text-sm font-semibold text-text-primary">{t("summary")}</h3>
             </div>
 
             <div className="p-5 space-y-4">
               {/* Lignes de prix */}
               <div className="space-y-2.5 text-sm font-body">
                 <div className="flex justify-between">
-                  <span className="text-text-secondary">Sous-total HT</span>
+                  <span className="text-text-secondary">{t("subtotalHT")}</span>
                   <span className="font-semibold text-text-primary tabular-nums">{subtotal.toFixed(2)} €</span>
                 </div>
                 <div className="flex justify-between text-text-muted">
-                  <span>TVA</span>
-                  <span className="text-xs italic">calculée à l&apos;étape suivante</span>
+                  <span>{t("tva")}</span>
+                  <span className="text-xs italic">{t("tvaNextStep")}</span>
                 </div>
                 <div className="flex justify-between text-text-muted">
-                  <span>Livraison</span>
-                  <span className="text-xs italic">calculée à l&apos;étape suivante</span>
+                  <span>{t("shipping")}</span>
+                  <span className="text-xs italic">{t("shippingNextStep")}</span>
                 </div>
               </div>
 
               <div className="border-t border-border-light pt-3 flex justify-between items-baseline">
-                <span className="text-sm font-body font-semibold text-text-primary">Total HT estimé</span>
+                <span className="text-sm font-body font-semibold text-text-primary">{t("estimatedTotal")}</span>
                 <span className="font-heading font-bold text-xl text-text-primary tabular-nums">{subtotal.toFixed(2)} €</span>
               </div>
 
@@ -477,7 +478,7 @@ export default function CartPageClient({ cart, minOrderHT, stripeReady = true }:
               {minOrderHT > 0 && (
                 <div className="space-y-2 pt-1">
                   <div className="flex justify-between text-xs font-body">
-                    <span className="text-text-muted">Minimum d&apos;achat HT</span>
+                    <span className="text-text-muted">{t("minOrderLabel")}</span>
                     <span className={`font-semibold tabular-nums ${minReached ? "text-success" : "text-text-secondary"}`}>
                       {subtotal.toFixed(2)} / {minOrderHT.toFixed(2)} €
                     </span>
@@ -497,7 +498,7 @@ export default function CartPageClient({ cart, minOrderHT, stripeReady = true }:
                       <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                       </svg>
-                      Encore {(minOrderHT - subtotal).toFixed(2)} € pour atteindre le minimum
+                      {t("minOrderRemaining", { remaining: (minOrderHT - subtotal).toFixed(2) })}
                     </p>
                   )}
                 </div>
@@ -509,7 +510,7 @@ export default function CartPageClient({ cart, minOrderHT, stripeReady = true }:
                   <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                   </svg>
-                  <span>Montant minimum de <strong>{minOrderHT.toFixed(2)} € HT</strong> non atteint.</span>
+                  <span>{t("minNotReachedShort", { min: minOrderHT.toFixed(2) })}</span>
                 </div>
               )}
 
@@ -518,7 +519,7 @@ export default function CartPageClient({ cart, minOrderHT, stripeReady = true }:
                   <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                   </svg>
-                  <span>Aucun moyen de paiement n&apos;est disponible. Contactez le personnel.</span>
+                  <span>{t("noPaymentMethod")}</span>
                 </div>
               )}
 
@@ -536,7 +537,7 @@ export default function CartPageClient({ cart, minOrderHT, stripeReady = true }:
                 }}
                 className="btn-primary w-full justify-center h-12 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Passer la commande
+                {t("checkout")}
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                 </svg>
@@ -547,7 +548,7 @@ export default function CartPageClient({ cart, minOrderHT, stripeReady = true }:
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
                 </svg>
-                Continuer mes achats
+                {t("continueShopping")}
               </Link>
             </div>
           </div>

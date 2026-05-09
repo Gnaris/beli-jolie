@@ -254,7 +254,7 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwri
 - **Images produit** : `processProductImage()` → WebP 3 tailles (large/medium/thumb), max 5 images par couleur.
 - **DB paths** : format `/uploads/produits/{slug}/{base}.webp`. Le chemin BDD est déjà l'URL publique (pas de préfixe à ajouter).
 - **Sauvegardes** : penser à sauvegarder régulièrement les dossiers `public/uploads` ET `private/uploads` du VPS — pas de réplication externe.
-- **Reset complet** : `npx tsx scripts/wipe-data.ts` (double confirmation interactive). Préserve uniquement le compte ADMIN, `SiteConfig`, `TranslationQuota` et l'arborescence de dossiers.
+- **Reset des données** : `npx tsx scripts/wipe-data.ts` (lancement immédiat, pas de confirmation). Préserve le compte ADMIN, `SiteConfig`, `TranslationQuota` et l'arborescence de dossiers ; vide tous les uploads (produits, KBIS clients, documents, factures, avoirs, réclamations, jobs d'import, etc.).
 - **PFS image sync** : `DELETE /catalog/products/{id}/image` avec body `{ color, slot }`. Upload = POST multipart (JPEG uniquement, pas WebP). Logs détaillés via `[PFS Images]` prefix.
 
 ### SEO

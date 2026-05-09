@@ -237,7 +237,10 @@ describe("pfsRefreshProduct", () => {
     expect(res.success).toBe(true);
     if (res.success) expect(res.archived).toBe(true);
 
-    expect(pfsUpdateStatusSpy).toHaveBeenCalledWith([{ id: "new_pfs_id", status: "ARCHIVED" }]);
+    // Quand toutes les variantes sont à 0 stock, on pousse le produit en DRAFT
+    // côté PFS (cf. commit 31a208c : on n'archive plus, on retombe en brouillon
+    // pour permettre une remise en ligne ultérieure sans recréer le produit).
+    expect(pfsUpdateStatusSpy).toHaveBeenCalledWith([{ id: "new_pfs_id", status: "DRAFT" }]);
 
     const updateCall = mockProductUpdate.mock.calls[0] as [{ data: { status?: string; lastRefreshedAt?: Date } }];
     expect(updateCall[0].data.status).toBe("OFFLINE");
@@ -312,8 +315,10 @@ describe("pfsRefreshProduct", () => {
 
     // 1ère: set default_color sur le nouveau (succeeds, dans try/catch interne)
     // 2ème: rename old → DEL (succeeds, déclenche oldProductRenamed=true)
-    // 3ème: rename new → real ref (FAILS, déclenche le rollback)
+    // 3ème: clear label/description sur l'ancien (succeeds, dans try/catch interne)
+    // 4ème: rename new → real ref (FAILS, déclenche le rollback)
     pfsUpdateProductSpy
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error("PFS swap failed"));

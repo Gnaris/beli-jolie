@@ -10,10 +10,14 @@ import AccountEditor from "@/components/client/AccountEditor";
 import LogoutButton from "@/components/client/LogoutButton";
 import { getTranslations, getLocale } from "next-intl/server";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const shopName = await getCachedShopName();
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const [shopName, tMeta] = await Promise.all([
+    getCachedShopName(),
+    getTranslations({ locale, namespace: "meta" }),
+  ]);
   return {
-    title: `Tableau de bord — ${shopName}`,
+    title: tMeta("accountTitle", { shopName }),
     robots: { index: false, follow: false },
   };
 }
@@ -135,6 +139,7 @@ export default async function DashboardPage() {
     getTranslations("account"),
     getTranslations("orders"),
   ]);
+  const dateLocale = locale === "fr" ? "fr-FR" : "en-US";
 
   const [user, orders, favorites, cart, credits, availableCredit, ordersWithCreditNote] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId } }),
@@ -252,7 +257,7 @@ export default async function DashboardPage() {
   const monthlyData = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
     return {
-      label: d.toLocaleDateString("fr-FR", { month: "short" }),
+      label: d.toLocaleDateString(dateLocale, { month: "short" }),
       value: 0,
       year: d.getFullYear(),
       month: d.getMonth(),
@@ -269,7 +274,7 @@ export default async function DashboardPage() {
   /* -- Commandes recentes -- */
   const recentOrders = orders.slice(0, 5);
 
-  const formattedDate = new Date(user.createdAt).toLocaleDateString("fr-FR", {
+  const formattedDate = new Date(user.createdAt).toLocaleDateString(dateLocale, {
     day: "numeric", month: "long", year: "numeric",
   });
 
@@ -450,7 +455,7 @@ export default async function DashboardPage() {
                 <div className="hidden md:block divide-y divide-border-light">
                   {recentOrders.map((order) => {
                     const cfg = STATUS_COLORS[order.status] ?? STATUS_COLORS.PENDING;
-                    const date = new Date(order.createdAt).toLocaleDateString("fr-FR", {
+                    const date = new Date(order.createdAt).toLocaleDateString(dateLocale, {
                       day: "numeric", month: "short", year: "numeric",
                     });
                     const totalQty = order.items.reduce((s, i) => s + i.quantity, 0);
@@ -484,7 +489,7 @@ export default async function DashboardPage() {
                 <div className="md:hidden divide-y divide-border-light">
                   {recentOrders.map((order) => {
                     const cfg = STATUS_COLORS[order.status] ?? STATUS_COLORS.PENDING;
-                    const date = new Date(order.createdAt).toLocaleDateString("fr-FR", {
+                    const date = new Date(order.createdAt).toLocaleDateString(dateLocale, {
                       day: "numeric", month: "short", year: "numeric",
                     });
                     const totalQty = order.items.reduce((s, i) => s + i.quantity, 0);
@@ -540,7 +545,7 @@ export default async function DashboardPage() {
                         {tOrders("creditNote")} — {o.orderNumber}
                       </p>
                       <p className="text-xs text-text-muted font-body mt-1">
-                        {new Date(o.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
+                        {new Date(o.createdAt).toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" })}
                       </p>
                     </div>
                     <a
@@ -580,7 +585,7 @@ export default async function DashboardPage() {
                           </span>
                           {credit.expiresAt && (
                             <p className="text-[10px] text-text-muted font-body mt-1">
-                              {tOrders("expiresOn")} {new Date(credit.expiresAt).toLocaleDateString("fr-FR")}
+                              {tOrders("expiresOn")} {new Date(credit.expiresAt).toLocaleDateString(dateLocale)}
                             </p>
                           )}
                         </div>

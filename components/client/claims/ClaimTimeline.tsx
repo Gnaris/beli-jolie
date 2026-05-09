@@ -1,18 +1,20 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 const MAIN_STEPS = [
-  { status: "OPEN", label: "Ouverte" },
-  { status: "IN_REVIEW", label: "En examen" },
-  { status: "ACCEPTED", label: "Acceptée" },
-  { status: "RESOLVED", label: "Résolue" },
-  { status: "CLOSED", label: "Fermée" },
+  { status: "OPEN", key: "statusOpen" },
+  { status: "IN_REVIEW", key: "statusInReview" },
+  { status: "ACCEPTED", key: "statusAccepted" },
+  { status: "RESOLVED", key: "statusResolved" },
+  { status: "CLOSED", key: "statusClosed" },
 ];
 
 const REJECTED_PATH = [
-  { status: "OPEN", label: "Ouverte" },
-  { status: "IN_REVIEW", label: "En examen" },
-  { status: "REJECTED", label: "Refusée" },
-  { status: "CLOSED", label: "Fermée" },
+  { status: "OPEN", key: "statusOpen" },
+  { status: "IN_REVIEW", key: "statusInReview" },
+  { status: "REJECTED", key: "statusRejected" },
+  { status: "CLOSED", key: "statusClosed" },
 ];
 
 function getSteps(currentStatus: string) {
@@ -32,6 +34,7 @@ function getStepState(stepStatus: string, currentStatus: string, steps: { status
 }
 
 export default function ClaimTimeline({ status }: { status: string }) {
+  const t = useTranslations("claims");
   const steps = getSteps(status);
 
   return (
@@ -63,7 +66,7 @@ export default function ClaimTimeline({ status }: { status: string }) {
                   state === "active" ? "text-text-primary font-semibold" : "text-text-muted"
                 }`}
               >
-                {step.label}
+                {t(step.key)}
               </span>
             </div>
             {i < steps.length - 1 && (

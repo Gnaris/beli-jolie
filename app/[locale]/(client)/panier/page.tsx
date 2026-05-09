@@ -1,17 +1,21 @@
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
 import { redirect, Link } from "@/i18n/navigation";
-import { getLocale } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCart } from "@/app/actions/client/cart";
 import CartPageClient from "@/components/panier/CartPageClient";
 import { isStripeConfigured } from "@/lib/stripe";
 
-export const metadata: Metadata = {
-  title: "Mon panier",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const tMeta = await getTranslations({ locale, namespace: "meta" });
+  return {
+    title: tMeta("cartTitle"),
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function PanierPage() {
   const session = await getServerSession(authOptions);
@@ -19,6 +23,7 @@ export default async function PanierPage() {
   if (!session) return redirect({href: {pathname: "/connexion", query: { callbackUrl: "/panier" }}, locale});
 
   if (session.user.status !== "APPROVED") {
+    const tCart = await getTranslations({ locale, namespace: "cart" });
     return (
       <div className="container-site py-14 text-center">
         <div className="max-w-md mx-auto card p-10">
@@ -26,13 +31,13 @@ export default async function PanierPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
           </svg>
           <h1 className="font-heading text-xl font-semibold text-text-primary mb-2">
-            Accès restreint
+            {tCart("restricted")}
           </h1>
           <p className="text-sm font-body text-text-secondary">
-            Votre compte doit être validé pour accéder au panier.
+            {tCart("restrictedMessage")}
           </p>
           <Link href="/espace-pro" className="btn-primary mt-6 justify-center">
-            Mon espace pro
+            {tCart("myAccount")}
           </Link>
         </div>
       </div>

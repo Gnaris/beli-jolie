@@ -113,7 +113,7 @@ export default function LoginForm() {
     setOtpInfo("");
 
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
-      setError(t("email") + " : format invalide.");
+      setError(t("emailInvalidFormat"));
       return;
     }
 
@@ -127,7 +127,7 @@ export default function LoginForm() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data?.error || "Impossible d'envoyer le code.");
+        setError(data?.error || t("otpSendError"));
         if (typeof data?.retryAfterMs === "number") {
           setOtpResendSec(Math.ceil(data.retryAfterMs / 1000));
         }
@@ -144,7 +144,7 @@ export default function LoginForm() {
           t("otpSentNotice")
       );
     } catch {
-      setError("Erreur réseau. Veuillez réessayer.");
+      setError(t("networkError"));
     } finally {
       setLoading(false);
     }
@@ -156,7 +156,7 @@ export default function LoginForm() {
 
     const code = otpCode.replace(/\s/g, "");
     if (!/^\d{6}$/.test(code)) {
-      setError("Le code doit contenir 6 chiffres.");
+      setError(t("otpInvalidFormat"));
       return;
     }
 

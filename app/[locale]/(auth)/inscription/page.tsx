@@ -1,16 +1,19 @@
 import type { Metadata } from "next";
-import { setRequestLocale } from "next-intl/server";
+import { setRequestLocale, getTranslations } from "next-intl/server";
 import { getCachedProductCount, getCachedShopName, getCachedBusinessHours } from "@/lib/cached-data";
 import { DEFAULT_BUSINESS_HOURS, getTodayHoursLabel } from "@/lib/business-hours";
 import type { BusinessHoursSchedule } from "@/lib/business-hours";
 import RegisterForm from "@/components/auth/RegisterForm";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const shopName = await getCachedShopName();
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const [shopName, tMeta] = await Promise.all([
+    getCachedShopName(),
+    getTranslations({ locale, namespace: "meta" }),
+  ]);
   return {
-    title: "Inscription — Demande d'accès Pro",
-    description:
-      `Créez votre compte professionnel ${shopName} pour accéder à nos tarifs grossiste.`,
+    title: tMeta("registerTitle"),
+    description: tMeta("registerDescription", { shopName }),
   };
 }
 

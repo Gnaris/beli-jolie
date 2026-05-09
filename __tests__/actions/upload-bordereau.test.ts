@@ -19,6 +19,12 @@ vi.mock("next-auth", () => ({
 vi.mock("@/lib/auth", () => ({ authOptions: {} }));
 vi.mock("@/lib/storage", () => ({
   uploadFile: mockUploadFile,
+  bordereauDir: (clientId: string) => `uploads/bordereaux/${clientId}`,
+  slugify: (input: string) =>
+    String(input)
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "") || "sans-nom",
 }));
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -85,7 +91,7 @@ describe("uploadBordereau — succès et stockage", () => {
     const res = await uploadBordereau(makeFormData(file));
     expect(res.success).toBe(true);
     if (res.success) {
-      expect(res.path).toMatch(/^\/uploads\/bordereaux\/user-42-[a-f0-9]+\.pdf$/);
+      expect(res.path).toMatch(/^\/uploads\/bordereaux\/user-42\/bordereau-[a-f0-9]+\.pdf$/);
     }
     expect(mockUploadFile).toHaveBeenCalledOnce();
   });

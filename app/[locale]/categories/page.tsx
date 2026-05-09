@@ -6,11 +6,15 @@ import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import CategoriesAccordion from "@/components/produits/CategoriesAccordion";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const shopName = await getCachedShopName();
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const [shopName, tMeta] = await Promise.all([
+    getCachedShopName(),
+    getTranslations({ locale, namespace: "meta" }),
+  ]);
   return {
-    title: `Catégories — ${shopName}`,
-    description: "Parcourez nos catégories de produits. Prix grossiste professionnel.",
+    title: tMeta("categoriesTitle", { shopName }),
+    description: tMeta("categoriesDescription"),
     alternates: { canonical: "/categories" },
   };
 }

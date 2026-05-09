@@ -6,20 +6,25 @@ import { authOptions } from "@/lib/auth";
 import { getClientClaim } from "@/app/actions/client/claims";
 import { getImageSrc, resolveImageUrl } from "@/lib/image-utils";
 import { getCachedShopName } from "@/lib/cached-data";
+import { getTranslations } from "next-intl/server";
 import ClaimDetailClient from "./ClaimDetailClient";
 import type { Metadata } from "next";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const shopName = await getCachedShopName();
-  return { title: `Réclamation — ${shopName}` };
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const [shopName, tClaims] = await Promise.all([
+    getCachedShopName(),
+    getTranslations({ locale, namespace: "claims" }),
+  ]);
+  return { title: tClaims("metaDetailTitle", { shopName }) };
 }
 
-const REASON_LABELS: Record<string, string> = {
-  DEFECTIVE: "Défectueux",
-  WRONG_ITEM: "Mauvais article",
-  MISSING: "Manquant",
-  DAMAGED: "Endommagé",
-  OTHER: "Autre",
+const REASON_KEY: Record<string, string> = {
+  DEFECTIVE: "reasonDefective",
+  WRONG_ITEM: "reasonWrong",
+  MISSING: "reasonMissing",
+  DAMAGED: "reasonDamaged",
+  OTHER: "reasonOther",
 };
 
 export default async function ClientClaimDetailPage({ params }: { params: Promise<{ id: string; locale: string }> }) {
@@ -30,6 +35,17 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
   const claim = await getClientClaim(id);
   if (!claim) notFound();
 
+  const [t, tForm] = await Promise.all([
+    getTranslations({ locale, namespace: "claims" }),
+    getTranslations({ locale, namespace: "claimForm" }),
+  ]);
+  const dateLocale = locale === "fr" ? "fr-FR" : "en-US";
+  const formattedDate = new Date(claim.createdAt).toLocaleDateString(dateLocale, {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
   return (
     <div className="max-w-3xl mx-auto space-y-5">
       <Link
@@ -39,7 +55,7 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
         </svg>
-        Retour aux réclamations
+        {t("backToList")}
       </Link>
 
       {/* Header card */}
@@ -48,17 +64,13 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
           <div>
             <h1 className="font-heading text-xl font-bold text-text-primary">{claim.reference}</h1>
             <p className="text-xs text-text-muted font-body mt-1">
-              Créée le {new Date(claim.createdAt).toLocaleDateString("fr-FR", {
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-              })}
+              {t("detailCreatedOn", { date: formattedDate })}
             </p>
           </div>
           <span className={`badge ${
             claim.type === "ORDER_CLAIM" ? "badge-purple" : "badge-neutral"
           }`}>
-            {claim.type === "ORDER_CLAIM" ? "Commande" : "Générale"}
+            {claim.type === "ORDER_CLAIM" ? t("typeOrder") : t("typeGeneral")}
           </span>
         </div>
 
@@ -69,13 +81,13 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
               <svg className="w-4 h-4 text-text-muted flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
               </svg>
-              <span className="text-text-muted">Commande :</span>
+              <span className="text-text-muted">{t("detailOrderLabel")}</span>
               <span className="font-medium text-text-primary">{claim.order.orderNumber}</span>
             </div>
           )}
 
           <div className="bg-bg-secondary/50 rounded-xl p-4">
-            <p className="text-xs uppercase tracking-wider text-text-muted font-semibold font-body mb-2">Description</p>
+            <p className="text-xs uppercase tracking-wider text-text-muted font-semibold font-body mb-2">{t("detailDescription")}</p>
             <p className="text-sm text-text-primary font-body whitespace-pre-wrap leading-relaxed">{claim.description}</p>
           </div>
         </div>
@@ -84,7 +96,7 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
         {claim.items.length > 0 && (
           <div className="space-y-3">
             <p className="text-xs uppercase tracking-wider text-text-muted font-semibold font-body">
-              Articles concernés ({claim.items.length})
+              {t("detailItemsLabel", { count: claim.items.length })}
             </p>
             <div className="space-y-2">
               {claim.items.map((item) => (
@@ -93,7 +105,7 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
                     <div className="w-10 h-10 rounded-lg overflow-hidden bg-bg-secondary flex-shrink-0">
                       <Image
                         src={getImageSrc(item.orderItem.imagePath, "thumb")}
-                        alt={item.orderItem?.productName || "Article"}
+                        alt={item.orderItem?.productName || t("detailItemAlt")}
                         width={40}
                         height={40}
                         className="object-cover w-full h-full"
@@ -102,15 +114,15 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
                   )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-body font-medium text-text-primary truncate">
-                      {item.orderItem?.productName || "Article"}
+                      {item.orderItem?.productName || t("detailItemAlt")}
                     </p>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs text-text-muted font-body">
-                        Qté : {item.quantity}
+                        {t("detailItemQty")} {item.quantity}
                       </span>
                       <span className="text-xs text-text-muted">•</span>
                       <span className="badge badge-neutral text-[10px]">
-                        {REASON_LABELS[item.reason] || item.reason}
+                        {REASON_KEY[item.reason] ? tForm(REASON_KEY[item.reason]) : item.reason}
                       </span>
                     </div>
                   </div>
@@ -124,7 +136,7 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
         {claim.images.length > 0 && (
           <div className="space-y-3">
             <p className="text-xs uppercase tracking-wider text-text-muted font-semibold font-body">
-              Pièces jointes ({claim.images.length})
+              {t("detailAttachments", { count: claim.images.length })}
             </p>
             <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
               {claim.images.map((img) => (
@@ -137,7 +149,7 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
                 >
                   <Image
                     src={resolveImageUrl(img.imagePath)}
-                    alt="Pièce jointe"
+                    alt={t("detailAttachmentAlt")}
                     fill
                     className="object-cover group-hover:scale-105 transition-transform"
                   />
