@@ -325,7 +325,7 @@ VPS Hostinger Ubuntu 24.04 LTS. Tout le code vit dans `/var/www/beliandjolie` c�
 
 ### Playwright / Chromium (import images PFS)
 
-L'import PFS télécharge les images des produits via un Chromium headless (cf. `lib/pfs-import.ts` → `downloadImagesWithPlaywright`). Le binaire **n'est PAS installé par `npm install`** : il faut le télécharger à part, une fois après chaque déploiement initial ou montée de version Playwright :
+L'import PFS télécharge les images des produits via un Chromium headless (cf. `lib/pfs-import.ts` → `downloadAllVariantImagesToBuffers`). Le binaire **n'est PAS installé par `npm install`** : il faut le télécharger à part, une fois après chaque déploiement initial ou montée de version Playwright :
 
 ```
 ssh root@72.61.106.128 "cd /var/www/beliandjolie && npx playwright install --with-deps chromium"
