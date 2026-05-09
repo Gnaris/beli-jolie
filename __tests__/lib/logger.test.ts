@@ -93,29 +93,44 @@ describe("lib/logger", () => {
       process.env.NODE_ENV = "test";
     });
 
-    it("should output valid JSON in production", () => {
-      logger.info("prod message", { key: "value" });
-      const output = consoleSpy.log.mock.calls[0][0] as string;
-      const parsed = JSON.parse(output);
-      expect(parsed.level).toBe("info");
-      expect(parsed.message).toBe("prod message");
-      expect(parsed.key).toBe("value");
-      expect(parsed.timestamp).toBeDefined();
-    });
-
-    it("should include ISO timestamp in production JSON", () => {
-      logger.error("error msg");
+    it("error sort un bloc encadré multi-ligne", () => {
+      logger.error("[Storage] cannot write");
       const output = consoleSpy.error.mock.calls[0][0] as string;
-      const parsed = JSON.parse(output);
-      expect(parsed.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(output).toContain("❌ ERREUR");
+      expect(output).toContain("Stockage de fichier");
+      expect(output).toContain("cannot write");
+      expect(output.startsWith("─")).toBe(true);
     });
 
-    it("should spread metadata into JSON object", () => {
-      logger.warn("warning", { userId: "123", action: "login" });
+    it("warn sort un bloc encadré ⚠️", () => {
+      logger.warn("low disk");
       const output = consoleSpy.warn.mock.calls[0][0] as string;
-      const parsed = JSON.parse(output);
-      expect(parsed.userId).toBe("123");
-      expect(parsed.action).toBe("login");
+      expect(output).toContain("AVERTISSEMENT");
+    });
+
+    it("error inclut type/message brut/stack quand error est un Error", () => {
+      const err = new Error("boom");
+      err.name = "BoomError";
+      logger.error("[PFS] failed", { error: err });
+      const output = consoleSpy.error.mock.calls[0][0] as string;
+      expect(output).toContain("Type erreur");
+      expect(output).toContain("BoomError");
+      expect(output).toContain("Message brut");
+      expect(output).toContain("boom");
+    });
+
+    it("info sort une ligne compacte avec ℹ️", () => {
+      logger.info("hello", { x: 1 });
+      const output = consoleSpy.log.mock.calls[0][0] as string;
+      expect(output).toContain("ℹ️");
+      expect(output).toContain("hello");
+      expect(output).toContain('{"x":1}');
+      expect(output).not.toContain("─");
+    });
+
+    it("debug est filtré en production", () => {
+      logger.debug("debug me");
+      expect(consoleSpy.debug).not.toHaveBeenCalled();
     });
   });
 });
