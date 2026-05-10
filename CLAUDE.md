@@ -163,6 +163,10 @@ Quand l'utilisatrice demande **corriger / réparer / rendre fonctionnel / mettre
 
 Demander confirmation **uniquement** avant les actions vraiment risquées (suppression de données, drop de tables, push --force, secrets).
 
+### Procédures en attente (déclenchées par phrase de code)
+
+- **« feu vert journaux »** → exécuter `docs/operations/mysql-binlog-cleanup.md` (purge + désactivation binlogs MySQL sur le VPS, ~57 Go à libérer). À lancer quand la cliente envoie cette phrase, après vérification que l'import PFS en cours est terminé. Une fois la procédure réussie, **supprimer le fichier et retirer cette ligne**.
+
 ## Commandes
 
 ```bash
