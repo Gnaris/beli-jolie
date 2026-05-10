@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
-import { getCachedShopName } from "@/lib/cached-data";
+import { getCachedShopName, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedSiteConfig } from "@/lib/cached-data";
 import { parseDisplayConfig } from "@/lib/product-display";
 import SettingsPageTabs from "@/components/admin/settings/SettingsPageTabs";
 import SettingsMinOrderForm from "@/components/admin/settings/SettingsMinOrderForm";
@@ -310,10 +310,22 @@ async function LivraisonTab() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Marketplaces — PFS
+   TAB : Marketplaces — PFS + Ankorstore
    ═══════════════════════════════════════════════════════════════════════════ */
 async function MarketplacesTab() {
-  const [pfsConfig, markupRows] = await Promise.all([
+  const [
+    pfsConfig,
+    markupRows,
+    hasAnkorstoreConfig,
+    ankorstoreEnabled,
+    ankorstoreWholesaleType,
+    ankorstoreWholesaleValue,
+    ankorstoreWholesaleRounding,
+    ankorstoreRetailType,
+    ankorstoreRetailValue,
+    ankorstoreRetailRounding,
+    ankorstoreVatRateRaw,
+  ] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
     prisma.siteConfig.findMany({
       where: {
@@ -324,6 +336,15 @@ async function MarketplacesTab() {
         },
       },
     }),
+    getCachedHasAnkorstoreConfig(),
+    getCachedAnkorstoreEnabled(),
+    getCachedSiteConfig("ankorstore_wholesale_markup_type"),
+    getCachedSiteConfig("ankorstore_wholesale_markup_value"),
+    getCachedSiteConfig("ankorstore_wholesale_markup_rounding"),
+    getCachedSiteConfig("ankorstore_retail_markup_type"),
+    getCachedSiteConfig("ankorstore_retail_markup_value"),
+    getCachedSiteConfig("ankorstore_retail_markup_rounding"),
+    getCachedSiteConfig("ankorstore_default_vat_rate"),
   ]);
 
   const markupMap = new Map(markupRows.map((r) => [r.key, r.value]));
@@ -332,12 +353,25 @@ async function MarketplacesTab() {
     <div>
       <MarketplaceConfig
         hasPfsConfig={!!pfsConfig}
+        hasAnkorstoreConfig={hasAnkorstoreConfig}
+        ankorstoreEnabled={ankorstoreEnabled}
         markupSettings={{
           pfs: {
             type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed" | "multiplier") || "percent",
             value: Number(markupMap.get("pfs_price_markup_value")) || 0,
             rounding: (markupMap.get("pfs_price_markup_rounding") as "none" | "down" | "up") || "none",
           },
+          ankorstoreWholesale: {
+            type: (ankorstoreWholesaleType?.value as "percent" | "fixed" | "multiplier") || "percent",
+            value: Number(ankorstoreWholesaleValue?.value) || 0,
+            rounding: (ankorstoreWholesaleRounding?.value as "none" | "down" | "up") || "none",
+          },
+          ankorstoreRetail: {
+            type: (ankorstoreRetailType?.value as "percent" | "fixed" | "multiplier") || "multiplier",
+            value: Number(ankorstoreRetailValue?.value) || 2.5,
+            rounding: (ankorstoreRetailRounding?.value as "none" | "down" | "up") || "up",
+          },
+          ankorstoreVatRate: Number(ankorstoreVatRateRaw?.value) || 20,
         }}
       />
     </div>

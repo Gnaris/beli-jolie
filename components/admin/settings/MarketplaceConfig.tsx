@@ -2,9 +2,8 @@
 
 import { useState, useTransition } from "react";
 import {
-  updatePfsCredentials,
-  validatePfsCredentials,
-
+  updatePfsCredentials, validatePfsCredentials,
+  updateAnkorstoreCredentials, validateAnkorstoreCredentials, toggleAnkorstoreEnabled,
   updateMarketplaceMarkup,
 } from "@/app/actions/admin/site-config";
 import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
@@ -19,8 +18,13 @@ interface MarkupState {
 
 interface Props {
   hasPfsConfig: boolean;
+  hasAnkorstoreConfig: boolean;
+  ankorstoreEnabled: boolean;
   markupSettings: {
     pfs: MarkupState;
+    ankorstoreWholesale: MarkupState;
+    ankorstoreRetail: MarkupState;
+    ankorstoreVatRate: number;
   };
 }
 
@@ -208,26 +212,46 @@ function MarkupRow({
 
 export default function MarketplaceConfig({
   hasPfsConfig,
+  hasAnkorstoreConfig,
+  ankorstoreEnabled: initialAnkorstoreEnabled,
   markupSettings,
 }: Props) {
+  // ── PFS state ──────────────────────────────────────────────────────────────
   const [pfsEmail, setPfsEmail] = useState("");
   const [pfsPassword, setPfsPassword] = useState("");
   const [pfsStatus, setPfsStatus] = useState<"none" | "valid" | "invalid" | "checking">(
     hasPfsConfig ? "valid" : "none"
   );
-
   const [pfsEditing, setPfsEditing] = useState(!hasPfsConfig);
   const [isSavingPfs, startSavingPfs] = useTransition();
   const [isValidatingPfs, startValidatingPfs] = useTransition();
-
   const [pfsMarkup, setPfsMarkup] = useState<MarkupState>(markupSettings.pfs);
-  const [isSavingMarkup, startSavingMarkup] = useTransition();
 
+  // ── Ankorstore state ────────────────────────────────────────────────────────
+  const [ankorstoreClientId, setAnkorstoreClientId] = useState("");
+  const [ankorstoreClientSecret, setAnkorstoreClientSecret] = useState("");
+  const [ankorstoreStatus, setAnkorstoreStatus] = useState<"none" | "valid" | "invalid" | "checking">(
+    hasAnkorstoreConfig ? "valid" : "none"
+  );
+  const [ankorstoreEditing, setAnkorstoreEditing] = useState(!hasAnkorstoreConfig);
+  const [isSavingAnkorstore, startSavingAnkorstore] = useTransition();
+  const [isValidatingAnkorstore, startValidatingAnkorstore] = useTransition();
+  const [isTogglingAnkorstore, startTogglingAnkorstore] = useTransition();
+  const [ankorstoreEnabled, setAnkorstoreEnabled] = useState(initialAnkorstoreEnabled);
+
+  const [ankorstoreWholesale, setAnkorstoreWholesale] = useState<MarkupState>(markupSettings.ankorstoreWholesale);
+  const [ankorstoreRetail, setAnkorstoreRetail] = useState<MarkupState>(markupSettings.ankorstoreRetail);
+  const [ankorstoreVatRate, setAnkorstoreVatRate] = useState<number>(markupSettings.ankorstoreVatRate);
+
+  // ── Shared ──────────────────────────────────────────────────────────────────
+  const [isSavingMarkup, startSavingMarkup] = useTransition();
   const toast = useToast();
   const { showLoading, hideLoading } = useLoadingOverlay();
 
   const isPendingPfs = isSavingPfs || isValidatingPfs;
+  const isPendingAnkorstore = isSavingAnkorstore || isValidatingAnkorstore;
 
+  // ── PFS handlers ────────────────────────────────────────────────────────────
   function handlePfsValidate() {
     if (!pfsEmail.trim() || !pfsPassword.trim()) return;
     showLoading();
@@ -273,12 +297,79 @@ export default function MarketplaceConfig({
     });
   }
 
+  // ── Ankorstore handlers ─────────────────────────────────────────────────────
+  function handleAnkorstoreValidate() {
+    if (!ankorstoreClientId.trim() || !ankorstoreClientSecret.trim()) return;
+    showLoading();
+    startValidatingAnkorstore(async () => {
+      try {
+        setAnkorstoreStatus("checking");
+        const result = await validateAnkorstoreCredentials({
+          clientId: ankorstoreClientId.trim(),
+          clientSecret: ankorstoreClientSecret.trim(),
+        });
+        if (result.valid) {
+          setAnkorstoreStatus("valid");
+          toast.success("Connexion réussie", "Identifiants Ankorstore valides.");
+        } else {
+          setAnkorstoreStatus("invalid");
+          toast.error("Connexion échouée", result.error ?? "Identifiants invalides.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handleAnkorstoreSave() {
+    showLoading();
+    startSavingAnkorstore(async () => {
+      try {
+        const result = await updateAnkorstoreCredentials({
+          clientId: ankorstoreClientId.trim(),
+          clientSecret: ankorstoreClientSecret.trim(),
+        });
+        if (result.success) {
+          toast.success("Enregistré", "Identifiants Ankorstore sauvegardés.");
+          setAnkorstoreEditing(false);
+          setAnkorstoreClientId("");
+          setAnkorstoreClientSecret("");
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handleToggleAnkorstore(checked: boolean) {
+    startTogglingAnkorstore(async () => {
+      const result = await toggleAnkorstoreEnabled(checked);
+      if (result.success) {
+        setAnkorstoreEnabled(checked);
+        toast.success(
+          checked ? "Ankorstore activé" : "Ankorstore désactivé",
+          checked
+            ? "La synchronisation Ankorstore est maintenant active."
+            : "La synchronisation Ankorstore est maintenant désactivée."
+        );
+      } else {
+        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      }
+    });
+  }
+
+  // ── Markup save ─────────────────────────────────────────────────────────────
   function handleSaveMarkup() {
     showLoading();
     startSavingMarkup(async () => {
       try {
         const result = await updateMarketplaceMarkup({
           pfs: pfsMarkup,
+          ankorstoreWholesale: ankorstoreWholesale,
+          ankorstoreRetail: ankorstoreRetail,
+          ankorstoreVatRate: ankorstoreVatRate,
         });
         if (result.success) {
           toast.success("Enregistré", "Majorations marketplace sauvegardées.");
@@ -294,6 +385,7 @@ export default function MarketplaceConfig({
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* ── PFS card ────────────────────────────────────────────────────── */}
         <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
             <div className="flex items-center gap-3">
@@ -410,6 +502,163 @@ export default function MarketplaceConfig({
               </p>
             </div>
             <MarkupRow label="Prix HT" state={pfsMarkup} onChange={setPfsMarkup} />
+          </div>
+        </div>
+
+        {/* ── Ankorstore card ─────────────────────────────────────────────── */}
+        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
+                <IconShop className="w-[18px] h-[18px] text-text-primary" />
+              </div>
+              <div>
+                <h3 className="font-heading text-sm font-semibold text-text-primary leading-tight">
+                  Ankorstore
+                </h3>
+                <div className="mt-0.5">
+                  <StatusBadge status={ankorstoreStatus} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Toggle activation */}
+          <div className="px-5 pt-4 pb-3 border-b border-border/60">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={ankorstoreEnabled}
+                  disabled={isTogglingAnkorstore}
+                  onChange={(e) => handleToggleAnkorstore(e.target.checked)}
+                />
+                <div className="w-10 h-6 rounded-full border border-border bg-bg-secondary peer-checked:bg-bg-dark peer-checked:border-bg-dark transition-colors" />
+                <div className="absolute top-1 left-1 w-4 h-4 rounded-full bg-text-muted peer-checked:bg-text-inverse peer-checked:translate-x-4 transition-all" />
+              </div>
+              <span className="font-body text-sm font-medium text-text-primary">
+                Activer la sync Ankorstore
+              </span>
+              {isTogglingAnkorstore && <IconLoader className="w-4 h-4 text-text-muted" />}
+            </label>
+          </div>
+
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-2 mb-3">
+              <IconKey className="w-4 h-4 text-text-muted" />
+              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                Connexion
+              </p>
+            </div>
+
+            {!ankorstoreEditing && hasAnkorstoreConfig ? (
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-secondary/60">
+                <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
+                  ••••••••••••••••
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAnkorstoreEditing(true)}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+                >
+                  <IconPencil className="w-3.5 h-3.5" />
+                  Modifier
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <div>
+                  <label className="font-body text-[11px] text-text-muted mb-1 block">Client ID</label>
+                  <input
+                    type="text"
+                    value={ankorstoreClientId}
+                    onChange={(e) => {
+                      setAnkorstoreClientId(e.target.value);
+                      if (ankorstoreStatus === "valid" || ankorstoreStatus === "invalid") setAnkorstoreStatus("none");
+                    }}
+                    placeholder="votre-client-id"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+                    disabled={isPendingAnkorstore}
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className="font-body text-[11px] text-text-muted mb-1 block">Client Secret</label>
+                  <input
+                    type="password"
+                    value={ankorstoreClientSecret}
+                    onChange={(e) => {
+                      setAnkorstoreClientSecret(e.target.value);
+                      if (ankorstoreStatus === "valid" || ankorstoreStatus === "invalid") setAnkorstoreStatus("none");
+                    }}
+                    placeholder="••••••••"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+                    disabled={isPendingAnkorstore}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleAnkorstoreValidate}
+                    disabled={isPendingAnkorstore || !ankorstoreClientId.trim() || !ankorstoreClientSecret.trim()}
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
+                  >
+                    {isValidatingAnkorstore ? (
+                      <><IconLoader className="w-3.5 h-3.5" /> Vérification…</>
+                    ) : (
+                      <><IconCheck className="w-3.5 h-3.5" /> Tester la connexion</>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAnkorstoreSave}
+                    disabled={isPendingAnkorstore || !ankorstoreClientId.trim() || !ankorstoreClientSecret.trim() || ankorstoreStatus !== "valid"}
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+                  >
+                    {isSavingAnkorstore ? "Enregistrement…" : "Sauvegarder"}
+                  </button>
+                  {hasAnkorstoreConfig && (
+                    <button
+                      type="button"
+                      onClick={() => { setAnkorstoreEditing(false); setAnkorstoreClientId(""); setAnkorstoreClientSecret(""); setAnkorstoreStatus("valid"); }}
+                      disabled={isPendingAnkorstore}
+                      className="inline-flex items-center gap-1 h-9 px-3 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
+                    >
+                      <IconX className="w-3.5 h-3.5" />
+                      Annuler
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <IconTag className="w-4 h-4 text-text-muted" />
+              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                Majoration des prix
+              </p>
+            </div>
+            <MarkupRow label="Prix de gros" state={ankorstoreWholesale} onChange={setAnkorstoreWholesale} />
+            <MarkupRow label="Prix public conseillé" state={ankorstoreRetail} onChange={setAnkorstoreRetail} />
+            <div>
+              <label className="font-body text-sm font-medium text-text-primary block mb-2">
+                TVA par défaut (%)
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.1"
+                value={ankorstoreVatRate}
+                onChange={(e) => setAnkorstoreVatRate(Number(e.target.value) || 0)}
+                placeholder="20"
+                className="w-24 h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+              />
+            </div>
           </div>
         </div>
       </div>
