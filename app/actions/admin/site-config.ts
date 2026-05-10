@@ -337,10 +337,14 @@ export async function validateAnkorstoreCredentials(config: {
   clientId: string;
   clientSecret: string;
 }): Promise<{ valid: boolean; error?: string }> {
-  await requireAdmin();
-  // Import dynamique pour éviter de charger le module Ankorstore quand pas appelé
-  const { testAnkorstoreCredentials } = await import("@/lib/ankorstore-auth");
-  return testAnkorstoreCredentials(config.clientId, config.clientSecret);
+  try {
+    await requireAdmin();
+    // Import dynamique pour éviter de charger le module Ankorstore quand pas appelé
+    const { testAnkorstoreCredentials } = await import("@/lib/ankorstore-auth");
+    return testAnkorstoreCredentials(config.clientId, config.clientSecret);
+  } catch {
+    return { valid: false, error: "Impossible de valider les identifiants Ankorstore." };
+  }
 }
 
 // ─── DeepL Configuration ────────────────────────────────────────────────────
