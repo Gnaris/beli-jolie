@@ -78,6 +78,7 @@ async function ankorstoreFetchJson<T>(
     const res = await fetch(url, {
       ...init,
       headers: {
+        ...(init?.body !== undefined ? { "Content-Type": "application/vnd.api+json" } : {}),
         ...headers,
         ...(init?.headers as Record<string, string> | undefined),
       },
@@ -91,6 +92,7 @@ async function ankorstoreFetchJson<T>(
       const retryRes = await fetch(url, {
         ...init,
         headers: {
+          ...(init?.body !== undefined ? { "Content-Type": "application/vnd.api+json" } : {}),
           ...freshHeaders,
           ...(init?.headers as Record<string, string> | undefined),
         },
@@ -251,38 +253,45 @@ export async function ankorstorePollOperation(
   const intervalMs = opts?.intervalMs ?? 2_000;
   const deadline = Date.now() + timeoutMs;
 
+  const terminalStatuses = ["succeeded", "partially_failed", "failed"] as const;
+  type TerminalStatus = (typeof terminalStatuses)[number];
+
   while (Date.now() < deadline) {
-    const resp = await ankorstoreFetchJson<{
-      data: {
-        attributes: {
-          status: string;
-          externalProductId?: string;
-          ankorstoreProductId?: string | null;
-          failureReason?: string | null;
-          issues?: unknown[];
-        };
-      }[];
+    // Step 1: poll operation-level status (no /results suffix)
+    const statusResp = await ankorstoreFetchJson<{
+      data: { attributes: { status: string } };
     }>(
-      `/catalog/integrations/operations/${encodeURIComponent(operationId)}/results`
+      `/catalog/integrations/operations/${encodeURIComponent(operationId)}`
     );
 
-    // Infer overall status from individual results
-    const items = resp.data ?? [];
-    const statuses = items.map((i) => i.attributes.status);
+    const opStatus = statusResp.data?.attributes?.status;
 
-    const terminalStatuses = ["succeeded", "partially_failed", "failed"];
-    const overallStatus = statuses.find((s) => terminalStatuses.includes(s));
+    if (terminalStatuses.includes(opStatus as TerminalStatus)) {
+      // Step 2: fetch per-product results
+      const resultsResp = await ankorstoreFetchJson<{
+        data: {
+          attributes: {
+            externalProductId?: string;
+            ankorstoreProductId?: string | null;
+            status: string;
+            failureReason?: string | null;
+            issues?: unknown[];
+          };
+        }[];
+      }>(
+        `/catalog/integrations/operations/${encodeURIComponent(operationId)}/results`
+      );
 
-    if (overallStatus && terminalStatuses.includes(overallStatus)) {
-      const results: AnkorstoreOperationResult[] = items.map((i) => ({
+      const results: AnkorstoreOperationResult[] = (resultsResp.data ?? []).map((i) => ({
         externalProductId: i.attributes.externalProductId ?? "",
         ankorstoreProductId: i.attributes.ankorstoreProductId ?? null,
         status: i.attributes.status === "success" ? "success" : "failure",
         failureReason: i.attributes.failureReason ?? null,
         issues: i.attributes.issues ?? [],
       }));
+
       return {
-        status: overallStatus as AnkorstoreOperationPollResult["status"],
+        status: opStatus as TerminalStatus,
         results,
       };
     }
@@ -423,18 +432,28 @@ export async function ankorstoreDeleteProduct(
             attempt: i + 1,
             productId: ankorsProductIdOrExternalId,
           });
-          continue;
+          continue; // retriable — go to next attempt
         }
       }
 
+      // Non-retriable operation result (e.g. "failed" status, or partially_failed without archive-SKU)
       throw new Error(
         `[Ankorstore Delete] Operation finished with status ${result.status}`
       );
     } catch (err) {
-      // Only continue on the retriable archive-SKU case (already handled above via continue)
-      // For any other error, capture and propagate after last attempt
+      // Only retriable errors reach here via the `continue` path above.
+      // Any other thrown error (non-retriable API errors, unexpected failures) must be re-thrown immediately.
+      const isArchiveSkuRetry =
+        err instanceof Error && err.message.includes("Could not archive SKUs");
+      if (!isArchiveSkuRetry) {
+        // Non-retriable: throw immediately without waiting for remaining attempts
+        logger.error("[Ankorstore] Delete failed (non-retriable)", {
+          productId: ankorsProductIdOrExternalId,
+          error: err,
+        });
+        throw err;
+      }
       lastErr = err;
-      if (i < delays.length - 1) continue;
     }
   }
 
