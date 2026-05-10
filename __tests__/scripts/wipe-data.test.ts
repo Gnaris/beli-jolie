@@ -161,7 +161,6 @@ describe("TABLES_TO_CLEAR ordering", () => {
       ["SubCategoryTranslation", "SubCategory"],
       ["SubCategory", "Category"],
       ["CategoryTranslation", "Category"],
-      ["LegalDocumentVersion", "LegalDocument"],
     ];
     for (const [child, parent] of pairs) {
       const ci = idx(child);
@@ -220,7 +219,7 @@ describe("purgeDatabase", () => {
     expect(where.role?.not).toBe("ADMIN");
   });
 
-  it("never truncates SiteConfig nor User nor TranslationQuota", async () => {
+  it("never truncates SiteConfig nor User nor TranslationQuota nor CompanyInfo nor LegalDocument", async () => {
     const { prisma, truncated } = makeFakePrisma({
       admin: { id: "adm1", email: "a@x.com", kbisPath: null },
     });
@@ -228,6 +227,9 @@ describe("purgeDatabase", () => {
     expect(truncated).not.toContain("SiteConfig");
     expect(truncated).not.toContain("User");
     expect(truncated).not.toContain("TranslationQuota");
+    expect(truncated).not.toContain("CompanyInfo");
+    expect(truncated).not.toContain("LegalDocument");
+    expect(truncated).not.toContain("LegalDocumentVersion");
   });
 
   it("truncates every business table once", async () => {

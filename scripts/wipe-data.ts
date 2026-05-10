@@ -3,6 +3,8 @@
  *   - du compte ADMIN (User role = ADMIN) -- les comptes CLIENT sont supprimes
  *   - de la table SiteConfig (parametres)
  *   - de la table TranslationQuota (compteur DeepL)
+ *   - de la table CompanyInfo (fiche societe : raison sociale, SIRET, adresse, etc.)
+ *   - des tables LegalDocument et LegalDocumentVersion (CGV, CGU, mentions legales, etc.)
  *   - de l'arborescence de dossiers public/uploads et private/uploads
  *     (les dossiers eux-memes sont preserves, leur contenu est efface)
  *
@@ -84,7 +86,13 @@ export const UPLOAD_DIRS: string[] = [
 // Tables conservees integralement
 // ---------------------------------------------
 
-export const KEEP_TABLES = ["SiteConfig", "TranslationQuota"] as const;
+export const KEEP_TABLES = [
+  "SiteConfig",
+  "TranslationQuota",
+  "CompanyInfo",
+  "LegalDocument",
+  "LegalDocumentVersion",
+] as const;
 
 // ---------------------------------------------
 // Tables a vider -- ordre topologique (enfants avant parents)
@@ -147,11 +155,6 @@ export const TABLES_TO_CLEAR: string[] = [
   "RegistrationLog",
   // Liens en attente
   "PendingSimilar",
-  // Documents legaux
-  "LegalDocumentVersion",
-  "LegalDocument",
-  // Societe
-  "CompanyInfo",
   // Adresses (rattachees aux users CLIENT)
   "ShippingAddress",
   // Produits
@@ -457,6 +460,8 @@ async function main() {
   console.log("  - le compte ADMIN (User role=ADMIN)");
   console.log("  - les parametres (SiteConfig)");
   console.log("  - le compteur DeepL (TranslationQuota)");
+  console.log("  - la fiche societe (CompanyInfo : raison sociale, SIRET, adresse, etc.)");
+  console.log("  - les documents legaux (LegalDocument + LegalDocumentVersion : CGV, CGU, mentions legales, etc.)");
   console.log("  - l'arborescence des dossiers public/uploads et private/uploads (vides mais conserves)");
   console.log("\nSera SUPPRIME :");
   console.log("  - tous les produits, commandes, paniers, favoris, SAV, messages");
