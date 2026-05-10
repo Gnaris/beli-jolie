@@ -265,6 +265,49 @@ export const getCachedPfsCredentials = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
+// ─── Ankorstore — credentials, enabled, has-config (mêmes patterns que PFS) ──
+export const getCachedAnkorstoreCredentials = unstable_cache(
+  async () => {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: ["ankors_client_id", "ankors_client_secret"] } },
+    });
+    const map = new Map(rows.map((r) => [r.key, decryptIfSensitive(r.key, r.value)]));
+    return {
+      clientId: map.get("ankors_client_id") ?? null,
+      clientSecret: map.get("ankors_client_secret") ?? null,
+    };
+  },
+  ["ankorstore-credentials"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
+export const getCachedHasAnkorstoreConfig = unstable_cache(
+  async () => {
+    const row = await prisma.siteConfig.findUnique({
+      where: { key: "ankors_client_id" },
+      select: { key: true },
+    });
+    return !!row;
+  },
+  ["has-ankorstore-config"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
+export const getCachedAnkorstoreEnabled = unstable_cache(
+  async () => {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: ["ankors_client_id", "ankors_enabled"] } },
+      select: { key: true, value: true },
+    });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const hasId = map.has("ankors_client_id");
+    const enabled = map.get("ankors_enabled");
+    return hasId && enabled !== "false";
+  },
+  ["ankorstore-enabled"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
 // ─── Product count (expensive count on 78k rows, cache 5min) ───────────────────
 export const getCachedProductCount = unstable_cache(
   async () => prisma.product.count({ where: { status: "ONLINE" } }),
