@@ -293,6 +293,56 @@ export async function validatePfsCredentials(config: {
   }
 }
 
+// ─── Ankorstore Configuration ────────────────────────────────────────────────
+
+export async function updateAnkorstoreCredentials(config: {
+  clientId: string;
+  clientSecret: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await prisma.siteConfig.upsert({
+      where: { key: "ankors_client_id" },
+      update: { value: encryptIfSensitive("ankors_client_id", config.clientId) },
+      create: { key: "ankors_client_id", value: encryptIfSensitive("ankors_client_id", config.clientId) },
+    });
+    await prisma.siteConfig.upsert({
+      where: { key: "ankors_client_secret" },
+      update: { value: encryptIfSensitive("ankors_client_secret", config.clientSecret) },
+      create: { key: "ankors_client_secret", value: encryptIfSensitive("ankors_client_secret", config.clientSecret) },
+    });
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
+  }
+}
+
+export async function toggleAnkorstoreEnabled(enabled: boolean): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await prisma.siteConfig.upsert({
+      where: { key: "ankors_enabled" },
+      update: { value: enabled ? "true" : "false" },
+      create: { key: "ankors_enabled", value: enabled ? "true" : "false" },
+    });
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
+  }
+}
+
+export async function validateAnkorstoreCredentials(config: {
+  clientId: string;
+  clientSecret: string;
+}): Promise<{ valid: boolean; error?: string }> {
+  await requireAdmin();
+  // Import dynamique pour éviter de charger le module Ankorstore quand pas appelé
+  const { testAnkorstoreCredentials } = await import("@/lib/ankorstore-auth");
+  return testAnkorstoreCredentials(config.clientId, config.clientSecret);
+}
+
 // ─── DeepL Configuration ────────────────────────────────────────────────────
 
 export async function updateDeeplApiKey(
@@ -503,8 +553,13 @@ export async function updateHomepageCarouselsConfig(
 
 // ─── Marketplace Markup Configuration ────────────────────────────────────────
 
+type MarkupState = { type: MarkupType; value: number; rounding: RoundingMode };
+
 export interface MarketplaceMarkupSettings {
-  pfs: { type: MarkupType; value: number; rounding: RoundingMode };
+  pfs?: MarkupState;
+  ankorstoreWholesale?: MarkupState;
+  ankorstoreRetail?: MarkupState;
+  ankorstoreVatRate?: number;
 }
 
 export async function updateMarketplaceMarkup(
@@ -513,11 +568,35 @@ export async function updateMarketplaceMarkup(
   try {
     await requireAdmin();
 
-    const pairs: { key: string; value: string }[] = [
-      { key: "pfs_price_markup_type", value: settings.pfs.type },
-      { key: "pfs_price_markup_value", value: String(settings.pfs.value) },
-      { key: "pfs_price_markup_rounding", value: settings.pfs.rounding },
-    ];
+    const pairs: { key: string; value: string }[] = [];
+
+    if (settings.pfs) {
+      pairs.push(
+        { key: "pfs_price_markup_type", value: settings.pfs.type },
+        { key: "pfs_price_markup_value", value: String(settings.pfs.value) },
+        { key: "pfs_price_markup_rounding", value: settings.pfs.rounding }
+      );
+    }
+
+    if (settings.ankorstoreWholesale) {
+      pairs.push(
+        { key: "ankorstore_wholesale_markup_type", value: settings.ankorstoreWholesale.type },
+        { key: "ankorstore_wholesale_markup_value", value: String(settings.ankorstoreWholesale.value) },
+        { key: "ankorstore_wholesale_markup_rounding", value: settings.ankorstoreWholesale.rounding }
+      );
+    }
+
+    if (settings.ankorstoreRetail) {
+      pairs.push(
+        { key: "ankorstore_retail_markup_type", value: settings.ankorstoreRetail.type },
+        { key: "ankorstore_retail_markup_value", value: String(settings.ankorstoreRetail.value) },
+        { key: "ankorstore_retail_markup_rounding", value: settings.ankorstoreRetail.rounding }
+      );
+    }
+
+    if (settings.ankorstoreVatRate !== undefined) {
+      pairs.push({ key: "ankorstore_default_vat_rate", value: String(settings.ankorstoreVatRate) });
+    }
 
     await Promise.all(
       pairs.map(({ key, value }) =>
