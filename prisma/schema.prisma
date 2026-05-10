@@ -376,6 +376,11 @@ model Product {
   // patch variantes seulement si modifiées, upload image seulement si changée).
   pfsLastSyncSnapshot Json?
 
+  // Ankorstore — identifiants et snapshot de la dernière sync réussie
+  ankorsProductId        String?
+  ankorsLastSyncSnapshot Json?
+  ankorsLastRefreshedAt  DateTime?
+
   // Performance indexes for 78k+ products
   @@index([status, createdAt]) // catalog listing (default sort)
   @@index([status, updatedAt]) // "new" filter sort
@@ -388,6 +393,7 @@ model Product {
   @@index([manufacturingCountryId]) // country filter
   @@index([seasonId]) // season filter
   @@index([pfsProductId])
+  @@index([ankorsProductId])
   @@index([primaryColorId])
 }
 
@@ -471,6 +477,8 @@ model ProductColor {
   sku                 String?             @unique // SKU universel: {ref}_{couleur}_{UNIT|PACK}_{index}
   // Identifiant variante marketplace — renseigné à la publication live
   pfsVariantId        String?
+  // Identifiant variante Ankorstore — renseigné à la publication live
+  ankorsVariantId     String?
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
 
@@ -480,6 +488,7 @@ model ProductColor {
   @@index([stock])
   @@index([unitPrice])
   @@index([pfsVariantId])
+  @@index([ankorsVariantId])
 }
 
 // ─────────────────────────────────────────────
