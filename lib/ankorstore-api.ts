@@ -1,0 +1,272 @@
+/**
+ * Ankorstore API Client (read-only)
+ *
+ * Wraps the JSON:API endpoints:
+ *   - /products          — list, search, get single product
+ *   - /product-variants  — get variants for a product, find by SKU
+ *
+ * Includes retry with exponential backoff and 401/429 handling.
+ */
+
+import {
+  getAnkorstoreHeaders,
+  invalidateAnkorstoreToken,
+  ANKORSTORE_BASE_URL,
+} from "@/lib/ankorstore-auth";
+import { logger } from "@/lib/logger";
+
+// ─────────────────────────────────────────────
+// Types — Ankorstore API responses (JSON:API)
+// ─────────────────────────────────────────────
+
+export interface AnkorstoreVariant {
+  id: string;
+  sku: string | null;
+  ian: string | null;
+  name: string;
+  retailPrice: number;
+  wholesalePrice: number;
+  availableQuantity: number | null;
+  stockQuantity: number | null;
+  isAlwaysInStock: boolean;
+  options?: { name: "color" | "size" | "material" | "style"; value: string }[];
+  images?: { order: number; url: string }[];
+}
+
+export interface AnkorstoreProduct {
+  id: string;
+  name: string;
+  description: string;
+  retailPrice: number;
+  wholesalePrice: number;
+  vatRate: number;
+  active: boolean;
+  archived: boolean;
+  images: { order: number; url: string }[];
+  variants: AnkorstoreVariant[]; // hydraté via include=productVariant
+}
+
+// ─────────────────────────────────────────────
+// Internal fetch helper with retry
+// ─────────────────────────────────────────────
+
+/** Erreur non-retryable (4xx autre que 429) */
+class AnkorstoreNonRetryableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AnkorstoreNonRetryableError";
+  }
+}
+
+async function ankorstoreFetch<T>(
+  path: string,
+  init?: RequestInit,
+  retryCount = 0
+): Promise<T> {
+  const headers = await getAnkorstoreHeaders();
+  const url = `${ANKORSTORE_BASE_URL}${path}`;
+
+  const makeRequest = async (attempt: number): Promise<T> => {
+    const res = await fetch(url, {
+      ...init,
+      headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
+    });
+
+    // 401 — token expired, invalidate and retry once
+    if (res.status === 401 && attempt === 0) {
+      invalidateAnkorstoreToken();
+      const freshHeaders = await getAnkorstoreHeaders();
+      logger.warn("[Ankorstore] Retry", { status: 401, attempt: 1, path });
+      const retryRes = await fetch(url, {
+        ...init,
+        headers: { ...freshHeaders, ...(init?.headers as Record<string, string> | undefined) },
+      });
+      if (!retryRes.ok) {
+        const text = await retryRes.text().catch(() => "");
+        throw new AnkorstoreNonRetryableError(
+          `Ankorstore API ${retryRes.status}: ${text.slice(0, 200)}`
+        );
+      }
+      return retryRes.json() as Promise<T>;
+    }
+
+    if (res.ok) {
+      return res.json() as Promise<T>;
+    }
+
+    // 429 — rate limited: respect Retry-After header (max 3 attempts)
+    if (res.status === 429) {
+      const maxRetries = 3;
+      if (attempt >= maxRetries) {
+        throw new AnkorstoreNonRetryableError(`Ankorstore API 429: rate limit exceeded after ${maxRetries} attempts`);
+      }
+      const retryAfterSec = Number(res.headers.get("Retry-After") ?? "5");
+      const delayMs = (isNaN(retryAfterSec) ? 5 : retryAfterSec) * 1000;
+      logger.warn("[Ankorstore] Retry", { status: 429, attempt: attempt + 1, path });
+      await new Promise((r) => setTimeout(r, delayMs));
+      return makeRequest(attempt + 1);
+    }
+
+    // 5xx — exponential backoff: 1s, 4s, 16s (max 3 retries)
+    if (res.status >= 500) {
+      const maxRetries = 3;
+      if (attempt >= maxRetries) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Ankorstore API ${res.status} after ${maxRetries} retries: ${text.slice(0, 200)}`);
+      }
+      const delayMs = Math.pow(4, attempt) * 1000; // 1s, 4s, 16s
+      logger.warn("[Ankorstore] Retry", { status: res.status, attempt: attempt + 1, path });
+      await new Promise((r) => setTimeout(r, delayMs));
+      return makeRequest(attempt + 1);
+    }
+
+    // Other 4xx — never retry
+    const text = await res.text().catch(() => "");
+    throw new AnkorstoreNonRetryableError(
+      `Ankorstore API ${res.status}: ${text.slice(0, 200)}`
+    );
+  };
+
+  return makeRequest(retryCount);
+}
+
+// ─────────────────────────────────────────────
+// JSON:API helpers
+// ─────────────────────────────────────────────
+
+type JsonApiProductItem = {
+  id: string;
+  attributes: Omit<AnkorstoreProduct, "id" | "variants">;
+  relationships?: {
+    productVariant?: { data: { id: string }[] };
+  };
+};
+
+type JsonApiVariantItem = {
+  id: string;
+  attributes: Omit<AnkorstoreVariant, "id">;
+};
+
+function parseProductList(
+  data: JsonApiProductItem[],
+  included?: JsonApiVariantItem[]
+): AnkorstoreProduct[] {
+  const variantsById = new Map(
+    (included ?? []).map((v) => [v.id, { ...v.attributes, id: v.id }])
+  );
+
+  return data.map((item) => {
+    const variantIds =
+      item.relationships?.productVariant?.data?.map((v) => v.id) ?? [];
+    return {
+      ...item.attributes,
+      id: item.id,
+      variants: variantIds
+        .map((id) => variantsById.get(id))
+        .filter(Boolean) as AnkorstoreVariant[],
+    };
+  });
+}
+
+// ─────────────────────────────────────────────
+// API methods
+// ─────────────────────────────────────────────
+
+/**
+ * Search products by name or SKU.
+ * Returns up to `limit` results (no pagination).
+ */
+export async function ankorstoreSearchProducts(
+  query: string,
+  limit = 20
+): Promise<AnkorstoreProduct[]> {
+  const url = `/products?filter[skuOrName]=${encodeURIComponent(query)}&include=productVariant&page[limit]=${limit}`;
+  const resp = await ankorstoreFetch<{
+    data: JsonApiProductItem[];
+    included?: JsonApiVariantItem[];
+  }>(url);
+  return parseProductList(resp.data ?? [], resp.included);
+}
+
+/**
+ * Get a single product by its Ankorstore ID.
+ * Returns null if the product is not found (404).
+ */
+export async function ankorstoreGetProduct(
+  productId: string
+): Promise<AnkorstoreProduct | null> {
+  try {
+    const url = `/products/${encodeURIComponent(productId)}?include=productVariant`;
+    const resp = await ankorstoreFetch<{
+      data: JsonApiProductItem;
+      included?: JsonApiVariantItem[];
+    }>(url);
+    const [product] = parseProductList([resp.data], resp.included);
+    return product ?? null;
+  } catch (err) {
+    if (err instanceof AnkorstoreNonRetryableError && err.message.includes("404")) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Get all variants for a product by its Ankorstore ID.
+ */
+export async function ankorstoreGetVariants(
+  productId: string
+): Promise<AnkorstoreVariant[]> {
+  const url = `/product-variants?filter[productId][]=${encodeURIComponent(productId)}&page[limit]=100`;
+  const resp = await ankorstoreFetch<{ data: JsonApiVariantItem[] }>(url);
+  return (resp.data ?? []).map((v) => ({ ...v.attributes, id: v.id }));
+}
+
+/**
+ * Find a single variant by its SKU.
+ * Returns null if no match.
+ */
+export async function ankorstoreFindVariantBySku(
+  sku: string
+): Promise<AnkorstoreVariant | null> {
+  const url = `/product-variants?filter[sku]=${encodeURIComponent(sku)}&page[limit]=1`;
+  const resp = await ankorstoreFetch<{ data: JsonApiVariantItem[] }>(url);
+  if (!resp.data?.length) return null;
+  return { ...resp.data[0].attributes, id: resp.data[0].id };
+}
+
+/**
+ * List all products from Ankorstore using cursor-based pagination.
+ * Fetches up to 200 pages (safety cap).
+ */
+export async function ankorstoreListAllProducts(opts?: {
+  pageSize?: number;
+}): Promise<AnkorstoreProduct[]> {
+  const pageSize = opts?.pageSize ?? 50;
+  const all: AnkorstoreProduct[] = [];
+  let after: string | null = null;
+
+  for (let i = 0; i < 200; i++) {
+    const cursorParam: string = after ? `&page[after]=${encodeURIComponent(after)}` : "";
+    const pageUrl: string = `/products?include=productVariant&page[limit]=${pageSize}${cursorParam}`;
+    const resp: {
+      data: JsonApiProductItem[];
+      included?: JsonApiVariantItem[];
+      meta?: { page?: { hasMore?: boolean } };
+      links?: { next?: string };
+    } = await ankorstoreFetch<{
+      data: JsonApiProductItem[];
+      included?: JsonApiVariantItem[];
+      meta?: { page?: { hasMore?: boolean } };
+      links?: { next?: string };
+    }>(pageUrl);
+
+    const page = parseProductList(resp.data ?? [], resp.included);
+    all.push(...page);
+
+    if (!resp.meta?.page?.hasMore || resp.data.length < pageSize) break;
+    after = resp.data[resp.data.length - 1].id;
+  }
+
+  return all;
+}
