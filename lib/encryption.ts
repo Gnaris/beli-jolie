@@ -18,6 +18,8 @@ export const SENSITIVE_KEYS = new Set([
   "deepl_api_key",
   "pfs_email",
   "pfs_password",
+  "ankors_client_id",
+  "ankors_client_secret",
 ]);
 
 function getEncryptionKey(): Buffer {
