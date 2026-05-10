@@ -14,6 +14,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { formatAnkorstoreDescription } from "@/lib/ankorstore-description";
 import {
   ankorstoreCreateCatalogOperation,
   ankorstoreAddProductsToOperation,
@@ -371,24 +372,17 @@ export async function ankorstorePublishProduct(
     // ── Step 3 : Build product payload ──
     report("Préparation du produit pour Ankorstore...");
 
-    // Inline description fallback (ankorstore-description module created in Task 2.11)
-    // TODO Task 2.11: replace with formatAnkorstoreDescription() from @/lib/ankorstore-description
-    const compositionStr = product.compositions
-      .map((c) => `${Number(c.percentage)}% ${c.composition.name ?? c.composition.pfsCompositionRef ?? ""}`)
-      .filter((s) => s.trim().length > 0)
-      .join(", ");
-    const descriptionBody = product.description?.trim() || product.name;
-    const description = [
-      descriptionBody,
-      compositionStr ? `\nComposition : ${compositionStr}` : "",
-      `\nRéférence : ${product.reference}`,
-    ]
-      .join("")
-      .trim();
-
-    // Ankorstore requires description ≥ 30 chars
-    const safeDescription =
-      description.length >= 30 ? description : description.padEnd(30, " ");
+    // Format description using the dedicated module (Task 2.11)
+    const safeDescription = formatAnkorstoreDescription({
+      description: product.description || product.name,
+      reference: product.reference,
+      compositions: product.compositions.map((c) => ({
+        percentage: Number(c.percentage),
+        composition: {
+          nameFR: c.composition.name ?? c.composition.pfsCompositionRef ?? "",
+        },
+      })),
+    });
 
     // ── Step 4 : Build variant entries ──
     const variantEntries = buildAnkorstoreVariants(product, product.colors);
