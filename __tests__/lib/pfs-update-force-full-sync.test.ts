@@ -91,6 +91,10 @@ vi.mock("@/lib/logger", () => ({
 }));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
+vi.mock("@/lib/pfs-brand", () => ({
+  requirePfsBrand: vi.fn().mockResolvedValue({ id: "BRAND-1", name: "Beli & Jolie" }),
+  PfsBrandRequiredError: class PfsBrandRequiredError extends Error {},
+}));
 
 import { pfsUpdateProductInPlace } from "@/lib/pfs-update";
 

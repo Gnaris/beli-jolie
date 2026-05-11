@@ -38,6 +38,7 @@ import sharp from "sharp";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
+import { requirePfsBrand } from "@/lib/pfs-brand";
 import {
   diffSnapshots,
   diffIsEmpty,
@@ -396,7 +397,6 @@ function buildVariantCreateData(
 
 function buildProductFieldsSnapshot(
   product: FullProduct,
-  brandName: string,
 ): PfsProductFieldsSnapshot {
   const composition = product.compositions
     .filter((c) => c.composition.pfsCompositionRef)
@@ -415,7 +415,6 @@ function buildProductFieldsSnapshot(
       product.manufacturingCountry?.pfsCountryRef ??
       "CN",
     season: product.season?.pfsRef ?? "PE2026",
-    brand: brandName,
     gender: product.category.pfsGender || "WOMAN",
     category: product.category.pfsCategoryId ?? null,
     family: product.category.pfsFamilyId ?? null,
@@ -497,6 +496,10 @@ export async function pfsUpdateProductInPlace(
     onProgress?.(progress);
   };
 
+  // Marque PFS obligatoire pour toute opération PFS, même un update PATCH.
+  // (La marque elle-même n'est jamais renvoyée à PFS lors d'un update.)
+  await requirePfsBrand();
+
   const markupConfigs = await loadMarketplaceMarkupConfigs();
   const pfsMarkup = markupConfigs.pfs;
   const colorRefMap = await buildColorLabelToRefMap();
@@ -508,9 +511,6 @@ export async function pfsUpdateProductInPlace(
       if (resolved.pfsCategoryId) product.category.pfsCategoryId = resolved.pfsCategoryId;
       if (resolved.pfsFamilyId) product.category.pfsFamilyId = resolved.pfsFamilyId;
     }
-
-    const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
-    const brandName = shopNameInfo?.shopName || "Ma Boutique";
 
     // Map Color.id → PFS color ref (utile pour images + default_color)
     const colorIdToPfsRef = new Map<string, string>();
@@ -553,7 +553,7 @@ export async function pfsUpdateProductInPlace(
       : null;
 
     // ── Construction du snapshot cible (ce qu'on veut que PFS reflète) ──
-    const nextProductSnap = buildProductFieldsSnapshot(product, brandName);
+    const nextProductSnap = buildProductFieldsSnapshot(product);
     const nextVariantsSnap: Record<string, PfsVariantSnapshot> = {};
     for (const variant of product.colors) {
       if (variant.pfsVariantId) {
@@ -619,6 +619,8 @@ export async function pfsUpdateProductInPlace(
 
       const compositionArray = nextProductSnap.composition;
 
+      // NB : `brand_name` n'est jamais renvoyé sur PATCH — la marque d'un
+      // produit déjà publié est verrouillée par construction.
       const updateData: PfsProductUpdateData = {
         reference_code: nextProductSnap.reference,
         label: translated.productName,
@@ -626,7 +628,6 @@ export async function pfsUpdateProductInPlace(
         material_composition: compositionArray,
         country_of_manufacture: nextProductSnap.country,
         season_name: nextProductSnap.season,
-        brand_name: nextProductSnap.brand,
         gender_label: nextProductSnap.gender,
       };
       if (nextProductSnap.category) updateData.category = nextProductSnap.category;

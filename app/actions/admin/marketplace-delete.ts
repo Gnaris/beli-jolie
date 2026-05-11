@@ -3,6 +3,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { pfsDeleteProduct } from "@/lib/pfs-api-write";
+import { ankorstoreDeleteProduct } from "@/lib/ankorstore-api-write";
 import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
@@ -42,6 +43,45 @@ export async function deleteProductsOnPfs(
       });
       results.push({
         pfsProductId: item.pfsProductId,
+        reference: item.reference,
+        status: "error",
+        message,
+      });
+    }
+  }
+  return results;
+}
+
+export interface AnkorstoreDeleteOutcome {
+  ankorsProductId: string;
+  reference: string;
+  status: "ok" | "error";
+  message?: string;
+}
+
+/**
+ * Archive sur Ankorstore pour une liste de produits (par leur ankorsProductId).
+ * Utilisé quand l'admin supprime des produits de la boutique et veut
+ * aussi les retirer d'Ankorstore.
+ */
+export async function deleteProductsOnAnkorstore(
+  items: { ankorsProductId: string; reference: string }[],
+): Promise<AnkorstoreDeleteOutcome[]> {
+  await requireAdmin();
+  const results: AnkorstoreDeleteOutcome[] = [];
+  for (const item of items) {
+    try {
+      await ankorstoreDeleteProduct(item.ankorsProductId);
+      results.push({ ankorsProductId: item.ankorsProductId, reference: item.reference, status: "ok" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error("[Marketplace Delete] Ankorstore delete failed", {
+        ankorsProductId: item.ankorsProductId,
+        reference: item.reference,
+        error: message,
+      });
+      results.push({
+        ankorsProductId: item.ankorsProductId,
         reference: item.reference,
         status: "error",
         message,

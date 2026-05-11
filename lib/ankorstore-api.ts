@@ -242,7 +242,8 @@ export async function ankorstoreFindVariantBySku(
 export async function ankorstoreListAllProducts(opts?: {
   pageSize?: number;
 }): Promise<AnkorstoreProduct[]> {
-  const pageSize = opts?.pageSize ?? 50;
+  // Ankorstore API caps page.limit at 50 — enforce here to prevent 400 errors.
+  const pageSize = Math.min(opts?.pageSize ?? 50, 50);
   const all: AnkorstoreProduct[] = [];
   let after: string | null = null;
 

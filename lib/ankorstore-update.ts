@@ -22,7 +22,7 @@ import {
   ankorstorePollOperation,
   type AnkorstoreCatalogProductInput,
 } from "@/lib/ankorstore-api-write";
-import { ankorstoreGetVariants } from "@/lib/ankorstore-api";
+import { autoLinkAnkorstoreVariants } from "@/lib/ankorstore-variant-link";
 import {
   loadAnkorstorePricingConfig,
   getAnkorstorePackedPrice,
@@ -384,6 +384,16 @@ export async function ankorstoreUpdateProductInPlace(
     };
   }
 
+  // Ankorstore ne supporte pas les packs : on ne synchronise que les variantes UNIT.
+  product.colors = product.colors.filter((v) => v.saleType === "UNIT");
+  if (product.colors.length === 0) {
+    return {
+      success: false,
+      error:
+        "Aucune variante à l'unité — Ankorstore n'accepte pas les packs. Ajoutez au moins une variante de type Unité pour synchroniser avec Ankorstore.",
+    };
+  }
+
   const ankorsProductId = product.ankorsProductId;
 
   const progress: AnkorstoreUpdateProgress = {
@@ -403,6 +413,29 @@ export async function ankorstoreUpdateProductInPlace(
     const config = await loadAnkorstorePricingConfig();
     const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
     const brandName = shopNameInfo?.shopName ?? "Ma Boutique";
+
+    // ── Step 1b : Auto-link variants by SKU if any local variant lacks ankorsVariantId ──
+    // Filet de sécurité : si des variantes locales n'ont pas leur ankorsVariantId,
+    // on tente de les apparier avec les variantes Ankorstore (SKU exact puis couleur).
+    if (product.colors.some((v) => !v.ankorsVariantId)) {
+      report("Appariement des variantes Ankorstore…");
+      try {
+        const result = await autoLinkAnkorstoreVariants(productId);
+        if (result.matchedExact + result.matchedColor > 0) {
+          // Recharger le produit pour récupérer les nouveaux ankorsVariantId
+          // (sinon la suite du flow utilise la version stale en mémoire).
+          const reloaded = await loadProductFull(productId);
+          if (reloaded) {
+            product.colors = reloaded.colors;
+          }
+        }
+      } catch (err) {
+        logger.error("[Ankorstore Update] Auto-link variants failed", {
+          ankorsProductId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     // ── Step 2 : Build next snapshot ──
     report("Calcul des changements...");
@@ -569,7 +602,7 @@ export async function ankorstoreUpdateProductInPlace(
         logger.error("[Ankorstore Update] Failed to update product fields", {
           ankorsProductId,
           reference: product.reference,
-          error: err,
+          error: err instanceof Error ? err.message : String(err),
         });
         // Continue — other sections may still succeed
       }
@@ -719,7 +752,7 @@ export async function ankorstoreUpdateProductInPlace(
       } catch (err) {
         logger.error("[Ankorstore Update] Failed to re-sync images", {
           ankorsProductId,
-          error: err,
+          error: err instanceof Error ? err.message : String(err),
         });
       }
     }

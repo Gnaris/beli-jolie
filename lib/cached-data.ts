@@ -193,19 +193,20 @@ export const getCachedHasPfsConfig = unstable_cache(
 );
 
 // ─── PFS enabled? ─────────────────────────────────────────────────────────
-// Actif par défaut dès que les identifiants PFS sont saisis. La clé
-// `pfs_enabled` est optionnelle et ne sert qu'à désactiver temporairement
-// l'intégration sans supprimer les credentials (valeur "false" explicite).
+// Actif uniquement si : identifiants saisis + marque sélectionnée + pas désactivé
+// manuellement (clé `pfs_enabled` = "false"). Sans marque sélectionnée, toutes
+// les opérations PFS (publish, refresh, update, import) sont verrouillées.
 export const getCachedPfsEnabled = unstable_cache(
   async () => {
     const rows = await prisma.siteConfig.findMany({
-      where: { key: { in: ["pfs_email", "pfs_enabled"] } },
+      where: { key: { in: ["pfs_email", "pfs_enabled", "pfs_brand_id", "pfs_brand_name"] } },
       select: { key: true, value: true },
     });
     const map = new Map(rows.map(r => [r.key, r.value]));
     const hasEmail = map.has("pfs_email");
+    const hasBrand = !!map.get("pfs_brand_id") && !!map.get("pfs_brand_name");
     const enabled = map.get("pfs_enabled");
-    return hasEmail && enabled !== "false";
+    return hasEmail && hasBrand && enabled !== "false";
   },
   ["pfs-enabled"],
   { revalidate: 300, tags: ["site-config"] }
@@ -249,6 +250,41 @@ export const getCachedPfsColors = unstable_cache(
   { revalidate: 3600, tags: ["pfs-colors"] }
 );
 
+// ─── PFS brand (marque sélectionnée pour toutes les opérations PFS) ────────
+// id = identifiant Salesforce PFS (utilisé pour filtrer la liste produits)
+// name = libellé exact (utilisé comme brand_name à la création POST)
+export const getCachedPfsBrand = unstable_cache(
+  async (): Promise<{ id: string; name: string } | null> => {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: ["pfs_brand_id", "pfs_brand_name"] } },
+      select: { key: true, value: true },
+    });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const id = map.get("pfs_brand_id");
+    const name = map.get("pfs_brand_name");
+    if (!id || !name) return null;
+    return { id, name };
+  },
+  ["pfs-brand"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
+// ─── PFS live brands (liste des marques du compte, cache 10min) ────────────
+// Utilisé pour alimenter le sélecteur de marque dans Paramètres > Marketplaces.
+export const getCachedPfsBrands = unstable_cache(
+  async () => {
+    const { pfsListBrands } = await import("@/lib/pfs-api");
+    try {
+      return await pfsListBrands();
+    } catch (err) {
+      logger.warn("[PFS brands] live fetch failed", { error: err });
+      return [];
+    }
+  },
+  ["pfs-live-brands"],
+  { revalidate: 600, tags: ["pfs-brands"] }
+);
+
 // ─── PFS credentials (from SiteConfig) ──────────────────────────────────────
 export const getCachedPfsCredentials = unstable_cache(
   async () => {
@@ -271,7 +307,9 @@ export const getCachedAnkorstoreCredentials = unstable_cache(
     const rows = await prisma.siteConfig.findMany({
       where: { key: { in: ["ankors_client_id", "ankors_client_secret"] } },
     });
-    const map = new Map(rows.map((r) => [r.key, decryptIfSensitive(r.key, r.value)]));
+    const map = new Map(
+      rows.map((r) => [r.key, decryptIfSensitive(r.key, r.value)?.trim() ?? null]),
+    );
     return {
       clientId: map.get("ankors_client_id") ?? null,
       clientSecret: map.get("ankors_client_secret") ?? null,

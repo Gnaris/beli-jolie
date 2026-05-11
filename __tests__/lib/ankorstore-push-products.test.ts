@@ -272,7 +272,7 @@ describe("ankorstorePublishProduct — payload JSON envoyé", () => {
   // ────────────────────────────────────────────
   // Test 2 : PACK mono-couleur
   // ────────────────────────────────────────────
-  it("PACK mono-color → 1 entrée variante avec unitMultiplier = packQuantity implicite", async () => {
+  it("PACK only → publish refusé (Ankorstore ne supporte pas les packs)", async () => {
     const { ankorstorePublishProduct } = await import("@/lib/ankorstore-publish");
 
     const packProduct = makeUnitProduct({
@@ -296,52 +296,20 @@ describe("ankorstorePublishProduct — payload JSON envoyé", () => {
     });
 
     mockProductFindUnique.mockResolvedValue(packProduct);
-    mockGetVariants.mockResolvedValue([
-      {
-        id: "ank-v2",
-        sku: "REF1_blanc_PACK_1",
-        ian: null,
-        name: "M",
-        retailPrice: 0,
-        wholesalePrice: 0,
-        availableQuantity: null,
-        stockQuantity: 50,
-        isAlwaysInStock: false,
-        options: [
-          { name: "color", value: "Blanc" },
-          { name: "size", value: "M" },
-        ],
-      },
-    ]);
 
     const result = await ankorstorePublishProduct("p1");
-    expect(result.success).toBe(true);
-
-    expect(mockAddProductsToOperation).toHaveBeenCalledOnce();
-    const [, products] = mockAddProductsToOperation.mock.calls[0];
-    const product = products[0];
-
-    // PACK → 1 seule entrée variante
-    expect(product.variants).toHaveLength(1);
-    const variant = product.variants[0];
-
-    expect(variant.sku).toMatch(/^REF1_/);
-    expect(variant.sku).toMatch(/PACK/);
-    expect(variant.options).toEqual(
-      expect.arrayContaining([
-        { name: "color", value: "Blanc" },
-        { name: "size", value: "M" },
-      ]),
-    );
-
-    // stockQuantity présent
-    expect(variant.stockQuantity).toBe(50);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toMatch(/à l'unité/i);
+    }
+    // Aucun appel à Ankorstore : on bloque avant
+    expect(mockAddProductsToOperation).not.toHaveBeenCalled();
   });
 
   // ────────────────────────────────────────────
   // Test 3 : PACK multi-couleurs
   // ────────────────────────────────────────────
-  it("PACK multi-color → options.color joint avec '/'", async () => {
+  it("PACK multi-color only → publish refusé (Ankorstore ne supporte pas les packs)", async () => {
     const { ankorstorePublishProduct } = await import("@/lib/ankorstore-publish");
 
     const multiColorPackProduct = makeUnitProduct({
@@ -384,40 +352,13 @@ describe("ankorstorePublishProduct — payload JSON envoyé", () => {
     });
 
     mockProductFindUnique.mockResolvedValue(multiColorPackProduct);
-    mockGetVariants.mockResolvedValue([
-      {
-        id: "ank-v3",
-        sku: "REF1_rouge_PACK_1",
-        ian: null,
-        name: "S",
-        retailPrice: 0,
-        wholesalePrice: 0,
-        availableQuantity: null,
-        stockQuantity: 20,
-        isAlwaysInStock: false,
-        options: [
-          { name: "color", value: "Rouge/Bleu/Noir" },
-          { name: "size", value: "S" },
-        ],
-      },
-    ]);
 
     const result = await ankorstorePublishProduct("p1");
-    expect(result.success).toBe(true);
-
-    expect(mockAddProductsToOperation).toHaveBeenCalledOnce();
-    const [, products] = mockAddProductsToOperation.mock.calls[0];
-    const product = products[0];
-
-    expect(product.variants).toHaveLength(1);
-    const variant = product.variants[0];
-
-    // La couleur doit être le join des packLines
-    const colorOption = variant.options.find(
-      (o: { name: string; value: string }) => o.name === "color",
-    );
-    expect(colorOption).toBeDefined();
-    expect(colorOption!.value).toBe("Rouge/Bleu/Noir");
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toMatch(/à l'unité/i);
+    }
+    expect(mockAddProductsToOperation).not.toHaveBeenCalled();
   });
 
   // ────────────────────────────────────────────

@@ -371,6 +371,14 @@ model Product {
   // Identifiant marketplace — renseigné à la publication live (null = pas publié)
   pfsProductId    String?
 
+  // Marque PFS sous laquelle le produit est référencé. Renseigné à la création
+  // (publish/refresh) à partir de la marque sélectionnée dans les paramètres,
+  // ou à l'import depuis la réponse PFS (chaque produit liste sa brand).
+  // Jamais modifié sur PATCH : la marque d'un produit publié est verrouillée.
+  // Si null = marque inconnue (vieux produit publié avant cette fonctionnalité).
+  pfsBrandId      String?
+  pfsBrandName    String?
+
   // Instantané JSON du dernier état envoyé à PFS — sert à diffuser uniquement
   // les changements lors du prochain "Enregistrer" (skip pfsTranslate/update,
   // patch variantes seulement si modifiées, upload image seulement si changée).

@@ -346,6 +346,16 @@ export async function ankorstorePublishProduct(
     return { success: false, error: "Produit introuvable en base" };
   }
 
+  // Ankorstore ne supporte pas les packs : on ne publie que les variantes UNIT.
+  product.colors = product.colors.filter((v) => v.saleType === "UNIT");
+  if (product.colors.length === 0) {
+    return {
+      success: false,
+      error:
+        "Aucune variante à l'unité — Ankorstore n'accepte pas les packs. Ajoutez au moins une variante de type Unité pour publier sur Ankorstore.",
+    };
+  }
+
   const progress: AnkorstorePublishProgress = {
     productId,
     productName: product.name,

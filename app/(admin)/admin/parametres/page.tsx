@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
-import { getCachedShopName, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedSiteConfig } from "@/lib/cached-data";
+import { getCachedShopName, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedSiteConfig, getCachedPfsBrand } from "@/lib/cached-data";
 import { parseDisplayConfig } from "@/lib/product-display";
 import SettingsPageTabs from "@/components/admin/settings/SettingsPageTabs";
 import SettingsMinOrderForm from "@/components/admin/settings/SettingsMinOrderForm";
@@ -316,6 +316,7 @@ async function MarketplacesTab() {
   const [
     pfsConfig,
     markupRows,
+    pfsBrand,
     hasAnkorstoreConfig,
     ankorstoreEnabled,
     ankorstoreWholesaleType,
@@ -336,6 +337,7 @@ async function MarketplacesTab() {
         },
       },
     }),
+    getCachedPfsBrand(),
     getCachedHasAnkorstoreConfig(),
     getCachedAnkorstoreEnabled(),
     getCachedSiteConfig("ankorstore_wholesale_markup_type"),
@@ -353,6 +355,7 @@ async function MarketplacesTab() {
     <div>
       <MarketplaceConfig
         hasPfsConfig={!!pfsConfig}
+        pfsBrand={pfsBrand}
         hasAnkorstoreConfig={hasAnkorstoreConfig}
         ankorstoreEnabled={ankorstoreEnabled}
         markupSettings={{

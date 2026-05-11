@@ -43,6 +43,7 @@ import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { emitProductEvent } from "@/lib/product-events";
+import { requirePfsBrand } from "@/lib/pfs-brand";
 
 export interface PfsRefreshProgress {
   productId: string;
@@ -118,11 +119,12 @@ interface FullProduct {
   manufacturingCountry: { isoCode: string | null; pfsCountryRef: string | null } | null;
   season: { pfsRef: string | null } | null;
   sizeDetailsTu: string | null;
+  pfsBrandId: string | null;
+  pfsBrandName: string | null;
 }
 
 const PFS_DEFAULTS = {
   gender: "WOMAN",
-  brand_name: "Ma Boutique",
   family: "a035J00000185J7QAI",
   season_name: "PE2026",
   country_of_manufacture: "CN",
@@ -243,6 +245,8 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       },
       manufacturingCountry: { select: { isoCode: true, pfsCountryRef: true } },
       season: { select: { pfsRef: true } },
+      pfsBrandId: true,
+      pfsBrandName: true,
     },
   }) as unknown as FullProduct | null;
 }
@@ -353,6 +357,9 @@ export async function pfsRefreshProduct(
     onProgress?.(progress);
   };
 
+  // Marque PFS obligatoire. Erreur claire si non sélectionnée dans Paramètres.
+  const pfsBrand = await requirePfsBrand();
+
   // ── Step 1: Check product exists on PFS ──
   report("Vérification de l'existence sur PFS...");
   let existingPfsData: Awaited<ReturnType<typeof pfsCheckReference>> | null = null;
@@ -372,6 +379,7 @@ export async function pfsRefreshProduct(
   }
 
   const oldPfsProductId = existingPfsData.product.id;
+  const existingBrandId = existingPfsData.product.brand?.id;
   const existingBrand = existingPfsData.product.brand?.name;
   const existingGender = existingPfsData.product.gender?.reference;
   const existingFamily = existingPfsData.product.family?.id;
@@ -413,8 +421,11 @@ export async function pfsRefreshProduct(
     const gender = existingGender || product.category.pfsGender || PFS_DEFAULTS.gender;
     const family = existingFamily || product.category.pfsFamilyId || PFS_DEFAULTS.family;
 
-    const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
-    const brandName = existingBrand || shopNameInfo?.shopName || PFS_DEFAULTS.brand_name;
+    // Priorité : marque actuelle sur PFS > marque stockée chez nous > marque
+    // sélectionnée dans Paramètres. Garantit que la marque d'un produit
+    // déjà publié n'est jamais modifiée par un refresh.
+    const brandName = existingBrand || product.pfsBrandName || pfsBrand.name;
+    const brandIdResolved = existingBrandId || product.pfsBrandId || pfsBrand.id;
 
     if (!product.category.pfsCategoryId) {
       throw new Error(`Catégorie sans pfsCategoryId — impossible de pousser sur PFS`);
@@ -833,6 +844,8 @@ export async function pfsRefreshProduct(
         data: {
           lastRefreshedAt: new Date(),
           pfsProductId: newPfsProductId,
+          pfsBrandId: brandIdResolved,
+          pfsBrandName: brandName,
           // L'ancien snapshot devient obsolète puisqu'on a remplacé le produit PFS.
           pfsLastSyncSnapshot: Prisma.DbNull,
           ...(allVariantsOutOfStock ? { status: "OFFLINE" } : {}),

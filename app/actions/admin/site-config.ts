@@ -293,6 +293,76 @@ export async function validatePfsCredentials(config: {
   }
 }
 
+// ─── PFS Brand selector ───────────────────────────────────────────────────────
+
+/**
+ * Retourne la liste live des marques disponibles sur le compte PFS.
+ * Utilisée par le sélecteur dans Paramètres > Marketplaces.
+ */
+export async function loadPfsBrands(): Promise<{
+  success: boolean;
+  brands?: { id: string; name: string; logoUrl: string | null }[];
+  error?: string;
+}> {
+  try {
+    await requireAdmin();
+    const { pfsListBrands } = await import("@/lib/pfs-api");
+    const brands = await pfsListBrands();
+    return {
+      success: true,
+      brands: brands.map((b) => ({
+        id: b.id,
+        name: b.name,
+        logoUrl: b.logo_url ?? null,
+      })),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Impossible de charger les marques PFS",
+    };
+  }
+}
+
+/**
+ * Sauvegarde la marque PFS sélectionnée (id + nom).
+ * Passer { id: "", name: "" } pour effacer la sélection (verrouille PFS).
+ */
+export async function updatePfsBrand(config: {
+  id: string;
+  name: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const id = config.id.trim();
+    const name = config.name.trim();
+
+    const upsertOrDelete = (key: string, value: string) => {
+      if (!value) return prisma.siteConfig.deleteMany({ where: { key } });
+      return prisma.siteConfig.upsert({
+        where: { key },
+        update: { value },
+        create: { key, value },
+      });
+    };
+
+    if ((id && !name) || (name && !id)) {
+      return { success: false, error: "Sélectionnez une marque dans la liste." };
+    }
+
+    await Promise.all([
+      upsertOrDelete("pfs_brand_id", id),
+      upsertOrDelete("pfs_brand_name", name),
+    ]);
+
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
 // ─── Ankorstore Configuration ────────────────────────────────────────────────
 
 export async function updateAnkorstoreCredentials(config: {
@@ -301,15 +371,17 @@ export async function updateAnkorstoreCredentials(config: {
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
+    const clientId = config.clientId.trim();
+    const clientSecret = config.clientSecret.trim();
     await prisma.siteConfig.upsert({
       where: { key: "ankors_client_id" },
-      update: { value: encryptIfSensitive("ankors_client_id", config.clientId) },
-      create: { key: "ankors_client_id", value: encryptIfSensitive("ankors_client_id", config.clientId) },
+      update: { value: encryptIfSensitive("ankors_client_id", clientId) },
+      create: { key: "ankors_client_id", value: encryptIfSensitive("ankors_client_id", clientId) },
     });
     await prisma.siteConfig.upsert({
       where: { key: "ankors_client_secret" },
-      update: { value: encryptIfSensitive("ankors_client_secret", config.clientSecret) },
-      create: { key: "ankors_client_secret", value: encryptIfSensitive("ankors_client_secret", config.clientSecret) },
+      update: { value: encryptIfSensitive("ankors_client_secret", clientSecret) },
+      create: { key: "ankors_client_secret", value: encryptIfSensitive("ankors_client_secret", clientSecret) },
     });
     revalidateTag("site-config", "default");
     return { success: true };
@@ -341,7 +413,7 @@ export async function validateAnkorstoreCredentials(config: {
     await requireAdmin();
     // Import dynamique pour éviter de charger le module Ankorstore quand pas appelé
     const { testAnkorstoreCredentials } = await import("@/lib/ankorstore-auth");
-    return testAnkorstoreCredentials(config.clientId, config.clientSecret);
+    return testAnkorstoreCredentials(config.clientId.trim(), config.clientSecret.trim());
   } catch {
     return { valid: false, error: "Impossible de valider les identifiants Ankorstore." };
   }

@@ -75,6 +75,10 @@ vi.mock("sharp", () => ({
 vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
+vi.mock("@/lib/pfs-brand", () => ({
+  requirePfsBrand: vi.fn().mockResolvedValue({ id: "BRAND-1", name: "Beli & Jolie" }),
+  PfsBrandRequiredError: class PfsBrandRequiredError extends Error {},
+}));
 
 import { pfsRefreshProduct } from "@/lib/pfs-refresh";
 

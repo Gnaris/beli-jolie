@@ -92,6 +92,11 @@ vi.mock("@/lib/pfs-api-write", () => ({
   pfsGetFamilies: pfsGetFamiliesSpy,
 }));
 
+vi.mock("@/lib/pfs-brand", () => ({
+  requirePfsBrand: vi.fn().mockResolvedValue({ id: "BRAND-1", name: "Beli & Jolie" }),
+  PfsBrandRequiredError: class PfsBrandRequiredError extends Error {},
+}));
+
 vi.mock("@/lib/auto-translate", () => ({
   autoTranslateCategory: vi.fn(),
   autoTranslateColor: vi.fn(),

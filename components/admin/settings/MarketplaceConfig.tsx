@@ -5,6 +5,7 @@ import {
   updatePfsCredentials, validatePfsCredentials,
   updateAnkorstoreCredentials, validateAnkorstoreCredentials, toggleAnkorstoreEnabled,
   updateMarketplaceMarkup,
+  loadPfsBrands, updatePfsBrand,
 } from "@/app/actions/admin/site-config";
 import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
 import { useToast } from "@/components/ui/Toast";
@@ -18,6 +19,7 @@ interface MarkupState {
 
 interface Props {
   hasPfsConfig: boolean;
+  pfsBrand: { id: string; name: string } | null;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
   markupSettings: {
@@ -212,6 +214,7 @@ function MarkupRow({
 
 export default function MarketplaceConfig({
   hasPfsConfig,
+  pfsBrand: initialPfsBrand,
   hasAnkorstoreConfig,
   ankorstoreEnabled: initialAnkorstoreEnabled,
   markupSettings,
@@ -226,6 +229,45 @@ export default function MarketplaceConfig({
   const [isSavingPfs, startSavingPfs] = useTransition();
   const [isValidatingPfs, startValidatingPfs] = useTransition();
   const [pfsMarkup, setPfsMarkup] = useState<MarkupState>(markupSettings.pfs);
+
+  // ── PFS brand state ────────────────────────────────────────────────────────
+  const [pfsBrand, setPfsBrand] = useState<{ id: string; name: string } | null>(initialPfsBrand);
+  const [brandList, setBrandList] = useState<{ id: string; name: string; logoUrl: string | null }[] | null>(null);
+  const [brandListError, setBrandListError] = useState<string | null>(null);
+  const [isLoadingBrands, startLoadingBrands] = useTransition();
+  const [isSavingBrand, startSavingBrand] = useTransition();
+  const [brandEditing, setBrandEditing] = useState(false);
+
+  function openBrandPicker() {
+    setBrandEditing(true);
+    setBrandListError(null);
+    startLoadingBrands(async () => {
+      const res = await loadPfsBrands();
+      if (res.success && res.brands) {
+        setBrandList(res.brands);
+      } else {
+        setBrandListError(res.error ?? "Impossible de charger les marques.");
+      }
+    });
+  }
+
+  function handlePickBrand(brand: { id: string; name: string }) {
+    showLoading();
+    startSavingBrand(async () => {
+      try {
+        const res = await updatePfsBrand(brand);
+        if (res.success) {
+          setPfsBrand(brand);
+          setBrandEditing(false);
+          toast.success("Marque PFS enregistrée", `« ${brand.name} » est maintenant utilisée.`);
+        } else {
+          toast.error("Erreur", res.error ?? "Impossible d'enregistrer la marque.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
 
   // ── Ankorstore state ────────────────────────────────────────────────────────
   const [ankorstoreClientId, setAnkorstoreClientId] = useState("");
@@ -492,6 +534,84 @@ export default function MarketplaceConfig({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* ── PFS Marque ─────────────────────────────────────────────────── */}
+          <div className="px-5 py-4 border-t border-border">
+            <div className="flex items-center gap-2 mb-3">
+              <IconTag className="w-4 h-4 text-text-muted" />
+              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                Marque utilisée
+              </p>
+            </div>
+            {!hasPfsConfig ? (
+              <p className="font-body text-xs text-text-muted">
+                Renseignez vos identifiants PFS pour choisir une marque.
+              </p>
+            ) : !brandEditing ? (
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-secondary/60">
+                <div className={`flex-1 font-body text-sm ${pfsBrand ? "text-text-primary font-medium" : "text-text-muted italic"}`}>
+                  {pfsBrand ? pfsBrand.name : "Aucune marque sélectionnée — PFS verrouillé"}
+                </div>
+                <button
+                  type="button"
+                  onClick={openBrandPicker}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+                >
+                  <IconPencil className="w-3.5 h-3.5" />
+                  {pfsBrand ? "Changer" : "Choisir"}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {isLoadingBrands && (
+                  <div className="inline-flex items-center gap-2 text-xs font-body text-text-muted">
+                    <IconLoader className="w-3.5 h-3.5" /> Chargement des marques…
+                  </div>
+                )}
+                {brandListError && (
+                  <p className="font-body text-xs text-error">{brandListError}</p>
+                )}
+                {brandList && brandList.length === 0 && (
+                  <p className="font-body text-xs text-text-muted">Aucune marque disponible sur votre compte PFS.</p>
+                )}
+                {brandList && brandList.length > 0 && (
+                  <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                    {brandList.map((b) => {
+                      const isCurrent = pfsBrand?.id === b.id;
+                      return (
+                        <button
+                          key={b.id}
+                          type="button"
+                          disabled={isSavingBrand}
+                          onClick={() => handlePickBrand({ id: b.id, name: b.name })}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
+                            isCurrent
+                              ? "border-bg-dark bg-bg-dark/5"
+                              : "border-border bg-bg-primary hover:bg-bg-secondary"
+                          } disabled:opacity-50`}
+                        >
+                          <span className="flex-1 font-body text-sm text-text-primary">{b.name}</span>
+                          {isCurrent && <IconCheck className="w-4 h-4 text-success" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setBrandEditing(false)}
+                  className="inline-flex items-center gap-1 h-8 px-2 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
+                >
+                  <IconX className="w-3.5 h-3.5" />
+                  Fermer
+                </button>
+              </div>
+            )}
+            <p className="mt-2 font-body text-[11px] text-text-muted">
+              Toutes les opérations PFS (création, modification, rafraîchissement, import)
+              utilisent uniquement cette marque. Sans marque, PFS est verrouillé.
+            </p>
           </div>
 
           <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto">

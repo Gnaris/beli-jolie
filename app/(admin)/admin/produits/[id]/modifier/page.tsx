@@ -420,6 +420,7 @@ export default async function ModifierProduitPage({
                   productName={product.name}
                   firstImage={colorImagesDb[0]?.path ?? null}
                   pfsProductId={product.pfsProductId}
+                  pfsBrandName={product.pfsBrandName ?? null}
                   hasPfsConfig={hasPfsConfig}
                   ankorsProductId={product.ankorsProductId}
                   hasAnkorstoreConfig={hasAnkorstoreConfig}

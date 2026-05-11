@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
 import LinkAnkorstoreProductModal from "./LinkAnkorstoreProductModal";
+import SetPfsBrandModal from "./SetPfsBrandModal";
 
 interface MarketplaceStatusButtonsProps {
   productId: string;
@@ -10,6 +11,7 @@ interface MarketplaceStatusButtonsProps {
   productName: string;
   firstImage: string | null;
   pfsProductId: string | null;
+  pfsBrandName: string | null;
   hasPfsConfig: boolean;
   ankorsProductId: string | null;
   hasAnkorstoreConfig: boolean;
@@ -22,6 +24,7 @@ export function MarketplaceStatusButtons({
   productName,
   firstImage,
   pfsProductId,
+  pfsBrandName,
   hasPfsConfig,
   ankorsProductId,
   hasAnkorstoreConfig,
@@ -33,6 +36,7 @@ export function MarketplaceStatusButtons({
   const [confirmAkOpen, setConfirmAkOpen] = useState(false);
   const [resyncAkOpen, setResyncAkOpen] = useState(false);
   const [linkAkOpen, setLinkAkOpen] = useState(false);
+  const [brandPickerOpen, setBrandPickerOpen] = useState(false);
 
   const handlePublishPfs = () => {
     enqueue([
@@ -126,7 +130,14 @@ export function MarketplaceStatusButtons({
                 }`}
               />
               {pfsProductId ? (
-                "Paris Fashion Shop"
+                pfsBrandName ? (
+                  <span>
+                    Paris Fashion Shop <span className="opacity-60">·</span>{" "}
+                    <span className="font-bold">{pfsBrandName}</span>
+                  </span>
+                ) : (
+                  "Paris Fashion Shop"
+                )
               ) : (
                 <>
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -136,6 +147,21 @@ export function MarketplaceStatusButtons({
                 </>
               )}
             </button>
+
+            {pfsProductId && !pfsBrandName && (
+              <button
+                type="button"
+                onClick={() => setBrandPickerOpen(true)}
+                className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#FFFBEB] text-[#92400E] border border-[#FDE68A] hover:bg-[#FEF3C7] transition-colors"
+                title="Renseigner la marque PFS de ce produit"
+                aria-label="Renseigner la marque PFS"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+              </button>
+            )}
 
             {pfsProductId && (
               <button
@@ -398,6 +424,14 @@ export function MarketplaceStatusButtons({
           productName={productName}
           reference={reference}
           onClose={() => setLinkAkOpen(false)}
+        />
+      )}
+
+      {brandPickerOpen && (
+        <SetPfsBrandModal
+          productId={productId}
+          productName={productName}
+          onClose={() => setBrandPickerOpen(false)}
         />
       )}
     </>

@@ -62,6 +62,11 @@ vi.mock("@/lib/pfs-api-write", () => ({
   pfsGetFamilies: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock("@/lib/pfs-brand", () => ({
+  requirePfsBrand: vi.fn().mockResolvedValue({ id: "BRAND-1", name: "Beli & Jolie" }),
+  PfsBrandRequiredError: class PfsBrandRequiredError extends Error {},
+}));
+
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));

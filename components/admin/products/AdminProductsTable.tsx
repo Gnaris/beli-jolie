@@ -10,7 +10,7 @@ import {
   updateVariantQuick,
   bulkUpdateVariants,
 } from "@/app/actions/admin/products";
-import { deleteProductsOnPfs } from "@/app/actions/admin/marketplace-delete";
+import { deleteProductsOnPfs, deleteProductsOnAnkorstore } from "@/app/actions/admin/marketplace-delete";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
@@ -1481,33 +1481,63 @@ export default function AdminProductsTable({
       confirmLabel = "Supprimer et archiver";
     }
 
+    // Capture les ID marketplace AVANT suppression locale (sinon perdus en BDD)
+    const pfsCandidates = hasPfsConfig
+      ? allProducts
+          .filter((p) => ids.includes(p.id) && p.pfsProductId)
+          .map((p) => ({ pfsProductId: p.pfsProductId as string, reference: p.reference }))
+      : [];
+    const ankorsCandidates = showAnkorstore
+      ? allProducts
+          .filter((p) => ids.includes(p.id) && p.ankorsProductId)
+          .map((p) => ({ ankorsProductId: p.ankorsProductId as string, reference: p.reference }))
+      : [];
+
+    const pfsRef = { current: false };
+    const ankorsRef = { current: false };
+
+    const checkboxes: {
+      id: string;
+      label: string;
+      defaultChecked: boolean;
+      onChange: (v: boolean) => void;
+    }[] = [];
+    if (pfsCandidates.length > 0) {
+      checkboxes.push({
+        id: "pfs",
+        label: `Retirer aussi de Paris Fashion Shop (${pfsCandidates.length} produit${pfsCandidates.length > 1 ? "s" : ""} publié${pfsCandidates.length > 1 ? "s" : ""})`,
+        defaultChecked: false,
+        onChange: (v) => {
+          pfsRef.current = v;
+        },
+      });
+    }
+    if (ankorsCandidates.length > 0) {
+      checkboxes.push({
+        id: "ankorstore",
+        label: `Archiver aussi sur Ankorstore (${ankorsCandidates.length} produit${ankorsCandidates.length > 1 ? "s" : ""} publié${ankorsCandidates.length > 1 ? "s" : ""})`,
+        defaultChecked: false,
+        onChange: (v) => {
+          ankorsRef.current = v;
+        },
+      });
+    }
+
     const confirmed = await confirm({
       type: "danger",
       title,
       message,
       confirmLabel,
       cancelLabel: "Annuler",
+      ...(checkboxes.length > 0 && {
+        checkboxesLabel: "Marketplaces",
+        checkboxes,
+      }),
     });
     if (!confirmed) return;
 
-    // Capture les pfsProductId AVANT suppression locale (sinon perdus en BDD)
-    const pfsCandidates = hasPfsConfig
-      ? allProducts
-          .filter((p) => ids.includes(p.id) && p.pfsProductId)
-          .map((p) => ({ pfsProductId: p.pfsProductId as string, reference: p.reference }))
-      : [];
-
-    let confirmPfsDelete = false;
-    if (pfsCandidates.length > 0) {
-      const ok = await confirm({
-        type: "warning",
-        title: `Retirer aussi de Paris Fashion Shop ?`,
-        message: `${pfsCandidates.length} produit${pfsCandidates.length > 1 ? "s" : ""} sont publiés sur Paris Fashion Shop. Souhaitez-vous les y retirer également (statut « Supprimé ») ?`,
-        confirmLabel: "Oui, retirer aussi",
-        cancelLabel: "Non, garder sur PFS",
-      });
-      confirmPfsDelete = ok === true;
-    }
+    const confirmPfsDelete = pfsRef.current && pfsCandidates.length > 0;
+    const confirmAnkorsDelete = ankorsRef.current && ankorsCandidates.length > 0;
 
     setBulkMessage(null);
     setDeletingIds(new Set(ids));
@@ -1529,7 +1559,7 @@ export default function AdminProductsTable({
         setSelectedIds(new Set());
 
         // Suppression PFS en arrière-plan si l'admin a confirmé
-        if (confirmPfsDelete && pfsCandidates.length > 0) {
+        if (confirmPfsDelete) {
           try {
             const pfsResults = await deleteProductsOnPfs(pfsCandidates);
             const okCount = pfsResults.filter((r) => r.status === "ok").length;
@@ -1547,6 +1577,26 @@ export default function AdminProductsTable({
             toast.error("Échec suppression PFS", err instanceof Error ? err.message : String(err));
           }
         }
+
+        // Archivage Ankorstore en arrière-plan si l'admin a confirmé
+        if (confirmAnkorsDelete) {
+          try {
+            const ankorsResults = await deleteProductsOnAnkorstore(ankorsCandidates);
+            const okCount = ankorsResults.filter((r) => r.status === "ok").length;
+            const errCount = ankorsResults.length - okCount;
+            if (errCount === 0) {
+              toast.success(`${okCount} produit${okCount > 1 ? "s" : ""} archivé${okCount > 1 ? "s" : ""} sur Ankorstore`);
+            } else {
+              const errRefs = ankorsResults.filter((r) => r.status === "error").map((r) => r.reference).join(", ");
+              toast.error(
+                "Archivage Ankorstore partiel",
+                `${okCount} OK · ${errCount} échec${errCount > 1 ? "s" : ""} (${errRefs})`,
+              );
+            }
+          } catch (err) {
+            toast.error("Échec archivage Ankorstore", err instanceof Error ? err.message : String(err));
+          }
+        }
       } catch (e) {
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
       } finally {
@@ -1554,7 +1604,7 @@ export default function AdminProductsTable({
         setDeletingIds(new Set());
       }
     });
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, hasPfsConfig, toast]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, hasPfsConfig, showAnkorstore, toast]);
 
   // ─── Bulk variant actions ──
   const handleBulkVariantUpdate = useCallback(async (data: Record<string, unknown>) => {

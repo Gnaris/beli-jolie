@@ -59,9 +59,13 @@ vi.mock("@/lib/image-utils", () => ({ getImagePaths: vi.fn(() => ({ large: "l", 
 const {
   pfsCheckReferenceSpy,
   pfsDeleteProductSpy,
+  ankorstoreDeleteProductSpy,
+  getCachedAnkorstoreEnabledSpy,
 } = vi.hoisted(() => ({
   pfsCheckReferenceSpy: vi.fn(),
   pfsDeleteProductSpy: vi.fn(),
+  ankorstoreDeleteProductSpy: vi.fn(),
+  getCachedAnkorstoreEnabledSpy: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("@/lib/pfs-api", () => ({ pfsCheckReference: pfsCheckReferenceSpy }));
@@ -77,6 +81,16 @@ vi.mock("@/lib/pfs-api-write", () => ({
   pfsGetSizes: vi.fn().mockResolvedValue([]),
   pfsGetCollections: vi.fn().mockResolvedValue([]),
 }));
+vi.mock("@/lib/ankorstore-api-write", () => ({
+  ankorstoreDeleteProduct: ankorstoreDeleteProductSpy,
+}));
+vi.mock("@/lib/cached-data", async () => {
+  const actual = await vi.importActual<Record<string, unknown>>("@/lib/cached-data");
+  return {
+    ...actual,
+    getCachedAnkorstoreEnabled: getCachedAnkorstoreEnabledSpy,
+  };
+});
 
 import { deleteProduct, bulkDeleteProducts, previewProductDeletion } from "@/app/actions/admin/products";
 
@@ -85,7 +99,7 @@ beforeEach(() => {
 });
 
 describe("product deletion does not touch marketplaces", () => {
-  it("deleteProduct() never calls PFS", async () => {
+  it("deleteProduct() never calls PFS nor Ankorstore (even if ankorsProductId is set)", async () => {
     mockProductFindUnique.mockResolvedValue({ reference: "REF-1" });
     mockOrderItemCount.mockResolvedValue(0);
     mockProductColorFindMany.mockResolvedValue([]);
@@ -96,10 +110,11 @@ describe("product deletion does not touch marketplaces", () => {
 
     expect(pfsCheckReferenceSpy).not.toHaveBeenCalled();
     expect(pfsDeleteProductSpy).not.toHaveBeenCalled();
+    expect(ankorstoreDeleteProductSpy).not.toHaveBeenCalled();
     expect(mockProductDelete).toHaveBeenCalledWith({ where: { id: "p-1" } });
   });
 
-  it("bulkDeleteProducts() never calls PFS", async () => {
+  it("bulkDeleteProducts() never calls PFS nor Ankorstore", async () => {
     mockProductFindMany.mockResolvedValue([
       { id: "p-1", reference: "REF-1" },
       { id: "p-2", reference: "REF-2" },
@@ -113,6 +128,7 @@ describe("product deletion does not touch marketplaces", () => {
 
     expect(pfsCheckReferenceSpy).not.toHaveBeenCalled();
     expect(pfsDeleteProductSpy).not.toHaveBeenCalled();
+    expect(ankorstoreDeleteProductSpy).not.toHaveBeenCalled();
     expect(result.deleted).toBe(2);
     expect(result.archived).toEqual([]);
   });

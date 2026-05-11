@@ -37,6 +37,7 @@ import sharp from "sharp";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
+import { requirePfsBrand } from "@/lib/pfs-brand";
 
 export interface PfsPublishProgress {
   productId: string;
@@ -100,7 +101,6 @@ interface FullProduct {
 
 const PFS_DEFAULTS = {
   gender: "WOMAN",
-  brand_name: "Ma Boutique",
   family: "a035J00000185J7QAI",
   season_name: "PE2026",
   country_of_manufacture: "CN",
@@ -341,6 +341,9 @@ export async function pfsPublishProduct(
     onProgress?.(progress);
   };
 
+  // Marque PFS obligatoire. Erreur claire si non sélectionnée dans Paramètres.
+  const pfsBrand = await requirePfsBrand();
+
   let createdPfsProductId: string | null = null;
 
   const markupConfigs = await loadMarketplaceMarkupConfigs();
@@ -366,8 +369,7 @@ export async function pfsPublishProduct(
     const gender = product.category.pfsGender || PFS_DEFAULTS.gender;
     const family = product.category.pfsFamilyId || PFS_DEFAULTS.family;
 
-    const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
-    const brandName = shopNameInfo?.shopName || PFS_DEFAULTS.brand_name;
+    const brandName = pfsBrand.name;
 
     // ── Auto-resolve missing PFS IDs from names ──
     if (!product.category.pfsCategoryId || !product.category.pfsFamilyId) {
@@ -708,6 +710,8 @@ export async function pfsPublishProduct(
         where: { id: productId },
         data: {
           pfsProductId: createdPfsProductId,
+          pfsBrandId: pfsBrand.id,
+          pfsBrandName: pfsBrand.name,
           // Reset du snapshot — la prochaine sauvegarde déclenchera un sync
           // complet qui calculera le snapshot initial.
           pfsLastSyncSnapshot: Prisma.DbNull,

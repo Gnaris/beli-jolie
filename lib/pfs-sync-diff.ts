@@ -18,7 +18,10 @@ export interface PfsProductFieldsSnapshot {
   composition: { id: string; value: number }[];
   country: string;
   season: string;
-  brand: string;
+  // NB : la marque (`brand_name` côté PFS) n'est volontairement pas dans le
+  // snapshot. Elle est fixée à la création (publish/refresh) et n'est
+  // jamais modifiée par la suite. Aucun update PATCH ne renvoie le champ
+  // brand_name à PFS.
   gender: string;
   category: string | null;
   family: string | null;
@@ -75,7 +78,6 @@ export function productFieldsEqual(
     a.dimensions === b.dimensions &&
     a.country === b.country &&
     a.season === b.season &&
-    a.brand === b.brand &&
     a.gender === b.gender &&
     a.category === b.category &&
     a.family === b.family &&

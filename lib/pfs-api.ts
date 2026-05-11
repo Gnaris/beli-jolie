@@ -264,16 +264,62 @@ async function _fetchWithRetryInner(
 
 /**
  * List products (paginated). Returns one page at a time.
+ * Optionally filter by PFS brand id (the same id returned by /account/listBrands).
  */
 export async function pfsListProducts(
   page: number,
   perPage = 100,
+  brandId?: string | null,
 ): Promise<PfsListProductsResponse> {
   const headers = await getPfsHeaders();
-  const url = `${PFS_BASE_URL}/catalog/listProducts?page=${page}&per_page=${perPage}&status=ACTIVE`;
+  const params = new URLSearchParams({
+    page: String(page),
+    per_page: String(perPage),
+    status: "ACTIVE",
+  });
+  if (brandId) params.set("brand", brandId);
+  const url = `${PFS_BASE_URL}/catalog/listProducts?${params.toString()}`;
 
   const res = await fetchWithRetry(url, { method: "GET", headers });
   return res.json();
+}
+
+// ─────────────────────────────────────────────
+// Brands
+// ─────────────────────────────────────────────
+
+export interface PfsBrand {
+  id: string;
+  name: string;
+  logo_url?: string | null;
+  genders?: string[];
+  created_date?: string;
+  updated_date?: string;
+  status?: {
+    value: string;
+    color?: string;
+    labels?: Record<string, string>;
+  };
+}
+
+interface PfsListBrandsResponse {
+  success: boolean;
+  message?: string;
+  data: PfsBrand[];
+  meta?: { response_at?: string; status_code?: number; locale?: string };
+}
+
+/**
+ * List all PFS brands available on the current wholesaler account.
+ * GET /account/listBrands → returns brand id, name, logo, genders, status.
+ */
+export async function pfsListBrands(): Promise<PfsBrand[]> {
+  const headers = await getPfsHeaders();
+  const url = `${PFS_BASE_URL}/account/listBrands`;
+
+  const res = await fetchWithRetry(url, { method: "GET", headers });
+  const json = (await res.json()) as PfsListBrandsResponse;
+  return Array.isArray(json?.data) ? json.data : [];
 }
 
 /**

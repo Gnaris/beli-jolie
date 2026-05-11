@@ -42,6 +42,7 @@ import {
   inferPfsFamilyFromCategoryLabel,
 } from "@/lib/pfs-family-resolve";
 import { PROTECTED_SIZE_NAME, PROTECTED_SIZE_PFS_REF, isProtectedSizeName } from "@/lib/protected-sizes";
+import { requirePfsBrand } from "@/lib/pfs-brand";
 
 // Re-export pour ne pas casser les imports existants de `pfs-import`.
 export { sanitizePfsFamilyName, inferPfsFamilyFromCategoryLabel };
@@ -259,6 +260,32 @@ export function validatedPfsCategoryName(
   if (!family || !catLabel) return null;
   const known = PFS_SUBCATEGORIES_BY_FAMILY[family] ?? [];
   return known.includes(catLabel) ? catLabel : null;
+}
+
+export type ImportCategoryRow = { id: string; name: string };
+export type ImportCategoryMatch = "pfsCategoryId" | "pfsFamilyName" | "name";
+
+/**
+ * Choisit la catégorie locale à associer à un produit importé depuis PFS,
+ * dans cet ordre de priorité :
+ *  1. Match exact par `pfsCategoryId` (cas nominal)
+ *  2. Repli par `pfsFamilyName` (mapping via la famille parente PFS)
+ *  3. Repli par nom local (`Category.name` = libellé FR/EN du produit PFS)
+ *
+ * Le 3e cas couvre les **doublons PFS** : PFS expose parfois deux IDs pour la
+ * même catégorie (ex: deux "Blouses"). La cliente a mappé la version active,
+ * mais des produits anciens reviennent avec l'ID obsolète. Le repli par nom
+ * permet de raccrocher quand même.
+ */
+export function pickImportCategory(
+  primary: ImportCategoryRow | null,
+  familyFallback: ImportCategoryRow | null,
+  nameFallback: ImportCategoryRow | null,
+): { category: ImportCategoryRow | null; matchedBy: ImportCategoryMatch | null } {
+  if (primary) return { category: primary, matchedBy: "pfsCategoryId" };
+  if (familyFallback) return { category: familyFallback, matchedBy: "pfsFamilyName" };
+  if (nameFallback) return { category: nameFallback, matchedBy: "name" };
+  return { category: null, matchedBy: null };
 }
 
 
@@ -569,13 +596,18 @@ export async function scanPfsAttributes(options?: {
   const deepSampleSize = options?.deepSampleSize ?? DEEP_SCAN_SAMPLE_SIZE;
   const targetRefs = options?.references?.map((r) => r.trim().toUpperCase());
 
+  // Marque PFS obligatoire : on filtre côté API pour ne descendre QUE les
+  // produits de la marque sélectionnée dans Paramètres.
+  const pfsBrand = await requirePfsBrand();
+  const brandId = pfsBrand.id;
+
   let products: PfsProduct[];
 
   if (targetRefs && targetRefs.length > 0) {
     // By-reference mode: load pages until we find all target references
     const targetSet = new Set(targetRefs);
     const found: PfsProduct[] = [];
-    const first = await pfsListProducts(1, PFS_LIST_PAGE_SIZE);
+    const first = await pfsListProducts(1, PFS_LIST_PAGE_SIZE, brandId);
     const totalPages = first.meta?.last_page ?? 1;
 
     for (const p of first.data) {
@@ -584,7 +616,7 @@ export async function scanPfsAttributes(options?: {
 
     for (let p = 2; p <= totalPages; p++) {
       if (found.length >= targetSet.size) break;
-      const pageData = await pfsListProducts(p, PFS_LIST_PAGE_SIZE);
+      const pageData = await pfsListProducts(p, PFS_LIST_PAGE_SIZE, brandId);
       if (pageData.data.length === 0) break;
       for (const prod of pageData.data) {
         if (targetSet.has(prod.reference.trim().toUpperCase())) found.push(prod);
@@ -595,7 +627,7 @@ export async function scanPfsAttributes(options?: {
   } else {
     // Browse mode: load all pages and filter out existing products
     const allLoaded: PfsProduct[] = [];
-    const first = await pfsListProducts(1, PFS_LIST_PAGE_SIZE);
+    const first = await pfsListProducts(1, PFS_LIST_PAGE_SIZE, brandId);
     allLoaded.push(...first.data);
     const totalPages = first.meta?.last_page ?? 1;
 
@@ -603,7 +635,7 @@ export async function scanPfsAttributes(options?: {
 
     for (let p = 2; p <= totalPages; p++) {
       if (maxImportable && products.length >= maxImportable) break;
-      const pageData = await pfsListProducts(p, PFS_LIST_PAGE_SIZE);
+      const pageData = await pfsListProducts(p, PFS_LIST_PAGE_SIZE, brandId);
       if (pageData.data.length === 0) break;
       allLoaded.push(...pageData.data);
       products = await filterImportable(allLoaded);
@@ -1496,9 +1528,13 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
 export async function listImportablePfsProducts(options?: { maxProducts?: number }): Promise<ImportablePfsProduct[]> {
   const maxProducts = options?.maxProducts;
 
+  // Marque PFS obligatoire — uniquement les produits de la marque sélectionnée.
+  const pfsBrand = await requirePfsBrand();
+  const brandId = pfsBrand.id;
+
   // Charge page par page, filtre ceux déjà chez nous, s'arrête quand on a le compte
   const importable: PfsProduct[] = [];
-  const first = await pfsListProducts(1, PFS_LIST_PAGE_SIZE);
+  const first = await pfsListProducts(1, PFS_LIST_PAGE_SIZE, brandId);
   const totalPages = first.meta?.last_page ?? 1;
 
   // Filtre la première page
@@ -1508,7 +1544,7 @@ export async function listImportablePfsProducts(options?: { maxProducts?: number
   // Continue page par page jusqu'à avoir assez
   for (let p = 2; p <= totalPages; p++) {
     if (maxProducts && importable.length >= maxProducts) break;
-    const pageData = await pfsListProducts(p, PFS_LIST_PAGE_SIZE);
+    const pageData = await pfsListProducts(p, PFS_LIST_PAGE_SIZE, brandId);
     if (pageData.data.length === 0) break;
     const filtered = await filterImportable(pageData.data);
     importable.push(...filtered);
@@ -1783,6 +1819,9 @@ export async function approveAndImportPfsProduct(
   const isCancelled = options?.isCancelled;
   const warnings: string[] = [];
 
+  // Marque PFS obligatoire (blocage clair si non sélectionnée).
+  await requirePfsBrand();
+
   const product: PfsProduct | undefined = await getCachedPfsProductById(pfsId);
   if (!product) throw new Error(`Produit PFS introuvable : ${pfsId}`);
 
@@ -1820,9 +1859,18 @@ export async function approveAndImportPfsProduct(
     percentage: mat.percentage,
   }));
 
+  // Filet de sécurité : si PFS renvoie un pfsCategoryId obsolète (doublon),
+  // on essaie aussi de retrouver la catégorie locale par son nom (libellé FR/EN).
+  const categoryLabelFr = product.category?.labels?.fr?.trim() || null;
+  const categoryLabelEn = product.category?.labels?.en?.trim() || null;
+  const categoryNameLookups: string[] = [];
+  if (categoryLabelFr) categoryNameLookups.push(categoryLabelFr);
+  if (categoryLabelEn && !categoryNameLookups.includes(categoryLabelEn)) categoryNameLookups.push(categoryLabelEn);
+
   const [
     primaryCategory,
     fallbackCategory,
+    nameFallbackCategory,
     countryRow,
     seasonRow,
     compositionRows,
@@ -1836,6 +1884,12 @@ export async function approveAndImportPfsProduct(
     familyLookupValues.length > 0
       ? prisma.category.findFirst({
           where: { pfsFamilyName: { in: familyLookupValues } },
+          select: { id: true, name: true },
+        })
+      : Promise.resolve(null),
+    categoryNameLookups.length > 0
+      ? prisma.category.findFirst({
+          where: { name: { in: categoryNameLookups } },
           select: { id: true, name: true },
         })
       : Promise.resolve(null),
@@ -1859,10 +1913,19 @@ export async function approveAndImportPfsProduct(
       : Promise.resolve([]),
   ]);
 
-  const category = primaryCategory ?? fallbackCategory;
+  const { category, matchedBy } = pickImportCategory(
+    primaryCategory,
+    fallbackCategory,
+    nameFallbackCategory,
+  );
   if (!category) {
     const catLabel = product.category?.labels?.fr ?? product.family;
     throw new Error(`Catégorie non mappée : "${catLabel}". Créez d'abord la correspondance.`);
+  }
+  if (matchedBy === "name") {
+    warnings.push(
+      `Catégorie associée par nom : "${category.name}" (la référence PFS d'origine semble obsolète — vérifiez la correspondance dans Paramètres > PFS > Catégories).`,
+    );
   }
 
   let manufacturingCountryId: string | null = null;
@@ -2019,6 +2082,10 @@ export async function approveAndImportPfsProduct(
           manufacturingCountryId,
           seasonId,
           pfsProductId: product.id,
+          // Chaque produit PFS connaît sa marque — on la stocke pour
+          // l'afficher dans le badge et garder une trace fiable.
+          pfsBrandId: product.brand?.id ?? null,
+          pfsBrandName: product.brand?.name ?? null,
           sizeDetailsTu: sizeDetailsTuValue,
           primaryColorId: initialPrimaryColorId,
           compositions: {
