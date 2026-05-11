@@ -15,7 +15,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
-import { usePfsRefreshQueue } from "@/components/admin/products/PfsRefreshContext";
+import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
@@ -57,6 +57,29 @@ function MarketplaceBadge({ published }: { published: boolean }) {
   );
 }
 
+function AnkorstoreBadge({ published }: { published: boolean }) {
+  if (published) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+        title="Publié sur Ankorstore"
+      >
+        <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
+        Ankorstore
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
+      title="Non publié sur Ankorstore"
+    >
+      <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
+      Ankorstore
+    </span>
+  );
+}
+
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface VariantSizeEntry {
@@ -93,6 +116,7 @@ interface AdminProduct {
   lastRefreshedAt: string | null;
   firstImage: string | null;
   pfsProductId: string | null;
+  ankorsProductId: string | null;
   colors: ColorVariant[];
   translations: ProductTranslation[];
 }
@@ -101,6 +125,8 @@ interface Props {
   products: AdminProduct[];
   totalCount: number;
   hasPfsConfig: boolean;
+  hasAnkorstoreConfig: boolean;
+  ankorstoreEnabled: boolean;
 }
 
 // ─── Variant Editor Row ────────────────────────────────────────────────────────
@@ -128,7 +154,7 @@ function VariantRow({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const { confirm } = useConfirm();
-  const { enqueue } = usePfsRefreshQueue();
+  const { enqueue } = useMarketplaceRefreshQueue();
 
   const handleSave = async () => {
     setSaving(true);
@@ -161,6 +187,7 @@ function VariantRow({
               firstImage: product.firstImage,
               options: { local: false, pfs: true },
               mode: "publish",
+              marketplace: "pfs",
             },
           ]);
         }
@@ -667,6 +694,7 @@ function ProductRow({
             </div>
             <div className="flex items-center gap-1.5 flex-nowrap">
               <MarketplaceBadge published={!!product.pfsProductId} />
+              <AnkorstoreBadge published={!!product.ankorsProductId} />
             </div>
           </div>
         </td>
@@ -1245,15 +1273,22 @@ function TableWithTopScroll({
 
 // ─── Main Table ────────────────────────────────────────────────────────────────
 
-export default function AdminProductsTable({ products, totalCount: _totalCount, hasPfsConfig }: Props) {
+export default function AdminProductsTable({
+  products,
+  totalCount: _totalCount,
+  hasPfsConfig,
+  hasAnkorstoreConfig,
+  ankorstoreEnabled,
+}: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
-  const { refreshBulk } = useRefreshMarketplaceDialog();
-  const { enqueue: enqueuePfs } = usePfsRefreshQueue();
+  const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
+  const { refreshBulk } = useRefreshMarketplaceDialog({ showPfs: hasPfsConfig, showAnkorstore });
+  const { enqueue: enqueuePfs } = useMarketplaceRefreshQueue();
   const toast = useToast();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
@@ -1391,6 +1426,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
               firstImage: p.firstImage,
               options: { local: false, pfs: true },
               mode: "publish" as const,
+              marketplace: "pfs" as const,
             })),
           );
         }

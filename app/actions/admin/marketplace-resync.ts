@@ -78,3 +78,77 @@ export async function resyncProductOnPfs(
 
   return outcome;
 }
+
+export async function resyncProductOnAnkorstore(
+  productId: string,
+): Promise<MarketplacePublishOutcome> {
+  await requireAdmin();
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: {
+      id: true,
+      reference: true,
+      name: true,
+      status: true,
+      ankorsProductId: true,
+    },
+  });
+
+  if (!product) {
+    throw new Error("Produit introuvable.");
+  }
+
+  const outcome: MarketplacePublishOutcome = {
+    productId,
+    reference: product.reference,
+    productName: product.name,
+  };
+
+  if (!product.ankorsProductId) {
+    outcome.ankorstore = {
+      status: "error",
+      message: "Produit non publié sur Ankorstore.",
+    };
+    return outcome;
+  }
+
+  const { getCachedAnkorstoreEnabled } = await import("@/lib/cached-data");
+  const ankorstoreEnabled = await getCachedAnkorstoreEnabled();
+  if (!ankorstoreEnabled) {
+    outcome.ankorstore = {
+      status: "error",
+      message: "Sync Ankorstore désactivée dans Paramètres.",
+    };
+    return outcome;
+  }
+
+  try {
+    const { ankorstoreUpdateProductInPlace } = await import("@/lib/ankorstore-update");
+    const res = await ankorstoreUpdateProductInPlace(productId, undefined, {
+      skipRevalidation: true,
+      forceFullSync: true,
+    });
+    if (res.success) {
+      outcome.ankorstore = { status: "ok", mode: "update", archived: res.archived };
+    } else {
+      outcome.ankorstore = { status: "error", message: res.error };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Ankorstore Resync] unexpected error", { productId, error: message });
+    outcome.ankorstore = { status: "error", message };
+  }
+
+  revalidatePath("/admin/produits");
+  revalidatePath(`/admin/produits/${productId}/modifier`);
+  revalidatePath(`/produits/${productId}`);
+  revalidatePath("/produits");
+  revalidateTag("products", "default");
+
+  if (product.status === "ONLINE") {
+    emitProductEvent({ type: "PRODUCT_UPDATED", productId });
+  }
+
+  return outcome;
+}

@@ -4,9 +4,9 @@ import { useCallback } from "react";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import {
-  usePfsRefreshQueue,
-  type PfsRefreshEnqueueInput,
-} from "@/components/admin/products/PfsRefreshContext";
+  useMarketplaceRefreshQueue,
+  type MarketplaceRefreshEnqueueInput,
+} from "@/components/admin/products/MarketplaceRefreshContext";
 import { refreshProductOnMarketplaces, type MarketplaceRefreshOptions } from "@/app/actions/admin/marketplace-refresh";
 
 export interface RefreshableProduct {
@@ -16,15 +16,26 @@ export interface RefreshableProduct {
   firstImage?: string | null;
 }
 
-export function useRefreshMarketplaceDialog() {
+export interface UseRefreshMarketplaceDialogOptions {
+  /** Affiche la case Paris Fashion Shop. Défaut true. */
+  showPfs?: boolean;
+  /** Affiche la case Ankorstore. Défaut false. */
+  showAnkorstore?: boolean;
+}
+
+export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOptions) {
+  const showPfs = opts?.showPfs ?? true;
+  const showAnkorstore = opts?.showAnkorstore ?? false;
+
   const { confirm } = useConfirm();
   const toast = useToast();
-  const { enqueue } = usePfsRefreshQueue();
+  const { enqueue } = useMarketplaceRefreshQueue();
 
   const askOptions = useCallback(
     async (count: number, firstProductName?: string): Promise<MarketplaceRefreshOptions | null> => {
       const localRef = { current: true };
       const pfsRef = { current: false };
+      const ankorstoreRef = { current: false };
 
       const title = count === 1 ? "Rafraîchir ce produit ?" : `Rafraîchir ${count} produits ?`;
       const message =
@@ -34,29 +45,43 @@ export function useRefreshMarketplaceDialog() {
             ? "Choisissez où rafraîchir le produit :"
             : "Les options s'appliquent à tous les produits cochés.";
 
+      const checkboxes = [
+        {
+          id: "local",
+          label: "Remettre en Nouveauté sur la boutique",
+          defaultChecked: true,
+          onChange: (v: boolean) => {
+            localRef.current = v;
+          },
+        },
+      ];
+      if (showPfs) {
+        checkboxes.push({
+          id: "pfs",
+          label: "Rafraîchir sur Paris Fashion Shop (crée le nouveau, supprime l'ancien)",
+          defaultChecked: false,
+          onChange: (v: boolean) => {
+            pfsRef.current = v;
+          },
+        });
+      }
+      if (showAnkorstore) {
+        checkboxes.push({
+          id: "ankorstore",
+          label: "Rafraîchir sur Ankorstore (crée le nouveau, archive l'ancien)",
+          defaultChecked: false,
+          onChange: (v: boolean) => {
+            ankorstoreRef.current = v;
+          },
+        });
+      }
+
       const ok = await confirm({
         type: "warning",
         title,
         message,
         checkboxesLabel: "Options",
-        checkboxes: [
-          {
-            id: "local",
-            label: "Remettre en Nouveauté sur la boutique",
-            defaultChecked: true,
-            onChange: (v) => {
-              localRef.current = v;
-            },
-          },
-          {
-            id: "pfs",
-            label: "Rafraîchir sur Paris Fashion Shop (crée le nouveau, supprime l'ancien)",
-            defaultChecked: false,
-            onChange: (v) => {
-              pfsRef.current = v;
-            },
-          },
-        ],
+        checkboxes,
         confirmLabel: "Rafraîchir",
       });
       if (!ok) return null;
@@ -64,15 +89,16 @@ export function useRefreshMarketplaceDialog() {
       const options: MarketplaceRefreshOptions = {
         local: localRef.current,
         pfs: pfsRef.current,
+        ankorstore: ankorstoreRef.current,
       };
 
-      if (!options.local && !options.pfs) {
+      if (!options.local && !options.pfs && !options.ankorstore) {
         toast.error("Aucune option sélectionnée.");
         return null;
       }
       return options;
     },
-    [confirm, toast],
+    [confirm, toast, showPfs, showAnkorstore],
   );
 
   const refreshSingle = useCallback(
@@ -80,8 +106,8 @@ export function useRefreshMarketplaceDialog() {
       const options = await askOptions(1, product.productName);
       if (!options) return false;
 
-      // If only local (no PFS), run directly — it's instant
-      if (options.local && !options.pfs) {
+      // If only local (no marketplace), run directly — it's instant
+      if (options.local && !options.pfs && !options.ankorstore) {
         try {
           await refreshProductOnMarketplaces(product.productId, options);
           toast.success("Produit remis en Nouveauté");
@@ -91,15 +117,29 @@ export function useRefreshMarketplaceDialog() {
         return true;
       }
 
-      // Enqueue for background processing
-      const input: PfsRefreshEnqueueInput = {
-        productId: product.productId,
-        reference: product.reference,
-        productName: product.productName,
-        firstImage: product.firstImage ?? null,
-        options,
-      };
-      enqueue([input]);
+      // Enqueue for background processing — 1 item per marketplace ciblée
+      const inputs: MarketplaceRefreshEnqueueInput[] = [];
+      if (options.pfs) {
+        inputs.push({
+          productId: product.productId,
+          reference: product.reference,
+          productName: product.productName,
+          firstImage: product.firstImage ?? null,
+          options,
+          marketplace: "pfs",
+        });
+      }
+      if (options.ankorstore) {
+        inputs.push({
+          productId: product.productId,
+          reference: product.reference,
+          productName: product.productName,
+          firstImage: product.firstImage ?? null,
+          options,
+          marketplace: "ankorstore",
+        });
+      }
+      enqueue(inputs);
       toast.info("Ajouté à la file", `${product.reference} sera rafraîchi en arrière-plan.`);
       return true;
     },
@@ -116,7 +156,7 @@ export function useRefreshMarketplaceDialog() {
       const options = await askOptions(products.length, products[0]?.productName);
       if (!options) return false;
 
-      if (options.local && !options.pfs) {
+      if (options.local && !options.pfs && !options.ankorstore) {
         // Run sequentially for local-only — quick operations
         try {
           for (const p of products) {
@@ -129,13 +169,29 @@ export function useRefreshMarketplaceDialog() {
         return true;
       }
 
-      const inputs: PfsRefreshEnqueueInput[] = products.map((p) => ({
-        productId: p.productId,
-        reference: p.reference,
-        productName: p.productName,
-        firstImage: p.firstImage ?? null,
-        options,
-      }));
+      const inputs: MarketplaceRefreshEnqueueInput[] = [];
+      for (const p of products) {
+        if (options.pfs) {
+          inputs.push({
+            productId: p.productId,
+            reference: p.reference,
+            productName: p.productName,
+            firstImage: p.firstImage ?? null,
+            options,
+            marketplace: "pfs",
+          });
+        }
+        if (options.ankorstore) {
+          inputs.push({
+            productId: p.productId,
+            reference: p.reference,
+            productName: p.productName,
+            firstImage: p.firstImage ?? null,
+            options,
+            marketplace: "ankorstore",
+          });
+        }
+      }
       enqueue(inputs);
       toast.info(
         "Ajoutés à la file",

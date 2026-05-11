@@ -1,6 +1,6 @@
 /**
  * /api/admin/pfs-refresh — endpoint dédié au widget de rafraîchissement PFS
- * (composant `PfsRefreshContext`).
+ * (composant `MarketplaceRefreshContext`).
  *
  * Le widget envoie juste `{ productId }` et attend `{ success, error? }` —
  * c'est un wrapper léger autour de `refreshProductOnMarketplaces` configuré

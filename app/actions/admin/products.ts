@@ -1039,11 +1039,33 @@ export async function deleteProduct(id: string): Promise<{ action: "deleted" | "
 
   const product = await prisma.product.findUnique({
     where: { id },
-    select: { reference: true },
+    select: { reference: true, ankorsProductId: true },
   });
   if (!product) throw new Error("Produit introuvable.");
 
   const orderCount = await prisma.orderItem.count({ where: { productRef: product.reference } });
+
+  // Propagation Ankorstore (best-effort, n'empêche jamais la suppression locale)
+  if (product.ankorsProductId) {
+    try {
+      const { getCachedAnkorstoreEnabled } = await import("@/lib/cached-data");
+      const enabled = await getCachedAnkorstoreEnabled();
+      if (enabled) {
+        const { ankorstoreDeleteProduct } = await import("@/lib/ankorstore-api-write");
+        await ankorstoreDeleteProduct(product.ankorsProductId);
+        logger.info("[Ankorstore] Product archived after local delete", {
+          reference: product.reference,
+          ankorsProductId: product.ankorsProductId,
+        });
+      }
+    } catch (err) {
+      logger.error("[Ankorstore] Failed to archive after local delete", {
+        reference: product.reference,
+        ankorsProductId: product.ankorsProductId,
+        error: err,
+      });
+    }
+  }
 
   // Product has been ordered → archive only (retention obligation + history integrity)
   if (orderCount > 0) {
@@ -1285,8 +1307,37 @@ export async function bulkDeleteProducts(
 
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
-    select: { id: true, reference: true },
+    select: { id: true, reference: true, ankorsProductId: true },
   });
+
+  // Propagation Ankorstore (best-effort, séquentiel pour ne pas saturer l'API)
+  const productsWithAnkors = products.filter((p) => p.ankorsProductId);
+  if (productsWithAnkors.length > 0) {
+    try {
+      const { getCachedAnkorstoreEnabled } = await import("@/lib/cached-data");
+      const enabled = await getCachedAnkorstoreEnabled();
+      if (enabled) {
+        const { ankorstoreDeleteProduct } = await import("@/lib/ankorstore-api-write");
+        for (const p of productsWithAnkors) {
+          try {
+            await ankorstoreDeleteProduct(p.ankorsProductId!);
+            logger.info("[Ankorstore] Bulk delete archived", {
+              reference: p.reference,
+              ankorsProductId: p.ankorsProductId,
+            });
+          } catch (err) {
+            logger.error("[Ankorstore] Bulk delete archive failed", {
+              reference: p.reference,
+              ankorsProductId: p.ankorsProductId,
+              error: err,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      logger.error("[Ankorstore] Bulk delete propagation setup failed", { error: err });
+    }
+  }
 
   const refToId = new Map(products.map((p) => [p.reference, p.id]));
   const refs = products.map((p) => p.reference);

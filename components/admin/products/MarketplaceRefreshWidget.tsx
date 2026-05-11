@@ -3,11 +3,11 @@
 import { useState, useEffect } from "react";
 import { getImageSrc } from "@/lib/image-utils";
 import {
-  usePfsRefreshQueue,
+  useMarketplaceRefreshQueue,
   hasError,
-  type PfsRefreshItem,
+  type MarketplaceRefreshItem,
   type TargetOutcome,
-} from "@/components/admin/products/PfsRefreshContext";
+} from "@/components/admin/products/MarketplaceRefreshContext";
 
 function targetStatusDot(outcome: TargetOutcome | undefined): { color: string; label: string } | null {
   if (!outcome) return null;
@@ -16,7 +16,7 @@ function targetStatusDot(outcome: TargetOutcome | undefined): { color: string; l
   return { color: "bg-[#EF4444]", label: outcome.message };
 }
 
-function MainStatusIcon({ item }: { item: PfsRefreshItem }) {
+function MainStatusIcon({ item }: { item: MarketplaceRefreshItem }) {
   if (item.status === "queued") {
     return (
       <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-bg-tertiary text-text-muted" aria-label="En attente">
@@ -70,8 +70,9 @@ function TargetBadge({ label, outcome }: { label: string; outcome: TargetOutcome
   );
 }
 
-export function PfsRefreshWidget() {
-  const { items, clear, stop, isAllFinished, runningCount, queuedCount } = usePfsRefreshQueue();
+export function MarketplaceRefreshWidget() {
+  const { items, clear, stop, isAllFinished, runningCount, queuedCount } =
+    useMarketplaceRefreshQueue();
   const [minimized, setMinimized] = useState(false);
 
   useEffect(() => {
@@ -236,6 +237,9 @@ export function PfsRefreshWidget() {
                       {item.options.pfs && (
                         <TargetBadge label="PFS" outcome={item.pfsOutcome} />
                       )}
+                      {item.options.ankorstore && (
+                        <TargetBadge label="Ankorstore" outcome={item.ankorsOutcome} />
+                      )}
                     </div>
                   )}
                   {item.status === "done" && item.pfsOutcome?.ok && item.pfsOutcome.archived && (
@@ -246,6 +250,16 @@ export function PfsRefreshWidget() {
                   {item.status === "done" && item.pfsOutcome && !item.pfsOutcome.ok && (
                     <p className="text-[10px] font-body text-red-600 mt-0.5 truncate" title={item.pfsOutcome.message}>
                       PFS · {item.pfsOutcome.message}
+                    </p>
+                  )}
+                  {item.status === "done" && item.ankorsOutcome?.ok && item.ankorsOutcome.archived && (
+                    <p className="text-[10px] font-body text-[#B45309] mt-0.5">
+                      Ankorstore archivé (rupture de stock)
+                    </p>
+                  )}
+                  {item.status === "done" && item.ankorsOutcome && !item.ankorsOutcome.ok && (
+                    <p className="text-[10px] font-body text-red-600 mt-0.5 truncate" title={item.ankorsOutcome.message}>
+                      Ankorstore · {item.ankorsOutcome.message}
                     </p>
                   )}
                   {item.status === "in_progress" && (

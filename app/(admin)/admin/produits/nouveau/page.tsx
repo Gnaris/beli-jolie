@@ -1,13 +1,21 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
-import { getCachedPfsEnabled } from "@/lib/cached-data";
+import {
+  getCachedPfsEnabled,
+  getCachedHasAnkorstoreConfig,
+  getCachedAnkorstoreEnabled,
+} from "@/lib/cached-data";
 import { CreatePageWrapper, CreatePageToggle } from "./CreatePageWrapper";
 
 export const metadata: Metadata = { title: "Nouveau produit" };
 
 export default async function NouveauProduitPage() {
-  const hasPfsConfig = await getCachedPfsEnabled();
+  const [hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled] = await Promise.all([
+    getCachedPfsEnabled(),
+    getCachedHasAnkorstoreConfig(),
+    getCachedAnkorstoreEnabled(),
+  ]);
 
   return (
     <CreatePageWrapper>
@@ -28,6 +36,8 @@ export default async function NouveauProduitPage() {
 
         <ProductForm
           hasPfsConfig={hasPfsConfig}
+          hasAnkorstoreConfig={hasAnkorstoreConfig}
+          ankorstoreEnabled={ankorstoreEnabled}
         />
       </div>
     </CreatePageWrapper>

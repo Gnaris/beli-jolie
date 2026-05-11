@@ -17,17 +17,19 @@ import type { MarketplacePublishOutcome } from "@/app/actions/admin/marketplace-
 export type QueueItemStatus = "queued" | "in_progress" | "done";
 
 /**
- * "refresh" = renouveler un produit déjà publié (recrée côté PFS).
+ * "refresh" = renouveler un produit déjà publié (recrée côté marketplace).
  * "publish" = première mise en ligne ou update incrémental.
- * "resync" = renvoyer toutes les données sur le même pfsProductId.
+ * "resync" = renvoyer toutes les données sur le même id marketplace.
  */
 export type QueueItemMode = "refresh" | "publish" | "resync";
+
+export type MarketplaceTarget = "pfs" | "ankorstore";
 
 export type TargetOutcome =
   | { ok: true; archived?: boolean; opId?: string; warning?: string }
   | { ok: false; kind: "not_found" | "error"; message: string };
 
-export interface PfsRefreshItem {
+export interface MarketplaceRefreshItem {
   id: string;
   productId: string;
   reference: string;
@@ -35,12 +37,14 @@ export interface PfsRefreshItem {
   firstImage: string | null;
   options: MarketplaceRefreshOptions;
   mode: QueueItemMode;
+  marketplace: MarketplaceTarget;
   status: QueueItemStatus;
   localOutcome?: TargetOutcome;
   pfsOutcome?: TargetOutcome;
+  ankorsOutcome?: TargetOutcome;
 }
 
-export interface PfsRefreshEnqueueInput {
+export interface MarketplaceRefreshEnqueueInput {
   productId: string;
   reference: string;
   productName: string;
@@ -48,11 +52,13 @@ export interface PfsRefreshEnqueueInput {
   options: MarketplaceRefreshOptions;
   /** Default = "refresh". Use "publish" pour la première mise en ligne. */
   mode?: QueueItemMode;
+  /** Marketplace cible — défaut "pfs" pour ne pas casser les appels existants. */
+  marketplace?: MarketplaceTarget;
 }
 
-interface PfsRefreshContextValue {
-  items: PfsRefreshItem[];
-  enqueue: (inputs: PfsRefreshEnqueueInput[]) => void;
+interface MarketplaceRefreshContextValue {
+  items: MarketplaceRefreshItem[];
+  enqueue: (inputs: MarketplaceRefreshEnqueueInput[]) => void;
   clear: () => void;
   stop: () => void;
   isAllFinished: boolean;
@@ -60,11 +66,13 @@ interface PfsRefreshContextValue {
   queuedCount: number;
 }
 
-const PfsRefreshContext = createContext<PfsRefreshContextValue | null>(null);
+const MarketplaceRefreshContext = createContext<MarketplaceRefreshContextValue | null>(null);
 
-export function usePfsRefreshQueue(): PfsRefreshContextValue {
-  const ctx = useContext(PfsRefreshContext);
-  if (!ctx) throw new Error("usePfsRefreshQueue must be used within <PfsRefreshProvider>");
+export function useMarketplaceRefreshQueue(): MarketplaceRefreshContextValue {
+  const ctx = useContext(MarketplaceRefreshContext);
+  if (!ctx) {
+    throw new Error("useMarketplaceRefreshQueue must be used within <MarketplaceRefreshProvider>");
+  }
   return ctx;
 }
 
@@ -75,14 +83,19 @@ function uid(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-export function hasError(item: PfsRefreshItem): boolean {
+export function hasError(item: MarketplaceRefreshItem): boolean {
   if (item.pfsOutcome && !item.pfsOutcome.ok) return true;
+  if (item.ankorsOutcome && !item.ankorsOutcome.ok) return true;
   return false;
 }
 
-function outcomesFromServer(outcome: MarketplaceRefreshOutcome): {
+function outcomesFromServer(
+  outcome: MarketplaceRefreshOutcome,
+  marketplace: MarketplaceTarget,
+): {
   localOutcome?: TargetOutcome;
   pfsOutcome?: TargetOutcome;
+  ankorsOutcome?: TargetOutcome;
 } {
   const result: ReturnType<typeof outcomesFromServer> = {};
 
@@ -90,7 +103,7 @@ function outcomesFromServer(outcome: MarketplaceRefreshOutcome): {
     result.localOutcome = { ok: true };
   }
 
-  if (outcome.pfs) {
+  if (marketplace === "pfs" && outcome.pfs) {
     if (outcome.pfs.status === "ok") {
       result.pfsOutcome = { ok: true, archived: outcome.pfs.archived };
     } else if (outcome.pfs.status === "not_found") {
@@ -100,19 +113,45 @@ function outcomesFromServer(outcome: MarketplaceRefreshOutcome): {
     }
   }
 
+  if (marketplace === "ankorstore" && outcome.ankorstore) {
+    if (outcome.ankorstore.status === "ok") {
+      result.ankorsOutcome = { ok: true, archived: outcome.ankorstore.archived };
+    } else if (outcome.ankorstore.status === "not_found") {
+      result.ankorsOutcome = {
+        ok: false,
+        kind: "not_found",
+        message: outcome.ankorstore.message,
+      };
+    } else {
+      result.ankorsOutcome = { ok: false, kind: "error", message: outcome.ankorstore.message };
+    }
+  }
+
   return result;
 }
 
-function outcomesFromPublishServer(outcome: MarketplacePublishOutcome): {
+function outcomesFromPublishServer(
+  outcome: MarketplacePublishOutcome,
+  marketplace: MarketplaceTarget,
+): {
   pfsOutcome?: TargetOutcome;
+  ankorsOutcome?: TargetOutcome;
 } {
   const result: ReturnType<typeof outcomesFromPublishServer> = {};
 
-  if (outcome.pfs) {
+  if (marketplace === "pfs" && outcome.pfs) {
     if (outcome.pfs.status === "ok") {
       result.pfsOutcome = { ok: true, archived: outcome.pfs.archived };
     } else {
       result.pfsOutcome = { ok: false, kind: "error", message: outcome.pfs.message };
+    }
+  }
+
+  if (marketplace === "ankorstore" && outcome.ankorstore) {
+    if (outcome.ankorstore.status === "ok") {
+      result.ankorsOutcome = { ok: true, archived: outcome.ankorstore.archived };
+    } else {
+      result.ankorsOutcome = { ok: false, kind: "error", message: outcome.ankorstore.message };
     }
   }
 
@@ -121,11 +160,11 @@ function outcomesFromPublishServer(outcome: MarketplacePublishOutcome): {
 
 const CONCURRENCY = 5;
 
-export function PfsRefreshProvider({ children }: { children: React.ReactNode }) {
-  const [items, setItems] = useState<PfsRefreshItem[]>([]);
+export function MarketplaceRefreshProvider({ children }: { children: React.ReactNode }) {
+  const [items, setItems] = useState<MarketplaceRefreshItem[]>([]);
   const runningIdsRef = useRef<Set<string>>(new Set());
 
-  const enqueue = useCallback((inputs: PfsRefreshEnqueueInput[]) => {
+  const enqueue = useCallback((inputs: MarketplaceRefreshEnqueueInput[]) => {
     if (inputs.length === 0) return;
     setItems((prev) => [
       ...prev,
@@ -137,6 +176,7 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
         firstImage: input.firstImage ?? null,
         options: input.options,
         mode: (input.mode ?? "refresh") as QueueItemMode,
+        marketplace: (input.marketplace ?? "pfs") as MarketplaceTarget,
         status: "queued" as QueueItemStatus,
       })),
     ]);
@@ -151,18 +191,19 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   // Process a single item via API route (not server action) for true parallelism
-  const processItem = useCallback((item: PfsRefreshItem) => {
+  const processItem = useCallback((item: MarketplaceRefreshItem) => {
     runningIdsRef.current.add(item.id);
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, status: "in_progress" } : i)));
 
     (async () => {
       try {
+        const base = item.marketplace === "ankorstore" ? "ankorstore" : "marketplace";
         const endpoint =
           item.mode === "publish"
-            ? "/api/admin/marketplace-publish"
+            ? `/api/admin/${base}-publish`
             : item.mode === "resync"
-              ? "/api/admin/marketplace-resync"
-              : "/api/admin/marketplace-refresh";
+              ? `/api/admin/${base}-resync`
+              : `/api/admin/${base}-refresh`;
         const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -175,25 +216,30 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
         const outcome = await res.json();
         const parsed =
           item.mode === "publish" || item.mode === "resync"
-            ? outcomesFromPublishServer(outcome as MarketplacePublishOutcome)
-            : outcomesFromServer(outcome as MarketplaceRefreshOutcome);
+            ? outcomesFromPublishServer(outcome as MarketplacePublishOutcome, item.marketplace)
+            : outcomesFromServer(outcome as MarketplaceRefreshOutcome, item.marketplace);
         setItems((prev) =>
           prev.map((i) => (i.id === item.id ? { ...i, status: "done", ...parsed } : i)),
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setItems((prev) =>
-          prev.map((i) =>
-            i.id === item.id
-              ? {
-                  ...i,
-                  status: "done",
-                  pfsOutcome: item.options.pfs
-                    ? { ok: false, kind: "error", message }
-                    : i.pfsOutcome,
-                }
-              : i,
-          ),
+          prev.map((i) => {
+            if (i.id !== item.id) return i;
+            const errorOutcome: TargetOutcome = { ok: false, kind: "error", message };
+            if (item.marketplace === "ankorstore") {
+              return {
+                ...i,
+                status: "done",
+                ankorsOutcome: item.options.ankorstore ? errorOutcome : i.ankorsOutcome,
+              };
+            }
+            return {
+              ...i,
+              status: "done",
+              pfsOutcome: item.options.pfs ? errorOutcome : i.pfsOutcome,
+            };
+          }),
         );
       } finally {
         runningIdsRef.current.delete(item.id);
@@ -219,7 +265,7 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
   const queuedCount = items.filter((i) => i.status === "queued").length;
   const isAllFinished = items.length > 0 && runningCount === 0 && queuedCount === 0;
 
-  const value: PfsRefreshContextValue = {
+  const value: MarketplaceRefreshContextValue = {
     items,
     enqueue,
     clear,
@@ -229,5 +275,9 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
     queuedCount,
   };
 
-  return <PfsRefreshContext.Provider value={value}>{children}</PfsRefreshContext.Provider>;
+  return (
+    <MarketplaceRefreshContext.Provider value={value}>
+      {children}
+    </MarketplaceRefreshContext.Provider>
+  );
 }

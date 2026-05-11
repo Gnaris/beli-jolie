@@ -10,7 +10,11 @@ import { DraftPageWrapper, DraftPageToggle } from "./DraftPageWrapper";
 import { ProductEditRefreshButton } from "@/components/admin/products/ProductEditRefreshButton";
 import { MarketplaceStatusButtons } from "@/components/admin/products/MarketplaceStatusButtons";
 import ProductStatsModal from "@/components/admin/products/ProductStatsModal";
-import { getCachedPfsEnabled } from "@/lib/cached-data";
+import {
+  getCachedPfsEnabled,
+  getCachedHasAnkorstoreConfig,
+  getCachedAnkorstoreEnabled,
+} from "@/lib/cached-data";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 export const dynamic = "force-dynamic";
@@ -26,7 +30,14 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, existingTranslations, colorImagesDb, hasPfsConfig] = await Promise.all([
+  const [
+    product,
+    existingTranslations,
+    colorImagesDb,
+    hasPfsConfig,
+    hasAnkorstoreConfig,
+    ankorstoreEnabled,
+  ] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -109,6 +120,8 @@ export default async function ModifierProduitPage({
       orderBy: { order: "asc" },
     }),
     getCachedPfsEnabled(),
+    getCachedHasAnkorstoreConfig(),
+    getCachedAnkorstoreEnabled(),
   ]);
 
   if (!product) notFound();
@@ -290,6 +303,8 @@ export default async function ModifierProduitPage({
           mode="create"
           productId={product.id}
           hasPfsConfig={hasPfsConfig}
+          hasAnkorstoreConfig={hasAnkorstoreConfig}
+          ankorstoreEnabled={ankorstoreEnabled}
           initialData={{
             reference:         product.reference,
             name:              product.name,
@@ -342,6 +357,7 @@ export default async function ModifierProduitPage({
             discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
             sizeDetailsTu: product.sizeDetailsTu ?? "",
             pfsProductId: product.pfsProductId,
+            ankorsProductId: product.ankorsProductId,
             primaryColorId: product.primaryColorId ?? null,
           }}
         />
@@ -405,6 +421,9 @@ export default async function ModifierProduitPage({
                   firstImage={colorImagesDb[0]?.path ?? null}
                   pfsProductId={product.pfsProductId}
                   hasPfsConfig={hasPfsConfig}
+                  ankorsProductId={product.ankorsProductId}
+                  hasAnkorstoreConfig={hasAnkorstoreConfig}
+                  ankorstoreEnabled={ankorstoreEnabled}
                 />
               </div>
             </div>
@@ -441,6 +460,8 @@ export default async function ModifierProduitPage({
         mode="edit"
         productId={product.id}
         hasPfsConfig={hasPfsConfig}
+        hasAnkorstoreConfig={hasAnkorstoreConfig}
+        ankorstoreEnabled={ankorstoreEnabled}
         initialData={{
           reference:         product.reference,
           name:              product.name,

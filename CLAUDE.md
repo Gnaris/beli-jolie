@@ -38,9 +38,8 @@ Protection : `middleware.ts` (edge) + group `layout.tsx` (server fallback). Midd
 
 - **Server actions** (`app/actions/admin/`, `app/actions/client/`) — toutes les mutations. `requireAdmin()` / `requireAuth()` obligatoire.
 - **API routes** (`app/api/`) — webhooks (Stripe, heartbeat), SSE streams, file-serving, marketplace Excel export.
-- **Lib** (`lib/`) — business logic : `marketplace-excel/` (PFS Excel generators), `pfs-api.ts` / `pfs-api-write.ts` (read + delete), `stripe.ts`, `easy-express.ts`, `email.ts` (SMTP via nodemailer — `sendMail()` unique point d'envoi), `notifications.ts` (emails transactionnels), `cached-data.ts`, `security.ts`, `image-processor.ts`, `storage.ts` (local filesystem image storage under `/public`).
+- **Lib** (`lib/`) — business logic : `marketplace-excel/` (PFS Excel generators), `pfs-api.ts` / `pfs-api-write.ts` (read + delete), `ankorstore-api.ts` / `ankorstore-api-write.ts` (read + bulk operations + delete), `ankorstore-auth.ts` (OAuth2 + cache token), `ankorstore-publish.ts` / `ankorstore-update.ts` / `ankorstore-refresh.ts` (mutations symétriques aux fichiers PFS), `ankorstore-match.ts` (extraction référence + matching variantes), `ankorstore-sync-diff.ts` (diff snapshot), `ankorstore-pricing.ts` (wholesale/retail/VAT/markup), `stripe.ts`, `easy-express.ts`, `email.ts` (SMTP via nodemailer — `sendMail()` unique point d'envoi), `notifications.ts` (emails transactionnels), `cached-data.ts`, `security.ts`, `image-processor.ts`, `storage.ts` (local filesystem image storage under `/public`).
 - **Components** — `components/admin/` (backoffice), `components/client/` (espace-pro), `components/ui/` (shared primitives), `components/home/` (landing page).
-- **Note Ankorstore** : intégration en pause (mai 2026) — code et paramètres retirés. Doc API conservée dans `docs/ankorstore-api.md` pour réactivation future.
 
 ### Observability & Data flow
 
@@ -53,27 +52,35 @@ Protection : `middleware.ts` (edge) + group `layout.tsx` (server fallback). Midd
 
 `Product` → `ProductColor[]` (variantes UNIT ou PACK) → images, sizes, pack color lines. **Une variante = une couleur** (plus de sous-couleurs/composition). Pricing : UNIT = `unitPrice` direct, PACK = calculé via `computeTotalPrice()`. Pour les **packs multi-couleurs** (ex : pack tricolore), composition dans `PackColorLine[]` + `PackColorLineSize[]` (1 ligne par couleur du pack avec ses tailles/quantités). Le `Color.name` (bibliothèque) doit correspondre exactement à ce que PFS attend pour l'export Excel.
 
-### Marketplace publishing via API live (PFS uniquement)
+### Marketplace publishing via API live (PFS + Ankorstore)
 
-Create / update sur PFS = **direct via les API**. Plus d'export Excel manuel.
+Create / update sur PFS et Ankorstore = **direct via les API**. Plus d'export Excel manuel.
 
-**Identifiants stockés** : `Product.pfsProductId` + `ProductColor.pfsVariantId`. Renseignés à l'import PFS et à chaque publish/refresh. `null` = produit pas encore publié → badge gris « Non publié ».
+**Identifiants stockés** :
+- PFS : `Product.pfsProductId` + `ProductColor.pfsVariantId`
+- Ankorstore : `Product.ankorsProductId` + `ProductColor.ankorsVariantId`
 
-**Modale au save produit** : à chaque `Enregistrer` du formulaire produit (création OU édition), si produit complet et PFS configuré, modale avec case à cocher PFS. Si cochée → enqueue `PfsRefreshWidget` avec `mode: "publish"`.
+Renseignés à l'import (PFS) ou au matching (Ankorstore, page `/admin/ankorstore`) et à chaque publish/refresh. `null` = produit pas encore publié → badge gris « Non publié ».
 
-**Server action** `app/actions/admin/marketplace-publish.ts` → `publishProductToMarketplaces(productId, { pfs })` :
-- Si `pfsProductId` connu → `pfsUpdateProductInPlace()` (mise à jour PATCH)
-- Sinon → `pfsPublishProduct()` (première création)
-- Fallback : si l'update PFS échoue (ID stale), on retombe sur publish
+**Kill switch Ankorstore** : la sync Ankorstore n'est exécutée que si `getCachedAnkorstoreEnabled()` retourne `true` (toggle dans Paramètres > Marketplaces). PFS n'a pas de kill switch équivalent (toujours actif si configuré).
+
+**Modale au save produit** : à chaque `Enregistrer` du formulaire produit (création OU édition), si produit complet et au moins une marketplace configurée, modale avec une case à cocher par marketplace (PFS + Ankorstore selon ce qui est configuré). Pour chaque case cochée → enqueue 1 item dans `MarketplaceRefreshWidget` avec `mode: "publish"` et `marketplace: "pfs" | "ankorstore"`.
+
+**Server action** `app/actions/admin/marketplace-publish.ts` → `publishProductToMarketplaces(productId, { pfs, ankorstore })` :
+- Si `pfsProductId` / `ankorsProductId` connu → `*UpdateProductInPlace()` (mise à jour PATCH)
+- Sinon → `*PublishProduct()` (première création)
+- Fallback : si l'update échoue (ID stale), on retombe sur publish
 
 **Fichiers clés** :
-- `lib/pfs-publish.ts` — première publication PFS (sans swap d'ancien produit)
-- `lib/pfs-refresh.ts` — renouvellement (création + soft-delete + remplacement IDs)
-- `lib/pfs-update.ts` — mise à jour PATCH d'un produit déjà publié (utilise le diff de snapshot, voir ci-dessous)
-- `lib/pfs-sync-diff.ts` — types + `diffSnapshots()` qui compare l'instantané précédent à l'état cible
-- `app/actions/admin/marketplace-publish.ts` + `marketplace-refresh.ts` + `marketplace-resync.ts`
-- `app/api/admin/marketplace-publish/route.ts` + `marketplace-refresh/route.ts` + `marketplace-resync/route.ts`
-- `components/admin/products/PfsRefreshContext.tsx` — queue partagée publish/refresh/resync, dispatch via `mode: "publish" | "refresh" | "resync"`
+- `lib/pfs-publish.ts` / `lib/ankorstore-publish.ts` — première publication (sans swap)
+- `lib/pfs-refresh.ts` / `lib/ankorstore-refresh.ts` — renouvellement (création + archivage ancien + remplacement IDs)
+- `lib/pfs-update.ts` / `lib/ankorstore-update.ts` — mise à jour PATCH d'un produit déjà publié (utilise le diff de snapshot, voir ci-dessous)
+- `lib/pfs-sync-diff.ts` / `lib/ankorstore-sync-diff.ts` — types + `diffSnapshots()` qui compare l'instantané précédent à l'état cible
+- `app/actions/admin/marketplace-publish.ts` + `marketplace-refresh.ts` + `marketplace-resync.ts` (gèrent les deux marketplaces)
+- `app/api/admin/marketplace-publish|refresh|resync/route.ts` + `app/api/admin/ankorstore-publish|refresh|resync/route.ts`
+- `app/actions/admin/ankorstore.ts` — matching auto/manuel : `runAnkorstoreAutoMatch`, `confirmAnkorstoreMatch`, `linkAnkorstoreProductManually`, `removeAnkorstoreMatch`
+- `app/(admin)/admin/ankorstore/page.tsx` + `components/admin/ankorstore/AnkorstoreMatchingClient.tsx` — page de matching de masse
+- `components/admin/products/MarketplaceRefreshContext.tsx` — queue partagée publish/refresh/resync pour les deux marketplaces, dispatch via `marketplace: "pfs" | "ankorstore"` + `mode: "publish" | "refresh" | "resync"`
 
 **Diff de sync (optimisation update)** : `Product.pfsLastSyncSnapshot` (Json?) stocke l'état envoyé à la dernière sync réussie : product fields, defaultColor, variants (price/stock/weight/isActive par pfsVariantId), images (path par colorRef/slot), status, **isBestSeller**. À chaque appel de `pfsUpdateProductInPlace`, on construit le snapshot cible, on diff vs `pfsLastSyncSnapshot`, et on n'envoie à PFS que ce qui a changé : skip `pfsTranslate`+`pfsUpdateProduct` si product fields identiques, patch seulement les variantes modifiées, upload seulement les slots d'image dont le path a changé, skip `pfsUpdateStatus` si statut inchangé, **skip STAR/REMOVE_STAR si isBestSeller inchangé**. Le snapshot est sauvé en fin de sync (sections réussies seulement). Reset à `Prisma.DbNull` quand `pfsProductId` change (publish, refresh, fallback). Si `pfsLastSyncSnapshot` est null → sync complète (comme avant), puis snapshot initial sauvé.
 
@@ -83,15 +90,17 @@ Create / update sur PFS = **direct via les API**. Plus d'export Excel manuel.
 
 **Annexes PFS** : alimentées en LIVE via `lib/pfs-annexes.ts` (cache `unstable_cache` 60min, tag `pfs-annexes`) qui appelle `pfsGetGenders/Families/Categories/Colors/Compositions/Countries/Sizes/Collections`. Plus de parsing du template Excel.
 
-**Delete** est 100 % local : `deleteProduct(id)` et `bulkDeleteProducts(ids)` ne touchent pas aux marketplaces.
+**Delete** :
+- PFS : 100 % local — `deleteProduct(id)` et `bulkDeleteProducts(ids)` ne touchent pas à PFS.
+- Ankorstore : **propagation automatique** — si `ankorsProductId` existe et Ankorstore activé, `deleteProduct` et `bulkDeleteProducts` appellent `ankorstoreDeleteProduct()` (best-effort, log warn si échec, la suppression locale réussit toujours).
 
 **Famille PFS** : stockée dans `Category.pfsFamilyName` (renseignée manuellement dans l'UI catégorie). `pfsCategoryId`/`pfsGender`/`pfsFamilyId` (IDs Salesforce) conservés pour référence.
 
-### Refresh produit (`lib/pfs-refresh.ts` + `app/actions/admin/marketplace-refresh.ts`)
+### Refresh produit (`lib/pfs-refresh.ts` / `lib/ankorstore-refresh.ts` + `app/actions/admin/marketplace-refresh.ts`)
 
-Bouton « Rafraîchir » dans `/admin/produits` (par ligne + bulk) et sur la page `/modifier`. Modale avec cases à cocher : **boutique** (bump `Product.lastRefreshedAt`, jamais `createdAt`) + **PFS** (re-push live via API, remplace `pfsProductId` + `pfsVariantId` après création nouveau).
+Bouton « Rafraîchir » dans `/admin/produits` (par ligne + bulk) et sur la page `/modifier`. Modale avec cases à cocher : **boutique** (bump `Product.lastRefreshedAt`, jamais `createdAt`) + **PFS** (re-push live via API, remplace `pfsProductId` + `pfsVariantId` après création nouveau) + **Ankorstore** (re-push live + archivage ancien + remplacement `ankorsProductId`/`ankorsVariantId`, visible uniquement si Ankorstore configuré et activé).
 
-Traitement en arrière-plan via `PfsRefreshProvider` (monté dans `app/(admin)/layout.tsx`) + `PfsRefreshWidget` (popup bas-droite, minimisable, fermable uniquement quand tous les produits sont terminés). Items traités séquentiellement.
+Traitement en arrière-plan via `MarketplaceRefreshProvider` (monté dans `app/(admin)/layout.tsx`) + `MarketplaceRefreshWidget` (popup bas-droite, minimisable, fermable uniquement quand tous les produits sont terminés). Items traités en parallèle limité (5 simultanés), chaque item porte `marketplace: "pfs" | "ankorstore"` qui détermine la route API appelée (`/api/admin/marketplace-*` ou `/api/admin/ankorstore-*`).
 
 `pfsRefreshProduct()` : `pfsCheckReference(ref)` → si inexistant = erreur « Produit inexistant sur PFS » ; sinon crée nouveau produit avec ref TEMP aléatoire, upload images locales→JPEG, renomme l'ancien en ref aléatoire + statut `DELETED`, renomme le nouveau avec la vraie ref, passe en `READY_FOR_SALE` (ou `ARCHIVED` si stock 0 sur toutes variantes). Rollback automatique en cas d'échec mi-parcours.
 

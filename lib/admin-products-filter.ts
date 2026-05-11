@@ -1,5 +1,13 @@
 import type { Prisma } from "@prisma/client";
 
+export type AdminProductsRefreshValue =
+  | ""
+  | "never"
+  | "recent"
+  | "refreshed"
+  | "dateDesc"
+  | "dateAsc";
+
 export interface AdminProductsFilterParams {
   q?: string;
   exactRef?: boolean;
@@ -7,7 +15,7 @@ export interface AdminProductsFilterParams {
   subCat?: string;
   tag?: string;
   bestSeller?: string; // "1" | ""
-  refresh?: string; // "never" | "recent" | "refreshed" | ""
+  refresh?: string; // AdminProductsRefreshValue
   status?: string; // ProductStatus | "DRAFT"
   minPrice?: number | null;
   maxPrice?: number | null;
@@ -58,6 +66,8 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     cutoff.setDate(cutoff.getDate() - RECENT_REFRESH_DAYS);
     where.lastRefreshedAt = { gte: cutoff };
   }
+  // `dateDesc` / `dateAsc` are sort options handled by buildAdminProductsOrderBy
+  // and intentionally do not narrow the where clause.
 
   if (params.status === "DRAFT") {
     where.status = "OFFLINE";
@@ -100,4 +110,29 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
   }
 
   return where;
+}
+
+/**
+ * Build the Prisma `orderBy` for the admin products list.
+ *
+ * Default: most recently created first.
+ * `dateDesc` / `dateAsc` sort by `lastRefreshedAt`, with never-refreshed
+ * products always at the end (nulls last) and `createdAt` as tie-breaker.
+ */
+export function buildAdminProductsOrderBy(
+  refresh?: string,
+): Prisma.ProductOrderByWithRelationInput[] {
+  if (refresh === "dateDesc") {
+    return [
+      { lastRefreshedAt: { sort: "desc", nulls: "last" } },
+      { createdAt: "desc" },
+    ];
+  }
+  if (refresh === "dateAsc") {
+    return [
+      { lastRefreshedAt: { sort: "asc", nulls: "last" } },
+      { createdAt: "asc" },
+    ];
+  }
+  return [{ createdAt: "desc" }];
 }

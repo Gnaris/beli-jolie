@@ -24,11 +24,16 @@ export interface MarketplaceRefreshOutcome {
     | { status: "ok"; archived: boolean }
     | { status: "not_found"; message: string }
     | { status: "error"; message: string };
+  ankorstore?:
+    | { status: "ok"; archived: boolean }
+    | { status: "not_found"; message: string }
+    | { status: "error"; message: string };
 }
 
 export interface MarketplaceRefreshOptions {
   local: boolean; // Bump lastRefreshedAt (makes product "Nouveauté" again)
   pfs: boolean; // Re-push to PFS (create new + soft-delete old)
+  ankorstore?: boolean; // Re-push to Ankorstore (Phase 4)
 }
 
 async function refreshLocal(productId: string): Promise<void> {
@@ -81,6 +86,38 @@ export async function refreshProductOnMarketplaces(
     }
   }
 
+  if (options.ankorstore) {
+    const { getCachedAnkorstoreEnabled } = await import("@/lib/cached-data");
+    const ankorstoreEnabled = await getCachedAnkorstoreEnabled();
+    if (!ankorstoreEnabled) {
+      outcome.ankorstore = {
+        status: "error",
+        message: "Sync Ankorstore désactivée dans Paramètres.",
+      };
+    } else {
+      try {
+        const { ankorstoreRefreshProduct } = await import("@/lib/ankorstore-refresh");
+        const res = await ankorstoreRefreshProduct(productId, undefined, {
+          skipRevalidation: true,
+        });
+        if (res.success) {
+          outcome.ankorstore = { status: "ok", archived: res.archived };
+        } else if (res.reason === "not_found") {
+          outcome.ankorstore = { status: "not_found", message: res.error };
+        } else {
+          outcome.ankorstore = { status: "error", message: res.error };
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error("[Marketplace Refresh] Ankorstore unexpected error", {
+          productId,
+          error: message,
+        });
+        outcome.ankorstore = { status: "error", message };
+      }
+    }
+  }
+
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${productId}/modifier`);
   revalidatePath(`/produits/${productId}`);
@@ -120,6 +157,7 @@ export async function refreshProductsOnMarketplaces(
         productName: fallback?.name ?? "Produit introuvable",
         local: { status: "skipped" },
         pfs: options.pfs ? { status: "error", message } : undefined,
+        ankorstore: options.ankorstore ? { status: "error", message } : undefined,
       });
     }
   }

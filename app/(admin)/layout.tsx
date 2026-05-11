@@ -9,8 +9,8 @@ import AdminDesktopShell from "@/components/admin/AdminDesktopShell";
 
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
-import { PfsRefreshProvider } from "@/components/admin/products/PfsRefreshContext";
-import { PfsRefreshWidget } from "@/components/admin/products/PfsRefreshWidget";
+import { MarketplaceRefreshProvider } from "@/components/admin/products/MarketplaceRefreshContext";
+import { MarketplaceRefreshWidget } from "@/components/admin/products/MarketplaceRefreshWidget";
 import { getCachedSiteConfig } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
@@ -58,7 +58,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <DeeplConfigProvider enabled={deeplEnabled} autoTranslateEnabled={autoTranslateEnabled}>
-    <PfsRefreshProvider>
+    <MarketplaceRefreshProvider>
     <div id="admin-theme-wrapper" className="min-h-screen bg-bg-secondary flex">
 
       <AdminDesktopShell
@@ -84,9 +84,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </AdminDesktopShell>
 
       <AdminChatWidgetLoader />
-      <PfsRefreshWidget />
+      <MarketplaceRefreshWidget />
     </div>
-    </PfsRefreshProvider>
+    </MarketplaceRefreshProvider>
     </DeeplConfigProvider>
   );
 }

@@ -12,7 +12,7 @@ import LocaleTabs from "./LocaleTabs";
 import QuickCreateModal, { QuickCreateType } from "./QuickCreateModal";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { usePfsRefreshQueue } from "./PfsRefreshContext";
+import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
 import { useProductFormHeader } from "./ProductFormHeaderContext";
 import { getImageSrc } from "@/lib/image-utils";
@@ -78,6 +78,8 @@ interface ProductFormProps {
   mode?: "create" | "edit";
   productId?: string;
   hasPfsConfig?: boolean;
+  hasAnkorstoreConfig?: boolean;
+  ankorstoreEnabled?: boolean;
   /** True when a marketplace sync is already in progress (from DB status on page load) */
   initialSyncing?: boolean;
   initialData?: {
@@ -109,6 +111,7 @@ interface ProductFormProps {
     sizeDetailsTu?: string;
     /** ID marketplace — présent = déjà publié sur cette marketplace */
     pfsProductId?: string | null;
+    ankorsProductId?: string | null;
     /** Couleur principale du produit (refonte : ne dépend plus de la variante isPrimary) */
     primaryColorId?: string | null;
   };
@@ -371,6 +374,8 @@ export default function ProductForm({
   mode = "create",
   productId,
   hasPfsConfig = false,
+  hasAnkorstoreConfig = false,
+  ankorstoreEnabled = false,
   initialSyncing = false,
   initialData,
 }: ProductFormProps) {
@@ -578,7 +583,7 @@ export default function ProductForm({
   // ── Unsaved changes guard ─────────────────────────────────────────────
   const router = useRouter();
   const { confirm: confirmDialog } = useConfirm();
-  const { enqueue: enqueuePublish } = usePfsRefreshQueue();
+  const { enqueue: enqueuePublish } = useMarketplaceRefreshQueue();
   const initialSnapshot = useRef<string | null>(null);
   const isDirty = useRef(false);
   const snapshotReady = useRef(false);
@@ -1546,47 +1551,105 @@ export default function ProductForm({
       // - Pas encore publié + ONLINE + complet → proposer "Publier (en ligne sur PFS)"
       // - Pas encore publié + OFFLINE + complet → proposer "Publier (en brouillon sur PFS)"
       const alreadyOnPfs = !!initialData?.pfsProductId;
-      const isUpdate = alreadyOnPfs;
-      const willBeDraftOnPfs = !alreadyOnPfs && finalStatus === "OFFLINE";
+      const alreadyOnAnkorstore = !!initialData?.ankorsProductId;
+      const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
 
       const canPublish =
         savedProductId &&
         finalStatus !== "ARCHIVED" &&
         !isIncomplete &&
-        hasPfsConfig;
+        (hasPfsConfig || showAnkorstore);
 
       if (canPublish && savedProductId) {
+        const willBeDraftOnPfs = !alreadyOnPfs && finalStatus === "OFFLINE";
+
+        const pfsRef = { current: false };
+        const ankorstoreRef = { current: false };
+        const checkboxes: {
+          id: string;
+          label: string;
+          defaultChecked: boolean;
+          onChange: (v: boolean) => void;
+        }[] = [];
+        if (hasPfsConfig) {
+          const pfsLabel = alreadyOnPfs
+            ? "Mettre à jour sur Paris Fashion Shop"
+            : willBeDraftOnPfs
+              ? "Publier en brouillon sur Paris Fashion Shop"
+              : "Publier sur Paris Fashion Shop";
+          checkboxes.push({
+            id: "pfs",
+            label: pfsLabel,
+            defaultChecked: alreadyOnPfs,
+            onChange: (v) => {
+              pfsRef.current = v;
+            },
+          });
+        }
+        if (showAnkorstore) {
+          const akLabel = alreadyOnAnkorstore
+            ? "Mettre à jour sur Ankorstore"
+            : "Publier sur Ankorstore";
+          checkboxes.push({
+            id: "ankorstore",
+            label: akLabel,
+            defaultChecked: alreadyOnAnkorstore,
+            onChange: (v) => {
+              ankorstoreRef.current = v;
+            },
+          });
+        }
+
+        const dialogTitle =
+          checkboxes.length > 1
+            ? "Publier sur les marketplaces ?"
+            : hasPfsConfig
+              ? alreadyOnPfs
+                ? "Mettre à jour sur Paris Fashion Shop ?"
+                : willBeDraftOnPfs
+                  ? "Publier en brouillon sur Paris Fashion Shop ?"
+                  : "Publier sur Paris Fashion Shop ?"
+              : alreadyOnAnkorstore
+                ? "Mettre à jour sur Ankorstore ?"
+                : "Publier sur Ankorstore ?";
+
         const ok = await confirmDialog({
           type: "info",
-          title: isUpdate
-            ? "Mettre à jour sur Paris Fashion Shop ?"
-            : willBeDraftOnPfs
-              ? "Publier en brouillon sur Paris Fashion Shop ?"
-              : "Publier sur Paris Fashion Shop ?",
-          message: isUpdate
-            ? "Souhaitez-vous mettre à jour ce produit sur Paris Fashion Shop ? Les modifications seront appliquées directement."
-            : willBeDraftOnPfs
-              ? "Ce produit est hors ligne sur votre boutique. Il sera envoyé sur Paris Fashion Shop en brouillon (non visible aux acheteurs). Pour le mettre en ligne plus tard, repassez-le en ligne ici puis enregistrez."
-              : "Souhaitez-vous publier ce produit en direct sur Paris Fashion Shop ? Vous pourrez aussi le faire plus tard.",
-          confirmLabel: isUpdate ? "Mettre à jour" : "Publier",
+          title: dialogTitle,
+          message:
+            "Cochez les marketplaces où vous souhaitez envoyer le produit. Vous pouvez aussi le faire plus tard depuis la fiche du produit.",
+          checkboxesLabel: "Marketplaces",
+          checkboxes,
+          confirmLabel: "Publier",
           cancelLabel: "Plus tard",
         });
 
         if (ok === true) {
           const firstImagePath = colorImages[0]?.uploadedPaths[0] ?? null;
-          enqueuePublish([
-            {
+          const inputs: Parameters<typeof enqueuePublish>[0] = [];
+          if (pfsRef.current) {
+            inputs.push({
               productId: savedProductId,
               reference: payload.reference,
               productName: payload.name,
               firstImage: firstImagePath,
-              options: {
-                local: false,
-                pfs: true,
-              },
+              options: { local: false, pfs: true },
               mode: "publish",
-            },
-          ]);
+              marketplace: "pfs",
+            });
+          }
+          if (ankorstoreRef.current) {
+            inputs.push({
+              productId: savedProductId,
+              reference: payload.reference,
+              productName: payload.name,
+              firstImage: firstImagePath,
+              options: { local: false, pfs: false, ankorstore: true },
+              mode: "publish",
+              marketplace: "ankorstore",
+            });
+          }
+          if (inputs.length > 0) enqueuePublish(inputs);
         }
       }
 

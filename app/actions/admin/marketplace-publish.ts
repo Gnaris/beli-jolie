@@ -24,10 +24,14 @@ export interface MarketplacePublishOutcome {
   pfs?:
     | { status: "ok"; mode: "create" | "update"; archived?: boolean }
     | { status: "error"; message: string };
+  ankorstore?:
+    | { status: "ok"; mode: "create" | "update"; archived?: boolean }
+    | { status: "error"; message: string };
 }
 
 export interface MarketplacePublishOptions {
   pfs: boolean;
+  ankorstore?: boolean;
 }
 
 export async function publishProductToMarketplaces(
@@ -44,6 +48,7 @@ export async function publishProductToMarketplaces(
       name: true,
       status: true,
       pfsProductId: true,
+      ankorsProductId: true,
     },
   });
 
@@ -98,6 +103,64 @@ export async function publishProductToMarketplaces(
     }
   }
 
+  if (options.ankorstore) {
+    const { getCachedAnkorstoreEnabled } = await import("@/lib/cached-data");
+    const ankorstoreEnabled = await getCachedAnkorstoreEnabled();
+    if (!ankorstoreEnabled) {
+      outcome.ankorstore = {
+        status: "error",
+        message: "Sync Ankorstore désactivée dans Paramètres.",
+      };
+    } else {
+      try {
+        if (product.ankorsProductId) {
+          const { ankorstoreUpdateProductInPlace } = await import("@/lib/ankorstore-update");
+          const res = await ankorstoreUpdateProductInPlace(productId, undefined, {
+            skipRevalidation: true,
+          });
+          if (res.success) {
+            outcome.ankorstore = { status: "ok", mode: "update", archived: res.archived };
+          } else {
+            logger.warn(
+              "[Marketplace Publish] Ankorstore update failed, falling back to publish",
+              { productId, error: res.error },
+            );
+            await prisma.product.update({
+              where: { id: productId },
+              data: { ankorsProductId: null, ankorsLastSyncSnapshot: Prisma.DbNull },
+            });
+            await prisma.productColor.updateMany({
+              where: { productId },
+              data: { ankorsVariantId: null },
+            });
+            const { ankorstorePublishProduct } = await import("@/lib/ankorstore-publish");
+            const pubRes = await ankorstorePublishProduct(productId, undefined, {
+              skipRevalidation: true,
+            });
+            outcome.ankorstore = pubRes.success
+              ? { status: "ok", mode: "create", archived: pubRes.archived }
+              : { status: "error", message: pubRes.error };
+          }
+        } else {
+          const { ankorstorePublishProduct } = await import("@/lib/ankorstore-publish");
+          const res = await ankorstorePublishProduct(productId, undefined, {
+            skipRevalidation: true,
+          });
+          outcome.ankorstore = res.success
+            ? { status: "ok", mode: "create", archived: res.archived }
+            : { status: "error", message: res.error };
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error("[Marketplace Publish] Ankorstore unexpected error", {
+          productId,
+          error: message,
+        });
+        outcome.ankorstore = { status: "error", message };
+      }
+    }
+  }
+
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${productId}/modifier`);
   revalidatePath(`/produits/${productId}`);
@@ -136,6 +199,7 @@ export async function publishProductsToMarketplaces(
         reference: fallback?.reference ?? "?",
         productName: fallback?.name ?? "Produit introuvable",
         pfs: options.pfs ? { status: "error", message } : undefined,
+        ankorstore: options.ankorstore ? { status: "error", message } : undefined,
       });
     }
   }

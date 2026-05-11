@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { buildAdminProductsWhere } from "@/lib/admin-products-filter";
+import {
+  buildAdminProductsWhere,
+  buildAdminProductsOrderBy,
+} from "@/lib/admin-products-filter";
 
 describe("buildAdminProductsWhere", () => {
   it("returns an empty where when no filter is active", () => {
@@ -119,5 +122,42 @@ describe("buildAdminProductsWhere", () => {
       lastRefreshedAt: null,
       status: "ONLINE",
     });
+  });
+
+  it("does not apply any lastRefreshedAt where clause for refresh=dateDesc (it's a sort, not a filter)", () => {
+    const where = buildAdminProductsWhere({ refresh: "dateDesc" });
+    expect(where.lastRefreshedAt).toBeUndefined();
+  });
+
+  it("does not apply any lastRefreshedAt where clause for refresh=dateAsc (it's a sort, not a filter)", () => {
+    const where = buildAdminProductsWhere({ refresh: "dateAsc" });
+    expect(where.lastRefreshedAt).toBeUndefined();
+  });
+});
+
+describe("buildAdminProductsOrderBy", () => {
+  it("defaults to createdAt desc when no refresh value is given", () => {
+    expect(buildAdminProductsOrderBy()).toEqual([{ createdAt: "desc" }]);
+  });
+
+  it("defaults to createdAt desc for empty / filter-only refresh values", () => {
+    expect(buildAdminProductsOrderBy("")).toEqual([{ createdAt: "desc" }]);
+    expect(buildAdminProductsOrderBy("never")).toEqual([{ createdAt: "desc" }]);
+    expect(buildAdminProductsOrderBy("refreshed")).toEqual([{ createdAt: "desc" }]);
+    expect(buildAdminProductsOrderBy("recent")).toEqual([{ createdAt: "desc" }]);
+  });
+
+  it("sorts by lastRefreshedAt desc with never-refreshed products last for refresh=dateDesc", () => {
+    expect(buildAdminProductsOrderBy("dateDesc")).toEqual([
+      { lastRefreshedAt: { sort: "desc", nulls: "last" } },
+      { createdAt: "desc" },
+    ]);
+  });
+
+  it("sorts by lastRefreshedAt asc with never-refreshed products last for refresh=dateAsc", () => {
+    expect(buildAdminProductsOrderBy("dateAsc")).toEqual([
+      { lastRefreshedAt: { sort: "asc", nulls: "last" } },
+      { createdAt: "asc" },
+    ]);
   });
 });

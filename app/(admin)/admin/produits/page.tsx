@@ -8,10 +8,10 @@ import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
-import { buildAdminProductsWhere } from "@/lib/admin-products-filter";
+import { buildAdminProductsWhere, buildAdminProductsOrderBy } from "@/lib/admin-products-filter";
 import { withProtectedSizeItem, type SizeManagerItem } from "@/lib/protected-sizes";
 
 // Attribute managers
@@ -153,10 +153,19 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     stockBelow,
   });
 
-  const [products, totalCount, categories, tags, sectionCounts, hasPfsConfig] = await Promise.all([
+  const [
+    products,
+    totalCount,
+    categories,
+    tags,
+    sectionCounts,
+    hasPfsConfig,
+    hasAnkorstoreConfig,
+    ankorstoreEnabled,
+  ] = await Promise.all([
     prisma.product.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: buildAdminProductsOrderBy(refresh),
       skip:    (currentPage - 1) * perPage,
       take:    perPage,
       include: {
@@ -199,6 +208,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       prisma.product.count({ where: { status: "ARCHIVED" } }),
     ]).then(([all, online, offline, draft, archived]) => ({ all, online, offline, draft, archived })),
     getCachedPfsEnabled(),
+    getCachedHasAnkorstoreConfig(),
+    getCachedAnkorstoreEnabled(),
   ]);
 
   const totalPages = Math.ceil(totalCount / perPage);
@@ -235,6 +246,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     lastRefreshedAt: p.lastRefreshedAt ? p.lastRefreshedAt.toISOString() : null,
     firstImage:      pickFirstImage({ primaryColorId: p.primaryColorId, colors: p.colors }, colorImagePath),
     pfsProductId:    p.pfsProductId,
+    ankorsProductId: p.ankorsProductId,
     colors:          p.colors.map((c) => ({
       id:            c.id,
       colorId:       c.colorId ?? "",
@@ -336,7 +348,13 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       </div>
 
       {/* Tableau */}
-      <AdminProductsTable products={serializedProducts} totalCount={totalCount} hasPfsConfig={hasPfsConfig} />
+      <AdminProductsTable
+        products={serializedProducts}
+        totalCount={totalCount}
+        hasPfsConfig={hasPfsConfig}
+        hasAnkorstoreConfig={hasAnkorstoreConfig}
+        ankorstoreEnabled={ankorstoreEnabled}
+      />
 
       {/* Pagination */}
       {totalPages > 1 && (

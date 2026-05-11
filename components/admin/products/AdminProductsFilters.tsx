@@ -373,6 +373,8 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   { value: "recent", label: "Rafraîchi récemment (30j)" },
                   { value: "refreshed", label: "Déjà rafraîchi" },
                   { value: "never", label: "Jamais rafraîchi" },
+                  { value: "dateDesc", label: "Date récente → ancienne" },
+                  { value: "dateAsc", label: "Date ancienne → récente" },
                 ]}
                 size="sm"
               />
