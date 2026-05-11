@@ -11,12 +11,25 @@
  * par le redémarrer naturellement (boucle de crash visible côté ops).
  */
 import { logger } from "@/lib/logger";
+import sharp from "sharp";
 
 const GUARD = Symbol.for("beliandjolie.instrumentation.installed");
 const g = globalThis as Record<symbol, unknown>;
 
 if (!g[GUARD]) {
   g[GUARD] = true;
+
+  // VPS 2 cœurs : on bride sharp à 1 thread par opération pour qu'un import
+  // d'images PFS ne sature pas la machine et laisse un cœur disponible
+  // pour servir les visiteurs. Aucun impact sur la qualité — seulement la
+  // vitesse de conversion d'une image individuelle.
+  try {
+    sharp.concurrency(1);
+  } catch (err) {
+    logger.warn("[Sharp] Impossible de configurer la concurrence", {
+      error: err as Error,
+    });
+  }
 
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {

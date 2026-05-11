@@ -25,20 +25,21 @@ const CANCEL_POLL_INTERVAL_MS = 2000;
  *  ménager PFS et le VPS : concurrence réduite + pauses entre lots. */
 const LARGE_IMPORT_THRESHOLD = 1000;
 
-/** Concurrence "normale" : bon compromis sur le VPS Hostinger (4 cores) —
- *  au-delà, le sharp WebP lossless en parallèle sature le CPU. */
-const SMALL_IMPORT_CONCURRENCY = 6;
+/** Concurrence "normale" sur le VPS Hostinger (2 cores) — sharp WebP
+ *  lossless est très lourd, on garde 2 produits en parallèle max pour
+ *  laisser un cœur disponible pour servir le site. */
+const SMALL_IMPORT_CONCURRENCY = 2;
 
-/** Concurrence "gros import" : on tape PFS avec moitié moins de calls
- *  parallèles, pour rester sous le rate-limit côté Salesforce. */
-const LARGE_IMPORT_CONCURRENCY = 3;
+/** Concurrence "gros import" : 1 produit à la fois pour ne pas saturer
+ *  le VPS pendant les imports massifs (plusieurs heures). */
+const LARGE_IMPORT_CONCURRENCY = 1;
 
 /** Nombre de produits traités d'affilée avant une pause inter-lots. */
 const IMPORT_CHUNK_SIZE = 500;
 
-/** Pause à la fin de chaque lot (ms). Laisse PFS reprendre son souffle
- *  pendant 5 s avant de relancer la cadence. */
-const IMPORT_CHUNK_PAUSE_MS = 5000;
+/** Pause à la fin de chaque lot (ms). Laisse PFS et le VPS reprendre
+ *  leur souffle pendant 10 s avant de relancer la cadence. */
+const IMPORT_CHUNK_PAUSE_MS = 10000;
 
 export interface ImportPacing {
   concurrency: number;
