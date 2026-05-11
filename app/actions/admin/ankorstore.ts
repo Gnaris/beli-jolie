@@ -8,7 +8,6 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import {
   ankorstoreSearchProducts,
-  ankorstoreListAllProducts,
   ankorstoreGetProduct,
   type AnkorstoreProduct,
 } from "@/lib/ankorstore-api";
@@ -29,10 +28,9 @@ async function requireAdmin() {
 
 /**
  * Pour chaque produit BJ non lié, fait une **recherche ciblée par référence**
- * sur Ankorstore (au lieu de parcourir tout le catalogue). Beaucoup plus rapide
- * dès que vous avez plus de produits sur Ankorstore que de produits locaux à
- * matcher. Les requêtes sont parallélisées par groupes de 5 pour ne pas saturer
- * l'API Ankorstore.
+ * sur Ankorstore via le filtre skuOrName. Si la recherche ne renvoie rien, le
+ * produit n'existe pas sur Ankorstore (la cliente a validé ce comportement).
+ * Les requêtes sont parallélisées par groupes de 5 pour ne pas saturer l'API.
  */
 export async function runAnkorstoreAutoMatch(): Promise<MatchReport> {
   await requireAdmin();
@@ -65,60 +63,34 @@ export async function runAnkorstoreAutoMatch(): Promise<MatchReport> {
     return { matched: 0, ambiguous: 0, unmatched: 0, total: 0, results: [] };
   }
 
-  // Stratégie hybride : on lance EN PARALLÈLE
-  //   1. Une recherche ciblée par référence (rapide, mais peut être incomplète
-  //      selon le filtre Ankorstore qui peut être strict)
-  //   2. Un parcours complet du catalogue (exhaustif, plus lent)
-  // On fusionne les deux par id Ankorstore (dédoublonné).
   const CONCURRENCY = 5;
+  const akMap = new Map<string, AnkorstoreProduct>();
 
-  const [searchResults, listResults] = await Promise.all([
-    (async () => {
-      const akMap = new Map<string, AnkorstoreProduct>();
-      for (let i = 0; i < bjProducts.length; i += CONCURRENCY) {
-        const batch = bjProducts.slice(i, i + CONCURRENCY);
-        const responses = await Promise.all(
-          batch.map(async (bj) => {
-            try {
-              return await ankorstoreSearchProducts(bj.reference, 10);
-            } catch (err) {
-              logger.warn("[Ankorstore Match] Search by reference failed", {
-                reference: bj.reference,
-                error: err instanceof Error ? err.message : String(err),
-              });
-              return [];
-            }
-          }),
-        );
-        for (const products of responses) {
-          for (const p of products) akMap.set(p.id, p);
+  for (let i = 0; i < bjProducts.length; i += CONCURRENCY) {
+    const batch = bjProducts.slice(i, i + CONCURRENCY);
+    const responses = await Promise.all(
+      batch.map(async (bj) => {
+        try {
+          return await ankorstoreSearchProducts(bj.reference, 10);
+        } catch (err) {
+          logger.warn("[Ankorstore Match] Search by reference failed", {
+            reference: bj.reference,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return [];
         }
-      }
-      return akMap;
-    })(),
-    (async () => {
-      try {
-        return await ankorstoreListAllProducts({ pageSize: 50 });
-      } catch (err) {
-        logger.warn("[Ankorstore Match] Full list failed", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-        return [] as AnkorstoreProduct[];
-      }
-    })(),
-  ]);
+      }),
+    );
+    for (const products of responses) {
+      for (const p of products) akMap.set(p.id, p);
+    }
+  }
 
-  const mergedMap = new Map<string, AnkorstoreProduct>();
-  for (const [id, p] of searchResults) mergedMap.set(id, p);
-  for (const p of listResults) mergedMap.set(p.id, p);
+  const ankorstoreProducts = Array.from(akMap.values());
 
-  const ankorstoreProducts = Array.from(mergedMap.values());
-
-  logger.info("[Ankorstore Match] Hybrid match complete", {
+  logger.info("[Ankorstore Match] Reference-only match complete", {
     bjProducts: bjProducts.length,
-    fromSearch: searchResults.size,
-    fromList: listResults.length,
-    totalDedupedAnkorstore: ankorstoreProducts.length,
+    foundAnkorstoreProducts: ankorstoreProducts.length,
   });
 
   return runAutoMatch(ankorstoreProducts, bjProducts);
