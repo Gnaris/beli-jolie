@@ -62,5 +62,8 @@ docs/superpowers/
 # scripts de déploiement locaux (contiennent des secrets de prod)
 /scripts/deploy/
 
+# état local du script de test Ankorstore (id produit de test)
+/scripts/.ankorstore-test-state.json
+
 # verrou Claude Code
 /.claude/scheduled_tasks.lock
