@@ -590,23 +590,13 @@ export async function ankorstoreKickoffUpdate(
       if (!imagesByColorId.has(img.colorId)) imagesByColorId.set(img.colorId, []);
       imagesByColorId.get(img.colorId)!.push(img.path);
     }
+    // Images niveau produit : UNIQUEMENT celles de la couleur principale.
+    // Les autres couleurs ont leurs images attachées à leur variante.
     const primaryColorId = product.primaryColorId ?? product.colors[0]?.colorId ?? null;
-    const sortedColorIds = product.colors
-      .map((c) => c.colorId)
-      .filter((id): id is string => !!id);
-    if (primaryColorId) {
-      const idx = sortedColorIds.indexOf(primaryColorId);
-      if (idx > 0) {
-        sortedColorIds.splice(idx, 1);
-        sortedColorIds.unshift(primaryColorId);
-      }
-    }
-    const orderedPaths: string[] = [];
-    for (const cid of sortedColorIds) {
-      const paths = imagesByColorId.get(cid) ?? [];
-      orderedPaths.push(...paths);
-    }
-    const productImages = orderedPaths.map((path, idx) => ({
+    const primaryColorPaths = primaryColorId
+      ? (imagesByColorId.get(primaryColorId) ?? [])
+      : [];
+    const productImages = primaryColorPaths.map((path, idx) => ({
       order: idx + 1,
       url: buildPublicImageUrl(path),
     }));
