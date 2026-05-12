@@ -236,33 +236,11 @@ export async function ankorstoreSearchProducts(
     }
   }
 
-  // ── Branch B: legacy product-name search (in case user typed a product name) ──
-  // Run in parallel with the per-id hydration below.
-  const legacyPromise = (async (): Promise<AnkorstoreProduct[]> => {
-    try {
-      const url =
-        `/products?filter[skuOrName]=${encodeURIComponent(query)}` +
-        `&include=productVariant&page[limit]=${limit}`;
-      const resp = await ankorstoreFetch<{
-        data: JsonApiProductItem[];
-        included?: JsonApiVariantItem[];
-      }>(url);
-      return parseProductList(resp.data ?? [], resp.included);
-    } catch (err) {
-      logger.warn("[Ankorstore] Legacy product-name search failed", {
-        query,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return [];
-    }
-  })();
-
   // ── Hydrate each parent product (in parallel) with its full variant list ──
   const hydratedProducts = await Promise.all(
     orderedProductIds.map((id) => ankorstoreGetProduct(id).catch(() => null)),
   );
 
-  // ── Merge: variant-hits come first, then legacy hits we don't already have ──
   const out: AnkorstoreProduct[] = [];
   const outSeen = new Set<string>();
   for (const p of hydratedProducts) {
@@ -271,11 +249,30 @@ export async function ankorstoreSearchProducts(
       outSeen.add(p.id);
     }
   }
-  const legacyResults = await legacyPromise;
-  for (const p of legacyResults) {
-    if (!outSeen.has(p.id) && out.length < limit) {
-      out.push(p);
-      outSeen.add(p.id);
+
+  // ── Branch B: fallback uniquement si la recherche par SKU n'a rien trouvé ──
+  // (Ex: l'admin tape un nom de produit qui ne correspond à aucun préfixe de
+  // SKU — on retombe sur l'ancienne recherche par nom.)
+  if (out.length === 0) {
+    try {
+      const url =
+        `/products?filter[skuOrName]=${encodeURIComponent(query)}` +
+        `&include=productVariant&page[limit]=${limit}`;
+      const resp = await ankorstoreFetch<{
+        data: JsonApiProductItem[];
+        included?: JsonApiVariantItem[];
+      }>(url);
+      for (const p of parseProductList(resp.data ?? [], resp.included)) {
+        if (!outSeen.has(p.id) && out.length < limit) {
+          out.push(p);
+          outSeen.add(p.id);
+        }
+      }
+    } catch (err) {
+      logger.warn("[Ankorstore] Legacy product-name search failed", {
+        query,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
