@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useState } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { linkAnkorstoreProductManually } from "@/app/actions/admin/ankorstore";
 
@@ -31,40 +31,36 @@ export default function LinkAnkorstoreProductModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linking, setLinking] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (query.trim().length < 2) {
+  const runSearch = async () => {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setError("Saisissez au moins 2 caractères.");
       setResults([]);
-      setError(null);
       return;
     }
     setLoading(true);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/admin/ankorstore-search?q=${encodeURIComponent(query.trim())}`,
-        );
-        const body = await res.json();
-        if (!res.ok) {
-          setError(body.error ?? `HTTP ${res.status}`);
-          setResults([]);
-        } else {
-          setResults(body.results ?? []);
-          setError(null);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+    setError(null);
+    setHasSearched(true);
+    try {
+      const res = await fetch(
+        `/api/admin/ankorstore-search?q=${encodeURIComponent(trimmed)}`,
+      );
+      const body = await res.json();
+      if (!res.ok) {
+        setError(body.error ?? `HTTP ${res.status}`);
         setResults([]);
-      } finally {
-        setLoading(false);
+      } else {
+        setResults(body.results ?? []);
       }
-    }, 300);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [query]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLink = async (akProductId: string) => {
     setLinking(akProductId);
@@ -120,14 +116,30 @@ export default function LinkAnkorstoreProductModal({
           <label className="block text-sm font-semibold font-body text-text-primary mb-1">
             Rechercher (nom ou référence)
           </label>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Tapez au moins 2 caractères…"
-            className="w-full px-3 py-2 border border-border rounded-none text-sm font-body focus:outline-none focus:border-text-primary"
-            autoFocus
-          />
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void runSearch();
+                }
+              }}
+              placeholder="Tapez la référence ou un nom (min 2 caractères)…"
+              className="flex-1 px-3 py-2 border border-border rounded-none text-sm font-body focus:outline-none focus:border-text-primary"
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={() => void runSearch()}
+              disabled={loading || query.trim().length < 2}
+              className="px-4 py-2 text-sm font-semibold text-white bg-text-primary rounded-none hover:bg-text-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-body"
+            >
+              {loading ? "Recherche…" : "Rechercher"}
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto border border-border rounded-none">
@@ -141,9 +153,14 @@ export default function LinkAnkorstoreProductModal({
               Erreur : {error}
             </div>
           )}
-          {!loading && !error && results.length === 0 && query.trim().length >= 2 && (
+          {!loading && !error && results.length === 0 && hasSearched && (
             <div className="p-4 text-sm text-text-muted font-body text-center">
-              Aucun résultat pour « {query} ».
+              Aucun résultat pour « {query.trim()} ».
+            </div>
+          )}
+          {!loading && !error && results.length === 0 && !hasSearched && (
+            <div className="p-4 text-sm text-text-muted font-body text-center">
+              Saisissez une référence et cliquez sur « Rechercher ».
             </div>
           )}
           {!loading && results.length > 0 && (

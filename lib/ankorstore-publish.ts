@@ -389,8 +389,11 @@ export async function buildPublishProductInput(productId: string): Promise<
 
   const mainImage = productImages[0]?.url;
 
-  const weightGrams = firstVariant?.weight
-    ? Math.max(1, Math.round(firstVariant.weight * 1000))
+  // Poids envoyé en kg directement (Ankorstore attend unit_code "kg" en
+  // minuscules d'après leur spec OpenAPI shape_properties.weight). Le champ
+  // local `weight` est déjà en kg, donc pas de conversion.
+  const weightKg = firstVariant?.weight && firstVariant.weight > 0
+    ? Math.round(firstVariant.weight * 1000) / 1000
     : undefined;
 
   const input: AnkorstoreCatalogProductInput = {
@@ -409,8 +412,8 @@ export async function buildPublishProductInput(productId: string): Promise<
       product.manufacturingCountry?.pfsCountryRef ??
       "FR",
     ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
-    ...(weightGrams
-      ? { shapeProperties: { weight: { unitCode: "GRM", amount: weightGrams } } }
+    ...(weightKg
+      ? { shapeProperties: { weight: { unitCode: "kg" as const, amount: weightKg } } }
       : {}),
     variants: variantEntries.map((v) => v.entry),
   };

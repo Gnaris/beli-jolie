@@ -405,6 +405,25 @@ export async function ankorstoreKickoffUpdate(
       }
     }
 
+    // Récupère les SKU RÉELS d'Ankorstore pour chaque ankorsVariantId lié.
+    // Sans ça, on enverrait notre SKU local (ex. A485_BLANC_UNIT_2) dans
+    // l'update payload — Ankorstore ne le reconnaîtrait pas et CRÉERAIT une
+    // nouvelle variante au lieu de modifier celle qui existe (qui a un SKU
+    // différent côté Ankorstore, ex. "A485_ Blanc"). Bug constaté 2026-05-12.
+    const ankorsRealSkuById = new Map<string, string>();
+    try {
+      const { ankorstoreGetVariants } = await import("@/lib/ankorstore-api");
+      const ankorsVariants = await ankorstoreGetVariants(ankorsProductId);
+      for (const v of ankorsVariants) {
+        if (v.sku) ankorsRealSkuById.set(v.id, v.sku);
+      }
+    } catch (err) {
+      logger.warn("[Ankorstore Update] Fetch real variant SKUs failed", {
+        ankorsProductId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     // Build next snapshot
     const nextProductSnap = buildProductFieldsSnapshot(product, brandName, config);
 
@@ -555,8 +574,9 @@ export async function ankorstoreKickoffUpdate(
       url: buildPublicImageUrl(path),
     }));
     const mainImage = productImages[0]?.url;
-    const weightGrams = firstVariant?.weight
-      ? Math.max(1, Math.round(firstVariant.weight * 1000))
+    // Poids en kg directement (cf. spec Ankorstore : unit_code "kg")
+    const weightKg = firstVariant?.weight && firstVariant.weight > 0
+      ? Math.round(firstVariant.weight * 1000) / 1000
       : undefined;
 
     const productInput: AnkorstoreCatalogProductInput = {
@@ -572,11 +592,17 @@ export async function ankorstoreKickoffUpdate(
       retailPrice,
       countryCode: nextProductSnap.countryCode,
       ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
-      ...(weightGrams
-        ? { shapeProperties: { weight: { unitCode: "GRM", amount: weightGrams } } }
+      ...(weightKg
+        ? { shapeProperties: { weight: { unitCode: "kg" as const, amount: weightKg } } }
         : {}),
       variants: product.colors.map((variant, i) => {
-        const sku = buildVariantSku(product, variant, i);
+        // Utilise le SKU réel d'Ankorstore pour les variantes déjà liées
+        // (sinon Ankorstore créerait une nouvelle variante au lieu de modifier
+        // l'existante). Fallback sur le SKU local pour les variantes nouvelles.
+        const realSku = variant.ankorsVariantId
+          ? ankorsRealSkuById.get(variant.ankorsVariantId)
+          : null;
+        const sku = realSku ?? buildVariantSku(product, variant, i);
         const variantWholesale = getWholesalePrice(variant, config);
         const variantRetail = getRetailPrice(variant, config);
         const colorLabel =

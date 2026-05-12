@@ -70,7 +70,7 @@ export interface AnkorstoreCatalogProductInput {
     options: { name: "color" | "size" | "material" | "style"; value: string }[];
     images?: { order: number; url: string }[];
   }[];
-  shapeProperties?: { weight: { unitCode: "GRM"; amount: number } };
+  shapeProperties?: { weight: { unitCode: "kg" | "GRM"; amount: number } };
 }
 
 // ─────────────────────────────────────────────
