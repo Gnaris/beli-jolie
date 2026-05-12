@@ -8,14 +8,21 @@ export function ProductEditRefreshButton({
   reference,
   productName,
   firstImage,
+  hasPfsConfig = true,
+  hasAnkorstoreConfig = false,
+  ankorstoreEnabled = false,
 }: {
   productId: string;
   reference: string;
   productName: string;
   firstImage?: string | null;
+  hasPfsConfig?: boolean;
+  hasAnkorstoreConfig?: boolean;
+  ankorstoreEnabled?: boolean;
 }) {
   const [pending, setPending] = useState(false);
-  const { refreshSingle } = useRefreshMarketplaceDialog();
+  const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
+  const { refreshSingle } = useRefreshMarketplaceDialog({ showPfs: hasPfsConfig, showAnkorstore });
 
   return (
     <button

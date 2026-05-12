@@ -490,6 +490,8 @@ function ActionsDropdown({
 function ProductRow({
   product,
   hasPfsConfig,
+  hasAnkorstoreConfig,
+  ankorstoreEnabled,
   selected,
   onToggle,
   expanded,
@@ -501,6 +503,8 @@ function ProductRow({
 }: {
   product: AdminProduct;
   hasPfsConfig: boolean;
+  hasAnkorstoreConfig: boolean;
+  ankorstoreEnabled: boolean;
   selected: boolean;
   onToggle: () => void;
   expanded: boolean;
@@ -514,7 +518,8 @@ function ProductRow({
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   const { confirm } = useConfirm();
-  const { refreshSingle } = useRefreshMarketplaceDialog();
+  const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
+  const { refreshSingle } = useRefreshMarketplaceDialog({ showPfs: hasPfsConfig, showAnkorstore });
 
   // Toutes les couleurs uniques attribuées au produit (UNIT + PACK confondus).
   const uniqueColors = [...new Map(product.colors
@@ -1150,10 +1155,12 @@ function BulkVariantBar({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, hasPfsConfig, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, deletingIds,
+  products, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, deletingIds,
 }: {
   products: AdminProduct[];
   hasPfsConfig: boolean;
+  hasAnkorstoreConfig: boolean;
+  ankorstoreEnabled: boolean;
   selectedIds: Set<string>;
   allSelected: boolean;
   toggleSelectAll: () => void;
@@ -1255,6 +1262,8 @@ function TableWithTopScroll({
                 key={product.id}
                 product={product}
                 hasPfsConfig={hasPfsConfig}
+                hasAnkorstoreConfig={hasAnkorstoreConfig}
+                ankorstoreEnabled={ankorstoreEnabled}
                 selected={selectedIds.has(product.id)}
                 onToggle={() => toggleSelect(product.id)}
                 expanded={expandedIds.has(product.id)}
@@ -1779,7 +1788,7 @@ export default function AdminProductsTable({
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={allProducts} hasPfsConfig={hasPfsConfig} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} deletingIds={deletingIds} />
+      <TableWithTopScroll products={allProducts} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} deletingIds={deletingIds} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (
