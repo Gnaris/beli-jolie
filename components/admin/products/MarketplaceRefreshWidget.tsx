@@ -287,7 +287,7 @@ export function MarketplaceRefreshWidget() {
                   )}
                   {item.status === "awaiting_callback" && (
                     <p className="text-[10px] font-body text-[#B45309] mt-0.5">
-                      Ankorstore · en attente de confirmation…
+                      Ankorstore traite votre demande (1 à 5 min)…
                     </p>
                   )}
                 </div>

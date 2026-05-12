@@ -455,37 +455,39 @@ export async function ankorstoreKickoffUpdate(
       return { success: true, operationId: null, archived: allVariantsOutOfStock };
     }
 
-    // Step A: Apply direct PATCHes for variant stock/prices (synchronous)
+    // Step A: Apply direct PATCHes for variant stock/prices.
+    // Parallèle pour minimiser la latence (avant : séquentiel, ~4-8s pour 4 variantes).
     if (diff.variantsChanged.length > 0) {
+      const patchPromises: Promise<void>[] = [];
       for (const ankorsVariantId of diff.variantsChanged) {
         const snap = nextSnapshot.variants[ankorsVariantId];
         if (!snap) continue;
-        try {
-          await ankorstorePatchVariantStock(ankorsVariantId, {
+        patchPromises.push(
+          ankorstorePatchVariantStock(ankorsVariantId, {
             stockQuantity: snap.stockQty,
             isAlwaysInStock: snap.isAlwaysInStock,
-          });
-        } catch (err) {
-          logger.error("[Ankorstore Update] PATCH variant stock failed", {
-            ankorsVariantId,
-            error: err,
-          });
-        }
-        try {
-          await ankorstorePatchVariantPrices(ankorsVariantId, {
+          }).catch((err) => {
+            logger.error("[Ankorstore Update] PATCH variant stock failed", {
+              ankorsVariantId,
+              error: err,
+            });
+          }),
+          ankorstorePatchVariantPrices(ankorsVariantId, {
             wholesalePriceCents: snap.wholesalePriceCents,
             retailPriceCents: snap.retailPriceCents,
-          });
-        } catch (err) {
-          logger.error("[Ankorstore Update] PATCH variant prices failed", {
-            ankorsVariantId,
-            error: err,
-          });
-        }
+          }).catch((err) => {
+            logger.error("[Ankorstore Update] PATCH variant prices failed", {
+              ankorsVariantId,
+              error: err,
+            });
+          }),
+        );
         committedSnapshot.variants[ankorsVariantId] = snap;
       }
-      logger.info("[Ankorstore Update] Variant patches applied", {
+      await Promise.all(patchPromises);
+      logger.info("[Ankorstore Update] Variant patches applied (parallel)", {
         count: diff.variantsChanged.length,
+        calls: patchPromises.length,
       });
     }
 
