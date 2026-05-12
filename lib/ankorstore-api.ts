@@ -189,70 +189,79 @@ function parseProductList(
 /**
  * Search products by name or SKU on Ankorstore.
  *
- * Ankorstore's `/products?filter[skuOrName]=...` does NOT match partial SKUs
- * of variants. Searching for "A382" against a product whose variants are
- * SKU-named `A382_Violet`, `A382_Blanc`, etc. returns 0 results from this
- * endpoint — even though the variants are clearly indexed.
+ * Performance: un seul appel API au lieu de N+1.
  *
- * Workaround validated 2026-05-12 :
- *   1. Search `/product-variants?filter[skuOrName]=...` — this DOES match
- *      partial SKUs (returns A382_Violet, A382_Blanc, A382_Rouge, A382_Bleu).
- *   2. Collect unique parent product IDs from the variants' relationships.
- *   3. Fetch each parent product via `/products/{id}?include=productVariants`
- *      to hydrate the full product (name, images, all variants).
+ * Le filtre `skuOrName` sur `/product-variants` matche les SKU partiels
+ * (ex: "A382" trouve A382_Violet, A382_Blanc...) — contrairement au filtre
+ * équivalent sur `/products` qui ne regarde que le nom du produit.
  *
- * Also: if the user types the product name directly (not a SKU prefix), the
- * variant search may miss it. We fall back to the legacy `/products` search
- * and merge results.
+ * Avec `include=product` Ankorstore renvoie aussi les produits parents dans
+ * `included[]` (nom, images, externalId) → on n'a pas besoin de faire un
+ * second appel par produit pour les afficher dans la modale de liaison.
  *
- * Returns up to `limit` unique products. Parallel fetch for the parent lookups.
+ * `variantCount` = nombre de variantes MATCHÉES par la recherche (peut être
+ * inférieur au total si l'utilisateur tape un nom). Acceptable pour la modale.
+ *
+ * Fallback : si la recherche variantes ne ramène rien (utilisateur tape un nom
+ * de produit qui ne correspond à aucun SKU), on retombe sur `/products?filter[skuOrName]=...`.
  */
 export async function ankorstoreSearchProducts(
   query: string,
   limit = 20
 ): Promise<AnkorstoreProduct[]> {
-  // ── Branch A: variant search (matches partial SKUs like "A382") ──
   const variantUrl =
     `/product-variants?filter[skuOrName]=${encodeURIComponent(query)}` +
     `&include=product&page[limit]=${Math.min(limit * 4, 50)}`;
   const variantResp = await ankorstoreFetch<{
     data: {
       id: string;
-      attributes: { sku?: string | null };
+      attributes: Omit<AnkorstoreVariant, "id">;
       relationships?: { product?: { data?: { id: string } } };
     }[];
-    included?: { id: string; type: string; attributes: JsonApiProductAttributes }[];
+    included?: {
+      id: string;
+      type: string;
+      attributes: JsonApiProductAttributes;
+    }[];
   }>(variantUrl);
 
-  // Collect unique parent product IDs (preserve order of first appearance)
+  // Index produits depuis `included[]` (parsed même struct que parseProductList).
+  const productById = new Map<string, AnkorstoreProduct>();
+  for (const inc of variantResp.included ?? []) {
+    if (inc.type !== "product") continue;
+    const attrs = inc.attributes ?? ({} as JsonApiProductAttributes);
+    const externalId = attrs.externalId ?? attrs.external_id ?? null;
+    productById.set(inc.id, {
+      ...(attrs as unknown as Omit<AnkorstoreProduct, "id" | "variants" | "externalId">),
+      externalId,
+      id: inc.id,
+      variants: [],
+    });
+  }
+
+  // Attache à chaque produit les variantes matchées (ordre du tableau data).
   const orderedProductIds: string[] = [];
-  const seen = new Set<string>();
+  const seenProductIds = new Set<string>();
   for (const v of variantResp.data ?? []) {
     const pid = v.relationships?.product?.data?.id;
-    if (pid && !seen.has(pid)) {
-      seen.add(pid);
+    if (!pid) continue;
+    const p = productById.get(pid);
+    if (!p) continue;
+    p.variants.push({ ...v.attributes, id: v.id });
+    if (!seenProductIds.has(pid)) {
+      seenProductIds.add(pid);
       orderedProductIds.push(pid);
-      if (orderedProductIds.length >= limit) break;
     }
   }
-
-  // ── Hydrate each parent product (in parallel) with its full variant list ──
-  const hydratedProducts = await Promise.all(
-    orderedProductIds.map((id) => ankorstoreGetProduct(id).catch(() => null)),
-  );
 
   const out: AnkorstoreProduct[] = [];
-  const outSeen = new Set<string>();
-  for (const p of hydratedProducts) {
-    if (p && !outSeen.has(p.id)) {
-      out.push(p);
-      outSeen.add(p.id);
-    }
+  for (const id of orderedProductIds) {
+    const p = productById.get(id);
+    if (p) out.push(p);
+    if (out.length >= limit) break;
   }
 
-  // ── Branch B: fallback uniquement si la recherche par SKU n'a rien trouvé ──
-  // (Ex: l'admin tape un nom de produit qui ne correspond à aucun préfixe de
-  // SKU — on retombe sur l'ancienne recherche par nom.)
+  // Fallback : aucune correspondance via les SKU → recherche legacy par nom de produit.
   if (out.length === 0) {
     try {
       const url =
@@ -263,10 +272,8 @@ export async function ankorstoreSearchProducts(
         included?: JsonApiVariantItem[];
       }>(url);
       for (const p of parseProductList(resp.data ?? [], resp.included)) {
-        if (!outSeen.has(p.id) && out.length < limit) {
-          out.push(p);
-          outSeen.add(p.id);
-        }
+        out.push(p);
+        if (out.length >= limit) break;
       }
     } catch (err) {
       logger.warn("[Ankorstore] Legacy product-name search failed", {
