@@ -187,19 +187,99 @@ function parseProductList(
 // ─────────────────────────────────────────────
 
 /**
- * Search products by name or SKU.
- * Returns up to `limit` results (no pagination).
+ * Search products by name or SKU on Ankorstore.
+ *
+ * Ankorstore's `/products?filter[skuOrName]=...` does NOT match partial SKUs
+ * of variants. Searching for "A382" against a product whose variants are
+ * SKU-named `A382_Violet`, `A382_Blanc`, etc. returns 0 results from this
+ * endpoint — even though the variants are clearly indexed.
+ *
+ * Workaround validated 2026-05-12 :
+ *   1. Search `/product-variants?filter[skuOrName]=...` — this DOES match
+ *      partial SKUs (returns A382_Violet, A382_Blanc, A382_Rouge, A382_Bleu).
+ *   2. Collect unique parent product IDs from the variants' relationships.
+ *   3. Fetch each parent product via `/products/{id}?include=productVariants`
+ *      to hydrate the full product (name, images, all variants).
+ *
+ * Also: if the user types the product name directly (not a SKU prefix), the
+ * variant search may miss it. We fall back to the legacy `/products` search
+ * and merge results.
+ *
+ * Returns up to `limit` unique products. Parallel fetch for the parent lookups.
  */
 export async function ankorstoreSearchProducts(
   query: string,
   limit = 20
 ): Promise<AnkorstoreProduct[]> {
-  const url = `/products?filter[skuOrName]=${encodeURIComponent(query)}&include=productVariant&page[limit]=${limit}`;
-  const resp = await ankorstoreFetch<{
-    data: JsonApiProductItem[];
-    included?: JsonApiVariantItem[];
-  }>(url);
-  return parseProductList(resp.data ?? [], resp.included);
+  // ── Branch A: variant search (matches partial SKUs like "A382") ──
+  const variantUrl =
+    `/product-variants?filter[skuOrName]=${encodeURIComponent(query)}` +
+    `&include=product&page[limit]=${Math.min(limit * 4, 50)}`;
+  const variantResp = await ankorstoreFetch<{
+    data: {
+      id: string;
+      attributes: { sku?: string | null };
+      relationships?: { product?: { data?: { id: string } } };
+    }[];
+    included?: { id: string; type: string; attributes: JsonApiProductAttributes }[];
+  }>(variantUrl);
+
+  // Collect unique parent product IDs (preserve order of first appearance)
+  const orderedProductIds: string[] = [];
+  const seen = new Set<string>();
+  for (const v of variantResp.data ?? []) {
+    const pid = v.relationships?.product?.data?.id;
+    if (pid && !seen.has(pid)) {
+      seen.add(pid);
+      orderedProductIds.push(pid);
+      if (orderedProductIds.length >= limit) break;
+    }
+  }
+
+  // ── Branch B: legacy product-name search (in case user typed a product name) ──
+  // Run in parallel with the per-id hydration below.
+  const legacyPromise = (async (): Promise<AnkorstoreProduct[]> => {
+    try {
+      const url =
+        `/products?filter[skuOrName]=${encodeURIComponent(query)}` +
+        `&include=productVariant&page[limit]=${limit}`;
+      const resp = await ankorstoreFetch<{
+        data: JsonApiProductItem[];
+        included?: JsonApiVariantItem[];
+      }>(url);
+      return parseProductList(resp.data ?? [], resp.included);
+    } catch (err) {
+      logger.warn("[Ankorstore] Legacy product-name search failed", {
+        query,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  })();
+
+  // ── Hydrate each parent product (in parallel) with its full variant list ──
+  const hydratedProducts = await Promise.all(
+    orderedProductIds.map((id) => ankorstoreGetProduct(id).catch(() => null)),
+  );
+
+  // ── Merge: variant-hits come first, then legacy hits we don't already have ──
+  const out: AnkorstoreProduct[] = [];
+  const outSeen = new Set<string>();
+  for (const p of hydratedProducts) {
+    if (p && !outSeen.has(p.id)) {
+      out.push(p);
+      outSeen.add(p.id);
+    }
+  }
+  const legacyResults = await legacyPromise;
+  for (const p of legacyResults) {
+    if (!outSeen.has(p.id) && out.length < limit) {
+      out.push(p);
+      outSeen.add(p.id);
+    }
+  }
+
+  return out.slice(0, limit);
 }
 
 /**
