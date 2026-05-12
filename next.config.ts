@@ -40,7 +40,7 @@ const nextConfig: NextConfig = {
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' https://js.stripe.com",
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://*.stripe.com https://static.parisfashionshops.com https://cdn.parisfashionshops.com",
+      "img-src 'self' data: blob: https://*.stripe.com https://static.parisfashionshops.com https://cdn.parisfashionshops.com https://img.ankorstore.com",
       "font-src 'self'",
       "connect-src 'self' https://api.stripe.com https://api-free.deepl.com https://api.deepl.com",
       "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",

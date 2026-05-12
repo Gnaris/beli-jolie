@@ -58,7 +58,13 @@ export interface AnkorstoreRefreshDeleteOldPayload {
   // Le produit à créer en phase 2 — figé à l'instant du clic « Rafraîchir ».
   nextProductInput: AnkorstoreCatalogProductInput;
   nextPublishPayload: AnkorstorePublishPayload;
+  // SKU de l'ancien produit (gardés pour pouvoir retry sur "Could not archive SKUs")
+  oldVariantSkus: string[];
+  // Compteur de retry — incrémenté à chaque "Could not archive SKUs" failure.
+  archiveRetryCount?: number;
 }
+
+const MAX_ARCHIVE_RETRIES = 3;
 
 // ─────────────────────────────────────────────
 // Kickoff (Phase 1 : delete old)
@@ -151,6 +157,8 @@ export async function ankorstoreKickoffRefresh(
       reference: product.reference,
       nextProductInput: built.input,
       nextPublishPayload: built.payload,
+      oldVariantSkus,
+      archiveRetryCount: 0,
     };
 
     await prisma.ankorstoreOperation.create({
@@ -201,9 +209,61 @@ export async function ankorstoreFinalizeRefreshDeleteOld(
   const payload = op.payload as unknown as AnkorstoreRefreshDeleteOldPayload;
 
   if (callbackStatus !== "succeeded" && callbackStatus !== "partially_failed") {
-    // Delete failed — abort the refresh. Old product still exists on Ankorstore.
+    // Delete failed. Si la raison est "Could not archive SKUs" (bug transitoire
+    // côté Ankorstore), on retente en lançant une nouvelle delete operation,
+    // jusqu'à MAX_ARCHIVE_RETRIES fois.
     const detailed = await fetchDetailedFailureMessage(op.id);
     const baseReason = detailed ?? extractFailureReason(callbackPayload);
+    const isArchiveFailure = /could not archive/i.test(baseReason);
+    const currentRetry = payload.archiveRetryCount ?? 0;
+
+    if (isArchiveFailure && currentRetry < MAX_ARCHIVE_RETRIES) {
+      // Re-kick une nouvelle DELETE_OLD avec compteur incrémenté
+      try {
+        const { operationId: retryOpId } = await ankorstoreKickoffDelete(
+          payload.reference,
+          payload.oldVariantSkus,
+        );
+        const nextPayload: AnkorstoreRefreshDeleteOldPayload = {
+          ...payload,
+          archiveRetryCount: currentRetry + 1,
+        };
+        await prisma.$transaction([
+          prisma.ankorstoreOperation.update({
+            where: { id: op.id },
+            data: {
+              status: "CANCELLED",
+              callbackPayload: callbackPayload as Prisma.InputJsonValue,
+              errorMessage: `Retry archive (${currentRetry + 1}/${MAX_ARCHIVE_RETRIES})`,
+              completedAt: new Date(),
+            },
+          }),
+          prisma.ankorstoreOperation.create({
+            data: {
+              id: retryOpId,
+              productId: op.productId,
+              type: "REFRESH_DELETE_OLD",
+              status: "PENDING",
+              payload: nextPayload as unknown as Prisma.InputJsonValue,
+            },
+          }),
+        ]);
+        logger.info("[Ankorstore Refresh] Delete-old retry kicked off", {
+          previousOpId: op.id,
+          newOpId: retryOpId,
+          attempt: currentRetry + 1,
+          productId: op.productId,
+        });
+        return;
+      } catch (err) {
+        logger.error("[Ankorstore Refresh] Retry kickoff failed", {
+          operationId: op.id,
+          error: err,
+        });
+        // Tombera dans le bloc FAILED ci-dessous
+      }
+    }
+
     await prisma.ankorstoreOperation.update({
       where: { id: op.id },
       data: {
@@ -217,6 +277,7 @@ export async function ankorstoreFinalizeRefreshDeleteOld(
       operationId: op.id,
       productId: op.productId,
       status: callbackStatus,
+      retries: currentRetry,
     });
     return;
   }
