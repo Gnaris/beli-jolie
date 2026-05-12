@@ -35,6 +35,7 @@ import {
   buildPublishProductInput,
   readCallbackStatus,
   extractFailureReason,
+  fetchDetailedFailureMessage,
   type AnkorstorePublishPayload,
 } from "@/lib/ankorstore-publish";
 import { revalidateTag } from "next/cache";
@@ -201,12 +202,14 @@ export async function ankorstoreFinalizeRefreshDeleteOld(
 
   if (callbackStatus !== "succeeded" && callbackStatus !== "partially_failed") {
     // Delete failed — abort the refresh. Old product still exists on Ankorstore.
+    const detailed = await fetchDetailedFailureMessage(op.id);
+    const baseReason = detailed ?? extractFailureReason(callbackPayload);
     await prisma.ankorstoreOperation.update({
       where: { id: op.id },
       data: {
         status: "FAILED",
         callbackPayload: callbackPayload as Prisma.InputJsonValue,
-        errorMessage: `Suppression de l'ancien produit échouée: ${extractFailureReason(callbackPayload)}`,
+        errorMessage: `Suppression de l'ancien produit échouée: ${baseReason}`,
         completedAt: new Date(),
       },
     });
@@ -312,6 +315,8 @@ export async function ankorstoreFinalizeRefreshCreateNew(
 
   if (callbackStatus === "failed" || callbackStatus === "skipped") {
     // Create failed. Old is gone, new wasn't created. Clear local ankorsProductId.
+    const detailed = await fetchDetailedFailureMessage(op.id);
+    const baseReason = detailed ?? extractFailureReason(callbackPayload);
     await prisma.$transaction([
       prisma.product.update({
         where: { id: op.productId },
@@ -329,7 +334,7 @@ export async function ankorstoreFinalizeRefreshCreateNew(
         data: {
           status: "FAILED",
           callbackPayload: callbackPayload as Prisma.InputJsonValue,
-          errorMessage: `Création du nouveau produit échouée : ${extractFailureReason(callbackPayload)}. Vous pouvez relancer via « Publier ».`,
+          errorMessage: `Création du nouveau produit échouée : ${baseReason}. Vous pouvez relancer via « Publier ».`,
           completedAt: new Date(),
         },
       }),

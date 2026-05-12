@@ -475,12 +475,14 @@ export async function ankorstoreFinalizePublish(
   const payload = op.payload as unknown as AnkorstorePublishPayload;
 
   if (callbackStatus === "failed" || callbackStatus === "skipped") {
+    const detailed = await fetchDetailedFailureMessage(op.id);
+    const errorMessage = detailed ?? extractFailureReason(callbackPayload);
     await prisma.ankorstoreOperation.update({
       where: { id: op.id },
       data: {
         status: "FAILED",
         callbackPayload: callbackPayload as Prisma.InputJsonValue,
-        errorMessage: extractFailureReason(callbackPayload),
+        errorMessage,
         completedAt: new Date(),
       },
     });
@@ -488,6 +490,7 @@ export async function ankorstoreFinalizePublish(
       operationId: op.id,
       productId: op.productId,
       status: callbackStatus,
+      errorMessage,
     });
     return;
   }
@@ -602,4 +605,46 @@ export function extractFailureReason(callbackPayload: unknown): string {
   };
   const reason = obj.data?.attributes?.failureReason;
   return reason ?? `Statut: ${obj.data?.attributes?.status ?? "inconnu"}`;
+}
+
+/**
+ * Récupère le détail des erreurs auprès d'Ankorstore (/operations/{id}/results)
+ * pour construire un message lisible. Le callback ne contient pas les `issues[]`
+ * détaillées — on doit aller les chercher séparément.
+ *
+ * Retourne une string compacte type :
+ *   "validation_error: Retail price (3,50 €) must be greater than Wholesale… ; …"
+ */
+export async function fetchDetailedFailureMessage(operationId: string): Promise<string | null> {
+  try {
+    const { ankorstoreFetchOperationResults } = await import("@/lib/ankorstore-api-write");
+    const results = await ankorstoreFetchOperationResults(operationId);
+    const failed = results.filter((r) => r.status === "failure");
+    if (failed.length === 0) return null;
+
+    const parts: string[] = [];
+    for (const r of failed) {
+      const msgs: string[] = [];
+      for (const iss of r.issues ?? []) {
+        if (iss && typeof iss === "object") {
+          const obj = iss as { field?: string; message?: string };
+          if (obj.message) msgs.push(obj.message);
+        }
+      }
+      const unique = Array.from(new Set(msgs)); // dedupe identical messages across variants
+      const head = r.failureReason ?? "failure";
+      if (unique.length > 0) {
+        parts.push(`${head}: ${unique.join(" ; ")}`);
+      } else if (r.failureReason) {
+        parts.push(r.failureReason);
+      }
+    }
+    return parts.length > 0 ? parts.join(" — ") : null;
+  } catch (err) {
+    logger.warn("[Ankorstore] fetchDetailedFailureMessage failed", {
+      operationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }

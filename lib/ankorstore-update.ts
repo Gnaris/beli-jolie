@@ -42,7 +42,11 @@ import {
   type AnkorstoreImagesSnapshot,
   type AnkorstoreStatus,
 } from "@/lib/ankorstore-sync-diff";
-import { readCallbackStatus, extractFailureReason } from "@/lib/ankorstore-publish";
+import {
+  readCallbackStatus,
+  extractFailureReason,
+  fetchDetailedFailureMessage,
+} from "@/lib/ankorstore-publish";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
@@ -650,12 +654,14 @@ export async function ankorstoreFinalizeUpdate(
   const payload = op.payload as unknown as AnkorstoreUpdatePayload;
 
   if (callbackStatus === "failed" || callbackStatus === "skipped") {
+    const detailed = await fetchDetailedFailureMessage(op.id);
+    const errorMessage = detailed ?? extractFailureReason(callbackPayload);
     await prisma.ankorstoreOperation.update({
       where: { id: op.id },
       data: {
         status: "FAILED",
         callbackPayload: callbackPayload as Prisma.InputJsonValue,
-        errorMessage: extractFailureReason(callbackPayload),
+        errorMessage,
         completedAt: new Date(),
       },
     });
@@ -663,6 +669,7 @@ export async function ankorstoreFinalizeUpdate(
       operationId: op.id,
       productId: op.productId,
       status: callbackStatus,
+      errorMessage,
     });
     return;
   }

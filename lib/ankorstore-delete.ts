@@ -15,6 +15,7 @@ import { ankorstoreGetVariants } from "@/lib/ankorstore-api";
 import {
   readCallbackStatus,
   extractFailureReason,
+  fetchDetailedFailureMessage,
 } from "@/lib/ankorstore-publish";
 import { logger } from "@/lib/logger";
 
@@ -116,12 +117,14 @@ export async function ankorstoreFinalizeDelete(
     return;
   }
 
+  const detailed = await fetchDetailedFailureMessage(op.id);
+  const errorMessage = detailed ?? extractFailureReason(callbackPayload);
   await prisma.ankorstoreOperation.update({
     where: { id: op.id },
     data: {
       status: "FAILED",
       callbackPayload: callbackPayload as Prisma.InputJsonValue,
-      errorMessage: extractFailureReason(callbackPayload),
+      errorMessage,
       completedAt: new Date(),
     },
   });
@@ -129,5 +132,6 @@ export async function ankorstoreFinalizeDelete(
     operationId: op.id,
     productId: op.productId,
     status: callbackStatus,
+    errorMessage,
   });
 }
