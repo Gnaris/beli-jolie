@@ -502,12 +502,25 @@ export async function ankorstoreKickoffUpdate(
 
     const diff = diffAnkorstoreSnapshots(prevSnapshot, nextSnapshot);
 
-    const hasVariantsToCreate = product.colors.some((v) => !v.ankorsVariantId);
-    if (diffIsEmpty(diff) && !hasVariantsToCreate) {
-      logger.info("[Ankorstore Update] Aucun changement détecté", {
-        ankorsProductId,
-        reference: product.reference,
-      });
+    // Garde-fou anti-doublon (Brique 4) : les variantes locales sans
+    // ankorsVariantId ne sont PAS envoyées à AS lors d'un update (le
+    // payload des variants est filtré plus bas). Donc on ne déclenche pas
+    // d'opération AS uniquement pour ces variantes-là — il faut passer par
+    // la modale « Variantes non liées » pour les lier avant.
+    const unlinkedCount = product.colors.filter((v) => !v.ankorsVariantId).length;
+    if (diffIsEmpty(diff)) {
+      if (unlinkedCount > 0) {
+        logger.info("[Ankorstore Update] Variantes non liées ignorées (pas de doublon créé)", {
+          ankorsProductId,
+          reference: product.reference,
+          unlinkedCount,
+        });
+      } else {
+        logger.info("[Ankorstore Update] Aucun changement détecté", {
+          ankorsProductId,
+          reference: product.reference,
+        });
+      }
       return { success: true, operationId: null, archived: allVariantsOutOfStock };
     }
 
@@ -622,10 +635,26 @@ export async function ankorstoreKickoffUpdate(
       ...(weightKg
         ? { shapeProperties: { weight: { unitCode: "kg" as const, amount: weightKg } } }
         : {}),
-      variants: product.colors.map((variant, i) => {
+      // Garde-fou anti-doublon : pour un produit DÉJÀ publié (ankorsProductId
+      // posé), on n'envoie que les variantes liées (ankorsVariantId connu).
+      // Une variante locale sans jumelle AS ne doit JAMAIS être pushée ici —
+      // ça créerait un doublon côté Ankorstore. Pour l'ajouter, passer par la
+      // modale "Variantes non liées" (Brique 1) qui pose la liaison d'abord.
+      variants: product.colors
+        .map((variant, i) => ({ variant, i }))
+        .filter(({ variant }) => {
+          if (variant.ankorsVariantId) return true;
+          logger.warn("[Ankorstore Update] Variante locale non liée — skip pour éviter doublon", {
+            productId,
+            bjVariantId: variant.id,
+            colorName: variant.color?.name,
+          });
+          return false;
+        })
+        .map(({ variant, i }) => {
         // Utilise le SKU réel d'Ankorstore pour les variantes déjà liées
         // (sinon Ankorstore créerait une nouvelle variante au lieu de modifier
-        // l'existante). Fallback sur le SKU local pour les variantes nouvelles.
+        // l'existante).
         const realSku = variant.ankorsVariantId
           ? ankorsRealSkuById.get(variant.ankorsVariantId)
           : null;

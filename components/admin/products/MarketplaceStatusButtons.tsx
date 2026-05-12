@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
 import LinkAnkorstoreProductModal from "./LinkAnkorstoreProductModal";
+import OrphanAnkorstoreVariantsModal from "./OrphanAnkorstoreVariantsModal";
 import SetPfsBrandModal from "./SetPfsBrandModal";
 
 interface MarketplaceStatusButtonsProps {
@@ -36,6 +37,7 @@ export function MarketplaceStatusButtons({
   const [confirmAkOpen, setConfirmAkOpen] = useState(false);
   const [resyncAkOpen, setResyncAkOpen] = useState(false);
   const [linkAkOpen, setLinkAkOpen] = useState(false);
+  const [orphanAkOpen, setOrphanAkOpen] = useState(false);
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
 
   const handlePublishPfs = () => {
@@ -225,6 +227,20 @@ export function MarketplaceStatusButtons({
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+                </svg>
+              </button>
+            )}
+
+            {ankorsProductId && (
+              <button
+                type="button"
+                onClick={() => setOrphanAkOpen(true)}
+                className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#FFFBEB] text-[#92400E] border border-[#FDE68A] hover:bg-[#FEF3C7] transition-colors"
+                title="Voir et lier manuellement les variantes orphelines (couleurs non encore liées entre votre site et Ankorstore)"
+                aria-label="Variantes non liées entre votre site et Ankorstore"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
               </button>
             )}
@@ -426,6 +442,15 @@ export function MarketplaceStatusButtons({
           productName={productName}
           reference={reference}
           onClose={() => setLinkAkOpen(false)}
+        />
+      )}
+
+      {orphanAkOpen && (
+        <OrphanAnkorstoreVariantsModal
+          productId={productId}
+          productName={productName}
+          reference={reference}
+          onClose={() => setOrphanAkOpen(false)}
         />
       )}
 
