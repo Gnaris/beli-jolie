@@ -1,10 +1,19 @@
 /**
- * Ankorstore API Client (write operations)
+ * Ankorstore API Client (write operations) — MODE CALLBACK-ONLY
  *
- * Covers:
- *   - Catalog Integration operations (create, add products, start, poll)
- *   - Variant stock/price patches (single + batch atomic)
- *   - Product delete with retry on "Could not archive SKUs"
+ * Wraps the catalog-integration write workflow. Every async operation kicks off
+ * the work on Ankorstore and returns the operationId — the result is delivered
+ * later via a webhook callback to `/api/webhooks/ankorstore`.
+ *
+ * No polling, no waiting for terminal status here. Finalization (looking up
+ * `ankorstoreProductId`, mapping variants, saving snapshot) happens in
+ * `lib/ankorstore-finalize.ts` driven by the webhook handler.
+ *
+ * The only synchronous calls left are the direct variant patches
+ * (`/product-variants/{id}/stock` and `/prices`), which are not catalog
+ * operations — their HTTP response IS the result.
+ *
+ * Validated against the real API on 2026-05-11. See docs/ankorstore-api.md.
  */
 
 import {
@@ -13,6 +22,25 @@ import {
   ANKORSTORE_BASE_URL,
 } from "@/lib/ankorstore-auth";
 import { logger } from "@/lib/logger";
+
+// ─────────────────────────────────────────────
+// Callback URL builder
+// ─────────────────────────────────────────────
+
+/**
+ * Build the public webhook URL we send to Ankorstore as `callbackUrl`.
+ *
+ * The secret query parameter is the only auth Ankorstore has when calling us
+ * back — without it, anyone could POST fake operation results to our webhook.
+ *
+ * In dev (localhost), Ankorstore can't reach this URL, so callbacks never fire.
+ * All Ankorstore testing must happen against the production host.
+ */
+export function buildAnkorstoreCallbackUrl(): string {
+  const base = (process.env.NEXTAUTH_URL ?? "https://beliandjolie.com").replace(/\/$/, "");
+  const secret = process.env.ANKORSTORE_WEBHOOK_SECRET ?? "";
+  return `${base}/api/webhooks/ankorstore?secret=${encodeURIComponent(secret)}`;
+}
 
 // ─────────────────────────────────────────────
 // Types
@@ -36,26 +64,17 @@ export interface AnkorstoreCatalogProductInput {
     ian?: string | null;
     stockQuantity: number;
     isAlwaysInStock: boolean;
+    wholesalePrice: number;          // EUR — required per variant
+    retailPrice: number;             // EUR — required per variant
+    originalWholesalePrice: number;  // EUR — required per variant (not documented in spec)
     options: { name: "color" | "size" | "material" | "style"; value: string }[];
+    images?: { order: number; url: string }[];
   }[];
   shapeProperties?: { weight: { unitCode: "GRM"; amount: number } };
 }
 
-export interface AnkorstoreOperationResult {
-  externalProductId: string;
-  ankorstoreProductId: string | null;
-  status: "success" | "failure";
-  failureReason: string | null;
-  issues: unknown[];
-}
-
-export interface AnkorstoreOperationPollResult {
-  status: "succeeded" | "partially_failed" | "failed";
-  results: AnkorstoreOperationResult[];
-}
-
 // ─────────────────────────────────────────────
-// Internal fetch helper (mirrors ankorstore-api.ts)
+// Internal fetch helper
 // ─────────────────────────────────────────────
 
 /** Non-retryable error (4xx except 429) */
@@ -103,7 +122,6 @@ async function ankorstoreFetchJson<T>(
           `Ankorstore API ${retryRes.status}: ${text.slice(0, 200)}`
         );
       }
-      // Some write endpoints return empty body (204)
       if (retryRes.status === 204) return undefined as unknown as T;
       return retryRes.json() as Promise<T>;
     }
@@ -156,12 +174,61 @@ async function ankorstoreFetchJson<T>(
 }
 
 // ─────────────────────────────────────────────
-// Catalog Integration operations
+// Payload builders (snake_case for the products array)
 // ─────────────────────────────────────────────
 
-/** Create a catalog integration operation (import / update / delete). */
+function buildProductPayloadAttributes(p: AnkorstoreCatalogProductInput): Record<string, unknown> {
+  return {
+    external_id: p.externalId,
+    name: p.name,
+    description: p.description,
+    ...(p.mainImage ? { main_image: p.mainImage } : {}),
+    ...(p.images ? { images: p.images } : {}),
+    currency: p.currency,
+    vat_rate: p.vatRate,
+    unit_multiplier: p.unitMultiplier,
+    wholesale_price: p.wholesalePrice,
+    retail_price: p.retailPrice,
+    made_in_country: p.countryCode,
+    ...(p.tags ? { tags: p.tags } : {}),
+    ...(p.shapeProperties
+      ? {
+          shape_properties: {
+            weight: {
+              unit_code: p.shapeProperties.weight.unitCode,
+              amount: p.shapeProperties.weight.amount,
+            },
+          },
+        }
+      : {}),
+    variants: p.variants.map((v) => ({
+      sku: v.sku,
+      ...(v.ian != null ? { ian: v.ian } : {}),
+      stock_quantity: v.stockQuantity,
+      is_always_in_stock: v.isAlwaysInStock,
+      wholesale_price: v.wholesalePrice,
+      retail_price: v.retailPrice,
+      original_wholesale_price: v.originalWholesalePrice,
+      options: v.options,
+      ...(v.images ? { images: v.images } : {}),
+    })),
+  };
+}
+
+// ─────────────────────────────────────────────
+// Catalog Integration kickoff — create / import / update
+// ─────────────────────────────────────────────
+
+/**
+ * Create a catalog-integration operation (`import` or `update`).
+ *
+ * The created operation is in status `created` — it must be moved to `started`
+ * via {@link ankorstoreStartOperation} after products are added.
+ *
+ * `delete` uses a different endpoint — see {@link ankorstoreKickoffDelete}.
+ */
 export async function ankorstoreCreateCatalogOperation(
-  type: "import" | "update" | "delete"
+  type: "import" | "update"
 ): Promise<{ operationId: string }> {
   const resp = await ankorstoreFetchJson<{ data: { id: string } }>(
     `/catalog/integrations/operations`,
@@ -170,7 +237,11 @@ export async function ankorstoreCreateCatalogOperation(
       body: JSON.stringify({
         data: {
           type: "catalog-integration-operation",
-          attributes: { type, source: "other" },
+          attributes: {
+            operationType: type,
+            source: "other",
+            callbackUrl: buildAnkorstoreCallbackUrl(),
+          },
         },
       }),
     }
@@ -178,57 +249,45 @@ export async function ankorstoreCreateCatalogOperation(
   return { operationId: resp.data.id };
 }
 
-/** Add products to an existing catalog integration operation. */
+/**
+ * Add products to a catalog-integration operation.
+ *
+ * Wrapper is `{ products: [...] }` (NOT `{ data: [...] }` — silently ignored).
+ * Attributes inside the products array are snake_case.
+ */
 export async function ankorstoreAddProductsToOperation(
   operationId: string,
   products: AnkorstoreCatalogProductInput[]
-): Promise<void> {
-  const data = products.map((p) => ({
+): Promise<{ totalProductsCount: number }> {
+  const payloadProducts = products.map((p) => ({
     id: p.externalId,
     type: "catalog-integration-product",
-    attributes: {
-      external_id: p.externalId,
-      name: p.name,
-      description: p.description,
-      ...(p.mainImage ? { main_image: p.mainImage } : {}),
-      ...(p.images ? { images: p.images } : {}),
-      currency: p.currency,
-      vat_rate: p.vatRate,
-      unit_multiplier: p.unitMultiplier,
-      wholesale_price: p.wholesalePrice,
-      retail_price: p.retailPrice,
-      made_in_country: p.countryCode,
-      ...(p.tags ? { tags: p.tags } : {}),
-      ...(p.shapeProperties
-        ? {
-            shape_properties: {
-              weight: {
-                unit_code: p.shapeProperties.weight.unitCode,
-                amount: p.shapeProperties.weight.amount,
-              },
-            },
-          }
-        : {}),
-      variants: p.variants.map((v) => ({
-        sku: v.sku,
-        ...(v.ian != null ? { ian: v.ian } : {}),
-        stock_quantity: v.stockQuantity,
-        is_always_in_stock: v.isAlwaysInStock,
-        options: v.options,
-      })),
-    },
+    attributes: buildProductPayloadAttributes(p),
   }));
 
-  await ankorstoreFetchJson<unknown>(
+  const resp = await ankorstoreFetchJson<{ meta?: { totalProductsCount?: number } }>(
     `/catalog/integrations/operations/${encodeURIComponent(operationId)}/products`,
     {
       method: "POST",
-      body: JSON.stringify({ data }),
+      body: JSON.stringify({ products: payloadProducts }),
     }
   );
+
+  const totalProductsCount = resp?.meta?.totalProductsCount ?? 0;
+  if (totalProductsCount !== products.length) {
+    logger.warn("[Ankorstore] addProducts mismatch", {
+      operationId,
+      sent: products.length,
+      acknowledged: totalProductsCount,
+    });
+  }
+  return { totalProductsCount };
 }
 
-/** Start (trigger) a catalog integration operation. */
+/**
+ * Start (trigger) a catalog-integration operation. Required after adding
+ * products to a `created` operation.
+ */
 export async function ankorstoreStartOperation(operationId: string): Promise<void> {
   await ankorstoreFetchJson<unknown>(
     `/catalog/integrations/operations/${encodeURIComponent(operationId)}`,
@@ -238,77 +297,126 @@ export async function ankorstoreStartOperation(operationId: string): Promise<voi
         data: {
           type: "catalog-integration-operation",
           id: operationId,
+          attributes: { status: "started" },
         },
       }),
     }
   );
 }
 
-/** Poll an operation until it completes (succeeded / partially_failed / failed). */
-export async function ankorstorePollOperation(
-  operationId: string,
-  opts?: { timeoutMs?: number; intervalMs?: number }
-): Promise<AnkorstoreOperationPollResult> {
-  const timeoutMs = opts?.timeoutMs ?? 90_000;
-  const intervalMs = opts?.intervalMs ?? 2_000;
-  const deadline = Date.now() + timeoutMs;
-
-  const terminalStatuses = ["succeeded", "partially_failed", "failed"] as const;
-  type TerminalStatus = (typeof terminalStatuses)[number];
-
-  while (Date.now() < deadline) {
-    // Step 1: poll operation-level status (no /results suffix)
-    const statusResp = await ankorstoreFetchJson<{
-      data: { attributes: { status: string } };
-    }>(
-      `/catalog/integrations/operations/${encodeURIComponent(operationId)}`
+/**
+ * Kick off a deletion operation via the dedicated endpoint. Returns the
+ * operationId — the result arrives via webhook.
+ *
+ * The variant SKU list is REQUIRED (empty list = silent no-op).
+ */
+export async function ankorstoreKickoffDelete(
+  externalId: string,
+  variantSkus: string[]
+): Promise<{ operationId: string }> {
+  if (!externalId) {
+    throw new Error("[Ankorstore Delete] externalId is required");
+  }
+  if (!variantSkus || variantSkus.length === 0) {
+    throw new Error(
+      "[Ankorstore Delete] At least one SKU is required — empty variant list is a silent no-op"
     );
-
-    const opStatus = statusResp.data?.attributes?.status;
-
-    if (terminalStatuses.includes(opStatus as TerminalStatus)) {
-      // Step 2: fetch per-product results
-      const resultsResp = await ankorstoreFetchJson<{
-        data: {
-          attributes: {
-            externalProductId?: string;
-            ankorstoreProductId?: string | null;
-            status: string;
-            failureReason?: string | null;
-            issues?: unknown[];
-          };
-        }[];
-      }>(
-        `/catalog/integrations/operations/${encodeURIComponent(operationId)}/results`
-      );
-
-      const results: AnkorstoreOperationResult[] = (resultsResp.data ?? []).map((i) => ({
-        externalProductId: i.attributes.externalProductId ?? "",
-        ankorstoreProductId: i.attributes.ankorstoreProductId ?? null,
-        status: i.attributes.status === "success" ? "success" : "failure",
-        failureReason: i.attributes.failureReason ?? null,
-        issues: i.attributes.issues ?? [],
-      }));
-
-      return {
-        status: opStatus as TerminalStatus,
-        results,
-      };
-    }
-
-    await new Promise((r) => setTimeout(r, intervalMs));
   }
 
-  throw new Error(
-    `[Ankorstore] Operation ${operationId} did not complete within ${timeoutMs}ms`
+  const resp = await ankorstoreFetchJson<{ data: { id: string } }>(
+    `/catalog/integrations/operations/delete`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        source: "other",
+        callbackUrl: buildAnkorstoreCallbackUrl(),
+        products: [
+          {
+            type: "catalog-integration-product",
+            attributes: {
+              external_id: externalId,
+              variants: variantSkus.map((sku) => ({ sku })),
+            },
+          },
+        ],
+      }),
+    }
   );
+
+  return { operationId: resp.data.id };
 }
 
 // ─────────────────────────────────────────────
-// Variant patches (single)
+// Webhook-side helpers (called from /api/webhooks/ankorstore)
 // ─────────────────────────────────────────────
 
-/** Patch stock of a single variant. */
+/**
+ * Resolve the `ankorstoreProductId` of a freshly created product by querying
+ * a known SKU. The catalog-integration callback does NOT carry it, and
+ * indexing can lag a few seconds → retry with backoff.
+ */
+export async function ankorstoreLookupProductIdBySku(
+  sku: string,
+  opts?: { maxAttempts?: number; initialDelayMs?: number; pollDelayMs?: number }
+): Promise<string | null> {
+  const maxAttempts = opts?.maxAttempts ?? 6;
+  const initialDelayMs = opts?.initialDelayMs ?? 3_000;
+  const pollDelayMs = opts?.pollDelayMs ?? 5_000;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    await new Promise((r) => setTimeout(r, attempt === 1 ? initialDelayMs : pollDelayMs));
+
+    const resp = await ankorstoreFetchJson<{
+      data: {
+        id: string;
+        relationships?: { product?: { data?: { id?: string } } };
+      }[];
+    }>(`/product-variants?filter[sku]=${encodeURIComponent(sku)}&include=product&page[limit]=1`);
+
+    const productId = resp.data?.[0]?.relationships?.product?.data?.id;
+    if (productId) return productId;
+  }
+
+  return null;
+}
+
+/**
+ * Read the per-product results of a completed operation. Used by the webhook
+ * handler when the callback's `data.attributes.status` is terminal but we
+ * need the issues / failureReason details for each product.
+ */
+export async function ankorstoreFetchOperationResults(operationId: string): Promise<
+  {
+    externalProductId: string;
+    status: "success" | "failure";
+    failureReason: string | null;
+    issues: unknown[];
+  }[]
+> {
+  const resp = await ankorstoreFetchJson<{
+    data: {
+      attributes: {
+        externalProductId?: string;
+        status: string;
+        failureReason?: string | null;
+        issues?: unknown[];
+      };
+    }[];
+  }>(`/catalog/integrations/operations/${encodeURIComponent(operationId)}/results`);
+
+  return (resp.data ?? []).map((i) => ({
+    externalProductId: i.attributes.externalProductId ?? "",
+    status: i.attributes.status === "success" ? "success" : "failure",
+    failureReason: i.attributes.failureReason ?? null,
+    issues: i.attributes.issues ?? [],
+  }));
+}
+
+// ─────────────────────────────────────────────
+// Variant patches (single — direct, no operation)
+// ─────────────────────────────────────────────
+
+/** Patch stock of a single variant. Synchronous: HTTP response is the result. */
 export async function ankorstorePatchVariantStock(
   variantId: string,
   body: { stockQuantity?: number; isAlwaysInStock?: boolean }
@@ -357,7 +465,7 @@ export async function ankorstorePatchVariantPrices(
 
 const BATCH_SIZE = 50;
 
-/** Batch update variant attributes via JSON:API atomic operations. Splits into chunks of 50 automatically. */
+/** Batch update variant attributes via JSON:API atomic operations. */
 export async function ankorstoreBatchUpdateVariants(
   updates: { variantId: string; attributes: Record<string, unknown> }[]
 ): Promise<void> {
@@ -377,90 +485,4 @@ export async function ankorstoreBatchUpdateVariants(
       body: JSON.stringify({ "atomic:operations": atomicOps }),
     });
   }
-}
-
-// ─────────────────────────────────────────────
-// Delete product with retry
-// ─────────────────────────────────────────────
-
-/**
- * Delete a product on Ankorstore via a catalog integration delete operation.
- * Retries up to 4 times (0s / 1s / 4s / 16s backoff) when the failure reason
- * contains "Could not archive SKUs" — a transient Ankorstore issue.
- */
-export async function ankorstoreDeleteProduct(
-  ankorsProductIdOrExternalId: string
-): Promise<void> {
-  const delays = [0, 1000, 4000, 16000];
-  let lastErr: unknown = null;
-
-  for (let i = 0; i < delays.length; i++) {
-    if (delays[i] > 0) {
-      await new Promise((r) => setTimeout(r, delays[i]));
-    }
-
-    try {
-      const { operationId } = await ankorstoreCreateCatalogOperation("delete");
-      await ankorstoreAddProductsToOperation(operationId, [
-        {
-          externalId: ankorsProductIdOrExternalId,
-          name: "",
-          description: "",
-          currency: "EUR",
-          vatRate: 0,
-          unitMultiplier: 1,
-          wholesalePrice: 0,
-          retailPrice: 0,
-          countryCode: "FR",
-          variants: [],
-        } as AnkorstoreCatalogProductInput,
-      ]);
-      await ankorstoreStartOperation(operationId);
-      const result = await ankorstorePollOperation(operationId);
-
-      if (result.status === "succeeded") return;
-
-      if (result.status === "partially_failed") {
-        const archiveSkuFail = result.results.find((r) =>
-          r.failureReason?.includes("Could not archive SKUs")
-        );
-        if (archiveSkuFail) {
-          lastErr = new Error(
-            `[Ankorstore Delete] Could not archive SKUs: ${JSON.stringify(archiveSkuFail.issues)}`
-          );
-          logger.warn("[Ankorstore] Delete attempt failed (archive SKUs), retrying", {
-            attempt: i + 1,
-            productId: ankorsProductIdOrExternalId,
-          });
-          continue; // retriable — go to next attempt
-        }
-      }
-
-      // Non-retriable operation result (e.g. "failed" status, or partially_failed without archive-SKU)
-      throw new Error(
-        `[Ankorstore Delete] Operation finished with status ${result.status}`
-      );
-    } catch (err) {
-      // Only retriable errors reach here via the `continue` path above.
-      // Any other thrown error (non-retriable API errors, unexpected failures) must be re-thrown immediately.
-      const isArchiveSkuRetry =
-        err instanceof Error && err.message.includes("Could not archive SKUs");
-      if (!isArchiveSkuRetry) {
-        // Non-retriable: throw immediately without waiting for remaining attempts
-        logger.error("[Ankorstore] Delete failed (non-retriable)", {
-          productId: ankorsProductIdOrExternalId,
-          error: err,
-        });
-        throw err;
-      }
-      lastErr = err;
-    }
-  }
-
-  logger.error("[Ankorstore] Delete failed after retries", {
-    productId: ankorsProductIdOrExternalId,
-    error: lastErr,
-  });
-
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }

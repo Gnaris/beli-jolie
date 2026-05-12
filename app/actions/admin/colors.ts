@@ -7,6 +7,25 @@ import { prisma } from "@/lib/prisma";
 import { autoTranslateColor } from "@/lib/auto-translate";
 import { getCachedPfsColors } from "@/lib/cached-data";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+import { deleteFile, keyFromDbPath } from "@/lib/storage";
+import { logger } from "@/lib/logger";
+
+/**
+ * A motif file is owned by exactly one Color. Before mutating
+ * `Color.patternImage`, callers should purge the previous file via this
+ * helper so the disk doesn't accumulate orphan motifs at each replacement.
+ *
+ * Errors are logged and swallowed: the BDD is the source of truth, an
+ * orphan file just wastes a few KB.
+ */
+async function purgePatternFile(dbPath: string | null | undefined): Promise<void> {
+  if (!dbPath) return;
+  try {
+    await deleteFile(keyFromDbPath(dbPath));
+  } catch (err) {
+    logger.warn("[colors] Failed to delete old pattern file", { path: dbPath, error: err });
+  }
+}
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -83,7 +102,23 @@ export async function updateColorDirect(
     data.pfsColorRef = pfsColorRef?.trim() || null;
   }
 
+  // If patternImage is being touched (changed or cleared), remember the old
+  // file so we can purge it AFTER the BDD update succeeds.
+  let previousPattern: string | null = null;
+  if (patternImage !== undefined) {
+    const previous = await prisma.color.findUnique({
+      where: { id },
+      select: { patternImage: true },
+    });
+    previousPattern = previous?.patternImage ?? null;
+  }
+
   await prisma.color.update({ where: { id }, data });
+
+  // Old motif is orphan as soon as the new path is stored: purge it.
+  if (patternImage !== undefined && previousPattern && previousPattern !== patternImage) {
+    await purgePatternFile(previousPattern);
+  }
 
   for (const locale of NON_DEFAULT_LOCALES) {
     const val = translations[locale]?.trim();
@@ -123,7 +158,12 @@ export async function deleteColor(id: string) {
   await requireAdmin();
   const count = await prisma.productColor.count({ where: { colorId: id } });
   if (count > 0) throw new Error("Cette couleur est utilisée par des produits.");
+  const previous = await prisma.color.findUnique({
+    where: { id },
+    select: { patternImage: true },
+  });
   await prisma.color.delete({ where: { id } });
+  await purgePatternFile(previous?.patternImage ?? null);
   revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
 }

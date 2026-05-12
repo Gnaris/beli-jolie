@@ -1,27 +1,22 @@
 /**
- * Tests pour lib/ankorstore-publish.ts
+ * Tests pour lib/ankorstore-publish.ts (mode callback-only).
  *
- * Vérifie le payload JSON envoyé à Ankorstore (via ankorstoreAddProductsToOperation)
- * pour différents types de produits : UNIT mono-couleur, PACK mono-couleur, PACK multi-couleurs,
- * country_code, et les prix wholesale/retail.
+ * Vérifie :
+ *   - ankorstoreKickoffPublish envoie le bon payload, sauve la row PENDING
+ *   - le payload variant inclut wholesale/retail/originalWholesalePrice
+ *   - le filtrage UNIT-only
+ *   - made_in_country provient de isoCode
+ *   - les prix wholesale/retail appliquent le markup
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ─────────────────────────────────────────────
-// Mocks (déclarés avant tout import)
+// Mocks
 // ─────────────────────────────────────────────
 
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
-
-vi.mock("next/cache", () => ({
-  revalidateTag: vi.fn(),
-}));
-
-vi.mock("@/lib/product-events", () => ({
-  emitProductEvent: vi.fn(),
 }));
 
 vi.mock("@/lib/ankorstore-description", () => ({
@@ -40,86 +35,34 @@ vi.mock("@/lib/ankorstore-pricing", () => ({
   getAnkorstorePackedPrice: vi.fn().mockImplementation((total: number) => total),
 }));
 
-// ─────────────────────────────────────────────
-// API write mocks — on capture les arguments
-// ─────────────────────────────────────────────
-
 const mockCreateCatalogOperation = vi.fn().mockResolvedValue({ operationId: "op1" });
-const mockAddProductsToOperation = vi.fn().mockResolvedValue(undefined);
+const mockAddProductsToOperation = vi.fn().mockResolvedValue({ totalProductsCount: 1 });
 const mockStartOperation = vi.fn().mockResolvedValue(undefined);
-const mockPollOperation = vi.fn().mockResolvedValue({
-  status: "succeeded",
-  results: [
-    {
-      externalProductId: "REF1",
-      ankorstoreProductId: "ank-1",
-      status: "success",
-      failureReason: null,
-      issues: [],
-    },
-  ],
-});
-const mockDeleteProduct = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@/lib/ankorstore-api-write", () => ({
   ankorstoreCreateCatalogOperation: (...args: unknown[]) => mockCreateCatalogOperation(...args),
   ankorstoreAddProductsToOperation: (...args: unknown[]) => mockAddProductsToOperation(...args),
   ankorstoreStartOperation: (...args: unknown[]) => mockStartOperation(...args),
-  ankorstorePollOperation: (...args: unknown[]) => mockPollOperation(...args),
-  ankorstoreDeleteProduct: (...args: unknown[]) => mockDeleteProduct(...args),
+  ankorstoreLookupProductIdBySku: vi.fn().mockResolvedValue("ank-1"),
 }));
-
-// ─────────────────────────────────────────────
-// API read mock (getVariants)
-// ─────────────────────────────────────────────
-
-const mockGetVariants = vi.fn().mockResolvedValue([
-  {
-    id: "ank-v1",
-    sku: "REF1_argent_UNIT_1",
-    ian: null,
-    name: "M",
-    retailPrice: 0,
-    wholesalePrice: 0,
-    availableQuantity: null,
-    stockQuantity: 100,
-    isAlwaysInStock: false,
-    options: [
-      { name: "color", value: "Argent" },
-      { name: "size", value: "M" },
-    ],
-  },
-]);
 
 vi.mock("@/lib/ankorstore-api", () => ({
-  ankorstoreGetVariants: (...args: unknown[]) => mockGetVariants(...args),
+  ankorstoreGetVariants: vi.fn().mockResolvedValue([]),
 }));
 
-// ─────────────────────────────────────────────
-// Prisma mock
-// ─────────────────────────────────────────────
-
+// Prisma
 const mockProductFindUnique = vi.fn();
-const mockProductUpdate = vi.fn().mockResolvedValue({});
-const mockProductColorUpdate = vi.fn().mockResolvedValue({});
-const mockTransaction = vi.fn().mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops));
+const mockAnkorstoreOperationCreate = vi.fn().mockResolvedValue({});
+const mockAnkorstoreOperationUpdateMany = vi.fn().mockResolvedValue({ count: 0 });
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    product: {
-      findUnique: (...args: unknown[]) => mockProductFindUnique(...args),
-      update: (...args: unknown[]) => mockProductUpdate(...args),
+    product: { findUnique: (...args: unknown[]) => mockProductFindUnique(...args) },
+    companyInfo: { findFirst: vi.fn().mockResolvedValue({ shopName: "Test Shop" }) },
+    ankorstoreOperation: {
+      create: (...args: unknown[]) => mockAnkorstoreOperationCreate(...args),
+      updateMany: (...args: unknown[]) => mockAnkorstoreOperationUpdateMany(...args),
     },
-    productColor: {
-      update: (...args: unknown[]) => mockProductColorUpdate(...args),
-    },
-    siteConfig: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
-    companyInfo: {
-      findFirst: vi.fn().mockResolvedValue({ shopName: "Test Shop" }),
-    },
-    $transaction: (...args: unknown[]) => mockTransaction(...args),
   },
 }));
 
@@ -127,7 +70,6 @@ vi.mock("@/lib/prisma", () => ({
 // Helpers
 // ─────────────────────────────────────────────
 
-/** Produit de base UNIT mono-couleur */
 function makeUnitProduct(overrides: Record<string, unknown> = {}) {
   return {
     id: "p1",
@@ -143,14 +85,7 @@ function makeUnitProduct(overrides: Record<string, unknown> = {}) {
     dimensionDiameter: null,
     dimensionCircumference: null,
     sizeDetailsTu: null,
-    category: {
-      id: "cat1",
-      pfsCategoryId: null,
-      pfsGender: null,
-      pfsFamilyId: null,
-      pfsFamilyName: null,
-      pfsCategoryName: null,
-    },
+    category: { id: "cat1", pfsCategoryId: null, pfsGender: null, pfsFamilyId: null, pfsFamilyName: null, pfsCategoryName: null },
     colors: [
       {
         id: "v1",
@@ -169,12 +104,7 @@ function makeUnitProduct(overrides: Record<string, unknown> = {}) {
       },
     ],
     colorImages: [],
-    compositions: [
-      {
-        percentage: 92.5,
-        composition: { name: "Argent 925", pfsCompositionRef: null },
-      },
-    ],
+    compositions: [{ percentage: 92.5, composition: { name: "Argent 925", pfsCompositionRef: null } }],
     manufacturingCountry: { isoCode: "FR", pfsCountryRef: null },
     season: null,
     ...overrides,
@@ -182,78 +112,39 @@ function makeUnitProduct(overrides: Record<string, unknown> = {}) {
 }
 
 // ─────────────────────────────────────────────
-// Suite
+// Tests
 // ─────────────────────────────────────────────
 
-describe("ankorstorePublishProduct — payload JSON envoyé", () => {
+describe("ankorstoreKickoffPublish — payload kickoff", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCreateCatalogOperation.mockResolvedValue({ operationId: "op1" });
-    mockAddProductsToOperation.mockResolvedValue(undefined);
+    mockAddProductsToOperation.mockResolvedValue({ totalProductsCount: 1 });
     mockStartOperation.mockResolvedValue(undefined);
-    mockPollOperation.mockResolvedValue({
-      status: "succeeded",
-      results: [
-        {
-          externalProductId: "REF1",
-          ankorstoreProductId: "ank-1",
-          status: "success",
-          failureReason: null,
-          issues: [],
-        },
-      ],
-    });
-    mockProductUpdate.mockResolvedValue({});
-    mockProductColorUpdate.mockResolvedValue({});
-    mockTransaction.mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops));
+    mockAnkorstoreOperationCreate.mockResolvedValue({});
+    mockAnkorstoreOperationUpdateMany.mockResolvedValue({ count: 0 });
   });
 
-  // ────────────────────────────────────────────
-  // Test 1 : UNIT mono-couleur
-  // ────────────────────────────────────────────
-  it("UNIT mono-color → 1 entrée variante par (color, size)", async () => {
-    const { ankorstorePublishProduct } = await import("@/lib/ankorstore-publish");
-
+  it("UNIT mono-color → kickoff réussit avec operationId, sauve la row PENDING", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
     mockProductFindUnique.mockResolvedValue(makeUnitProduct());
-    mockGetVariants.mockResolvedValue([
-      {
-        id: "ank-v1",
-        sku: "REF1_argent_UNIT_1",
-        ian: null,
-        name: "M",
-        retailPrice: 0,
-        wholesalePrice: 0,
-        availableQuantity: null,
-        stockQuantity: 100,
-        isAlwaysInStock: false,
-        options: [
-          { name: "color", value: "Argent" },
-          { name: "size", value: "M" },
-        ],
-      },
-    ]);
 
-    const result = await ankorstorePublishProduct("p1");
+    const result = await ankorstoreKickoffPublish("p1");
     expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.operationId).toBe("op1");
 
-    // Vérifier que addProductsToOperation a été appelé
     expect(mockAddProductsToOperation).toHaveBeenCalledOnce();
-    const [operationId, products] = mockAddProductsToOperation.mock.calls[0];
-    expect(operationId).toBe("op1");
-
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
     const product = products[0];
-    // external_id = reference produit
-    expect(product.externalId).toBe("REF1");
 
-    // Payload variants : 1 entrée UNIT
+    expect(product.externalId).toBe("REF1");
     expect(product.variants).toHaveLength(1);
     const variant = product.variants[0];
-
-    // SKU suit le pattern {ref}_{colorSlug}_{UNIT|PACK}_{index}
     expect(variant.sku).toMatch(/^REF1_/);
-    expect(variant.sku).toMatch(/UNIT/);
-
-    // options : color + size
+    expect(typeof variant.wholesalePrice).toBe("number");
+    expect(typeof variant.retailPrice).toBe("number");
+    expect(typeof variant.originalWholesalePrice).toBe("number");
     expect(variant.options).toEqual(
       expect.arrayContaining([
         { name: "color", value: "Argent" },
@@ -261,99 +152,44 @@ describe("ankorstorePublishProduct — payload JSON envoyé", () => {
       ]),
     );
 
-    // Vérifier que le payload sérialisé (comme l'API le voit) contient les bons champs
-    // Le payload est transformé dans ankorstoreAddProductsToOperation en snake_case
-    // On vérifie via le productInput (argument direct de la fonction mockée)
-    expect(product.countryCode).toBe("FR");
-    expect(typeof product.wholesalePrice).toBe("number");
-    expect(typeof product.retailPrice).toBe("number");
+    // Tracking row created
+    expect(mockAnkorstoreOperationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          id: "op1",
+          productId: "p1",
+          type: "PUBLISH",
+          status: "PENDING",
+        }),
+      }),
+    );
   });
 
-  // ────────────────────────────────────────────
-  // Test 2 : PACK mono-couleur
-  // ────────────────────────────────────────────
-  it("PACK only → publish refusé (Ankorstore ne supporte pas les packs)", async () => {
-    const { ankorstorePublishProduct } = await import("@/lib/ankorstore-publish");
+  it("PACK only → kickoff refusé (Ankorstore ne supporte pas les packs)", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(
+      makeUnitProduct({
+        colors: [
+          {
+            id: "v2",
+            unitPrice: 30,
+            weight: 0.15,
+            stock: 50,
+            isPrimary: true,
+            saleType: "PACK",
+            packQuantity: 3,
+            sku: null,
+            variantSizes: [{ size: { name: "M" }, quantity: 3 }],
+            colorId: "c1",
+            color: { id: "c1", name: "Blanc" },
+            packLines: [],
+            images: [],
+          },
+        ],
+      }),
+    );
 
-    const packProduct = makeUnitProduct({
-      colors: [
-        {
-          id: "v2",
-          unitPrice: 30,
-          weight: 0.15,
-          stock: 50,
-          isPrimary: true,
-          saleType: "PACK",
-          packQuantity: 3,
-          sku: null,
-          variantSizes: [{ size: { name: "M" }, quantity: 3 }],
-          colorId: "c1",
-          color: { id: "c1", name: "Blanc" },
-          packLines: [],
-          images: [],
-        },
-      ],
-    });
-
-    mockProductFindUnique.mockResolvedValue(packProduct);
-
-    const result = await ankorstorePublishProduct("p1");
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error).toMatch(/à l'unité/i);
-    }
-    // Aucun appel à Ankorstore : on bloque avant
-    expect(mockAddProductsToOperation).not.toHaveBeenCalled();
-  });
-
-  // ────────────────────────────────────────────
-  // Test 3 : PACK multi-couleurs
-  // ────────────────────────────────────────────
-  it("PACK multi-color only → publish refusé (Ankorstore ne supporte pas les packs)", async () => {
-    const { ankorstorePublishProduct } = await import("@/lib/ankorstore-publish");
-
-    const multiColorPackProduct = makeUnitProduct({
-      colors: [
-        {
-          id: "v3",
-          unitPrice: 60,
-          weight: 0.30,
-          stock: 20,
-          isPrimary: true,
-          saleType: "PACK",
-          packQuantity: 6,
-          sku: null,
-          variantSizes: [],
-          colorId: "c1",
-          color: { id: "c1", name: "Rouge" },
-          packLines: [
-            {
-              colorId: "c1",
-              color: { id: "c1", name: "Rouge" },
-              position: 0,
-              sizes: [{ size: { name: "S" }, quantity: 2 }],
-            },
-            {
-              colorId: "c2",
-              color: { id: "c2", name: "Bleu" },
-              position: 1,
-              sizes: [{ size: { name: "M" }, quantity: 2 }],
-            },
-            {
-              colorId: "c3",
-              color: { id: "c3", name: "Noir" },
-              position: 2,
-              sizes: [{ size: { name: "L" }, quantity: 2 }],
-            },
-          ],
-          images: [],
-        },
-      ],
-    });
-
-    mockProductFindUnique.mockResolvedValue(multiColorPackProduct);
-
-    const result = await ankorstorePublishProduct("p1");
+    const result = await ankorstoreKickoffPublish("p1");
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error).toMatch(/à l'unité/i);
@@ -361,90 +197,61 @@ describe("ankorstorePublishProduct — payload JSON envoyé", () => {
     expect(mockAddProductsToOperation).not.toHaveBeenCalled();
   });
 
-  // ────────────────────────────────────────────
-  // Test 4 : country_code depuis manufacturingCountry.isoCode
-  // ────────────────────────────────────────────
   it("made_in_country provient de manufacturingCountry.isoCode", async () => {
-    const { ankorstorePublishProduct } = await import("@/lib/ankorstore-publish");
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(
+      makeUnitProduct({ manufacturingCountry: { isoCode: "CN", pfsCountryRef: "Chine" } }),
+    );
 
-    const cnProduct = makeUnitProduct({
-      manufacturingCountry: { isoCode: "CN", pfsCountryRef: "Chine" },
-    });
-
-    mockProductFindUnique.mockResolvedValue(cnProduct);
-    mockGetVariants.mockResolvedValue([
-      {
-        id: "ank-v1",
-        sku: "REF1_argent_UNIT_1",
-        ian: null,
-        name: "M",
-        retailPrice: 0,
-        wholesalePrice: 0,
-        availableQuantity: null,
-        stockQuantity: 100,
-        isAlwaysInStock: false,
-        options: [{ name: "color", value: "Argent" }, { name: "size", value: "M" }],
-      },
-    ]);
-
-    const result = await ankorstorePublishProduct("p1");
+    const result = await ankorstoreKickoffPublish("p1");
     expect(result.success).toBe(true);
 
     expect(mockAddProductsToOperation).toHaveBeenCalledOnce();
     const [, products] = mockAddProductsToOperation.mock.calls[0];
-    const product = products[0];
-
-    // Le champ dans l'input TypeScript s'appelle countryCode (converti en made_in_country par ankorstoreAddProductsToOperation)
-    expect(product.countryCode).toBe("CN");
+    expect(products[0].countryCode).toBe("CN");
   });
 
-  // ────────────────────────────────────────────
-  // Test 5 : prix wholesale et retail avec markup
-  // ────────────────────────────────────────────
   it("wholesale et retail prices avec markup appliqué", async () => {
-    const { ankorstorePublishProduct } = await import("@/lib/ankorstore-publish");
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
     const { loadAnkorstorePricingConfig, getAnkorstorePackedPrice } = await import(
       "@/lib/ankorstore-pricing"
     );
 
-    // Markup wholesale +20%, retail +50%
     vi.mocked(loadAnkorstorePricingConfig).mockResolvedValue({
       wholesale: { type: "percent", value: 20, rounding: "none" },
       retail: { type: "percent", value: 50, rounding: "none" },
       vatRate: 20,
     });
 
-    // getAnkorstorePackedPrice est aussi mocké → on simule le calcul manuellement
-    // wholesale: 10 + 20% = 12, retail: 10 + 50% = 15
+    // 4 appels : 2 dans buildAnkorstoreVariants, 2 pour les prix produit
     vi.mocked(getAnkorstorePackedPrice)
-      .mockImplementationOnce(() => 12) // premier appel = wholesale
-      .mockImplementationOnce(() => 15); // deuxième appel = retail
+      .mockImplementationOnce(() => 12)
+      .mockImplementationOnce(() => 15)
+      .mockImplementationOnce(() => 12)
+      .mockImplementationOnce(() => 15);
 
     mockProductFindUnique.mockResolvedValue(makeUnitProduct());
-    mockGetVariants.mockResolvedValue([
-      {
-        id: "ank-v1",
-        sku: "REF1_argent_UNIT_1",
-        ian: null,
-        name: "M",
-        retailPrice: 0,
-        wholesalePrice: 0,
-        availableQuantity: null,
-        stockQuantity: 100,
-        isAlwaysInStock: false,
-        options: [{ name: "color", value: "Argent" }, { name: "size", value: "M" }],
-      },
-    ]);
 
-    const result = await ankorstorePublishProduct("p1");
+    const result = await ankorstoreKickoffPublish("p1");
     expect(result.success).toBe(true);
 
     expect(mockAddProductsToOperation).toHaveBeenCalledOnce();
     const [, products] = mockAddProductsToOperation.mock.calls[0];
     const product = products[0];
-
-    // Les prix dans l'input TypeScript (avant conversion snake_case)
     expect(product.wholesalePrice).toBe(12);
     expect(product.retailPrice).toBe(15);
+  });
+
+  it("rejette si addProducts renvoie totalProductsCount=0", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(makeUnitProduct());
+    mockAddProductsToOperation.mockResolvedValue({ totalProductsCount: 0 });
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toMatch(/silencieusement rejeté/);
+    }
+    expect(mockAnkorstoreOperationCreate).not.toHaveBeenCalled();
   });
 });

@@ -36,6 +36,20 @@ function MainStatusIcon({ item }: { item: MarketplaceRefreshItem }) {
       </span>
     );
   }
+  if (item.status === "awaiting_callback") {
+    return (
+      <span
+        className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#FEF3C7] text-[#B45309]"
+        aria-label="En attente d'Ankorstore"
+        title="En attente de la confirmation d'Ankorstore"
+      >
+        <svg className="w-3.5 h-3.5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <circle cx="12" cy="12" r="9" strokeWidth={1.5} />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 2" />
+        </svg>
+      </span>
+    );
+  }
   // Done
   const err = hasError(item);
   if (err) {
@@ -269,6 +283,11 @@ export function MarketplaceRefreshWidget() {
                         : item.mode === "publish"
                           ? "Publication..."
                           : "Rafraîchissement..."}
+                    </p>
+                  )}
+                  {item.status === "awaiting_callback" && (
+                    <p className="text-[10px] font-body text-[#B45309] mt-0.5">
+                      Ankorstore · en attente de confirmation…
                     </p>
                   )}
                 </div>

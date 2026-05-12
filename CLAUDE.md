@@ -92,7 +92,19 @@ Renseignés à l'import (PFS) ou au matching (Ankorstore, page `/admin/ankorstor
 
 **Delete** :
 - PFS : 100 % local — `deleteProduct(id)` et `bulkDeleteProducts(ids)` ne touchent pas à PFS.
-- Ankorstore : **propagation automatique** — si `ankorsProductId` existe et Ankorstore activé, `deleteProduct` et `bulkDeleteProducts` appellent `ankorstoreDeleteProduct()` (best-effort, log warn si échec, la suppression locale réussit toujours).
+- Ankorstore : **propagation automatique** — si `ankorsProductId` existe et Ankorstore activé, on lance `ankorstoreKickoffStandaloneDelete()` (mode callback-only) AVANT la suppression locale. Le webhook confirme plus tard via `ankorstoreFinalizeDelete`.
+
+### Mode callback-only Ankorstore (mai 2026)
+
+Toutes les opérations Ankorstore (publish, update, refresh, delete) sont **asynchrones** : on envoie le kickoff à Ankorstore, on retourne immédiatement avec un `operationId`, et le résultat arrive plus tard via webhook (`/api/webhooks/ankorstore`). **Aucun polling de l'API Ankorstore.**
+
+- **Suivi** : table `AnkorstoreOperation` (id = UUID Ankorstore, productId, type, status, payload figé pour finalize, callbackPayload, errorMessage). Chaîne du refresh à 2 phases : `REFRESH_DELETE_OLD` → webhook → `REFRESH_CREATE_NEW` → webhook → finalize.
+- **Webhook secret** : `ANKORSTORE_WEBHOOK_SECRET` (env var, valeur aléatoire). Le callback URL envoyé à Ankorstore contient ce secret en query string. Sans secret côté serveur, le webhook renvoie 500.
+- **Dev local** : Ankorstore ne peut pas appeler `localhost` → les callbacks n'arrivent jamais en dev. Les opérations restent `PENDING` éternellement côté UI. Tests fonctionnels uniquement en production.
+- **UI** : `MarketplaceRefreshWidget` poll `/api/admin/ankorstore-operations?productIds=...` toutes les 3s pour les items en `awaiting_callback`. Pas de polling côté Ankorstore.
+- **Helpers de finalize** : `ankorstoreFinalizePublish` / `FinalizeUpdate` / `FinalizeRefreshDeleteOld` / `FinalizeRefreshCreateNew` / `FinalizeDelete` — appelés par le webhook, idempotents.
+- **PATCH stock/prices directs** (`/product-variants/{id}/stock` et `/prices`) restent synchrones — leur HTTP response EST le résultat, pas besoin de callback.
+- **Si callback se perd** : opération bloquée en `PENDING` éternellement. Pas de filet automatique. L'admin peut re-cliquer « Publier » pour relancer (kickoff annule les anciennes PENDING via `updateMany`).
 
 **Famille PFS** : stockée dans `Category.pfsFamilyName` (renseignée manuellement dans l'UI catégorie). `pfsCategoryId`/`pfsGender`/`pfsFamilyId` (IDs Salesforce) conservés pour référence.
 

@@ -3,6 +3,7 @@
 import React, { useState, useTransition, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   bulkUpdateProductStatus,
   bulkDeleteProducts,
@@ -1284,6 +1285,7 @@ export default function AdminProductsTable({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
@@ -1395,6 +1397,7 @@ export default function AdminProductsTable({
             text: msgs.join(" — "),
           });
           setSelectedIds(new Set());
+          router.refresh();
         } catch (e) {
           setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
         } finally {
@@ -1432,7 +1435,7 @@ export default function AdminProductsTable({
         }
       }
     }
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, router]);
 
   const handleBulkDelete = useCallback(async () => {
     const ids = [...selectedIds];
@@ -1544,6 +1547,29 @@ export default function AdminProductsTable({
     showLoading();
     startTransition(async () => {
       try {
+        // 1. Kickoff Ankorstore delete BEFORE local delete (the AnkorstoreOperation
+        //    row needs a live product FK; the row will be cascade-deleted with the
+        //    product shortly after, but the kickoff itself has already been sent
+        //    to Ankorstore so the deletion proceeds remotely either way).
+        if (confirmAnkorsDelete) {
+          try {
+            const ankorsResults = await deleteProductsOnAnkorstore(ankorsCandidates);
+            const okCount = ankorsResults.filter((r) => r.status === "ok").length;
+            const errCount = ankorsResults.length - okCount;
+            if (errCount === 0) {
+              toast.success(`${okCount} suppression${okCount > 1 ? "s" : ""} demandée${okCount > 1 ? "s" : ""} à Ankorstore`);
+            } else {
+              const errRefs = ankorsResults.filter((r) => r.status === "error").map((r) => r.reference).join(", ");
+              toast.error(
+                "Archivage Ankorstore partiel",
+                `${okCount} OK · ${errCount} échec${errCount > 1 ? "s" : ""} (${errRefs})`,
+              );
+            }
+          } catch (err) {
+            toast.error("Échec archivage Ankorstore", err instanceof Error ? err.message : String(err));
+          }
+        }
+
         const result = await bulkDeleteProducts(ids);
 
         const msgs: string[] = [];
@@ -1557,6 +1583,7 @@ export default function AdminProductsTable({
           text: msgs.join(" — ") || "Aucun produit traité",
         });
         setSelectedIds(new Set());
+        router.refresh();
 
         // Suppression PFS en arrière-plan si l'admin a confirmé
         if (confirmPfsDelete) {
@@ -1577,26 +1604,6 @@ export default function AdminProductsTable({
             toast.error("Échec suppression PFS", err instanceof Error ? err.message : String(err));
           }
         }
-
-        // Archivage Ankorstore en arrière-plan si l'admin a confirmé
-        if (confirmAnkorsDelete) {
-          try {
-            const ankorsResults = await deleteProductsOnAnkorstore(ankorsCandidates);
-            const okCount = ankorsResults.filter((r) => r.status === "ok").length;
-            const errCount = ankorsResults.length - okCount;
-            if (errCount === 0) {
-              toast.success(`${okCount} produit${okCount > 1 ? "s" : ""} archivé${okCount > 1 ? "s" : ""} sur Ankorstore`);
-            } else {
-              const errRefs = ankorsResults.filter((r) => r.status === "error").map((r) => r.reference).join(", ");
-              toast.error(
-                "Archivage Ankorstore partiel",
-                `${okCount} OK · ${errCount} échec${errCount > 1 ? "s" : ""} (${errRefs})`,
-              );
-            }
-          } catch (err) {
-            toast.error("Échec archivage Ankorstore", err instanceof Error ? err.message : String(err));
-          }
-        }
       } catch (e) {
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
       } finally {
@@ -1604,7 +1611,7 @@ export default function AdminProductsTable({
         setDeletingIds(new Set());
       }
     });
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, hasPfsConfig, showAnkorstore, toast]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, hasPfsConfig, showAnkorstore, toast, router]);
 
   // ─── Bulk variant actions ──
   const handleBulkVariantUpdate = useCallback(async (data: Record<string, unknown>) => {

@@ -14,7 +14,7 @@ import type {
 } from "@/app/actions/admin/marketplace-refresh";
 import type { MarketplacePublishOutcome } from "@/app/actions/admin/marketplace-publish";
 
-export type QueueItemStatus = "queued" | "in_progress" | "done";
+export type QueueItemStatus = "queued" | "in_progress" | "awaiting_callback" | "done";
 
 /**
  * "refresh" = renouveler un produit déjà publié (recrée côté marketplace).
@@ -42,6 +42,8 @@ export interface MarketplaceRefreshItem {
   localOutcome?: TargetOutcome;
   pfsOutcome?: TargetOutcome;
   ankorsOutcome?: TargetOutcome;
+  // For Ankorstore items waiting on a callback (mode callback-only)
+  ankorsOperationId?: string;
 }
 
 export interface MarketplaceRefreshEnqueueInput {
@@ -114,8 +116,9 @@ function outcomesFromServer(
   }
 
   if (marketplace === "ankorstore" && outcome.ankorstore) {
-    if (outcome.ankorstore.status === "ok") {
-      result.ankorsOutcome = { ok: true, archived: outcome.ankorstore.archived };
+    if (outcome.ankorstore.status === "queued") {
+      // Callback-only — webhook will provide the final outcome
+      result.ankorsOutcome = { ok: true, opId: outcome.ankorstore.operationId, warning: "queued" };
     } else if (outcome.ankorstore.status === "not_found") {
       result.ankorsOutcome = {
         ok: false,
@@ -148,7 +151,10 @@ function outcomesFromPublishServer(
   }
 
   if (marketplace === "ankorstore" && outcome.ankorstore) {
-    if (outcome.ankorstore.status === "ok") {
+    if (outcome.ankorstore.status === "queued") {
+      // Callback-only — webhook will provide the final outcome
+      result.ankorsOutcome = { ok: true, opId: outcome.ankorstore.operationId, warning: "queued" };
+    } else if (outcome.ankorstore.status === "ok") {
       result.ankorsOutcome = { ok: true, archived: outcome.ankorstore.archived };
     } else {
       result.ankorsOutcome = { ok: false, kind: "error", message: outcome.ankorstore.message };
@@ -218,8 +224,27 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
           item.mode === "publish" || item.mode === "resync"
             ? outcomesFromPublishServer(outcome as MarketplacePublishOutcome, item.marketplace)
             : outcomesFromServer(outcome as MarketplaceRefreshOutcome, item.marketplace);
+        // Callback-only mode: if the Ankorstore branch returned a queued outcome,
+        // keep the item in "awaiting_callback" state — a polling loop below will
+        // transition it to "done" once the webhook updates the local DB row.
+        const ankorsOutcome = parsed.ankorsOutcome;
+        const isQueued =
+          item.marketplace === "ankorstore" &&
+          ankorsOutcome?.ok === true &&
+          ankorsOutcome.warning === "queued";
+        const queuedOpId =
+          isQueued && ankorsOutcome?.ok === true ? ankorsOutcome.opId : undefined;
         setItems((prev) =>
-          prev.map((i) => (i.id === item.id ? { ...i, status: "done", ...parsed } : i)),
+          prev.map((i) =>
+            i.id === item.id
+              ? {
+                  ...i,
+                  status: isQueued ? "awaiting_callback" : "done",
+                  ankorsOperationId: queuedOpId ?? i.ankorsOperationId,
+                  ...parsed,
+                }
+              : i,
+          ),
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -261,9 +286,93 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     }
   }, [items, processItem]);
 
+  // ── Polling loop for Ankorstore items in "awaiting_callback" state ──
+  // Polls the local DB every 3s. The webhook updates the row when Ankorstore
+  // confirms; this loop picks up the change and transitions the item to "done".
+  useEffect(() => {
+    const awaitingItems = items.filter(
+      (i) => i.status === "awaiting_callback" && i.marketplace === "ankorstore",
+    );
+    if (awaitingItems.length === 0) return;
+
+    let cancelled = false;
+    const productIds = Array.from(new Set(awaitingItems.map((i) => i.productId)));
+
+    const tick = async () => {
+      try {
+        const params = new URLSearchParams({ productIds: productIds.join(",") });
+        const res = await fetch(`/api/admin/ankorstore-operations?${params}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as Record<
+          string,
+          {
+            latest: {
+              id: string;
+              type: string;
+              status: string;
+              errorMessage: string | null;
+              completedAt: string | null;
+            } | null;
+          }
+        >;
+        if (cancelled) return;
+
+        setItems((prev) =>
+          prev.map((i) => {
+            if (i.status !== "awaiting_callback" || i.marketplace !== "ankorstore") return i;
+            const latest = data[i.productId]?.latest;
+            if (!latest) return i;
+            // Only transition when the latest op for this product is terminal.
+            // (REFRESH chains DELETE_OLD → CREATE_NEW automatically server-side;
+            // we wait until the LAST phase resolves.)
+            if (latest.status === "PENDING") return i;
+            if (latest.status === "SUCCEEDED" || latest.status === "PARTIALLY_FAILED") {
+              return {
+                ...i,
+                status: "done",
+                ankorsOutcome: {
+                  ok: true,
+                  archived: false,
+                  warning:
+                    latest.status === "PARTIALLY_FAILED"
+                      ? "Succès partiel — vérifiez le tableau de bord Ankorstore."
+                      : undefined,
+                },
+              };
+            }
+            if (latest.status === "FAILED") {
+              return {
+                ...i,
+                status: "done",
+                ankorsOutcome: {
+                  ok: false,
+                  kind: "error",
+                  message: latest.errorMessage ?? "Opération échouée sur Ankorstore",
+                },
+              };
+            }
+            return i;
+          }),
+        );
+      } catch {
+        /* Silent — next tick will retry. */
+      }
+    };
+
+    // First tick immediately, then every 3s
+    void tick();
+    const interval = setInterval(() => void tick(), 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [items]);
+
   const runningCount = items.filter((i) => i.status === "in_progress").length;
+  const awaitingCount = items.filter((i) => i.status === "awaiting_callback").length;
   const queuedCount = items.filter((i) => i.status === "queued").length;
-  const isAllFinished = items.length > 0 && runningCount === 0 && queuedCount === 0;
+  const isAllFinished =
+    items.length > 0 && runningCount === 0 && queuedCount === 0 && awaitingCount === 0;
 
   const value: MarketplaceRefreshContextValue = {
     items,

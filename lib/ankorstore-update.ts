@@ -1,25 +1,28 @@
 /**
- * Ankorstore Update — Mise à jour incrémentale d'un produit existant sur Ankorstore.
+ * Ankorstore Update — Mode callback-only (kickoff + finalize).
  *
- * Contrairement à ankorstoreRefreshProduct (qui recrée), cette fonction modifie
- * directement le produit via diff de snapshot :
- *   - PATCH des champs produit (nom, description, catégorie…) via update operation
- *   - PATCH du stock des variantes existantes
- *   - PATCH des prix des variantes existantes
- *   - Nouvelles variantes locales → TODO via operation "update" (non implémenté — voir TODOs)
- *   - Variantes retirées → log warn (pas d'endpoint Ankorstore pour supprimer une variante seule)
- *   - Images → TODO (Ankorstore ne supporte pas upload per-slot ; voir TODOs)
- *   - Statut (active/archived) via update operation
+ * Met à jour un produit déjà publié sur Ankorstore (ankorsProductId connu).
+ *
+ *   1. Patches directs (`/product-variants/{id}/stock` + `/prices`) sont
+ *      synchrones : leur HTTP response EST le résultat. On les exécute
+ *      immédiatement dans kickoff.
+ *   2. Mise à jour des champs produit / images via catalog-integration
+ *      operation : async, le résultat arrive par webhook
+ *      → {@link ankorstoreFinalizeUpdate} sauvegarde le snapshot.
+ *
+ * Si le diff ne comporte que des patches synchrones, kickoff retourne
+ * `{ success: true, operationId: null }` (= rien à attendre).
  */
 
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
+import { Prisma, type AnkorstoreOperation } from "@prisma/client";
 import { formatAnkorstoreDescription } from "@/lib/ankorstore-description";
 import {
   ankorstoreCreateCatalogOperation,
   ankorstoreAddProductsToOperation,
   ankorstoreStartOperation,
-  ankorstorePollOperation,
+  ankorstorePatchVariantStock,
+  ankorstorePatchVariantPrices,
   type AnkorstoreCatalogProductInput,
 } from "@/lib/ankorstore-api-write";
 import { autoLinkAnkorstoreVariants } from "@/lib/ankorstore-variant-link";
@@ -39,6 +42,7 @@ import {
   type AnkorstoreImagesSnapshot,
   type AnkorstoreStatus,
 } from "@/lib/ankorstore-sync-diff";
+import { readCallbackStatus, extractFailureReason } from "@/lib/ankorstore-publish";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
@@ -47,23 +51,19 @@ import { emitProductEvent } from "@/lib/product-events";
 // Public types
 // ─────────────────────────────────────────────
 
-export type AnkorstoreUpdateResult =
-  | { success: true; archived: boolean }
+export type AnkorstoreUpdateKickoffResult =
+  | { success: true; operationId: string | null; archived: boolean }
   | { success: false; error: string };
 
-export interface AnkorstoreUpdateProgress {
-  productId: string;
-  productName: string;
+/** Payload sauvegardé pour UPDATE — utilisé par finalize pour committer le snapshot. */
+export interface AnkorstoreUpdatePayload {
+  committedSnapshot: AnkorstoreSyncSnapshot;
+  allVariantsOutOfStock: boolean;
   reference: string;
-  status: "queued" | "in_progress" | "success" | "error";
-  step?: string;
-  error?: string;
 }
 
-type ProgressCallback = (progress: AnkorstoreUpdateProgress) => void;
-
 // ─────────────────────────────────────────────
-// Internal types
+// Internal types (identiques à ankorstore-publish)
 // ─────────────────────────────────────────────
 
 interface FullVariant {
@@ -166,9 +166,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           saleType: true,
           packQuantity: true,
           sku: true,
-          variantSizes: {
-            select: { size: { select: { name: true } }, quantity: true },
-          },
+          variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
           colorId: true,
           color: { select: { id: true, name: true } },
           packLines: {
@@ -206,7 +204,6 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
   }) as unknown as FullProduct | null;
 }
 
-/** Build a SKU for a variant (mirrors ankorstore-publish.ts). */
 function buildVariantSku(
   product: Pick<FullProduct, "reference">,
   variant: FullVariant,
@@ -217,7 +214,6 @@ function buildVariantSku(
   return `${product.reference}_${colorSlug}_${variant.saleType}_${index + 1}`;
 }
 
-/** Derive a public URL from a DB path. */
 function buildPublicImageUrl(dbPath: string): string {
   const base = (process.env.NEXTAUTH_URL ?? "https://beliandjolie.com").replace(/\/$/, "");
   return `${base}${dbPath.startsWith("/") ? "" : "/"}${dbPath}`;
@@ -230,7 +226,6 @@ function getPackColorLabel(variant: FullVariant): string {
   return variant.color?.name ?? "?";
 }
 
-/** Compute wholesale price (EUR) for a variant. */
 function getWholesalePrice(variant: FullVariant, config: AnkorstorePricingConfig): number {
   return getAnkorstorePackedPrice(
     Number(variant.unitPrice),
@@ -240,7 +235,6 @@ function getWholesalePrice(variant: FullVariant, config: AnkorstorePricingConfig
   );
 }
 
-/** Compute retail price (EUR) for a variant. */
 function getRetailPrice(variant: FullVariant, config: AnkorstorePricingConfig): number {
   return getAnkorstorePackedPrice(
     Number(variant.unitPrice),
@@ -249,10 +243,6 @@ function getRetailPrice(variant: FullVariant, config: AnkorstorePricingConfig): 
     config.retail,
   );
 }
-
-// ─────────────────────────────────────────────
-// Snapshot builders
-// ─────────────────────────────────────────────
 
 function buildProductFieldsSnapshot(
   product: FullProduct,
@@ -269,7 +259,6 @@ function buildProductFieldsSnapshot(
       },
     })),
   });
-
   return {
     externalId: product.reference,
     name: product.name,
@@ -292,12 +281,10 @@ function buildVariantSnapshot(
 ): AnkorstoreVariantSnapshot {
   const sku = buildVariantSku(product, variant, index);
   const stock = variant.stock ?? 0;
-
   const colorLabel =
     variant.saleType === "PACK"
       ? getPackColorLabel(variant)
       : (variant.color?.name ?? "Couleur");
-
   let sizeLabel = "TU";
   if (variant.saleType === "PACK") {
     if (variant.packLines.length > 0 && variant.packLines[0].sizes.length > 0) {
@@ -305,12 +292,9 @@ function buildVariantSnapshot(
     } else if (variant.variantSizes.length > 0) {
       sizeLabel = variant.variantSizes[0].size.name;
     }
-  } else {
-    if (variant.variantSizes.length > 0) {
-      sizeLabel = variant.variantSizes[0].size.name;
-    }
+  } else if (variant.variantSizes.length > 0) {
+    sizeLabel = variant.variantSizes[0].size.name;
   }
-
   return {
     sku,
     wholesalePriceCents: toCents(getWholesalePrice(variant, config)),
@@ -323,21 +307,17 @@ function buildVariantSnapshot(
 }
 
 function buildImagesSnapshot(product: FullProduct): AnkorstoreImagesSnapshot {
-  // Use the first color key only (product-level images, Ankorstore doesn't support per-variant)
   const firstColorId = product.colors[0]?.colorId ?? null;
   const out: AnkorstoreImagesSnapshot = {};
-
   const filtered = product.colorImages
     .filter((img) => !firstColorId || img.colorId === firstColorId)
     .sort((a, b) => a.order - b.order);
-
   if (filtered.length > 0) {
     out["main"] = {};
     filtered.forEach((img, i) => {
       out["main"][String(i + 1)] = img.path;
     });
   }
-
   return out;
 }
 
@@ -349,7 +329,6 @@ function readPreviousSnapshot(raw: unknown): AnkorstoreSyncSnapshot | null {
   return obj as AnkorstoreSyncSnapshot;
 }
 
-/** Scaffold an empty committed snapshot (used as base when no prev exists). */
 function scaffoldEmpty(
   nextProduct: AnkorstoreProductFieldsSnapshot,
   targetStatus: AnkorstoreStatus,
@@ -364,19 +343,25 @@ function scaffoldEmpty(
 }
 
 // ─────────────────────────────────────────────
-// Main export
+// Kickoff
 // ─────────────────────────────────────────────
 
-export async function ankorstoreUpdateProductInPlace(
+/**
+ * Kick off an update. Applies direct PATCH stock/prices synchronously and,
+ * if product fields/images changed, kicks off an async update operation.
+ *
+ * Returns:
+ *   - `{ success: true, operationId: <uuid>, archived }` — webhook will finalize
+ *   - `{ success: true, operationId: null, archived }`  — only sync patches were
+ *     needed; snapshot already saved
+ *   - `{ success: false, error }`                       — kickoff failed
+ */
+export async function ankorstoreKickoffUpdate(
   productId: string,
-  onProgress?: ProgressCallback,
-  options?: { skipRevalidation?: boolean; forceFullSync?: boolean },
-): Promise<AnkorstoreUpdateResult> {
-  // ── Step 0 : Load product ──
+  options?: { forceFullSync?: boolean },
+): Promise<AnkorstoreUpdateKickoffResult> {
   const product = await loadProductFull(productId);
-  if (!product) {
-    return { success: false, error: "Produit introuvable en base" };
-  }
+  if (!product) return { success: false, error: "Produit introuvable en base" };
   if (!product.ankorsProductId) {
     return {
       success: false,
@@ -384,7 +369,6 @@ export async function ankorstoreUpdateProductInPlace(
     };
   }
 
-  // Ankorstore ne supporte pas les packs : on ne synchronise que les variantes UNIT.
   product.colors = product.colors.filter((v) => v.saleType === "UNIT");
   if (product.colors.length === 0) {
     return {
@@ -396,38 +380,18 @@ export async function ankorstoreUpdateProductInPlace(
 
   const ankorsProductId = product.ankorsProductId;
 
-  const progress: AnkorstoreUpdateProgress = {
-    productId,
-    productName: product.name,
-    reference: product.reference,
-    status: "in_progress",
-  };
-  const report = (step: string) => {
-    progress.step = step;
-    onProgress?.(progress);
-  };
-
   try {
-    // ── Step 1 : Load pricing config + brand name ──
-    report("Chargement de la configuration tarifaire...");
     const config = await loadAnkorstorePricingConfig();
     const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
     const brandName = shopNameInfo?.shopName ?? "Ma Boutique";
 
-    // ── Step 1b : Auto-link variants by SKU if any local variant lacks ankorsVariantId ──
-    // Filet de sécurité : si des variantes locales n'ont pas leur ankorsVariantId,
-    // on tente de les apparier avec les variantes Ankorstore (SKU exact puis couleur).
+    // Auto-link variants by SKU if any local variant lacks ankorsVariantId
     if (product.colors.some((v) => !v.ankorsVariantId)) {
-      report("Appariement des variantes Ankorstore…");
       try {
         const result = await autoLinkAnkorstoreVariants(productId);
         if (result.matchedExact + result.matchedColor > 0) {
-          // Recharger le produit pour récupérer les nouveaux ankorsVariantId
-          // (sinon la suite du flow utilise la version stale en mémoire).
           const reloaded = await loadProductFull(productId);
-          if (reloaded) {
-            product.colors = reloaded.colors;
-          }
+          if (reloaded) product.colors = reloaded.colors;
         }
       } catch (err) {
         logger.error("[Ankorstore Update] Auto-link variants failed", {
@@ -437,9 +401,7 @@ export async function ankorstoreUpdateProductInPlace(
       }
     }
 
-    // ── Step 2 : Build next snapshot ──
-    report("Calcul des changements...");
-
+    // Build next snapshot
     const nextProductSnap = buildProductFieldsSnapshot(product, brandName, config);
 
     const nextVariantsSnap: AnkorstoreSyncSnapshot["variants"] = {};
@@ -454,7 +416,6 @@ export async function ankorstoreUpdateProductInPlace(
         );
       }
     }
-
     const nextImagesSnap = buildImagesSnapshot(product);
 
     const allVariantsOutOfStock = product.colors.every((v) => (v.stock ?? 0) === 0);
@@ -473,358 +434,293 @@ export async function ankorstoreUpdateProductInPlace(
       status: targetStatus,
     };
 
-    // ── Step 3 : Diff ──
     const realPrevSnapshot = readPreviousSnapshot(product.ankorsLastSyncSnapshot);
     const prevSnapshot = options?.forceFullSync ? null : realPrevSnapshot;
-
-    // committedSnapshot tracks what succeeded (starts from real prev state for crash safety)
     const committedSnapshot: AnkorstoreSyncSnapshot = realPrevSnapshot
       ? { ...realPrevSnapshot }
       : scaffoldEmpty(nextProductSnap, targetStatus);
 
     const diff = diffAnkorstoreSnapshots(prevSnapshot, nextSnapshot);
 
-    // ── Short-circuit: nothing to do ──
     const hasVariantsToCreate = product.colors.some((v) => !v.ankorsVariantId);
     if (diffIsEmpty(diff) && !hasVariantsToCreate) {
-      logger.info("[Ankorstore Update] Aucun changement détecté, sync sautée", {
+      logger.info("[Ankorstore Update] Aucun changement détecté", {
         ankorsProductId,
         reference: product.reference,
       });
-      report("Aucun changement à synchroniser");
-      progress.status = "success";
-      progress.step = "Aucun changement";
-      onProgress?.(progress);
-      if (!options?.skipRevalidation) {
-        revalidateTag("products", "default");
-      }
-      return { success: true, archived: allVariantsOutOfStock };
+      return { success: true, operationId: null, archived: allVariantsOutOfStock };
     }
 
-    // ── Step 4a : Update product fields if changed ──
-    if (diff.productChanged) {
-      report("Mise à jour des informations produit sur Ankorstore...");
-      try {
-        const firstVariant = product.colors[0];
-        const wholesalePrice = firstVariant
-          ? getWholesalePrice(firstVariant, config)
-          : 0;
-        const retailPrice = firstVariant
-          ? getRetailPrice(firstVariant, config)
-          : 0;
-
-        // Collect current images for the update payload
-        const firstColorId = product.colors[0]?.colorId ?? null;
-        const productImages = product.colorImages
-          .filter((img) => !firstColorId || img.colorId === firstColorId)
-          .sort((a, b) => a.order - b.order)
-          .map((img, idx) => ({ order: idx + 1, url: buildPublicImageUrl(img.path) }));
-
-        const mainImage = productImages[0]?.url;
-        const weightGrams = firstVariant?.weight
-          ? Math.max(1, Math.round(firstVariant.weight * 1000))
-          : undefined;
-
-        const productInput: AnkorstoreCatalogProductInput = {
-          externalId: product.reference,
-          name: nextProductSnap.name,
-          description: nextProductSnap.description,
-          ...(mainImage ? { mainImage } : {}),
-          ...(productImages.length > 0 ? { images: productImages } : {}),
-          currency: "EUR",
-          vatRate: config.vatRate,
-          unitMultiplier: 1,
-          wholesalePrice,
-          retailPrice,
-          countryCode: nextProductSnap.countryCode,
-          ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
-          ...(weightGrams
-            ? { shapeProperties: { weight: { unitCode: "GRM", amount: weightGrams } } }
-            : {}),
-          variants: product.colors.map((variant, i) => {
-            const sku = buildVariantSku(product, variant, i);
-            const stock = variant.stock ?? 0;
-            const colorLabel =
-              variant.saleType === "PACK"
-                ? getPackColorLabel(variant)
-                : (variant.color?.name ?? "Couleur");
-            let sizeLabel = "TU";
-            if (variant.saleType === "PACK") {
-              if (variant.packLines.length > 0 && variant.packLines[0].sizes.length > 0) {
-                sizeLabel = variant.packLines[0].sizes[0].size.name;
-              } else if (variant.variantSizes.length > 0) {
-                sizeLabel = variant.variantSizes[0].size.name;
-              }
-            } else {
-              if (variant.variantSizes.length > 0) {
-                sizeLabel = variant.variantSizes[0].size.name;
-              }
-            }
-            return {
-              sku,
-              ian: null,
-              stockQuantity: stock,
-              isAlwaysInStock: false,
-              options: [
-                { name: "color" as const, value: colorLabel },
-                { name: "size" as const, value: sizeLabel },
-              ],
-            };
-          }),
-        };
-
-        const { operationId } = await ankorstoreCreateCatalogOperation("update");
-        logger.info("[Ankorstore Update] Created update operation", {
-          operationId,
-          reference: product.reference,
-        });
-        await ankorstoreAddProductsToOperation(operationId, [productInput]);
-        await ankorstoreStartOperation(operationId);
-        const opResult = await ankorstorePollOperation(operationId);
-
-        if (opResult.status === "failed") {
-          const firstFailure = opResult.results[0];
-          throw new Error(
-            firstFailure?.failureReason ?? "Mise à jour produit échouée sur Ankorstore",
-          );
-        }
-
-        committedSnapshot.product = nextProductSnap;
-        // Images committed as part of update operation
-        committedSnapshot.images = nextImagesSnap;
-
-        logger.info("[Ankorstore Update] Product fields updated", {
-          ankorsProductId,
-          reference: product.reference,
-          operationStatus: opResult.status,
-        });
-      } catch (err) {
-        logger.error("[Ankorstore Update] Failed to update product fields", {
-          ankorsProductId,
-          reference: product.reference,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        // Continue — other sections may still succeed
-      }
-    } else {
-      logger.info("[Ankorstore Update] Product fields unchanged → skip", { ankorsProductId });
-    }
-
-    // ── Step 4b : Patch stock + prices for changed variants ──
+    // Step A: Apply direct PATCHes for variant stock/prices (synchronous)
     if (diff.variantsChanged.length > 0) {
-      report("Synchronisation des variantes...");
-
       for (const ankorsVariantId of diff.variantsChanged) {
         const snap = nextSnapshot.variants[ankorsVariantId];
         if (!snap) continue;
-
-        // PATCH stock
         try {
-          const { ankorstorePatchVariantStock } = await import("@/lib/ankorstore-api-write");
           await ankorstorePatchVariantStock(ankorsVariantId, {
             stockQuantity: snap.stockQty,
             isAlwaysInStock: snap.isAlwaysInStock,
           });
         } catch (err) {
-          logger.error("[Ankorstore Update] Failed to patch variant stock", {
+          logger.error("[Ankorstore Update] PATCH variant stock failed", {
             ankorsVariantId,
             error: err,
           });
         }
-
-        // PATCH prices
         try {
-          const { ankorstorePatchVariantPrices } = await import("@/lib/ankorstore-api-write");
           await ankorstorePatchVariantPrices(ankorsVariantId, {
             wholesalePriceCents: snap.wholesalePriceCents,
             retailPriceCents: snap.retailPriceCents,
           });
         } catch (err) {
-          logger.error("[Ankorstore Update] Failed to patch variant prices", {
+          logger.error("[Ankorstore Update] PATCH variant prices failed", {
             ankorsVariantId,
             error: err,
           });
         }
-
-        // Mark as committed (best-effort: even if one PATCH failed, we record what we intended)
-        committedSnapshot.variants[ankorsVariantId] =
-          nextSnapshot.variants[ankorsVariantId];
+        committedSnapshot.variants[ankorsVariantId] = snap;
       }
-
       logger.info("[Ankorstore Update] Variant patches applied", {
         count: diff.variantsChanged.length,
       });
-    } else {
-      logger.info("[Ankorstore Update] Variants unchanged → skip", { ankorsProductId });
     }
 
-    // ── Step 4c : New variants (no ankorsVariantId) ──
-    // TODO (Task 4.5): Support adding new variants via catalog integration update operation.
-    // Ankorstore allows adding variants via the update operation; after completion, use
-    // ankorstoreGetVariants() to find the new variant IDs by SKU and persist via
-    // prisma.productColor.update({ data: { ankorsVariantId } }).
-    const newVariants = product.colors.filter((v) => !v.ankorsVariantId);
-    if (newVariants.length > 0) {
-      logger.warn(
-        "[Ankorstore Update] Nouvelles variantes locales sans ankorsVariantId — non synchronisées (TODO)",
-        {
-          ankorsProductId,
-          count: newVariants.length,
-          skus: newVariants.map((v, i) => buildVariantSku(product, v, i)),
+    // Step B: Async catalog update operation for product fields / images
+    const needsAsyncOp =
+      diff.productChanged ||
+      diff.imagesToUpload.length > 0 ||
+      diff.imagesToDelete.length > 0 ||
+      diff.statusChanged;
+
+    if (!needsAsyncOp) {
+      // Only PATCHes happened — save snapshot now and return.
+      await prisma.product.update({
+        where: { id: productId },
+        data: {
+          ankorsLastSyncSnapshot: committedSnapshot as unknown as Prisma.InputJsonValue,
+          ...(allVariantsOutOfStock && product.status === "ONLINE" ? { status: "OFFLINE" } : {}),
         },
-      );
-    }
-
-    // ── Step 4d : Removed variants ──
-    // TODO (Task 4.5): Ankorstore does not expose a single-variant delete endpoint.
-    // Option: use catalog update operation with stock=0 + isAlwaysInStock=false.
-    // For now, log a warning — the variant stays live on Ankorstore with its last known state.
-    const localAnkorsVariantIds = new Set(
-      product.colors.filter((v) => v.ankorsVariantId).map((v) => v.ankorsVariantId!),
-    );
-    const removedVariants = Object.keys(
-      realPrevSnapshot?.variants ?? {},
-    ).filter((vid) => !localAnkorsVariantIds.has(vid));
-    if (removedVariants.length > 0) {
-      logger.warn(
-        "[Ankorstore Update] Variantes retirées localement mais pas sur Ankorstore (TODO)",
-        {
-          ankorsProductId,
-          removedVariantIds: removedVariants,
-        },
-      );
-    }
-
-    // ── Step 4e/f : Images ──
-    // TODO (Task 4.5): Per-slot image upload/delete is not directly supported by Ankorstore.
-    // Images are passed as URLs in the catalog integration update operation payload (see step 4a).
-    // The update operation above already includes current images when productChanged=true.
-    // If only images changed (not product fields), trigger a product-fields update with images anyway.
-    if (
-      !diff.productChanged &&
-      (diff.imagesToUpload.length > 0 || diff.imagesToDelete.length > 0)
-    ) {
-      logger.warn(
-        "[Ankorstore Update] Images modifiées mais champs produit inchangés — re-sync images via update operation",
-        {
-          ankorsProductId,
-          toUpload: diff.imagesToUpload.length,
-          toDelete: diff.imagesToDelete.length,
-        },
-      );
-      // Trigger an update operation just to push new image URLs
-      try {
-        const firstVariant = product.colors[0];
-        const wholesalePrice = firstVariant ? getWholesalePrice(firstVariant, config) : 0;
-        const retailPrice = firstVariant ? getRetailPrice(firstVariant, config) : 0;
-
-        const firstColorId = product.colors[0]?.colorId ?? null;
-        const productImages = product.colorImages
-          .filter((img) => !firstColorId || img.colorId === firstColorId)
-          .sort((a, b) => a.order - b.order)
-          .map((img, idx) => ({ order: idx + 1, url: buildPublicImageUrl(img.path) }));
-        const mainImage = productImages[0]?.url;
-
-        const imageUpdateInput: AnkorstoreCatalogProductInput = {
-          externalId: product.reference,
-          name: nextProductSnap.name,
-          description: nextProductSnap.description,
-          ...(mainImage ? { mainImage } : {}),
-          ...(productImages.length > 0 ? { images: productImages } : {}),
-          currency: "EUR",
-          vatRate: config.vatRate,
-          unitMultiplier: 1,
-          wholesalePrice,
-          retailPrice,
-          countryCode: nextProductSnap.countryCode,
-          variants: [],
-        };
-
-        const { operationId } = await ankorstoreCreateCatalogOperation("update");
-        await ankorstoreAddProductsToOperation(operationId, [imageUpdateInput]);
-        await ankorstoreStartOperation(operationId);
-        await ankorstorePollOperation(operationId);
-
-        committedSnapshot.images = nextImagesSnap;
-        logger.info("[Ankorstore Update] Images re-synced via update operation", {
-          ankorsProductId,
-        });
-      } catch (err) {
-        logger.error("[Ankorstore Update] Failed to re-sync images", {
-          ankorsProductId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-
-    // ── Step 4g : Status changed ──
-    if (diff.statusChanged) {
-      const statusLabel =
-        targetStatus === "active"
-          ? "active"
-          : targetStatus === "archived"
-            ? "archived"
-            : "inactive";
-      report(`Mise à jour du statut (${statusLabel}) sur Ankorstore...`);
-      logger.info("[Ankorstore Update] Updating status", {
-        ankorsProductId,
-        targetStatus,
-        localStatus: product.status,
-        allVariantsOutOfStock,
       });
-
-      // TODO (Task 4.5): Ankorstore does not expose a direct status toggle endpoint.
-      // Status can be changed via catalog update operation (active=true/false) or
-      // by setting all variant stocks to 0. For now we log the intent.
-      // If the product fields update operation ran above, it implicitly keeps the product active.
-      logger.warn(
-        "[Ankorstore Update] Status change requested but no direct API endpoint — sent via catalog operation if productChanged was true",
-        { ankorsProductId, targetStatus },
-      );
-      committedSnapshot.status = targetStatus;
-    }
-
-    // ── Step 5 : Save snapshot + local DB update ──
-    report("Mise à jour locale...");
-    const dbUpdate: Record<string, unknown> = {
-      ankorsLastSyncSnapshot: committedSnapshot,
-    };
-    if (allVariantsOutOfStock && product.status === "ONLINE") {
-      dbUpdate.status = "OFFLINE";
-    }
-    await prisma.product.update({
-      where: { id: productId },
-      data: dbUpdate,
-    });
-
-    if (!options?.skipRevalidation) {
       revalidateTag("products", "default");
+      emitProductEvent({
+        type: allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
+        productId,
+      });
+      return { success: true, operationId: null, archived: allVariantsOutOfStock };
     }
-    emitProductEvent({
-      type: allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
-      productId,
+
+    // Cancel any earlier pending update op for this product
+    await prisma.ankorstoreOperation.updateMany({
+      where: { productId, status: "PENDING", type: "UPDATE" },
+      data: { status: "CANCELLED", completedAt: new Date() },
     });
 
-    progress.status = "success";
-    progress.step = "Terminé";
-    onProgress?.(progress);
-    logger.info("[Ankorstore Update] Success", {
+    // Build the product input for the async update operation
+    const firstVariant = product.colors[0];
+    const wholesalePrice = firstVariant ? getWholesalePrice(firstVariant, config) : 0;
+    const retailPrice = firstVariant ? getRetailPrice(firstVariant, config) : 0;
+
+    const firstColorId = product.colors[0]?.colorId ?? null;
+    const productImages = product.colorImages
+      .filter((img) => !firstColorId || img.colorId === firstColorId)
+      .sort((a, b) => a.order - b.order)
+      .map((img, idx) => ({ order: idx + 1, url: buildPublicImageUrl(img.path) }));
+    const mainImage = productImages[0]?.url;
+    const weightGrams = firstVariant?.weight
+      ? Math.max(1, Math.round(firstVariant.weight * 1000))
+      : undefined;
+
+    const productInput: AnkorstoreCatalogProductInput = {
+      externalId: product.reference,
+      name: nextProductSnap.name,
+      description: nextProductSnap.description,
+      ...(mainImage ? { mainImage } : {}),
+      ...(productImages.length > 0 ? { images: productImages } : {}),
+      currency: "EUR",
+      vatRate: config.vatRate,
+      unitMultiplier: 1,
+      wholesalePrice,
+      retailPrice,
+      countryCode: nextProductSnap.countryCode,
+      ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
+      ...(weightGrams
+        ? { shapeProperties: { weight: { unitCode: "GRM", amount: weightGrams } } }
+        : {}),
+      variants: product.colors.map((variant, i) => {
+        const sku = buildVariantSku(product, variant, i);
+        const variantWholesale = getWholesalePrice(variant, config);
+        const variantRetail = getRetailPrice(variant, config);
+        const colorLabel =
+          variant.saleType === "PACK"
+            ? getPackColorLabel(variant)
+            : (variant.color?.name ?? "Couleur");
+        let sizeLabel = "TU";
+        if (variant.saleType === "PACK") {
+          if (variant.packLines.length > 0 && variant.packLines[0].sizes.length > 0) {
+            sizeLabel = variant.packLines[0].sizes[0].size.name;
+          } else if (variant.variantSizes.length > 0) {
+            sizeLabel = variant.variantSizes[0].size.name;
+          }
+        } else if (variant.variantSizes.length > 0) {
+          sizeLabel = variant.variantSizes[0].size.name;
+        }
+        return {
+          sku,
+          ian: null,
+          stockQuantity: variant.stock ?? 0,
+          isAlwaysInStock: false,
+          wholesalePrice: variantWholesale,
+          retailPrice: variantRetail,
+          originalWholesalePrice: variantWholesale,
+          options: [
+            { name: "color" as const, value: colorLabel },
+            { name: "size" as const, value: sizeLabel },
+          ],
+        };
+      }),
+    };
+
+    // Reflect the async pieces (images, product fields, status) into the
+    // committed snapshot — finalize will commit on success.
+    const committedAfterAsync: AnkorstoreSyncSnapshot = {
+      ...committedSnapshot,
+      product: nextProductSnap,
+      images: nextImagesSnap,
+      status: targetStatus,
+    };
+
+    const { operationId } = await ankorstoreCreateCatalogOperation("update");
+    const addResp = await ankorstoreAddProductsToOperation(operationId, [productInput]);
+    if (addResp.totalProductsCount === 0) {
+      throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");
+    }
+    await ankorstoreStartOperation(operationId);
+
+    const payload: AnkorstoreUpdatePayload = {
+      committedSnapshot: committedAfterAsync,
+      allVariantsOutOfStock,
       reference: product.reference,
-      ankorsProductId,
+    };
+
+    await prisma.ankorstoreOperation.create({
+      data: {
+        id: operationId,
+        productId,
+        type: "UPDATE",
+        status: "PENDING",
+        payload: payload as unknown as Prisma.InputJsonValue,
+      },
     });
 
-    return { success: true, archived: allVariantsOutOfStock };
+    logger.info("[Ankorstore Update] Kicked off", {
+      operationId,
+      productId,
+      reference: product.reference,
+    });
+
+    return { success: true, operationId, archived: allVariantsOutOfStock };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    logger.error("[Ankorstore Update] Error", {
-      reference: product.reference,
-      error: err,
+    logger.error("[Ankorstore Update] Kickoff failed", { productId, error: err });
+    return { success: false, error: errorMsg };
+  }
+}
+
+// ─────────────────────────────────────────────
+// Finalize (called by webhook)
+// ─────────────────────────────────────────────
+
+/**
+ * Finalize an update operation after Ankorstore's callback. Saves the
+ * snapshot to product.ankorsLastSyncSnapshot on success.
+ */
+export async function ankorstoreFinalizeUpdate(
+  op: AnkorstoreOperation,
+  callbackPayload: unknown,
+): Promise<void> {
+  if (op.status !== "PENDING") {
+    logger.info("[Ankorstore Update] Finalize skipped — already terminal", {
+      operationId: op.id,
+      status: op.status,
+    });
+    return;
+  }
+
+  const callbackStatus = readCallbackStatus(callbackPayload);
+  const payload = op.payload as unknown as AnkorstoreUpdatePayload;
+
+  if (callbackStatus === "failed" || callbackStatus === "skipped") {
+    await prisma.ankorstoreOperation.update({
+      where: { id: op.id },
+      data: {
+        status: "FAILED",
+        callbackPayload: callbackPayload as Prisma.InputJsonValue,
+        errorMessage: extractFailureReason(callbackPayload),
+        completedAt: new Date(),
+      },
+    });
+    logger.warn("[Ankorstore Update] Operation failed", {
+      operationId: op.id,
+      productId: op.productId,
+      status: callbackStatus,
+    });
+    return;
+  }
+
+  // succeeded or partially_failed — commit the snapshot
+  try {
+    const dbUpdate: Record<string, unknown> = {
+      ankorsLastSyncSnapshot: payload.committedSnapshot as unknown as Prisma.InputJsonValue,
+    };
+    // Set OFFLINE if all variants out of stock and currently ONLINE
+    const localProduct = await prisma.product.findUnique({
+      where: { id: op.productId },
+      select: { status: true },
+    });
+    if (payload.allVariantsOutOfStock && localProduct?.status === "ONLINE") {
+      dbUpdate.status = "OFFLINE";
+    }
+
+    await prisma.$transaction([
+      prisma.product.update({
+        where: { id: op.productId },
+        data: dbUpdate,
+      }),
+      prisma.ankorstoreOperation.update({
+        where: { id: op.id },
+        data: {
+          status: callbackStatus === "succeeded" ? "SUCCEEDED" : "PARTIALLY_FAILED",
+          callbackPayload: callbackPayload as Prisma.InputJsonValue,
+          completedAt: new Date(),
+        },
+      }),
+    ]);
+
+    revalidateTag("products", "default");
+    emitProductEvent({
+      type: payload.allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
+      productId: op.productId,
     });
 
-    progress.status = "error";
-    progress.error = errorMsg;
-    onProgress?.(progress);
-
-    return { success: false, error: errorMsg };
+    logger.info("[Ankorstore Update] Finalized", {
+      operationId: op.id,
+      productId: op.productId,
+    });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    await prisma.ankorstoreOperation.update({
+      where: { id: op.id },
+      data: {
+        status: "FAILED",
+        callbackPayload: callbackPayload as Prisma.InputJsonValue,
+        errorMessage: errorMsg,
+        completedAt: new Date(),
+      },
+    });
+    logger.error("[Ankorstore Update] Finalize error", {
+      operationId: op.id,
+      productId: op.productId,
+      error: err,
+    });
   }
 }

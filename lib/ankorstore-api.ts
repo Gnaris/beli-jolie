@@ -35,6 +35,7 @@ export interface AnkorstoreVariant {
 
 export interface AnkorstoreProduct {
   id: string;
+  externalId: string | null;
   name: string;
   description: string;
   retailPrice: number;
@@ -43,7 +44,7 @@ export interface AnkorstoreProduct {
   active: boolean;
   archived: boolean;
   images: { order: number; url: string }[];
-  variants: AnkorstoreVariant[]; // hydraté via include=productVariant
+  variants: AnkorstoreVariant[]; // hydraté via include=productVariant(s)
 }
 
 // ─────────────────────────────────────────────
@@ -134,11 +135,19 @@ async function ankorstoreFetch<T>(
 // JSON:API helpers
 // ─────────────────────────────────────────────
 
+type JsonApiProductAttributes = Omit<AnkorstoreProduct, "id" | "variants" | "externalId"> & {
+  externalId?: string | null;
+  external_id?: string | null;
+};
+
 type JsonApiProductItem = {
   id: string;
-  attributes: Omit<AnkorstoreProduct, "id" | "variants">;
+  attributes: JsonApiProductAttributes;
   relationships?: {
+    // The API uses singular `productVariant` on /products (list) and plural
+    // `productVariants` on /products/{id}. Accept either to be resilient.
     productVariant?: { data: { id: string }[] };
+    productVariants?: { data: { id: string }[] };
   };
 };
 
@@ -157,9 +166,14 @@ function parseProductList(
 
   return data.map((item) => {
     const variantIds =
-      item.relationships?.productVariant?.data?.map((v) => v.id) ?? [];
+      item.relationships?.productVariants?.data?.map((v) => v.id) ??
+      item.relationships?.productVariant?.data?.map((v) => v.id) ??
+      [];
+    const externalId =
+      item.attributes.externalId ?? item.attributes.external_id ?? null;
     return {
       ...item.attributes,
+      externalId,
       id: item.id,
       variants: variantIds
         .map((id) => variantsById.get(id))
@@ -196,7 +210,11 @@ export async function ankorstoreGetProduct(
   productId: string
 ): Promise<AnkorstoreProduct | null> {
   try {
-    const url = `/products/${encodeURIComponent(productId)}?include=productVariant`;
+    // /products/{id} requires the PLURAL include name `productVariants` —
+    // /products (list) uses the singular `productVariant`. Asymmetric, but
+    // that's how the API responds (400 "Include path productVariant is not
+    // allowed" on /products/{id} with singular).
+    const url = `/products/${encodeURIComponent(productId)}?include=productVariants`;
     const resp = await ankorstoreFetch<{
       data: JsonApiProductItem;
       included?: JsonApiVariantItem[];

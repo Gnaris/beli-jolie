@@ -1,0 +1,138 @@
+/**
+ * Ankorstore webhook receiver — `POST /api/webhooks/ankorstore?secret=...`
+ *
+ * Ankorstore appelle cette route quand une catalog-integration operation
+ * arrive à un statut terminal (succeeded / partially_failed / failed / skipped).
+ *
+ * Sécurité : nous vérifions le `secret` query-string (Ankorstore ne signe pas
+ * ses callbacks, donc c'est notre seul vérificateur d'authenticité). Le secret
+ * vient de `ANKORSTORE_WEBHOOK_SECRET` (env var, valeur aléatoire stockée
+ * uniquement côté serveur).
+ *
+ * Idempotence : si l'opération est déjà en statut terminal côté BDD, on
+ * répond 200 sans retraiter.
+ */
+
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
+import { ankorstoreFinalizePublish } from "@/lib/ankorstore-publish";
+import { ankorstoreFinalizeUpdate } from "@/lib/ankorstore-update";
+import {
+  ankorstoreFinalizeRefreshDeleteOld,
+  ankorstoreFinalizeRefreshCreateNew,
+} from "@/lib/ankorstore-refresh";
+import { ankorstoreFinalizeDelete } from "@/lib/ankorstore-delete";
+
+interface AnkorstoreCallbackBody {
+  event?: string;
+  topic?: string;
+  occurredAt?: string;
+  data?: {
+    id?: string;
+    type?: string;
+    attributes?: {
+      status?: string;
+      operationType?: string;
+      failureReason?: string | null;
+      [key: string]: unknown;
+    };
+  };
+}
+
+export async function POST(request: Request) {
+  // ── Step 1: secret check ──
+  const url = new URL(request.url);
+  const providedSecret = url.searchParams.get("secret") ?? "";
+  const expectedSecret = process.env.ANKORSTORE_WEBHOOK_SECRET ?? "";
+
+  if (!expectedSecret) {
+    logger.error("[Ankorstore Webhook] ANKORSTORE_WEBHOOK_SECRET not configured");
+    return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
+  }
+  if (providedSecret !== expectedSecret) {
+    logger.warn("[Ankorstore Webhook] Invalid secret", {
+      providedLength: providedSecret.length,
+    });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // ── Step 2: parse body ──
+  let body: AnkorstoreCallbackBody;
+  try {
+    body = (await request.json()) as AnkorstoreCallbackBody;
+  } catch {
+    logger.warn("[Ankorstore Webhook] Invalid JSON body");
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  const operationId = body.data?.id;
+  if (!operationId || typeof operationId !== "string") {
+    logger.warn("[Ankorstore Webhook] Missing operationId in body", { body });
+    return NextResponse.json({ error: "Missing operationId" }, { status: 400 });
+  }
+
+  logger.info("[Ankorstore Webhook] Received", {
+    operationId,
+    event: body.event,
+    status: body.data?.attributes?.status,
+    operationType: body.data?.attributes?.operationType,
+  });
+
+  // ── Step 3: lookup operation in DB ──
+  const op = await prisma.ankorstoreOperation.findUnique({ where: { id: operationId } });
+  if (!op) {
+    // Unknown operation — could be a stale/duplicate callback from a previous
+    // deployment. ACK with 200 so Ankorstore doesn't keep retrying.
+    logger.warn("[Ankorstore Webhook] Unknown operationId — ignoring", { operationId });
+    return NextResponse.json({ ok: true, reason: "unknown_operation" }, { status: 200 });
+  }
+
+  // ── Step 4: idempotency check ──
+  if (op.status !== "PENDING") {
+    logger.info("[Ankorstore Webhook] Already finalized — idempotent ACK", {
+      operationId,
+      currentStatus: op.status,
+    });
+    return NextResponse.json({ ok: true, reason: "already_finalized" }, { status: 200 });
+  }
+
+  // ── Step 5: dispatch to finalize handler ──
+  try {
+    switch (op.type) {
+      case "PUBLISH":
+        await ankorstoreFinalizePublish(op, body);
+        break;
+      case "UPDATE":
+        await ankorstoreFinalizeUpdate(op, body);
+        break;
+      case "REFRESH_DELETE_OLD":
+        await ankorstoreFinalizeRefreshDeleteOld(op, body);
+        break;
+      case "REFRESH_CREATE_NEW":
+        await ankorstoreFinalizeRefreshCreateNew(op, body);
+        break;
+      case "DELETE":
+        await ankorstoreFinalizeDelete(op, body);
+        break;
+      default:
+        logger.error("[Ankorstore Webhook] Unknown operation type", {
+          operationId,
+          type: op.type,
+        });
+        return NextResponse.json({ error: "Unknown operation type" }, { status: 500 });
+    }
+  } catch (err) {
+    logger.error("[Ankorstore Webhook] Finalize threw — operation may be stuck", {
+      operationId,
+      type: op.type,
+      error: err,
+    });
+    // Return 200 anyway so Ankorstore doesn't retry endlessly. The operation
+    // status in DB will reflect the failure (finalize handlers catch their
+    // own errors and mark the row FAILED).
+    return NextResponse.json({ ok: false, reason: "finalize_error" }, { status: 200 });
+  }
+
+  return NextResponse.json({ ok: true }, { status: 200 });
+}

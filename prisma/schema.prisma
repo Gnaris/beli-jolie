@@ -388,6 +388,7 @@ model Product {
   ankorsProductId        String?
   ankorsLastSyncSnapshot Json?
   ankorsLastRefreshedAt  DateTime?
+  ankorstoreOperations   AnkorstoreOperation[]
 
   // Performance indexes for 78k+ products
   @@index([status, createdAt]) // catalog listing (default sort)
@@ -403,6 +404,53 @@ model Product {
   @@index([pfsProductId])
   @@index([ankorsProductId])
   @@index([primaryColorId])
+}
+
+// ─────────────────────────────────────────────
+// Ankorstore — opérations asynchrones (mode callback-only, plus de polling)
+// ─────────────────────────────────────────────
+enum AnkorstoreOpType {
+  PUBLISH
+  REFRESH_DELETE_OLD // étape 1 du refresh : on attend la confirmation de suppression de l'ancien
+  REFRESH_CREATE_NEW // étape 2 du refresh : on attend la confirmation de création du nouveau
+  UPDATE
+  DELETE
+}
+
+enum AnkorstoreOpStatus {
+  PENDING            // envoyé à Ankorstore, on attend le callback
+  SUCCEEDED          // callback reçu, status terminal succeeded
+  PARTIALLY_FAILED   // callback reçu, status terminal partially_failed
+  FAILED             // callback reçu, status terminal failed (ou skipped)
+  CANCELLED          // annulé manuellement / superseded par une nouvelle opération
+}
+
+// Suivi des opérations d'intégration catalogue Ankorstore en attente de callback.
+// La row est créée au kickoff et finalisée par le webhook. Contient toutes les
+// données nécessaires pour que le webhook puisse faire le post-processing sans
+// re-deriver l'état local (idempotent même si le webhook arrive en double).
+model AnkorstoreOperation {
+  id              String              @id // UUID Ankorstore de l'opération
+  productId       String
+  product         Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type            AnkorstoreOpType
+  status          AnkorstoreOpStatus  @default(PENDING)
+  // Données figées au kickoff pour permettre la finalisation depuis le webhook :
+  //   PUBLISH/REFRESH_CREATE_NEW : { firstSku, skuToBjVariantId, allVariantsOutOfStock, oldAnkorsProductId? }
+  //   REFRESH_DELETE_OLD         : { externalId, oldVariantSkus, productInput (sérialisé pour la phase suivante) }
+  //   UPDATE                     : { committedSnapshot, allVariantsOutOfStock }
+  //   DELETE                     : {}
+  payload         Json
+  // Données du callback Ankorstore (event, topic, occurredAt, data)
+  callbackPayload Json?
+  // Message d'erreur lisible pour l'admin (issues du /results ou erreur réseau)
+  errorMessage    String?             @db.Text
+  createdAt       DateTime            @default(now())
+  completedAt     DateTime?
+
+  @@index([productId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 // Traductions automatiques des produits

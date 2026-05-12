@@ -25,7 +25,8 @@ export interface MarketplaceRefreshOutcome {
     | { status: "not_found"; message: string }
     | { status: "error"; message: string };
   ankorstore?:
-    | { status: "ok"; archived: boolean }
+    // Ankorstore is callback-only — kickoff returns immediately.
+    | { status: "queued"; operationId: string }
     | { status: "not_found"; message: string }
     | { status: "error"; message: string };
 }
@@ -96,12 +97,10 @@ export async function refreshProductOnMarketplaces(
       };
     } else {
       try {
-        const { ankorstoreRefreshProduct } = await import("@/lib/ankorstore-refresh");
-        const res = await ankorstoreRefreshProduct(productId, undefined, {
-          skipRevalidation: true,
-        });
+        const { ankorstoreKickoffRefresh } = await import("@/lib/ankorstore-refresh");
+        const res = await ankorstoreKickoffRefresh(productId);
         if (res.success) {
-          outcome.ankorstore = { status: "ok", archived: res.archived };
+          outcome.ankorstore = { status: "queued", operationId: res.operationId };
         } else if (res.reason === "not_found") {
           outcome.ankorstore = { status: "not_found", message: res.error };
         } else {

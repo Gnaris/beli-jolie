@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { pfsDeleteProductSpy, ankorstoreDeleteProductSpy } = vi.hoisted(() => ({
+const { pfsDeleteProductSpy, ankorstoreKickoffStandaloneDeleteSpy, productFindManySpy } = vi.hoisted(() => ({
   pfsDeleteProductSpy: vi.fn(),
-  ankorstoreDeleteProductSpy: vi.fn(),
+  ankorstoreKickoffStandaloneDeleteSpy: vi.fn(),
+  productFindManySpy: vi.fn(),
 }));
 
 vi.mock("next-auth", () => ({
@@ -10,8 +11,15 @@ vi.mock("next-auth", () => ({
 }));
 vi.mock("@/lib/auth", () => ({ authOptions: {} }));
 vi.mock("@/lib/pfs-api-write", () => ({ pfsDeleteProduct: pfsDeleteProductSpy }));
-vi.mock("@/lib/ankorstore-api-write", () => ({
-  ankorstoreDeleteProduct: ankorstoreDeleteProductSpy,
+vi.mock("@/lib/ankorstore-delete", () => ({
+  ankorstoreKickoffStandaloneDelete: ankorstoreKickoffStandaloneDeleteSpy,
+}));
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    product: {
+      findMany: productFindManySpy,
+    },
+  },
 }));
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -70,28 +78,36 @@ describe("deleteProductsOnPfs", () => {
   });
 });
 
-describe("deleteProductsOnAnkorstore", () => {
-  it("returns ok for each successful deletion", async () => {
-    ankorstoreDeleteProductSpy.mockResolvedValue(undefined);
+describe("deleteProductsOnAnkorstore (callback-only)", () => {
+  it("kickoff async réussi → status ok avec operationId", async () => {
+    productFindManySpy.mockResolvedValue([
+      { id: "p-1", ankorsProductId: "ank-1" },
+      { id: "p-2", ankorsProductId: "ank-2" },
+    ]);
+    ankorstoreKickoffStandaloneDeleteSpy
+      .mockResolvedValueOnce({ success: true, operationId: "op-1" })
+      .mockResolvedValueOnce({ success: true, operationId: "op-2" });
 
     const results = await deleteProductsOnAnkorstore([
       { ankorsProductId: "ank-1", reference: "REF-1" },
       { ankorsProductId: "ank-2", reference: "REF-2" },
     ]);
 
-    expect(ankorstoreDeleteProductSpy).toHaveBeenCalledTimes(2);
-    expect(ankorstoreDeleteProductSpy).toHaveBeenNthCalledWith(1, "ank-1");
-    expect(ankorstoreDeleteProductSpy).toHaveBeenNthCalledWith(2, "ank-2");
+    expect(ankorstoreKickoffStandaloneDeleteSpy).toHaveBeenCalledTimes(2);
     expect(results).toEqual([
-      { ankorsProductId: "ank-1", reference: "REF-1", status: "ok" },
-      { ankorsProductId: "ank-2", reference: "REF-2", status: "ok" },
+      { ankorsProductId: "ank-1", reference: "REF-1", status: "ok", operationId: "op-1" },
+      { ankorsProductId: "ank-2", reference: "REF-2", status: "ok", operationId: "op-2" },
     ]);
   });
 
   it("captures errors per-item without throwing the whole batch", async () => {
-    ankorstoreDeleteProductSpy
-      .mockRejectedValueOnce(new Error("Ankorstore 500"))
-      .mockResolvedValueOnce(undefined);
+    productFindManySpy.mockResolvedValue([
+      { id: "p-1", ankorsProductId: "ank-1" },
+      { id: "p-2", ankorsProductId: "ank-2" },
+    ]);
+    ankorstoreKickoffStandaloneDeleteSpy
+      .mockResolvedValueOnce({ success: false, error: "Ankorstore 500" })
+      .mockResolvedValueOnce({ success: true, operationId: "op-2" });
 
     const results = await deleteProductsOnAnkorstore([
       { ankorsProductId: "ank-1", reference: "REF-1" },
@@ -105,14 +121,26 @@ describe("deleteProductsOnAnkorstore", () => {
         status: "error",
         message: "Ankorstore 500",
       },
-      { ankorsProductId: "ank-2", reference: "REF-2", status: "ok" },
+      { ankorsProductId: "ank-2", reference: "REF-2", status: "ok", operationId: "op-2" },
     ]);
+  });
+
+  it("ankorsProductId orphelin (pas de produit local) → status error", async () => {
+    productFindManySpy.mockResolvedValue([]); // pas de produit local trouvé
+
+    const results = await deleteProductsOnAnkorstore([
+      { ankorsProductId: "ank-1", reference: "REF-1" },
+    ]);
+
+    expect(results[0].status).toBe("error");
+    expect(results[0].message).toMatch(/orphelin/);
+    expect(ankorstoreKickoffStandaloneDeleteSpy).not.toHaveBeenCalled();
   });
 
   it("returns an empty array when no items are passed", async () => {
     const results = await deleteProductsOnAnkorstore([]);
     expect(results).toEqual([]);
-    expect(ankorstoreDeleteProductSpy).not.toHaveBeenCalled();
+    expect(ankorstoreKickoffStandaloneDeleteSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -127,6 +155,6 @@ describe("authorization", () => {
         { ankorsProductId: "ank-1", reference: "REF-1" },
       ]),
     ).rejects.toThrow("Accès non autorisé");
-    expect(ankorstoreDeleteProductSpy).not.toHaveBeenCalled();
+    expect(ankorstoreKickoffStandaloneDeleteSpy).not.toHaveBeenCalled();
   });
 });

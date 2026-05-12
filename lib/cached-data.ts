@@ -152,6 +152,35 @@ export const getCachedShopName = unstable_cache(
   { revalidate: 300, tags: ["company-info"] }
 );
 
+// ─── Favicon (custom uploaded icons, fallback = generated initial) ──────────
+export interface CustomFavicon {
+  /** Public path of the 32×32 PNG served by /icon. */
+  icon: string;
+  /** Public path of the 180×180 PNG served by /apple-icon. */
+  appleIcon: string;
+}
+
+export const getCachedFavicon = unstable_cache(
+  async (): Promise<CustomFavicon | null> => {
+    const row = await prisma.siteConfig.findUnique({
+      where: { key: "site_favicon" },
+      select: { value: true },
+    });
+    if (!row?.value) return null;
+    try {
+      const parsed = JSON.parse(row.value) as Partial<CustomFavicon>;
+      if (parsed && typeof parsed.icon === "string" && typeof parsed.appleIcon === "string") {
+        return { icon: parsed.icon, appleIcon: parsed.appleIcon };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  },
+  ["site-favicon"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
 // ─── Easy Express API key (from SiteConfig) ─────────────────────────────────
 export const getCachedEasyExpressApiKey = unstable_cache(
   async () => {

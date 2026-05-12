@@ -1,11 +1,11 @@
 /**
- * Tests for lib/ankorstore-update.ts
+ * Tests pour lib/ankorstore-update.ts (mode callback-only).
  *
- * Covers:
- * 1. Snapshot identical → no API calls (returns success immediately)
- * 2. Only stock changes → only ankorstorePatchVariantStock + ankorstorePatchVariantPrices called
- * 3. forceFullSync → ignores prevSnapshot, sends everything
- * 4. No ankorsProductId → returns error without API calls
+ * Couvre :
+ *   1. Snapshot identique → 0 appel API + return success
+ *   2. Stock seul change → PATCH stock + PATCH prices, AUCUNE op asynchrone
+ *   3. forceFullSync → kickoff d'une op UPDATE asynchrone, row PENDING sauvée
+ *   4. Pas de ankorsProductId → error sans appel API
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -14,39 +14,21 @@ import {
   type AnkorstoreSyncSnapshot,
 } from "@/lib/ankorstore-sync-diff";
 
-// ─────────────────────────────────────────────
-// Mocks
-// ─────────────────────────────────────────────
-
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock("next/cache", () => ({
   revalidateTag: vi.fn(),
+  unstable_cache: <T extends (...args: never[]) => unknown>(fn: T) => fn,
 }));
-
-vi.mock("@/lib/product-events", () => ({
-  emitProductEvent: vi.fn(),
-}));
+vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 
 const mockPatchVariantStock = vi.fn().mockResolvedValue(undefined);
 const mockPatchVariantPrices = vi.fn().mockResolvedValue(undefined);
 const mockCreateCatalogOperation = vi.fn().mockResolvedValue({ operationId: "op-test" });
-const mockAddProductsToOperation = vi.fn().mockResolvedValue(undefined);
+const mockAddProductsToOperation = vi.fn().mockResolvedValue({ totalProductsCount: 1 });
 const mockStartOperation = vi.fn().mockResolvedValue(undefined);
-const mockPollOperation = vi.fn().mockResolvedValue({
-  status: "succeeded",
-  results: [
-    {
-      externalProductId: "REF001",
-      ankorstoreProductId: "ank-1",
-      status: "success",
-      failureReason: null,
-      issues: [],
-    },
-  ],
-});
 
 vi.mock("@/lib/ankorstore-api-write", () => ({
   ankorstorePatchVariantStock: (...args: unknown[]) => mockPatchVariantStock(...args),
@@ -54,13 +36,14 @@ vi.mock("@/lib/ankorstore-api-write", () => ({
   ankorstoreCreateCatalogOperation: (...args: unknown[]) => mockCreateCatalogOperation(...args),
   ankorstoreAddProductsToOperation: (...args: unknown[]) => mockAddProductsToOperation(...args),
   ankorstoreStartOperation: (...args: unknown[]) => mockStartOperation(...args),
-  ankorstorePollOperation: (...args: unknown[]) => mockPollOperation(...args),
-  ankorstoreDeleteProduct: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@/lib/ankorstore-api", () => ({
-  ankorstoreGetVariants: vi.fn().mockResolvedValue([]),
-  ankorstoreFindVariantBySku: vi.fn().mockResolvedValue(null),
+vi.mock("@/lib/ankorstore-variant-link", () => ({
+  autoLinkAnkorstoreVariants: vi.fn().mockResolvedValue({
+    matchedExact: 0,
+    matchedColor: 0,
+    stillUnlinked: [],
+  }),
 }));
 
 vi.mock("@/lib/ankorstore-pricing", () => ({
@@ -80,11 +63,9 @@ vi.mock("@/lib/ankorstore-description", () => ({
   ),
 }));
 
-// ─────────────────────────────────────────────
-// Prisma mock
-// ─────────────────────────────────────────────
-
 const mockProductUpdate = vi.fn().mockResolvedValue({});
+const mockAnkorstoreOperationCreate = vi.fn().mockResolvedValue({});
+const mockAnkorstoreOperationUpdateMany = vi.fn().mockResolvedValue({ count: 0 });
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -98,20 +79,18 @@ vi.mock("@/lib/prisma", () => ({
     productColor: {
       update: vi.fn().mockResolvedValue({}),
     },
+    ankorstoreOperation: {
+      create: (...args: unknown[]) => mockAnkorstoreOperationCreate(...args),
+      updateMany: (...args: unknown[]) => mockAnkorstoreOperationUpdateMany(...args),
+    },
     $transaction: vi.fn().mockResolvedValue([]),
   },
 }));
 
-// ─────────────────────────────────────────────
-// Test helpers
-// ─────────────────────────────────────────────
-
 import { prisma } from "@/lib/prisma";
 
-/** A minimal valid snapshot with one variant and one image.
- *  IMPORTANT: description must match what formatAnkorstoreDescription (mocked) produces.
- *  Images key must match what buildImagesSnapshot produces: "main" + slot "1".
- */
+const FORMATTED_DESC = "Test description\n\nRéférence : REF001";
+
 function makeSnapshot(overrides?: Partial<AnkorstoreSyncSnapshot>): AnkorstoreSyncSnapshot {
   return {
     schemaVersion: ANKORSTORE_SNAPSHOT_VERSION,
@@ -127,8 +106,6 @@ function makeSnapshot(overrides?: Partial<AnkorstoreSyncSnapshot>): AnkorstoreSy
     variants: {
       "ank-variant-1": {
         sku: "REF001_red_UNIT_1",
-        // getAnkorstorePackedPrice mock returns the raw total (10 EUR) for both wholesale and retail
-        // toCents(10) = 1000
         wholesalePriceCents: 1000,
         retailPriceCents: 1000,
         stockQty: 10,
@@ -145,13 +122,6 @@ function makeSnapshot(overrides?: Partial<AnkorstoreSyncSnapshot>): AnkorstoreSy
   };
 }
 
-// The formatted description that formatAnkorstoreDescription will produce for this product:
-// formatAnkorstoreDescription is mocked as: `${description}\n\nRéférence : ${reference}`
-// So for name="Test Product", description="Test description", reference="REF001":
-//   result = "Test description\n\nRéférence : REF001"
-const FORMATTED_DESC = "Test description\n\nRéférence : REF001";
-
-/** A minimal valid product returned by Prisma findUnique. */
 function makeProduct(overrides?: Record<string, unknown>) {
   return {
     id: "product-1",
@@ -169,14 +139,7 @@ function makeProduct(overrides?: Record<string, unknown>) {
     dimensionDiameter: null,
     dimensionCircumference: null,
     sizeDetailsTu: null,
-    category: {
-      id: "cat-1",
-      pfsCategoryId: null,
-      pfsGender: null,
-      pfsFamilyId: null,
-      pfsFamilyName: null,
-      pfsCategoryName: null,
-    },
+    category: { id: "cat-1", pfsCategoryId: null, pfsGender: null, pfsFamilyId: null, pfsFamilyName: null, pfsCategoryName: null },
     colors: [
       {
         id: "variant-1",
@@ -196,11 +159,7 @@ function makeProduct(overrides?: Record<string, unknown>) {
       },
     ],
     colorImages: [
-      {
-        path: "/uploads/produits/ref001/ref001-red-1.webp",
-        order: 1,
-        colorId: "color-1",
-      },
+      { path: "/uploads/produits/ref001/ref001-red-1.webp", order: 1, colorId: "color-1" },
     ],
     compositions: [],
     manufacturingCountry: { isoCode: "FR", pfsCountryRef: null },
@@ -209,59 +168,37 @@ function makeProduct(overrides?: Record<string, unknown>) {
   };
 }
 
-// ─────────────────────────────────────────────
-// Tests
-// ─────────────────────────────────────────────
-
-describe("ankorstoreUpdateProductInPlace", () => {
+describe("ankorstoreKickoffUpdate (callback-only)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Re-apply default mocks after clearAllMocks
     mockPatchVariantStock.mockResolvedValue(undefined);
     mockPatchVariantPrices.mockResolvedValue(undefined);
     mockCreateCatalogOperation.mockResolvedValue({ operationId: "op-test" });
-    mockAddProductsToOperation.mockResolvedValue(undefined);
+    mockAddProductsToOperation.mockResolvedValue({ totalProductsCount: 1 });
     mockStartOperation.mockResolvedValue(undefined);
-    mockPollOperation.mockResolvedValue({
-      status: "succeeded",
-      results: [
-        {
-          externalProductId: "REF001",
-          ankorstoreProductId: "ank-1",
-          status: "success",
-          failureReason: null,
-          issues: [],
-        },
-      ],
-    });
     mockProductUpdate.mockResolvedValue({});
+    mockAnkorstoreOperationCreate.mockResolvedValue({});
+    mockAnkorstoreOperationUpdateMany.mockResolvedValue({ count: 0 });
     vi.mocked(prisma.companyInfo.findFirst).mockResolvedValue({ shopName: "Test Boutique" } as never);
   });
 
-  it("Test 1: snapshot identique → aucun appel API, retourne success", async () => {
-    // Build a snapshot that exactly matches the product state
+  it("Test 1: snapshot identique → aucun appel API + operationId null", async () => {
     const prevSnapshot = makeSnapshot();
     const product = makeProduct({ ankorsLastSyncSnapshot: prevSnapshot });
     vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
 
-    const { ankorstoreUpdateProductInPlace } = await import("@/lib/ankorstore-update");
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
 
-    const result = await ankorstoreUpdateProductInPlace("product-1");
+    expect(result).toEqual({ success: true, operationId: null, archived: false });
 
-    expect(result).toEqual({ success: true, archived: false });
-
-    // No catalog operation
     expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
-    // No variant patches
     expect(mockPatchVariantStock).not.toHaveBeenCalled();
     expect(mockPatchVariantPrices).not.toHaveBeenCalled();
   });
 
-  it("Test 2: seul le stock change → seul ankorstorePatchVariantStock appelé (pas le catalogue)", async () => {
-    // Prev snapshot has stock=10, but product now has stock=5.
-    // makeSnapshot() uses the mocked formatted description and correct image key.
+  it("Test 2: stock seul change → PATCH stock + PATCH prices, aucune op asynchrone", async () => {
     const prevSnapshot = makeSnapshot();
-    // Product with same prices but different stock
     const product = makeProduct({
       ankorsLastSyncSnapshot: prevSnapshot,
       colors: [
@@ -270,7 +207,7 @@ describe("ankorstoreUpdateProductInPlace", () => {
           ankorsVariantId: "ank-variant-1",
           unitPrice: 10,
           weight: 0.5,
-          stock: 5, // Changed from 10 to 5
+          stock: 5,
           isPrimary: true,
           saleType: "UNIT",
           packQuantity: null,
@@ -285,59 +222,59 @@ describe("ankorstoreUpdateProductInPlace", () => {
     });
     vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
 
-    const { ankorstoreUpdateProductInPlace } = await import("@/lib/ankorstore-update");
-    const result = await ankorstoreUpdateProductInPlace("product-1");
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
 
-    expect(result).toEqual({ success: true, archived: false });
-
-    // Only stock/price patches — NO catalog update operation
+    expect(result).toEqual({ success: true, operationId: null, archived: false });
     expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
     expect(mockPatchVariantStock).toHaveBeenCalledWith("ank-variant-1", {
       stockQuantity: 5,
       isAlwaysInStock: false,
     });
-    // Both wholesale and retail use the same mock (getAnkorstorePackedPrice returns raw total)
-    // so toCents(10) = 1000 for both
     expect(mockPatchVariantPrices).toHaveBeenCalledWith("ank-variant-1", {
       wholesalePriceCents: 1000,
       retailPriceCents: 1000,
     });
-
-    // Only the one variant was patched
-    expect(mockPatchVariantStock).toHaveBeenCalledTimes(1);
   });
 
-  it("Test 3: forceFullSync → ignore prevSnapshot, envoie tout", async () => {
-    // Identical snapshot (would normally short-circuit)
+  it("Test 3: forceFullSync → kickoff d'une op UPDATE asynchrone, row PENDING créée", async () => {
     const prevSnapshot = makeSnapshot();
     const product = makeProduct({ ankorsLastSyncSnapshot: prevSnapshot });
     vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
 
-    const { ankorstoreUpdateProductInPlace } = await import("@/lib/ankorstore-update");
-    const result = await ankorstoreUpdateProductInPlace("product-1", undefined, {
-      forceFullSync: true,
-    });
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1", { forceFullSync: true });
 
-    expect(result).toEqual({ success: true, archived: false });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.operationId).toBe("op-test");
 
-    // With forceFullSync, prevSnapshot is treated as null → full diff → productChanged = true
-    // → catalog operation is triggered
     expect(mockCreateCatalogOperation).toHaveBeenCalledWith("update");
     expect(mockAddProductsToOperation).toHaveBeenCalled();
     expect(mockStartOperation).toHaveBeenCalled();
-    expect(mockPollOperation).toHaveBeenCalled();
 
-    // Variant is also treated as changed (all variants in next.variants)
+    // Variant patches also applied synchronously
     expect(mockPatchVariantStock).toHaveBeenCalled();
     expect(mockPatchVariantPrices).toHaveBeenCalled();
+
+    // AnkorstoreOperation row PENDING
+    expect(mockAnkorstoreOperationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          id: "op-test",
+          type: "UPDATE",
+          status: "PENDING",
+        }),
+      }),
+    );
   });
 
-  it("Test 4: pas de ankorsProductId → retourne error sans appel API", async () => {
+  it("Test 4: pas de ankorsProductId → error sans appel API", async () => {
     const product = makeProduct({ ankorsProductId: null });
     vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
 
-    const { ankorstoreUpdateProductInPlace } = await import("@/lib/ankorstore-update");
-    const result = await ankorstoreUpdateProductInPlace("product-1");
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
 
     expect(result).toEqual({
       success: false,
@@ -345,51 +282,15 @@ describe("ankorstoreUpdateProductInPlace", () => {
     });
 
     expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
-    expect(mockPatchVariantStock).not.toHaveBeenCalled();
-    expect(mockPatchVariantPrices).not.toHaveBeenCalled();
   });
 
   it("Bonus: produit introuvable en base → retourne error", async () => {
     vi.mocked(prisma.product.findUnique).mockResolvedValue(null);
 
-    const { ankorstoreUpdateProductInPlace } = await import("@/lib/ankorstore-update");
-    const result = await ankorstoreUpdateProductInPlace("missing-product");
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("missing-product");
 
     expect(result).toEqual({ success: false, error: "Produit introuvable en base" });
     expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
-  });
-
-  it("Bonus: mise à jour du snapshot sauvegardée en BDD après sync réussie", async () => {
-    // prevSnapshot has old name — product has "Test Product" (different) → productChanged = true
-    const prevSnapshot = makeSnapshot({
-      product: {
-        externalId: "REF001",
-        name: "Old Name", // Will differ from product.name="Test Product"
-        description: FORMATTED_DESC,
-        vatRate: 20,
-        countryCode: "FR",
-        unitMultiplier: 1,
-        brandName: "Test Boutique",
-      },
-    });
-    const product = makeProduct({
-      ankorsLastSyncSnapshot: prevSnapshot,
-    });
-    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
-
-    const { ankorstoreUpdateProductInPlace } = await import("@/lib/ankorstore-update");
-    await ankorstoreUpdateProductInPlace("product-1");
-
-    // Snapshot should be saved to DB
-    expect(mockProductUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "product-1" },
-        data: expect.objectContaining({
-          ankorsLastSyncSnapshot: expect.objectContaining({
-            schemaVersion: ANKORSTORE_SNAPSHOT_VERSION,
-          }),
-        }),
-      }),
-    );
   });
 });

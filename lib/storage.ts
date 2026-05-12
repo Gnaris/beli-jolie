@@ -264,6 +264,11 @@ export function bannerDir(): string {
   return "uploads/banniere";
 }
 
+/** Directory key for the site favicon (browser tab icon, Google results). */
+export function faviconDir(): string {
+  return "uploads/favicon";
+}
+
 /** Directory key for color pattern images. */
 export function colorPatternDir(): string {
   return "uploads/motifs-couleurs";

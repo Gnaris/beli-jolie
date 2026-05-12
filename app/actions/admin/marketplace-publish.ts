@@ -25,6 +25,9 @@ export interface MarketplacePublishOutcome {
     | { status: "ok"; mode: "create" | "update"; archived?: boolean }
     | { status: "error"; message: string };
   ankorstore?:
+    // Ankorstore is callback-only — kickoff returns immediately. The widget
+    // polls the local DB for the final outcome via /api/admin/ankorstore-operations.
+    | { status: "queued"; mode: "create" | "update"; operationId: string }
     | { status: "ok"; mode: "create" | "update"; archived?: boolean }
     | { status: "error"; message: string };
 }
@@ -114,40 +117,25 @@ export async function publishProductToMarketplaces(
     } else {
       try {
         if (product.ankorsProductId) {
-          const { ankorstoreUpdateProductInPlace } = await import("@/lib/ankorstore-update");
-          const res = await ankorstoreUpdateProductInPlace(productId, undefined, {
-            skipRevalidation: true,
-          });
-          if (res.success) {
+          const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+          const res = await ankorstoreKickoffUpdate(productId);
+          if (!res.success) {
+            outcome.ankorstore = { status: "error", message: res.error };
+          } else if (res.operationId === null) {
+            // No async work was needed (only sync PATCHes ran successfully)
             outcome.ankorstore = { status: "ok", mode: "update", archived: res.archived };
           } else {
-            logger.warn(
-              "[Marketplace Publish] Ankorstore update failed, falling back to publish",
-              { productId, error: res.error },
-            );
-            await prisma.product.update({
-              where: { id: productId },
-              data: { ankorsProductId: null, ankorsLastSyncSnapshot: Prisma.DbNull },
-            });
-            await prisma.productColor.updateMany({
-              where: { productId },
-              data: { ankorsVariantId: null },
-            });
-            const { ankorstorePublishProduct } = await import("@/lib/ankorstore-publish");
-            const pubRes = await ankorstorePublishProduct(productId, undefined, {
-              skipRevalidation: true,
-            });
-            outcome.ankorstore = pubRes.success
-              ? { status: "ok", mode: "create", archived: pubRes.archived }
-              : { status: "error", message: pubRes.error };
+            outcome.ankorstore = {
+              status: "queued",
+              mode: "update",
+              operationId: res.operationId,
+            };
           }
         } else {
-          const { ankorstorePublishProduct } = await import("@/lib/ankorstore-publish");
-          const res = await ankorstorePublishProduct(productId, undefined, {
-            skipRevalidation: true,
-          });
+          const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+          const res = await ankorstoreKickoffPublish(productId);
           outcome.ankorstore = res.success
-            ? { status: "ok", mode: "create", archived: res.archived }
+            ? { status: "queued", mode: "create", operationId: res.operationId }
             : { status: "error", message: res.error };
         }
       } catch (err) {

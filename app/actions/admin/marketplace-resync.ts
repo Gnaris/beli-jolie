@@ -124,15 +124,19 @@ export async function resyncProductOnAnkorstore(
   }
 
   try {
-    const { ankorstoreUpdateProductInPlace } = await import("@/lib/ankorstore-update");
-    const res = await ankorstoreUpdateProductInPlace(productId, undefined, {
-      skipRevalidation: true,
-      forceFullSync: true,
-    });
-    if (res.success) {
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const res = await ankorstoreKickoffUpdate(productId, { forceFullSync: true });
+    if (!res.success) {
+      outcome.ankorstore = { status: "error", message: res.error };
+    } else if (res.operationId === null) {
+      // No async work needed (only sync PATCHes ran)
       outcome.ankorstore = { status: "ok", mode: "update", archived: res.archived };
     } else {
-      outcome.ankorstore = { status: "error", message: res.error };
+      outcome.ankorstore = {
+        status: "queued",
+        mode: "update",
+        operationId: res.operationId,
+      };
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

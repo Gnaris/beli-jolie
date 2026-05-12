@@ -9,6 +9,8 @@ import { parseDisplayConfig } from "@/lib/product-display-shared";
 import type { DisplaySection, HomepageCarousel } from "@/lib/product-display-shared";
 import { encryptIfSensitive } from "@/lib/encryption";
 import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
+import { deleteFile, keyFromDbPath } from "@/lib/storage";
+import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -143,11 +145,27 @@ export async function updateStockDisplayConfig(config: {
   }
 }
 
+/**
+ * Met à jour la bannière d'accueil. La valeur stockée est le chemin public du
+ * fichier large (`accueil-{stamp}.webp`) ; sa déclinaison medium
+ * (`accueil-{stamp}-md.webp`) est déduite du même nom de base.
+ *
+ * Les anciens fichiers (large + medium) sont purgés du disque à chaque
+ * remplacement ou effacement pour éviter l'accumulation dans
+ * `public/uploads/banniere/`.
+ */
 export async function updateBannerImage(
   imagePath: string | null
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
+
+    const previousRow = await prisma.siteConfig.findUnique({
+      where: { key: "banner_image" },
+      select: { value: true },
+    });
+    const previousPath = previousRow?.value ?? null;
+
     if (imagePath) {
       await prisma.siteConfig.upsert({
         where: { key: "banner_image" },
@@ -157,9 +175,89 @@ export async function updateBannerImage(
     } else {
       await prisma.siteConfig.deleteMany({ where: { key: "banner_image" } });
     }
+
+    if (previousPath && previousPath !== imagePath) {
+      const mediumPath = previousPath.replace(/\.webp$/i, "-md.webp");
+      for (const dbPath of [previousPath, mediumPath]) {
+        try {
+          await deleteFile(keyFromDbPath(dbPath));
+        } catch (err) {
+          logger.warn("[updateBannerImage] Failed to delete old banner file", { path: dbPath, error: err });
+        }
+      }
+    }
+
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     revalidatePath("/");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+/**
+ * Met à jour le favicon (icône du site dans l'onglet du navigateur + résultats Google).
+ *
+ * `paths` doit contenir les chemins publics des deux PNG générés par l'API
+ * d'upload (`/api/admin/favicon/image`) : `icon` (32×32) et `appleIcon` (180×180).
+ * Passer `null` supprime la clé `site_favicon` → fallback sur le favicon généré
+ * automatiquement à partir de la 1re lettre du `shopName`.
+ *
+ * Les anciens fichiers PNG sont supprimés du disque après remplacement ou
+ * effacement pour éviter l'accumulation dans `public/uploads/favicon/`.
+ */
+export async function updateFavicon(
+  paths: { icon: string; appleIcon: string } | null
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+
+    // Read previous paths first so we can purge them from disk after the BDD swap.
+    const previousRow = await prisma.siteConfig.findUnique({
+      where: { key: "site_favicon" },
+      select: { value: true },
+    });
+    let previous: { icon?: string; appleIcon?: string } | null = null;
+    if (previousRow?.value) {
+      try { previous = JSON.parse(previousRow.value); } catch { /* ignore corrupted JSON */ }
+    }
+
+    if (paths) {
+      if (!paths.icon || !paths.appleIcon) {
+        return { success: false, error: "Chemins d'image invalides." };
+      }
+      const value = JSON.stringify({ icon: paths.icon, appleIcon: paths.appleIcon });
+      await prisma.siteConfig.upsert({
+        where: { key: "site_favicon" },
+        update: { value },
+        create: { key: "site_favicon", value },
+      });
+    } else {
+      await prisma.siteConfig.deleteMany({ where: { key: "site_favicon" } });
+    }
+
+    // Purge previous files (skip if they were just rewritten with the same path).
+    const toDelete: string[] = [];
+    if (previous?.icon && previous.icon !== paths?.icon) toDelete.push(previous.icon);
+    if (previous?.appleIcon && previous.appleIcon !== paths?.appleIcon) toDelete.push(previous.appleIcon);
+    for (const dbPath of toDelete) {
+      try {
+        await deleteFile(keyFromDbPath(dbPath));
+      } catch (err) {
+        // Non-blocking: log and continue. BDD is the source of truth, an orphan
+        // file just wastes a few KB.
+        logger.warn("[updateFavicon] Failed to delete old favicon file", { path: dbPath, error: err });
+      }
+    }
+
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    // Les metadata routes /icon et /apple-icon sont en force-dynamic, mais on
+    // pousse quand même une invalidation explicite pour les CDN intermédiaires.
+    revalidatePath("/icon");
+    revalidatePath("/apple-icon");
+    revalidatePath("/manifest.webmanifest");
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };

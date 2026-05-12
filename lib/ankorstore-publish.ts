@@ -1,26 +1,21 @@
 /**
- * Ankorstore Publish — Première mise en ligne d'un produit sur Ankorstore.
+ * Ankorstore Publish — Mode callback-only (kickoff + finalize).
  *
- * Crée le produit via l'API Catalog Integration (operation "import"), récupère
- * les IDs de variantes retournées, construit des URLs publiques pour les images,
- * puis stocke ankorsProductId + ankorsVariantId dans la base locale.
- *
- * Pour un produit déjà publié sur Ankorstore (ankorsProductId connu), utiliser
- * ankorstoreRefreshProduct() à la place (Task 2.12).
- *
- * TODO multi-color images: Ankorstore product-level images only;
- * per-variant image upload not yet implemented (images sont passées comme URLs publiques).
+ * Le bouton « Publier sur Ankorstore » appelle {@link ankorstoreKickoffPublish}
+ * qui envoie le produit à Ankorstore, sauve une row `AnkorstoreOperation` en
+ * status PENDING, et retourne immédiatement l'operationId. Le résultat arrive
+ * plus tard par webhook → {@link ankorstoreFinalizePublish} fait le post-
+ * processing (lookup ankorsProductId via SKU, sauvegarde en BDD).
  */
 
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
+import { Prisma, type AnkorstoreOperation } from "@prisma/client";
 import { formatAnkorstoreDescription } from "@/lib/ankorstore-description";
 import {
   ankorstoreCreateCatalogOperation,
   ankorstoreAddProductsToOperation,
   ankorstoreStartOperation,
-  ankorstorePollOperation,
-  ankorstoreDeleteProduct,
+  ankorstoreLookupProductIdBySku,
   type AnkorstoreCatalogProductInput,
 } from "@/lib/ankorstore-api-write";
 import { ankorstoreGetVariants } from "@/lib/ankorstore-api";
@@ -28,6 +23,7 @@ import {
   loadAnkorstorePricingConfig,
   getAnkorstorePackedPrice,
 } from "@/lib/ankorstore-pricing";
+import type { MarkupConfig } from "@/lib/marketplace-pricing";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
@@ -36,23 +32,20 @@ import { emitProductEvent } from "@/lib/product-events";
 // Public types
 // ─────────────────────────────────────────────
 
-export interface AnkorstorePublishProgress {
-  productId: string;
-  productName: string;
-  reference: string;
-  status: "queued" | "in_progress" | "success" | "error";
-  step?: string;
-  error?: string;
-}
-
-export type AnkorstorePublishResult =
-  | { success: true; ankorsProductId: string; archived: boolean }
+export type AnkorstoreKickoffResult =
+  | { success: true; operationId: string }
   | { success: false; error: string };
 
-type ProgressCallback = (progress: AnkorstorePublishProgress) => void;
+/** Payload sauvegardé dans `AnkorstoreOperation.payload` pour qu'un PUBLISH puisse être finalisé depuis le webhook. */
+export interface AnkorstorePublishPayload {
+  firstSku: string;
+  skuToBjVariantId: Record<string, string>;
+  allVariantsOutOfStock: boolean;
+  reference: string;
+}
 
 // ─────────────────────────────────────────────
-// Internal types (mirrored from pfs-publish.ts)
+// Internal types
 // ─────────────────────────────────────────────
 
 interface FullVariant {
@@ -109,7 +102,7 @@ interface FullProduct {
 }
 
 // ─────────────────────────────────────────────
-// Helpers
+// Helpers (shared between publish/refresh)
 // ─────────────────────────────────────────────
 
 async function loadProductFull(productId: string): Promise<FullProduct | null> {
@@ -149,9 +142,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           saleType: true,
           packQuantity: true,
           sku: true,
-          variantSizes: {
-            select: { size: { select: { name: true } }, quantity: true },
-          },
+          variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
           colorId: true,
           color: { select: { id: true, name: true } },
           packLines: {
@@ -189,10 +180,6 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
   }) as unknown as FullProduct | null;
 }
 
-/**
- * Build a SKU for a variant that may not have one yet.
- * Format: {reference}_{colorName}_{UNIT|PACK}_{index}
- */
 function buildVariantSku(
   product: Pick<FullProduct, "reference">,
   variant: FullVariant,
@@ -203,49 +190,23 @@ function buildVariantSku(
   return `${product.reference}_${colorSlug}_${variant.saleType}_${index + 1}`;
 }
 
-/**
- * Derive the public image URL from a DB path.
- * DB paths are already public-relative: /uploads/produits/...
- */
 function buildPublicImageUrl(dbPath: string): string {
   const base = (process.env.NEXTAUTH_URL ?? "https://beliandjolie.com").replace(/\/$/, "");
   return `${base}${dbPath.startsWith("/") ? "" : "/"}${dbPath}`;
 }
 
-/**
- * Get the total stock quantity for a variant.
- */
 function getVariantStock(variant: FullVariant): number {
   return variant.stock ?? 0;
 }
 
-/**
- * Compute the wholesale price (EUR, not cents) for a variant.
- * For PACK: markup is applied to the per-unit price, then × qty.
- */
-function getAnkorstoreWholesalePrice(
-  variant: FullVariant,
-  wholesaleMarkup: import("@/lib/marketplace-pricing").MarkupConfig,
-): number {
-  const unitPriceTotal = Number(variant.unitPrice);
-  return getAnkorstorePackedPrice(unitPriceTotal, variant.packQuantity, variant.saleType, wholesaleMarkup);
+function getAnkorstoreWholesalePrice(variant: FullVariant, markup: MarkupConfig): number {
+  return getAnkorstorePackedPrice(Number(variant.unitPrice), variant.packQuantity, variant.saleType, markup);
 }
 
-/**
- * Compute the retail price (EUR, not cents) for a variant.
- */
-function getAnkorstoreRetailPrice(
-  variant: FullVariant,
-  retailMarkup: import("@/lib/marketplace-pricing").MarkupConfig,
-): number {
-  const unitPriceTotal = Number(variant.unitPrice);
-  return getAnkorstorePackedPrice(unitPriceTotal, variant.packQuantity, variant.saleType, retailMarkup);
+function getAnkorstoreRetailPrice(variant: FullVariant, markup: MarkupConfig): number {
+  return getAnkorstorePackedPrice(Number(variant.unitPrice), variant.packQuantity, variant.saleType, markup);
 }
 
-/**
- * Compute the color label for multi-color packs.
- * Returns "Rouge/Bleu" for a pack with 2 colors.
- */
 function getPackColorLabel(variant: FullVariant): string {
   if (variant.packLines.length > 0) {
     return variant.packLines.map((pl) => pl.color?.name ?? "?").join("/");
@@ -253,13 +214,11 @@ function getPackColorLabel(variant: FullVariant): string {
   return variant.color?.name ?? "?";
 }
 
-/**
- * Flatten a FullVariant into Ankorstore catalog-integration variant entries.
- * Returns an array of entries (usually 1 per UNIT, or 1 per PACK).
- */
 function buildAnkorstoreVariants(
   product: Pick<FullProduct, "reference">,
   colors: FullVariant[],
+  wholesaleMarkup: MarkupConfig,
+  retailMarkup: MarkupConfig,
 ): {
   bjVariantId: string;
   sku: string;
@@ -275,12 +234,13 @@ function buildAnkorstoreVariants(
     const variant = colors[i];
     const sku = buildVariantSku(product, variant, i);
     const stock = getVariantStock(variant);
+    const wholesalePrice = getAnkorstoreWholesalePrice(variant, wholesaleMarkup);
+    const retailPrice = getAnkorstoreRetailPrice(variant, retailMarkup);
 
     if (variant.saleType === "UNIT") {
       const colorLabel = variant.color?.name ?? "Couleur";
       const sizeLabel =
         variant.variantSizes.length > 0 ? variant.variantSizes[0].size.name : "TU";
-
       result.push({
         bjVariantId: variant.id,
         sku,
@@ -289,6 +249,9 @@ function buildAnkorstoreVariants(
           ian: null,
           stockQuantity: stock,
           isAlwaysInStock: false,
+          wholesalePrice,
+          retailPrice,
+          originalWholesalePrice: wholesalePrice,
           options: [
             { name: "color", value: colorLabel },
             { name: "size", value: sizeLabel },
@@ -298,19 +261,13 @@ function buildAnkorstoreVariants(
     }
 
     if (variant.saleType === "PACK") {
-      // Multi-color pack: join all color names with "/"
       const colorLabel = getPackColorLabel(variant);
-      // Use first size across pack lines, or fallback to TU
       let sizeLabel = "TU";
-      if (variant.packLines.length > 0) {
-        const firstLine = variant.packLines[0];
-        if (firstLine.sizes.length > 0) {
-          sizeLabel = firstLine.sizes[0].size.name;
-        }
+      if (variant.packLines.length > 0 && variant.packLines[0].sizes.length > 0) {
+        sizeLabel = variant.packLines[0].sizes[0].size.name;
       } else if (variant.variantSizes.length > 0) {
         sizeLabel = variant.variantSizes[0].size.name;
       }
-
       result.push({
         bjVariantId: variant.id,
         sku,
@@ -319,6 +276,9 @@ function buildAnkorstoreVariants(
           ian: null,
           stockQuantity: stock,
           isAlwaysInStock: false,
+          wholesalePrice,
+          retailPrice,
+          originalWholesalePrice: wholesalePrice,
           options: [
             { name: "color", value: colorLabel },
             { name: "size", value: sizeLabel },
@@ -327,234 +287,245 @@ function buildAnkorstoreVariants(
       });
     }
   }
-
   return result;
 }
 
-// ─────────────────────────────────────────────
-// Main export
-// ─────────────────────────────────────────────
-
-export async function ankorstorePublishProduct(
-  productId: string,
-  onProgress?: ProgressCallback,
-  options?: { skipRevalidation?: boolean },
-): Promise<AnkorstorePublishResult> {
-  // ── Load product ──
+/** Build the FULL catalog product input from a loaded product. Pricing is loaded by the caller. */
+export async function buildPublishProductInput(productId: string): Promise<
+  | { ok: true; input: AnkorstoreCatalogProductInput; payload: AnkorstorePublishPayload }
+  | { ok: false; error: string }
+> {
   const product = await loadProductFull(productId);
-  if (!product) {
-    return { success: false, error: "Produit introuvable en base" };
-  }
+  if (!product) return { ok: false, error: "Produit introuvable en base" };
 
-  // Ankorstore ne supporte pas les packs : on ne publie que les variantes UNIT.
   product.colors = product.colors.filter((v) => v.saleType === "UNIT");
   if (product.colors.length === 0) {
     return {
-      success: false,
+      ok: false,
       error:
         "Aucune variante à l'unité — Ankorstore n'accepte pas les packs. Ajoutez au moins une variante de type Unité pour publier sur Ankorstore.",
     };
   }
 
-  const progress: AnkorstorePublishProgress = {
-    productId,
-    productName: product.name,
+  const pricing = await loadAnkorstorePricingConfig();
+  const safeDescription = formatAnkorstoreDescription({
+    description: product.description || product.name,
     reference: product.reference,
-    status: "in_progress",
+    compositions: product.compositions.map((c) => ({
+      percentage: Number(c.percentage),
+      composition: {
+        nameFR: c.composition.name ?? c.composition.pfsCompositionRef ?? "",
+      },
+    })),
+  });
+
+  const variantEntries = buildAnkorstoreVariants(
+    product,
+    product.colors,
+    pricing.wholesale,
+    pricing.retail,
+  );
+
+  const allVariantsOutOfStock =
+    variantEntries.length === 0 ||
+    variantEntries.every((v) => v.entry.stockQuantity === 0);
+
+  const firstVariant = product.colors[0];
+  const wholesalePrice = firstVariant ? getAnkorstoreWholesalePrice(firstVariant, pricing.wholesale) : 0;
+  const retailPrice = firstVariant ? getAnkorstoreRetailPrice(firstVariant, pricing.retail) : 0;
+
+  const firstColorId = product.colors[0]?.colorId ?? null;
+  const productImages = product.colorImages
+    .filter((img) => !firstColorId || img.colorId === firstColorId)
+    .sort((a, b) => a.order - b.order)
+    .map((img, idx) => ({ order: idx + 1, url: buildPublicImageUrl(img.path) }));
+
+  const mainImage = productImages[0]?.url;
+
+  const weightGrams = firstVariant?.weight
+    ? Math.max(1, Math.round(firstVariant.weight * 1000))
+    : undefined;
+
+  const input: AnkorstoreCatalogProductInput = {
+    externalId: product.reference,
+    name: product.name,
+    description: safeDescription,
+    ...(mainImage ? { mainImage } : {}),
+    ...(productImages.length > 0 ? { images: productImages } : {}),
+    currency: "EUR",
+    vatRate: pricing.vatRate,
+    unitMultiplier: 1,
+    wholesalePrice,
+    retailPrice,
+    countryCode:
+      product.manufacturingCountry?.isoCode ??
+      product.manufacturingCountry?.pfsCountryRef ??
+      "FR",
+    ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
+    ...(weightGrams
+      ? { shapeProperties: { weight: { unitCode: "GRM", amount: weightGrams } } }
+      : {}),
+    variants: variantEntries.map((v) => v.entry),
   };
 
-  const report = (step: string) => {
-    progress.step = step;
-    onProgress?.(progress);
-  };
+  const skuToBjVariantId: Record<string, string> = {};
+  for (const v of variantEntries) {
+    skuToBjVariantId[v.sku] = v.bjVariantId;
+  }
+  const firstSku = variantEntries[0]?.sku ?? "";
 
-  let createdAnkorsProductId: string | null = null;
+  return {
+    ok: true,
+    input,
+    payload: {
+      firstSku,
+      skuToBjVariantId,
+      allVariantsOutOfStock,
+      reference: product.reference,
+    },
+  };
+}
+
+// ─────────────────────────────────────────────
+// Kickoff
+// ─────────────────────────────────────────────
+
+/**
+ * Kick off a publish operation on Ankorstore. Returns the operationId
+ * immediately — the result will arrive via webhook.
+ *
+ * Side effects:
+ *   - Creates an Ankorstore import operation with the product payload
+ *   - Saves an `AnkorstoreOperation` row in PENDING state
+ */
+export async function ankorstoreKickoffPublish(
+  productId: string,
+): Promise<AnkorstoreKickoffResult> {
+  // Cancel any earlier pending publish/refresh ops for this product
+  // (the new one supersedes them).
+  await prisma.ankorstoreOperation.updateMany({
+    where: {
+      productId,
+      status: "PENDING",
+      type: { in: ["PUBLISH", "REFRESH_DELETE_OLD", "REFRESH_CREATE_NEW"] },
+    },
+    data: { status: "CANCELLED", completedAt: new Date() },
+  });
+
+  const built = await buildPublishProductInput(productId);
+  if (!built.ok) return { success: false, error: built.error };
 
   try {
-    // ── Step 1 : Load pricing config ──
-    report("Chargement de la configuration tarifaire...");
-    const pricing = await loadAnkorstorePricingConfig();
-
-    // ── Step 2 : Load brand name ──
-    const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
-    const brandName = shopNameInfo?.shopName ?? "Ma Boutique";
-
-    // ── Step 3 : Build product payload ──
-    report("Préparation du produit pour Ankorstore...");
-
-    // Format description using the dedicated module (Task 2.11)
-    const safeDescription = formatAnkorstoreDescription({
-      description: product.description || product.name,
-      reference: product.reference,
-      compositions: product.compositions.map((c) => ({
-        percentage: Number(c.percentage),
-        composition: {
-          nameFR: c.composition.name ?? c.composition.pfsCompositionRef ?? "",
-        },
-      })),
-    });
-
-    // ── Step 4 : Build variant entries ──
-    const variantEntries = buildAnkorstoreVariants(product, product.colors);
-
-    if (variantEntries.length === 0) {
-      logger.warn("[Ankorstore Publish] No variants to send — product.colors may be empty or all skipped", {
-        reference: product.reference,
-        colorsCount: product.colors.length,
-      });
-    }
-
-    // All variants out of stock?
-    const allVariantsOutOfStock =
-      variantEntries.length === 0 ||
-      variantEntries.every((v) => v.entry.stockQuantity === 0);
-
-    // ── Step 5 : Compute product-level prices from first variant (or average) ──
-    // Ankorstore expects product-level wholesale/retail prices (EUR, not cents).
-    // We use the first variant's price; per-variant prices are set at variant level.
-    const firstVariant = product.colors[0];
-    let wholesalePrice = 0;
-    let retailPrice = 0;
-    if (firstVariant) {
-      wholesalePrice = getAnkorstoreWholesalePrice(firstVariant, pricing.wholesale);
-      retailPrice = getAnkorstoreRetailPrice(firstVariant, pricing.retail);
-    } else {
-      // No variants at all — default prices of 0 will likely cause an API validation error
-      // TODO Ankorstore API ambiguity: what happens when wholesalePrice=0? May need to block publication
-      logger.warn("[Ankorstore Publish] No variant found — product-level prices will be 0", {
-        reference: product.reference,
-      });
-    }
-
-    // ── Step 6 : Build images array from first color (product-level images) ──
-    // TODO multi-color images: Ankorstore product-level images only;
-    // per-variant image upload not yet implemented.
-    const firstColorId = product.colors[0]?.colorId ?? null;
-    const productImages = product.colorImages
-      .filter((img) => !firstColorId || img.colorId === firstColorId)
-      .sort((a, b) => a.order - b.order)
-      .map((img, idx) => ({
-        order: idx + 1,
-        url: buildPublicImageUrl(img.path),
-      }));
-
-    const mainImage = productImages[0]?.url;
-
-    // ── Step 7 : Build weight from primary variant ──
-    // Shape properties (weight in grams)
-    const weightGrams = firstVariant?.weight
-      ? Math.max(1, Math.round(firstVariant.weight * 1000)) // weight stored in kg → grams
-      : undefined;
-
-    const productInput: AnkorstoreCatalogProductInput = {
-      externalId: product.reference,
-      name: product.name,
-      description: safeDescription,
-      ...(mainImage ? { mainImage } : {}),
-      ...(productImages.length > 0 ? { images: productImages } : {}),
-      currency: "EUR",
-      vatRate: pricing.vatRate,
-      unitMultiplier: 1,
-      wholesalePrice,
-      retailPrice,
-      countryCode:
-        product.manufacturingCountry?.isoCode ??
-        product.manufacturingCountry?.pfsCountryRef ??
-        "FR",
-      ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
-      ...(weightGrams
-        ? { shapeProperties: { weight: { unitCode: "GRM", amount: weightGrams } } }
-        : {}),
-      variants: variantEntries.map((v) => v.entry),
-    };
-
-    // ── Step 8 : Create catalog integration operation ──
-    report("Création de l'opération d'import sur Ankorstore...");
     const { operationId } = await ankorstoreCreateCatalogOperation("import");
-    logger.info("[Ankorstore Publish] Created import operation", {
-      operationId,
-      reference: product.reference,
-    });
-
-    // ── Step 9 : Add product to operation ──
-    report("Ajout du produit à l'opération...");
-    await ankorstoreAddProductsToOperation(operationId, [productInput]);
-
-    // ── Step 10 : Start operation ──
-    report("Lancement de l'opération...");
+    const addResp = await ankorstoreAddProductsToOperation(operationId, [built.input]);
+    if (addResp.totalProductsCount === 0) {
+      throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");
+    }
     await ankorstoreStartOperation(operationId);
 
-    // ── Step 11 : Poll until complete ──
-    report("Traitement en cours sur Ankorstore...");
-    const opResult = await ankorstorePollOperation(operationId);
+    await prisma.ankorstoreOperation.create({
+      data: {
+        id: operationId,
+        productId,
+        type: "PUBLISH",
+        status: "PENDING",
+        payload: built.payload as unknown as Prisma.InputJsonValue,
+      },
+    });
 
-    if (opResult.status === "failed") {
-      const firstFailure = opResult.results[0];
-      throw new Error(firstFailure?.failureReason ?? "Publication échouée sur Ankorstore");
-    }
+    logger.info("[Ankorstore Publish] Kicked off", {
+      operationId,
+      productId,
+      reference: built.payload.reference,
+    });
 
-    const productResult = opResult.results.find(
-      (r) => r.externalProductId === product.reference,
-    );
+    return { success: true, operationId };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    logger.error("[Ankorstore Publish] Kickoff failed", { productId, error: err });
+    return { success: false, error: errorMsg };
+  }
+}
 
-    if (!productResult || productResult.status === "failure") {
+// ─────────────────────────────────────────────
+// Finalize (called by webhook)
+// ─────────────────────────────────────────────
+
+/**
+ * Finalize a publish operation after Ankorstore's callback confirms success.
+ *
+ * Looks up the new `ankorstoreProductId` via the first SKU (with indexing
+ * retry), fetches variant IDs, and saves to local DB.
+ *
+ * Idempotent: if the operation is already in a terminal state, returns early.
+ */
+export async function ankorstoreFinalizePublish(
+  op: AnkorstoreOperation,
+  callbackPayload: unknown,
+): Promise<void> {
+  if (op.status !== "PENDING") {
+    logger.info("[Ankorstore Publish] Finalize skipped — already terminal", {
+      operationId: op.id,
+      status: op.status,
+    });
+    return;
+  }
+
+  const callbackStatus = readCallbackStatus(callbackPayload);
+  const payload = op.payload as unknown as AnkorstorePublishPayload;
+
+  if (callbackStatus === "failed" || callbackStatus === "skipped") {
+    await prisma.ankorstoreOperation.update({
+      where: { id: op.id },
+      data: {
+        status: "FAILED",
+        callbackPayload: callbackPayload as Prisma.InputJsonValue,
+        errorMessage: extractFailureReason(callbackPayload),
+        completedAt: new Date(),
+      },
+    });
+    logger.warn("[Ankorstore Publish] Operation failed", {
+      operationId: op.id,
+      productId: op.productId,
+      status: callbackStatus,
+    });
+    return;
+  }
+
+  // succeeded or partially_failed — try to resolve the product
+  try {
+    const ankorsProductId = await ankorstoreLookupProductIdBySku(payload.firstSku);
+    if (!ankorsProductId) {
       throw new Error(
-        productResult?.failureReason ??
-          "Produit non créé sur Ankorstore (résultat introuvable dans la réponse)",
+        `Produit créé sur Ankorstore mais introuvable via le SKU "${payload.firstSku}".`,
       );
     }
 
-    const ankorsProductId = productResult.ankorstoreProductId;
-    if (!ankorsProductId) {
-      throw new Error("ankorstoreProductId manquant dans la réponse de l'opération");
-    }
-
-    createdAnkorsProductId = ankorsProductId;
-    logger.info("[Ankorstore Publish] Created product", {
-      ankorsProductId,
-      reference: product.reference,
-      operationStatus: opResult.status,
-    });
-
-    // ── Step 12 : Fetch variant IDs back from Ankorstore ──
-    report("Récupération des identifiants des variantes...");
-    const ankorsVariants = await ankorstoreGetVariants(ankorsProductId);
-
-    // Map SKU → Ankorstore variant ID
+    const variants = await ankorstoreGetVariants(ankorsProductId);
     const ankorsVariantBySku = new Map(
-      ankorsVariants
-        .filter((v) => v.sku != null)
-        .map((v) => [v.sku as string, v.id]),
+      variants.filter((v) => v.sku != null).map((v) => [v.sku as string, v.id]),
     );
 
     const variantIdUpdates: { localVariantId: string; ankorsVariantId: string }[] = [];
-    for (const entry of variantEntries) {
-      const ankorsVariantId = ankorsVariantBySku.get(entry.sku);
+    for (const [sku, bjVariantId] of Object.entries(payload.skuToBjVariantId)) {
+      const ankorsVariantId = ankorsVariantBySku.get(sku);
       if (ankorsVariantId) {
-        variantIdUpdates.push({ localVariantId: entry.bjVariantId, ankorsVariantId });
+        variantIdUpdates.push({ localVariantId: bjVariantId, ankorsVariantId });
       } else {
-        logger.warn("[Ankorstore Publish] Could not find Ankorstore variant ID for SKU", {
-          sku: entry.sku,
-          reference: product.reference,
+        logger.warn("[Ankorstore Publish] Variant ID not found", {
+          sku,
+          ankorsProductId,
         });
       }
     }
 
-    logger.info("[Ankorstore Publish] Stored variant IDs", {
-      ankorsProductId,
-      mapped: variantIdUpdates.length,
-      total: variantEntries.length,
-    });
-
-    // ── Step 13 : Save to local DB ──
-    report("Mise à jour locale...");
     await prisma.$transaction([
       prisma.product.update({
-        where: { id: productId },
+        where: { id: op.productId },
         data: {
           ankorsProductId,
           ankorsLastSyncSnapshot: Prisma.DbNull,
-          ...(allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
+          ...(payload.allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
         },
       }),
       ...variantIdUpdates.map((u) =>
@@ -563,56 +534,72 @@ export async function ankorstorePublishProduct(
           data: { ankorsVariantId: u.ankorsVariantId },
         }),
       ),
+      prisma.ankorstoreOperation.update({
+        where: { id: op.id },
+        data: {
+          status: callbackStatus === "succeeded" ? "SUCCEEDED" : "PARTIALLY_FAILED",
+          callbackPayload: callbackPayload as Prisma.InputJsonValue,
+          completedAt: new Date(),
+        },
+      }),
     ]);
 
-    // ── Step 14 : Revalidate + emit ──
-    if (!options?.skipRevalidation) {
-      revalidateTag("products", "default");
-    }
+    revalidateTag("products", "default");
     emitProductEvent({
-      type: allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
-      productId,
+      type: payload.allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
+      productId: op.productId,
     });
 
-    progress.status = "success";
-    progress.step = "Terminé";
-    onProgress?.(progress);
-
-    logger.info("[Ankorstore Publish] Success", {
-      reference: product.reference,
+    logger.info("[Ankorstore Publish] Finalized", {
+      operationId: op.id,
       ankorsProductId,
-      archived: allVariantsOutOfStock,
       variantsMapped: variantIdUpdates.length,
-      brandName,
     });
-
-    return { success: true, ankorsProductId, archived: allVariantsOutOfStock };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    logger.error("[Ankorstore Publish] Error", {
-      reference: product.reference,
+    await prisma.ankorstoreOperation.update({
+      where: { id: op.id },
+      data: {
+        status: "FAILED",
+        callbackPayload: callbackPayload as Prisma.InputJsonValue,
+        errorMessage: errorMsg,
+        completedAt: new Date(),
+      },
+    });
+    logger.error("[Ankorstore Publish] Finalize error", {
+      operationId: op.id,
+      productId: op.productId,
       error: err,
     });
-
-    // Cleanup: if a product was created on Ankorstore but a later step failed, delete it
-    if (createdAnkorsProductId) {
-      try {
-        await ankorstoreDeleteProduct(createdAnkorsProductId);
-        logger.info("[Ankorstore Publish] Cleanup: deleted remote product after failure", {
-          ankorsProductId: createdAnkorsProductId,
-        });
-      } catch (cleanupErr) {
-        logger.error("[Ankorstore Publish] Cleanup failed — product may remain on Ankorstore", {
-          ankorsProductId: createdAnkorsProductId,
-          error: cleanupErr,
-        });
-      }
-    }
-
-    progress.status = "error";
-    progress.error = errorMsg;
-    onProgress?.(progress);
-
-    return { success: false, error: errorMsg };
   }
+}
+
+// ─────────────────────────────────────────────
+// Callback payload helpers (shared with other finalize modules)
+// ─────────────────────────────────────────────
+
+export function readCallbackStatus(
+  callbackPayload: unknown,
+): "succeeded" | "partially_failed" | "failed" | "skipped" | "unknown" {
+  if (!callbackPayload || typeof callbackPayload !== "object") return "unknown";
+  const obj = callbackPayload as { data?: { attributes?: { status?: string } } };
+  const status = obj.data?.attributes?.status;
+  if (
+    status === "succeeded" ||
+    status === "partially_failed" ||
+    status === "failed" ||
+    status === "skipped"
+  ) {
+    return status;
+  }
+  return "unknown";
+}
+
+export function extractFailureReason(callbackPayload: unknown): string {
+  if (!callbackPayload || typeof callbackPayload !== "object") return "Erreur inconnue";
+  const obj = callbackPayload as {
+    data?: { attributes?: { status?: string; failureReason?: string } };
+  };
+  const reason = obj.data?.attributes?.failureReason;
+  return reason ?? `Statut: ${obj.data?.attributes?.status ?? "inconnu"}`;
 }

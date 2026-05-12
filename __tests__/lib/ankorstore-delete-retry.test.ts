@@ -1,5 +1,12 @@
+/**
+ * Test de `ankorstoreKickoffDelete` (mode callback-only, plus de retry interne).
+ *
+ * Le retry "Could not archive SKUs" a disparu : c'était une boucle de polling
+ * qui n'a plus de sens en mode callback. L'API renvoie l'operationId
+ * immédiatement, le résultat arrive par webhook plus tard.
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { ankorstoreDeleteProduct } from "@/lib/ankorstore-api-write";
+import { ankorstoreKickoffDelete } from "@/lib/ankorstore-api-write";
 
 vi.mock("@/lib/ankorstore-auth", () => ({
   getAnkorstoreHeaders: vi.fn().mockResolvedValue({
@@ -26,95 +33,34 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// Helper: one complete delete attempt = 5 fetch calls
-// 1. POST /catalog/integrations/operations          → { data: { id: "opN" } }
-// 2. POST .../operations/{id}/products              → {}
-// 3. PATCH .../operations/{id}                     → {}
-// 4. GET  .../operations/{id}                      → { data: { attributes: { status: "succeeded"|"partially_failed"|"failed" } } }
-// 5. GET  .../operations/{id}/results              → { data: [{ attributes: { externalProductId, status, failureReason, issues } }] }
-function mockAttempt(
-  opId: string,
-  opStatus: "succeeded" | "partially_failed" | "failed",
-  failureReason?: string
-) {
-  const resultAttributes =
-    opStatus === "succeeded"
-      ? { externalProductId: "EXT-1", status: "success", failureReason: null, issues: [] }
-      : {
-          externalProductId: "EXT-1",
-          status: "failure",
-          failureReason: failureReason ?? null,
-          issues: failureReason ? ["sku-detail"] : [],
-        };
+describe("ankorstoreKickoffDelete (callback-only)", () => {
+  it("rejette quand variantSkus est vide (silent no-op de l'API)", async () => {
+    await expect(ankorstoreKickoffDelete("EXT-1", [])).rejects.toThrow(/empty variant list/i);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 
-  mockFetch
-    // 1. Create operation
-    .mockResolvedValueOnce({
+  it("envoie POST /operations/delete et retourne l'operationId", async () => {
+    mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      text: async () => JSON.stringify({ data: { id: opId } }),
-    })
-    // 2. Add products
-    .mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({}),
-    })
-    // 3. Start (PATCH)
-    .mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({}),
-    })
-    // 4. Poll operation status (GET /operations/{id})
-    .mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({ data: { attributes: { status: opStatus } } }),
-    })
-    // 5. Fetch per-product results (GET /operations/{id}/results)
-    .mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({ data: [{ attributes: resultAttributes }] }),
+      text: async () => JSON.stringify({ data: { id: "op-xyz", attributes: { status: "started" } } }),
     });
-}
 
-describe("ankorstoreDeleteProduct retry", () => {
-  it("succès au 1er essai → 1 séquence (5 appels fetch)", async () => {
-    mockAttempt("op1", "succeeded");
-
-    const promise = ankorstoreDeleteProduct("EXT-1");
+    const promise = ankorstoreKickoffDelete("EXT-1", ["SKU-A", "SKU-B"]);
     await vi.runAllTimersAsync();
-    await promise;
+    const res = await promise;
 
-    expect(mockFetch).toHaveBeenCalledTimes(5);
-  });
+    expect(res.operationId).toBe("op-xyz");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
 
-  it("échec 'Could not archive SKUs' au 1er, succès au 2e → retry après 1s (10 appels)", async () => {
-    mockAttempt("op1", "partially_failed", "Could not archive SKUs");
-    mockAttempt("op2", "succeeded");
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toContain("/catalog/integrations/operations/delete");
+    expect(init.method).toBe("POST");
 
-    const promise = ankorstoreDeleteProduct("EXT-1");
-    await vi.runAllTimersAsync();
-    await promise;
-
-    expect(mockFetch).toHaveBeenCalledTimes(10);
-  });
-
-  it("échec 4 fois → throw après 3 retries", async () => {
-    for (let i = 0; i < 4; i++) {
-      mockAttempt(`op${i}`, "partially_failed", "Could not archive SKUs");
-    }
-
-    // Attach .catch() before timers run to avoid unhandled-rejection warnings
-    const promise = ankorstoreDeleteProduct("EXT-1");
-    const caught = promise.catch((e) => e);
-    await vi.runAllTimersAsync();
-    const err = await caught;
-    expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toMatch(/Could not archive SKUs/);
+    const body = JSON.parse(init.body);
+    expect(body.source).toBe("other");
+    expect(body.callbackUrl).toMatch(/api\/webhooks\/ankorstore/);
+    expect(body.products[0].attributes.external_id).toBe("EXT-1");
+    expect(body.products[0].attributes.variants).toEqual([{ sku: "SKU-A" }, { sku: "SKU-B" }]);
   });
 });

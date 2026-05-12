@@ -11,6 +11,7 @@ import HomepageCarouselsConfig from "@/components/admin/settings/HomepageCarouse
 import StockDisplayConfig from "@/components/admin/settings/StockDisplayConfig";
 import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
 import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
+import FaviconConfig from "@/components/admin/settings/FaviconConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
 import ShippingMarginConfig from "@/components/admin/settings/ShippingMarginConfig";
 import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
@@ -73,11 +74,22 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
    TAB : Général — Bannière, commande min, mot de passe, apparence
    ═══════════════════════════════════════════════════════════════════════════ */
 async function GeneralTab() {
-  const [minConfig, bannerImageConfig, announcementConfig] = await Promise.all([
+  const [minConfig, bannerImageConfig, announcementConfig, faviconConfig] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
     prisma.siteConfig.findUnique({ where: { key: "banner_image" } }),
     prisma.siteConfig.findUnique({ where: { key: "announcement_banner" } }),
+    prisma.siteConfig.findUnique({ where: { key: "site_favicon" } }),
   ]);
+
+  let currentFavicon: { icon: string; appleIcon: string } | null = null;
+  if (faviconConfig?.value) {
+    try {
+      const parsed = JSON.parse(faviconConfig.value);
+      if (parsed && typeof parsed.icon === "string" && typeof parsed.appleIcon === "string") {
+        currentFavicon = { icon: parsed.icon, appleIcon: parsed.appleIcon };
+      }
+    } catch { /* ignore */ }
+  }
 
   const currentMinHT = minConfig ? parseFloat(minConfig.value) : 0;
 
@@ -113,6 +125,12 @@ async function GeneralTab() {
         <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Bannière d&apos;accueil</h3>
         <p className="text-sm text-text-secondary font-body mb-4">Image en haut de la page d&apos;accueil.</p>
         <BannerImageConfig currentImage={bannerImageConfig?.value ?? null} />
+      </div>
+
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Icône du site</h3>
+        <p className="text-sm text-text-secondary font-body mb-4">Petite image affichée dans l&apos;onglet du navigateur et à côté du site dans les résultats Google.</p>
+        <FaviconConfig currentFavicon={currentFavicon} />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">

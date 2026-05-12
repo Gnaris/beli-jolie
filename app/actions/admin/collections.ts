@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 import { autoTranslateCollection } from "@/lib/auto-translate";
-import { renameCollectionFolder, deleteDirectory, collectionImageDir } from "@/lib/storage";
+import { renameCollectionFolder, deleteDirectory, collectionImageDir, deleteFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
@@ -94,6 +94,10 @@ export async function updateCollection(id: string, formData: FormData) {
 
   let newImagePath = parsed.data.image || null;
   let folderRenamed = false;
+  // Resolve the *current on-disk path* of the previous image (a folder rename
+  // would have moved it). Initialised before the rename: starts as
+  // `previous.image`, swapped to its new path if the rename touched it.
+  let previousImageEffectivePath: string | null = previous?.image ?? null;
   if (previous && previous.name !== parsed.data.name) {
     try {
       const { renamed } = await renameCollectionFolder(previous.name, parsed.data.name);
@@ -102,6 +106,10 @@ export async function updateCollection(id: string, formData: FormData) {
       if (newImagePath) {
         const swap = renamed.find((r) => r.oldDbPath === newImagePath);
         if (swap) newImagePath = swap.newDbPath;
+      }
+      if (previousImageEffectivePath) {
+        const swap = renamed.find((r) => r.oldDbPath === previousImageEffectivePath);
+        if (swap) previousImageEffectivePath = swap.newDbPath;
       }
     } catch (err) {
       logger.error("[Storage] renameCollectionFolder failed", {
@@ -133,6 +141,29 @@ export async function updateCollection(id: string, formData: FormData) {
       }
     }
     throw err;
+  }
+
+  // BDD update succeeded — purge the previous cover image files (large +
+  // -md.webp + -thumb.webp) if the user replaced or removed it. Skip when
+  // the image path is unchanged (same file, just kept) and when the rename
+  // already moved it to the new path we just stored.
+  if (
+    previousImageEffectivePath &&
+    previousImageEffectivePath !== newImagePath
+  ) {
+    const mdPath = previousImageEffectivePath.replace(/\.webp$/i, "-md.webp");
+    const thumbPath = previousImageEffectivePath.replace(/\.webp$/i, "-thumb.webp");
+    for (const dbPath of [previousImageEffectivePath, mdPath, thumbPath]) {
+      try {
+        await deleteFile(keyFromDbPath(dbPath));
+      } catch (err) {
+        logger.warn("[updateCollection] Failed to delete old cover image", {
+          collectionId: id,
+          path: dbPath,
+          error: err,
+        });
+      }
+    }
   }
 
   // Save translations if present

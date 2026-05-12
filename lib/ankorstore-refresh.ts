@@ -1,38 +1,30 @@
 /**
- * Ankorstore Refresh — Duplicate a product on Ankorstore to make it appear as "new".
+ * Ankorstore Refresh — Mode callback-only (kickoff + 2 finalize handlers).
  *
- * Flow:
- * 1. Load product. If no ankorsProductId → not_found.
- * 2. Verify product exists on Ankorstore via ankorstoreGetProduct().
- * 3. Rename OLD product external_id to a temp value and archive it via an "update" operation.
- * 4. Create NEW product with the real external_id via an "import" operation.
- * 5. Fetch variant IDs from Ankorstore, save to local DB.
- * 6. Reset ankorsLastSyncSnapshot to Prisma.DbNull.
- * 7. Set lastRefreshedAt = now() (product reappears as "Nouveauté" on storefront).
+ * Stratégie 2-phases :
+ *   1. Phase DELETE_OLD : on supprime l'ancien produit (POST /operations/delete)
+ *      et on attend le callback. La row `AnkorstoreOperation` (type
+ *      REFRESH_DELETE_OLD) porte dans son `payload` le `productInput` figé du
+ *      nouveau produit à créer après la suppression.
+ *   2. Phase CREATE_NEW : déclenchée par le webhook après confirmation du
+ *      delete, on crée le nouveau produit (POST import operation). La row
+ *      `AnkorstoreOperation` (type REFRESH_CREATE_NEW) porte le payload publish
+ *      classique (firstSku, skuToBjVariantId, allVariantsOutOfStock).
+ *   3. Webhook finalize → lookup ankorsProductId via SKU, sauvegarde locale,
+ *      bump `lastRefreshedAt`.
  *
- * Rollback on failure:
- * - If step 3 (rename old) succeeded but step 4 (create new) failed:
- *   restore the old product's external_id via another "update" operation.
- * - If step 4 partially succeeded (product created on Ankorstore) but step 5+ failed:
- *   delete the newly created product and restore the old one.
- *
- * NOTE: Ankorstore requires unique external_id per product. We cannot create a new
- * product with the same external_id while the old one is still active.
- *
- * TODO Task 4.5: extract shared helpers (buildVariantSku, buildAnkorstoreVariants,
- * loadProductFull, getAnkorstoreWholesalePrice, getAnkorstoreRetailPrice, etc.)
- * into lib/ankorstore-shared.ts to avoid duplication across publish/update/refresh.
+ * Si une étape échoue, on désaccouple le produit local
+ * (`ankorsProductId = null`) pour permettre un retry via « Publier ».
  */
 
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
-import { formatAnkorstoreDescription } from "@/lib/ankorstore-description";
+import { Prisma, type AnkorstoreOperation } from "@prisma/client";
 import {
+  ankorstoreKickoffDelete,
   ankorstoreCreateCatalogOperation,
   ankorstoreAddProductsToOperation,
   ankorstoreStartOperation,
-  ankorstorePollOperation,
-  ankorstoreDeleteProduct,
+  ankorstoreLookupProductIdBySku,
   type AnkorstoreCatalogProductInput,
 } from "@/lib/ankorstore-api-write";
 import {
@@ -40,9 +32,11 @@ import {
   ankorstoreGetVariants,
 } from "@/lib/ankorstore-api";
 import {
-  loadAnkorstorePricingConfig,
-  getAnkorstorePackedPrice,
-} from "@/lib/ankorstore-pricing";
+  buildPublishProductInput,
+  readCallbackStatus,
+  extractFailureReason,
+  type AnkorstorePublishPayload,
+} from "@/lib/ankorstore-publish";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
@@ -51,576 +45,335 @@ import { emitProductEvent } from "@/lib/product-events";
 // Public types
 // ─────────────────────────────────────────────
 
-export interface AnkorstoreRefreshProgress {
-  productId: string;
-  productName: string;
-  reference: string;
-  status: "queued" | "in_progress" | "success" | "error";
-  step?: string;
-  error?: string;
-}
-
-export type AnkorstoreRefreshResult =
-  | { success: true; newAnkorsProductId: string; archived: boolean }
+export type AnkorstoreRefreshKickoffResult =
+  | { success: true; operationId: string }
   | { success: false; reason: "not_found"; error: string }
   | { success: false; reason: "error"; error: string };
 
-type ProgressCallback = (progress: AnkorstoreRefreshProgress) => void;
-
-// ─────────────────────────────────────────────
-// Internal types (duplicated from ankorstore-publish.ts)
-// TODO Task 4.5: extract to lib/ankorstore-shared.ts
-// ─────────────────────────────────────────────
-
-interface FullVariant {
-  id: string;
-  unitPrice: number | { toString(): string };
-  weight: number;
-  stock: number;
-  isPrimary: boolean;
-  saleType: "UNIT" | "PACK";
-  packQuantity: number | null;
-  sku: string | null;
-  variantSizes: { size: { name: string }; quantity: number }[];
-  colorId: string | null;
-  color: { id: string; name: string } | null;
-  packLines: {
-    colorId: string;
-    color: { id: string; name: string };
-    position: number;
-    sizes: { size: { name: string }; quantity: number }[];
-  }[];
-  images: { path: string; order: number; colorId: string }[];
-}
-
-interface FullProduct {
-  id: string;
+/** Payload sauvegardé pour REFRESH_DELETE_OLD. */
+export interface AnkorstoreRefreshDeleteOldPayload {
+  oldAnkorsProductId: string;
   reference: string;
-  name: string;
-  description: string;
-  status: string;
-  isBestSeller: boolean;
-  primaryColorId: string | null;
-  ankorsProductId: string | null;
-  dimensionLength: number | null;
-  dimensionWidth: number | null;
-  dimensionHeight: number | null;
-  dimensionDiameter: number | null;
-  dimensionCircumference: number | null;
-  sizeDetailsTu: string | null;
-  category: {
-    id: string;
-    pfsCategoryId: string | null;
-    pfsGender: string | null;
-    pfsFamilyId: string | null;
-    pfsFamilyName: string | null;
-    pfsCategoryName: string | null;
-  };
-  colors: FullVariant[];
-  colorImages: { path: string; order: number; colorId: string }[];
-  compositions: {
-    percentage: number | { toString(): string };
-    composition: { name: string; pfsCompositionRef: string | null };
-  }[];
-  manufacturingCountry: { isoCode: string | null; pfsCountryRef: string | null } | null;
-  season: { pfsRef: string | null } | null;
+  // Le produit à créer en phase 2 — figé à l'instant du clic « Rafraîchir ».
+  nextProductInput: AnkorstoreCatalogProductInput;
+  nextPublishPayload: AnkorstorePublishPayload;
 }
 
 // ─────────────────────────────────────────────
-// Helpers
-// TODO Task 4.5: extract to lib/ankorstore-shared.ts
+// Kickoff (Phase 1 : delete old)
 // ─────────────────────────────────────────────
 
-async function loadProductFull(productId: string): Promise<FullProduct | null> {
-  return prisma.product.findUnique({
-    where: { id: productId },
-    select: {
-      id: true,
-      reference: true,
-      name: true,
-      description: true,
-      status: true,
-      isBestSeller: true,
-      primaryColorId: true,
-      ankorsProductId: true,
-      dimensionLength: true,
-      dimensionWidth: true,
-      dimensionHeight: true,
-      dimensionDiameter: true,
-      dimensionCircumference: true,
-      sizeDetailsTu: true,
-      category: {
-        select: {
-          id: true,
-          pfsCategoryId: true,
-          pfsGender: true,
-          pfsFamilyId: true,
-          pfsFamilyName: true,
-          pfsCategoryName: true,
-        },
-      },
-      colors: {
-        select: {
-          id: true,
-          unitPrice: true,
-          weight: true,
-          stock: true,
-          isPrimary: true,
-          saleType: true,
-          packQuantity: true,
-          sku: true,
-          variantSizes: {
-            select: { size: { select: { name: true } }, quantity: true },
-          },
-          colorId: true,
-          color: { select: { id: true, name: true } },
-          packLines: {
-            select: {
-              colorId: true,
-              color: { select: { id: true, name: true } },
-              position: true,
-              sizes: {
-                select: { size: { select: { name: true } }, quantity: true },
-                orderBy: { size: { position: "asc" as const } },
-              },
-            },
-            orderBy: { position: "asc" as const },
-          },
-          images: {
-            select: { path: true, order: true, colorId: true },
-            orderBy: { order: "asc" as const },
-          },
-        },
-        orderBy: { createdAt: "asc" as const },
-      },
-      colorImages: {
-        select: { path: true, order: true, colorId: true },
-        orderBy: { order: "asc" as const },
-      },
-      compositions: {
-        select: {
-          percentage: true,
-          composition: { select: { name: true, pfsCompositionRef: true } },
-        },
-      },
-      manufacturingCountry: { select: { isoCode: true, pfsCountryRef: true } },
-      season: { select: { pfsRef: true } },
-    },
-  }) as unknown as FullProduct | null;
-}
-
 /**
- * Build a SKU for a variant that may not have one yet.
- * Format: {reference}_{colorName}_{UNIT|PACK}_{index}
- * TODO Task 4.5: extract to lib/ankorstore-shared.ts
+ * Lance la première phase du refresh : suppression de l'ancien produit sur
+ * Ankorstore. Le webhook déclenchera la phase 2 (création du nouveau).
  */
-function buildVariantSku(
-  product: Pick<FullProduct, "reference">,
-  variant: FullVariant,
-  index: number,
-): string {
-  if (variant.sku) return variant.sku;
-  const colorSlug = variant.color?.name?.replace(/\s+/g, "-").toLowerCase() ?? `v${index}`;
-  return `${product.reference}_${colorSlug}_${variant.saleType}_${index + 1}`;
-}
-
-/**
- * Derive the public image URL from a DB path.
- * TODO Task 4.5: extract to lib/ankorstore-shared.ts
- */
-function buildPublicImageUrl(dbPath: string): string {
-  const base = (process.env.NEXTAUTH_URL ?? "https://beliandjolie.com").replace(/\/$/, "");
-  return `${base}${dbPath.startsWith("/") ? "" : "/"}${dbPath}`;
-}
-
-/**
- * Get the total stock quantity for a variant.
- */
-function getVariantStock(variant: FullVariant): number {
-  return variant.stock ?? 0;
-}
-
-/**
- * Compute the wholesale price (EUR) for a variant.
- * TODO Task 4.5: extract to lib/ankorstore-shared.ts
- */
-function getAnkorstoreWholesalePrice(
-  variant: FullVariant,
-  wholesaleMarkup: import("@/lib/marketplace-pricing").MarkupConfig,
-): number {
-  const unitPriceTotal = Number(variant.unitPrice);
-  return getAnkorstorePackedPrice(unitPriceTotal, variant.packQuantity, variant.saleType, wholesaleMarkup);
-}
-
-/**
- * Compute the retail price (EUR) for a variant.
- * TODO Task 4.5: extract to lib/ankorstore-shared.ts
- */
-function getAnkorstoreRetailPrice(
-  variant: FullVariant,
-  retailMarkup: import("@/lib/marketplace-pricing").MarkupConfig,
-): number {
-  const unitPriceTotal = Number(variant.unitPrice);
-  return getAnkorstorePackedPrice(unitPriceTotal, variant.packQuantity, variant.saleType, retailMarkup);
-}
-
-/**
- * Color label for multi-color packs.
- * TODO Task 4.5: extract to lib/ankorstore-shared.ts
- */
-function getPackColorLabel(variant: FullVariant): string {
-  if (variant.packLines.length > 0) {
-    return variant.packLines.map((pl) => pl.color?.name ?? "?").join("/");
-  }
-  return variant.color?.name ?? "?";
-}
-
-/**
- * Flatten a FullVariant list into Ankorstore catalog-integration variant entries.
- * TODO Task 4.5: extract to lib/ankorstore-shared.ts
- */
-function buildAnkorstoreVariants(
-  product: Pick<FullProduct, "reference">,
-  colors: FullVariant[],
-): {
-  bjVariantId: string;
-  sku: string;
-  entry: AnkorstoreCatalogProductInput["variants"][number];
-}[] {
-  const result: {
-    bjVariantId: string;
-    sku: string;
-    entry: AnkorstoreCatalogProductInput["variants"][number];
-  }[] = [];
-
-  for (let i = 0; i < colors.length; i++) {
-    const variant = colors[i];
-    const sku = buildVariantSku(product, variant, i);
-    const stock = getVariantStock(variant);
-
-    if (variant.saleType === "UNIT") {
-      const colorLabel = variant.color?.name ?? "Couleur";
-      const sizeLabel =
-        variant.variantSizes.length > 0 ? variant.variantSizes[0].size.name : "TU";
-
-      result.push({
-        bjVariantId: variant.id,
-        sku,
-        entry: {
-          sku,
-          ian: null,
-          stockQuantity: stock,
-          isAlwaysInStock: false,
-          options: [
-            { name: "color", value: colorLabel },
-            { name: "size", value: sizeLabel },
-          ],
-        },
-      });
-    }
-
-    if (variant.saleType === "PACK") {
-      const colorLabel = getPackColorLabel(variant);
-      let sizeLabel = "TU";
-      if (variant.packLines.length > 0) {
-        const firstLine = variant.packLines[0];
-        if (firstLine.sizes.length > 0) {
-          sizeLabel = firstLine.sizes[0].size.name;
-        }
-      } else if (variant.variantSizes.length > 0) {
-        sizeLabel = variant.variantSizes[0].size.name;
-      }
-
-      result.push({
-        bjVariantId: variant.id,
-        sku,
-        entry: {
-          sku,
-          ian: null,
-          stockQuantity: stock,
-          isAlwaysInStock: false,
-          options: [
-            { name: "color", value: colorLabel },
-            { name: "size", value: sizeLabel },
-          ],
-        },
-      });
-    }
-  }
-
-  return result;
-}
-
-// ─────────────────────────────────────────────
-// Main export
-// ─────────────────────────────────────────────
-
-export async function ankorstoreRefreshProduct(
+export async function ankorstoreKickoffRefresh(
   productId: string,
-  onProgress?: ProgressCallback,
-  options?: { skipRevalidation?: boolean },
-): Promise<AnkorstoreRefreshResult> {
-  // ── Load product ──
-  const product = await loadProductFull(productId);
+): Promise<AnkorstoreRefreshKickoffResult> {
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { id: true, reference: true, ankorsProductId: true },
+  });
+
   if (!product) {
     return { success: false, reason: "error", error: "Produit introuvable en base" };
   }
-
-  // Ankorstore ne supporte pas les packs : on ne pousse que les variantes UNIT.
-  product.colors = product.colors.filter((v) => v.saleType === "UNIT");
-  if (product.colors.length === 0) {
+  if (!product.ankorsProductId) {
     return {
       success: false,
-      reason: "error",
-      error:
-        "Aucune variante à l'unité — Ankorstore n'accepte pas les packs. Ajoutez au moins une variante de type Unité pour rafraîchir sur Ankorstore.",
+      reason: "not_found",
+      error: "Produit non publié sur Ankorstore",
     };
-  }
-
-  const progress: AnkorstoreRefreshProgress = {
-    productId,
-    productName: product.name,
-    reference: product.reference,
-    status: "in_progress",
-  };
-
-  const report = (step: string) => {
-    progress.step = step;
-    onProgress?.(progress);
-  };
-
-  // ── Step 1: Check local ankorsProductId ──
-  if (!product.ankorsProductId) {
-    progress.status = "error";
-    progress.error = "Produit non publié sur Ankorstore";
-    onProgress?.(progress);
-    return { success: false, reason: "not_found", error: "Produit non publié sur Ankorstore" };
   }
 
   const oldAnkorsProductId = product.ankorsProductId;
 
-  // ── Step 2: Verify product exists on Ankorstore ──
-  report("Vérification de l'existence sur Ankorstore...");
-  let existingAnkorsProduct: Awaited<ReturnType<typeof ankorstoreGetProduct>>;
-  try {
-    existingAnkorsProduct = await ankorstoreGetProduct(oldAnkorsProductId);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn("[Ankorstore Refresh] getProduct failed", {
-      ankorsProductId: oldAnkorsProductId,
-      error: msg,
-    });
-    return { success: false, reason: "error", error: `Impossible de contacter Ankorstore : ${msg}` };
-  }
-
-  if (!existingAnkorsProduct) {
-    progress.status = "error";
-    progress.error = "Produit Ankorstore introuvable";
-    onProgress?.(progress);
-    return { success: false, reason: "not_found", error: "Produit Ankorstore introuvable" };
-  }
-
-  // ── Track rollback state ──
-  let oldProductArchived = false; // Step 3 completed (old product renamed+archived)
-  let newAnkorsProductId: string | null = null; // Set after Step 4 succeeds
+  // Cancel any earlier pending op for this product
+  await prisma.ankorstoreOperation.updateMany({
+    where: {
+      productId,
+      status: "PENDING",
+      type: {
+        in: ["PUBLISH", "REFRESH_DELETE_OLD", "REFRESH_CREATE_NEW", "UPDATE"],
+      },
+    },
+    data: { status: "CANCELLED", completedAt: new Date() },
+  });
 
   try {
-    // ── Step 3: Archive old product with temp external_id ──
-    // Ankorstore requires unique external_id. We must rename the old product before
-    // creating a new one with the real external_id.
-    const tempExternalId = `${product.reference}-archived-${Date.now()}`;
-    report("Archivage de l'ancien produit sur Ankorstore...");
-
-    const { operationId: archiveOpId } = await ankorstoreCreateCatalogOperation("update");
-    await ankorstoreAddProductsToOperation(archiveOpId, [
-      {
-        externalId: tempExternalId,
-        name: existingAnkorsProduct.name || product.name,
-        description:
-          existingAnkorsProduct.description ||
-          `Fin de série — ${product.reference}`,
-        currency: "EUR",
-        vatRate: existingAnkorsProduct.vatRate ?? 20,
-        unitMultiplier: 1,
-        wholesalePrice: existingAnkorsProduct.wholesalePrice ?? 0,
-        retailPrice: existingAnkorsProduct.retailPrice ?? 0,
-        countryCode:
-          product.manufacturingCountry?.isoCode ??
-          product.manufacturingCountry?.pfsCountryRef ??
-          "FR",
-        variants: [],
-      } as AnkorstoreCatalogProductInput,
-    ]);
-    await ankorstoreStartOperation(archiveOpId);
-    const archiveResult = await ankorstorePollOperation(archiveOpId);
-
-    if (archiveResult.status === "failed") {
-      const firstFailure = archiveResult.results[0];
-      throw new Error(
-        firstFailure?.failureReason ?? "Archivage de l'ancien produit échoué sur Ankorstore",
-      );
+    // Step 1: Verify old product exists on Ankorstore
+    const oldExisting = await ankorstoreGetProduct(oldAnkorsProductId);
+    if (!oldExisting) {
+      return {
+        success: false,
+        reason: "not_found",
+        error: "Produit Ankorstore introuvable",
+      };
     }
 
-    oldProductArchived = true;
-    logger.info("[Ankorstore Refresh] Old product archived with temp external_id", {
-      ankorsProductId: oldAnkorsProductId,
-      tempExternalId,
-    });
-
-    // ── Step 4: Create new product with the real external_id ──
-    report("Chargement de la configuration tarifaire...");
-    const pricing = await loadAnkorstorePricingConfig();
-
-    report("Préparation du nouveau produit pour Ankorstore...");
-    const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
-    const brandName = shopNameInfo?.shopName ?? "Ma Boutique";
-
-    const safeDescription = formatAnkorstoreDescription({
-      description: product.description || product.name,
-      reference: product.reference,
-      compositions: product.compositions.map((c) => ({
-        percentage: Number(c.percentage),
-        composition: {
-          nameFR: c.composition.name ?? c.composition.pfsCompositionRef ?? "",
-        },
-      })),
-    });
-
-    const variantEntries = buildAnkorstoreVariants(product, product.colors);
-
-    if (variantEntries.length === 0) {
-      logger.warn("[Ankorstore Refresh] No variants to send", {
-        reference: product.reference,
-        colorsCount: product.colors.length,
+    // Step 2: Fetch old SKUs (required by the delete endpoint)
+    let oldVariantSkus: string[] = [];
+    try {
+      const oldVariants = await ankorstoreGetVariants(oldAnkorsProductId);
+      oldVariantSkus = oldVariants
+        .map((v) => v.sku)
+        .filter((s): s is string => !!s && s.trim().length > 0);
+    } catch (err) {
+      logger.warn("[Ankorstore Refresh] getVariants failed", {
+        ankorsProductId: oldAnkorsProductId,
+        error: err instanceof Error ? err.message : String(err),
       });
     }
 
-    const allVariantsOutOfStock =
-      variantEntries.length === 0 ||
-      variantEntries.every((v) => v.entry.stockQuantity === 0);
-
-    const firstVariant = product.colors[0];
-    let wholesalePrice = 0;
-    let retailPrice = 0;
-    if (firstVariant) {
-      wholesalePrice = getAnkorstoreWholesalePrice(firstVariant, pricing.wholesale);
-      retailPrice = getAnkorstoreRetailPrice(firstVariant, pricing.retail);
+    if (oldVariantSkus.length === 0) {
+      return {
+        success: false,
+        reason: "error",
+        error:
+          "Impossible de récupérer les SKU des variantes Ankorstore. Réessayez d'ici quelques minutes.",
+      };
     }
 
-    const firstColorId = product.colors[0]?.colorId ?? null;
-    const productImages = product.colorImages
-      .filter((img) => !firstColorId || img.colorId === firstColorId)
-      .sort((a, b) => a.order - b.order)
-      .map((img, idx) => ({
-        order: idx + 1,
-        url: buildPublicImageUrl(img.path),
-      }));
+    const oldExternalId = oldExisting.externalId ?? product.reference;
 
-    const mainImage = productImages[0]?.url;
+    // Step 3: Build the FUTURE product input (frozen for phase 2)
+    const built = await buildPublishProductInput(productId);
+    if (!built.ok) {
+      return { success: false, reason: "error", error: built.error };
+    }
 
-    const weightGrams = firstVariant?.weight
-      ? Math.max(1, Math.round(firstVariant.weight * 1000))
-      : undefined;
+    // Step 4: Kick off the delete operation
+    const { operationId } = await ankorstoreKickoffDelete(oldExternalId, oldVariantSkus);
 
-    const productInput: AnkorstoreCatalogProductInput = {
-      externalId: product.reference,
-      name: product.name,
-      description: safeDescription,
-      ...(mainImage ? { mainImage } : {}),
-      ...(productImages.length > 0 ? { images: productImages } : {}),
-      currency: "EUR",
-      vatRate: pricing.vatRate,
-      unitMultiplier: 1,
-      wholesalePrice,
-      retailPrice,
-      countryCode:
-        product.manufacturingCountry?.isoCode ??
-        product.manufacturingCountry?.pfsCountryRef ??
-        "FR",
-      ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
-      ...(weightGrams
-        ? { shapeProperties: { weight: { unitCode: "GRM", amount: weightGrams } } }
-        : {}),
-      variants: variantEntries.map((v) => v.entry),
+    const payload: AnkorstoreRefreshDeleteOldPayload = {
+      oldAnkorsProductId,
+      reference: product.reference,
+      nextProductInput: built.input,
+      nextPublishPayload: built.payload,
     };
 
-    report("Création de l'opération d'import sur Ankorstore...");
-    const { operationId: importOpId } = await ankorstoreCreateCatalogOperation("import");
-    logger.info("[Ankorstore Refresh] Created import operation", {
-      operationId: importOpId,
-      reference: product.reference,
-      brandName,
+    await prisma.ankorstoreOperation.create({
+      data: {
+        id: operationId,
+        productId,
+        type: "REFRESH_DELETE_OLD",
+        status: "PENDING",
+        payload: payload as unknown as Prisma.InputJsonValue,
+      },
     });
 
-    report("Ajout du nouveau produit à l'opération...");
-    await ankorstoreAddProductsToOperation(importOpId, [productInput]);
+    logger.info("[Ankorstore Refresh] Kicked off (DELETE_OLD)", {
+      operationId,
+      productId,
+      reference: product.reference,
+    });
 
-    report("Lancement de l'opération...");
-    await ankorstoreStartOperation(importOpId);
+    return { success: true, operationId };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    logger.error("[Ankorstore Refresh] Kickoff failed", { productId, error: err });
+    return { success: false, reason: "error", error: errorMsg };
+  }
+}
 
-    report("Traitement en cours sur Ankorstore...");
-    const importResult = await ankorstorePollOperation(importOpId);
+// ─────────────────────────────────────────────
+// Finalize Phase 1 (DELETE_OLD callback) → kicks off Phase 2
+// ─────────────────────────────────────────────
 
-    if (importResult.status === "failed") {
-      const firstFailure = importResult.results[0];
-      throw new Error(firstFailure?.failureReason ?? "Publication du nouveau produit échouée sur Ankorstore");
+/**
+ * Finalize the DELETE_OLD phase. On success, kicks off the CREATE_NEW phase.
+ * On failure, clears the local ankorsProductId (so user can retry via Publier).
+ */
+export async function ankorstoreFinalizeRefreshDeleteOld(
+  op: AnkorstoreOperation,
+  callbackPayload: unknown,
+): Promise<void> {
+  if (op.status !== "PENDING") {
+    logger.info("[Ankorstore Refresh] Delete-old finalize skipped — already terminal", {
+      operationId: op.id,
+      status: op.status,
+    });
+    return;
+  }
+
+  const callbackStatus = readCallbackStatus(callbackPayload);
+  const payload = op.payload as unknown as AnkorstoreRefreshDeleteOldPayload;
+
+  if (callbackStatus !== "succeeded" && callbackStatus !== "partially_failed") {
+    // Delete failed — abort the refresh. Old product still exists on Ankorstore.
+    await prisma.ankorstoreOperation.update({
+      where: { id: op.id },
+      data: {
+        status: "FAILED",
+        callbackPayload: callbackPayload as Prisma.InputJsonValue,
+        errorMessage: `Suppression de l'ancien produit échouée: ${extractFailureReason(callbackPayload)}`,
+        completedAt: new Date(),
+      },
+    });
+    logger.warn("[Ankorstore Refresh] Delete-old failed — aborting refresh", {
+      operationId: op.id,
+      productId: op.productId,
+      status: callbackStatus,
+    });
+    return;
+  }
+
+  // Old deleted. Mark phase 1 done and kick off phase 2.
+  try {
+    const { operationId: newOpId } = await ankorstoreCreateCatalogOperation("import");
+    const addResp = await ankorstoreAddProductsToOperation(newOpId, [payload.nextProductInput]);
+    if (addResp.totalProductsCount === 0) {
+      throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");
     }
+    await ankorstoreStartOperation(newOpId);
 
-    const productResult = importResult.results.find(
-      (r) => r.externalProductId === product.reference,
-    );
+    await prisma.$transaction([
+      prisma.ankorstoreOperation.update({
+        where: { id: op.id },
+        data: {
+          status: "SUCCEEDED",
+          callbackPayload: callbackPayload as Prisma.InputJsonValue,
+          completedAt: new Date(),
+        },
+      }),
+      prisma.ankorstoreOperation.create({
+        data: {
+          id: newOpId,
+          productId: op.productId,
+          type: "REFRESH_CREATE_NEW",
+          status: "PENDING",
+          payload: payload.nextPublishPayload as unknown as Prisma.InputJsonValue,
+        },
+      }),
+    ]);
 
-    if (!productResult || productResult.status === "failure") {
+    logger.info("[Ankorstore Refresh] Phase 1 done, Phase 2 kicked off", {
+      deleteOpId: op.id,
+      createOpId: newOpId,
+      productId: op.productId,
+    });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+
+    // Old is deleted, but we couldn't kick off CREATE. Clear local ankorsProductId.
+    await prisma.$transaction([
+      prisma.product.update({
+        where: { id: op.productId },
+        data: {
+          ankorsProductId: null,
+          ankorsLastSyncSnapshot: Prisma.DbNull,
+        },
+      }),
+      prisma.productColor.updateMany({
+        where: { productId: op.productId },
+        data: { ankorsVariantId: null },
+      }),
+      prisma.ankorstoreOperation.update({
+        where: { id: op.id },
+        data: {
+          status: "FAILED",
+          callbackPayload: callbackPayload as Prisma.InputJsonValue,
+          errorMessage: `Phase 1 OK mais phase 2 (création) refusée : ${errorMsg}. Vous pouvez relancer via « Publier ».`,
+          completedAt: new Date(),
+        },
+      }),
+    ]);
+
+    logger.error("[Ankorstore Refresh] Phase 2 kickoff failed after delete", {
+      operationId: op.id,
+      productId: op.productId,
+      error: err,
+    });
+  }
+}
+
+// ─────────────────────────────────────────────
+// Finalize Phase 2 (CREATE_NEW callback)
+// ─────────────────────────────────────────────
+
+/**
+ * Finalize the CREATE_NEW phase. Same as publish finalize but bumps
+ * lastRefreshedAt so the product appears as « Nouveauté ».
+ */
+export async function ankorstoreFinalizeRefreshCreateNew(
+  op: AnkorstoreOperation,
+  callbackPayload: unknown,
+): Promise<void> {
+  if (op.status !== "PENDING") {
+    logger.info("[Ankorstore Refresh] Create-new finalize skipped — already terminal", {
+      operationId: op.id,
+      status: op.status,
+    });
+    return;
+  }
+
+  const callbackStatus = readCallbackStatus(callbackPayload);
+  const payload = op.payload as unknown as AnkorstorePublishPayload;
+
+  if (callbackStatus === "failed" || callbackStatus === "skipped") {
+    // Create failed. Old is gone, new wasn't created. Clear local ankorsProductId.
+    await prisma.$transaction([
+      prisma.product.update({
+        where: { id: op.productId },
+        data: {
+          ankorsProductId: null,
+          ankorsLastSyncSnapshot: Prisma.DbNull,
+        },
+      }),
+      prisma.productColor.updateMany({
+        where: { productId: op.productId },
+        data: { ankorsVariantId: null },
+      }),
+      prisma.ankorstoreOperation.update({
+        where: { id: op.id },
+        data: {
+          status: "FAILED",
+          callbackPayload: callbackPayload as Prisma.InputJsonValue,
+          errorMessage: `Création du nouveau produit échouée : ${extractFailureReason(callbackPayload)}. Vous pouvez relancer via « Publier ».`,
+          completedAt: new Date(),
+        },
+      }),
+    ]);
+    logger.warn("[Ankorstore Refresh] Create-new failed", {
+      operationId: op.id,
+      productId: op.productId,
+      status: callbackStatus,
+    });
+    return;
+  }
+
+  // succeeded or partially_failed — lookup product ID
+  try {
+    const ankorsProductId = await ankorstoreLookupProductIdBySku(payload.firstSku);
+    if (!ankorsProductId) {
       throw new Error(
-        productResult?.failureReason ??
-          "Nouveau produit non créé sur Ankorstore (résultat introuvable dans la réponse)",
+        `Produit créé mais introuvable via le SKU "${payload.firstSku}".`,
       );
     }
 
-    const ankorsProductId = productResult.ankorstoreProductId;
-    if (!ankorsProductId) {
-      throw new Error("ankorstoreProductId manquant dans la réponse de l'opération");
-    }
-
-    newAnkorsProductId = ankorsProductId;
-    logger.info("[Ankorstore Refresh] Created new product", {
-      ankorsProductId,
-      reference: product.reference,
-    });
-
-    // ── Step 5: Fetch variant IDs from Ankorstore ──
-    report("Récupération des identifiants des variantes...");
-    const ankorsVariants = await ankorstoreGetVariants(ankorsProductId);
-
+    const variants = await ankorstoreGetVariants(ankorsProductId);
     const ankorsVariantBySku = new Map(
-      ankorsVariants
-        .filter((v) => v.sku != null)
-        .map((v) => [v.sku as string, v.id]),
+      variants.filter((v) => v.sku != null).map((v) => [v.sku as string, v.id]),
     );
 
     const variantIdUpdates: { localVariantId: string; ankorsVariantId: string }[] = [];
-    for (const entry of variantEntries) {
-      const ankorsVariantId = ankorsVariantBySku.get(entry.sku);
+    for (const [sku, bjVariantId] of Object.entries(payload.skuToBjVariantId)) {
+      const ankorsVariantId = ankorsVariantBySku.get(sku);
       if (ankorsVariantId) {
-        variantIdUpdates.push({ localVariantId: entry.bjVariantId, ankorsVariantId });
+        variantIdUpdates.push({ localVariantId: bjVariantId, ankorsVariantId });
       } else {
-        logger.warn("[Ankorstore Refresh] Could not find Ankorstore variant ID for SKU", {
-          sku: entry.sku,
-          reference: product.reference,
-        });
+        logger.warn("[Ankorstore Refresh] Variant ID not found", { sku, ankorsProductId });
       }
     }
 
-    // ── Step 6: Save to local DB ──
-    report("Mise à jour locale...");
     await prisma.$transaction([
       prisma.product.update({
-        where: { id: productId },
+        where: { id: op.productId },
         data: {
           ankorsProductId,
           ankorsLastSyncSnapshot: Prisma.DbNull,
           lastRefreshedAt: new Date(),
-          ...(allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
+          ...(payload.allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
         },
       }),
       ...variantIdUpdates.map((u) =>
@@ -629,95 +382,42 @@ export async function ankorstoreRefreshProduct(
           data: { ankorsVariantId: u.ankorsVariantId },
         }),
       ),
+      prisma.ankorstoreOperation.update({
+        where: { id: op.id },
+        data: {
+          status: callbackStatus === "succeeded" ? "SUCCEEDED" : "PARTIALLY_FAILED",
+          callbackPayload: callbackPayload as Prisma.InputJsonValue,
+          completedAt: new Date(),
+        },
+      }),
     ]);
 
-    // ── Step 7: Revalidate + emit ──
-    if (!options?.skipRevalidation) {
-      revalidateTag("products", "default");
-    }
+    revalidateTag("products", "default");
     emitProductEvent({
-      type: allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
-      productId,
+      type: payload.allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
+      productId: op.productId,
     });
 
-    progress.status = "success";
-    progress.step = "Terminé";
-    onProgress?.(progress);
-
-    logger.info("[Ankorstore Refresh] Success", {
-      reference: product.reference,
-      newAnkorsProductId,
-      archived: allVariantsOutOfStock,
+    logger.info("[Ankorstore Refresh] Phase 2 finalized", {
+      operationId: op.id,
+      ankorsProductId,
       variantsMapped: variantIdUpdates.length,
     });
-
-    return { success: true, newAnkorsProductId, archived: allVariantsOutOfStock };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    logger.error("[Ankorstore Refresh] Error", {
-      reference: product.reference,
+    await prisma.ankorstoreOperation.update({
+      where: { id: op.id },
+      data: {
+        status: "FAILED",
+        callbackPayload: callbackPayload as Prisma.InputJsonValue,
+        errorMessage: errorMsg,
+        completedAt: new Date(),
+      },
+    });
+    logger.error("[Ankorstore Refresh] Create-new finalize error", {
+      operationId: op.id,
+      productId: op.productId,
       error: err,
     });
-
-    // ── Rollback ──
-    // Critical: old ankorsProductId must not be permanently lost on partial failure.
-    // New ankorsProductId is only saved to DB if fully completed (Step 6).
-
-    // If new product was created on Ankorstore, delete it (prevents orphan)
-    if (newAnkorsProductId) {
-      try {
-        await ankorstoreDeleteProduct(newAnkorsProductId);
-        logger.info("[Ankorstore Refresh] Rollback: deleted new product", {
-          newAnkorsProductId,
-        });
-      } catch (cleanupErr) {
-        logger.error("[Ankorstore Refresh] Rollback: failed to delete new product", {
-          newAnkorsProductId,
-          error: cleanupErr,
-        });
-      }
-    }
-
-    // If old product was archived/renamed, restore its external_id via another update operation
-    if (oldProductArchived) {
-      try {
-        report("Restauration de l'ancien produit...");
-        const { operationId: restoreOpId } = await ankorstoreCreateCatalogOperation("update");
-        await ankorstoreAddProductsToOperation(restoreOpId, [
-          {
-            externalId: product.reference,
-            name: existingAnkorsProduct.name || product.name,
-            description: existingAnkorsProduct.description || product.name,
-            currency: "EUR",
-            vatRate: existingAnkorsProduct.vatRate ?? 20,
-            unitMultiplier: 1,
-            wholesalePrice: existingAnkorsProduct.wholesalePrice ?? 0,
-            retailPrice: existingAnkorsProduct.retailPrice ?? 0,
-            countryCode:
-              product.manufacturingCountry?.isoCode ??
-              product.manufacturingCountry?.pfsCountryRef ??
-              "FR",
-            variants: [],
-          } as AnkorstoreCatalogProductInput,
-        ]);
-        await ankorstoreStartOperation(restoreOpId);
-        await ankorstorePollOperation(restoreOpId);
-        logger.info("[Ankorstore Refresh] Rollback: restored old product external_id", {
-          ankorsProductId: oldAnkorsProductId,
-          reference: product.reference,
-        });
-      } catch (restoreErr) {
-        logger.error("[Ankorstore Refresh] Rollback: failed to restore old product", {
-          ankorsProductId: oldAnkorsProductId,
-          error: restoreErr,
-        });
-      }
-    }
-
-    progress.status = "error";
-    progress.error = errorMsg;
-    onProgress?.(progress);
-
-    return { success: false, reason: "error", error: errorMsg };
   }
 }

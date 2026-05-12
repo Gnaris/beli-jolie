@@ -3,7 +3,8 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { pfsDeleteProduct } from "@/lib/pfs-api-write";
-import { ankorstoreDeleteProduct } from "@/lib/ankorstore-api-write";
+import { ankorstoreKickoffStandaloneDelete } from "@/lib/ankorstore-delete";
+import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
@@ -55,27 +56,79 @@ export async function deleteProductsOnPfs(
 export interface AnkorstoreDeleteOutcome {
   ankorsProductId: string;
   reference: string;
+  // "ok" = delete operation accepted by Ankorstore (will be confirmed via webhook later)
+  // "error" = kickoff failed locally (no Ankorstore op was created)
   status: "ok" | "error";
+  operationId?: string;
   message?: string;
 }
 
 /**
- * Archive sur Ankorstore pour une liste de produits (par leur ankorsProductId).
- * Utilisé quand l'admin supprime des produits de la boutique et veut
- * aussi les retirer d'Ankorstore.
+ * Lance la suppression sur Ankorstore pour une liste de produits.
+ *
+ * **Mode callback-only** : pour chaque item, on appelle le kickoff
+ * (`ankorstoreKickoffStandaloneDelete`) qui demande à Ankorstore de supprimer
+ * le produit et retourne immédiatement un `operationId`. Le résultat final
+ * arrive plus tard via webhook (`/api/webhooks/ankorstore`).
+ *
+ * Le statut "ok" ici signifie « delete demandé », pas « delete confirmé ».
+ *
+ * Il faut que le produit local existe encore en BDD au moment de l'appel
+ * pour pouvoir ouvrir une row `AnkorstoreOperation` (foreign key). Appelle
+ * donc cette fonction AVANT de supprimer le produit côté local.
  */
 export async function deleteProductsOnAnkorstore(
   items: { ankorsProductId: string; reference: string }[],
 ): Promise<AnkorstoreDeleteOutcome[]> {
   await requireAdmin();
   const results: AnkorstoreDeleteOutcome[] = [];
+
+  // Resolve productId from ankorsProductId for each item (FK on AnkorstoreOperation)
+  const ankorsIds = items.map((i) => i.ankorsProductId);
+  const products = ankorsIds.length
+    ? await prisma.product.findMany({
+        where: { ankorsProductId: { in: ankorsIds } },
+        select: { id: true, ankorsProductId: true },
+      })
+    : [];
+  const productIdByAnkors = new Map(products.map((p) => [p.ankorsProductId!, p.id]));
+
   for (const item of items) {
+    const productId = productIdByAnkors.get(item.ankorsProductId);
+    if (!productId) {
+      results.push({
+        ankorsProductId: item.ankorsProductId,
+        reference: item.reference,
+        status: "error",
+        message: "Produit local introuvable (ankorsProductId orphelin)",
+      });
+      continue;
+    }
+
     try {
-      await ankorstoreDeleteProduct(item.ankorsProductId);
-      results.push({ ankorsProductId: item.ankorsProductId, reference: item.reference, status: "ok" });
+      const res = await ankorstoreKickoffStandaloneDelete({
+        productId,
+        reference: item.reference,
+        ankorsProductId: item.ankorsProductId,
+      });
+      if (res.success) {
+        results.push({
+          ankorsProductId: item.ankorsProductId,
+          reference: item.reference,
+          status: "ok",
+          operationId: res.operationId,
+        });
+      } else {
+        results.push({
+          ankorsProductId: item.ankorsProductId,
+          reference: item.reference,
+          status: "error",
+          message: res.error,
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.error("[Marketplace Delete] Ankorstore delete failed", {
+      logger.error("[Marketplace Delete] Ankorstore kickoff failed", {
         ankorsProductId: item.ankorsProductId,
         reference: item.reference,
         error: message,
