@@ -524,11 +524,34 @@ export async function ankorstoreKickoffUpdate(
     const wholesalePrice = firstVariant ? getWholesalePrice(firstVariant, config) : 0;
     const retailPrice = firstVariant ? getRetailPrice(firstVariant, config) : 0;
 
-    const firstColorId = product.colors[0]?.colorId ?? null;
-    const productImages = product.colorImages
-      .filter((img) => !firstColorId || img.colorId === firstColorId)
-      .sort((a, b) => a.order - b.order)
-      .map((img, idx) => ({ order: idx + 1, url: buildPublicImageUrl(img.path) }));
+    // Images : on les indexe par colorId pour qu'à chaque variante on associe
+    // ses propres photos. Au niveau produit, on prend toutes les couleurs
+    // dans l'ordre (couleur primaire d'abord).
+    const imagesByColorId = new Map<string, string[]>();
+    for (const img of [...product.colorImages].sort((a, b) => a.order - b.order)) {
+      if (!imagesByColorId.has(img.colorId)) imagesByColorId.set(img.colorId, []);
+      imagesByColorId.get(img.colorId)!.push(img.path);
+    }
+    const primaryColorId = product.primaryColorId ?? product.colors[0]?.colorId ?? null;
+    const sortedColorIds = product.colors
+      .map((c) => c.colorId)
+      .filter((id): id is string => !!id);
+    if (primaryColorId) {
+      const idx = sortedColorIds.indexOf(primaryColorId);
+      if (idx > 0) {
+        sortedColorIds.splice(idx, 1);
+        sortedColorIds.unshift(primaryColorId);
+      }
+    }
+    const orderedPaths: string[] = [];
+    for (const cid of sortedColorIds) {
+      const paths = imagesByColorId.get(cid) ?? [];
+      orderedPaths.push(...paths);
+    }
+    const productImages = orderedPaths.map((path, idx) => ({
+      order: idx + 1,
+      url: buildPublicImageUrl(path),
+    }));
     const mainImage = productImages[0]?.url;
     const weightGrams = firstVariant?.weight
       ? Math.max(1, Math.round(firstVariant.weight * 1000))
@@ -568,6 +591,12 @@ export async function ankorstoreKickoffUpdate(
         } else if (variant.variantSizes.length > 0) {
           sizeLabel = variant.variantSizes[0].size.name;
         }
+        const variantColorId = variant.colorId ?? "";
+        const paths = imagesByColorId.get(variantColorId) ?? [];
+        const variantImages = paths.map((p, idx) => ({
+          order: idx + 1,
+          url: buildPublicImageUrl(p),
+        }));
         return {
           sku,
           ian: null,
@@ -580,6 +609,7 @@ export async function ankorstoreKickoffUpdate(
             { name: "color" as const, value: colorLabel },
             { name: "size" as const, value: sizeLabel },
           ],
+          ...(variantImages.length > 0 ? { images: variantImages } : {}),
         };
       }),
     };

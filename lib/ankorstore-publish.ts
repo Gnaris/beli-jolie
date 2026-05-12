@@ -214,11 +214,28 @@ function getPackColorLabel(variant: FullVariant): string {
   return variant.color?.name ?? "?";
 }
 
+/**
+ * Index les images par colorId. Les images d'une couleur Ankorstore = toutes les
+ * `colorImages` dont `colorId === variant.colorId`, triées par `order` croissant.
+ */
+function buildImagesByColorId(
+  colorImages: { path: string; order: number; colorId: string }[],
+): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  const sorted = [...colorImages].sort((a, b) => a.order - b.order);
+  for (const img of sorted) {
+    if (!map.has(img.colorId)) map.set(img.colorId, []);
+    map.get(img.colorId)!.push(img.path);
+  }
+  return map;
+}
+
 function buildAnkorstoreVariants(
   product: Pick<FullProduct, "reference">,
   colors: FullVariant[],
   wholesaleMarkup: MarkupConfig,
   retailMarkup: MarkupConfig,
+  imagesByColorId: Map<string, string[]>,
 ): {
   bjVariantId: string;
   sku: string;
@@ -236,6 +253,14 @@ function buildAnkorstoreVariants(
     const stock = getVariantStock(variant);
     const wholesalePrice = getAnkorstoreWholesalePrice(variant, wholesaleMarkup);
     const retailPrice = getAnkorstoreRetailPrice(variant, retailMarkup);
+
+    // Images de la variante : prises depuis colorImages filtrées par colorId.
+    const variantColorId = variant.colorId ?? "";
+    const paths = imagesByColorId.get(variantColorId) ?? [];
+    const variantImages = paths.map((p, idx) => ({
+      order: idx + 1,
+      url: buildPublicImageUrl(p),
+    }));
 
     if (variant.saleType === "UNIT") {
       const colorLabel = variant.color?.name ?? "Couleur";
@@ -256,6 +281,7 @@ function buildAnkorstoreVariants(
             { name: "color", value: colorLabel },
             { name: "size", value: sizeLabel },
           ],
+          ...(variantImages.length > 0 ? { images: variantImages } : {}),
         },
       });
     }
@@ -283,6 +309,7 @@ function buildAnkorstoreVariants(
             { name: "color", value: colorLabel },
             { name: "size", value: sizeLabel },
           ],
+          ...(variantImages.length > 0 ? { images: variantImages } : {}),
         },
       });
     }
@@ -319,11 +346,14 @@ export async function buildPublishProductInput(productId: string): Promise<
     })),
   });
 
+  const imagesByColorId = buildImagesByColorId(product.colorImages);
+
   const variantEntries = buildAnkorstoreVariants(
     product,
     product.colors,
     pricing.wholesale,
     pricing.retail,
+    imagesByColorId,
   );
 
   const allVariantsOutOfStock =
@@ -334,11 +364,28 @@ export async function buildPublishProductInput(productId: string): Promise<
   const wholesalePrice = firstVariant ? getAnkorstoreWholesalePrice(firstVariant, pricing.wholesale) : 0;
   const retailPrice = firstVariant ? getAnkorstoreRetailPrice(firstVariant, pricing.retail) : 0;
 
-  const firstColorId = product.colors[0]?.colorId ?? null;
-  const productImages = product.colorImages
-    .filter((img) => !firstColorId || img.colorId === firstColorId)
-    .sort((a, b) => a.order - b.order)
-    .map((img, idx) => ({ order: idx + 1, url: buildPublicImageUrl(img.path) }));
+  // Images niveau produit : on prend toutes les images, triées par couleur
+  // (couleur primaire d'abord) puis order. La 1re sera le mainImage.
+  const primaryColorId = product.primaryColorId ?? product.colors[0]?.colorId ?? null;
+  const sortedColorIds = product.colors
+    .map((c) => c.colorId)
+    .filter((id): id is string => !!id);
+  if (primaryColorId) {
+    const idx = sortedColorIds.indexOf(primaryColorId);
+    if (idx > 0) {
+      sortedColorIds.splice(idx, 1);
+      sortedColorIds.unshift(primaryColorId);
+    }
+  }
+  const orderedPaths: string[] = [];
+  for (const cid of sortedColorIds) {
+    const paths = imagesByColorId.get(cid) ?? [];
+    orderedPaths.push(...paths);
+  }
+  const productImages = orderedPaths.map((path, idx) => ({
+    order: idx + 1,
+    url: buildPublicImageUrl(path),
+  }));
 
   const mainImage = productImages[0]?.url;
 
