@@ -229,19 +229,21 @@ export function MarketplaceStatusButtons({
               </button>
             )}
 
-            {!ankorsProductId && (
-              <button
-                type="button"
-                onClick={() => setLinkAkOpen(true)}
-                className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-bg-secondary text-text-secondary border border-border hover:bg-bg-tertiary transition-colors"
-                title="Lier à un produit Ankorstore existant"
-                aria-label="Lier à un produit Ankorstore existant"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-                </svg>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setLinkAkOpen(true)}
+              className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-bg-secondary text-text-secondary border border-border hover:bg-bg-tertiary transition-colors"
+              title={
+                ankorsProductId
+                  ? "Re-lier vers un autre produit Ankorstore (utile si la liaison actuelle pointe vers un produit archivé/disparu)"
+                  : "Lier à un produit Ankorstore existant"
+              }
+              aria-label={ankorsProductId ? "Re-lier à un autre produit Ankorstore" : "Lier à un produit Ankorstore existant"}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+              </svg>
+            </button>
           </div>
         )}
       </div>

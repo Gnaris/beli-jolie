@@ -9,17 +9,39 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({})).toEqual({});
   });
 
-  it("applies a contains search on name and reference by default", () => {
+  it("by default: name contains OR reference startsWith (LIKE 'abc%')", () => {
     const where = buildAdminProductsWhere({ q: "abc" });
     expect(where.OR).toEqual([
       { name: { contains: "abc" } },
-      { reference: { contains: "abc" } },
+      { reference: { startsWith: "abc" } },
     ]);
   });
 
   it("applies an exact reference match (uppercased) when exactRef is true", () => {
     const where = buildAdminProductsWhere({ q: "ref-42", exactRef: true });
     expect(where).toEqual({ reference: { equals: "REF-42" } });
+  });
+
+  it("supports multiple comma-separated terms in fuzzy mode (OR across each, ref startsWith)", () => {
+    const where = buildAdminProductsWhere({ q: "abc, def , ghi" });
+    expect(where.OR).toEqual([
+      { name: { contains: "abc" } },
+      { reference: { startsWith: "abc" } },
+      { name: { contains: "def" } },
+      { reference: { startsWith: "def" } },
+      { name: { contains: "ghi" } },
+      { reference: { startsWith: "ghi" } },
+    ]);
+  });
+
+  it("supports multiple comma-separated references in exactRef mode (IN, uppercased)", () => {
+    const where = buildAdminProductsWhere({ q: "ref-1, ref-2", exactRef: true });
+    expect(where).toEqual({ reference: { in: ["REF-1", "REF-2"] } });
+  });
+
+  it("ignores empty terms between commas", () => {
+    const where = buildAdminProductsWhere({ q: ",abc,, ,def,", exactRef: true });
+    expect(where).toEqual({ reference: { in: ["ABC", "DEF"] } });
   });
 
   it("filters by category id", () => {
@@ -34,6 +56,15 @@ describe("buildAdminProductsWhere", () => {
   it("filters by tag via the join table", () => {
     const where = buildAdminProductsWhere({ tag: "tag-1" });
     expect(where.tags).toEqual({ some: { tagId: "tag-1" } });
+  });
+
+  it("filters by composition via the join table", () => {
+    const where = buildAdminProductsWhere({ composition: "comp-1" });
+    expect(where.compositions).toEqual({ some: { compositionId: "comp-1" } });
+  });
+
+  it("ignores composition filter when value is empty", () => {
+    expect(buildAdminProductsWhere({ composition: "" }).compositions).toBeUndefined();
   });
 
   it("filters best-sellers when bestSeller is '1'", () => {

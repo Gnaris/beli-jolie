@@ -122,6 +122,14 @@ export async function confirmAnkorstoreMatch(
         },
       });
 
+      // Re-liaison : on efface d'abord tous les anciens ankorsVariantId de ce
+      // produit pour éviter de garder des références orphelines vers
+      // l'ancienne liaison Ankorstore.
+      await tx.productColor.updateMany({
+        where: { productId },
+        data: { ankorsVariantId: null },
+      });
+
       // Ankorstore ne supporte pas les packs : on ne pose l'ankorsVariantId que
       // sur les variantes UNIT.
       for (const m of variantMatches) {

@@ -14,6 +14,7 @@ export interface AdminProductsFilterParams {
   cat?: string;
   subCat?: string;
   tag?: string;
+  composition?: string;
   bestSeller?: string; // "1" | ""
   refresh?: string; // AdminProductsRefreshValue
   status?: string; // ProductStatus | "DRAFT"
@@ -32,13 +33,31 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
   const where: Prisma.ProductWhereInput = {};
 
   if (params.q) {
-    if (params.exactRef) {
-      where.reference = { equals: params.q.toUpperCase() };
-    } else {
-      where.OR = [
-        { name: { contains: params.q } },
-        { reference: { contains: params.q } },
-      ];
+    const terms = params.q
+      .split(",")
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+
+    if (terms.length === 1) {
+      const term = terms[0];
+      if (params.exactRef) {
+        where.reference = { equals: term.toUpperCase() };
+      } else {
+        // Recherche libre : nom contient OR référence commence par (LIKE 'TERM%')
+        where.OR = [
+          { name: { contains: term } },
+          { reference: { startsWith: term } },
+        ];
+      }
+    } else if (terms.length > 1) {
+      if (params.exactRef) {
+        where.reference = { in: terms.map((t) => t.toUpperCase()) };
+      } else {
+        where.OR = terms.flatMap((t) => [
+          { name: { contains: t } },
+          { reference: { startsWith: t } },
+        ]);
+      }
     }
   }
 
@@ -50,6 +69,10 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
 
   if (params.tag) {
     where.tags = { some: { tagId: params.tag } };
+  }
+
+  if (params.composition) {
+    where.compositions = { some: { compositionId: params.composition } };
   }
 
   if (params.bestSeller === "1") {

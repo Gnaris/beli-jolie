@@ -8,7 +8,7 @@ import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import { buildAdminProductsWhere, buildAdminProductsOrderBy } from "@/lib/admin-products-filter";
@@ -38,6 +38,7 @@ interface PageProps {
     cat?: string;
     subCat?: string;
     tag?: string;
+    composition?: string;
     bestSeller?: string;
     refresh?: string;
     status?: string;
@@ -120,6 +121,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     cat = "",
     subCat = "",
     tag = "",
+    composition = "",
     bestSeller = "",
     refresh = "",
     status: statusFilter = "",
@@ -143,6 +145,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     cat,
     subCat,
     tag,
+    composition,
     bestSeller,
     refresh,
     status: statusFilter,
@@ -158,6 +161,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     totalCount,
     categories,
     tags,
+    compositions,
     sectionCounts,
     hasPfsConfig,
     hasAnkorstoreConfig,
@@ -199,6 +203,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       },
     }),
     getCachedTags(),
+    getCachedCompositions(),
     // Section counts for tabs (lightweight parallel queries)
     Promise.all([
       prisma.product.count(),
@@ -332,6 +337,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
             totalCount={totalCount}
             categories={categories}
             tags={tags}
+            compositions={compositions}
           />
         </Suspense>
       </div>

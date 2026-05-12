@@ -9,14 +9,16 @@ const PRESET_PER_PAGE = [20, 30, 50, 100];
 interface SubCategoryOption { id: string; name: string }
 interface CategoryOption { id: string; name: string; subCategories?: SubCategoryOption[] }
 interface TagOption { id: string; name: string }
+interface CompositionOption { id: string; name: string }
 
 interface Props {
   totalCount: number;
   categories: CategoryOption[];
   tags?: TagOption[];
+  compositions?: CompositionOption[];
 }
 
-export default function AdminProductsFilters({ totalCount, categories, tags = [] }: Props) {
+export default function AdminProductsFilters({ totalCount, categories, tags = [], compositions = [] }: Props) {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -27,6 +29,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlCat       = searchParams.get("cat")        ?? "";
   const urlSubCat    = searchParams.get("subCat")     ?? "";
   const urlTag       = searchParams.get("tag")        ?? "";
+  const urlComposition = searchParams.get("composition") ?? "";
   const urlBestSeller = searchParams.get("bestSeller") ?? "";
   const urlRefresh   = searchParams.get("refresh")    ?? "";
   const urlStatus    = searchParams.get("status")     ?? "";
@@ -37,8 +40,13 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlStockBelow = searchParams.get("stockBelow") ?? "";
   const perPage      = searchParams.get("perPage")    ?? "20";
 
+  // Parse "REF1,REF2,REF3" → ["REF1", "REF2", "REF3"]
+  const parseQ = (raw: string): string[] =>
+    raw.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
+
   // Local state for all text/number/date inputs (not applied until button click)
-  const [localQ, setLocalQ]               = useState(urlQ);
+  const [localTerms, setLocalTerms]       = useState<string[]>(parseQ(urlQ));
+  const [draft, setDraft]                 = useState("");
   const [localExactRef, setLocalExactRef] = useState(urlExactRef);
   const [localMinPrice, setLocalMinPrice] = useState(urlMinPrice);
   const [localMaxPrice, setLocalMaxPrice] = useState(urlMaxPrice);
@@ -47,7 +55,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const [localStockBelow, setLocalStockBelow] = useState(urlStockBelow);
 
   // Sync local state when URL params change (e.g. after reset or back navigation)
-  useEffect(() => { setLocalQ(urlQ); }, [urlQ]);
+  useEffect(() => { setLocalTerms(parseQ(urlQ)); }, [urlQ]);
   useEffect(() => { setLocalExactRef(urlExactRef); }, [urlExactRef]);
   useEffect(() => { setLocalMinPrice(urlMinPrice); }, [urlMinPrice]);
   useEffect(() => { setLocalMaxPrice(urlMaxPrice); }, [urlMaxPrice]);
@@ -55,8 +63,9 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   useEffect(() => { setLocalDateTo(urlDateTo); }, [urlDateTo]);
   useEffect(() => { setLocalStockBelow(urlStockBelow); }, [urlStockBelow]);
 
-  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow);
-  const hasLocalChanges = localQ !== urlQ || localExactRef !== urlExactRef || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
+  const localQ = localTerms.join(",");
+  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow);
+  const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localExactRef !== urlExactRef || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
   const [customValue, setCustomValue] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(hasFilters);
@@ -83,13 +92,17 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
     [router, searchParams, startTransition]
   );
 
-  // Apply all local filter values at once
-  const applyFilters = useCallback(() => {
+  // Apply all local filter values at once. Optionally accept a "pending draft"
+  // so the user doesn't have to press Enter twice (one to badge, one to search).
+  const applyFilters = useCallback((pendingDraft?: string) => {
     const params = new URLSearchParams(searchParams.toString());
+    const draftTrimmed = (pendingDraft ?? "").trim();
+    const terms = draftTrimmed && !localTerms.includes(draftTrimmed)
+      ? [...localTerms, draftTrimmed]
+      : localTerms;
 
-    // Set or delete each filter param based on local state
     const updates: Record<string, string> = {
-      q: localQ,
+      q: terms.join(","),
       exactRef: localExactRef ? "1" : "",
       minPrice: localMinPrice,
       maxPrice: localMaxPrice,
@@ -107,9 +120,47 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
     startTransition(() => {
       router.push(`/admin/produits?${params.toString()}`);
     });
-  }, [searchParams, localQ, localExactRef, localMinPrice, localMaxPrice, localDateFrom, localDateTo, localStockBelow, router, startTransition]);
+  }, [searchParams, localTerms, localExactRef, localMinPrice, localMaxPrice, localDateFrom, localDateTo, localStockBelow, router, startTransition]);
 
-  // Handle Enter key on any input to trigger search
+  // Add the draft as a new search badge.
+  const commitDraft = useCallback(() => {
+    const v = draft.trim();
+    if (!v) return false;
+    if (!localTerms.includes(v)) {
+      setLocalTerms([...localTerms, v]);
+    }
+    setDraft("");
+    return true;
+  }, [draft, localTerms]);
+
+  const removeTerm = useCallback((idx: number) => {
+    setLocalTerms((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  // Handle keys in the search input: Enter = add badge then search;
+  // Backspace on empty = remove last badge.
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (draft.trim().length > 0) {
+        const v = draft.trim();
+        commitDraft();
+        applyFilters(v);
+      } else {
+        applyFilters();
+      }
+    } else if (e.key === "," || e.key === "Tab") {
+      if (draft.trim().length > 0) {
+        e.preventDefault();
+        commitDraft();
+      }
+    } else if (e.key === "Backspace" && draft.length === 0 && localTerms.length > 0) {
+      e.preventDefault();
+      removeTerm(localTerms.length - 1);
+    }
+  }, [draft, localTerms.length, commitDraft, removeTerm, applyFilters]);
+
+  // Handle Enter key on other inputs (price, date, stock) to trigger search
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -118,7 +169,8 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   }, [applyFilters]);
 
   const resetAll = () => {
-    setLocalQ("");
+    setLocalTerms([]);
+    setDraft("");
     setLocalExactRef(false);
     setLocalMinPrice("");
     setLocalMaxPrice("");
@@ -144,26 +196,52 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
     <div className="space-y-3">
       {/* Ligne principale : recherche + filtres toggle + perPage */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-        {/* Recherche */}
+        {/* Recherche multi-références */}
         <div className="flex-1 max-w-md">
-          <div className="relative">
+          <div
+            className="relative flex flex-wrap items-center gap-1.5 pl-9 pr-2 py-1.5 border border-border bg-bg-primary rounded-lg focus-within:border-bg-dark transition-colors cursor-text"
+            onClick={() => inputRef.current?.focus()}
+          >
             <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted"
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none"
               fill="none" stroke="currentColor" viewBox="0 0 24 24"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
             </svg>
+            {localTerms.map((term, idx) => (
+              <span
+                key={`${term}-${idx}`}
+                className="inline-flex items-center gap-1 bg-bg-dark text-text-inverse text-xs font-body px-2 py-0.5 rounded-md"
+              >
+                <span className="font-mono">{term}</span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); removeTerm(idx); }}
+                  className="text-text-inverse/70 hover:text-text-inverse leading-none text-base"
+                  title="Retirer"
+                  aria-label={`Retirer ${term}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
             <input
               ref={inputRef}
-              type="search"
-              value={localQ}
-              onChange={(e) => setLocalQ(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Rechercher un produit, une référence..."
-              className="w-full pl-9 pr-3 py-2 border border-border bg-bg-primary text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors rounded-lg"
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              onBlur={() => { if (draft.trim()) commitDraft(); }}
+              placeholder={localTerms.length === 0 ? "Rechercher un produit, une référence..." : "Ajouter une référence…"}
+              className="flex-1 min-w-[120px] py-1 bg-transparent border-none focus:outline-none text-sm font-body text-text-primary placeholder:text-text-muted"
             />
           </div>
+          {localTerms.length > 0 && (
+            <p className="text-[10px] text-text-muted font-body mt-1 ml-1">
+              Entrée pour ajouter une référence · Retour arrière pour retirer la dernière
+            </p>
+          )}
         </div>
 
         {/* Référence exacte */}
@@ -344,6 +422,22 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
               />
             </div>
 
+            {/* Composition — applies immediately */}
+            <div>
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
+                Composition
+              </label>
+              <CustomSelect
+                value={urlComposition}
+                onChange={(v) => navigate({ composition: v || null })}
+                options={[
+                  { value: "", label: "Toutes" },
+                  ...compositions.map((c) => ({ value: c.id, label: c.name })),
+                ]}
+                size="sm"
+              />
+            </div>
+
             {/* Best-sellers — applies immediately */}
             <div>
               <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
@@ -463,7 +557,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={applyFilters}
+              onClick={() => applyFilters()}
               className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 text-sm font-body font-medium rounded-lg transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
