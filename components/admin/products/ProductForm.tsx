@@ -1577,10 +1577,11 @@ export default function ProductForm({
             : willBeDraftOnPfs
               ? "Publier en brouillon sur Paris Fashion Shop"
               : "Publier sur Paris Fashion Shop";
+          pfsRef.current = true;
           checkboxes.push({
             id: "pfs",
             label: pfsLabel,
-            defaultChecked: alreadyOnPfs,
+            defaultChecked: true,
             onChange: (v) => {
               pfsRef.current = v;
             },
@@ -1590,10 +1591,11 @@ export default function ProductForm({
           const akLabel = alreadyOnAnkorstore
             ? "Mettre à jour sur Ankorstore"
             : "Publier sur Ankorstore";
+          ankorstoreRef.current = true;
           checkboxes.push({
             id: "ankorstore",
             label: akLabel,
-            defaultChecked: alreadyOnAnkorstore,
+            defaultChecked: true,
             onChange: (v) => {
               ankorstoreRef.current = v;
             },

@@ -125,6 +125,7 @@ interface AdminProduct {
 interface Props {
   products: AdminProduct[];
   totalCount: number;
+  startIndex: number;
   hasPfsConfig: boolean;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
@@ -489,6 +490,7 @@ function ActionsDropdown({
 
 function ProductRow({
   product,
+  rowNumber,
   hasPfsConfig,
   hasAnkorstoreConfig,
   ankorstoreEnabled,
@@ -502,6 +504,7 @@ function ProductRow({
   isDeleting = false,
 }: {
   product: AdminProduct;
+  rowNumber: number;
   hasPfsConfig: boolean;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
@@ -557,6 +560,11 @@ function ProductRow({
             onChange={onToggle}
             className="checkbox-custom"
           />
+        </td>
+
+        {/* N° de ligne */}
+        <td className="px-2 py-3.5 w-10 text-center cursor-pointer" onClick={onExpandToggle}>
+          <span className="font-body text-[11px] text-text-muted tabular-nums">{rowNumber}</span>
         </td>
 
         {/* Photo — clickable for expand */}
@@ -771,7 +779,7 @@ function ProductRow({
       {/* ── Tiroir variantes ── */}
       {expanded && (
         <tr>
-          <td colSpan={9} className="p-0">
+          <td colSpan={10} className="p-0">
             <div className="drawer-variant-container" style={{ position: 'relative' }}>
               {/* En-tête du tiroir */}
               <div
@@ -1155,9 +1163,10 @@ function BulkVariantBar({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, deletingIds,
+  products, startIndex, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, deletingIds,
 }: {
   products: AdminProduct[];
+  startIndex: number;
   hasPfsConfig: boolean;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
@@ -1246,6 +1255,7 @@ function TableWithTopScroll({
                   title="Tout sélectionner"
                 />
               </th>
+              <th className="px-2 py-3.5 w-10 text-center text-[10px] font-bold text-text-muted uppercase tracking-widest">#</th>
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Photo</th>
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Réf.</th>
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Produit</th>
@@ -1257,10 +1267,11 @@ function TableWithTopScroll({
             </tr>
           </thead>
           <tbody className="divide-y divide-border-light">
-            {products.map((product) => (
+            {products.map((product, index) => (
               <ProductRow
                 key={product.id}
                 product={product}
+                rowNumber={startIndex + index + 1}
                 hasPfsConfig={hasPfsConfig}
                 hasAnkorstoreConfig={hasAnkorstoreConfig}
                 ankorstoreEnabled={ankorstoreEnabled}
@@ -1286,6 +1297,7 @@ function TableWithTopScroll({
 export default function AdminProductsTable({
   products,
   totalCount: _totalCount,
+  startIndex,
   hasPfsConfig,
   hasAnkorstoreConfig,
   ankorstoreEnabled,
@@ -1788,7 +1800,7 @@ export default function AdminProductsTable({
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={allProducts} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} deletingIds={deletingIds} />
+      <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} deletingIds={deletingIds} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (

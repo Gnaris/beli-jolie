@@ -118,6 +118,20 @@ export async function ankorstoreKickoffRefresh(
       };
     }
 
+    // Si le produit est déjà archivé côté Ankorstore, on ne peut RIEN faire :
+    // l'API refuse de l'archiver (déjà fait) ET refuse de le réactiver via
+    // l'opération update. La désarchivation se fait uniquement via le brand
+    // dashboard Ankorstore. Validé en réel 2026-05-12.
+    if (oldExisting.archived) {
+      return {
+        success: false,
+        reason: "error",
+        error:
+          "Le produit est archivé sur Ankorstore et ne peut pas être rafraîchi. " +
+          "Désarchivez-le sur https://www.ankorstore.com/brand-dashboard puis réessayez.",
+      };
+    }
+
     // Step 2: Fetch old SKUs (required by the delete endpoint)
     let oldVariantSkus: string[] = [];
     try {

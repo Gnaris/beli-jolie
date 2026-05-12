@@ -33,7 +33,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
 
   const askOptions = useCallback(
     async (count: number, firstProductName?: string): Promise<MarketplaceRefreshOptions | null> => {
-      const localRef = { current: true };
+      const localRef = { current: false };
       const pfsRef = { current: false };
       const ankorstoreRef = { current: false };
 
@@ -49,7 +49,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         {
           id: "local",
           label: "Remettre en Nouveauté sur la boutique",
-          defaultChecked: true,
+          defaultChecked: false,
           onChange: (v: boolean) => {
             localRef.current = v;
           },
@@ -82,6 +82,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         message,
         checkboxesLabel: "Options",
         checkboxes,
+        requireAtLeastOneChecked: true,
         confirmLabel: "Rafraîchir",
       });
       if (!ok) return null;

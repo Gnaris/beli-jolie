@@ -351,6 +351,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       <AdminProductsTable
         products={serializedProducts}
         totalCount={totalCount}
+        startIndex={(currentPage - 1) * perPage}
         hasPfsConfig={hasPfsConfig}
         hasAnkorstoreConfig={hasAnkorstoreConfig}
         ankorstoreEnabled={ankorstoreEnabled}

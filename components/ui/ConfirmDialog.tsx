@@ -33,6 +33,8 @@ interface ConfirmOptions {
   checkboxes?: ConfirmCheckbox[];
   /** Section label above checkboxes (default: none for single, "Options" for multiple) */
   checkboxesLabel?: string;
+  /** Disable the confirm button while no checkbox is checked. */
+  requireAtLeastOneChecked?: boolean;
   secondaryAction?: ConfirmSecondaryAction;
 }
 
@@ -280,14 +282,24 @@ function ConfirmModal({
               {opts.secondaryAction.label}
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => resolve(true)}
-            autoFocus
-            className={`flex-1 inline-flex items-center justify-center whitespace-nowrap px-4 py-2.5 text-[13px] font-semibold font-body rounded-lg border border-transparent transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-1 ${c.btnClass}`}
-          >
-            {opts.confirmLabel ?? "Confirmer"}
-          </button>
+          {(() => {
+            const confirmDisabled =
+              !!opts.requireAtLeastOneChecked &&
+              allCheckboxes.length > 0 &&
+              checkedStates.every((s) => !s);
+            return (
+              <button
+                type="button"
+                onClick={() => { if (!confirmDisabled) resolve(true); }}
+                autoFocus
+                disabled={confirmDisabled}
+                title={confirmDisabled ? "Cochez au moins une option" : undefined}
+                className={`flex-1 inline-flex items-center justify-center whitespace-nowrap px-4 py-2.5 text-[13px] font-semibold font-body rounded-lg border border-transparent transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-1 ${c.btnClass} ${confirmDisabled ? "opacity-50 cursor-not-allowed active:scale-100" : ""}`}
+              >
+                {opts.confirmLabel ?? "Confirmer"}
+              </button>
+            );
+          })()}
         </div>
       </div>
     </div>
