@@ -410,6 +410,10 @@ export async function ankorstoreKickoffUpdate(
     // l'update payload — Ankorstore ne le reconnaîtrait pas et CRÉERAIT une
     // nouvelle variante au lieu de modifier celle qui existe (qui a un SKU
     // différent côté Ankorstore, ex. "A485_ Blanc"). Bug constaté 2026-05-12.
+    //
+    // En cas d'échec du fetch OU si une variante locale liée n'est pas
+    // retrouvée côté Ankorstore, on refuse l'update : c'est plus safe que de
+    // risquer de créer une variante en double avec le SKU local.
     const ankorsRealSkuById = new Map<string, string>();
     try {
       const { ankorstoreGetVariants } = await import("@/lib/ankorstore-api");
@@ -418,10 +422,43 @@ export async function ankorstoreKickoffUpdate(
         if (v.sku) ankorsRealSkuById.set(v.id, v.sku);
       }
     } catch (err) {
-      logger.warn("[Ankorstore Update] Fetch real variant SKUs failed", {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error("[Ankorstore Update] Fetch real variant SKUs failed", {
         ankorsProductId,
-        error: err instanceof Error ? err.message : String(err),
+        error: msg,
       });
+      return {
+        success: false,
+        error:
+          "Impossible de récupérer les variantes Ankorstore pour vérifier les liaisons. " +
+          "Réessayez dans quelques instants. (Détail : " + msg.slice(0, 200) + ")",
+      };
+    }
+
+    // Vérifie que chaque variante locale liée a un SKU réel correspondant.
+    // Si non → on refuse plutôt que de risquer un doublon.
+    const missingVariants = product.colors.filter(
+      (v) => v.ankorsVariantId && !ankorsRealSkuById.has(v.ankorsVariantId),
+    );
+    if (missingVariants.length > 0) {
+      const colorNames = missingVariants
+        .map((v) => v.color?.name ?? "?")
+        .join(", ");
+      logger.warn("[Ankorstore Update] Variantes liées introuvables sur Ankorstore", {
+        ankorsProductId,
+        missing: missingVariants.map((v) => ({
+          bjVariantId: v.id,
+          ankorsVariantId: v.ankorsVariantId,
+          color: v.color?.name,
+        })),
+      });
+      return {
+        success: false,
+        error:
+          "Certaines variantes (" + colorNames + ") sont liées à Ankorstore mais " +
+          "n'y existent plus (peut-être archivées/supprimées). Re-liez le produit Ankorstore " +
+          "via l'icône 🔗 à côté du badge avant de réessayer.",
+      };
     }
 
     // Build next snapshot
