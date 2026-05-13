@@ -1,7 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
+import {
+  computeMarketplaceBadgeState,
+  findLatestOpForProduct,
+} from "./marketplaceBadgeState";
 import LinkAnkorstoreProductModal from "./LinkAnkorstoreProductModal";
 import OrphanAnkorstoreVariantsModal from "./OrphanAnkorstoreVariantsModal";
 import SetPfsBrandModal from "./SetPfsBrandModal";
@@ -31,7 +36,8 @@ export function MarketplaceStatusButtons({
   hasAnkorstoreConfig,
   ankorstoreEnabled,
 }: MarketplaceStatusButtonsProps) {
-  const { enqueue } = useMarketplaceRefreshQueue();
+  const router = useRouter();
+  const { enqueue, items } = useMarketplaceRefreshQueue();
   const [confirmPfsOpen, setConfirmPfsOpen] = useState(false);
   const [resyncPfsOpen, setResyncPfsOpen] = useState(false);
   const [confirmAkOpen, setConfirmAkOpen] = useState(false);
@@ -39,6 +45,41 @@ export function MarketplaceStatusButtons({
   const [linkAkOpen, setLinkAkOpen] = useState(false);
   const [orphanAkOpen, setOrphanAkOpen] = useState(false);
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
+
+  const pfsOp = useMemo(
+    () => findLatestOpForProduct(items, productId, "pfs"),
+    [items, productId],
+  );
+  const ankorstoreOp = useMemo(
+    () => findLatestOpForProduct(items, productId, "ankorstore"),
+    [items, productId],
+  );
+
+  const pfsState = useMemo(
+    () => computeMarketplaceBadgeState(pfsProductId, pfsOp, "pfs"),
+    [pfsProductId, pfsOp],
+  );
+  const ankorstoreState = useMemo(
+    () => computeMarketplaceBadgeState(ankorsProductId, ankorstoreOp, "ankorstore"),
+    [ankorsProductId, ankorstoreOp],
+  );
+
+  const isPfsLoading = pfsState.loading;
+  const pfsOnline = pfsState.online;
+  const isAnkorstoreLoading = ankorstoreState.loading;
+  const ankorstoreOnline = ankorstoreState.online;
+
+  useEffect(() => {
+    if (pfsState.justPublishedOk && !pfsProductId) {
+      router.refresh();
+    }
+  }, [pfsState.justPublishedOk, pfsProductId, router]);
+
+  useEffect(() => {
+    if (ankorstoreState.justPublishedOk && !ankorsProductId) {
+      router.refresh();
+    }
+  }, [ankorstoreState.justPublishedOk, ankorsProductId, router]);
 
   const handlePublishPfs = () => {
     enqueue([
@@ -112,26 +153,46 @@ export function MarketplaceStatusButtons({
             <button
               type="button"
               onClick={() => {
-                if (pfsProductId) return;
+                if (pfsOnline || isPfsLoading) return;
                 setConfirmPfsOpen(true);
               }}
+              disabled={isPfsLoading}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border transition-all ${
-                pfsProductId
-                  ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
-                  : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
+                isPfsLoading
+                  ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
+                  : pfsOnline
+                    ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
+                    : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
               }`}
               title={
-                pfsProductId
-                  ? "Disponible sur Paris Fashion Shop"
-                  : "Non disponible — cliquez pour publier sur Paris Fashion Shop"
+                isPfsLoading
+                  ? "Publication en cours sur Paris Fashion Shop…"
+                  : pfsOnline
+                    ? "Disponible sur Paris Fashion Shop"
+                    : "Non disponible — cliquez pour publier sur Paris Fashion Shop"
               }
             >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  pfsProductId ? "bg-[#22C55E]" : "bg-[#DC2626]"
-                }`}
-              />
-              {pfsProductId ? (
+              {isPfsLoading ? (
+                <svg
+                  className="w-3 h-3 animate-spin"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2.2}
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+                </svg>
+              ) : (
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    pfsOnline ? "bg-[#22C55E]" : "bg-[#DC2626]"
+                  }`}
+                />
+              )}
+              {isPfsLoading ? (
+                "Publication PFS en cours…"
+              ) : pfsOnline ? (
                 pfsBrandName ? (
                   <span>
                     Paris Fashion Shop <span className="opacity-60">·</span>{" "}
@@ -168,12 +229,28 @@ export function MarketplaceStatusButtons({
             {pfsProductId && (
               <button
                 type="button"
-                onClick={() => setResyncPfsOpen(true)}
-                className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] hover:bg-[#DCFCE7] transition-colors"
-                title="Resynchroniser toutes les données sur Paris Fashion Shop"
+                onClick={() => {
+                  if (isPfsLoading) return;
+                  setResyncPfsOpen(true);
+                }}
+                disabled={isPfsLoading}
+                className={`inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] transition-colors ${
+                  isPfsLoading ? "opacity-50 cursor-wait" : "hover:bg-[#DCFCE7]"
+                }`}
+                title={
+                  isPfsLoading
+                    ? "Une opération PFS est déjà en cours…"
+                    : "Resynchroniser toutes les données sur Paris Fashion Shop"
+                }
                 aria-label="Resynchroniser sur Paris Fashion Shop"
               >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                <svg
+                  className={`w-3.5 h-3.5 ${isPfsLoading ? "animate-spin" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2.2}
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
                 </svg>
               </button>
@@ -186,26 +263,48 @@ export function MarketplaceStatusButtons({
             <button
               type="button"
               onClick={() => {
-                if (ankorsProductId) return;
+                if (ankorstoreOnline || isAnkorstoreLoading) return;
                 setConfirmAkOpen(true);
               }}
+              disabled={isAnkorstoreLoading}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border transition-all ${
-                ankorsProductId
-                  ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
-                  : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
+                isAnkorstoreLoading
+                  ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
+                  : ankorstoreOnline
+                    ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
+                    : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
               }`}
               title={
-                ankorsProductId
-                  ? "Disponible sur Ankorstore"
-                  : "Non disponible — cliquez pour publier sur Ankorstore"
+                isAnkorstoreLoading
+                  ? ankorstoreOp?.status === "awaiting_callback"
+                    ? "Ankorstore traite votre demande (1 à 5 min)…"
+                    : "Publication en cours sur Ankorstore…"
+                  : ankorstoreOnline
+                    ? "Disponible sur Ankorstore"
+                    : "Non disponible — cliquez pour publier sur Ankorstore"
               }
             >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  ankorsProductId ? "bg-[#22C55E]" : "bg-[#DC2626]"
-                }`}
-              />
-              {ankorsProductId ? (
+              {isAnkorstoreLoading ? (
+                <svg
+                  className="w-3 h-3 animate-spin"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2.2}
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+                </svg>
+              ) : (
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    ankorstoreOnline ? "bg-[#22C55E]" : "bg-[#DC2626]"
+                  }`}
+                />
+              )}
+              {isAnkorstoreLoading ? (
+                "Publication Ankorstore en cours…"
+              ) : ankorstoreOnline ? (
                 "Ankorstore"
               ) : (
                 <>
@@ -220,12 +319,28 @@ export function MarketplaceStatusButtons({
             {ankorsProductId && (
               <button
                 type="button"
-                onClick={() => setResyncAkOpen(true)}
-                className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] hover:bg-[#DCFCE7] transition-colors"
-                title="Resynchroniser toutes les données sur Ankorstore"
+                onClick={() => {
+                  if (isAnkorstoreLoading) return;
+                  setResyncAkOpen(true);
+                }}
+                disabled={isAnkorstoreLoading}
+                className={`inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] transition-colors ${
+                  isAnkorstoreLoading ? "opacity-50 cursor-wait" : "hover:bg-[#DCFCE7]"
+                }`}
+                title={
+                  isAnkorstoreLoading
+                    ? "Une opération Ankorstore est déjà en cours…"
+                    : "Resynchroniser toutes les données sur Ankorstore"
+                }
                 aria-label="Resynchroniser sur Ankorstore"
               >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                <svg
+                  className={`w-3.5 h-3.5 ${isAnkorstoreLoading ? "animate-spin" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2.2}
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
                 </svg>
               </button>
