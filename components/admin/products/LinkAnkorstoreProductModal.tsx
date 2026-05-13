@@ -10,6 +10,8 @@ interface AnkorstoreSearchResult {
   extractedRef: string | null;
   variantCount: number;
   firstImageUrl: string | null;
+  /** Score de pertinence calculé côté serveur (100 = match exact). */
+  score: number;
 }
 
 interface LinkAnkorstoreProductModalProps {
@@ -164,39 +166,67 @@ export default function LinkAnkorstoreProductModal({
             </div>
           )}
           {!loading && results.length > 0 && (
-            <ul className="divide-y divide-border">
-              {results.map((r) => (
-                <li key={r.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-12 h-12 rounded bg-bg-tertiary overflow-hidden shrink-0 flex items-center justify-center">
-                    {r.firstImageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={r.firstImageUrl} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold font-body text-text-primary truncate">
-                      {r.name}
-                    </p>
-                    <p className="text-xs font-body text-text-muted">
-                      {r.extractedRef ? `Réf. extraite : ${r.extractedRef} · ` : ""}
-                      {r.variantCount} variante{r.variantCount > 1 ? "s" : ""}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleLink(r.id)}
-                    disabled={linking !== null}
-                    className="px-3 py-1.5 text-xs font-semibold text-white bg-[#15803D] rounded-none hover:bg-[#166534] disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-body"
-                  >
-                    {linking === r.id ? "Liaison…" : "Lier"}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              {results[0].score < 60 && (
+                <div className="px-4 py-2 text-xs font-body text-[#92400E] bg-[#FFFBEB] border-b border-[#FDE68A]">
+                  Aucun résultat ne correspond exactement à «&nbsp;{query.trim()}&nbsp;».
+                  Les produits ci-dessous contiennent peut-être ce mot dans leur nom — vérifiez bien avant de lier.
+                </div>
+              )}
+              <ul className="divide-y divide-border">
+                {results.map((r) => {
+                  const isExact = r.score >= 90;
+                  const isStrong = r.score >= 60;
+                  return (
+                    <li
+                      key={r.id}
+                      className={`flex items-center gap-3 px-4 py-3 ${
+                        isExact ? "bg-[#F0FDF4]" : ""
+                      }`}
+                    >
+                      <div className="w-12 h-12 rounded bg-bg-tertiary overflow-hidden shrink-0 flex items-center justify-center">
+                        {r.firstImageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={r.firstImageUrl} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold font-body text-text-primary truncate">
+                            {r.name}
+                          </p>
+                          {isExact && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#15803D] text-white">
+                              <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                              Correspondance exacte
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs font-body text-text-muted">
+                          {r.extractedRef ? `Réf. extraite : ${r.extractedRef} · ` : ""}
+                          {r.variantCount} variante{r.variantCount > 1 ? "s" : ""}
+                          {!isStrong && " · correspondance faible"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleLink(r.id)}
+                        disabled={linking !== null}
+                        className="px-3 py-1.5 text-xs font-semibold text-white bg-[#15803D] rounded-none hover:bg-[#166534] disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-body"
+                      >
+                        {linking === r.id ? "Liaison…" : "Lier"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
         </div>
 

@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { ankorstoreSearchProducts } from "@/lib/ankorstore-api";
 import { extractReference } from "@/lib/ankorstore-match";
+import { scoreAnkorstoreSearchResult } from "@/lib/ankorstore-search-rank";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest) {
       extractedRef: extractReference(p),
       variantCount: p.variants.length,
       firstImageUrl: p.images[0]?.url ?? null,
+      score: scoreAnkorstoreSearchResult(p, query),
     }));
     return NextResponse.json({ results });
   } catch (err) {

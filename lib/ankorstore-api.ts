@@ -14,6 +14,7 @@ import {
   ANKORSTORE_BASE_URL,
 } from "@/lib/ankorstore-auth";
 import { logger } from "@/lib/logger";
+import { sortAnkorstoreSearchResults } from "@/lib/ankorstore-search-rank";
 
 // ─────────────────────────────────────────────
 // Types — Ankorstore API responses (JSON:API)
@@ -209,9 +210,16 @@ export async function ankorstoreSearchProducts(
   query: string,
   limit = 20
 ): Promise<AnkorstoreProduct[]> {
+  // On élargit volontairement la fenêtre (jusqu'à 100 candidats) parce que
+  // `filter[skuOrName]` renvoie les résultats dans un ordre opaque côté
+  // Ankorstore : une référence courte comme "A405" peut se retrouver
+  // perdue derrière 50 produits non pertinents si on coupe trop tôt.
+  // On trie ensuite par pertinence côté code (sortAnkorstoreSearchResults)
+  // avant de tronquer à `limit`.
+  const FETCH_LIMIT = 100;
   const variantUrl =
     `/product-variants?filter[skuOrName]=${encodeURIComponent(query)}` +
-    `&include=product&page[limit]=${Math.min(limit * 4, 50)}`;
+    `&include=product&page[limit]=${FETCH_LIMIT}`;
   const variantResp = await ankorstoreFetch<{
     data: {
       id: string;
@@ -254,26 +262,24 @@ export async function ankorstoreSearchProducts(
     }
   }
 
-  const out: AnkorstoreProduct[] = [];
+  const candidates: AnkorstoreProduct[] = [];
   for (const id of orderedProductIds) {
     const p = productById.get(id);
-    if (p) out.push(p);
-    if (out.length >= limit) break;
+    if (p) candidates.push(p);
   }
 
   // Fallback : aucune correspondance via les SKU → recherche legacy par nom de produit.
-  if (out.length === 0) {
+  if (candidates.length === 0) {
     try {
       const url =
         `/products?filter[skuOrName]=${encodeURIComponent(query)}` +
-        `&include=productVariant&page[limit]=${limit}`;
+        `&include=productVariant&page[limit]=${FETCH_LIMIT}`;
       const resp = await ankorstoreFetch<{
         data: JsonApiProductItem[];
         included?: JsonApiVariantItem[];
       }>(url);
       for (const p of parseProductList(resp.data ?? [], resp.included)) {
-        out.push(p);
-        if (out.length >= limit) break;
+        candidates.push(p);
       }
     } catch (err) {
       logger.warn("[Ankorstore] Legacy product-name search failed", {
@@ -283,7 +289,10 @@ export async function ankorstoreSearchProducts(
     }
   }
 
-  return out.slice(0, limit);
+  // Tri par pertinence (SKU exact → préfixe "{query}_" → nom commence par → …)
+  // PUIS troncature, sinon une référence très pertinente peut être coupée.
+  const ranked = sortAnkorstoreSearchResults(candidates, query);
+  return ranked.slice(0, limit);
 }
 
 /**
