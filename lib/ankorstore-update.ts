@@ -671,11 +671,15 @@ export async function ankorstoreKickoffUpdate(
       // tags: tableau vide explicite quand bestseller décoché, sinon Ankorstore
       // ne retire pas le tag d'un produit déjà publié (champ absent = "pas
       // de changement" côté Ankorstore).
-      // Valeur attendue par l'API en entrée = "Bestseller" (sans le préfixe
-      // `tags_`). Ankorstore stocke en interne comme `tags_bestseller` et
-      // c'est ce qu'on relit en GET, mais en POST l'enum exposé dans la doc
-      // OpenAPI (`tags_bestseller`) est rejeté silencieusement.
-      tags: product.isBestSeller ? ["Bestseller"] : [],
+      // ⚠ Bug Ankorstore (confirmé empiriquement 2026-05-13) : l'API
+      // catalog-integration accepte n'importe quelle valeur de `tags` en
+      // renvoyant "success" mais n'applique JAMAIS le tag. Testé avec
+      // "tags_bestseller", "Bestseller", "Handmade", "Vegan", "8" : aucune
+      // ne se pose réellement. Le tag bestseller doit être posé côté
+      // Ankorstore (par leur équipe / leur algo de ventes), pas par nous.
+      // On laisse quand même le payload documenté pour que ça marche le jour
+      // où Ankorstore corrige (le tableau vide reste fiable pour décocher).
+      tags: product.isBestSeller ? ["tags_bestseller"] : [],
       ...(shapeProperties ? { shapeProperties } : {}),
       // Garde-fou anti-doublon : pour un produit DÉJÀ publié (ankorsProductId
       // posé), on n'envoie que les variantes liées (ankorsVariantId connu).
