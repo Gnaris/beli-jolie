@@ -331,11 +331,13 @@ async function scanProductsForQuery(
   if (q.length === 0) return [];
 
   const pageSize = Math.min(opts?.pageSize ?? 50, 50);
-  const maxPages = opts?.maxPages ?? 40; // 40 × 50 = 2000 produits max
+  const maxPages = opts?.maxPages ?? 80; // 80 × 50 = 4000 produits max
   const maxMatches = opts?.maxMatches ?? 20;
 
   const matches: AnkorstoreProduct[] = [];
   let after: string | null = null;
+  let pagesScanned = 0;
+  let totalSeen = 0;
 
   for (let i = 0; i < maxPages; i++) {
     const cursor: string = after
@@ -352,7 +354,9 @@ async function scanProductsForQuery(
       meta?: { page?: { hasMore?: boolean } };
     }>(url);
 
+    pagesScanned++;
     const page = parseProductList(resp.data ?? [], resp.included);
+    totalSeen += page.length;
     for (const p of page) {
       const extracted = extractReference(p)?.toLowerCase() ?? "";
       const name = p.name?.toLowerCase() ?? "";
@@ -372,12 +376,12 @@ async function scanProductsForQuery(
     after = resp.data[resp.data.length - 1].id;
   }
 
-  if (matches.length > 0) {
-    logger.info("[Ankorstore] Wide product scan", {
-      query,
-      matched: matches.length,
-    });
-  }
+  logger.info("[Ankorstore] Wide product scan", {
+    query,
+    pagesScanned,
+    totalSeen,
+    matched: matches.length,
+  });
 
   return matches;
 }
