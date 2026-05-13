@@ -1539,7 +1539,7 @@ export default function AdminProductsTable({
     if (ankorsCandidates.length > 0) {
       checkboxes.push({
         id: "ankorstore",
-        label: `Archiver aussi sur Ankorstore (${ankorsCandidates.length} produit${ankorsCandidates.length > 1 ? "s" : ""} publié${ankorsCandidates.length > 1 ? "s" : ""})`,
+        label: `Supprimer aussi sur Ankorstore (${ankorsCandidates.length} produit${ankorsCandidates.length > 1 ? "s" : ""} publié${ankorsCandidates.length > 1 ? "s" : ""})`,
         defaultChecked: false,
         onChange: (v) => {
           ankorsRef.current = v;
@@ -1582,12 +1582,12 @@ export default function AdminProductsTable({
             } else {
               const errRefs = ankorsResults.filter((r) => r.status === "error").map((r) => r.reference).join(", ");
               toast.error(
-                "Archivage Ankorstore partiel",
+                "Suppression Ankorstore partielle",
                 `${okCount} OK · ${errCount} échec${errCount > 1 ? "s" : ""} (${errRefs})`,
               );
             }
           } catch (err) {
-            toast.error("Échec archivage Ankorstore", err instanceof Error ? err.message : String(err));
+            toast.error("Échec suppression Ankorstore", err instanceof Error ? err.message : String(err));
           }
         }
 

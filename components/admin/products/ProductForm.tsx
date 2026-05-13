@@ -1594,9 +1594,11 @@ export default function ProductForm({
       const alreadyOnAnkorstore = !!initialData?.ankorsProductId;
       const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
 
+      // La popup marketplace s'affiche aussi pour le passage en ARCHIVED
+      // (Ankorstore : on envoie stock 0 → produit non commandable, équivalent
+      //  "hors ligne" — leur API n'a pas de vraie archive côté produit).
       const canPublish =
         savedProductId &&
-        finalStatus !== "ARCHIVED" &&
         !isIncomplete &&
         (hasPfsConfig || showAnkorstore);
 
@@ -1611,39 +1613,50 @@ export default function ProductForm({
           defaultChecked: boolean;
           onChange: (v: boolean) => void;
         }[] = [];
+        const isArchivingNow = finalStatus === "ARCHIVED";
+
         if (hasPfsConfig) {
-          const pfsLabel = alreadyOnPfs
-            ? "Mettre à jour sur Paris Fashion Shop"
-            : willBeDraftOnPfs
-              ? "Publier en brouillon sur Paris Fashion Shop"
-              : "Publier sur Paris Fashion Shop";
-          pfsRef.current = true;
+          const pfsLabel = isArchivingNow && alreadyOnPfs
+            ? "Archiver aussi sur Paris Fashion Shop"
+            : alreadyOnPfs
+              ? "Mettre à jour sur Paris Fashion Shop"
+              : willBeDraftOnPfs
+                ? "Publier en brouillon sur Paris Fashion Shop"
+                : "Publier sur Paris Fashion Shop";
+          // Si le produit n'est pas encore publié et qu'on l'archive, pas la
+          // peine de cocher PFS par défaut (rien à archiver côté marketplace).
+          const pfsDefaultChecked = !isArchivingNow || alreadyOnPfs;
+          pfsRef.current = pfsDefaultChecked;
           checkboxes.push({
             id: "pfs",
             label: pfsLabel,
-            defaultChecked: true,
+            defaultChecked: pfsDefaultChecked,
             onChange: (v) => {
               pfsRef.current = v;
             },
           });
         }
         if (showAnkorstore) {
-          const akLabel = alreadyOnAnkorstore
-            ? "Mettre à jour sur Ankorstore"
-            : "Publier sur Ankorstore";
-          ankorstoreRef.current = true;
+          const akLabel = isArchivingNow && alreadyOnAnkorstore
+            ? "Mettre hors ligne sur Ankorstore (stock à 0)"
+            : alreadyOnAnkorstore
+              ? "Mettre à jour sur Ankorstore"
+              : "Publier sur Ankorstore";
+          const akDefaultChecked = !isArchivingNow || alreadyOnAnkorstore;
+          ankorstoreRef.current = akDefaultChecked;
           checkboxes.push({
             id: "ankorstore",
             label: akLabel,
-            defaultChecked: true,
+            defaultChecked: akDefaultChecked,
             onChange: (v) => {
               ankorstoreRef.current = v;
             },
           });
         }
 
-        const dialogTitle =
-          checkboxes.length > 1
+        const dialogTitle = isArchivingNow
+          ? "Propager l'archivage aux marketplaces ?"
+          : checkboxes.length > 1
             ? "Publier sur les marketplaces ?"
             : hasPfsConfig
               ? alreadyOnPfs
