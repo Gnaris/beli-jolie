@@ -23,6 +23,7 @@ import {
   loadAnkorstorePricingConfig,
   getAnkorstorePackedPrice,
 } from "@/lib/ankorstore-pricing";
+import { buildAnkorstoreShapeProperties } from "@/lib/ankorstore-shape";
 import type { MarkupConfig } from "@/lib/marketplace-pricing";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
@@ -382,12 +383,19 @@ export async function buildPublishProductInput(productId: string): Promise<
     url: buildPublicImageUrl(path),
   }));
 
-  // Poids envoyé en kg directement (Ankorstore attend unit_code "kg" en
-  // minuscules d'après leur spec OpenAPI shape_properties.weight). Le champ
-  // local `weight` est déjà en kg, donc pas de conversion.
+  // Poids envoyé en kg sans préciser l'unité : Ankorstore applique "kg"
+  // par défaut côté plateforme, et envoyer unit_code provoque l'affichage
+  // dupliqué de l'unité dans leur backoffice. Le champ local `weight` est
+  // déjà en kg.
   const weightKg = firstVariant?.weight && firstVariant.weight > 0
     ? Math.round(firstVariant.weight * 1000) / 1000
     : undefined;
+
+  const shapeProperties = buildAnkorstoreShapeProperties(weightKg, {
+    length: product.dimensionLength,
+    width: product.dimensionWidth,
+    height: product.dimensionHeight,
+  });
 
   const input: AnkorstoreCatalogProductInput = {
     externalId: product.reference,
@@ -405,9 +413,7 @@ export async function buildPublishProductInput(productId: string): Promise<
       product.manufacturingCountry?.pfsCountryRef ??
       "FR",
     ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
-    ...(weightKg
-      ? { shapeProperties: { weight: { unitCode: "kg" as const, amount: weightKg } } }
-      : {}),
+    ...(shapeProperties ? { shapeProperties } : {}),
     variants: variantEntries.map((v) => v.entry),
   };
 

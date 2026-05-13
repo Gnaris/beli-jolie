@@ -7,7 +7,7 @@
  * refresh qui remplace l'ankorstoreProductId), on traite tout comme "à envoyer".
  */
 
-export const ANKORSTORE_SNAPSHOT_VERSION = 1 as const;
+export const ANKORSTORE_SNAPSHOT_VERSION = 2 as const;
 
 export interface AnkorstoreProductFieldsSnapshot {
   externalId: string; // Product.reference
@@ -17,6 +17,18 @@ export interface AnkorstoreProductFieldsSnapshot {
   countryCode: string; // ISO 2-letters
   unitMultiplier: number;
   brandName: string;
+  /**
+   * Poids en grammes (entier) pour éviter les imprécisions float lors du diff.
+   * `null` quand aucun poids n'est renseigné côté local.
+   */
+  weightGrams: number | null;
+  /**
+   * Dimensions en millimètres (entiers) pour le même motif. `null` quand
+   * l'axe n'est pas renseigné côté local.
+   */
+  dimensionLengthMm: number | null;
+  dimensionWidthMm: number | null;
+  dimensionHeightMm: number | null;
 }
 
 export interface AnkorstoreVariantSnapshot {
@@ -62,7 +74,11 @@ export function productFieldsEqual(
     a.vatRate === b.vatRate &&
     a.countryCode === b.countryCode &&
     a.unitMultiplier === b.unitMultiplier &&
-    a.brandName === b.brandName
+    a.brandName === b.brandName &&
+    a.weightGrams === b.weightGrams &&
+    a.dimensionLengthMm === b.dimensionLengthMm &&
+    a.dimensionWidthMm === b.dimensionWidthMm &&
+    a.dimensionHeightMm === b.dimensionHeightMm
   );
 }
 

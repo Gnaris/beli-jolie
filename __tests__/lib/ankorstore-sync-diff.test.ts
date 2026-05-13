@@ -16,6 +16,10 @@ const baseSnap: AnkorstoreSyncSnapshot = {
     countryCode: "FR",
     unitMultiplier: 1,
     brandName: "B",
+    weightGrams: 50,
+    dimensionLengthMm: null,
+    dimensionWidthMm: null,
+    dimensionHeightMm: null,
   },
   variants: {
     v1: {
@@ -94,5 +98,56 @@ describe("diffAnkorstoreSnapshots", () => {
     const next: AnkorstoreSyncSnapshot = { ...baseSnap, status: "archived" };
     const diff = diffAnkorstoreSnapshots(baseSnap, next);
     expect(diff.statusChanged).toBe(true);
+  });
+
+  it("change le poids → productChanged=true", () => {
+    const next: AnkorstoreSyncSnapshot = {
+      ...baseSnap,
+      product: { ...baseSnap.product, weightGrams: 80 },
+    };
+    const diff = diffAnkorstoreSnapshots(baseSnap, next);
+    expect(diff.productChanged).toBe(true);
+  });
+
+  it("ajoute une dimension (longueur passe de null à valeur) → productChanged=true", () => {
+    const next: AnkorstoreSyncSnapshot = {
+      ...baseSnap,
+      product: { ...baseSnap.product, dimensionLengthMm: 150 },
+    };
+    const diff = diffAnkorstoreSnapshots(baseSnap, next);
+    expect(diff.productChanged).toBe(true);
+  });
+
+  it("modifie une dimension existante → productChanged=true", () => {
+    const prev: AnkorstoreSyncSnapshot = {
+      ...baseSnap,
+      product: {
+        ...baseSnap.product,
+        dimensionLengthMm: 150,
+        dimensionWidthMm: 80,
+        dimensionHeightMm: 30,
+      },
+    };
+    const next: AnkorstoreSyncSnapshot = {
+      ...prev,
+      product: { ...prev.product, dimensionHeightMm: 40 },
+    };
+    const diff = diffAnkorstoreSnapshots(prev, next);
+    expect(diff.productChanged).toBe(true);
+  });
+
+  it("dimensions identiques (avec valeurs) → diff vide", () => {
+    const prev: AnkorstoreSyncSnapshot = {
+      ...baseSnap,
+      product: {
+        ...baseSnap.product,
+        dimensionLengthMm: 150,
+        dimensionWidthMm: 80,
+        dimensionHeightMm: 30,
+      },
+    };
+    const next: AnkorstoreSyncSnapshot = { ...prev };
+    const diff = diffAnkorstoreSnapshots(prev, next);
+    expect(diff.productChanged).toBe(false);
   });
 });

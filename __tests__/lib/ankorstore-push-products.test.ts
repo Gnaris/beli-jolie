@@ -276,6 +276,88 @@ describe("ankorstoreKickoffPublish — payload kickoff", () => {
     expect(product.images.find((i: { url: string }) => i.url === product.mainImage)).toBeUndefined();
   });
 
+  it("poids envoyé en kg SANS unit_code (Ankorstore applique 'kg' par défaut)", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(makeUnitProduct());
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    const product = products[0];
+
+    expect(product.shapeProperties?.weight).toEqual({ amount: 0.05 });
+    // Pas d'unit_code côté input (et donc pas dans le payload final non plus)
+    expect(
+      (product.shapeProperties?.weight as Record<string, unknown>)?.unitCode,
+    ).toBeUndefined();
+  });
+
+  it("dimensions du site envoyées sous shape_properties.dimensions (unit_code=cm)", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(
+      makeUnitProduct({
+        dimensionLength: 15,
+        dimensionWidth: 8,
+        dimensionHeight: 3,
+      }),
+    );
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    const product = products[0];
+
+    expect(product.shapeProperties?.dimensions).toEqual({
+      unitCode: "cm",
+      length: 15,
+      width: 8,
+      height: 3,
+    });
+  });
+
+  it("dimensions partiellement renseignées → seuls les axes définis sont envoyés", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(
+      makeUnitProduct({
+        dimensionLength: 12,
+        dimensionWidth: null,
+        dimensionHeight: 4,
+      }),
+    );
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    const product = products[0];
+
+    expect(product.shapeProperties?.dimensions).toEqual({
+      unitCode: "cm",
+      length: 12,
+      height: 4,
+    });
+    expect(
+      (product.shapeProperties?.dimensions as Record<string, unknown>)?.width,
+    ).toBeUndefined();
+  });
+
+  it("aucune dimension renseignée → pas de bloc dimensions dans le payload", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(makeUnitProduct());
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    const product = products[0];
+
+    expect(product.shapeProperties?.dimensions).toBeUndefined();
+    // mais le poids reste présent
+    expect(product.shapeProperties?.weight).toEqual({ amount: 0.05 });
+  });
+
   it("rejette si addProducts renvoie totalProductsCount=0", async () => {
     const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
     mockProductFindUnique.mockResolvedValue(makeUnitProduct());

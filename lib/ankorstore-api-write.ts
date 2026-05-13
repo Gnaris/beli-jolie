@@ -70,7 +70,24 @@ export interface AnkorstoreCatalogProductInput {
     options: { name: "color" | "size" | "material" | "style"; value: string }[];
     images?: { order: number; url: string }[];
   }[];
-  shapeProperties?: { weight: { unitCode: "kg" | "GRM"; amount: number } };
+  shapeProperties?: {
+    /**
+     * Poids du produit. `unit_code` n'est PAS envoyé : Ankorstore applique
+     * "kg" par défaut côté plateforme, et le préciser produit un affichage
+     * dupliqué de l'unité dans leur backoffice.
+     */
+    weight?: { amount: number };
+    /**
+     * Dimensions du produit. `unit_code: "cm"` reste explicite (la valeur
+     * par défaut côté Ankorstore n'est pas documentée).
+     */
+    dimensions?: {
+      unitCode: "cm";
+      width?: number;
+      height?: number;
+      length?: number;
+    };
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -194,10 +211,25 @@ function buildProductPayloadAttributes(p: AnkorstoreCatalogProductInput): Record
     ...(p.shapeProperties
       ? {
           shape_properties: {
-            weight: {
-              unit_code: p.shapeProperties.weight.unitCode,
-              amount: p.shapeProperties.weight.amount,
-            },
+            ...(p.shapeProperties.weight
+              ? { weight: { amount: p.shapeProperties.weight.amount } }
+              : {}),
+            ...(p.shapeProperties.dimensions
+              ? {
+                  dimensions: {
+                    unit_code: p.shapeProperties.dimensions.unitCode,
+                    ...(p.shapeProperties.dimensions.width != null
+                      ? { width: p.shapeProperties.dimensions.width }
+                      : {}),
+                    ...(p.shapeProperties.dimensions.height != null
+                      ? { height: p.shapeProperties.dimensions.height }
+                      : {}),
+                    ...(p.shapeProperties.dimensions.length != null
+                      ? { length: p.shapeProperties.dimensions.length }
+                      : {}),
+                  },
+                }
+              : {}),
           },
         }
       : {}),

@@ -32,6 +32,7 @@ import {
   toCents,
   type AnkorstorePricingConfig,
 } from "@/lib/ankorstore-pricing";
+import { buildAnkorstoreShapeProperties } from "@/lib/ankorstore-shape";
 import {
   diffAnkorstoreSnapshots,
   diffIsEmpty,
@@ -248,6 +249,13 @@ function getRetailPrice(variant: FullVariant, config: AnkorstorePricingConfig): 
   );
 }
 
+function toIntegerOrNull(value: number | null, multiplier: number): number | null {
+  if (value == null) return null;
+  if (!Number.isFinite(value)) return null;
+  if (value <= 0) return null;
+  return Math.round(value * multiplier);
+}
+
 function buildProductFieldsSnapshot(
   product: FullProduct,
   brandName: string,
@@ -263,6 +271,7 @@ function buildProductFieldsSnapshot(
       },
     })),
   });
+  const firstVariantWeight = product.colors[0]?.weight ?? null;
   return {
     externalId: product.reference,
     name: product.name,
@@ -274,6 +283,10 @@ function buildProductFieldsSnapshot(
       "FR",
     unitMultiplier: 1,
     brandName,
+    weightGrams: toIntegerOrNull(firstVariantWeight, 1000),
+    dimensionLengthMm: toIntegerOrNull(product.dimensionLength, 10),
+    dimensionWidthMm: toIntegerOrNull(product.dimensionWidth, 10),
+    dimensionHeightMm: toIntegerOrNull(product.dimensionHeight, 10),
   };
 }
 
@@ -619,10 +632,16 @@ export async function ankorstoreKickoffUpdate(
       order: idx + 2,
       url: buildPublicImageUrl(path),
     }));
-    // Poids en kg directement (cf. spec Ankorstore : unit_code "kg")
+    // Poids en kg sans unit_code (cf. lib/ankorstore-shape.ts pour les détails).
     const weightKg = firstVariant?.weight && firstVariant.weight > 0
       ? Math.round(firstVariant.weight * 1000) / 1000
       : undefined;
+
+    const shapeProperties = buildAnkorstoreShapeProperties(weightKg, {
+      length: product.dimensionLength,
+      width: product.dimensionWidth,
+      height: product.dimensionHeight,
+    });
 
     const productInput: AnkorstoreCatalogProductInput = {
       externalId: product.reference,
@@ -637,9 +656,7 @@ export async function ankorstoreKickoffUpdate(
       retailPrice,
       countryCode: nextProductSnap.countryCode,
       ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
-      ...(weightKg
-        ? { shapeProperties: { weight: { unitCode: "kg" as const, amount: weightKg } } }
-        : {}),
+      ...(shapeProperties ? { shapeProperties } : {}),
       // Garde-fou anti-doublon : pour un produit DÉJÀ publié (ankorsProductId
       // posé), on n'envoie que les variantes liées (ankorsVariantId connu).
       // Une variante locale sans jumelle AS ne doit JAMAIS être pushée ici —
