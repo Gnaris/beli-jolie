@@ -118,17 +118,24 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         return true;
       }
 
-      // Enqueue for background processing — 1 item per marketplace ciblée
+      // Enqueue for background processing — 1 item per marketplace ciblée.
+      // Each item carries ONLY its marketplace flag so the server endpoint
+      // doesn't double-trigger the other marketplace through
+      // `refreshProductOnMarketplaces` (which reads options.pfs AND
+      // options.ankorstore). The `local` flag is attached to the first item
+      // only so the lastRefreshedAt bump runs exactly once.
       const inputs: MarketplaceRefreshEnqueueInput[] = [];
+      let localConsumed = false;
       if (options.pfs) {
         inputs.push({
           productId: product.productId,
           reference: product.reference,
           productName: product.productName,
           firstImage: product.firstImage ?? null,
-          options,
+          options: { local: options.local && !localConsumed, pfs: true, ankorstore: false },
           marketplace: "pfs",
         });
+        localConsumed = options.local;
       }
       if (options.ankorstore) {
         inputs.push({
@@ -136,7 +143,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
           reference: product.reference,
           productName: product.productName,
           firstImage: product.firstImage ?? null,
-          options,
+          options: { local: options.local && !localConsumed, pfs: false, ankorstore: true },
           marketplace: "ankorstore",
         });
       }
@@ -170,17 +177,21 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         return true;
       }
 
+      // Each item carries ONLY its marketplace flag (see refreshSingle for the
+      // reason). `local` is consumed by the first item of each product.
       const inputs: MarketplaceRefreshEnqueueInput[] = [];
       for (const p of products) {
+        let localConsumed = false;
         if (options.pfs) {
           inputs.push({
             productId: p.productId,
             reference: p.reference,
             productName: p.productName,
             firstImage: p.firstImage ?? null,
-            options,
+            options: { local: options.local && !localConsumed, pfs: true, ankorstore: false },
             marketplace: "pfs",
           });
+          localConsumed = options.local;
         }
         if (options.ankorstore) {
           inputs.push({
@@ -188,7 +199,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
             reference: p.reference,
             productName: p.productName,
             firstImage: p.firstImage ?? null,
-            options,
+            options: { local: options.local && !localConsumed, pfs: false, ankorstore: true },
             marketplace: "ankorstore",
           });
         }

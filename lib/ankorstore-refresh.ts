@@ -95,17 +95,26 @@ export async function ankorstoreKickoffRefresh(
 
   const oldAnkorsProductId = product.ankorsProductId;
 
-  // Cancel any earlier pending op for this product
-  await prisma.ankorstoreOperation.updateMany({
+  // Refuse if another publish/refresh operation is already in flight for this
+  // product — superseding would corrupt the 2-phase delete/create chain.
+  // A 30-min cutoff lets us recover from genuinely stuck PENDING ops (lost
+  // webhook) by allowing a fresh attempt after that delay.
+  const inflight = await prisma.ankorstoreOperation.findFirst({
     where: {
       productId,
       status: "PENDING",
-      type: {
-        in: ["PUBLISH", "REFRESH_DELETE_OLD", "REFRESH_CREATE_NEW", "UPDATE"],
-      },
+      type: { in: ["PUBLISH", "REFRESH_DELETE_OLD", "REFRESH_CREATE_NEW"] },
+      createdAt: { gt: new Date(Date.now() - 30 * 60 * 1000) },
     },
-    data: { status: "CANCELLED", completedAt: new Date() },
   });
+  if (inflight) {
+    return {
+      success: false,
+      reason: "error",
+      error:
+        "Une opération Ankorstore est déjà en cours sur ce produit. Patientez quelques minutes ou consultez la file en bas à droite.",
+    };
+  }
 
   try {
     // Step 1: Verify old product exists on Ankorstore
@@ -211,7 +220,9 @@ export async function ankorstoreFinalizeRefreshDeleteOld(
   op: AnkorstoreOperation,
   callbackPayload: unknown,
 ): Promise<void> {
-  if (op.status !== "PENDING") {
+  // Accept PENDING (normal flow) and CANCELLED (orphan recovery — webhook
+  // route already verified no superseding op exists for this product).
+  if (op.status !== "PENDING" && op.status !== "CANCELLED") {
     logger.info("[Ankorstore Refresh] Delete-old finalize skipped — already terminal", {
       operationId: op.id,
       status: op.status,
@@ -377,7 +388,9 @@ export async function ankorstoreFinalizeRefreshCreateNew(
   op: AnkorstoreOperation,
   callbackPayload: unknown,
 ): Promise<void> {
-  if (op.status !== "PENDING") {
+  // Accept PENDING (normal flow) and CANCELLED (orphan recovery — webhook
+  // route already verified no superseding op exists for this product).
+  if (op.status !== "PENDING" && op.status !== "CANCELLED") {
     logger.info("[Ankorstore Refresh] Create-new finalize skipped — already terminal", {
       operationId: op.id,
       status: op.status,

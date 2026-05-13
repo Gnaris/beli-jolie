@@ -88,13 +88,62 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, reason: "unknown_operation" }, { status: 200 });
   }
 
-  // ── Step 4: idempotency check ──
-  if (op.status !== "PENDING") {
+  // ── Step 4: idempotency / recovery check ──
+  // SUCCEEDED / FAILED / PARTIALLY_FAILED → already finalized, ACK and stop.
+  if (
+    op.status === "SUCCEEDED" ||
+    op.status === "FAILED" ||
+    op.status === "PARTIALLY_FAILED"
+  ) {
     logger.info("[Ankorstore Webhook] Already finalized — idempotent ACK", {
       operationId,
       currentStatus: op.status,
     });
     return NextResponse.json({ ok: true, reason: "already_finalized" }, { status: 200 });
+  }
+
+  // CANCELLED → for refresh ops, attempt recovery rather than silently dropping
+  // the chain. Skip recovery only when a newer op exists (the newer one will
+  // handle its own refresh chain).
+  if (op.status === "CANCELLED") {
+    const isRefreshChain =
+      op.type === "REFRESH_DELETE_OLD" || op.type === "REFRESH_CREATE_NEW";
+
+    if (!isRefreshChain) {
+      logger.info("[Ankorstore Webhook] Cancelled non-refresh op — idempotent ACK", {
+        operationId,
+        type: op.type,
+      });
+      return NextResponse.json({ ok: true, reason: "cancelled_non_refresh" }, { status: 200 });
+    }
+
+    const supersedingOp = await prisma.ankorstoreOperation.findFirst({
+      where: {
+        productId: op.productId,
+        type: {
+          in: ["PUBLISH", "UPDATE", "REFRESH_DELETE_OLD", "REFRESH_CREATE_NEW", "DELETE"],
+        },
+        createdAt: { gt: op.createdAt },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (supersedingOp) {
+      logger.info("[Ankorstore Webhook] Cancelled refresh superseded — idempotent ACK", {
+        operationId,
+        supersedingOpId: supersedingOp.id,
+        supersedingType: supersedingOp.type,
+        supersedingStatus: supersedingOp.status,
+      });
+      return NextResponse.json({ ok: true, reason: "superseded" }, { status: 200 });
+    }
+
+    logger.warn("[Ankorstore Webhook] Recovering orphaned refresh op", {
+      operationId,
+      type: op.type,
+      productId: op.productId,
+      cancelledAt: op.completedAt,
+    });
   }
 
   // ── Step 5: dispatch to finalize handler ──

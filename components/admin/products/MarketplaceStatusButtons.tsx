@@ -10,6 +10,9 @@ import {
 import LinkAnkorstoreProductModal from "./LinkAnkorstoreProductModal";
 import OrphanAnkorstoreVariantsModal from "./OrphanAnkorstoreVariantsModal";
 import SetPfsBrandModal from "./SetPfsBrandModal";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useToast } from "@/components/ui/Toast";
+import { removeAnkorstoreMatch } from "@/app/actions/admin/ankorstore";
 
 interface MarketplaceStatusButtonsProps {
   productId: string;
@@ -38,6 +41,8 @@ export function MarketplaceStatusButtons({
 }: MarketplaceStatusButtonsProps) {
   const router = useRouter();
   const { enqueue, items } = useMarketplaceRefreshQueue();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [confirmPfsOpen, setConfirmPfsOpen] = useState(false);
   const [resyncPfsOpen, setResyncPfsOpen] = useState(false);
   const [confirmAkOpen, setConfirmAkOpen] = useState(false);
@@ -45,6 +50,7 @@ export function MarketplaceStatusButtons({
   const [linkAkOpen, setLinkAkOpen] = useState(false);
   const [orphanAkOpen, setOrphanAkOpen] = useState(false);
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
+  const [unlinkAkBusy, setUnlinkAkBusy] = useState(false);
 
   const pfsOp = useMemo(
     () => findLatestOpForProduct(items, productId, "pfs"),
@@ -139,6 +145,34 @@ export function MarketplaceStatusButtons({
       },
     ]);
     setResyncAkOpen(false);
+  };
+
+  const handleUnlinkAnkorstore = async () => {
+    const ok = await confirm({
+      type: "warning",
+      title: "Délier de Ankorstore ?",
+      message:
+        "Le lien entre ce produit et sa fiche Ankorstore sera effacé côté site. " +
+        "Aucune action n'est faite sur Ankorstore : si la fiche Ankorstore existe " +
+        "encore, elle restera telle quelle. Vous pourrez ensuite re-publier ou " +
+        "re-lier ce produit à une autre fiche Ankorstore.",
+      confirmLabel: "Oui, délier",
+    });
+    if (!ok) return;
+    setUnlinkAkBusy(true);
+    try {
+      const res = await removeAnkorstoreMatch(productId);
+      if (res.success) {
+        toast.success("Produit délié de Ankorstore");
+        router.refresh();
+      } else {
+        toast.error("Échec du déliage", res.error ?? "Erreur inconnue.");
+      }
+    } catch (err) {
+      toast.error("Échec du déliage", err instanceof Error ? err.message : String(err));
+    } finally {
+      setUnlinkAkBusy(false);
+    }
   };
 
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
@@ -375,6 +409,24 @@ export function MarketplaceStatusButtons({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
               </svg>
             </button>
+
+            {ankorsProductId && (
+              <button
+                type="button"
+                onClick={handleUnlinkAnkorstore}
+                disabled={unlinkAkBusy}
+                className={`inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] transition-colors ${
+                  unlinkAkBusy ? "opacity-50 cursor-wait" : "hover:bg-[#FEE2E2]"
+                }`}
+                title="Délier ce produit de sa fiche Ankorstore (efface la liaison côté site sans toucher à Ankorstore)"
+                aria-label="Délier ce produit de Ankorstore"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
+                </svg>
+              </button>
+            )}
           </div>
         )}
       </div>

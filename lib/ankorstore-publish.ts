@@ -465,16 +465,24 @@ export async function buildPublishProductInput(productId: string): Promise<
 export async function ankorstoreKickoffPublish(
   productId: string,
 ): Promise<AnkorstoreKickoffResult> {
-  // Cancel any earlier pending publish/refresh ops for this product
-  // (the new one supersedes them).
-  await prisma.ankorstoreOperation.updateMany({
+  // Refuse if another publish/refresh operation is already in flight for this
+  // product — superseding would corrupt the 2-phase refresh chain. A 30-min
+  // cutoff lets us recover from genuinely stuck PENDING ops (lost webhook).
+  const inflight = await prisma.ankorstoreOperation.findFirst({
     where: {
       productId,
       status: "PENDING",
       type: { in: ["PUBLISH", "REFRESH_DELETE_OLD", "REFRESH_CREATE_NEW"] },
+      createdAt: { gt: new Date(Date.now() - 30 * 60 * 1000) },
     },
-    data: { status: "CANCELLED", completedAt: new Date() },
   });
+  if (inflight) {
+    return {
+      success: false,
+      error:
+        "Une opération Ankorstore est déjà en cours sur ce produit. Patientez quelques minutes ou consultez la file en bas à droite.",
+    };
+  }
 
   const built = await buildPublishProductInput(productId);
   if (!built.ok) return { success: false, error: built.error };

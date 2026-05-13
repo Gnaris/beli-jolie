@@ -42,11 +42,12 @@ if (!g[GUARD]) {
         const { getCachedAnkorstoreEnabled } = await import("@/lib/cached-data");
         const enabled = await getCachedAnkorstoreEnabled();
         if (!enabled) return;
-        const { preloadCatalogInBackground } = await import(
+        const { preloadCatalogInBackground, startCatalogAutoReload } = await import(
           "@/lib/ankorstore-catalog-cache"
         );
         logger.info("[Ankorstore Catalog] Préchargement au démarrage déclenché");
         preloadCatalogInBackground();
+        startCatalogAutoReload();
       } catch (err) {
         logger.warn("[Ankorstore Catalog] Préchargement au démarrage échoué", {
           error: err as Error,

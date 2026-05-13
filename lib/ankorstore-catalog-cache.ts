@@ -7,12 +7,19 @@
  * tokenise et passe à côté de certaines références (cf. cas A405 collé
  * à un tiret dans le nom).
  *
- * TTL : 3 heures. Reset manuel via `invalidateCatalogCache()` (bouton ↻
+ * TTL : 6 heures. Reset manuel via `invalidateCatalogCache()` (bouton ↻
  * côté UI) remet le minuteur à zéro après un rechargement complet.
  *
  * Préchargement au boot pm2 : `instrumentation-node.ts` appelle
  * `preloadCatalog()` en arrière-plan pour que la 1ʳᵉ ouverture de modale
- * soit instantanée si Ankorstore est activé.
+ * soit instantanée si Ankorstore est activé. Puis `startCatalogAutoReload()`
+ * planifie un rechargement complet automatique toutes les 6 heures pour que
+ * les nouveautés Ankorstore apparaissent sans intervention manuelle.
+ *
+ * Parallélisation : impossible. L'API Ankorstore `/products` utilise une
+ * pagination par curseur (`page[after]=<dernierIdDeLaPagePrécédente>`),
+ * donc chaque page nécessite l'ID de la précédente — pas de fetch parallèle
+ * possible sans changer de stratégie d'indexation côté Ankorstore.
  *
  * Mémoire : 9 000 entrées × ~250 octets ≈ 2 Mo. Largement OK côté Node.
  */
@@ -65,11 +72,13 @@ export interface CatalogStatus {
 // État module-level
 // ─────────────────────────────────────────────
 
-const TTL_MS = 3 * 60 * 60 * 1000; // 3 heures
+const TTL_MS = 6 * 60 * 60 * 1000; // 6 heures
+const AUTO_RELOAD_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 heures
 
 let cachedEntries: CatalogEntry[] = [];
 let loadedAt: Date | null = null;
 let activeLoad: Promise<CatalogEntry[]> | null = null;
+let autoReloadHandle: NodeJS.Timeout | null = null;
 
 // ─────────────────────────────────────────────
 // Helpers internes
@@ -183,6 +192,32 @@ export function preloadCatalogInBackground(): void {
 }
 
 /**
+ * Démarre un rechargement automatique toutes les 6 heures.
+ * Idempotent : un seul intervalle actif à la fois par process Node.
+ *
+ * Lancé une fois au boot par `instrumentation-node.ts`. Le tick force
+ * l'invalidation puis relance le chargement même si le cache est encore
+ * "frais", pour garantir que les nouveautés Ankorstore apparaissent au plus
+ * tard 6h après leur création.
+ */
+export function startCatalogAutoReload(): void {
+  if (autoReloadHandle) return;
+  autoReloadHandle = setInterval(() => {
+    void (async () => {
+      try {
+        logger.info("[Ankorstore Catalog] Rechargement automatique déclenché (cycle 6h)");
+        invalidateCatalogCache();
+        await loadFullCatalog();
+      } catch {
+        // Les erreurs sont déjà loggées par loadFullCatalog.
+      }
+    })();
+  }, AUTO_RELOAD_INTERVAL_MS);
+  // Ne bloque pas la sortie du process si on est en cours d'arrêt.
+  autoReloadHandle.unref?.();
+}
+
+/**
  * Filtre une liste d'entrées par requête (insensible casse + accents).
  *
  * Match sur :
@@ -238,4 +273,8 @@ export function __resetCatalogCacheForTests(): void {
   cachedEntries = [];
   loadedAt = null;
   activeLoad = null;
+  if (autoReloadHandle) {
+    clearInterval(autoReloadHandle);
+    autoReloadHandle = null;
+  }
 }
