@@ -430,7 +430,9 @@ export async function buildPublishProductInput(productId: string): Promise<
       product.manufacturingCountry?.pfsCountryRef ??
       "FR",
     ...(product.hsCode && product.hsCode.trim() ? { hsCode: product.hsCode.trim() } : {}),
-    ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
+    // Voir lib/ankorstore-update.ts pour le détail : l'API attend "Bestseller"
+    // en entrée, pas l'enum `tags_bestseller` exposé dans la doc OpenAPI.
+    ...(product.isBestSeller ? { tags: ["Bestseller"] } : {}),
     ...(shapeProperties ? { shapeProperties } : {}),
     variants: variantEntries.map((v) => v.entry),
   };

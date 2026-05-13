@@ -400,7 +400,7 @@ describe("ankorstoreKickoffPublish — payload kickoff", () => {
     expect(product.description).toContain("Circonférence : 56 cm");
   });
 
-  it("best seller coché → envoie tag tags_bestseller", async () => {
+  it("best seller coché → envoie tag Bestseller", async () => {
     const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
     mockProductFindUnique.mockResolvedValue(makeUnitProduct({ isBestSeller: true }));
 
@@ -408,7 +408,7 @@ describe("ankorstoreKickoffPublish — payload kickoff", () => {
     expect(result.success).toBe(true);
 
     const [, products] = mockAddProductsToOperation.mock.calls[0];
-    expect(products[0].tags).toEqual(["tags_bestseller"]);
+    expect(products[0].tags).toEqual(["Bestseller"]);
   });
 
   it("statut OFFLINE → stockQuantity forcé à 0 sur toutes les variantes envoyées", async () => {

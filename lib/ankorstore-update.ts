@@ -671,7 +671,11 @@ export async function ankorstoreKickoffUpdate(
       // tags: tableau vide explicite quand bestseller décoché, sinon Ankorstore
       // ne retire pas le tag d'un produit déjà publié (champ absent = "pas
       // de changement" côté Ankorstore).
-      tags: product.isBestSeller ? ["tags_bestseller"] : [],
+      // Valeur attendue par l'API en entrée = "Bestseller" (sans le préfixe
+      // `tags_`). Ankorstore stocke en interne comme `tags_bestseller` et
+      // c'est ce qu'on relit en GET, mais en POST l'enum exposé dans la doc
+      // OpenAPI (`tags_bestseller`) est rejeté silencieusement.
+      tags: product.isBestSeller ? ["Bestseller"] : [],
       ...(shapeProperties ? { shapeProperties } : {}),
       // Garde-fou anti-doublon : pour un produit DÉJÀ publié (ankorsProductId
       // posé), on n'envoie que les variantes liées (ankorsVariantId connu).
