@@ -269,10 +269,39 @@ function buildProductPayloadAttributes(p: AnkorstoreCatalogProductInput): Record
  * via {@link ankorstoreStartOperation} after products are added.
  *
  * `delete` uses a different endpoint — see {@link ankorstoreKickoffDelete}.
+ *
+ * Pour `type: "update"`, on passe `updateFields` explicitement avec tous les
+ * champs qu'on est susceptibles de modifier — y compris `tags`. La spec dit
+ * qu'avec `source: "other"` et `updateFields` absent, tous les champs sont
+ * mis à jour ; en pratique le tag `tags_bestseller` n'est pas appliqué tant
+ * qu'on ne liste pas `tags` explicitement. Lister tous les champs préserve
+ * le comportement "tout mettre à jour" pour les autres attributs.
  */
+const ANKORSTORE_UPDATE_FIELDS = [
+  "name",
+  "description",
+  "images",
+  "vat_rate",
+  "unit_multiplier",
+  "wholesale_price",
+  "retail_price",
+  "stock",
+  "prices",
+  "tags",
+  "dimensions",
+] as const;
+
 export async function ankorstoreCreateCatalogOperation(
   type: "import" | "update"
 ): Promise<{ operationId: string }> {
+  const attributes: Record<string, unknown> = {
+    operationType: type,
+    source: "other",
+    callbackUrl: buildAnkorstoreCallbackUrl(),
+  };
+  if (type === "update") {
+    attributes.updateFields = [...ANKORSTORE_UPDATE_FIELDS];
+  }
   const resp = await ankorstoreFetchJson<{ data: { id: string } }>(
     `/catalog/integrations/operations`,
     {
@@ -280,11 +309,7 @@ export async function ankorstoreCreateCatalogOperation(
       body: JSON.stringify({
         data: {
           type: "catalog-integration-operation",
-          attributes: {
-            operationType: type,
-            source: "other",
-            callbackUrl: buildAnkorstoreCallbackUrl(),
-          },
+          attributes,
         },
       }),
     }

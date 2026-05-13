@@ -370,7 +370,7 @@ function TagsDropdown({
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <p className="text-sm font-semibold text-text-primary font-heading">Code SH</p>
           <a
-            href="https://www.tarifs-douaniers.fr/recherche"
+            href="https://www.tarifdouanier.eu/"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-[11px] font-normal text-[#4F46E5] hover:text-[#3730A3] hover:underline font-body"
