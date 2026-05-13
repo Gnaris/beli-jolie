@@ -605,15 +605,20 @@ export async function ankorstoreKickoffUpdate(
     }
     // Images niveau produit : UNIQUEMENT celles de la couleur principale.
     // Les autres couleurs ont leurs images attachées à leur variante.
+    // Spec Ankorstore : `main_image` porte l'order 1 implicite, donc `images`
+    // ne doit lister que les photos additionnelles (order >= 2) pour éviter
+    // que la 1re photo soit dupliquée dans la galerie produit.
     const primaryColorId = product.primaryColorId ?? product.colors[0]?.colorId ?? null;
     const primaryColorPaths = primaryColorId
       ? (imagesByColorId.get(primaryColorId) ?? [])
       : [];
-    const productImages = primaryColorPaths.map((path, idx) => ({
-      order: idx + 1,
+    const mainImage = primaryColorPaths[0]
+      ? buildPublicImageUrl(primaryColorPaths[0])
+      : undefined;
+    const productImages = primaryColorPaths.slice(1).map((path, idx) => ({
+      order: idx + 2,
       url: buildPublicImageUrl(path),
     }));
-    const mainImage = productImages[0]?.url;
     // Poids en kg directement (cf. spec Ankorstore : unit_code "kg")
     const weightKg = firstVariant?.weight && firstVariant.weight > 0
       ? Math.round(firstVariant.weight * 1000) / 1000

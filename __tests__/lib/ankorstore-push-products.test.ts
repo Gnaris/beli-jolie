@@ -242,6 +242,40 @@ describe("ankorstoreKickoffPublish — payload kickoff", () => {
     expect(product.retailPrice).toBe(15);
   });
 
+  it("anti-doublon image produit : main_image porte la 1re photo, images démarre à order 2", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(
+      makeUnitProduct({
+        colorImages: [
+          { path: "/uploads/produits/ref1/ref1-argent-1.webp", order: 1, colorId: "c1" },
+          { path: "/uploads/produits/ref1/ref1-argent-2.webp", order: 2, colorId: "c1" },
+          { path: "/uploads/produits/ref1/ref1-argent-3.webp", order: 3, colorId: "c1" },
+          // Image d'une autre couleur — ne doit jamais remonter au niveau produit
+          { path: "/uploads/produits/ref1/ref1-bleu-1.webp", order: 1, colorId: "c2" },
+        ],
+      }),
+    );
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    const product = products[0];
+
+    // main_image = 1re photo de la couleur principale (order 1 implicite)
+    expect(product.mainImage).toMatch(/ref1-argent-1\.webp$/);
+
+    // images = uniquement les photos suivantes (order >= 2), sans répéter la 1re
+    expect(product.images).toEqual([
+      { order: 2, url: expect.stringMatching(/ref1-argent-2\.webp$/) },
+      { order: 3, url: expect.stringMatching(/ref1-argent-3\.webp$/) },
+    ]);
+    // Aucune photo d'une autre couleur au niveau produit
+    expect(product.images.every((i: { url: string }) => !i.url.includes("bleu"))).toBe(true);
+    // La 1re photo ne doit jamais figurer dans le tableau images (anti-doublon)
+    expect(product.images.find((i: { url: string }) => i.url === product.mainImage)).toBeUndefined();
+  });
+
   it("rejette si addProducts renvoie totalProductsCount=0", async () => {
     const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
     mockProductFindUnique.mockResolvedValue(makeUnitProduct());

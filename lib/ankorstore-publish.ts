@@ -367,16 +367,20 @@ export async function buildPublishProductInput(productId: string): Promise<
   // Images niveau produit : UNIQUEMENT celles de la couleur principale
   // (primaryColorId côté local). Les autres couleurs ont leurs propres
   // images attachées à leur variante respective.
+  // Spec Ankorstore : `main_image` porte l'order 1 implicite, donc `images`
+  // ne doit lister que les photos additionnelles (order >= 2). Sinon la 1re
+  // photo est dupliquée dans la galerie produit.
   const primaryColorId = product.primaryColorId ?? product.colors[0]?.colorId ?? null;
   const primaryColorPaths = primaryColorId
     ? (imagesByColorId.get(primaryColorId) ?? [])
     : [];
-  const productImages = primaryColorPaths.map((path, idx) => ({
-    order: idx + 1,
+  const mainImage = primaryColorPaths[0]
+    ? buildPublicImageUrl(primaryColorPaths[0])
+    : undefined;
+  const productImages = primaryColorPaths.slice(1).map((path, idx) => ({
+    order: idx + 2,
     url: buildPublicImageUrl(path),
   }));
-
-  const mainImage = productImages[0]?.url;
 
   // Poids envoyé en kg directement (Ankorstore attend unit_code "kg" en
   // minuscules d'après leur spec OpenAPI shape_properties.weight). Le champ
