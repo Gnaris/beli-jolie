@@ -153,6 +153,8 @@ function TagsDropdown({
   loading = false,
   discountPercent,
   setDiscountPercent,
+  hsCode,
+  setHsCode,
 }: {
   localTags: { id: string; name: string }[];
   tagNames: string[];
@@ -165,6 +167,8 @@ function TagsDropdown({
   loading?: boolean;
   discountPercent: string;
   setDiscountPercent: (v: string) => void;
+  hsCode: string;
+  setHsCode: (v: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -358,6 +362,42 @@ function TagsDropdown({
             />
             <span className="text-sm font-semibold text-text-secondary">%</span>
           </div>
+        </div>
+      </div>
+
+      {/* Code SH (douanier) — juste sous la Remise produit */}
+      <div className="pt-3 border-t border-border-light">
+        <div className="flex items-center gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold text-text-primary font-heading">Code SH</p>
+              <a
+                href="https://www.tarifs-douaniers.fr/recherche"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] font-normal text-[#4F46E5] hover:text-[#3730A3] hover:underline font-body"
+                title="Ouvrir la liste des codes SH dans un nouvel onglet"
+              >
+                Voir la liste
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                </svg>
+              </a>
+            </div>
+            <p className="text-[11px] text-text-muted font-body mt-0.5">
+              Code douanier international (6 à 10 chiffres) — requis par Ankorstore.
+            </p>
+          </div>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={hsCode}
+            placeholder="ex : 7117190000"
+            onChange={(e) => setHsCode(e.target.value.replace(/[^\d]/g, ""))}
+            className="field-input w-40 text-right font-mono"
+            maxLength={10}
+          />
         </div>
       </div>
     </div>
@@ -2003,6 +2043,8 @@ export default function ProductForm({
               loading={!attributesLoaded}
               discountPercent={discountPercent}
               setDiscountPercent={setDiscountPercent}
+              hsCode={hsCode}
+              setHsCode={setHsCode}
             />
           </div>
 
@@ -2039,54 +2081,6 @@ export default function ProductForm({
                     onChange={(e) => setDimCircumference(e.target.value)} className="field-input text-right" />
                 </Field>
               </div>
-
-              {/* ── Code SH (douanier) ──────────────────────────────────── */}
-              <div className="pt-2 border-t border-border">
-                <Field
-                  label={
-                    <span className="flex items-center justify-between gap-2 w-full">
-                      <span>Code SH (douanier)</span>
-                      <a
-                        href="https://www.tarifs-douaniers.fr/recherche"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-[11px] font-normal text-[#4F46E5] hover:text-[#3730A3] hover:underline font-body"
-                        title="Ouvrir la liste des codes SH dans un nouvel onglet"
-                      >
-                        Voir la liste des codes SH
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                        </svg>
-                      </a>
-                    </span>
-                  }
-                >
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={hsCode}
-                    placeholder="ex : 7117190000"
-                    onChange={(e) => setHsCode(e.target.value.replace(/[^\d]/g, ""))}
-                    className="field-input"
-                    maxLength={10}
-                  />
-                  <p className="text-xs text-text-muted mt-1">
-                    Code douanier international (6 à 10 chiffres) — requis par Ankorstore et utile pour l&apos;export.
-                  </p>
-                </Field>
-              </div>
-
-              {hasTailleUnique && (
-                <div className="pt-2 border-t border-border">
-                  <Field label="Détail taille unique *">
-                    <input type="text" value={sizeDetailsTu} placeholder="ex : 52-56"
-                      onChange={(e) => setSizeDetailsTu(e.target.value)}
-                      className={`field-input${!sizeDetailsTu.trim() ? " field-error" : ""}`} required />
-                    <p className="text-xs text-text-muted mt-1">Indication taille minimum – maximum, exemple : 36-42. Obligatoire quand une variante utilise la taille unique.</p>
-                  </Field>
-                </div>
-              )}
             </div>
 
             {/* ── BLOC COMPOSITION ── */}
@@ -2176,13 +2170,35 @@ export default function ProductForm({
 
         {/* ── Variantes couleur ── */}
         <section id="section-variants" className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-2xl p-8 space-y-5 shadow-card scroll-mt-24`}>
-          <div className="flex items-center justify-between border-b border-border pb-4">
-            <h2 className="font-heading text-xl font-bold text-text-primary">
-              Variantes{mode === "create" ? " *" : ""}
-            </h2>
-            <span className={`text-sm font-body ${mode === "create" && variants.length === 0 ? "text-[#EF4444] font-semibold" : "text-text-muted"}`}>
-              {variants.length} variante{variants.length > 1 ? "s" : ""}
-            </span>
+          <div className="flex items-center justify-between gap-4 border-b border-border pb-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <h2 className="font-heading text-xl font-bold text-text-primary">
+                Variantes{mode === "create" ? " *" : ""}
+              </h2>
+              <span className={`text-sm font-body ${mode === "create" && variants.length === 0 ? "text-[#EF4444] font-semibold" : "text-text-muted"}`}>
+                {variants.length} variante{variants.length > 1 ? "s" : ""}
+              </span>
+            </div>
+            {hasTailleUnique && (
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="size-details-tu"
+                  className="text-xs font-body font-semibold text-text-secondary whitespace-nowrap"
+                  title="Indication taille minimum – maximum, ex : 36-42. Obligatoire quand une variante utilise la taille unique."
+                >
+                  Détail taille unique <span className="text-[#EF4444]">*</span>
+                </label>
+                <input
+                  id="size-details-tu"
+                  type="text"
+                  value={sizeDetailsTu}
+                  placeholder="ex : 52-56"
+                  onChange={(e) => setSizeDetailsTu(e.target.value)}
+                  className={`field-input w-32 text-right${!sizeDetailsTu.trim() ? " field-error" : ""}`}
+                  required
+                />
+              </div>
+            )}
           </div>
           {mode === "create" && variants.length === 0 && (
             <p className="text-[12px] text-[#EF4444] font-body">
