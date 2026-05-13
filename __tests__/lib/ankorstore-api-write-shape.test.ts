@@ -159,6 +159,100 @@ describe("ankorstoreAddProductsToOperation — payload shape_properties", () => 
     });
   });
 
+  it("hsCode → sérialisé en hs_code dans le payload", async () => {
+    const { ankorstoreAddProductsToOperation } = await import("@/lib/ankorstore-api-write");
+    await ankorstoreAddProductsToOperation("op1", [
+      {
+        externalId: "REF1",
+        name: "P",
+        description: "D",
+        currency: "EUR",
+        vatRate: 20,
+        unitMultiplier: 1,
+        wholesalePrice: 10,
+        retailPrice: 15,
+        countryCode: "FR",
+        variants: [],
+        hsCode: "7117190000",
+      },
+    ]);
+
+    const body = lastJsonBody();
+    const product = (body.products as Array<Record<string, unknown>>)[0];
+    const attrs = product.attributes as Record<string, unknown>;
+    expect(attrs.hs_code).toBe("7117190000");
+  });
+
+  it("sans hsCode → pas de hs_code dans le payload", async () => {
+    const { ankorstoreAddProductsToOperation } = await import("@/lib/ankorstore-api-write");
+    await ankorstoreAddProductsToOperation("op1", [
+      {
+        externalId: "REF1",
+        name: "P",
+        description: "D",
+        currency: "EUR",
+        vatRate: 20,
+        unitMultiplier: 1,
+        wholesalePrice: 10,
+        retailPrice: 15,
+        countryCode: "FR",
+        variants: [],
+      },
+    ]);
+
+    const body = lastJsonBody();
+    const product = (body.products as Array<Record<string, unknown>>)[0];
+    const attrs = product.attributes as Record<string, unknown>;
+    expect(attrs.hs_code).toBeUndefined();
+  });
+
+  it("tags vide explicite → présent dans le payload (retire le tag côté Ankorstore)", async () => {
+    const { ankorstoreAddProductsToOperation } = await import("@/lib/ankorstore-api-write");
+    await ankorstoreAddProductsToOperation("op1", [
+      {
+        externalId: "REF1",
+        name: "P",
+        description: "D",
+        currency: "EUR",
+        vatRate: 20,
+        unitMultiplier: 1,
+        wholesalePrice: 10,
+        retailPrice: 15,
+        countryCode: "FR",
+        variants: [],
+        tags: [],
+      },
+    ]);
+
+    const body = lastJsonBody();
+    const product = (body.products as Array<Record<string, unknown>>)[0];
+    const attrs = product.attributes as Record<string, unknown>;
+    expect(attrs.tags).toEqual([]);
+  });
+
+  it("tags absent (undefined) → champ absent du payload (= ne change rien côté Ankorstore)", async () => {
+    const { ankorstoreAddProductsToOperation } = await import("@/lib/ankorstore-api-write");
+    await ankorstoreAddProductsToOperation("op1", [
+      {
+        externalId: "REF1",
+        name: "P",
+        description: "D",
+        currency: "EUR",
+        vatRate: 20,
+        unitMultiplier: 1,
+        wholesalePrice: 10,
+        retailPrice: 15,
+        countryCode: "FR",
+        variants: [],
+      },
+    ]);
+
+    const body = lastJsonBody();
+    const product = (body.products as Array<Record<string, unknown>>)[0];
+    const attrs = product.attributes as Record<string, unknown>;
+    expect(attrs.tags).toBeUndefined();
+  });
+
   it("sans shapeProperties → pas de bloc shape_properties dans le payload", async () => {
     const { ankorstoreAddProductsToOperation } = await import("@/lib/ankorstore-api-write");
     await ankorstoreAddProductsToOperation("op1", [

@@ -83,6 +83,7 @@ interface FullProduct {
   dimensionHeight: number | null;
   dimensionDiameter: number | null;
   dimensionCircumference: number | null;
+  hsCode: string | null;
   sizeDetailsTu: string | null;
   category: {
     id: string;
@@ -122,6 +123,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       dimensionHeight: true,
       dimensionDiameter: true,
       dimensionCircumference: true,
+      hsCode: true,
       sizeDetailsTu: true,
       category: {
         select: {
@@ -345,6 +347,8 @@ export async function buildPublishProductInput(productId: string): Promise<
         nameFR: c.composition.name ?? c.composition.pfsCompositionRef ?? "",
       },
     })),
+    dimensionDiameter: product.dimensionDiameter,
+    dimensionCircumference: product.dimensionCircumference,
   });
 
   const imagesByColorId = buildImagesByColorId(product.colorImages);
@@ -412,6 +416,7 @@ export async function buildPublishProductInput(productId: string): Promise<
       product.manufacturingCountry?.isoCode ??
       product.manufacturingCountry?.pfsCountryRef ??
       "FR",
+    ...(product.hsCode && product.hsCode.trim() ? { hsCode: product.hsCode.trim() } : {}),
     ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
     ...(shapeProperties ? { shapeProperties } : {}),
     variants: variantEntries.map((v) => v.entry),

@@ -7,7 +7,7 @@
  * refresh qui remplace l'ankorstoreProductId), on traite tout comme "à envoyer".
  */
 
-export const ANKORSTORE_SNAPSHOT_VERSION = 2 as const;
+export const ANKORSTORE_SNAPSHOT_VERSION = 3 as const;
 
 export interface AnkorstoreProductFieldsSnapshot {
   externalId: string; // Product.reference
@@ -29,6 +29,16 @@ export interface AnkorstoreProductFieldsSnapshot {
   dimensionLengthMm: number | null;
   dimensionWidthMm: number | null;
   dimensionHeightMm: number | null;
+  /**
+   * Code SH (douanier) trimmé. `null` quand non renseigné côté local.
+   */
+  hsCode: string | null;
+  /**
+   * Statut « Best Seller » (case cochée sur la fiche produit). Inclus dans
+   * le snapshot pour qu'un cochage/décochage déclenche un re-push qui ajoute
+   * ou retire le tag `tags_bestseller` côté Ankorstore.
+   */
+  isBestSeller: boolean;
 }
 
 export interface AnkorstoreVariantSnapshot {
@@ -78,7 +88,9 @@ export function productFieldsEqual(
     a.weightGrams === b.weightGrams &&
     a.dimensionLengthMm === b.dimensionLengthMm &&
     a.dimensionWidthMm === b.dimensionWidthMm &&
-    a.dimensionHeightMm === b.dimensionHeightMm
+    a.dimensionHeightMm === b.dimensionHeightMm &&
+    a.hsCode === b.hsCode &&
+    a.isBestSeller === b.isBestSeller
   );
 }
 

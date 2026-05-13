@@ -108,6 +108,7 @@ interface FullProduct {
   dimensionHeight: number | null;
   dimensionDiameter: number | null;
   dimensionCircumference: number | null;
+  hsCode: string | null;
   sizeDetailsTu: string | null;
   category: {
     id: string;
@@ -149,6 +150,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       dimensionHeight: true,
       dimensionDiameter: true,
       dimensionCircumference: true,
+      hsCode: true,
       sizeDetailsTu: true,
       category: {
         select: {
@@ -270,6 +272,8 @@ function buildProductFieldsSnapshot(
         nameFR: c.composition.name ?? c.composition.pfsCompositionRef ?? "",
       },
     })),
+    dimensionDiameter: product.dimensionDiameter,
+    dimensionCircumference: product.dimensionCircumference,
   });
   const firstVariantWeight = product.colors[0]?.weight ?? null;
   return {
@@ -287,6 +291,8 @@ function buildProductFieldsSnapshot(
     dimensionLengthMm: toIntegerOrNull(product.dimensionLength, 10),
     dimensionWidthMm: toIntegerOrNull(product.dimensionWidth, 10),
     dimensionHeightMm: toIntegerOrNull(product.dimensionHeight, 10),
+    hsCode: product.hsCode?.trim() || null,
+    isBestSeller: product.isBestSeller,
   };
 }
 
@@ -655,7 +661,11 @@ export async function ankorstoreKickoffUpdate(
       wholesalePrice,
       retailPrice,
       countryCode: nextProductSnap.countryCode,
-      ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
+      ...(nextProductSnap.hsCode ? { hsCode: nextProductSnap.hsCode } : {}),
+      // tags: tableau vide explicite quand bestseller décoché, sinon Ankorstore
+      // ne retire pas le tag d'un produit déjà publié (champ absent = "pas
+      // de changement" côté Ankorstore).
+      tags: product.isBestSeller ? ["tags_bestseller"] : [],
       ...(shapeProperties ? { shapeProperties } : {}),
       // Garde-fou anti-doublon : pour un produit DÉJÀ publié (ankorsProductId
       // posé), on n'envoie que les variantes liées (ankorsVariantId connu).

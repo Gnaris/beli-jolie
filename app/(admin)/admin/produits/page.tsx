@@ -11,7 +11,11 @@ import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
 import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
-import { buildAdminProductsWhere, buildAdminProductsOrderBy } from "@/lib/admin-products-filter";
+import {
+  buildAdminProductsWhere,
+  buildAdminProductsOrderBy,
+  findProductIdsWithMissingVariantImages,
+} from "@/lib/admin-products-filter";
 import { withProtectedSizeItem, type SizeManagerItem } from "@/lib/protected-sizes";
 
 // Attribute managers
@@ -47,6 +51,7 @@ interface PageProps {
     dateFrom?: string;
     dateTo?: string;
     stockBelow?: string;
+    missingImages?: string;
   }>;
 }
 
@@ -130,6 +135,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     dateFrom = "",
     dateTo = "",
     stockBelow: stockBelowParam = "",
+    missingImages = "",
   } = params;
 
   const exactRef   = exactRefParam === "1";
@@ -138,6 +144,12 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   const minPrice    = minPriceParam ? parseFloat(minPriceParam) : null;
   const maxPrice    = maxPriceParam ? parseFloat(maxPriceParam) : null;
   const stockBelow  = stockBelowParam ? parseInt(stockBelowParam) : null;
+
+  // Filtre « au moins une variante sans image » : précalculer les productId
+  // côté SQL puis les passer au where builder en restriction d'IDs.
+  const productIdsIn = missingImages === "1"
+    ? await findProductIdsWithMissingVariantImages(prisma)
+    : null;
 
   const where = buildAdminProductsWhere({
     q,
@@ -154,6 +166,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     dateFrom,
     dateTo,
     stockBelow,
+    productIdsIn,
   });
 
   const [

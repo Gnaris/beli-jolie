@@ -350,6 +350,10 @@ model Product {
   dimensionHeight        Float?
   dimensionDiameter      Float?
   dimensionCircumference Float?
+  // Code SH (Système Harmonisé / HS code) — code douanier international,
+  // 6 à 10 chiffres. Utilisé par les marketplaces qui requièrent une
+  // classification douanière (Ankorstore champ `hs_code`).
+  hsCode                 String?
   manufacturingCountryId String?
   manufacturingCountry   ManufacturingCountry? @relation(fields: [manufacturingCountryId], references: [id], onDelete: SetNull)
   seasonId               String?

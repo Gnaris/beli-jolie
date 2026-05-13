@@ -40,4 +40,43 @@ describe("formatAnkorstoreDescription", () => {
     const out = formatAnkorstoreDescription({ description: "Bonjour le monde", reference: "REF" });
     expect(out).not.toContain("Composition");
   });
+
+  it("diamètre renseigné → ligne 'Diamètre : X cm' dans la description", () => {
+    const out = formatAnkorstoreDescription({
+      description: "Bague.",
+      reference: "REF",
+      dimensionDiameter: 18,
+    });
+    expect(out).toContain("Diamètre : 18 cm");
+  });
+
+  it("circonférence renseignée → ligne 'Circonférence : X cm' dans la description", () => {
+    const out = formatAnkorstoreDescription({
+      description: "Bracelet.",
+      reference: "REF",
+      dimensionCircumference: 56,
+    });
+    expect(out).toContain("Circonférence : 56 cm");
+  });
+
+  it("diamètre + circonférence combinés sur la même ligne avec séparateur", () => {
+    const out = formatAnkorstoreDescription({
+      description: "Bague.",
+      reference: "REF",
+      dimensionDiameter: 18,
+      dimensionCircumference: 56,
+    });
+    expect(out).toContain("Diamètre : 18 cm · Circonférence : 56 cm");
+  });
+
+  it("ignore les diamètre/circonférence à 0 ou null", () => {
+    const out = formatAnkorstoreDescription({
+      description: "Produit standard avec description suffisamment longue.",
+      reference: "REF",
+      dimensionDiameter: null,
+      dimensionCircumference: 0,
+    });
+    expect(out).not.toContain("Diamètre");
+    expect(out).not.toContain("Circonférence");
+  });
 });

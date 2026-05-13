@@ -58,6 +58,16 @@ export interface AnkorstoreCatalogProductInput {
   wholesalePrice: number; // EUR (not cents)
   retailPrice: number;    // EUR
   countryCode: string;    // ISO
+  /**
+   * Code SH / HS code (douanier). 6 à 10 chiffres typiquement. Optionnel —
+   * envoyé seulement quand renseigné côté produit.
+   */
+  hsCode?: string;
+  /**
+   * Liste des tags. **Envoyer un tableau vide (`[]`) retire activement
+   * tous les tags** sur un produit déjà publié. Ne PAS confondre avec
+   * « champ absent » qui veut dire « pas de changement ».
+   */
   tags?: string[];
   variants: {
     sku: string;
@@ -207,7 +217,8 @@ function buildProductPayloadAttributes(p: AnkorstoreCatalogProductInput): Record
     wholesale_price: p.wholesalePrice,
     retail_price: p.retailPrice,
     made_in_country: p.countryCode,
-    ...(p.tags ? { tags: p.tags } : {}),
+    ...(p.hsCode ? { hs_code: p.hsCode } : {}),
+    ...(p.tags !== undefined ? { tags: p.tags } : {}),
     ...(p.shapeProperties
       ? {
           shape_properties: {

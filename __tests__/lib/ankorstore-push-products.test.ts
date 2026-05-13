@@ -21,8 +21,22 @@ vi.mock("@/lib/logger", () => ({
 
 vi.mock("@/lib/ankorstore-description", () => ({
   formatAnkorstoreDescription: vi.fn().mockImplementation(
-    (input: { description: string; reference: string }) =>
-      `${input.description}\n\nRéférence : ${input.reference}`,
+    (input: {
+      description: string;
+      reference: string;
+      dimensionDiameter?: number | null;
+      dimensionCircumference?: number | null;
+    }) => {
+      const dims: string[] = [];
+      if (input.dimensionDiameter && input.dimensionDiameter > 0) {
+        dims.push(`Diamètre : ${input.dimensionDiameter} cm`);
+      }
+      if (input.dimensionCircumference && input.dimensionCircumference > 0) {
+        dims.push(`Circonférence : ${input.dimensionCircumference} cm`);
+      }
+      const tail = dims.length > 0 ? `\n${dims.join(" · ")}` : "";
+      return `${input.description}${tail}\n\nRéférence : ${input.reference}`;
+    },
   ),
 }));
 
@@ -84,6 +98,7 @@ function makeUnitProduct(overrides: Record<string, unknown> = {}) {
     dimensionHeight: null,
     dimensionDiameter: null,
     dimensionCircumference: null,
+    hsCode: null,
     sizeDetailsTu: null,
     category: { id: "cat1", pfsCategoryId: null, pfsGender: null, pfsFamilyId: null, pfsFamilyName: null, pfsCategoryName: null },
     colors: [
@@ -341,6 +356,70 @@ describe("ankorstoreKickoffPublish — payload kickoff", () => {
     expect(
       (product.shapeProperties?.dimensions as Record<string, unknown>)?.width,
     ).toBeUndefined();
+  });
+
+  it("code SH renseigné → présent dans le payload (hsCode)", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(
+      makeUnitProduct({ hsCode: "7117190000" }),
+    );
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    expect(products[0].hsCode).toBe("7117190000");
+  });
+
+  it("code SH absent → pas de hsCode dans le payload", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(makeUnitProduct({ hsCode: null }));
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    expect(products[0].hsCode).toBeUndefined();
+  });
+
+  it("diamètre/circonférence renseignés → ajoutés dans la description", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(
+      makeUnitProduct({
+        dimensionDiameter: 18,
+        dimensionCircumference: 56,
+      }),
+    );
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    const product = products[0];
+    expect(product.description).toContain("Diamètre : 18 cm");
+    expect(product.description).toContain("Circonférence : 56 cm");
+  });
+
+  it("best seller coché → envoie tag tags_bestseller", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(makeUnitProduct({ isBestSeller: true }));
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    expect(products[0].tags).toEqual(["tags_bestseller"]);
+  });
+
+  it("best seller décoché à la publication initiale → pas de tags envoyés", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(makeUnitProduct({ isBestSeller: false }));
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    expect(products[0].tags).toBeUndefined();
   });
 
   it("aucune dimension renseignée → pas de bloc dimensions dans le payload", async () => {

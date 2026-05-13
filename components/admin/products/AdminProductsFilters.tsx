@@ -38,6 +38,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlDateFrom  = searchParams.get("dateFrom")   ?? "";
   const urlDateTo    = searchParams.get("dateTo")     ?? "";
   const urlStockBelow = searchParams.get("stockBelow") ?? "";
+  const urlMissingImages = searchParams.get("missingImages") ?? "";
   const perPage      = searchParams.get("perPage")    ?? "20";
 
   // Parse "REF1,REF2,REF3" → ["REF1", "REF2", "REF3"]
@@ -64,7 +65,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   useEffect(() => { setLocalStockBelow(urlStockBelow); }, [urlStockBelow]);
 
   const localQ = localTerms.join(",");
-  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow);
+  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages);
   const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localExactRef !== urlExactRef || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
   const [customValue, setCustomValue] = useState("");
@@ -449,6 +450,22 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 options={[
                   { value: "", label: "Tous" },
                   { value: "1", label: "Best-sellers uniquement" },
+                ]}
+                size="sm"
+              />
+            </div>
+
+            {/* Images — applies immediately */}
+            <div>
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
+                Images
+              </label>
+              <CustomSelect
+                value={urlMissingImages}
+                onChange={(v) => navigate({ missingImages: v || null })}
+                options={[
+                  { value: "", label: "Toutes" },
+                  { value: "1", label: "Au moins une variante sans image" },
                 ]}
                 size="sm"
               />

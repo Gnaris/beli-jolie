@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   buildAdminProductsWhere,
   buildAdminProductsOrderBy,
+  findProductIdsWithMissingVariantImages,
 } from "@/lib/admin-products-filter";
 
 describe("buildAdminProductsWhere", () => {
@@ -163,6 +164,52 @@ describe("buildAdminProductsWhere", () => {
   it("does not apply any lastRefreshedAt where clause for refresh=dateAsc (it's a sort, not a filter)", () => {
     const where = buildAdminProductsWhere({ refresh: "dateAsc" });
     expect(where.lastRefreshedAt).toBeUndefined();
+  });
+
+  it("restricts to the given productIdsIn list when provided", () => {
+    const where = buildAdminProductsWhere({ productIdsIn: ["p1", "p2"] });
+    expect(where.id).toEqual({ in: ["p1", "p2"] });
+  });
+
+  it("returns no products when productIdsIn is an empty array (zero matches)", () => {
+    const where = buildAdminProductsWhere({ productIdsIn: [] });
+    expect(where.id).toEqual({ in: [] });
+  });
+
+  it("does not set where.id when productIdsIn is null or undefined", () => {
+    expect(buildAdminProductsWhere({ productIdsIn: null }).id).toBeUndefined();
+    expect(buildAdminProductsWhere({}).id).toBeUndefined();
+  });
+
+  it("combines productIdsIn with other filters without clobbering them", () => {
+    const where = buildAdminProductsWhere({
+      productIdsIn: ["p1"],
+      cat: "c1",
+      status: "ONLINE",
+    });
+    expect(where).toMatchObject({
+      id: { in: ["p1"] },
+      categoryId: "c1",
+      status: "ONLINE",
+    });
+  });
+});
+
+describe("findProductIdsWithMissingVariantImages", () => {
+  it("returns the productIds reported by the raw query", async () => {
+    const $queryRaw = vi.fn().mockResolvedValue([
+      { productId: "p1" },
+      { productId: "p2" },
+    ]);
+    const ids = await findProductIdsWithMissingVariantImages({ $queryRaw } as never);
+    expect(ids).toEqual(["p1", "p2"]);
+    expect($queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns an empty array when no product has a variant without images", async () => {
+    const $queryRaw = vi.fn().mockResolvedValue([]);
+    const ids = await findProductIdsWithMissingVariantImages({ $queryRaw } as never);
+    expect(ids).toEqual([]);
   });
 });
 

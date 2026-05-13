@@ -103,6 +103,7 @@ interface ProductFormProps {
     dimHeight: string;
     dimDiameter: string;
     dimCircumference: string;
+    hsCode?: string;
     manufacturingCountryId?: string;
     seasonId?: string;
     translations?: { locale: string; name: string; description: string }[];
@@ -454,6 +455,7 @@ export default function ProductForm({
   const [dimHeight,        setDimHeight]        = useState(initialData?.dimHeight        ?? "");
   const [dimDiameter,      setDimDiameter]      = useState(initialData?.dimDiameter      ?? "");
   const [dimCircumference, setDimCircumference] = useState(initialData?.dimCircumference ?? "");
+  const [hsCode,           setHsCode]           = useState(initialData?.hsCode           ?? "");
 
   const [error, setError] = useState("");
   const [onlineErrors, setOnlineErrors] = useState<string[]>([]);
@@ -593,9 +595,9 @@ export default function ProductForm({
     variants: variants.map((v) => ({ colorId: v.colorId, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries, disabled: v.disabled ?? false })),
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
     compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent,
-    dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus,
+    dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCode, productStatus,
     manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId,
-  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId]);
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCode, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId]);
 
   // Détecte si au moins une variante utilise "Taille Unique" / "TU"
   const hasTailleUnique = useMemo(() => {
@@ -1281,6 +1283,7 @@ export default function ProductForm({
       dimensionHeight:        dimHeight        ? parseFloat(dimHeight)        : null,
       dimensionDiameter:      dimDiameter      ? parseFloat(dimDiameter)      : null,
       dimensionCircumference: dimCircumference ? parseFloat(dimCircumference) : null,
+      hsCode: hsCode.trim() || null,
       manufacturingCountryId: manufacturingCountryId || null,
       seasonId: seasonId || null,
       sizeDetailsTu: sizeDetailsTu.trim() || null,
@@ -1497,6 +1500,7 @@ export default function ProductForm({
       dimensionHeight:        dimHeight        ? parseFloat(dimHeight)        : null,
       dimensionDiameter:      dimDiameter      ? parseFloat(dimDiameter)      : null,
       dimensionCircumference: dimCircumference ? parseFloat(dimCircumference) : null,
+      hsCode: hsCode.trim() || null,
       manufacturingCountryId: manufacturingCountryId || null,
       seasonId: seasonId || null,
       sizeDetailsTu: sizeDetailsTu.trim() || null,
@@ -2035,6 +2039,44 @@ export default function ProductForm({
                     onChange={(e) => setDimCircumference(e.target.value)} className="field-input text-right" />
                 </Field>
               </div>
+
+              {/* ── Code SH (douanier) ──────────────────────────────────── */}
+              <div className="pt-2 border-t border-border">
+                <Field
+                  label={
+                    <span className="flex items-center justify-between gap-2 w-full">
+                      <span>Code SH (douanier)</span>
+                      <a
+                        href="https://www.tarifs-douaniers.fr/recherche"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] font-normal text-[#4F46E5] hover:text-[#3730A3] hover:underline font-body"
+                        title="Ouvrir la liste des codes SH dans un nouvel onglet"
+                      >
+                        Voir la liste des codes SH
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                        </svg>
+                      </a>
+                    </span>
+                  }
+                >
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={hsCode}
+                    placeholder="ex : 7117190000"
+                    onChange={(e) => setHsCode(e.target.value.replace(/[^\d]/g, ""))}
+                    className="field-input"
+                    maxLength={10}
+                  />
+                  <p className="text-xs text-text-muted mt-1">
+                    Code douanier international (6 à 10 chiffres) — requis par Ankorstore et utile pour l&apos;export.
+                  </p>
+                </Field>
+              </div>
+
               {hasTailleUnique && (
                 <div className="pt-2 border-t border-border">
                   <Field label="Détail taille unique *">
@@ -2354,7 +2396,7 @@ export default function ProductForm({
 }
 
 // ── Field wrapper ─────────────────────────────────────────────────────────
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Field({ label, hint, children }: { label: React.ReactNode; hint?: string; children: React.ReactNode }) {
   return (
     <div>
       <label className="block text-sm font-body font-semibold text-text-secondary mb-1.5">

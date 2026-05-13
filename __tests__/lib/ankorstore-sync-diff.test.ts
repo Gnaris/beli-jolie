@@ -20,6 +20,8 @@ const baseSnap: AnkorstoreSyncSnapshot = {
     dimensionLengthMm: null,
     dimensionWidthMm: null,
     dimensionHeightMm: null,
+    hsCode: null,
+    isBestSeller: false,
   },
   variants: {
     v1: {
@@ -149,5 +151,49 @@ describe("diffAnkorstoreSnapshots", () => {
     const next: AnkorstoreSyncSnapshot = { ...prev };
     const diff = diffAnkorstoreSnapshots(prev, next);
     expect(diff.productChanged).toBe(false);
+  });
+
+  it("renseigner un code SH (passe de null à valeur) → productChanged=true", () => {
+    const next: AnkorstoreSyncSnapshot = {
+      ...baseSnap,
+      product: { ...baseSnap.product, hsCode: "7117190000" },
+    };
+    const diff = diffAnkorstoreSnapshots(baseSnap, next);
+    expect(diff.productChanged).toBe(true);
+  });
+
+  it("changer le code SH → productChanged=true", () => {
+    const prev: AnkorstoreSyncSnapshot = {
+      ...baseSnap,
+      product: { ...baseSnap.product, hsCode: "7117190000" },
+    };
+    const next: AnkorstoreSyncSnapshot = {
+      ...prev,
+      product: { ...prev.product, hsCode: "7113190000" },
+    };
+    const diff = diffAnkorstoreSnapshots(prev, next);
+    expect(diff.productChanged).toBe(true);
+  });
+
+  it("cocher la case Best Seller → productChanged=true (déclenche re-push des tags)", () => {
+    const next: AnkorstoreSyncSnapshot = {
+      ...baseSnap,
+      product: { ...baseSnap.product, isBestSeller: true },
+    };
+    const diff = diffAnkorstoreSnapshots(baseSnap, next);
+    expect(diff.productChanged).toBe(true);
+  });
+
+  it("décocher la case Best Seller → productChanged=true (déclenche retrait du tag)", () => {
+    const prev: AnkorstoreSyncSnapshot = {
+      ...baseSnap,
+      product: { ...baseSnap.product, isBestSeller: true },
+    };
+    const next: AnkorstoreSyncSnapshot = {
+      ...prev,
+      product: { ...prev.product, isBestSeller: false },
+    };
+    const diff = diffAnkorstoreSnapshots(prev, next);
+    expect(diff.productChanged).toBe(true);
   });
 });

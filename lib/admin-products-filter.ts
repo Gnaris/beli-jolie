@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 export type AdminProductsRefreshValue =
   | ""
@@ -23,6 +23,13 @@ export interface AdminProductsFilterParams {
   dateFrom?: string;
   dateTo?: string;
   stockBelow?: number | null;
+  /**
+   * Liste des productId à retenir (intersection). Quand le filtre
+   * « variantes sans image » est actif, on précalcule les IDs côté serveur
+   * via une requête SQL et on les passe ici. `null`/undefined = filtre inactif,
+   * `[]` = aucun produit ne correspond.
+   */
+  productIdsIn?: string[] | null;
   /** Reference date for "recent" refresh window (defaults to now). Tests inject a fixed value. */
   now?: Date;
 }
@@ -132,7 +139,36 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     };
   }
 
+  if (params.productIdsIn) {
+    where.id = { in: params.productIdsIn };
+  }
+
   return where;
+}
+
+/**
+ * Renvoie les productId où **au moins une variante de couleur** n'a aucune
+ * image enregistrée. Le couple (productId, colorId) est la clé d'image dans
+ * `ProductColorImage` — on cherche donc les ProductColor (avec colorId non
+ * nul) pour lesquels aucune ligne image n'existe sur ce couple.
+ *
+ * Utilisé par la page `/admin/produits` pour le filtre « Variantes sans image ».
+ */
+export async function findProductIdsWithMissingVariantImages(
+  prisma: Pick<PrismaClient, "$queryRaw">,
+): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ productId: string }[]>`
+    SELECT DISTINCT pc.productId AS productId
+    FROM ProductColor pc
+    WHERE pc.colorId IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM ProductColorImage pci
+        WHERE pci.productId = pc.productId
+          AND pci.colorId = pc.colorId
+      )
+  `;
+  return rows.map((r) => r.productId);
 }
 
 /**

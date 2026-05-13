@@ -7,14 +7,12 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import {
-  ankorstoreSearchProducts,
   ankorstoreGetProduct,
   type AnkorstoreProduct,
 } from "@/lib/ankorstore-api";
 import {
   runAutoMatch,
   type BjProductForMatch,
-  type MatchReport,
   type VariantMatchPair,
 } from "@/lib/ankorstore-match";
 import { autoLinkAnkorstoreVariants } from "@/lib/ankorstore-variant-link";
@@ -54,76 +52,6 @@ async function requireAdmin() {
   if (!session || session.user.role !== "ADMIN") {
     throw new Error("Accès non autorisé.");
   }
-}
-
-/**
- * Pour chaque produit BJ non lié, fait une **recherche ciblée par référence**
- * sur Ankorstore via le filtre skuOrName. Si la recherche ne renvoie rien, le
- * produit n'existe pas sur Ankorstore (la cliente a validé ce comportement).
- * Les requêtes sont parallélisées par groupes de 5 pour ne pas saturer l'API.
- */
-export async function runAnkorstoreAutoMatch(): Promise<MatchReport> {
-  await requireAdmin();
-
-  const bjProductsRaw = await prisma.product.findMany({
-    where: { ankorsProductId: null, isIncomplete: false },
-    select: {
-      id: true,
-      name: true,
-      reference: true,
-      colors: {
-        select: { colorId: true, color: { select: { name: true } } },
-      },
-    },
-  });
-
-  const bjProducts: BjProductForMatch[] = bjProductsRaw.map((p) => ({
-    id: p.id,
-    name: p.name,
-    reference: p.reference,
-    colors: p.colors
-      .filter((pc) => pc.colorId && pc.color)
-      .map((pc) => ({
-        id: pc.colorId as string,
-        name: pc.color!.name,
-      })),
-  }));
-
-  if (bjProducts.length === 0) {
-    return { matched: 0, ambiguous: 0, unmatched: 0, total: 0, results: [] };
-  }
-
-  const CONCURRENCY = 5;
-  const akMap = new Map<string, AnkorstoreProduct>();
-
-  for (let i = 0; i < bjProducts.length; i += CONCURRENCY) {
-    const batch = bjProducts.slice(i, i + CONCURRENCY);
-    const responses = await Promise.all(
-      batch.map(async (bj) => {
-        try {
-          return await ankorstoreSearchProducts(bj.reference, 10);
-        } catch (err) {
-          logger.warn("[Ankorstore Match] Search by reference failed", {
-            reference: bj.reference,
-            error: err instanceof Error ? err.message : String(err),
-          });
-          return [];
-        }
-      }),
-    );
-    for (const products of responses) {
-      for (const p of products) akMap.set(p.id, p);
-    }
-  }
-
-  const ankorstoreProducts = Array.from(akMap.values());
-
-  logger.info("[Ankorstore Match] Reference-only match complete", {
-    bjProducts: bjProducts.length,
-    foundAnkorstoreProducts: ankorstoreProducts.length,
-  });
-
-  return runAutoMatch(ankorstoreProducts, bjProducts);
 }
 
 /**
@@ -187,7 +115,6 @@ export async function confirmAnkorstoreMatch(
 
     revalidatePath("/admin/produits");
     revalidatePath(`/admin/produits/${productId}/modifier`);
-    revalidatePath("/admin/ankorstore");
     revalidateTag("products", "default");
 
     return { success: true };
@@ -223,7 +150,6 @@ export async function removeAnkorstoreMatch(
 
     revalidatePath("/admin/produits");
     revalidatePath(`/admin/produits/${productId}/modifier`);
-    revalidatePath("/admin/ankorstore");
     revalidateTag("products", "default");
 
     return { success: true };

@@ -60,7 +60,7 @@ Create / update sur PFS et Ankorstore = **direct via les API**. Plus d'export Ex
 - PFS : `Product.pfsProductId` + `ProductColor.pfsVariantId`
 - Ankorstore : `Product.ankorsProductId` + `ProductColor.ankorsVariantId`
 
-Renseignés à l'import (PFS) ou au matching (Ankorstore, page `/admin/ankorstore`) et à chaque publish/refresh. `null` = produit pas encore publié → badge gris « Non publié ».
+Renseignés à l'import (PFS) ou à la liaison manuelle depuis la fiche produit (Ankorstore, bouton « Lier à un produit Ankorstore existant ») et à chaque publish/refresh. `null` = produit pas encore publié → badge gris « Non publié ».
 
 **Kill switch Ankorstore** : la sync Ankorstore n'est exécutée que si `getCachedAnkorstoreEnabled()` retourne `true` (toggle dans Paramètres > Marketplaces). PFS n'a pas de kill switch équivalent (toujours actif si configuré).
 
@@ -78,8 +78,8 @@ Renseignés à l'import (PFS) ou au matching (Ankorstore, page `/admin/ankorstor
 - `lib/pfs-sync-diff.ts` / `lib/ankorstore-sync-diff.ts` — types + `diffSnapshots()` qui compare l'instantané précédent à l'état cible
 - `app/actions/admin/marketplace-publish.ts` + `marketplace-refresh.ts` + `marketplace-resync.ts` (gèrent les deux marketplaces)
 - `app/api/admin/marketplace-publish|refresh|resync/route.ts` + `app/api/admin/ankorstore-publish|refresh|resync/route.ts`
-- `app/actions/admin/ankorstore.ts` — matching auto/manuel : `runAnkorstoreAutoMatch`, `confirmAnkorstoreMatch`, `linkAnkorstoreProductManually`, `removeAnkorstoreMatch`
-- `app/(admin)/admin/ankorstore/page.tsx` + `components/admin/ankorstore/AnkorstoreMatchingClient.tsx` — page de matching de masse
+- `app/actions/admin/ankorstore.ts` — liaison manuelle : `linkAnkorstoreProductManually`, `confirmAnkorstoreMatch`, `removeAnkorstoreMatch` (+ helpers variantes orphelines)
+- `components/admin/products/LinkAnkorstoreProductModal.tsx` + `OrphanAnkorstoreVariantsModal.tsx` — UI de liaison manuelle depuis la fiche produit (plus de page `/admin/ankorstore` ni de matching auto en masse)
 - `components/admin/products/MarketplaceRefreshContext.tsx` — queue partagée publish/refresh/resync pour les deux marketplaces, dispatch via `marketplace: "pfs" | "ankorstore"` + `mode: "publish" | "refresh" | "resync"`
 
 **Diff de sync (optimisation update)** : `Product.pfsLastSyncSnapshot` (Json?) stocke l'état envoyé à la dernière sync réussie : product fields, defaultColor, variants (price/stock/weight/isActive par pfsVariantId), images (path par colorRef/slot), status, **isBestSeller**. À chaque appel de `pfsUpdateProductInPlace`, on construit le snapshot cible, on diff vs `pfsLastSyncSnapshot`, et on n'envoie à PFS que ce qui a changé : skip `pfsTranslate`+`pfsUpdateProduct` si product fields identiques, patch seulement les variantes modifiées, upload seulement les slots d'image dont le path a changé, skip `pfsUpdateStatus` si statut inchangé, **skip STAR/REMOVE_STAR si isBestSeller inchangé**. Le snapshot est sauvé en fin de sync (sections réussies seulement). Reset à `Prisma.DbNull` quand `pfsProductId` change (publish, refresh, fallback). Si `pfsLastSyncSnapshot` est null → sync complète (comme avant), puis snapshot initial sauvé.
