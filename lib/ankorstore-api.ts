@@ -443,13 +443,24 @@ export async function ankorstoreFindVariantBySku(
  */
 export async function ankorstoreListAllProducts(opts?: {
   pageSize?: number;
+  maxPages?: number;
+  /** Appelé après chaque page chargée — utile pour suivre la progression. */
+  onPage?: (
+    page: AnkorstoreProduct[],
+    pageIndex: number,
+    totalSoFar: number,
+  ) => void;
+  /** Renvoyé `true` pour interrompre la pagination (annulation par caller). */
+  shouldAbort?: () => boolean;
 }): Promise<AnkorstoreProduct[]> {
   // Ankorstore API caps page.limit at 50 — enforce here to prevent 400 errors.
   const pageSize = Math.min(opts?.pageSize ?? 50, 50);
+  const maxPages = opts?.maxPages ?? 400; // 400 × 50 = 20 000 produits (safety cap)
   const all: AnkorstoreProduct[] = [];
   let after: string | null = null;
 
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < maxPages; i++) {
+    if (opts?.shouldAbort?.()) break;
     const cursorParam: string = after ? `&page[after]=${encodeURIComponent(after)}` : "";
     const pageUrl: string = `/products?include=productVariant&page[limit]=${pageSize}${cursorParam}`;
     const resp: {
@@ -466,6 +477,7 @@ export async function ankorstoreListAllProducts(opts?: {
 
     const page = parseProductList(resp.data ?? [], resp.included);
     all.push(...page);
+    opts?.onPage?.(page, i, all.length);
 
     if (!resp.meta?.page?.hasMore || resp.data.length < pageSize) break;
     after = resp.data[resp.data.length - 1].id;

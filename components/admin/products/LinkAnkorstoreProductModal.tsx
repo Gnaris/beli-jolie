@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/Toast";
 import {
   linkAnkorstoreProductWithMapping,
@@ -9,13 +9,13 @@ import {
   type AnkorstoreLinkPreviewLocalColor,
 } from "@/app/actions/admin/ankorstore";
 
-interface AnkorstoreSearchResult {
+interface CatalogEntry {
   id: string;
   name: string;
-  extractedRef: string | null;
-  variantCount: number;
+  ref: string | null;
+  externalId: string | null;
   firstImageUrl: string | null;
-  score: number;
+  variantCount: number;
 }
 
 interface LinkAnkorstoreProductModalProps {
@@ -25,7 +25,9 @@ interface LinkAnkorstoreProductModalProps {
   onClose: () => void;
 }
 
-type Phase = "search" | "mapping";
+type Phase = "loading" | "ready" | "mapping";
+
+const MAX_DISPLAYED = 50;
 
 export default function LinkAnkorstoreProductModal({
   productId,
@@ -35,53 +37,157 @@ export default function LinkAnkorstoreProductModal({
 }: LinkAnkorstoreProductModalProps) {
   const toast = useToast();
 
-  // ── Phase 1 : recherche ────────────────────────────────────────────
-  const [phase, setPhase] = useState<Phase>("search");
+  // ── État global ───────────────────────────────────────────────────
+  const [phase, setPhase] = useState<Phase>("loading");
+  const [entries, setEntries] = useState<CatalogEntry[]>([]);
+  const [loadedAt, setLoadedAt] = useState<string | null>(null);
+  const [fromCache, setFromCache] = useState(false);
+  const [loadProgress, setLoadProgress] = useState<{
+    loaded: number;
+    pageIndex: number;
+  } | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState(reference);
-  const [results, setResults] = useState<AnkorstoreSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [hasSearched, setHasSearched] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
-  // ── Phase 2 : mapping ──────────────────────────────────────────────
+  // ── État phase 2 (mapping, inchangé) ──────────────────────────────
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [preview, setPreview] = useState<AnkorstoreLinkPreview | null>(null);
-  /** Mapping en cours d'édition : akVariantId → localColorId (ou null). */
   const [mapping, setMapping] = useState<Record<string, string | null>>({});
   const [linking, setLinking] = useState(false);
 
-  // ── Recherche ─────────────────────────────────────────────────────
-  const runSearch = async () => {
-    const trimmed = query.trim();
-    if (trimmed.length < 2) {
-      setSearchError("Saisissez au moins 2 caractères.");
-      setResults([]);
-      return;
-    }
-    setSearching(true);
-    setSearchError(null);
-    setHasSearched(true);
-    try {
-      const res = await fetch(
-        `/api/admin/ankorstore-search?q=${encodeURIComponent(trimmed)}`,
-      );
-      const body = await res.json();
-      if (!res.ok) {
-        setSearchError(body.error ?? `HTTP ${res.status}`);
-        setResults([]);
-      } else {
-        setResults(body.results ?? []);
+  // ── Chargement du catalogue via SSE ───────────────────────────────
+  const loadCatalog = (refresh: boolean) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setPhase("loading");
+    setEntries([]);
+    setLoadProgress(null);
+    setLoadError(null);
+
+    // Petit helper : on streame du JSON-lines via fetch + ReadableStream
+    // (plus simple que EventSource pour gérer le POST refresh + auth cookies).
+    const url = "/api/admin/ankorstore-catalog";
+    const method = refresh ? "POST" : "GET";
+
+    void (async () => {
+      try {
+        const res = await fetch(url, {
+          method,
+          signal: controller.signal,
+          headers: { Accept: "text/event-stream" },
+        });
+        if (!res.ok || !res.body) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        // Lit le flux SSE ligne par ligne, ne traite que celles préfixées "data:".
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let idx: number;
+          while ((idx = buffer.indexOf("\n\n")) !== -1) {
+            const chunk = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            for (const line of chunk.split("\n")) {
+              if (!line.startsWith("data: ")) continue;
+              const payload = line.slice(6).trim();
+              if (!payload) continue;
+              try {
+                const evt = JSON.parse(payload);
+                handleSseEvent(evt);
+              } catch {
+                // Ignore les payloads non-JSON.
+              }
+            }
+          }
+        }
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setLoadError(err instanceof Error ? err.message : String(err));
       }
-    } catch (err) {
-      setSearchError(err instanceof Error ? err.message : String(err));
-      setResults([]);
-    } finally {
-      setSearching(false);
+    })();
+  };
+
+  const handleSseEvent = (evt: {
+    type: string;
+    entries?: CatalogEntry[];
+    loadedAt?: string | null;
+    loaded?: number;
+    pageIndex?: number;
+    fromCache?: boolean;
+    message?: string;
+  }) => {
+    if (evt.type === "progress") {
+      setLoadProgress({
+        loaded: evt.loaded ?? 0,
+        pageIndex: evt.pageIndex ?? 0,
+      });
+    } else if (evt.type === "complete") {
+      setEntries(evt.entries ?? []);
+      setLoadedAt(evt.loadedAt ?? null);
+      setFromCache(evt.fromCache === true);
+      setPhase("ready");
+    } else if (evt.type === "error") {
+      setLoadError(evt.message ?? "Erreur inconnue");
     }
   };
 
-  // ── Sélection d'un produit Ankorstore → phase mapping ─────────────
+  useEffect(() => {
+    loadCatalog(false);
+    return () => abortRef.current?.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Filtrage local ────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    const q = normalizeQuery(query);
+    if (!q) return entries.slice(0, MAX_DISPLAYED);
+    const scored: { e: CatalogEntry; s: number }[] = [];
+    for (const e of entries) {
+      const ref = normalizeQuery(e.ref ?? "");
+      const ext = normalizeQuery(e.externalId ?? "");
+      const name = normalizeQuery(e.name);
+      let s = 0;
+      if (ref === q) s = 100;
+      else if (ext === q) s = 90;
+      else if (ref.startsWith(q)) s = 70;
+      else if (ref.includes(q)) s = 60;
+      else if (name.startsWith(q)) s = 50;
+      else if (name.includes(q)) s = 30;
+      if (s > 0) scored.push({ e, s });
+    }
+    scored.sort((a, b) => b.s - a.s);
+    return scored.slice(0, MAX_DISPLAYED).map((x) => x.e);
+  }, [entries, query]);
+
+  const totalMatches = useMemo(() => {
+    const q = normalizeQuery(query);
+    if (!q) return entries.length;
+    let n = 0;
+    for (const e of entries) {
+      const ref = normalizeQuery(e.ref ?? "");
+      const ext = normalizeQuery(e.externalId ?? "");
+      const name = normalizeQuery(e.name);
+      if (
+        ref === q ||
+        ext === q ||
+        ref.includes(q) ||
+        name.includes(q)
+      )
+        n++;
+    }
+    return n;
+  }, [entries, query]);
+
+  // ── Phase 2 — Sélection d'un produit ──────────────────────────────
   const selectAnkorstoreProduct = async (akProductId: string) => {
     setPhase("mapping");
     setPreviewLoading(true);
@@ -94,7 +200,6 @@ export default function LinkAnkorstoreProductModal({
         return;
       }
       setPreview(res.data);
-      // Pré-remplir le mapping avec les suggestions auto
       const initial: Record<string, string | null> = {};
       for (const v of res.data.variants) {
         initial[v.ankorstoreVariantId] = v.suggestedLocalColorId;
@@ -107,14 +212,13 @@ export default function LinkAnkorstoreProductModal({
     }
   };
 
-  const backToSearch = () => {
-    setPhase("search");
+  const backToList = () => {
+    setPhase("ready");
     setPreview(null);
     setMapping({});
     setPreviewError(null);
   };
 
-  // ── Validation finale ─────────────────────────────────────────────
   const allMapped = useMemo(() => {
     if (!preview) return false;
     return preview.variants.every(
@@ -129,8 +233,6 @@ export default function LinkAnkorstoreProductModal({
     ).length;
   }, [preview, mapping]);
 
-  // Une couleur locale ne peut être utilisée qu'une seule fois — détection
-  // d'un usage en double pour bloquer la validation et avertir l'admin.
   const duplicateColorIds = useMemo(() => {
     const counts = new Map<string, number>();
     for (const id of Object.values(mapping)) {
@@ -175,6 +277,7 @@ export default function LinkAnkorstoreProductModal({
     }
   };
 
+  // ── Rendu ─────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
@@ -182,9 +285,9 @@ export default function LinkAnkorstoreProductModal({
         <div className="flex items-start justify-between gap-3 px-6 py-4 border-b border-border">
           <div className="min-w-0">
             <h3 className="font-heading font-bold text-lg text-text-primary">
-              {phase === "search"
-                ? "Lier à un produit Ankorstore"
-                : "Vérifier la liaison des variantes"}
+              {phase === "mapping"
+                ? "Vérifier la liaison des variantes"
+                : "Lier à un produit Ankorstore"}
             </h3>
             <p className="text-sm text-text-secondary font-body mt-0.5 truncate">
               {productName}{" "}
@@ -203,122 +306,167 @@ export default function LinkAnkorstoreProductModal({
           </button>
         </div>
 
-        {/* ── Body : Phase 1 ────────────────────────────────────── */}
-        {phase === "search" && (
+        {/* ── Phase loading ─────────────────────────────────────── */}
+        {phase === "loading" && (
+          <div className="flex-1 min-h-[300px] flex flex-col items-center justify-center p-8 gap-4">
+            {!loadError && (
+              <>
+                <svg
+                  className="w-10 h-10 text-text-primary animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                <p className="text-sm font-body text-text-primary text-center max-w-md">
+                  Chargement de votre catalogue Ankorstore…
+                  <br />
+                  <span className="text-xs text-text-muted">
+                    La 1<sup>re</sup> fois ça prend 30 s à 1 min, ensuite c'est
+                    instantané pendant 3 heures.
+                  </span>
+                </p>
+                {loadProgress && (
+                  <p className="text-xs font-body text-text-secondary">
+                    {loadProgress.loaded} produits chargés (page&nbsp;
+                    {loadProgress.pageIndex + 1}…)
+                  </p>
+                )}
+              </>
+            )}
+            {loadError && (
+              <div className="w-full max-w-md">
+                <div className="p-4 text-sm text-red-600 font-body bg-red-50 border border-red-200 rounded-md">
+                  Erreur de chargement&nbsp;: {loadError}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => loadCatalog(true)}
+                  className="mt-3 px-4 py-2 text-sm font-semibold text-white bg-text-primary rounded-md hover:bg-text-secondary font-body"
+                >
+                  Réessayer
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Phase ready : liste filtrable ───────────────────── */}
+        {phase === "ready" && (
           <div className="flex-1 min-h-0 flex flex-col">
             <div className="px-6 py-4 border-b border-border bg-bg-secondary">
               <label className="block text-sm font-semibold font-body text-text-primary mb-2">
-                Rechercher (nom ou référence)
+                Filtrer dans votre catalogue ({entries.length} produits)
               </label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void runSearch();
-                    }
-                  }}
-                  placeholder="Tapez la référence ou un nom (min 2 caractères)…"
+                  placeholder="Tapez une référence, un nom…"
                   className="flex-1 px-3 py-2 border border-border rounded-md text-sm font-body focus:outline-none focus:border-text-primary focus:ring-2 focus:ring-text-primary/10"
                   autoFocus
                 />
                 <button
                   type="button"
-                  onClick={() => void runSearch()}
-                  disabled={searching || query.trim().length < 2}
-                  className="px-5 py-2 text-sm font-semibold text-white bg-text-primary rounded-md hover:bg-text-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-body"
+                  onClick={() => loadCatalog(true)}
+                  title="Recharger le catalogue depuis Ankorstore"
+                  className="inline-flex items-center justify-center w-10 h-10 text-text-secondary bg-white border border-border rounded-md hover:bg-bg-tertiary hover:text-text-primary transition-colors"
+                  aria-label="Recharger le catalogue Ankorstore"
                 >
-                  {searching ? "Recherche…" : "Rechercher"}
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
                 </button>
               </div>
+              <p className="text-[11px] font-body text-text-muted mt-2">
+                {fromCache && loadedAt && (
+                  <>Catalogue mis en cache · dernier chargement&nbsp;: {formatLoadedAt(loadedAt)}</>
+                )}
+                {!fromCache && loadedAt && (
+                  <>Catalogue chargé à l'instant&nbsp;: {formatLoadedAt(loadedAt)}</>
+                )}
+              </p>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
-              {searching && (
+              {filtered.length === 0 && (
                 <div className="p-6 text-sm text-text-muted font-body text-center">
-                  Recherche en cours…
-                </div>
-              )}
-              {searchError && (
-                <div className="p-4 text-sm text-red-600 font-body bg-red-50 border border-red-200 rounded-md">
-                  Erreur : {searchError}
-                </div>
-              )}
-              {!searching && !searchError && results.length === 0 && hasSearched && (
-                <div className="p-6 text-sm text-text-muted font-body text-center">
-                  Aucun résultat pour «&nbsp;{query.trim()}&nbsp;».
-                </div>
-              )}
-              {!searching && !searchError && results.length === 0 && !hasSearched && (
-                <div className="p-6 text-sm text-text-muted font-body text-center">
-                  Saisissez une référence et cliquez sur «&nbsp;Rechercher&nbsp;».
+                  {query.trim().length === 0
+                    ? "Tapez quelque chose pour filtrer."
+                    : `Aucun produit ne correspond à « ${query.trim()} ».`}
                 </div>
               )}
 
-              {!searching && results.length > 0 && (
+              {filtered.length > 0 && (
                 <>
-                  {results[0].score < 60 && (
-                    <div className="mb-3 px-4 py-3 text-xs font-body text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-md">
-                      Aucun résultat ne correspond exactement à «&nbsp;{query.trim()}&nbsp;».
-                      Les produits ci-dessous contiennent peut-être ce mot dans leur nom — vérifiez bien avant de lier.
+                  {totalMatches > MAX_DISPLAYED && (
+                    <div className="mb-3 px-4 py-2 text-xs font-body text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-md">
+                      {totalMatches} produits correspondent — affichage limité aux {MAX_DISPLAYED} premiers. Affinez votre recherche.
                     </div>
                   )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {results.map((r) => {
-                      const isExact = r.score >= 90;
-                      return (
-                        <button
-                          key={r.id}
-                          type="button"
-                          onClick={() => void selectAnkorstoreProduct(r.id)}
-                          className={`flex gap-3 p-3 rounded-lg border text-left transition-all hover:shadow-md hover:border-text-primary ${
-                            isExact ? "border-[#15803D] bg-[#F0FDF4]" : "border-border bg-white"
-                          }`}
-                        >
-                          <div className="w-20 h-20 rounded bg-bg-tertiary overflow-hidden shrink-0 flex items-center justify-center">
-                            {r.firstImageUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={r.firstImageUrl}
-                                alt=""
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <svg className="w-7 h-7 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                              </svg>
+                    {filtered.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => void selectAnkorstoreProduct(r.id)}
+                        className="flex gap-3 p-3 rounded-lg border border-border bg-white text-left transition-all hover:shadow-md hover:border-text-primary"
+                      >
+                        <div className="w-20 h-20 rounded bg-bg-tertiary overflow-hidden shrink-0 flex items-center justify-center">
+                          {r.firstImageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={r.firstImageUrl}
+                              alt=""
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <svg className="w-7 h-7 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold font-body text-text-primary line-clamp-2 break-words">
+                            {r.name}
+                          </p>
+                          <p className="text-xs font-body text-text-muted mt-1">
+                            {r.ref && (
+                              <span>
+                                Réf.&nbsp;: <span className="font-mono text-text-secondary">{r.ref}</span> ·{" "}
+                              </span>
                             )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start gap-2 flex-wrap">
-                              <p className="text-sm font-semibold font-body text-text-primary line-clamp-2 break-words flex-1 min-w-0">
-                                {r.name}
-                              </p>
-                              {isExact && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#15803D] text-white shrink-0">
-                                  <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                  </svg>
-                                  Exact
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs font-body text-text-muted mt-1">
-                              {r.extractedRef && (
-                                <span>Réf. extraite&nbsp;: <span className="font-mono text-text-secondary">{r.extractedRef}</span> · </span>
-                              )}
-                              {r.variantCount} variante{r.variantCount > 1 ? "s" : ""}
-                            </p>
-                            <p className="text-[11px] font-body text-text-primary mt-1.5 font-semibold">
-                              Choisir ce produit →
-                            </p>
-                          </div>
-                        </button>
-                      );
-                    })}
+                            {r.variantCount} variante{r.variantCount > 1 ? "s" : ""}
+                          </p>
+                          <p className="text-[11px] font-body text-text-primary mt-1.5 font-semibold">
+                            Choisir ce produit →
+                          </p>
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 </>
               )}
@@ -326,7 +474,7 @@ export default function LinkAnkorstoreProductModal({
           </div>
         )}
 
-        {/* ── Body : Phase 2 — Mapping ─────────────────────────── */}
+        {/* ── Phase mapping (inchangée) ───────────────────────── */}
         {phase === "mapping" && (
           <div className="flex-1 min-h-0 flex flex-col">
             {previewLoading && (
@@ -338,21 +486,20 @@ export default function LinkAnkorstoreProductModal({
             {!previewLoading && previewError && (
               <div className="flex-1 p-6">
                 <div className="p-4 text-sm text-red-600 font-body bg-red-50 border border-red-200 rounded-md">
-                  Erreur : {previewError}
+                  Erreur&nbsp;: {previewError}
                 </div>
                 <button
                   type="button"
-                  onClick={backToSearch}
+                  onClick={backToList}
                   className="mt-4 text-sm text-text-secondary hover:text-text-primary underline font-body"
                 >
-                  ← Retour à la recherche
+                  ← Retour à la liste
                 </button>
               </div>
             )}
 
             {!previewLoading && preview && (
               <>
-                {/* Bandeau produit Ankorstore choisi */}
                 <div className="px-6 py-4 bg-bg-secondary border-b border-border flex items-start gap-4">
                   <div className="w-24 h-24 rounded-lg bg-bg-tertiary overflow-hidden shrink-0 flex items-center justify-center border border-border">
                     {preview.ankorstoreProduct.mainImage ? (
@@ -379,7 +526,7 @@ export default function LinkAnkorstoreProductModal({
                       {preview.variants.length} variante{preview.variants.length > 1 ? "s" : ""} ·{" "}
                       <button
                         type="button"
-                        onClick={backToSearch}
+                        onClick={backToList}
                         className="underline hover:text-text-primary"
                       >
                         Changer de produit
@@ -388,7 +535,6 @@ export default function LinkAnkorstoreProductModal({
                   </div>
                 </div>
 
-                {/* Bandeau d'instructions + progression */}
                 <div className="px-6 py-3 bg-white border-b border-border">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <p className="text-sm font-body text-text-secondary">
@@ -419,7 +565,6 @@ export default function LinkAnkorstoreProductModal({
                   )}
                 </div>
 
-                {/* Liste des variantes Ankorstore */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-2">
                   {preview.variants.map((v) => {
                     const selected = mapping[v.ankorstoreVariantId];
@@ -445,7 +590,6 @@ export default function LinkAnkorstoreProductModal({
                             </svg>
                           )}
                         </div>
-
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="text-sm font-semibold font-body text-text-primary">
@@ -460,7 +604,6 @@ export default function LinkAnkorstoreProductModal({
                           <p className="text-[11px] font-mono text-text-muted truncate mt-0.5">
                             {v.sku ?? "Pas de SKU"} · stock {v.stockQuantity} · {v.wholesalePrice.toFixed(2)}&nbsp;€ HT
                           </p>
-
                           <div className="mt-2 flex items-center gap-2">
                             <span className="text-xs font-body text-text-secondary shrink-0">
                               Liée à&nbsp;:
@@ -493,7 +636,7 @@ export default function LinkAnkorstoreProductModal({
             <>
               <button
                 type="button"
-                onClick={backToSearch}
+                onClick={backToList}
                 disabled={linking}
                 className="px-4 py-2 text-sm font-medium text-text-secondary bg-white border border-border rounded-md hover:bg-bg-tertiary transition-colors font-body disabled:opacity-50"
               >
@@ -534,7 +677,29 @@ export default function LinkAnkorstoreProductModal({
 }
 
 // ─────────────────────────────────────────────
-// ColorPicker — sélecteur visuel de couleur locale
+// Helpers
+// ─────────────────────────────────────────────
+
+function normalizeQuery(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+}
+
+function formatLoadedAt(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString("fr-FR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      day: "2-digit",
+      month: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+// ─────────────────────────────────────────────
+// ColorPicker (inchangé)
 // ─────────────────────────────────────────────
 
 interface ColorPickerProps {

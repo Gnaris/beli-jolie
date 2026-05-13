@@ -31,6 +31,30 @@ if (!g[GUARD]) {
     });
   }
 
+  // Précharge le catalogue Ankorstore en arrière-plan si la marketplace est
+  // activée. Évite la 1re attente de ~30s-1min à l'ouverture de la modale
+  // « Lier à un produit Ankorstore » après un redémarrage pm2.
+  // Non bloquant : lancé après 5s pour laisser le serveur finir de démarrer
+  // (sinon on tape Ankorstore avant même que les routes soient prêtes).
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { getCachedAnkorstoreEnabled } = await import("@/lib/cached-data");
+        const enabled = await getCachedAnkorstoreEnabled();
+        if (!enabled) return;
+        const { preloadCatalogInBackground } = await import(
+          "@/lib/ankorstore-catalog-cache"
+        );
+        logger.info("[Ankorstore Catalog] Préchargement au démarrage déclenché");
+        preloadCatalogInBackground();
+      } catch (err) {
+        logger.warn("[Ankorstore Catalog] Préchargement au démarrage échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",
