@@ -366,39 +366,35 @@ function TagsDropdown({
       </div>
 
       {/* Code SH (douanier) — juste sous la Remise produit */}
-      <div className="pt-3 border-t border-border-light">
-        <div className="flex items-center gap-4">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-semibold text-text-primary font-heading">Code SH</p>
-              <a
-                href="https://www.tarifs-douaniers.fr/recherche"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[11px] font-normal text-[#4F46E5] hover:text-[#3730A3] hover:underline font-body"
-                title="Ouvrir la liste des codes SH dans un nouvel onglet"
-              >
-                Voir la liste
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                </svg>
-              </a>
-            </div>
-            <p className="text-[11px] text-text-muted font-body mt-0.5">
-              Code douanier international (6 à 10 chiffres) — requis par Ankorstore.
-            </p>
-          </div>
-          <input
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            value={hsCode}
-            placeholder="ex : 7117190000"
-            onChange={(e) => setHsCode(e.target.value.replace(/[^\d]/g, ""))}
-            className="field-input w-40 text-right font-mono"
-            maxLength={10}
-          />
+      <div className="pt-3 border-t border-border-light space-y-1.5">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <p className="text-sm font-semibold text-text-primary font-heading">Code SH</p>
+          <a
+            href="https://www.tarifs-douaniers.fr/recherche"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[11px] font-normal text-[#4F46E5] hover:text-[#3730A3] hover:underline font-body"
+            title="Ouvrir la liste des codes SH dans un nouvel onglet"
+          >
+            Voir la liste
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+            </svg>
+          </a>
         </div>
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={hsCode}
+          placeholder="ex : 7117190000"
+          onChange={(e) => setHsCode(e.target.value.replace(/[^\d]/g, ""))}
+          className="field-input w-full font-mono"
+          maxLength={10}
+        />
+        <p className="text-[11px] text-text-muted font-body">
+          Code douanier international (6 à 10 chiffres) — requis par Ankorstore.
+        </p>
       </div>
     </div>
   );
