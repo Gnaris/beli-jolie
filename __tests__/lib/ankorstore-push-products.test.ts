@@ -411,6 +411,103 @@ describe("ankorstoreKickoffPublish — payload kickoff", () => {
     expect(products[0].tags).toEqual(["tags_bestseller"]);
   });
 
+  it("statut OFFLINE → stockQuantity forcé à 0 sur toutes les variantes envoyées", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(
+      makeUnitProduct({
+        status: "OFFLINE",
+        colors: [
+          {
+            id: "v1",
+            unitPrice: 10,
+            weight: 0.05,
+            stock: 42,
+            isPrimary: true,
+            saleType: "UNIT",
+            packQuantity: null,
+            sku: null,
+            variantSizes: [{ size: { name: "M" }, quantity: 1 }],
+            colorId: "c1",
+            color: { id: "c1", name: "Argent" },
+            packLines: [],
+            images: [],
+          },
+        ],
+      }),
+    );
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    const variant = products[0].variants[0];
+    expect(variant.stockQuantity).toBe(0);
+  });
+
+  it("statut ARCHIVED → stockQuantity forcé à 0 aussi", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(
+      makeUnitProduct({
+        status: "ARCHIVED",
+        colors: [
+          {
+            id: "v1",
+            unitPrice: 10,
+            weight: 0.05,
+            stock: 100,
+            isPrimary: true,
+            saleType: "UNIT",
+            packQuantity: null,
+            sku: null,
+            variantSizes: [{ size: { name: "M" }, quantity: 1 }],
+            colorId: "c1",
+            color: { id: "c1", name: "Argent" },
+            packLines: [],
+            images: [],
+          },
+        ],
+      }),
+    );
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    expect(products[0].variants[0].stockQuantity).toBe(0);
+  });
+
+  it("statut ONLINE → stockQuantity garde la vraie valeur locale", async () => {
+    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
+    mockProductFindUnique.mockResolvedValue(
+      makeUnitProduct({
+        status: "ONLINE",
+        colors: [
+          {
+            id: "v1",
+            unitPrice: 10,
+            weight: 0.05,
+            stock: 42,
+            isPrimary: true,
+            saleType: "UNIT",
+            packQuantity: null,
+            sku: null,
+            variantSizes: [{ size: { name: "M" }, quantity: 1 }],
+            colorId: "c1",
+            color: { id: "c1", name: "Argent" },
+            packLines: [],
+            images: [],
+          },
+        ],
+      }),
+    );
+
+    const result = await ankorstoreKickoffPublish("p1");
+    expect(result.success).toBe(true);
+
+    const [, products] = mockAddProductsToOperation.mock.calls[0];
+    expect(products[0].variants[0].stockQuantity).toBe(42);
+  });
+
   it("best seller décoché à la publication initiale → pas de tags envoyés", async () => {
     const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
     mockProductFindUnique.mockResolvedValue(makeUnitProduct({ isBestSeller: false }));

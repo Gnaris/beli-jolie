@@ -202,6 +202,19 @@ function getVariantStock(variant: FullVariant): number {
   return variant.stock ?? 0;
 }
 
+/**
+ * Stock effectivement envoyé à Ankorstore. Quand le produit local est OFFLINE
+ * ou ARCHIVED, on force à 0 pour rendre la variante non commandable côté
+ * Ankorstore — réversible, sans toucher au stock local.
+ */
+function getEffectiveStockForAnkorstore(
+  variant: FullVariant,
+  productStatus: string,
+): number {
+  if (productStatus !== "ONLINE") return 0;
+  return getVariantStock(variant);
+}
+
 function getAnkorstoreWholesalePrice(variant: FullVariant, markup: MarkupConfig): number {
   return getAnkorstorePackedPrice(Number(variant.unitPrice), variant.packQuantity, variant.saleType, markup);
 }
@@ -234,7 +247,7 @@ function buildImagesByColorId(
 }
 
 function buildAnkorstoreVariants(
-  product: Pick<FullProduct, "reference">,
+  product: Pick<FullProduct, "reference" | "status">,
   colors: FullVariant[],
   wholesaleMarkup: MarkupConfig,
   retailMarkup: MarkupConfig,
@@ -253,7 +266,7 @@ function buildAnkorstoreVariants(
   for (let i = 0; i < colors.length; i++) {
     const variant = colors[i];
     const sku = buildVariantSku(product, variant, i);
-    const stock = getVariantStock(variant);
+    const stock = getEffectiveStockForAnkorstore(variant, product.status);
     const wholesalePrice = getAnkorstoreWholesalePrice(variant, wholesaleMarkup);
     const retailPrice = getAnkorstoreRetailPrice(variant, retailMarkup);
 

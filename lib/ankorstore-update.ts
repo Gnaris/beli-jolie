@@ -303,7 +303,13 @@ function buildVariantSnapshot(
   config: AnkorstorePricingConfig,
 ): AnkorstoreVariantSnapshot {
   const sku = buildVariantSku(product, variant, index);
-  const stock = variant.stock ?? 0;
+  // Quand le produit local est OFFLINE (ou ARCHIVED), on force le stock à 0
+  // côté Ankorstore pour rendre le produit "out of stock" donc non commandable
+  // sans toucher au stock réel local. L'API Ankorstore n'a pas de mécanisme
+  // explicite pour rendre un produit "inactif" — le stock à 0 est l'équivalent
+  // fonctionnel le plus propre et réversible.
+  const stock =
+    product.status === "ONLINE" ? (variant.stock ?? 0) : 0;
   const colorLabel =
     variant.saleType === "PACK"
       ? getPackColorLabel(variant)
@@ -716,7 +722,10 @@ export async function ankorstoreKickoffUpdate(
         return {
           sku,
           ian: null,
-          stockQuantity: variant.stock ?? 0,
+          // Reflet du statut local côté Ankorstore : si OFFLINE / ARCHIVED,
+          // on force le stock à 0 (produit non commandable, équivalent
+          // « hors ligne » dans une API qui n'expose pas de flag d'activation).
+          stockQuantity: product.status === "ONLINE" ? (variant.stock ?? 0) : 0,
           isAlwaysInStock: false,
           wholesalePrice: variantWholesale,
           retailPrice: variantRetail,
