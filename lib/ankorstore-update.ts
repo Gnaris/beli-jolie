@@ -99,7 +99,6 @@ interface FullProduct {
   name: string;
   description: string;
   status: string;
-  isBestSeller: boolean;
   primaryColorId: string | null;
   ankorsProductId: string | null;
   ankorsLastSyncSnapshot: unknown;
@@ -141,7 +140,6 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       name: true,
       description: true,
       status: true,
-      isBestSeller: true,
       primaryColorId: true,
       ankorsProductId: true,
       ankorsLastSyncSnapshot: true,
@@ -292,7 +290,6 @@ function buildProductFieldsSnapshot(
     dimensionWidthMm: toIntegerOrNull(product.dimensionWidth, 10),
     dimensionHeightMm: toIntegerOrNull(product.dimensionHeight, 10),
     hsCode: product.hsCode?.trim() || null,
-    isBestSeller: product.isBestSeller,
   };
 }
 
@@ -668,18 +665,6 @@ export async function ankorstoreKickoffUpdate(
       retailPrice,
       countryCode: nextProductSnap.countryCode,
       ...(nextProductSnap.hsCode ? { hsCode: nextProductSnap.hsCode } : {}),
-      // tags: tableau vide explicite quand bestseller décoché, sinon Ankorstore
-      // ne retire pas le tag d'un produit déjà publié (champ absent = "pas
-      // de changement" côté Ankorstore).
-      // ⚠ Bug Ankorstore (confirmé empiriquement 2026-05-13) : l'API
-      // catalog-integration accepte n'importe quelle valeur de `tags` en
-      // renvoyant "success" mais n'applique JAMAIS le tag. Testé avec
-      // "tags_bestseller", "Bestseller", "Handmade", "Vegan", "8" : aucune
-      // ne se pose réellement. Le tag bestseller doit être posé côté
-      // Ankorstore (par leur équipe / leur algo de ventes), pas par nous.
-      // On laisse quand même le payload documenté pour que ça marche le jour
-      // où Ankorstore corrige (le tableau vide reste fiable pour décocher).
-      tags: product.isBestSeller ? ["tags_bestseller"] : [],
       ...(shapeProperties ? { shapeProperties } : {}),
       // Garde-fou anti-doublon : pour un produit DÉJÀ publié (ankorsProductId
       // posé), on n'envoie que les variantes liées (ankorsVariantId connu).

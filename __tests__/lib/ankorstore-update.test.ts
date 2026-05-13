@@ -129,7 +129,6 @@ function makeProduct(overrides?: Record<string, unknown>) {
     name: "Test Product",
     description: "Test description",
     status: "ONLINE",
-    isBestSeller: false,
     primaryColorId: "color-1",
     ankorsProductId: "ank-product-1",
     ankorsLastSyncSnapshot: null,

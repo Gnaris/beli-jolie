@@ -33,12 +33,6 @@ export interface AnkorstoreProductFieldsSnapshot {
    * Code SH (douanier) trimmé. `null` quand non renseigné côté local.
    */
   hsCode: string | null;
-  /**
-   * Statut « Best Seller » (case cochée sur la fiche produit). Inclus dans
-   * le snapshot pour qu'un cochage/décochage déclenche un re-push qui ajoute
-   * ou retire le tag `tags_bestseller` côté Ankorstore.
-   */
-  isBestSeller: boolean;
 }
 
 export interface AnkorstoreVariantSnapshot {
@@ -89,8 +83,7 @@ export function productFieldsEqual(
     a.dimensionLengthMm === b.dimensionLengthMm &&
     a.dimensionWidthMm === b.dimensionWidthMm &&
     a.dimensionHeightMm === b.dimensionHeightMm &&
-    a.hsCode === b.hsCode &&
-    a.isBestSeller === b.isBestSeller
+    a.hsCode === b.hsCode
   );
 }
 

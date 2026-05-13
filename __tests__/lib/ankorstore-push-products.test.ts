@@ -91,7 +91,6 @@ function makeUnitProduct(overrides: Record<string, unknown> = {}) {
     name: "Bague Argent",
     description: "Belle bague",
     status: "ONLINE",
-    isBestSeller: false,
     primaryColorId: "c1",
     dimensionLength: null,
     dimensionWidth: null,
@@ -400,17 +399,6 @@ describe("ankorstoreKickoffPublish — payload kickoff", () => {
     expect(product.description).toContain("Circonférence : 56 cm");
   });
 
-  it("best seller coché → envoie tag tags_bestseller", async () => {
-    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
-    mockProductFindUnique.mockResolvedValue(makeUnitProduct({ isBestSeller: true }));
-
-    const result = await ankorstoreKickoffPublish("p1");
-    expect(result.success).toBe(true);
-
-    const [, products] = mockAddProductsToOperation.mock.calls[0];
-    expect(products[0].tags).toEqual(["tags_bestseller"]);
-  });
-
   it("statut OFFLINE → stockQuantity forcé à 0 sur toutes les variantes envoyées", async () => {
     const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
     mockProductFindUnique.mockResolvedValue(
@@ -506,17 +494,6 @@ describe("ankorstoreKickoffPublish — payload kickoff", () => {
 
     const [, products] = mockAddProductsToOperation.mock.calls[0];
     expect(products[0].variants[0].stockQuantity).toBe(42);
-  });
-
-  it("best seller décoché à la publication initiale → pas de tags envoyés", async () => {
-    const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
-    mockProductFindUnique.mockResolvedValue(makeUnitProduct({ isBestSeller: false }));
-
-    const result = await ankorstoreKickoffPublish("p1");
-    expect(result.success).toBe(true);
-
-    const [, products] = mockAddProductsToOperation.mock.calls[0];
-    expect(products[0].tags).toBeUndefined();
   });
 
   it("aucune dimension renseignée → pas de bloc dimensions dans le payload", async () => {

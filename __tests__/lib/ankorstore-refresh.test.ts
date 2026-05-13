@@ -95,7 +95,6 @@ function makeProductFull(overrides?: Record<string, unknown>) {
     name: "Test Product",
     description: "Test description",
     status: "ONLINE",
-    isBestSeller: false,
     primaryColorId: "color-1",
     dimensionLength: null,
     dimensionWidth: null,

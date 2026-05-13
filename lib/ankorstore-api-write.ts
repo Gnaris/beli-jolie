@@ -270,12 +270,9 @@ function buildProductPayloadAttributes(p: AnkorstoreCatalogProductInput): Record
  *
  * `delete` uses a different endpoint — see {@link ankorstoreKickoffDelete}.
  *
- * Pour `type: "update"`, on passe `updateFields` explicitement avec tous les
- * champs qu'on est susceptibles de modifier — y compris `tags`. La spec dit
- * qu'avec `source: "other"` et `updateFields` absent, tous les champs sont
- * mis à jour ; en pratique le tag `tags_bestseller` n'est pas appliqué tant
- * qu'on ne liste pas `tags` explicitement. Lister tous les champs préserve
- * le comportement "tout mettre à jour" pour les autres attributs.
+ * Pour `type: "update"`, on liste explicitement les champs modifiables.
+ * (`tags` est volontairement absent : l'API publique ne le gère pas et tag
+ * "bestseller" doit être posé manuellement dans le back-office Ankorstore.)
  */
 const ANKORSTORE_UPDATE_FIELDS = [
   "name",
@@ -287,7 +284,6 @@ const ANKORSTORE_UPDATE_FIELDS = [
   "retail_price",
   "stock",
   "prices",
-  "tags",
   "dimensions",
 ] as const;
 

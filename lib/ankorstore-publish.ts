@@ -76,7 +76,6 @@ interface FullProduct {
   name: string;
   description: string;
   status: string;
-  isBestSeller: boolean;
   primaryColorId: string | null;
   dimensionLength: number | null;
   dimensionWidth: number | null;
@@ -116,7 +115,6 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       name: true,
       description: true,
       status: true,
-      isBestSeller: true,
       primaryColorId: true,
       dimensionLength: true,
       dimensionWidth: true,
@@ -430,10 +428,6 @@ export async function buildPublishProductInput(productId: string): Promise<
       product.manufacturingCountry?.pfsCountryRef ??
       "FR",
     ...(product.hsCode && product.hsCode.trim() ? { hsCode: product.hsCode.trim() } : {}),
-    // ⚠ Voir lib/ankorstore-update.ts : l'API ne pose pas réellement les tags
-    // côté Ankorstore (confirmé 2026-05-13). On laisse le payload documenté
-    // pour le jour où ils corrigent.
-    ...(product.isBestSeller ? { tags: ["tags_bestseller"] } : {}),
     ...(shapeProperties ? { shapeProperties } : {}),
     variants: variantEntries.map((v) => v.entry),
   };
