@@ -160,6 +160,233 @@ export async function removeAnkorstoreMatch(
   }
 }
 
+// ─────────────────────────────────────────────
+// Aperçu pour la modale de liaison (étape 2)
+// ─────────────────────────────────────────────
+
+export interface AnkorstoreLinkPreviewLocalColor {
+  /** Id de la ProductColor (jointure produit/couleur). */
+  productColorId: string;
+  /** Id de la Color (bibliothèque). */
+  colorId: string;
+  name: string;
+  hex: string | null;
+  patternImage: string | null;
+  /** SKU + taille pour info à l'admin (peut aider à comprendre la nature de la variante). */
+  sku: string | null;
+  sizeName: string | null;
+  /** True si une autre variante locale est déjà liée à une variante Ankorstore (autre produit). */
+  isAlreadyLinked: boolean;
+}
+
+export interface AnkorstoreLinkPreviewVariant {
+  ankorstoreVariantId: string;
+  sku: string | null;
+  /** Option couleur côté Ankorstore (renseignée dans variant.options). */
+  colorOption: string | null;
+  /** Option taille côté Ankorstore. */
+  sizeOption: string | null;
+  /** Première image associée à la variante (fallback : image principale du produit). */
+  imageUrl: string | null;
+  wholesalePrice: number;
+  retailPrice: number;
+  stockQuantity: number;
+  /** Mapping auto pré-calculé — null si le matching n'a pas pu décider. */
+  suggestedLocalColorId: string | null;
+}
+
+export interface AnkorstoreLinkPreview {
+  ankorstoreProduct: {
+    id: string;
+    name: string;
+    description: string;
+    mainImage: string | null;
+    extraImages: string[];
+  };
+  variants: AnkorstoreLinkPreviewVariant[];
+  localColors: AnkorstoreLinkPreviewLocalColor[];
+}
+
+/**
+ * Prépare les données nécessaires à l'étape 2 de la modale de liaison :
+ * - infos du produit Ankorstore (nom, images, description, variantes)
+ * - couleurs locales du produit (avec leur visuel)
+ * - mapping suggéré couleur Ankorstore → couleur locale (pré-rempli)
+ *
+ * Ne pose AUCUN lien : c'est juste un GET pour aider l'admin à valider.
+ */
+export async function previewAnkorstoreProductForLinking(
+  productId: string,
+  ankorstoreProductId: string,
+): Promise<{ success: true; data: AnkorstoreLinkPreview } | { success: false; error: string }> {
+  await requireAdmin();
+
+  try {
+    const [akProduct, bjProductRaw] = await Promise.all([
+      ankorstoreGetProduct(ankorstoreProductId),
+      prisma.product.findUnique({
+        where: { id: productId },
+        select: {
+          id: true,
+          name: true,
+          reference: true,
+          colors: {
+            where: { saleType: "UNIT" },
+            select: {
+              id: true,
+              colorId: true,
+              sku: true,
+              ankorsVariantId: true,
+              color: { select: { name: true, hex: true, patternImage: true } },
+              variantSizes: { select: { size: { select: { name: true } } }, take: 1 },
+            },
+          },
+        },
+      }),
+    ]);
+
+    if (!akProduct) {
+      return { success: false, error: "Produit Ankorstore introuvable." };
+    }
+    if (!bjProductRaw) {
+      return { success: false, error: "Produit local introuvable." };
+    }
+
+    const bjForMatch: BjProductForMatch = {
+      id: bjProductRaw.id,
+      name: bjProductRaw.name,
+      reference: bjProductRaw.reference,
+      colors: bjProductRaw.colors
+        .filter((pc) => pc.colorId && pc.color)
+        .map((pc) => ({ id: pc.colorId as string, name: pc.color!.name })),
+    };
+
+    // Aligner artificiellement le nom (comme dans linkAnkorstoreProductManually)
+    // pour que runAutoMatch considère ce produit comme candidat à ce produit local.
+    const fakeRefAlignedProduct: AnkorstoreProduct = {
+      ...akProduct,
+      name: `${akProduct.name} - ${bjProductRaw.reference}`,
+    };
+    const report = runAutoMatch([fakeRefAlignedProduct], [bjForMatch]);
+    const result = report.results[0];
+
+    const suggestedByAkVariantId = new Map<string, string | null>();
+    for (const vm of result.variantMatches ?? []) {
+      suggestedByAkVariantId.set(vm.ankorstoreVariant.id, vm.bjColorId);
+    }
+
+    const extraImages = akProduct.images
+      .slice(0, 8)
+      .map((i) => i.url)
+      .filter((u): u is string => !!u);
+    // Image principale = première du produit, ou première variante avec image
+    const mainImage =
+      akProduct.images[0]?.url ??
+      akProduct.variants.find((v) => v.images?.[0]?.url)?.images?.[0]?.url ??
+      null;
+
+    const variants: AnkorstoreLinkPreviewVariant[] = akProduct.variants.map((v) => {
+      const colorOption =
+        v.options?.find((o) => o.name === "color")?.value ?? null;
+      const sizeOption =
+        v.options?.find((o) => o.name === "size")?.value ?? null;
+      const variantImage = v.images?.[0]?.url ?? null;
+      return {
+        ankorstoreVariantId: v.id,
+        sku: v.sku ?? null,
+        colorOption,
+        sizeOption,
+        imageUrl: variantImage ?? mainImage,
+        wholesalePrice: Number(v.wholesalePrice ?? 0),
+        retailPrice: Number(v.retailPrice ?? 0),
+        stockQuantity: v.stockQuantity ?? 0,
+        suggestedLocalColorId: suggestedByAkVariantId.get(v.id) ?? null,
+      };
+    });
+
+    const localColors: AnkorstoreLinkPreviewLocalColor[] = bjProductRaw.colors
+      .filter((pc) => pc.colorId && pc.color)
+      .map((pc) => ({
+        productColorId: pc.id,
+        colorId: pc.colorId as string,
+        name: pc.color!.name,
+        hex: pc.color!.hex ?? null,
+        patternImage: pc.color!.patternImage ?? null,
+        sku: pc.sku ?? null,
+        sizeName: pc.variantSizes[0]?.size.name ?? null,
+        isAlreadyLinked: pc.ankorsVariantId !== null,
+      }));
+
+    return {
+      success: true,
+      data: {
+        ankorstoreProduct: {
+          id: akProduct.id,
+          name: akProduct.name,
+          description: akProduct.description ?? "",
+          mainImage,
+          extraImages,
+        },
+        variants,
+        localColors,
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Ankorstore] previewAnkorstoreProductForLinking failed", {
+      productId,
+      ankorstoreProductId,
+      error: message,
+    });
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Liaison via mapping explicite (toutes les variantes Ankorstore doivent
+ * être mappées à une couleur locale). C'est la voie utilisée par la nouvelle
+ * modale en 2 étapes : l'admin choisit le produit Ankorstore (étape 1) puis
+ * valide / corrige le mapping (étape 2).
+ *
+ * `linkAnkorstoreProductManually` plus bas reste exposée pour la
+ * rétro-compatibilité (matching auto sans étape 2).
+ */
+export async function linkAnkorstoreProductWithMapping(
+  productId: string,
+  ankorstoreProductId: string,
+  mapping: { ankorstoreVariantId: string; localColorId: string }[],
+): Promise<{ success: boolean; error?: string }> {
+  await requireAdmin();
+
+  if (mapping.length === 0) {
+    return {
+      success: false,
+      error: "Aucun mapping fourni — chaque variante Ankorstore doit être liée à une couleur locale.",
+    };
+  }
+
+  // Garde-fou : pas de doublon côté Ankorstore (une variante AS mappée 2 fois)
+  const seenAk = new Set<string>();
+  for (const m of mapping) {
+    if (seenAk.has(m.ankorstoreVariantId)) {
+      return {
+        success: false,
+        error: "Une variante Ankorstore est mappée plusieurs fois — corrigez le mapping.",
+      };
+    }
+    seenAk.add(m.ankorstoreVariantId);
+  }
+
+  return confirmAnkorstoreMatch(
+    productId,
+    ankorstoreProductId,
+    mapping.map((m) => ({
+      localColorId: m.localColorId,
+      ankorstoreVariantId: m.ankorstoreVariantId,
+    })),
+  );
+}
+
 /**
  * Liaison manuelle : on récupère le produit Ankorstore par son ID, on calcule
  * automatiquement le mapping couleur (via `runAutoMatch` sur ce seul produit)
