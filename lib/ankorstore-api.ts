@@ -15,6 +15,7 @@ import {
 } from "@/lib/ankorstore-auth";
 import { logger } from "@/lib/logger";
 import { sortAnkorstoreSearchResults } from "@/lib/ankorstore-search-rank";
+import { extractReference } from "@/lib/ankorstore-match";
 
 // ─────────────────────────────────────────────
 // Types — Ankorstore API responses (JSON:API)
@@ -289,10 +290,96 @@ export async function ankorstoreSearchProducts(
     }
   }
 
+  // Dernier recours : le filtre Ankorstore peut tokeniser par mot (ex : "A405"
+  // collé à un tiret comme dans "Boucles … - A405" n'est pas reconnu comme
+  // un mot séparé). On scanne alors les produits page par page et on filtre
+  // côté code par référence extraite ou par nom contenant la query.
+  if (candidates.length === 0) {
+    const seen = new Set<string>();
+    try {
+      for (const p of await scanProductsForQuery(query)) {
+        if (seen.has(p.id)) continue;
+        seen.add(p.id);
+        candidates.push(p);
+      }
+    } catch (err) {
+      logger.warn("[Ankorstore] Wide product scan failed", {
+        query,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   // Tri par pertinence (SKU exact → préfixe "{query}_" → nom commence par → …)
   // PUIS troncature, sinon une référence très pertinente peut être coupée.
   const ranked = sortAnkorstoreSearchResults(candidates, query);
   return ranked.slice(0, limit);
+}
+
+/**
+ * Scan large : parcourt les pages `/products` et filtre côté code.
+ * Utilisé uniquement quand `filter[skuOrName]` ne ramène rien (ex : référence
+ * collée à un tiret que le tokenizer Ankorstore ignore).
+ *
+ * Plafonné à `MAX_PAGES × pageSize` produits pour éviter un timeout.
+ */
+async function scanProductsForQuery(
+  query: string,
+  opts?: { maxPages?: number; pageSize?: number; maxMatches?: number }
+): Promise<AnkorstoreProduct[]> {
+  const q = query.trim().toLowerCase();
+  if (q.length === 0) return [];
+
+  const pageSize = Math.min(opts?.pageSize ?? 50, 50);
+  const maxPages = opts?.maxPages ?? 40; // 40 × 50 = 2000 produits max
+  const maxMatches = opts?.maxMatches ?? 20;
+
+  const matches: AnkorstoreProduct[] = [];
+  let after: string | null = null;
+
+  for (let i = 0; i < maxPages; i++) {
+    const cursor: string = after
+      ? `&page[after]=${encodeURIComponent(after)}`
+      : "";
+    const url: string = `/products?include=productVariant&page[limit]=${pageSize}${cursor}`;
+    const resp: {
+      data: JsonApiProductItem[];
+      included?: JsonApiVariantItem[];
+      meta?: { page?: { hasMore?: boolean } };
+    } = await ankorstoreFetch<{
+      data: JsonApiProductItem[];
+      included?: JsonApiVariantItem[];
+      meta?: { page?: { hasMore?: boolean } };
+    }>(url);
+
+    const page = parseProductList(resp.data ?? [], resp.included);
+    for (const p of page) {
+      const extracted = extractReference(p)?.toLowerCase() ?? "";
+      const name = p.name?.toLowerCase() ?? "";
+      const externalId = p.externalId?.toLowerCase() ?? "";
+      if (
+        extracted === q ||
+        extracted.includes(q) ||
+        externalId === q ||
+        name.includes(q)
+      ) {
+        matches.push(p);
+      }
+    }
+
+    if (matches.length >= maxMatches) break;
+    if (!resp.meta?.page?.hasMore || (resp.data?.length ?? 0) < pageSize) break;
+    after = resp.data[resp.data.length - 1].id;
+  }
+
+  if (matches.length > 0) {
+    logger.info("[Ankorstore] Wide product scan", {
+      query,
+      matched: matches.length,
+    });
+  }
+
+  return matches;
 }
 
 /**
