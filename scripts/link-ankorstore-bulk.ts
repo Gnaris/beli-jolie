@@ -188,6 +188,45 @@ export function pickRowsForUnSeul(
   return { rows: filtered.slice(0, 1), refNotFound: filtered.length === 0 };
 }
 
+/**
+ * Detecte les cas ou un meme produit local est match par plusieurs produits
+ * Ankorstore (doublons cote AS). Retourne 2 listes :
+ *   - safe : les bjId qui ont exactement 1 produit AS candidat → on peut lier
+ *   - ambiguousAk : les bjId avec 2+ candidats AS → on saute, l'utilisatrice
+ *     choisira a la main quel produit AS lier.
+ */
+export function splitAmbiguousAkSide(rows: MatchedRow[]): {
+  safe: MatchedRow[];
+  ambiguousAk: { bjId: string; bjName: string; bjReference: string; akCandidates: { id: string; name: string }[] }[];
+} {
+  const byBjId = new Map<string, MatchedRow[]>();
+  for (const r of rows) {
+    const list = byBjId.get(r.bjId) ?? [];
+    list.push(r);
+    byBjId.set(r.bjId, list);
+  }
+  const safe: MatchedRow[] = [];
+  const ambiguousAk: {
+    bjId: string;
+    bjName: string;
+    bjReference: string;
+    akCandidates: { id: string; name: string }[];
+  }[] = [];
+  for (const [bjId, list] of byBjId) {
+    if (list.length === 1) {
+      safe.push(list[0]);
+    } else {
+      ambiguousAk.push({
+        bjId,
+        bjName: list[0].bjName,
+        bjReference: list[0].bjReference,
+        akCandidates: list.map((r) => ({ id: r.akId, name: r.akName })),
+      });
+    }
+  }
+  return { safe, ambiguousAk };
+}
+
 async function poseLink(row: MatchedRow): Promise<{ ok: boolean; error?: string }> {
   try {
     await prisma.$transaction(async (tx) => {
@@ -271,13 +310,16 @@ async function main() {
   const matchedBjIds = new Set(matchedResults.flatMap((r) => r.bjProductIds));
   const orphanBj = bjProducts.filter((p) => !matchedBjIds.has(p.id));
 
-  const matchedRows = buildMatchedRows(report.results);
+  const allMatchedRows = buildMatchedRows(report.results);
+  const split = splitAmbiguousAkSide(allMatchedRows);
+  const matchedRows = split.safe;
 
   console.log("");
   console.log("=== Recapitulatif du matching ===");
-  console.log(`Matchs uniques (a lier)             : ${matchedRows.length}`);
-  console.log(`Ambigus (plusieurs candidats locaux): ${ambiguousResults.length}`);
-  console.log(`Vos produits sans equivalent AS     : ${orphanBj.length}`);
+  console.log(`Matchs uniques (a lier)              : ${matchedRows.length}`);
+  console.log(`Ambigus cote local (mm ref BJ x N)   : ${ambiguousResults.length}`);
+  console.log(`Ambigus cote AS (mm ref AS x N)      : ${split.ambiguousAk.length}`);
+  console.log(`Vos produits sans equivalent AS      : ${orphanBj.length}`);
   console.log("");
 
   if (mode === "simulation") {
@@ -293,9 +335,21 @@ async function main() {
 
     if (ambiguousResults.length > 0) {
       console.log("");
-      console.log("--- Cas ambigus (ignores) ---");
+      console.log("--- Ambigus cote local (plusieurs produits BJ pour la mm ref AS) ---");
       for (const r of ambiguousResults) {
         console.log(`  ref "${r.extractedRef}" matche ${r.bjProductIds.length} produits locaux : ${r.bjProductNames.join(" / ")}`);
+      }
+    }
+
+    if (split.ambiguousAk.length > 0) {
+      console.log("");
+      console.log("--- Ambigus cote Ankorstore (doublons AS pour la mm ref BJ) ---");
+      for (const r of split.ambiguousAk.slice(0, 100)) {
+        const names = r.akCandidates.map((c) => `"${c.name}"`).join(" / ");
+        console.log(`  ${r.bjReference}  |  ${r.bjName}  →  ${r.akCandidates.length} candidats AS : ${names}`);
+      }
+      if (split.ambiguousAk.length > 100) {
+        console.log(`  ... et ${split.ambiguousAk.length - 100} autres`);
       }
     }
 

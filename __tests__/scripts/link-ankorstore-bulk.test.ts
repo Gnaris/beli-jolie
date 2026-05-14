@@ -8,6 +8,7 @@ import {
   buildMatchedRows,
   parseMode,
   pickRowsForUnSeul,
+  splitAmbiguousAkSide,
   type MatchedRow,
 } from "@/scripts/link-ankorstore-bulk";
 
@@ -226,5 +227,58 @@ describe("pickRowsForUnSeul", () => {
     const doubled: MatchedRow[] = [rows[0], { ...rows[0], bjId: "bj1bis" }];
     const res = pickRowsForUnSeul(doubled, "RBA1");
     expect(res.rows).toHaveLength(1);
+  });
+});
+
+// ─── splitAmbiguousAkSide ──────────────────────────────────────────────
+
+describe("splitAmbiguousAkSide", () => {
+  function row(bjId: string, akId: string, bjReference = "REF"): MatchedRow {
+    return {
+      bjId,
+      bjName: `BJ ${bjId}`,
+      bjReference,
+      akId,
+      akName: `AS ${akId}`,
+      extractedRef: bjReference,
+      variantPairs: [],
+      totalAkVariants: 0,
+    };
+  }
+
+  it("classe une ligne seule en safe", () => {
+    const result = splitAmbiguousAkSide([row("bj1", "ak1")]);
+    expect(result.safe).toHaveLength(1);
+    expect(result.ambiguousAk).toHaveLength(0);
+  });
+
+  it("classe en ambiguousAk quand un mm bjId est match par plusieurs produits AS", () => {
+    const result = splitAmbiguousAkSide([
+      row("bj1", "ak1", "RBA1"),
+      row("bj1", "ak2", "RBA1"),
+    ]);
+    expect(result.safe).toHaveLength(0);
+    expect(result.ambiguousAk).toHaveLength(1);
+    expect(result.ambiguousAk[0].bjId).toBe("bj1");
+    expect(result.ambiguousAk[0].akCandidates).toHaveLength(2);
+    expect(result.ambiguousAk[0].akCandidates.map((c) => c.id)).toEqual(["ak1", "ak2"]);
+  });
+
+  it("isole les bjId safe meme melanges avec des ambigus", () => {
+    const result = splitAmbiguousAkSide([
+      row("bj1", "ak1"),
+      row("bj2", "ak2"),
+      row("bj2", "ak3"), // bj2 = ambigu
+      row("bj3", "ak4"),
+    ]);
+    expect(result.safe.map((r) => r.bjId).sort()).toEqual(["bj1", "bj3"]);
+    expect(result.ambiguousAk).toHaveLength(1);
+    expect(result.ambiguousAk[0].bjId).toBe("bj2");
+  });
+
+  it("retourne 2 listes vides quand l'entree est vide", () => {
+    const result = splitAmbiguousAkSide([]);
+    expect(result.safe).toHaveLength(0);
+    expect(result.ambiguousAk).toHaveLength(0);
   });
 });
