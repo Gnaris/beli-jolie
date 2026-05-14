@@ -52,6 +52,8 @@ interface PageProps {
     dateTo?: string;
     stockBelow?: string;
     missingImages?: string;
+    pfsLink?: string;
+    ankorsLink?: string;
   }>;
 }
 
@@ -136,6 +138,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     dateTo = "",
     stockBelow: stockBelowParam = "",
     missingImages = "",
+    pfsLink = "",
+    ankorsLink = "",
   } = params;
 
   const exactRef   = exactRefParam === "1";
@@ -166,6 +170,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     dateFrom,
     dateTo,
     stockBelow,
+    pfsLink,
+    ankorsLink,
     productIdsIn,
   });
 
@@ -351,6 +357,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
             categories={categories}
             tags={tags}
             compositions={compositions}
+            hasPfsConfig={hasPfsConfig}
+            hasAnkorstoreConfig={hasAnkorstoreConfig}
           />
         </Suspense>
       </div>

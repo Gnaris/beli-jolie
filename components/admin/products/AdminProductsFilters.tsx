@@ -16,9 +16,11 @@ interface Props {
   categories: CategoryOption[];
   tags?: TagOption[];
   compositions?: CompositionOption[];
+  hasPfsConfig?: boolean;
+  hasAnkorstoreConfig?: boolean;
 }
 
-export default function AdminProductsFilters({ totalCount, categories, tags = [], compositions = [] }: Props) {
+export default function AdminProductsFilters({ totalCount, categories, tags = [], compositions = [], hasPfsConfig = false, hasAnkorstoreConfig = false }: Props) {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -39,6 +41,8 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlDateTo    = searchParams.get("dateTo")     ?? "";
   const urlStockBelow = searchParams.get("stockBelow") ?? "";
   const urlMissingImages = searchParams.get("missingImages") ?? "";
+  const urlPfsLink = searchParams.get("pfsLink") ?? "";
+  const urlAnkorsLink = searchParams.get("ankorsLink") ?? "";
   const perPage      = searchParams.get("perPage")    ?? "20";
 
   // Parse "REF1,REF2,REF3" → ["REF1", "REF2", "REF3"]
@@ -65,7 +69,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   useEffect(() => { setLocalStockBelow(urlStockBelow); }, [urlStockBelow]);
 
   const localQ = localTerms.join(",");
-  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages);
+  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink);
   const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localExactRef !== urlExactRef || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
   const [customValue, setCustomValue] = useState("");
@@ -490,6 +494,44 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 size="sm"
               />
             </div>
+
+            {/* Lien Paris Fashion Shop — applies immediately */}
+            {hasPfsConfig && (
+              <div>
+                <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
+                  Lien Paris Fashion Shop
+                </label>
+                <CustomSelect
+                  value={urlPfsLink}
+                  onChange={(v) => navigate({ pfsLink: v || null })}
+                  options={[
+                    { value: "", label: "Tous" },
+                    { value: "linked", label: "Lié à PFS" },
+                    { value: "unlinked", label: "Non lié à PFS" },
+                  ]}
+                  size="sm"
+                />
+              </div>
+            )}
+
+            {/* Lien Ankorstore — applies immediately, only when Ankorstore configured */}
+            {hasAnkorstoreConfig && (
+              <div>
+                <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
+                  Lien Ankorstore
+                </label>
+                <CustomSelect
+                  value={urlAnkorsLink}
+                  onChange={(v) => navigate({ ankorsLink: v || null })}
+                  options={[
+                    { value: "", label: "Tous" },
+                    { value: "linked", label: "Lié à Ankorstore" },
+                    { value: "unlinked", label: "Non lié à Ankorstore" },
+                  ]}
+                  size="sm"
+                />
+              </div>
+            )}
 
             {/* Prix min — local state */}
             <div>

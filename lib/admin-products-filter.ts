@@ -23,6 +23,10 @@ export interface AdminProductsFilterParams {
   dateFrom?: string;
   dateTo?: string;
   stockBelow?: number | null;
+  /** "linked" = pfsProductId renseigné, "unlinked" = pfsProductId vide */
+  pfsLink?: string;
+  /** "linked" = ankorsProductId renseigné, "unlinked" = ankorsProductId vide */
+  ankorsLink?: string;
   /**
    * Liste des productId à retenir (intersection). Quand le filtre
    * « variantes sans image » est actif, on précalcule les IDs côté serveur
@@ -137,6 +141,18 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     where.colors = {
       some: { ...existingSome, stock: { lte: stockBelow } },
     };
+  }
+
+  if (params.pfsLink === "linked") {
+    where.pfsProductId = { not: null };
+  } else if (params.pfsLink === "unlinked") {
+    where.pfsProductId = null;
+  }
+
+  if (params.ankorsLink === "linked") {
+    where.ankorsProductId = { not: null };
+  } else if (params.ankorsLink === "unlinked") {
+    where.ankorsProductId = null;
   }
 
   if (params.productIdsIn) {

@@ -193,6 +193,40 @@ describe("buildAdminProductsWhere", () => {
       status: "ONLINE",
     });
   });
+
+  it("filters products linked to PFS when pfsLink=linked", () => {
+    expect(buildAdminProductsWhere({ pfsLink: "linked" }).pfsProductId).toEqual({ not: null });
+  });
+
+  it("filters products NOT linked to PFS when pfsLink=unlinked", () => {
+    expect(buildAdminProductsWhere({ pfsLink: "unlinked" }).pfsProductId).toBeNull();
+  });
+
+  it("ignores pfsLink when value is empty or unknown", () => {
+    expect(buildAdminProductsWhere({ pfsLink: "" }).pfsProductId).toBeUndefined();
+    expect(buildAdminProductsWhere({ pfsLink: "lol" }).pfsProductId).toBeUndefined();
+  });
+
+  it("filters products linked to Ankorstore when ankorsLink=linked", () => {
+    expect(buildAdminProductsWhere({ ankorsLink: "linked" }).ankorsProductId).toEqual({ not: null });
+  });
+
+  it("filters products NOT linked to Ankorstore when ankorsLink=unlinked", () => {
+    expect(buildAdminProductsWhere({ ankorsLink: "unlinked" }).ankorsProductId).toBeNull();
+  });
+
+  it("ignores ankorsLink when value is empty or unknown", () => {
+    expect(buildAdminProductsWhere({ ankorsLink: "" }).ankorsProductId).toBeUndefined();
+    expect(buildAdminProductsWhere({ ankorsLink: "x" }).ankorsProductId).toBeUndefined();
+  });
+
+  it("combines pfsLink and ankorsLink without clobbering each other", () => {
+    const where = buildAdminProductsWhere({ pfsLink: "linked", ankorsLink: "unlinked" });
+    expect(where).toMatchObject({
+      pfsProductId: { not: null },
+      ankorsProductId: null,
+    });
+  });
 });
 
 describe("findProductIdsWithMissingVariantImages", () => {
