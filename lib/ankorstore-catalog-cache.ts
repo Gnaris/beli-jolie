@@ -88,6 +88,10 @@ interface CatalogState {
   loadedAt: Date | null;
   activeLoad: Promise<CatalogEntry[]> | null;
   autoReloadHandle: NodeJS.Timeout | null;
+  /** Dernière progression du chargement en cours (pour les nouveaux abonnés). */
+  currentProgress: CatalogProgress | null;
+  /** Callbacks de progression abonnés au chargement en cours. */
+  progressListeners: Set<(p: CatalogProgress) => void>;
 }
 
 const STATE_KEY = Symbol.for("beliandjolie.ankorstoreCatalogCache");
@@ -100,6 +104,8 @@ function getState(): CatalogState {
       loadedAt: null,
       activeLoad: null,
       autoReloadHandle: null,
+      currentProgress: null,
+      progressListeners: new Set(),
     };
   }
   return g[STATE_KEY] as CatalogState;
@@ -173,18 +179,48 @@ export async function loadFullCatalog(
   onProgress?: (p: CatalogProgress) => void,
 ): Promise<CatalogEntry[]> {
   const state = getState();
+
+  // Branche le callback de progression du nouveau caller sur le chargement
+  // en cours (s'il y en a un) ET sur les pages futures. On le replay aussi
+  // avec la dernière progression connue pour que la modale ne reste pas figée
+  // à 0 produit alors qu'un préchargement est déjà à mi-parcours.
+  if (onProgress) {
+    state.progressListeners.add(onProgress);
+    if (state.currentProgress) {
+      try {
+        onProgress(state.currentProgress);
+      } catch {
+        // ignore les erreurs côté listener
+      }
+    }
+  }
+
   if (state.activeLoad) {
-    return state.activeLoad;
+    try {
+      return await state.activeLoad;
+    } finally {
+      if (onProgress) state.progressListeners.delete(onProgress);
+    }
   }
 
   state.activeLoad = (async () => {
     const start = Date.now();
+    state.currentProgress = null;
     logger.info("[Ankorstore Catalog] Chargement complet démarré");
     try {
       const products = await ankorstoreListAllProducts({
         pageSize: 50,
         onPage: (_page, pageIndex, totalSoFar) => {
-          onProgress?.({ loaded: totalSoFar, pageIndex });
+          const progress: CatalogProgress = { loaded: totalSoFar, pageIndex };
+          state.currentProgress = progress;
+          // Notifie tous les abonnés (modale ouverte + arrivants tardifs).
+          for (const listener of state.progressListeners) {
+            try {
+              listener(progress);
+            } catch {
+              // ignore les erreurs côté listener
+            }
+          }
         },
       });
       const entries = products.map(toCatalogEntry);
@@ -202,10 +238,15 @@ export async function loadFullCatalog(
       throw err;
     } finally {
       state.activeLoad = null;
+      state.currentProgress = null;
     }
   })();
 
-  return state.activeLoad;
+  try {
+    return await state.activeLoad;
+  } finally {
+    if (onProgress) state.progressListeners.delete(onProgress);
+  }
 }
 
 /**
@@ -305,6 +346,8 @@ export function __resetCatalogCacheForTests(): void {
   state.cachedEntries = [];
   state.loadedAt = null;
   state.activeLoad = null;
+  state.currentProgress = null;
+  state.progressListeners.clear();
   if (state.autoReloadHandle) {
     clearInterval(state.autoReloadHandle);
     state.autoReloadHandle = null;

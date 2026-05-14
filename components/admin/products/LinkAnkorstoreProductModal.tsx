@@ -332,11 +332,6 @@ export default function LinkAnkorstoreProductModal({
                 </svg>
                 <p className="text-sm font-body text-text-primary text-center max-w-md">
                   Chargement de votre catalogue Ankorstore…
-                  <br />
-                  <span className="text-xs text-text-muted">
-                    La 1<sup>re</sup> fois ça prend 30 s à 1 min, ensuite c'est
-                    instantané pendant 6 heures.
-                  </span>
                 </p>
                 {loadProgress && (
                   <p className="text-xs font-body text-text-secondary">

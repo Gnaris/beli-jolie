@@ -157,6 +157,50 @@ describe("loadFullCatalog + cache TTL", () => {
     expect(a).toEqual(b);
   });
 
+  it("propage la progression du chargement en cours aux callers arrivant en retard", async () => {
+    // Reproduit le cas : préchargement au boot déjà à 2 pages, puis la modale
+    // s'ouvre. Le 2e caller doit recevoir la dernière progression + les pages
+    // restantes, pas attendre en silence.
+    let resolveLoad: (() => void) | null = null;
+    let firePage: ((page: number, total: number) => void) | null = null;
+
+    listAllMock.mockImplementation(async (opts: {
+      onPage?: (page: unknown[], i: number, total: number) => void;
+    }) => {
+      firePage = (page, total) => opts.onPage?.([], page, total);
+      // Page initiale envoyée avant l'arrivée du 2e caller
+      opts.onPage?.([], 0, 50);
+      await new Promise<void>((r) => {
+        resolveLoad = r;
+      });
+      return [makeProduct({ id: "p1", name: "X" })];
+    });
+
+    const firstProgress: { loaded: number; pageIndex: number }[] = [];
+    const firstPromise = loadFullCatalog((p) => firstProgress.push(p));
+
+    // Laisse passer la 1re page côté 1er caller
+    await new Promise((r) => setTimeout(r, 10));
+
+    // 2e caller arrive en cours de route — il doit voir l'état actuel
+    const lateProgress: { loaded: number; pageIndex: number }[] = [];
+    const latePromise = loadFullCatalog((p) => lateProgress.push(p));
+
+    // Replay immédiat de la dernière progression connue
+    await new Promise((r) => setTimeout(r, 10));
+    expect(lateProgress).toEqual([{ loaded: 50, pageIndex: 0 }]);
+
+    // Une page supplémentaire arrive → les deux callers la reçoivent
+    firePage?.(1, 100);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(firstProgress).toContainEqual({ loaded: 100, pageIndex: 1 });
+    expect(lateProgress).toContainEqual({ loaded: 100, pageIndex: 1 });
+
+    resolveLoad?.();
+    await Promise.all([firstPromise, latePromise]);
+    expect(listAllMock).toHaveBeenCalledTimes(1);
+  });
+
   it("invalidateCatalogCache vide le cache et permet un nouveau chargement", async () => {
     listAllMock.mockResolvedValue([makeProduct({ id: "p1", name: "X" })]);
     await loadFullCatalog();
