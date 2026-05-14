@@ -477,9 +477,21 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
           bulkCreating={bulkCreating}
           onNext={() => setStep("products")}
           importMode={importMode}
-          onImportModeChange={setImportMode}
+          onImportModeChange={(m) => {
+            setImportMode(m);
+            // Quand on change de mode après un scan, on réinitialise pour
+            // repartir d'un écran propre (sinon l'utilisatrice reste bloquée
+            // sur l'écran de résultats vide).
+            setAttributes([]);
+            setScanMeta(null);
+          }}
           validatedRefs={validatedRefs}
           onValidatedRefsChange={setValidatedRefs}
+          onResetScan={() => {
+            setAttributes([]);
+            setScanMeta(null);
+            setValidatedRefs([]);
+          }}
         />
       )}
 
@@ -614,6 +626,7 @@ function ScanStep({
   onImportModeChange,
   validatedRefs,
   onValidatedRefsChange,
+  onResetScan,
 }: {
   scanning: boolean;
   attributes: PfsAttribute[];
@@ -631,6 +644,7 @@ function ScanStep({
   onImportModeChange: (m: ImportMode) => void;
   validatedRefs: ValidatedRef[];
   onValidatedRefsChange: (refs: ValidatedRef[]) => void;
+  onResetScan: () => void;
 }) {
   const groups: Record<PfsAttributeType, PfsAttribute[]> = {
     category: [],
@@ -651,8 +665,13 @@ function ScanStep({
     size: "Tailles",
   };
 
-  // Has already scanned (attributes populated) — show mapping results
-  const hasScanned = attributes.length > 0;
+  // Scan déjà effectué (au moins une réponse du serveur reçue). On se base sur
+  // `scanMeta` plutôt que sur `attributes.length` pour bien gérer le cas où le
+  // scan se termine sans aucun produit importable : sinon l'écran ne bougeait
+  // pas du tout et donnait l'impression que le bouton « Scanner PFS » ne
+  // faisait rien.
+  const hasScanned = scanMeta !== null;
+  const scanFoundNothing = hasScanned && attributes.length === 0;
 
   // By-reference mode: show tag input first, then scan button
   const byRefReady = importMode === "byRef" && validatedRefs.length > 0;
@@ -718,8 +737,64 @@ function ScanStep({
         </>
       )}
 
+      {/* Aucun produit à importer — feedback explicite après scan vide.
+          Sinon l'écran reste sur l'état initial et donne l'impression que le
+          bouton « Scanner PFS » est cassé. */}
+      {scanFoundNothing && (
+        <div className="py-8 text-center space-y-4">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#dcfce7] text-[#15803d]">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+          </div>
+          <div className="space-y-1">
+            <p className="text-text-primary font-medium">Aucun nouveau produit à importer</p>
+            <p className="text-text-muted text-sm max-w-md mx-auto">
+              {importMode === "browse"
+                ? "Tous les produits Paris Fashion Shop de votre marque sont déjà dans votre catalogue."
+                : "Aucune des références saisies n'a été trouvée sur Paris Fashion Shop, ou elles sont déjà toutes importées."}
+            </p>
+            {importMode === "browse" && (
+              <p className="text-text-muted text-sm max-w-md mx-auto">
+                Pour ajouter un produit précis créé récemment sur Paris Fashion Shop, utilisez le mode « Par référence ».
+              </p>
+            )}
+          </div>
+          <div className="flex items-center justify-center gap-2 flex-wrap pt-2">
+            <button
+              onClick={() => onRunScan(importMode === "byRef" ? validatedRefs.map((r) => r.reference) : undefined)}
+              disabled={scanning}
+              className="btn-secondary"
+            >
+              {scanning ? "Scan en cours…" : "Re-scanner"}
+            </button>
+            {importMode === "browse" ? (
+              <button
+                onClick={() => {
+                  onResetScan();
+                  onImportModeChange("byRef");
+                }}
+                className="btn-primary"
+              >
+                Importer par référence →
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  onResetScan();
+                  onImportModeChange("browse");
+                }}
+                className="btn-ghost"
+              >
+                Retour au catalogue
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Mapping results (both modes) */}
-      {hasScanned && (
+      {hasScanned && !scanFoundNothing && (
         <>
           <div className="flex items-center justify-between">
             <div className="text-sm text-text-muted">
