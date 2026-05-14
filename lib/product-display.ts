@@ -68,17 +68,15 @@ const getCachedOrderedIds = unstable_cache(
 
 async function computeOrderedProductIds(): Promise<string[]> {
   // Re-parse config from DB inside cache function
-  const [configRow, stockProductsConfig] = await Promise.all([
-    getCachedSiteConfig("product_display_config"),
-    getCachedSiteConfig("show_out_of_stock_products"),
-  ]);
+  const configRow = await getCachedSiteConfig("product_display_config");
   const config = parseDisplayConfig(configRow?.value);
-  const showOosProducts = stockProductsConfig?.value !== "false";
 
+  // Note : l'ancien reglage "show_out_of_stock_products" a ete retire — les
+  // produits en rupture totale sont desormais ARCHIVED, donc deja filtres par
+  // le where status="ONLINE".
   const allProducts: ProductMinimal[] = await prisma.product.findMany({
     where: {
       status: "ONLINE",
-      ...(!showOosProducts && { NOT: { colors: { every: { stock: { equals: 0 } } } } }),
     },
     select: {
       id: true,

@@ -245,19 +245,16 @@ async function CarrouselsTab() {
    TAB : Stock — Ruptures de stock
    ═══════════════════════════════════════════════════════════════════════════ */
 async function StockTab() {
-  const [stockVariantsConfig, stockProductsConfig] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "show_out_of_stock_variants" } }),
-    prisma.siteConfig.findUnique({ where: { key: "show_out_of_stock_products" } }),
-  ]);
-
+  const stockVariantsConfig = await prisma.siteConfig.findUnique({
+    where: { key: "show_out_of_stock_variants" },
+  });
   const showOutOfStockVariants = stockVariantsConfig?.value !== "false";
-  const showOutOfStockProducts = stockProductsConfig?.value !== "false";
 
   return (
     <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
       <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Ruptures de stock</h3>
       <p className="text-sm text-text-secondary font-body mb-4">Visibilité côté client.</p>
-      <StockDisplayConfig showOutOfStockVariants={showOutOfStockVariants} showOutOfStockProducts={showOutOfStockProducts} />
+      <StockDisplayConfig showOutOfStockVariants={showOutOfStockVariants} />
     </div>
   );
 }

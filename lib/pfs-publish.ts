@@ -38,6 +38,7 @@ import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
 import { requirePfsBrand } from "@/lib/pfs-brand";
+import { mapLocalToPfsStatus } from "@/lib/pfs-status";
 
 export interface PfsPublishProgress {
   productId: string;
@@ -654,16 +655,7 @@ export async function pfsPublishProduct(
     }
 
     // ── Step 5 : Status ──
-    // Mapping local → PFS :
-    //   ONLINE (avec stock) → READY_FOR_SALE
-    //   ARCHIVED            → ARCHIVED
-    //   OFFLINE / pas stock → DRAFT
-    const targetPfsStatus: "READY_FOR_SALE" | "DRAFT" | "ARCHIVED" =
-      product.status === "ARCHIVED"
-        ? "ARCHIVED"
-        : product.status === "ONLINE" && !allVariantsOutOfStock
-          ? "READY_FOR_SALE"
-          : "DRAFT";
+    const targetPfsStatus = mapLocalToPfsStatus(product.status, allVariantsOutOfStock);
 
     if (targetPfsStatus === "READY_FOR_SALE") {
       report("Mise en ligne...");

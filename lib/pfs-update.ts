@@ -29,6 +29,7 @@ import {
   type PfsVariantUpdateData,
 } from "@/lib/pfs-api-write";
 import { pfsGetVariants } from "@/lib/pfs-api";
+import { mapLocalToPfsStatus } from "@/lib/pfs-status";
 import {
   applyMarketplaceMarkup,
   loadMarketplaceMarkupConfigs,
@@ -528,16 +529,7 @@ export async function pfsUpdateProductInPlace(
     }
 
     const allVariantsOutOfStock = product.colors.every((v) => (v.stock ?? 0) === 0);
-    // Mapping local → PFS :
-    //   ONLINE (avec stock) → READY_FOR_SALE
-    //   ARCHIVED            → ARCHIVED
-    //   OFFLINE / pas stock → DRAFT
-    const targetStatus: "READY_FOR_SALE" | "DRAFT" | "ARCHIVED" =
-      product.status === "ARCHIVED"
-        ? "ARCHIVED"
-        : product.status === "ONLINE" && !allVariantsOutOfStock
-          ? "READY_FOR_SALE"
-          : "DRAFT";
+    const targetStatus = mapLocalToPfsStatus(product.status, allVariantsOutOfStock);
 
     // Couleur principale = Product.primaryColorId (avec fallback isPrimary pour les produits non migrés).
     const primaryColorIdResolved = getProductPrimaryColorId({

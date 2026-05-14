@@ -44,6 +44,7 @@ import { logger } from "@/lib/logger";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { emitProductEvent } from "@/lib/product-events";
 import { requirePfsBrand } from "@/lib/pfs-brand";
+import { mapLocalToPfsStatus } from "@/lib/pfs-status";
 
 export interface PfsRefreshProgress {
   productId: string;
@@ -787,16 +788,7 @@ export async function pfsRefreshProduct(
     await pfsUpdateProduct(newPfsProductId, { reference_code: product.reference });
     logger.info("[PFS Refresh] New product renamed to real ref", { newPfsProductId, ref: product.reference });
 
-    // Mapping local → PFS :
-    //   ONLINE (avec stock) → READY_FOR_SALE
-    //   ARCHIVED            → ARCHIVED
-    //   OFFLINE / pas stock → DRAFT
-    const targetPfsStatus: "READY_FOR_SALE" | "DRAFT" | "ARCHIVED" =
-      product.status === "ARCHIVED"
-        ? "ARCHIVED"
-        : product.status === "ONLINE" && !allVariantsOutOfStock
-          ? "READY_FOR_SALE"
-          : "DRAFT";
+    const targetPfsStatus = mapLocalToPfsStatus(product.status, allVariantsOutOfStock);
 
     if (targetPfsStatus === "READY_FOR_SALE") {
       report("Mise en ligne...");

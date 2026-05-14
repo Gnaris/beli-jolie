@@ -179,23 +179,23 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   const hasFilters = !!(q || cat || subcat || collection || colorIds.length > 0 || tagId || compositionId || bestseller_ || isNew_ || promo_ || ordered_ || notOrdered_ || hideOos_ || minPrice !== null || maxPrice !== null || exactRef);
 
   // ─── Fetch filter options + site config (cached — revalidate every hour) ───
-  const [categories, collections, colors, tags, compositions, stockProductsConfig, seoTextRow] = await Promise.all([
+  // Note : l'ancien reglage global "show_out_of_stock_products" a ete retire —
+  // les produits dont toutes les variantes sont a 0 sont desormais archives
+  // automatiquement et donc deja masques par le filtre status. On garde
+  // uniquement le filtre per-request hideOos (toggle utilisateur).
+  const [categories, collections, colors, tags, compositions, seoTextRow] = await Promise.all([
     getCachedCategories(),
     getCachedCollections(),
     getCachedColors(),
     getCachedTags(),
     getCachedCompositions(),
-    getCachedSiteConfig("show_out_of_stock_products"),
     getCachedSiteConfig("produits_seo_text"),
   ]);
   const produitsSeoText = !hasFilters ? (seoTextRow?.value?.trim() ?? "") : "";
 
-  const showOosProducts = stockProductsConfig?.value !== "false"; // default true
-  // showOosToggle: only show the toggle if admin allows OOS products by default
-  const showOosToggle = showOosProducts;
-
-  // If admin has disabled OOS products OR user toggled hideOos, exclude fully OOS products
-  const shouldHideOos = !showOosProducts || hideOos_;
+  // Le toggle "Masquer les ruptures" reste affiche cote UI catalogue.
+  const showOosToggle = true;
+  const shouldHideOos = hideOos_;
 
   // Fetch ordered product references for the current user (for ordered/notOrdered filters)
   let userOrderedRefs: string[] = [];

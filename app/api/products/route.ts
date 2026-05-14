@@ -122,13 +122,13 @@ export async function GET(request: NextRequest) {
   const productInclude = buildProductInclude(locale);
 
   // Stock display config
-  const [stockProductsRow, stockVariantsRow] = await Promise.all([
-    getCachedSiteConfig("show_out_of_stock_products"),
-    getCachedSiteConfig("show_out_of_stock_variants"),
-  ]);
-  const showOosProducts = stockProductsRow?.value !== "false"; // default true
+  // Note : l'ancien reglage global "show_out_of_stock_products" a ete retire —
+  // les produits dont toutes les variantes sont a 0 sont desormais archives
+  // automatiquement et donc deja masques par le filtre status. On garde
+  // uniquement le filtre per-request hideOos pour les usages UI ponctuels.
+  const stockVariantsRow = await getCachedSiteConfig("show_out_of_stock_variants");
   const showOosVariants = stockVariantsRow?.value !== "false"; // default true
-  const shouldHideOos = !showOosProducts || hideOos;
+  const shouldHideOos = hideOos;
 
   // Session : on en a besoin pour ordered/notOrdered ET pour le gating prix.
   const session = await getServerSession(authOptions);

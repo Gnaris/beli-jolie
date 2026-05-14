@@ -119,22 +119,14 @@ export async function updateSeoTexts(input: {
 
 export async function updateStockDisplayConfig(config: {
   showOutOfStockVariants: boolean;
-  showOutOfStockProducts: boolean;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    await Promise.all([
-      prisma.siteConfig.upsert({
-        where: { key: "show_out_of_stock_variants" },
-        update: { value: String(config.showOutOfStockVariants) },
-        create: { key: "show_out_of_stock_variants", value: String(config.showOutOfStockVariants) },
-      }),
-      prisma.siteConfig.upsert({
-        where: { key: "show_out_of_stock_products" },
-        update: { value: String(config.showOutOfStockProducts) },
-        create: { key: "show_out_of_stock_products", value: String(config.showOutOfStockProducts) },
-      }),
-    ]);
+    await prisma.siteConfig.upsert({
+      where: { key: "show_out_of_stock_variants" },
+      update: { value: String(config.showOutOfStockVariants) },
+      create: { key: "show_out_of_stock_variants", value: String(config.showOutOfStockVariants) },
+    });
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     revalidatePath("/produits");

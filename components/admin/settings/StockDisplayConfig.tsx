@@ -6,17 +6,15 @@ import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   showOutOfStockVariants: boolean;
-  showOutOfStockProducts: boolean;
 }
 
-export default function StockDisplayConfig({ showOutOfStockVariants, showOutOfStockProducts }: Props) {
+export default function StockDisplayConfig({ showOutOfStockVariants }: Props) {
   const [variants, setVariants] = useState(showOutOfStockVariants);
-  const [products, setProducts] = useState(showOutOfStockProducts);
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const hasChanges = variants !== showOutOfStockVariants || products !== showOutOfStockProducts;
+  const hasChanges = variants !== showOutOfStockVariants;
 
   function handleSave() {
     setMsg(null);
@@ -25,7 +23,6 @@ export default function StockDisplayConfig({ showOutOfStockVariants, showOutOfSt
       try {
         const res = await updateStockDisplayConfig({
           showOutOfStockVariants: variants,
-          showOutOfStockProducts: products,
         });
         setMsg(res.success ? { ok: true, text: "Enregistré" } : { ok: false, text: res.error ?? "Erreur" });
         if (res.success) setTimeout(() => setMsg(null), 3000);
@@ -37,29 +34,11 @@ export default function StockDisplayConfig({ showOutOfStockVariants, showOutOfSt
 
   return (
     <div className="space-y-4">
-      {/* Toggle 1 — Produits en rupture */}
-      <label className="flex items-start gap-3 cursor-pointer select-none group">
-        <div className="relative mt-0.5 shrink-0">
-          <input
-            type="checkbox"
-            checked={products}
-            onChange={(e) => setProducts(e.target.checked)}
-            className="sr-only peer"
-          />
-          <div className="w-10 h-[22px] bg-[#D1D5DB] rounded-full peer-checked:bg-bg-dark transition-colors" />
-          <div className="absolute top-[3px] left-[3px] w-4 h-4 bg-bg-primary rounded-full shadow-sm transition-transform peer-checked:translate-x-[18px]" />
-        </div>
-        <div>
-          <p className="text-sm font-medium text-text-primary font-body">
-            Afficher les produits en rupture totale
-          </p>
-          <p className="text-xs text-text-secondary font-body mt-0.5">
-            Si désactivé, les produits dont <strong>toutes</strong> les variantes sont à stock 0 seront masqués du catalogue et de l&apos;accueil.
-          </p>
-        </div>
-      </label>
-
-      {/* Toggle 2 — Variantes en rupture */}
+      {/* Toggle — Variantes en rupture
+          Note : l'ancien toggle "Afficher les produits en rupture totale" a ete
+          retire — un produit dont toutes les variantes sont a 0 est
+          automatiquement archive a l'enregistrement et donc deja masque du
+          catalogue par le filtre ARCHIVED. */}
       <label className="flex items-start gap-3 cursor-pointer select-none group">
         <div className="relative mt-0.5 shrink-0">
           <input
