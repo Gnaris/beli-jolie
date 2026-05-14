@@ -302,13 +302,12 @@ function buildVariantSnapshot(
   config: AnkorstorePricingConfig,
 ): AnkorstoreVariantSnapshot {
   const sku = buildVariantSku(product, variant, index);
-  // Quand le produit local est OFFLINE (ou ARCHIVED), on force le stock à 0
-  // côté Ankorstore pour rendre le produit "out of stock" donc non commandable
-  // sans toucher au stock réel local. L'API Ankorstore n'a pas de mécanisme
-  // explicite pour rendre un produit "inactif" — le stock à 0 est l'équivalent
-  // fonctionnel le plus propre et réversible.
-  const stock =
-    product.status === "ONLINE" ? (variant.stock ?? 0) : 0;
+  // ARCHIVED localement → stock forcé à 0 côté AS (produit retiré de la vente).
+  // ONLINE / OFFLINE → vrai stock local. La visibilite sur la boutique
+  // (ONLINE vs OFFLINE) n'est PAS un signal de stock cote AS : un produit
+  // peut etre archivable avec du stock encore present, et un desarchivage
+  // doit restaurer le vrai stock.
+  const stock = product.status === "ARCHIVED" ? 0 : (variant.stock ?? 0);
   const colorLabel =
     variant.saleType === "PACK"
       ? getPackColorLabel(variant)
@@ -725,10 +724,11 @@ export async function ankorstoreKickoffUpdate(
         return {
           sku,
           ian: null,
-          // Reflet du statut local côté Ankorstore : si OFFLINE / ARCHIVED,
-          // on force le stock à 0 (produit non commandable, équivalent
-          // « hors ligne » dans une API qui n'expose pas de flag d'activation).
-          stockQuantity: product.status === "ONLINE" ? (variant.stock ?? 0) : 0,
+          // ARCHIVED localement → stock 0 force (retire de la vente).
+          // ONLINE / OFFLINE → vrai stock local. La visibilite cote boutique
+          // n'est PAS un signal de stock cote AS (un produit peut etre
+          // archivable avec du stock encore present).
+          stockQuantity: product.status === "ARCHIVED" ? 0 : (variant.stock ?? 0),
           isAlwaysInStock: false,
           wholesalePrice: variantWholesale,
           retailPrice: variantRetail,
