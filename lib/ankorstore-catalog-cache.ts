@@ -125,7 +125,7 @@ function toCatalogEntry(p: AnkorstoreProduct): CatalogEntry {
 // ─────────────────────────────────────────────
 
 /**
- * Renvoie le cache s'il est encore frais (< 3h), `null` sinon.
+ * Renvoie le cache s'il est encore frais (< 6h), `null` sinon.
  * Ne déclenche PAS de chargement.
  */
 export function getCachedCatalog(): CatalogEntry[] | null {

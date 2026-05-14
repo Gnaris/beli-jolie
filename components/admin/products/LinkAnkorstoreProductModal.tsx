@@ -335,7 +335,7 @@ export default function LinkAnkorstoreProductModal({
                   <br />
                   <span className="text-xs text-text-muted">
                     La 1<sup>re</sup> fois ça prend 30 s à 1 min, ensuite c'est
-                    instantané pendant 3 heures.
+                    instantané pendant 6 heures.
                   </span>
                 </p>
                 {loadProgress && (
