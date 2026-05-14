@@ -27,6 +27,7 @@
  */
 
 import "dotenv/config";
+import fs from "fs";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
@@ -330,6 +331,43 @@ async function main() {
   console.log(`Vos produits sans equivalent AS      : ${orphanBj.length}`);
   console.log("");
 
+  // Dump du rapport detaille (toujours, meme en simulation et un-seul)
+  const unmatchedAk = report.results.filter((r) => r.status === "unmatched");
+  const safeStats = matchedRows.map((r) => ({
+    reference: r.bjReference, name: r.bjName, akName: r.akName,
+    variantsAppariees: r.variantPairs.length, variantsTotalAk: r.totalAkVariants,
+  }));
+  const partialMatches = safeStats.filter((r) => r.variantsAppariees < r.variantsTotalAk);
+  const reportJson = {
+    generatedAt: new Date().toISOString(),
+    mode,
+    counts: {
+      bjProductsToLink: bjProducts.length,
+      akProductsActive: akProducts.length,
+      safeMatches: matchedRows.length,
+      partialVariantMatches: partialMatches.length,
+      ambiguousLocal: ambiguousResults.length,
+      ambiguousAk: split.ambiguousAk.length,
+      orphanBj: orphanBj.length,
+      unmatchedAk: unmatchedAk.length,
+    },
+    safe: safeStats,
+    ambiguousLocalDetails: ambiguousResults.map((r) => ({
+      akName: r.ankorstoreProduct.name, extractedRef: r.extractedRef,
+      candidates: r.bjProductIds.map((id, i) => ({ id, name: r.bjProductNames[i] })),
+    })),
+    ambiguousAkDetails: split.ambiguousAk,
+    orphanBjDetails: orphanBj.map((p) => ({ reference: p.reference, name: p.name })),
+    partialMatches,
+  };
+  try {
+    fs.writeFileSync("/var/log/ankorstore-link-report.json", JSON.stringify(reportJson, null, 2));
+    console.log("Rapport detaille ecrit : /var/log/ankorstore-link-report.json");
+  } catch (e) {
+    console.warn(`Impossible decrire le rapport : ${e instanceof Error ? e.message : String(e)}`);
+  }
+  console.log("");
+
   if (mode === "simulation") {
     console.log("MODE SIMULATION — aucune ecriture.");
     console.log("");
@@ -402,14 +440,18 @@ async function main() {
 
   let okCount = 0;
   let errCount = 0;
+  const okList: { reference: string; name: string; akName: string }[] = [];
+  const errList: { reference: string; name: string; error: string }[] = [];
   for (const row of toProcess) {
     const result = await poseLink(row);
     if (result.ok) {
       console.log(`  OK   ${row.bjReference}  |  ${row.bjName}  →  "${row.akName}"`);
       okCount++;
+      okList.push({ reference: row.bjReference, name: row.bjName, akName: row.akName });
     } else {
       console.error(`  ECHEC ${row.bjReference}  |  ${row.bjName} : ${result.error}`);
       errCount++;
+      errList.push({ reference: row.bjReference, name: row.bjName, error: result.error ?? "?" });
     }
   }
 
@@ -418,6 +460,19 @@ async function main() {
   console.log("");
   console.log("Les mises a jour Ankorstore arriveront par webhook dans les minutes qui viennent.");
   console.log("Vous pouvez verifier dans Admin > Produits que les produits affichent maintenant le badge Ankorstore.");
+
+  try {
+    const summary = {
+      finishedAt: new Date().toISOString(),
+      mode, totalAttempted: toProcess.length,
+      okCount, errCount,
+      ok: okList, errors: errList,
+    };
+    fs.writeFileSync("/var/log/ankorstore-bulk-link-summary.json", JSON.stringify(summary, null, 2));
+    console.log("Resume final ecrit : /var/log/ankorstore-bulk-link-summary.json");
+  } catch (e) {
+    console.warn(`Impossible decrire le resume : ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 // Ne lance main() que lorsque le script est execute directement (pas a l'import en test).
