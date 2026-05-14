@@ -43,6 +43,14 @@ export interface AnkorstoreVariantSnapshot {
   isAlwaysInStock: boolean;
   optionColor: string;
   optionSize: string;
+  /**
+   * Composition envoyee comme option `material` cote Ankorstore. Sert a alimenter
+   * la section "Composition" du produit (distincte de la description en clair).
+   * `null` quand aucune composition n'est renseignee localement. Un snapshot
+   * v3 cree avant ce champ aura `undefined` -- traite comme "different" pour
+   * forcer un renvoi a la prochaine sync.
+   */
+  optionMaterial: string | null;
 }
 
 export type AnkorstoreImagesSnapshot = {
@@ -98,7 +106,8 @@ export function variantSnapshotEqual(
     a.stockQty === b.stockQty &&
     a.isAlwaysInStock === b.isAlwaysInStock &&
     a.optionColor === b.optionColor &&
-    a.optionSize === b.optionSize
+    a.optionSize === b.optionSize &&
+    (a.optionMaterial ?? null) === (b.optionMaterial ?? null)
   );
 }
 

@@ -10,7 +10,10 @@
 
 import { prisma } from "@/lib/prisma";
 import { Prisma, type AnkorstoreOperation } from "@prisma/client";
-import { formatAnkorstoreDescription } from "@/lib/ankorstore-description";
+import {
+  formatAnkorstoreCompositionLabel,
+  formatAnkorstoreDescription,
+} from "@/lib/ankorstore-description";
 import {
   ankorstoreCreateCatalogOperation,
   ankorstoreAddProductsToOperation,
@@ -261,6 +264,7 @@ function buildAnkorstoreVariants(
   wholesaleMarkup: MarkupConfig,
   retailMarkup: MarkupConfig,
   imagesByColorId: Map<string, string[]>,
+  materialLabel: string | null,
 ): {
   bjVariantId: string;
   sku: string;
@@ -305,6 +309,9 @@ function buildAnkorstoreVariants(
           options: [
             { name: "color", value: colorLabel },
             { name: "size", value: sizeLabel },
+            ...(materialLabel
+              ? [{ name: "material" as const, value: materialLabel }]
+              : []),
           ],
           ...(variantImages.length > 0 ? { images: variantImages } : {}),
         },
@@ -333,6 +340,9 @@ function buildAnkorstoreVariants(
           options: [
             { name: "color", value: colorLabel },
             { name: "size", value: sizeLabel },
+            ...(materialLabel
+              ? [{ name: "material" as const, value: materialLabel }]
+              : []),
           ],
           ...(variantImages.length > 0 ? { images: variantImages } : {}),
         },
@@ -360,18 +370,20 @@ export async function buildPublishProductInput(productId: string): Promise<
   }
 
   const pricing = await loadAnkorstorePricingConfig();
+  const normalizedCompositions = product.compositions.map((c) => ({
+    percentage: Number(c.percentage),
+    composition: {
+      nameFR: c.composition.name ?? c.composition.pfsCompositionRef ?? "",
+    },
+  }));
   const safeDescription = formatAnkorstoreDescription({
     description: product.description || product.name,
     reference: product.reference,
-    compositions: product.compositions.map((c) => ({
-      percentage: Number(c.percentage),
-      composition: {
-        nameFR: c.composition.name ?? c.composition.pfsCompositionRef ?? "",
-      },
-    })),
+    compositions: normalizedCompositions,
     dimensionDiameter: product.dimensionDiameter,
     dimensionCircumference: product.dimensionCircumference,
   });
+  const materialLabel = formatAnkorstoreCompositionLabel(normalizedCompositions);
 
   const imagesByColorId = buildImagesByColorId(product.colorImages);
 
@@ -381,6 +393,7 @@ export async function buildPublishProductInput(productId: string): Promise<
     pricing.wholesale,
     pricing.retail,
     imagesByColorId,
+    materialLabel,
   );
 
   const allVariantsOutOfStock =

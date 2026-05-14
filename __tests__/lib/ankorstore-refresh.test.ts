@@ -25,6 +25,7 @@ vi.mock("@/lib/ankorstore-description", () => ({
     (input: { description: string; reference: string }) =>
       `${input.description}\n\nRéférence : ${input.reference}`,
   ),
+  formatAnkorstoreCompositionLabel: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock("@/lib/ankorstore-pricing", () => ({

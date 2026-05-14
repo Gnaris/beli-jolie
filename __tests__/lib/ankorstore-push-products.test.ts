@@ -38,6 +38,7 @@ vi.mock("@/lib/ankorstore-description", () => ({
       return `${input.description}${tail}\n\nRéférence : ${input.reference}`;
     },
   ),
+  formatAnkorstoreCompositionLabel: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock("@/lib/ankorstore-pricing", () => ({

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { formatAnkorstoreDescription } from "@/lib/ankorstore-description";
+import {
+  formatAnkorstoreCompositionLabel,
+  formatAnkorstoreDescription,
+} from "@/lib/ankorstore-description";
 
 describe("formatAnkorstoreDescription", () => {
   it("ajoute composition et référence en bas", () => {
@@ -78,5 +81,55 @@ describe("formatAnkorstoreDescription", () => {
     });
     expect(out).not.toContain("Diamètre");
     expect(out).not.toContain("Circonférence");
+  });
+});
+
+describe("formatAnkorstoreCompositionLabel", () => {
+  it("retourne null quand aucune composition n'est fournie", () => {
+    expect(formatAnkorstoreCompositionLabel(undefined)).toBeNull();
+    expect(formatAnkorstoreCompositionLabel([])).toBeNull();
+  });
+
+  it("retourne le format 'X% Nom' pour une composition unique", () => {
+    expect(
+      formatAnkorstoreCompositionLabel([
+        { percentage: 100, composition: { nameFR: "Acier inoxydable" } },
+      ]),
+    ).toBe("100% Acier inoxydable");
+  });
+
+  it("concatène plusieurs compositions séparées par virgule + espace", () => {
+    expect(
+      formatAnkorstoreCompositionLabel([
+        { percentage: 50, composition: { nameFR: "Acier inoxydable" } },
+        { percentage: 50, composition: { nameFR: "Laiton" } },
+      ]),
+    ).toBe("50% Acier inoxydable, 50% Laiton");
+  });
+
+  it("ignore les compositions sans nom (vide ou que des espaces)", () => {
+    expect(
+      formatAnkorstoreCompositionLabel([
+        { percentage: 50, composition: { nameFR: "" } },
+        { percentage: 50, composition: { nameFR: "   " } },
+      ]),
+    ).toBeNull();
+  });
+
+  it("garde uniquement les compositions valides quand mix vide/rempli", () => {
+    expect(
+      formatAnkorstoreCompositionLabel([
+        { percentage: 60, composition: { nameFR: "Coton" } },
+        { percentage: 40, composition: { nameFR: "" } },
+      ]),
+    ).toBe("60% Coton");
+  });
+
+  it("convertit percentage objet ({toString}) en number propre", () => {
+    expect(
+      formatAnkorstoreCompositionLabel([
+        { percentage: { toString: () => "92.5" }, composition: { nameFR: "Argent 925" } },
+      ]),
+    ).toBe("92.5% Argent 925");
   });
 });

@@ -16,7 +16,10 @@
 
 import { prisma } from "@/lib/prisma";
 import { Prisma, type AnkorstoreOperation } from "@prisma/client";
-import { formatAnkorstoreDescription } from "@/lib/ankorstore-description";
+import {
+  formatAnkorstoreCompositionLabel,
+  formatAnkorstoreDescription,
+} from "@/lib/ankorstore-description";
 import {
   ankorstoreCreateCatalogOperation,
   ankorstoreAddProductsToOperation,
@@ -258,6 +261,21 @@ function toIntegerOrNull(value: number | null, multiplier: number): number | nul
   return Math.round(value * multiplier);
 }
 
+/**
+ * Normalise les compositions produit dans la forme commune utilisee par
+ * `formatAnkorstoreDescription` ET `formatAnkorstoreCompositionLabel`.
+ */
+function normalizeCompositionsForAnkorstore(
+  product: FullProduct,
+): { percentage: number; composition: { nameFR: string } }[] {
+  return product.compositions.map((c) => ({
+    percentage: Number(c.percentage),
+    composition: {
+      nameFR: c.composition.name ?? c.composition.pfsCompositionRef ?? "",
+    },
+  }));
+}
+
 function buildProductFieldsSnapshot(
   product: FullProduct,
   brandName: string,
@@ -266,12 +284,7 @@ function buildProductFieldsSnapshot(
   const safeDescription = formatAnkorstoreDescription({
     description: product.description || product.name,
     reference: product.reference,
-    compositions: product.compositions.map((c) => ({
-      percentage: Number(c.percentage),
-      composition: {
-        nameFR: c.composition.name ?? c.composition.pfsCompositionRef ?? "",
-      },
-    })),
+    compositions: normalizeCompositionsForAnkorstore(product),
     dimensionDiameter: product.dimensionDiameter,
     dimensionCircumference: product.dimensionCircumference,
   });
@@ -300,6 +313,7 @@ function buildVariantSnapshot(
   variant: FullVariant,
   index: number,
   config: AnkorstorePricingConfig,
+  materialLabel: string | null,
 ): AnkorstoreVariantSnapshot {
   const sku = buildVariantSku(product, variant, index);
   // Quand le produit local est OFFLINE (ou ARCHIVED), on force le stock à 0
@@ -331,6 +345,7 @@ function buildVariantSnapshot(
     isAlwaysInStock: false,
     optionColor: colorLabel,
     optionSize: sizeLabel,
+    optionMaterial: materialLabel,
   };
 }
 
@@ -492,6 +507,9 @@ export async function ankorstoreKickoffUpdate(
 
     // Build next snapshot
     const nextProductSnap = buildProductFieldsSnapshot(product, brandName, config);
+    const materialLabel = formatAnkorstoreCompositionLabel(
+      normalizeCompositionsForAnkorstore(product),
+    );
 
     const nextVariantsSnap: AnkorstoreSyncSnapshot["variants"] = {};
     for (let i = 0; i < product.colors.length; i++) {
@@ -502,6 +520,7 @@ export async function ankorstoreKickoffUpdate(
           variant,
           i,
           config,
+          materialLabel,
         );
       }
     }
@@ -735,6 +754,9 @@ export async function ankorstoreKickoffUpdate(
           options: [
             { name: "color" as const, value: colorLabel },
             { name: "size" as const, value: sizeLabel },
+            ...(materialLabel
+              ? [{ name: "material" as const, value: materialLabel }]
+              : []),
           ],
           ...(variantImages.length > 0 ? { images: variantImages } : {}),
         };

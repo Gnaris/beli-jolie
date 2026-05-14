@@ -1,7 +1,37 @@
+export type AnkorstoreCompositionInput = {
+  percentage: number | { toString(): string };
+  composition: { nameFR: string };
+};
+
+/**
+ * Formate l'etiquette `material` envoyee comme option de variante a
+ * Ankorstore. Elle alimente la section "Composition" du produit cote
+ * Ankorstore (distincte de la description en clair). Retourne null quand
+ * aucune composition n'est renseignee : on n'enverra alors pas l'option.
+ *
+ * Format : "50% Acier inoxydable, 50% Laiton" (memes labels que dans la
+ * description, mais sans le prefixe "Composition : ").
+ */
+export function formatAnkorstoreCompositionLabel(
+  compositions: AnkorstoreCompositionInput[] | undefined,
+): string | null {
+  if (!compositions || compositions.length === 0) return null;
+  const parts = compositions
+    .map((c) => {
+      const pct = Number(c.percentage);
+      const name = c.composition.nameFR?.trim() ?? "";
+      if (!name) return null;
+      return `${pct}% ${name}`;
+    })
+    .filter((s): s is string => s !== null);
+  if (parts.length === 0) return null;
+  return parts.join(", ");
+}
+
 export interface FormatAnkorstoreDescriptionInput {
   description: string;
   reference: string;
-  compositions?: { percentage: number | { toString(): string }; composition: { nameFR: string } }[];
+  compositions?: AnkorstoreCompositionInput[];
   /**
    * Diamètre du produit en cm. Ankorstore n'a pas de champ structuré pour
    * ça (seulement longueur/largeur/hauteur), donc on l'ajoute en clair

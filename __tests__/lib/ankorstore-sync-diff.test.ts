@@ -31,6 +31,7 @@ const baseSnap: AnkorstoreSyncSnapshot = {
       isAlwaysInStock: false,
       optionColor: "Rouge",
       optionSize: "M",
+      optionMaterial: null,
     },
   },
   images: { Rouge: { "1": "/uploads/produits/ref1/img-1.webp" } },
@@ -172,5 +173,40 @@ describe("diffAnkorstoreSnapshots", () => {
     };
     const diff = diffAnkorstoreSnapshots(prev, next);
     expect(diff.productChanged).toBe(true);
+  });
+
+  it("ajouter une composition (optionMaterial passe de null à valeur) → variante marquee changee", () => {
+    const next: AnkorstoreSyncSnapshot = {
+      ...baseSnap,
+      variants: {
+        v1: { ...baseSnap.variants.v1, optionMaterial: "50% Acier inoxydable, 50% Laiton" },
+      },
+    };
+    const diff = diffAnkorstoreSnapshots(baseSnap, next);
+    expect(diff.variantsChanged).toEqual(["v1"]);
+    expect(diff.productChanged).toBe(false);
+  });
+
+  it("changer la composition → variante marquee changee", () => {
+    const prev: AnkorstoreSyncSnapshot = {
+      ...baseSnap,
+      variants: { v1: { ...baseSnap.variants.v1, optionMaterial: "100% Coton" } },
+    };
+    const next: AnkorstoreSyncSnapshot = {
+      ...prev,
+      variants: { v1: { ...prev.variants.v1, optionMaterial: "100% Lin" } },
+    };
+    const diff = diffAnkorstoreSnapshots(prev, next);
+    expect(diff.variantsChanged).toEqual(["v1"]);
+  });
+
+  it("composition identique → diff vide", () => {
+    const prev: AnkorstoreSyncSnapshot = {
+      ...baseSnap,
+      variants: { v1: { ...baseSnap.variants.v1, optionMaterial: "100% Argent" } },
+    };
+    const next: AnkorstoreSyncSnapshot = { ...prev };
+    const diff = diffAnkorstoreSnapshots(prev, next);
+    expect(diffIsEmpty(diff)).toBe(true);
   });
 });
