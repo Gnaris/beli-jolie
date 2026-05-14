@@ -333,10 +333,15 @@ function buildVariantSnapshot(
 }
 
 function buildImagesSnapshot(product: FullProduct): AnkorstoreImagesSnapshot {
-  const firstColorId = product.colors[0]?.colorId ?? null;
+  // Le snapshot d'images DOIT refléter la couleur principale (primaryColorId),
+  // pas la première variante : sinon un changement de couleur principale ne
+  // produit aucun diff et la photo produit reste figée côté Ankorstore.
+  // Cohérent avec le payload réel construit plus bas (mainImage + images).
+  const primaryColorId =
+    product.primaryColorId ?? product.colors[0]?.colorId ?? null;
   const out: AnkorstoreImagesSnapshot = {};
   const filtered = product.colorImages
-    .filter((img) => !firstColorId || img.colorId === firstColorId)
+    .filter((img) => !primaryColorId || img.colorId === primaryColorId)
     .sort((a, b) => a.order - b.order);
   if (filtered.length > 0) {
     out["main"] = {};

@@ -46,6 +46,14 @@ vi.mock("@/lib/ankorstore-variant-link", () => ({
   }),
 }));
 
+const mockGetVariants = vi.fn().mockResolvedValue([
+  { id: "ank-variant-1", sku: "REF001_red_UNIT_1" },
+  { id: "ank-variant-2", sku: "REF001_blue_UNIT_2" },
+]);
+vi.mock("@/lib/ankorstore-api", () => ({
+  ankorstoreGetVariants: (...args: unknown[]) => mockGetVariants(...args),
+}));
+
 vi.mock("@/lib/ankorstore-pricing", () => ({
   loadAnkorstorePricingConfig: vi.fn().mockResolvedValue({
     wholesale: { type: "percent", value: 0, rounding: "none" },
@@ -102,6 +110,11 @@ function makeSnapshot(overrides?: Partial<AnkorstoreSyncSnapshot>): AnkorstoreSy
       countryCode: "FR",
       unitMultiplier: 1,
       brandName: "Test Boutique",
+      weightGrams: 500,
+      dimensionLengthMm: null,
+      dimensionWidthMm: null,
+      dimensionHeightMm: null,
+      hsCode: null,
     },
     variants: {
       "ank-variant-1": {
@@ -281,6 +294,81 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     });
 
     expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
+  });
+
+  it("Test 5: changer primaryColorId déclenche bien un diff d'images → op asynchrone lancée", async () => {
+    // Snapshot précédent : la couleur principale était color-1 (Rouge) → image rouge
+    const prevSnapshot = makeSnapshot({
+      images: {
+        main: { "1": "/uploads/produits/ref001/ref001-red-1.webp" },
+      },
+    });
+
+    // Nouveau produit : couleur principale = color-2 (Bleu).
+    // Le produit a 2 variantes (color-1 et color-2), chacune avec leur image.
+    // Bug avant fix : buildImagesSnapshot prenait colors[0] (= color-1, Rouge)
+    // → snapshot d'images identique à prev → diff vide → aucun envoi Ankorstore.
+    // Avec le fix : on prend primaryColorId (= color-2, Bleu) → image différente
+    // → diff non vide → op asynchrone lancée.
+    const product = makeProduct({
+      ankorsLastSyncSnapshot: prevSnapshot,
+      primaryColorId: "color-2",
+      colors: [
+        {
+          id: "variant-1",
+          ankorsVariantId: "ank-variant-1",
+          unitPrice: 10,
+          weight: 0.5,
+          stock: 10,
+          isPrimary: false,
+          saleType: "UNIT",
+          packQuantity: null,
+          sku: "REF001_red_UNIT_1",
+          variantSizes: [],
+          colorId: "color-1",
+          color: { id: "color-1", name: "Rouge" },
+          packLines: [],
+          images: [],
+        },
+        {
+          id: "variant-2",
+          ankorsVariantId: "ank-variant-2",
+          unitPrice: 10,
+          weight: 0.5,
+          stock: 10,
+          isPrimary: true,
+          saleType: "UNIT",
+          packQuantity: null,
+          sku: "REF001_blue_UNIT_2",
+          variantSizes: [],
+          colorId: "color-2",
+          color: { id: "color-2", name: "Bleu" },
+          packLines: [],
+          images: [],
+        },
+      ],
+      colorImages: [
+        { path: "/uploads/produits/ref001/ref001-red-1.webp", order: 1, colorId: "color-1" },
+        { path: "/uploads/produits/ref001/ref001-blue-1.webp", order: 1, colorId: "color-2" },
+      ],
+    });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    // Le diff d'images n'est pas vide → une op asynchrone DOIT être créée
+    expect(result.operationId).toBe("op-test");
+    expect(mockCreateCatalogOperation).toHaveBeenCalledWith("update");
+    expect(mockAddProductsToOperation).toHaveBeenCalled();
+    expect(mockStartOperation).toHaveBeenCalled();
+
+    // Et le payload envoyé à Ankorstore doit pointer vers la NOUVELLE image (Bleu)
+    const addCall = mockAddProductsToOperation.mock.calls[0];
+    const products = addCall[1] as { mainImage?: string }[];
+    expect(products[0].mainImage).toContain("ref001-blue-1.webp");
   });
 
   it("Bonus: produit introuvable en base → retourne error", async () => {
