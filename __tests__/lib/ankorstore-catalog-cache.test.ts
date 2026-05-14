@@ -34,6 +34,7 @@ function makeProduct(opts: {
   name: string;
   externalId?: string | null;
   variantSkus?: string[];
+  archived?: boolean;
 }) {
   return {
     id: opts.id,
@@ -44,7 +45,7 @@ function makeProduct(opts: {
     wholesalePrice: 10,
     vatRate: 20,
     active: true,
-    archived: false,
+    archived: opts.archived ?? false,
     images: [],
     variants: (opts.variantSkus ?? []).map((sku, i) => ({
       id: `${opts.id}-v${i}`,
@@ -227,6 +228,18 @@ describe("loadFullCatalog + cache TTL", () => {
     listAllMock.mockResolvedValueOnce([makeProduct({ id: "p1", name: "X" })]);
     const next = await loadFullCatalog();
     expect(next).toHaveLength(1);
+  });
+
+  it("exclut les produits archivés du cache (filet de sécurité côté code)", async () => {
+    // Même si Ankorstore renvoyait quand même un archivé malgré
+    // `filter[archived]=false`, le cache catalog doit l'exclure côté code
+    // pour ne pas le proposer dans la modale de liaison.
+    listAllMock.mockResolvedValue([
+      makeProduct({ id: "live", name: "Produit vivant" }),
+      makeProduct({ id: "old", name: "Ancien supprimé", archived: true }),
+    ]);
+    const entries = await loadFullCatalog();
+    expect(entries.map((e) => e.id)).toEqual(["live"]);
   });
 
   it("partage le cache via globalThis (résiste aux ré-imports type bundles séparés)", async () => {

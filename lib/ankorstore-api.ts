@@ -218,9 +218,11 @@ export async function ankorstoreSearchProducts(
   // On trie ensuite par pertinence côté code (sortAnkorstoreSearchResults)
   // avant de tronquer à `limit`.
   const FETCH_LIMIT = 100;
+  // `filter[archived]=false` exclut les produits que nous avons demandé à
+  // supprimer (Ankorstore les archive au lieu de les supprimer définitivement).
   const variantUrl =
     `/product-variants?filter[skuOrName]=${encodeURIComponent(query)}` +
-    `&include=product&page[limit]=${FETCH_LIMIT}`;
+    `&filter[archived]=false&include=product&page[limit]=${FETCH_LIMIT}`;
   const variantResp = await ankorstoreFetch<{
     data: {
       id: string;
@@ -274,7 +276,7 @@ export async function ankorstoreSearchProducts(
     try {
       const url =
         `/products?filter[skuOrName]=${encodeURIComponent(query)}` +
-        `&include=productVariant&page[limit]=${FETCH_LIMIT}`;
+        `&filter[archived]=false&include=productVariant&page[limit]=${FETCH_LIMIT}`;
       const resp = await ankorstoreFetch<{
         data: JsonApiProductItem[];
         included?: JsonApiVariantItem[];
@@ -310,9 +312,13 @@ export async function ankorstoreSearchProducts(
     }
   }
 
+  // Filet de sécurité : exclut côté code les produits archivés (= supprimés
+  // côté nous) au cas où l'API ignorerait `filter[archived]=false`.
+  const visible = candidates.filter((p) => !p.archived);
+
   // Tri par pertinence (SKU exact → préfixe "{query}_" → nom commence par → …)
   // PUIS troncature, sinon une référence très pertinente peut être coupée.
-  const ranked = sortAnkorstoreSearchResults(candidates, query);
+  const ranked = sortAnkorstoreSearchResults(visible, query);
   return ranked.slice(0, limit);
 }
 
@@ -343,7 +349,7 @@ async function scanProductsForQuery(
     const cursor: string = after
       ? `&page[after]=${encodeURIComponent(after)}`
       : "";
-    const url: string = `/products?include=productVariant&page[limit]=${pageSize}${cursor}`;
+    const url: string = `/products?filter[archived]=false&include=productVariant&page[limit]=${pageSize}${cursor}`;
     const resp: {
       data: JsonApiProductItem[];
       included?: JsonApiVariantItem[];
@@ -462,7 +468,8 @@ export async function ankorstoreListAllProducts(opts?: {
   for (let i = 0; i < maxPages; i++) {
     if (opts?.shouldAbort?.()) break;
     const cursorParam: string = after ? `&page[after]=${encodeURIComponent(after)}` : "";
-    const pageUrl: string = `/products?include=productVariant&page[limit]=${pageSize}${cursorParam}`;
+    // `filter[archived]=false` exclut les produits archivés (= supprimés côté nous).
+    const pageUrl: string = `/products?filter[archived]=false&include=productVariant&page[limit]=${pageSize}${cursorParam}`;
     const resp: {
       data: JsonApiProductItem[];
       included?: JsonApiVariantItem[];

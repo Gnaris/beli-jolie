@@ -165,6 +165,83 @@ describe("ankorstoreSearchProducts — fallback scan complet", () => {
     expect(results[0].id).toBe("p1");
   });
 
+  it("envoie filter[archived]=false sur l'endpoint variantes et exclut les archivés côté code", async () => {
+    // 1. /product-variants renvoie 2 produits inclus : un vivant + un archivé
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        data: [
+          {
+            id: "v-live",
+            attributes: {
+              sku: "A405_C1",
+              ian: null,
+              name: "Rouge",
+              retailPrice: 20,
+              wholesalePrice: 10,
+              availableQuantity: 3,
+              stockQuantity: 3,
+              isAlwaysInStock: false,
+            },
+            relationships: { product: { data: { id: "p-live" } } },
+          },
+          {
+            id: "v-old",
+            attributes: {
+              sku: "A405_C2",
+              ian: null,
+              name: "Bleu",
+              retailPrice: 20,
+              wholesalePrice: 10,
+              availableQuantity: 0,
+              stockQuantity: 0,
+              isAlwaysInStock: false,
+            },
+            relationships: { product: { data: { id: "p-old" } } },
+          },
+        ],
+        included: [
+          {
+            id: "p-live",
+            type: "product",
+            attributes: {
+              externalId: null,
+              name: "Produit vivant A405",
+              description: "",
+              retailPrice: 20,
+              wholesalePrice: 10,
+              vatRate: 20,
+              active: true,
+              archived: false,
+              images: [],
+            },
+          },
+          {
+            id: "p-old",
+            type: "product",
+            attributes: {
+              externalId: null,
+              name: "Ancien supprimé A405",
+              description: "",
+              retailPrice: 20,
+              wholesalePrice: 10,
+              vatRate: 20,
+              active: false,
+              archived: true,
+              images: [],
+            },
+          },
+        ],
+      })
+    );
+
+    const { ankorstoreSearchProducts } = await import("@/lib/ankorstore-api");
+    const results = await ankorstoreSearchProducts("A405", 20);
+
+    const firstCallUrl = mockFetch.mock.calls[0][0] as string;
+    expect(firstCallUrl).toContain("filter[archived]=false");
+    expect(results.map((p) => p.id)).toEqual(["p-live"]);
+  });
+
   it("retourne vide si même le scan complet ne trouve rien", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: [], included: [] }));
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: [], included: [] }));

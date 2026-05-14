@@ -223,7 +223,9 @@ export async function loadFullCatalog(
           }
         },
       });
-      const entries = products.map(toCatalogEntry);
+      // Filet de sécurité : on exclut côté code les produits archivés au cas
+      // où l'API renverrait quand même un archivé malgré `filter[archived]=false`.
+      const entries = products.filter((p) => !p.archived).map(toCatalogEntry);
       state.cachedEntries = entries;
       state.loadedAt = new Date();
       logger.info("[Ankorstore Catalog] Chargement complet terminé", {
