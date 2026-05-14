@@ -5,8 +5,8 @@
  *   - Product.ankorsProductId      → null
  *   - Product.ankorsLastSyncSnapshot → null
  *   - ProductColor.ankorsVariantId → null
- *   - AnkorstoreOperation status PENDING/STARTED → CANCELLED (libère le verrou
- *     côté Ankorstore qui empêcherait une nouvelle synchro)
+ *   - AnkorstoreOperation status PENDING → CANCELLED (libère le verrou côté
+ *     notre BDD qui empêcherait une nouvelle synchro)
  *
  * Aucun appel à l'API Ankorstore : les fiches côté Ankorstore restent
  * intactes (on peut les retrouver via le matching référence/SKU).
@@ -32,13 +32,13 @@ async function main() {
     where: { ankorsVariantId: { not: null } },
   });
   const pendingOps = await prisma.ankorstoreOperation.count({
-    where: { status: { in: ["PENDING", "STARTED"] } },
+    where: { status: "PENDING" },
   });
 
   console.log("État actuel :");
   console.log(`  - Produits avec ankorsProductId : ${linkedProducts}`);
   console.log(`  - Variantes avec ankorsVariantId : ${linkedVariants}`);
-  console.log(`  - Opérations Ankorstore en attente (PENDING/STARTED) : ${pendingOps}`);
+  console.log(`  - Opérations Ankorstore en attente (PENDING) : ${pendingOps}`);
   console.log("");
 
   if (!confirm) {
@@ -59,7 +59,7 @@ async function main() {
     data: { ankorsVariantId: null },
   });
   const cancelledOps = await prisma.ankorstoreOperation.updateMany({
-    where: { status: { in: ["PENDING", "STARTED"] } },
+    where: { status: "PENDING" },
     data: { status: "CANCELLED" },
   });
 
