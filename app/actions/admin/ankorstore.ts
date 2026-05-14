@@ -501,10 +501,30 @@ export interface AnkorstoreOrphanVariant {
   firstImageUrl: string | null;
 }
 
+export interface LinkedVariantPair {
+  productColorId: string;
+  colorName: string;
+  colorHex: string | null;
+  patternImage: string | null;
+  localSku: string | null;
+  localStock: number;
+  localSizeName: string | null;
+  ankorstoreVariantId: string;
+  ankorstoreVariantSku: string | null;
+  ankorstoreVariantName: string;
+  ankorstoreColorOption: string | null;
+  ankorstoreSizeOption: string | null;
+  ankorstoreWholesalePrice: number;
+  ankorstoreStockQuantity: number | null;
+  ankorstoreFirstImageUrl: string | null;
+}
+
 export interface OrphanVariantsReport {
   ankorsProductId: string;
+  ankorstoreProductName: string | null;
   localOrphans: LocalOrphanVariant[];
   ankorstoreOrphans: AnkorstoreOrphanVariant[];
+  linkedPairs: LinkedVariantPair[];
 }
 
 /**
@@ -550,13 +570,48 @@ export async function getOrphanAnkorstoreVariants(
       return { success: false, error: "Produit non lié à Ankorstore — rien à comparer." };
     }
 
-    const ankorsVariants = await (await import("@/lib/ankorstore-api")).ankorstoreGetVariants(
+    // Un seul appel API : `ankorstoreGetProduct` ramène le nom du produit ET
+    // toutes ses variantes via `include=productVariants`.
+    const ankorsProduct = await (await import("@/lib/ankorstore-api")).ankorstoreGetProduct(
       product.ankorsProductId,
     );
+    const ankorstoreProductName = ankorsProduct?.name ?? null;
+    const ankorsVariants = ankorsProduct?.variants ?? [];
+    const ankorsVariantById = new Map(ankorsVariants.map((v) => [v.id, v]));
 
     const usedAnkorsVariantIds = new Set(
       product.colors.map((c) => c.ankorsVariantId).filter((id): id is string => !!id),
     );
+
+    const firstImageOf = (v: typeof ankorsVariants[number]): string | null =>
+      v.images && v.images.length > 0
+        ? [...v.images].sort((a, b) => a.order - b.order)[0].url
+        : null;
+
+    const linkedPairs: LinkedVariantPair[] = product.colors
+      .filter((c) => !!c.ankorsVariantId)
+      .map((c) => {
+        const v = ankorsVariantById.get(c.ankorsVariantId as string);
+        return {
+          productColorId: c.id,
+          colorName: c.color?.name ?? "Couleur",
+          colorHex: c.color?.hex ?? null,
+          patternImage: c.color?.patternImage ?? null,
+          localSku: c.sku,
+          localStock: c.stock ?? 0,
+          localSizeName: c.variantSizes[0]?.size.name ?? null,
+          ankorstoreVariantId: c.ankorsVariantId as string,
+          ankorstoreVariantSku: v?.sku ?? null,
+          ankorstoreVariantName: v?.name ?? "Variante introuvable côté Ankorstore",
+          ankorstoreColorOption:
+            v?.options?.find((o) => o.name === "color")?.value ?? null,
+          ankorstoreSizeOption:
+            v?.options?.find((o) => o.name === "size")?.value ?? null,
+          ankorstoreWholesalePrice: v?.wholesalePrice ?? 0,
+          ankorstoreStockQuantity: v?.stockQuantity ?? null,
+          ankorstoreFirstImageUrl: v ? firstImageOf(v) : null,
+        };
+      });
 
     const localOrphans: LocalOrphanVariant[] = product.colors
       .filter((c) => !c.ankorsVariantId)
@@ -577,10 +632,6 @@ export async function getOrphanAnkorstoreVariants(
       .map((v) => {
         const colorOption = v.options?.find((o) => o.name === "color")?.value ?? null;
         const sizeOption = v.options?.find((o) => o.name === "size")?.value ?? null;
-        const firstImage =
-          v.images && v.images.length > 0
-            ? [...v.images].sort((a, b) => a.order - b.order)[0].url
-            : null;
         return {
           ankorstoreVariantId: v.id,
           sku: v.sku,
@@ -590,7 +641,7 @@ export async function getOrphanAnkorstoreVariants(
           wholesalePrice: v.wholesalePrice,
           retailPrice: v.retailPrice,
           stockQuantity: v.stockQuantity,
-          firstImageUrl: firstImage,
+          firstImageUrl: firstImageOf(v),
         };
       });
 
@@ -598,8 +649,10 @@ export async function getOrphanAnkorstoreVariants(
       success: true,
       data: {
         ankorsProductId: product.ankorsProductId,
+        ankorstoreProductName,
         localOrphans,
         ankorstoreOrphans,
+        linkedPairs,
       },
     };
   } catch (err) {

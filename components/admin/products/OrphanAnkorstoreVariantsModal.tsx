@@ -9,6 +9,7 @@ import {
   createLocalVariantFromAnkorstoreVariant,
   type LocalOrphanVariant,
   type AnkorstoreOrphanVariant,
+  type LinkedVariantPair,
 } from "@/app/actions/admin/ankorstore";
 
 interface OrphanAnkorstoreVariantsModalProps {
@@ -30,6 +31,9 @@ export default function OrphanAnkorstoreVariantsModal({
   const [error, setError] = useState<string | null>(null);
   const [locals, setLocals] = useState<LocalOrphanVariant[]>([]);
   const [ankorstoreItems, setAnkorstoreItems] = useState<AnkorstoreOrphanVariant[]>([]);
+  const [linkedPairs, setLinkedPairs] = useState<LinkedVariantPair[]>([]);
+  const [ankorsProductId, setAnkorsProductId] = useState<string | null>(null);
+  const [ankorstoreProductName, setAnkorstoreProductName] = useState<string | null>(null);
   const [selectedLocalId, setSelectedLocalId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
@@ -43,9 +47,15 @@ export default function OrphanAnkorstoreVariantsModal({
         setError(res.error);
         setLocals([]);
         setAnkorstoreItems([]);
+        setLinkedPairs([]);
+        setAnkorsProductId(null);
+        setAnkorstoreProductName(null);
       } else {
         setLocals(res.data.localOrphans);
         setAnkorstoreItems(res.data.ankorstoreOrphans);
+        setLinkedPairs(res.data.linkedPairs);
+        setAnkorsProductId(res.data.ankorsProductId);
+        setAnkorstoreProductName(res.data.ankorstoreProductName);
         if (res.data.localOrphans.length === 0) setSelectedLocalId(null);
       }
     } catch (err) {
@@ -116,19 +126,18 @@ export default function OrphanAnkorstoreVariantsModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-none shadow-lg p-6 max-w-5xl w-full mx-4 space-y-4 max-h-[85vh] flex flex-col">
+      <div className="bg-white rounded-none shadow-lg p-6 max-w-5xl w-full mx-4 space-y-4 max-h-[90vh] flex flex-col">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="font-heading font-bold text-text-primary">
-              Variantes non liées entre votre site et Ankorstore
+              Lien Ankorstore détaillé
             </h3>
             <p className="text-sm text-text-secondary font-body mt-0.5">
               {productName} ({reference})
             </p>
             <p className="text-xs text-text-muted font-body mt-1">
-              Cliquez sur une couleur à gauche, puis sur sa jumelle Ankorstore à droite pour les
-              relier. Ou cliquez sur « Créer chez moi » pour ajouter chez vous une variante qui
-              n&apos;existe que sur Ankorstore.
+              Récapitulatif des couleurs déjà reliées entre votre site et Ankorstore, et de
+              celles qui restent à apparier manuellement.
             </p>
           </div>
           <button
@@ -154,7 +163,108 @@ export default function OrphanAnkorstoreVariantsModal({
         )}
 
         {!loading && !error && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 min-h-0">
+          <div className="space-y-4 overflow-y-auto flex-1 min-h-0 pr-1">
+            {/* Bloc « Produit Ankorstore lié » */}
+            {ankorsProductId && (
+              <div className="border border-[#BBF7D0] bg-[#F0FDF4] px-4 py-3">
+                <p className="text-[10px] font-semibold text-[#15803D] uppercase tracking-wider font-body">
+                  Produit Ankorstore lié
+                </p>
+                <p className="text-sm font-semibold text-text-primary font-body mt-0.5">
+                  {ankorstoreProductName ?? "(nom indisponible)"}
+                </p>
+                <p className="text-[11px] text-text-muted font-mono mt-0.5 break-all">
+                  ID Ankorstore : {ankorsProductId}
+                </p>
+              </div>
+            )}
+
+            {/* Bloc « Couleurs reliées » */}
+            <div className="border border-border">
+              <div className="px-3 py-2 bg-[#F0FDF4] border-b border-border">
+                <h4 className="text-sm font-semibold font-body text-[#15803D]">
+                  Couleurs reliées ({linkedPairs.length})
+                </h4>
+                <p className="text-xs text-text-muted font-body">
+                  Chaque couleur de votre site appariée avec sa variante Ankorstore.
+                </p>
+              </div>
+              {linkedPairs.length === 0 ? (
+                <div className="p-4 text-sm text-text-muted font-body text-center">
+                  Aucune couleur reliée pour l&apos;instant.
+                </div>
+              ) : (
+                <ul className="divide-y divide-border">
+                  {linkedPairs.map((p) => (
+                    <li key={p.productColorId} className="grid grid-cols-1 md:grid-cols-2 gap-2 px-3 py-2.5">
+                      {/* Côté site */}
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-8 h-8 rounded-full border border-border shrink-0"
+                          style={
+                            p.patternImage
+                              ? {
+                                  backgroundImage: `url(${p.patternImage})`,
+                                  backgroundSize: "cover",
+                                }
+                              : { backgroundColor: p.colorHex ?? "#9CA3AF" }
+                          }
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold font-body text-text-primary truncate">
+                            {p.colorName}
+                          </p>
+                          <p className="text-xs text-text-muted font-body truncate">
+                            {p.localSku ?? "Pas de SKU"} · stock {p.localStock}
+                            {p.localSizeName ? ` · taille ${p.localSizeName}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                      {/* Côté Ankorstore */}
+                      <div className="flex items-center gap-3 md:border-l md:border-border md:pl-3">
+                        <div className="w-10 h-10 rounded bg-bg-tertiary overflow-hidden shrink-0 flex items-center justify-center">
+                          {p.ankorstoreFirstImageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={p.ankorstoreFirstImageUrl} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold font-body text-text-primary truncate">
+                            {p.ankorstoreColorOption ?? p.ankorstoreVariantName}
+                            {p.ankorstoreSizeOption && (
+                              <span className="text-text-muted font-normal"> · {p.ankorstoreSizeOption}</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-text-muted font-body truncate">
+                            {p.ankorstoreVariantSku ?? "Pas de SKU"} ·{" "}
+                            {p.ankorstoreWholesalePrice.toFixed(2)} € HT · stock{" "}
+                            {p.ankorstoreStockQuantity ?? 0}
+                          </p>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Sections orphelines (existantes) */}
+            <div className="px-1 pt-1">
+              <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body">
+                Couleurs orphelines — à relier manuellement
+              </p>
+              <p className="text-xs text-text-muted font-body mt-0.5">
+                Cliquez sur une couleur à gauche, puis sur sa jumelle Ankorstore à droite pour les
+                relier. Ou cliquez sur « Créer chez moi » pour ajouter chez vous une variante qui
+                n&apos;existe que sur Ankorstore.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Colonne gauche : couleurs locales orphelines */}
             <div className="flex flex-col min-h-0 border border-border">
               <div className="px-3 py-2 bg-bg-tertiary border-b border-border">
@@ -284,6 +394,7 @@ export default function OrphanAnkorstoreVariantsModal({
                   </ul>
                 )}
               </div>
+            </div>
             </div>
           </div>
         )}
