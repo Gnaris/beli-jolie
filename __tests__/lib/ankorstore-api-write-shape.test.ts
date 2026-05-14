@@ -253,17 +253,19 @@ describe("ankorstoreAddProductsToOperation — payload shape_properties", () => 
     expect(attrs.tags).toBeUndefined();
   });
 
-  it("updateFields (création d'op update) inclut 'main_image' — sinon Ankorstore l'ignore", async () => {
+  it("création d'op update : updateFields omis pour laisser Ankorstore tout mettre à jour", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: "op-1" } }));
     const { ankorstoreCreateCatalogOperation } = await import("@/lib/ankorstore-api-write");
     await ankorstoreCreateCatalogOperation("update");
 
     const body = lastJsonBody();
-    const data = body.data as { attributes: { updateFields: string[] } };
-    // updateFields RESTREINT la mise à jour : un champ absent ici est
-    // silencieusement ignoré par Ankorstore. main_image doit y figurer pour
-    // que le changement de couleur principale propage la nouvelle photo.
-    expect(data.attributes.updateFields).toContain("main_image");
+    const data = body.data as { attributes: Record<string, unknown> };
+    // updateFields RESTREINT la mise à jour quand on le passe — un champ absent
+    // y est silencieusement ignoré (main_image en a fait les frais). En omettant
+    // le champ avec source:"other", Ankorstore met à jour TOUT ce qu'on envoie.
+    expect(data.attributes.updateFields).toBeUndefined();
+    expect(data.attributes.operationType).toBe("update");
+    expect(data.attributes.source).toBe("other");
   });
 
   it("sans shapeProperties → pas de bloc shape_properties dans le payload", async () => {

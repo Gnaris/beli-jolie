@@ -270,26 +270,17 @@ function buildProductPayloadAttributes(p: AnkorstoreCatalogProductInput): Record
  *
  * `delete` uses a different endpoint — see {@link ankorstoreKickoffDelete}.
  *
- * Pour `type: "update"`, on liste explicitement les champs modifiables.
- * IMPORTANT : `updateFields` **restreint** la mise à jour à cette liste —
- * un champ absent ici est silencieusement ignoré par Ankorstore, même si on
- * l'envoie dans le payload (cf. docs/ankorstore-api.md:296).
- * (`tags` est volontairement absent : l'API publique ne le gère pas et tag
- * "bestseller" doit être posé manuellement dans le back-office Ankorstore.)
+ * Pour `type: "update"`, on N'envoie PAS `updateFields` — la doc Ankorstore
+ * dit qu'omettre ce champ avec `source: "other"` met à jour TOUS les champs
+ * présents dans le payload (cf. docs/ankorstore-api.md:296). C'est plus
+ * robuste que de tenter de lister les noms : le spec officiel ne reconnaît
+ * que `["stock", "prices"]` mais l'API tolère d'autres valeurs sans qu'on
+ * sache exactement lesquelles (`main_image` notamment était silencieusement
+ * ignoré, ce qui empêchait la photo principale de suivre la couleur
+ * principale au changement). En omettant updateFields, Ankorstore applique
+ * tout ce qu'on lui envoie — et comme on n'envoie pas `tags`, les tags
+ * existants ne sont pas touchés.
  */
-const ANKORSTORE_UPDATE_FIELDS = [
-  "name",
-  "description",
-  "main_image",
-  "images",
-  "vat_rate",
-  "unit_multiplier",
-  "wholesale_price",
-  "retail_price",
-  "stock",
-  "prices",
-  "dimensions",
-] as const;
 
 export async function ankorstoreCreateCatalogOperation(
   type: "import" | "update"
@@ -299,9 +290,6 @@ export async function ankorstoreCreateCatalogOperation(
     source: "other",
     callbackUrl: buildAnkorstoreCallbackUrl(),
   };
-  if (type === "update") {
-    attributes.updateFields = [...ANKORSTORE_UPDATE_FIELDS];
-  }
   const resp = await ankorstoreFetchJson<{ data: { id: string } }>(
     `/catalog/integrations/operations`,
     {
