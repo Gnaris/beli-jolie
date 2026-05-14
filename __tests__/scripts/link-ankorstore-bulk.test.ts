@@ -1,0 +1,230 @@
+import { describe, expect, it } from "vitest";
+import type {
+  AnkorstoreProduct,
+  AnkorstoreVariant,
+} from "@/lib/ankorstore-api";
+import type { MatchResult, VariantMatchPair } from "@/lib/ankorstore-match";
+import {
+  buildMatchedRows,
+  parseMode,
+  pickRowsForUnSeul,
+  type MatchedRow,
+} from "@/scripts/link-ankorstore-bulk";
+
+// ─── Helpers de fixtures ──────────────────────────────────────────────
+
+function makeVariant(id: string, sku: string): AnkorstoreVariant {
+  return {
+    id,
+    sku,
+    ian: null,
+    name: id,
+    retailPrice: 0,
+    wholesalePrice: 0,
+    availableQuantity: 0,
+    stockQuantity: 0,
+    isAlwaysInStock: false,
+  };
+}
+
+function makeAnkorstoreProduct(
+  id: string,
+  name: string,
+  variants: AnkorstoreVariant[],
+): AnkorstoreProduct {
+  return {
+    id,
+    externalId: null,
+    name,
+    description: "",
+    retailPrice: 0,
+    wholesalePrice: 0,
+    vatRate: 0,
+    active: true,
+    archived: false,
+    images: [],
+    variants,
+  };
+}
+
+function makeVariantMatch(
+  variant: AnkorstoreVariant,
+  bjColorId: string | null,
+): VariantMatchPair {
+  return {
+    ankorstoreVariant: variant,
+    bjColorId,
+    bjColorName: bjColorId ? "Couleur" : null,
+    confidence: bjColorId ? "exact" : "none",
+  };
+}
+
+function makeMatchedResult(
+  ref: string,
+  bjId: string,
+  bjName: string,
+  akName: string,
+  variants: AnkorstoreVariant[],
+  variantPairs: { variant: AnkorstoreVariant; bjColorId: string | null }[],
+): MatchResult {
+  return {
+    ankorstoreProduct: makeAnkorstoreProduct(`ak_${ref}`, akName, variants),
+    status: "matched",
+    extractedRef: ref,
+    bjProductIds: [bjId],
+    bjProductNames: [bjName],
+    variantMatches: variantPairs.map((vp) =>
+      makeVariantMatch(vp.variant, vp.bjColorId),
+    ),
+  };
+}
+
+// ─── parseMode ─────────────────────────────────────────────────────────
+
+describe("parseMode", () => {
+  it("accepte simulation/un-seul/tout", () => {
+    expect(parseMode("simulation")).toBe("simulation");
+    expect(parseMode("un-seul")).toBe("un-seul");
+    expect(parseMode("tout")).toBe("tout");
+  });
+
+  it("retourne null pour un mode inconnu ou absent", () => {
+    expect(parseMode(undefined)).toBeNull();
+    expect(parseMode("")).toBeNull();
+    expect(parseMode("publish")).toBeNull();
+    expect(parseMode("Simulation")).toBeNull(); // case-sensitive
+  });
+});
+
+// ─── buildMatchedRows ──────────────────────────────────────────────────
+
+describe("buildMatchedRows", () => {
+  it("ne garde que les statuts 'matched'", () => {
+    const v = makeVariant("v1", "RBA1_NOIR");
+    const matched = makeMatchedResult("RBA1", "bj1", "Robe", "Robe AS", [v], [
+      { variant: v, bjColorId: "color_noir" },
+    ]);
+    const ambiguous: MatchResult = {
+      ankorstoreProduct: makeAnkorstoreProduct("ak_amb", "Ambigu", []),
+      status: "ambiguous",
+      extractedRef: "RBA2",
+      bjProductIds: ["bj2", "bj3"],
+      bjProductNames: ["Robe 2", "Robe 3"],
+      variantMatches: [],
+    };
+    const unmatched: MatchResult = {
+      ankorstoreProduct: makeAnkorstoreProduct("ak_unm", "Inconnu", []),
+      status: "unmatched",
+      extractedRef: null,
+      bjProductIds: [],
+      bjProductNames: [],
+      variantMatches: [],
+    };
+
+    const rows = buildMatchedRows([matched, ambiguous, unmatched]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].bjReference).toBe("RBA1");
+    expect(rows[0].akName).toBe("Robe AS");
+  });
+
+  it("extrait les paires de variantes en ignorant les bjColorId null", () => {
+    const v1 = makeVariant("v1", "RBA1_NOIR");
+    const v2 = makeVariant("v2", "RBA1_INCONNU"); // pas de couleur locale
+    const v3 = makeVariant("v3", "RBA1_BLEU");
+    const result = makeMatchedResult("RBA1", "bj1", "Robe", "Robe AS", [v1, v2, v3], [
+      { variant: v1, bjColorId: "color_noir" },
+      { variant: v2, bjColorId: null },
+      { variant: v3, bjColorId: "color_bleu" },
+    ]);
+
+    const rows = buildMatchedRows([result]);
+
+    expect(rows[0].variantPairs).toEqual([
+      { localColorId: "color_noir", ankorstoreVariantId: "v1" },
+      { localColorId: "color_bleu", ankorstoreVariantId: "v3" },
+    ]);
+    expect(rows[0].totalAkVariants).toBe(3);
+  });
+
+  it("retourne extractedRef='?' quand la reference est null", () => {
+    const result: MatchResult = {
+      ankorstoreProduct: makeAnkorstoreProduct("ak_x", "X", []),
+      status: "matched",
+      extractedRef: null,
+      bjProductIds: ["bj_x"],
+      bjProductNames: ["X local"],
+      variantMatches: [],
+    };
+
+    const rows = buildMatchedRows([result]);
+
+    expect(rows[0].bjReference).toBe("?");
+    expect(rows[0].extractedRef).toBe("?");
+  });
+});
+
+// ─── pickRowsForUnSeul ─────────────────────────────────────────────────
+
+describe("pickRowsForUnSeul", () => {
+  const rows: MatchedRow[] = [
+    {
+      bjId: "bj1",
+      bjName: "Robe A",
+      bjReference: "RBA1",
+      akId: "ak1",
+      akName: "AS A",
+      extractedRef: "RBA1",
+      variantPairs: [],
+      totalAkVariants: 0,
+    },
+    {
+      bjId: "bj2",
+      bjName: "Robe B",
+      bjReference: "RBA2",
+      akId: "ak2",
+      akName: "AS B",
+      extractedRef: "RBA2",
+      variantPairs: [],
+      totalAkVariants: 0,
+    },
+  ];
+
+  it("retourne la 1ere ligne quand aucune ref n'est fournie", () => {
+    const res = pickRowsForUnSeul(rows, undefined);
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0].bjReference).toBe("RBA1");
+    expect(res.refNotFound).toBe(false);
+  });
+
+  it("retourne un tableau vide si aucune ligne disponible et pas de ref", () => {
+    const res = pickRowsForUnSeul([], undefined);
+    expect(res.rows).toHaveLength(0);
+    expect(res.refNotFound).toBe(false);
+  });
+
+  it("filtre par reference exacte", () => {
+    const res = pickRowsForUnSeul(rows, "RBA2");
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0].bjId).toBe("bj2");
+    expect(res.refNotFound).toBe(false);
+  });
+
+  it("normalise la comparaison (casse + espaces)", () => {
+    const res = pickRowsForUnSeul(rows, "  rba1  ");
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0].bjId).toBe("bj1");
+  });
+
+  it("signale refNotFound=true quand la ref n'est pas trouvee", () => {
+    const res = pickRowsForUnSeul(rows, "RBA999");
+    expect(res.rows).toHaveLength(0);
+    expect(res.refNotFound).toBe(true);
+  });
+
+  it("plafonne a 1 ligne meme si plusieurs lignes avec la meme ref existent", () => {
+    const doubled: MatchedRow[] = [rows[0], { ...rows[0], bjId: "bj1bis" }];
+    const res = pickRowsForUnSeul(doubled, "RBA1");
+    expect(res.rows).toHaveLength(1);
+  });
+});
