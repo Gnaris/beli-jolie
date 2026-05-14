@@ -21,6 +21,16 @@ interface TokenCache {
 let cachedToken: TokenCache | null = null;
 
 /**
+ * Identifiants pré-amorcés pour usage CLI (scripts npx tsx). Quand renseignés,
+ * `getAnkorstoreToken` les utilise directement au lieu d'appeler
+ * `getCachedAnkorstoreCredentials` qui dépend de `unstable_cache` (lequel
+ * plante hors contexte Next.js avec une erreur « incrementalCache missing »).
+ *
+ * À amorcer en début de script via `primeAnkorstoreCredentials(...)`.
+ */
+let primedCredentials: { clientId: string; clientSecret: string } | null = null;
+
+/**
  * Get a valid Ankorstore OAuth2 access token.
  * Returns cached token if still valid (with 5-min buffer), otherwise re-authenticates.
  */
@@ -31,9 +41,16 @@ export async function getAnkorstoreToken(): Promise<string> {
     return cachedToken.accessToken;
   }
 
-  const creds = await getCachedAnkorstoreCredentials();
-  const clientId = creds.clientId;
-  const clientSecret = creds.clientSecret;
+  let clientId: string | null = null;
+  let clientSecret: string | null = null;
+  if (primedCredentials) {
+    clientId = primedCredentials.clientId;
+    clientSecret = primedCredentials.clientSecret;
+  } else {
+    const creds = await getCachedAnkorstoreCredentials();
+    clientId = creds.clientId;
+    clientSecret = creds.clientSecret;
+  }
 
   if (!clientId || !clientSecret) {
     throw new Error(
@@ -115,6 +132,18 @@ export function primeAnkorstoreToken(accessToken: string, expiresInSec: number):
     accessToken,
     expiresAt: Date.now() + expiresInSec * 1000,
   };
+}
+
+/**
+ * Amorce les identifiants Ankorstore pour usage CLI (scripts longs où le
+ * token va expirer en cours de route). Une fois amorcés, `getAnkorstoreToken`
+ * peut se ré-authentifier seul sans passer par `unstable_cache`.
+ *
+ * À appeler une fois au démarrage du script, après avoir lu les credentials
+ * en clair depuis SiteConfig (déchiffrés via `decryptIfSensitive`).
+ */
+export function primeAnkorstoreCredentials(clientId: string, clientSecret: string): void {
+  primedCredentials = { clientId, clientSecret };
 }
 
 /**

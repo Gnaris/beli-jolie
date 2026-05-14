@@ -276,7 +276,7 @@ export async function ankorstoreSearchProducts(
     try {
       const url =
         `/products?filter[skuOrName]=${encodeURIComponent(query)}` +
-        `&filter[archived]=false&include=productVariant&page[limit]=${FETCH_LIMIT}`;
+        `&filter[archived]=false&include=productVariants&page[limit]=${FETCH_LIMIT}`;
       const resp = await ankorstoreFetch<{
         data: JsonApiProductItem[];
         included?: JsonApiVariantItem[];
@@ -349,7 +349,7 @@ async function scanProductsForQuery(
     const cursor: string = after
       ? `&page[after]=${encodeURIComponent(after)}`
       : "";
-    const url: string = `/products?filter[archived]=false&include=productVariant&page[limit]=${pageSize}${cursor}`;
+    const url: string = `/products?filter[archived]=false&include=productVariants&page[limit]=${pageSize}${cursor}`;
     const resp: {
       data: JsonApiProductItem[];
       included?: JsonApiVariantItem[];
@@ -469,7 +469,10 @@ export async function ankorstoreListAllProducts(opts?: {
     if (opts?.shouldAbort?.()) break;
     const cursorParam: string = after ? `&page[after]=${encodeURIComponent(after)}` : "";
     // `filter[archived]=false` exclut les produits archivés (= supprimés côté nous).
-    const pageUrl: string = `/products?filter[archived]=false&include=productVariant&page[limit]=${pageSize}${cursorParam}`;
+    // `include=productVariants` (pluriel) — depuis mai 2026, Ankorstore ne renvoie
+    // plus les variantes avec le singulier `productVariant` sur cette route liste
+    // (l'appel ne plante pas mais `included[]` reste vide → variants: []).
+    const pageUrl: string = `/products?filter[archived]=false&include=productVariants&page[limit]=${pageSize}${cursorParam}`;
     const resp: {
       data: JsonApiProductItem[];
       included?: JsonApiVariantItem[];

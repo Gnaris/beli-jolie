@@ -34,7 +34,7 @@ import {
   ankorstoreListAllProducts,
   type AnkorstoreProduct,
 } from "@/lib/ankorstore-api";
-import { primeAnkorstoreToken } from "@/lib/ankorstore-auth";
+import { primeAnkorstoreToken, primeAnkorstoreCredentials } from "@/lib/ankorstore-auth";
 import { decryptIfSensitive } from "@/lib/encryption";
 import {
   runAutoMatch,
@@ -70,6 +70,11 @@ async function bootstrapAnkorstoreAuth(): Promise<void> {
     );
   }
 
+  // Amorce aussi les credentials en mémoire : si le token expire en cours
+  // de script, `getAnkorstoreToken` peut se ré-authentifier seul sans
+  // dépendre de `unstable_cache` (qui plante en CLI).
+  primeAnkorstoreCredentials(clientId, clientSecret);
+
   const body = new URLSearchParams({
     grant_type: "client_credentials",
     client_id: clientId,
@@ -96,10 +101,10 @@ async function bootstrapAnkorstoreAuth(): Promise<void> {
   console.log("Token Ankorstore amorce avec succes.");
 }
 
-export type Mode = "simulation" | "un-seul" | "tout";
+export type Mode = "simulation" | "un-seul" | "tout" | "limite";
 
 export function parseMode(raw: string | undefined): Mode | null {
-  if (raw === "simulation" || raw === "un-seul" || raw === "tout") return raw;
+  if (raw === "simulation" || raw === "un-seul" || raw === "tout" || raw === "limite") return raw;
   return null;
 }
 
@@ -290,10 +295,15 @@ async function main() {
   const argv = process.argv.slice(2);
   const mode = parseMode(argv[0]);
   if (!mode) {
-    console.error("Usage : npx tsx scripts/link-ankorstore-bulk.ts <simulation|un-seul [REF]|tout>");
+    console.error("Usage : npx tsx scripts/link-ankorstore-bulk.ts <simulation|un-seul [REF]|limite N|tout>");
     process.exit(1);
   }
   const refArg = argv[1];
+  const limitArg = mode === "limite" ? Number(argv[1]) : null;
+  if (mode === "limite" && (!limitArg || Number.isNaN(limitArg) || limitArg <= 0)) {
+    console.error("En mode `limite`, indiquez un nombre positif. Ex : npx tsx scripts/link-ankorstore-bulk.ts limite 10");
+    process.exit(1);
+  }
 
   // 1. Charger les produits locaux non lies
   const bjProducts = await loadLocalProducts();
@@ -416,7 +426,7 @@ async function main() {
     process.exit(0);
   }
 
-  // Mode ecriture : filtrer si "un-seul"
+  // Mode ecriture : filtrer si "un-seul" ou "limite"
   let toProcess = matchedRows;
   if (mode === "un-seul") {
     const picked = pickRowsForUnSeul(matchedRows, refArg);
@@ -429,12 +439,16 @@ async function main() {
       process.exit(1);
     }
     toProcess = picked.rows;
+  } else if (mode === "limite" && limitArg) {
+    toProcess = matchedRows.slice(0, limitArg);
   }
 
   console.log(
     mode === "un-seul"
       ? `MODE UN-SEUL — pose d'1 liaison de test...`
-      : `MODE TOUT — pose de ${toProcess.length} liaisons...`,
+      : mode === "limite"
+        ? `MODE LIMITE — pose de ${toProcess.length} liaisons (sur ${matchedRows.length} matchs)...`
+        : `MODE TOUT — pose de ${toProcess.length} liaisons...`,
   );
   console.log("");
 
