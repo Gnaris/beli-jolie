@@ -16,10 +16,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { Prisma, type AnkorstoreOperation } from "@prisma/client";
-import {
-  formatAnkorstoreCompositionLabel,
-  formatAnkorstoreDescription,
-} from "@/lib/ankorstore-description";
+import { formatAnkorstoreDescription } from "@/lib/ankorstore-description";
 import {
   ankorstoreCreateCatalogOperation,
   ankorstoreAddProductsToOperation,
@@ -261,21 +258,6 @@ function toIntegerOrNull(value: number | null, multiplier: number): number | nul
   return Math.round(value * multiplier);
 }
 
-/**
- * Normalise les compositions produit dans la forme commune utilisee par
- * `formatAnkorstoreDescription` ET `formatAnkorstoreCompositionLabel`.
- */
-function normalizeCompositionsForAnkorstore(
-  product: FullProduct,
-): { percentage: number; composition: { nameFR: string } }[] {
-  return product.compositions.map((c) => ({
-    percentage: Number(c.percentage),
-    composition: {
-      nameFR: c.composition.name ?? c.composition.pfsCompositionRef ?? "",
-    },
-  }));
-}
-
 function buildProductFieldsSnapshot(
   product: FullProduct,
   brandName: string,
@@ -284,7 +266,12 @@ function buildProductFieldsSnapshot(
   const safeDescription = formatAnkorstoreDescription({
     description: product.description || product.name,
     reference: product.reference,
-    compositions: normalizeCompositionsForAnkorstore(product),
+    compositions: product.compositions.map((c) => ({
+      percentage: Number(c.percentage),
+      composition: {
+        nameFR: c.composition.name ?? c.composition.pfsCompositionRef ?? "",
+      },
+    })),
     dimensionDiameter: product.dimensionDiameter,
     dimensionCircumference: product.dimensionCircumference,
   });
@@ -313,7 +300,6 @@ function buildVariantSnapshot(
   variant: FullVariant,
   index: number,
   config: AnkorstorePricingConfig,
-  materialLabel: string | null,
 ): AnkorstoreVariantSnapshot {
   const sku = buildVariantSku(product, variant, index);
   // Quand le produit local est OFFLINE (ou ARCHIVED), on force le stock à 0
@@ -345,7 +331,7 @@ function buildVariantSnapshot(
     isAlwaysInStock: false,
     optionColor: colorLabel,
     optionSize: sizeLabel,
-    optionMaterial: materialLabel,
+    optionMaterial: null,
   };
 }
 
@@ -507,9 +493,6 @@ export async function ankorstoreKickoffUpdate(
 
     // Build next snapshot
     const nextProductSnap = buildProductFieldsSnapshot(product, brandName, config);
-    const materialLabel = formatAnkorstoreCompositionLabel(
-      normalizeCompositionsForAnkorstore(product),
-    );
 
     const nextVariantsSnap: AnkorstoreSyncSnapshot["variants"] = {};
     for (let i = 0; i < product.colors.length; i++) {
@@ -520,7 +503,6 @@ export async function ankorstoreKickoffUpdate(
           variant,
           i,
           config,
-          materialLabel,
         );
       }
     }
@@ -751,12 +733,14 @@ export async function ankorstoreKickoffUpdate(
           wholesalePrice: variantWholesale,
           retailPrice: variantRetail,
           originalWholesalePrice: variantWholesale,
+          // L'option `material` n'est PAS envoyee : Ankorstore n'expose pas
+          // ce champ via leur API publique (confirme par inspection de la
+          // reponse GET). La section "Composition" du backoffice AS est
+          // un champ proprietaire qui se saisit manuellement chez eux.
+          // La composition est deja presente dans la description envoyee.
           options: [
             { name: "color" as const, value: colorLabel },
             { name: "size" as const, value: sizeLabel },
-            ...(materialLabel
-              ? [{ name: "material" as const, value: materialLabel }]
-              : []),
           ],
           ...(variantImages.length > 0 ? { images: variantImages } : {}),
         };
