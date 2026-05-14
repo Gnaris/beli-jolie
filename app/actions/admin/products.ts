@@ -1118,9 +1118,9 @@ export async function archiveProduct(id: string) {
   revalidatePath("/produits");
   revalidateTag("products", "default");
   emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
-  // Propage l'archivage aux marketplaces (best-effort). PFS reçoit ARCHIVED,
-  // Ankorstore reçoit inactive + stock 0 (logique standard de pfs/ankorstore-update).
-  await propagateStatusToMarketplaces(id);
+  // La propagation aux marketplaces est laissee a l'UI : une modale apparait
+  // apres l'action avec des cases a cocher (PFS + Ankorstore) que l'admin
+  // peut decocher pour ne pas pousser cette fois.
 }
 
 export async function unarchiveProduct(id: string) {
@@ -1130,56 +1130,6 @@ export async function unarchiveProduct(id: string) {
   revalidatePath("/produits");
   revalidateTag("products", "default");
   emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
-  await propagateStatusToMarketplaces(id);
-}
-
-/**
- * Pousse le nouveau statut local d'un produit vers les marketplaces deja liees.
- * Best-effort : un echec marketplace ne casse pas le changement local (deja
- * committe). Logge un warning si l'une des marketplaces echoue.
- */
-async function propagateStatusToMarketplaces(productId: string): Promise<void> {
-  const product = await prisma.product.findUnique({
-    where: { id: productId },
-    select: { pfsProductId: true, ankorsProductId: true },
-  });
-  if (!product) return;
-
-  // PFS : sync inline (synchronous, kickoff non callback-based)
-  if (product.pfsProductId) {
-    try {
-      const { pfsUpdateProductInPlace } = await import("@/lib/pfs-update");
-      const res = await pfsUpdateProductInPlace(productId);
-      if (!res.success) {
-        logger.warn("[Status Propagate] PFS update failed", { productId, error: res.error });
-      }
-    } catch (err) {
-      logger.warn("[Status Propagate] PFS update threw", {
-        productId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  // Ankorstore : kickoff async (callback-only). On ne propage que si la
-  // marketplace est activee dans les parametres.
-  if (product.ankorsProductId) {
-    try {
-      const { getCachedAnkorstoreEnabled } = await import("@/lib/cached-data");
-      const enabled = await getCachedAnkorstoreEnabled();
-      if (!enabled) return;
-      const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
-      const res = await ankorstoreKickoffUpdate(productId);
-      if (!res.success) {
-        logger.warn("[Status Propagate] Ankorstore kickoff failed", { productId, error: res.error });
-      }
-    } catch (err) {
-      logger.warn("[Status Propagate] Ankorstore kickoff threw", {
-        productId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
 }
 
 // ─────────────────────────────────────────────
@@ -1287,12 +1237,9 @@ export async function bulkUpdateProductStatus(
     }
   }
 
-  // Propage le nouveau statut local aux marketplaces deja liees (PFS + AS).
-  // Traitement en serie pour eviter de saturer les API ; chaque echec est
-  // logge mais n'interrompt pas le bulk.
-  for (const pid of success) {
-    await propagateStatusToMarketplaces(pid);
-  }
+  // La propagation aux marketplaces est laissee a l'UI bulk : une modale avec
+  // cases a cocher (PFS + Ankorstore) apparait apres et enqueue les push
+  // selon le choix de l'admin.
 
   return { success, errors };
 }

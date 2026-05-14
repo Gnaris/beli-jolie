@@ -137,6 +137,8 @@ function VariantRow({
   variant,
   product,
   hasPfsConfig,
+  hasAnkorstoreConfig,
+  ankorstoreEnabled,
   checked,
   onCheck,
   onSaved,
@@ -144,6 +146,8 @@ function VariantRow({
   variant: ColorVariant;
   product: AdminProduct;
   hasPfsConfig: boolean;
+  hasAnkorstoreConfig: boolean;
+  ankorstoreEnabled: boolean;
   checked: boolean;
   onCheck: () => void;
   onSaved: () => void;
@@ -171,18 +175,52 @@ function VariantRow({
       setEditing(false);
       onSaved();
 
-      // Propose la mise à jour PFS si le produit y est déjà publié
-      if (hasPfsConfig && product.pfsProductId) {
+      // Propose la mise a jour marketplaces avec cases a cocher (PFS + AS).
+      const pfsAvailable = hasPfsConfig && !!product.pfsProductId;
+      const ankorsAvailable =
+        hasAnkorstoreConfig && ankorstoreEnabled && !!product.ankorsProductId;
+      if (pfsAvailable || ankorsAvailable) {
+        const pfsRef = { current: pfsAvailable };
+        const ankorsRef = { current: ankorsAvailable };
+        const checkboxes: {
+          id: string;
+          label: string;
+          defaultChecked: boolean;
+          onChange: (v: boolean) => void;
+        }[] = [];
+        if (pfsAvailable) {
+          checkboxes.push({
+            id: "pfs",
+            label: "Mettre à jour sur Paris Fashion Shop",
+            defaultChecked: true,
+            onChange: (v) => {
+              pfsRef.current = v;
+            },
+          });
+        }
+        if (ankorsAvailable) {
+          checkboxes.push({
+            id: "ankorstore",
+            label: "Mettre à jour sur Ankorstore",
+            defaultChecked: true,
+            onChange: (v) => {
+              ankorsRef.current = v;
+            },
+          });
+        }
         const ok = await confirm({
           type: "info",
-          title: "Mettre à jour sur Paris Fashion Shop ?",
-          message: `Souhaitez-vous appliquer cette modification de variante (${variant.color.name}) sur Paris Fashion Shop ?`,
+          title: "Propager aux marketplaces ?",
+          message: `Modification de la variante "${variant.color.name}" — cochez les marketplaces où l'envoyer.`,
+          checkboxesLabel: "Marketplaces",
+          checkboxes,
           confirmLabel: "Mettre à jour",
           cancelLabel: "Plus tard",
         });
         if (ok === true) {
-          enqueue([
-            {
+          const inputs: Parameters<typeof enqueue>[0] = [];
+          if (pfsRef.current) {
+            inputs.push({
               productId: product.id,
               reference: product.reference,
               productName: product.name,
@@ -190,8 +228,20 @@ function VariantRow({
               options: { local: false, pfs: true },
               mode: "publish",
               marketplace: "pfs",
-            },
-          ]);
+            });
+          }
+          if (ankorsRef.current) {
+            inputs.push({
+              productId: product.id,
+              reference: product.reference,
+              productName: product.name,
+              firstImage: product.firstImage,
+              options: { local: false, pfs: false, ankorstore: true },
+              mode: "publish",
+              marketplace: "ankorstore",
+            });
+          }
+          if (inputs.length > 0) enqueue(inputs);
         }
       }
     } catch (e) {
@@ -846,6 +896,8 @@ function ProductRow({
                       variant={variant}
                       product={product}
                       hasPfsConfig={hasPfsConfig}
+                      hasAnkorstoreConfig={hasAnkorstoreConfig}
+                      ankorstoreEnabled={ankorstoreEnabled}
                       checked={selectedVariantIds.has(variant.id)}
                       onCheck={() => onToggleVariant(variant.id)}
                       onSaved={() => {}}
@@ -1428,35 +1480,91 @@ export default function AdminProductsTable({
       });
     });
 
-    // Propose la mise à jour PFS pour les produits déjà publiés sur PFS
-    if (hasPfsConfig && successIds.length > 0) {
-      const pfsCandidates = allProducts.filter(
-        (p) => successIds.includes(p.id) && p.pfsProductId,
-      );
-      if (pfsCandidates.length > 0) {
+    // Propose la mise a jour marketplaces pour les produits deja publies
+    // (PFS et Ankorstore). Une seule modale avec cases a cocher : l'admin
+    // decide pour chaque marketplace ; cochee par defaut quand au moins 1
+    // candidat existe.
+    if (successIds.length > 0) {
+      const pfsCandidates = hasPfsConfig
+        ? allProducts.filter((p) => successIds.includes(p.id) && p.pfsProductId)
+        : [];
+      const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
+      const ankorsCandidates = showAnkorstore
+        ? allProducts.filter((p) => successIds.includes(p.id) && p.ankorsProductId)
+        : [];
+
+      if (pfsCandidates.length > 0 || ankorsCandidates.length > 0) {
+        const pfsRef = { current: pfsCandidates.length > 0 };
+        const ankorsRef = { current: ankorsCandidates.length > 0 };
+        const checkboxes: {
+          id: string;
+          label: string;
+          defaultChecked: boolean;
+          onChange: (v: boolean) => void;
+        }[] = [];
+        if (pfsCandidates.length > 0) {
+          checkboxes.push({
+            id: "pfs",
+            label: `Mettre à jour sur Paris Fashion Shop (${pfsCandidates.length} sur ${successIds.length})`,
+            defaultChecked: true,
+            onChange: (v) => {
+              pfsRef.current = v;
+            },
+          });
+        }
+        if (ankorsCandidates.length > 0) {
+          checkboxes.push({
+            id: "ankorstore",
+            label: `Mettre à jour sur Ankorstore (${ankorsCandidates.length} sur ${successIds.length})`,
+            defaultChecked: true,
+            onChange: (v) => {
+              ankorsRef.current = v;
+            },
+          });
+        }
+
         const ok = await confirm({
           type: "info",
-          title: `Mettre à jour ${pfsCandidates.length} produit${pfsCandidates.length > 1 ? "s" : ""} sur Paris Fashion Shop ?`,
-          message: `Le statut sera également appliqué sur Paris Fashion Shop pour les produits déjà publiés (${pfsCandidates.length} sur ${successIds.length}).`,
+          title: `Propager aux marketplaces ?`,
+          message: `Le nouveau statut sera appliqué sur les marketplaces cochées pour les produits déjà publiés.`,
+          checkboxesLabel: "Marketplaces",
+          checkboxes,
           confirmLabel: "Mettre à jour",
           cancelLabel: "Plus tard",
         });
         if (ok === true) {
-          enqueuePfs(
-            pfsCandidates.map((p) => ({
-              productId: p.id,
-              reference: p.reference,
-              productName: p.name,
-              firstImage: p.firstImage,
-              options: { local: false, pfs: true },
-              mode: "publish" as const,
-              marketplace: "pfs" as const,
-            })),
-          );
+          const inputs: Parameters<typeof enqueuePfs>[0] = [];
+          if (pfsRef.current) {
+            for (const p of pfsCandidates) {
+              inputs.push({
+                productId: p.id,
+                reference: p.reference,
+                productName: p.name,
+                firstImage: p.firstImage,
+                options: { local: false, pfs: true },
+                mode: "publish" as const,
+                marketplace: "pfs" as const,
+              });
+            }
+          }
+          if (ankorsRef.current) {
+            for (const p of ankorsCandidates) {
+              inputs.push({
+                productId: p.id,
+                reference: p.reference,
+                productName: p.name,
+                firstImage: p.firstImage,
+                options: { local: false, pfs: false, ankorstore: true },
+                mode: "publish" as const,
+                marketplace: "ankorstore" as const,
+              });
+            }
+          }
+          if (inputs.length > 0) enqueuePfs(inputs);
         }
       }
     }
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, router]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, router]);
 
   const handleBulkDelete = useCallback(async () => {
     const ids = [...selectedIds];
