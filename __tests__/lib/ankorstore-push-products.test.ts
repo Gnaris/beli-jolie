@@ -47,6 +47,7 @@ vi.mock("@/lib/ankorstore-pricing", () => ({
     vatRate: 20,
   }),
   getAnkorstorePackedPrice: vi.fn().mockImplementation((total: number) => total),
+  getAnkorstoreChainedRetailPrice: vi.fn().mockImplementation((total: number) => total),
 }));
 
 const mockCreateCatalogOperation = vi.fn().mockResolvedValue({ operationId: "op1" });
@@ -227,9 +228,11 @@ describe("ankorstoreKickoffPublish — payload kickoff", () => {
 
   it("wholesale et retail prices avec markup appliqué", async () => {
     const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
-    const { loadAnkorstorePricingConfig, getAnkorstorePackedPrice } = await import(
-      "@/lib/ankorstore-pricing"
-    );
+    const {
+      loadAnkorstorePricingConfig,
+      getAnkorstorePackedPrice,
+      getAnkorstoreChainedRetailPrice,
+    } = await import("@/lib/ankorstore-pricing");
 
     vi.mocked(loadAnkorstorePricingConfig).mockResolvedValue({
       wholesale: { type: "percent", value: 20, rounding: "none" },
@@ -237,11 +240,13 @@ describe("ankorstoreKickoffPublish — payload kickoff", () => {
       vatRate: 20,
     });
 
-    // 4 appels : 2 dans buildAnkorstoreVariants, 2 pour les prix produit
+    // 2 appels wholesale (1 dans buildAnkorstoreVariants + 1 pour les prix produit)
     vi.mocked(getAnkorstorePackedPrice)
       .mockImplementationOnce(() => 12)
+      .mockImplementationOnce(() => 12);
+    // 2 appels retail (1 dans buildAnkorstoreVariants + 1 pour les prix produit)
+    vi.mocked(getAnkorstoreChainedRetailPrice)
       .mockImplementationOnce(() => 15)
-      .mockImplementationOnce(() => 12)
       .mockImplementationOnce(() => 15);
 
     mockProductFindUnique.mockResolvedValue(makeUnitProduct());

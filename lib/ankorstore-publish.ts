@@ -22,6 +22,7 @@ import { ankorstoreGetVariants } from "@/lib/ankorstore-api";
 import {
   loadAnkorstorePricingConfig,
   getAnkorstorePackedPrice,
+  getAnkorstoreChainedRetailPrice,
 } from "@/lib/ankorstore-pricing";
 import { buildAnkorstoreShapeProperties } from "@/lib/ankorstore-shape";
 import type { MarkupConfig } from "@/lib/marketplace-pricing";
@@ -217,8 +218,18 @@ function getAnkorstoreWholesalePrice(variant: FullVariant, markup: MarkupConfig)
   return getAnkorstorePackedPrice(Number(variant.unitPrice), variant.packQuantity, variant.saleType, markup);
 }
 
-function getAnkorstoreRetailPrice(variant: FullVariant, markup: MarkupConfig): number {
-  return getAnkorstorePackedPrice(Number(variant.unitPrice), variant.packQuantity, variant.saleType, markup);
+function getAnkorstoreRetailPrice(
+  variant: FullVariant,
+  wholesaleMarkup: MarkupConfig,
+  retailMarkup: MarkupConfig,
+): number {
+  return getAnkorstoreChainedRetailPrice(
+    Number(variant.unitPrice),
+    variant.packQuantity,
+    variant.saleType,
+    wholesaleMarkup,
+    retailMarkup,
+  );
 }
 
 function getPackColorLabel(variant: FullVariant): string {
@@ -266,7 +277,7 @@ function buildAnkorstoreVariants(
     const sku = buildVariantSku(product, variant, i);
     const stock = getEffectiveStockForAnkorstore(variant, product.status);
     const wholesalePrice = getAnkorstoreWholesalePrice(variant, wholesaleMarkup);
-    const retailPrice = getAnkorstoreRetailPrice(variant, retailMarkup);
+    const retailPrice = getAnkorstoreRetailPrice(variant, wholesaleMarkup, retailMarkup);
 
     // Images de la variante : prises depuis colorImages filtrées par colorId.
     const variantColorId = variant.colorId ?? "";
@@ -378,7 +389,7 @@ export async function buildPublishProductInput(productId: string): Promise<
 
   const firstVariant = product.colors[0];
   const wholesalePrice = firstVariant ? getAnkorstoreWholesalePrice(firstVariant, pricing.wholesale) : 0;
-  const retailPrice = firstVariant ? getAnkorstoreRetailPrice(firstVariant, pricing.retail) : 0;
+  const retailPrice = firstVariant ? getAnkorstoreRetailPrice(firstVariant, pricing.wholesale, pricing.retail) : 0;
 
   // Images niveau produit : UNIQUEMENT celles de la couleur principale
   // (primaryColorId côté local). Les autres couleurs ont leurs propres

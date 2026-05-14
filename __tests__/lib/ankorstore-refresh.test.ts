@@ -34,6 +34,7 @@ vi.mock("@/lib/ankorstore-pricing", () => ({
     vatRate: 20,
   }),
   getAnkorstorePackedPrice: vi.fn().mockImplementation((total: number) => total),
+  getAnkorstoreChainedRetailPrice: vi.fn().mockImplementation((total: number) => total),
 }));
 
 const mockGetProduct = vi.fn();

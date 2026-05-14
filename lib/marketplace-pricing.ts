@@ -17,7 +17,9 @@ export interface AllMarkupConfigs {
  * Apply a marketplace markup to a base price.
  * - percent: basePrice * (1 + value/100)
  * - fixed: basePrice + value
- * Then apply rounding to the nearest euro (integer).
+ * - multiplier: basePrice * value
+ * Then apply rounding: up/down arrondit au dixième d'euro (0.10€),
+ * none garde 2 décimales.
  */
 export function applyMarketplaceMarkup(
   basePrice: number,
@@ -39,15 +41,12 @@ export function applyMarketplaceMarkup(
       break;
   }
 
-  // P3-14 — l'intent (cf. comment + tests) est l'arrondi à l'euro entier
-  // pour up/down, et 2 décimales pour "none". L'ancien code arrondissait
-  // à 0.10€, ce qui ne correspondait ni à un cas ni à l'autre.
   switch (config.rounding) {
     case "down":
-      price = Math.floor(price);
+      price = Math.floor(price * 10) / 10;
       break;
     case "up":
-      price = Math.ceil(price);
+      price = Math.ceil(price * 10) / 10;
       break;
     case "none":
     default:

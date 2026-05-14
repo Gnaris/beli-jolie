@@ -51,6 +51,33 @@ export function getAnkorstorePackedPrice(
   return Math.round(withMarkup * qty * 100) / 100;
 }
 
+/**
+ * Prix public conseillé : on part du prix de gros DÉJÀ majoré et arrondi,
+ * puis on applique le markup retail. Le but est que la cliente puisse
+ * dire "x3 sur le prix de gros" et obtenir un retail cohérent avec ce
+ * que paye réellement l'acheteur Ankorstore (et pas une valeur calculée
+ * sur le prix de base interne).
+ *
+ * Pour un PACK : chaînage au niveau du prix unitaire, puis × packQuantity.
+ */
+export function getAnkorstoreChainedRetailPrice(
+  unitPriceTotal: number,
+  packQuantity: number | null,
+  saleType: "UNIT" | "PACK",
+  wholesaleMarkup: MarkupConfig,
+  retailMarkup: MarkupConfig,
+): number {
+  if (saleType !== "PACK") {
+    const wholesale = applyMarketplaceMarkup(unitPriceTotal, wholesaleMarkup);
+    return applyMarketplaceMarkup(wholesale, retailMarkup);
+  }
+  const qty = packQuantity && packQuantity > 0 ? packQuantity : 1;
+  const perUnit = Math.round((unitPriceTotal / qty) * 100) / 100;
+  const wholesalePerUnit = applyMarketplaceMarkup(perUnit, wholesaleMarkup);
+  const retailPerUnit = applyMarketplaceMarkup(wholesalePerUnit, retailMarkup);
+  return Math.round(retailPerUnit * qty * 100) / 100;
+}
+
 /** Convertit un prix en euros vers les centimes attendus par l'API Ankorstore. */
 export function toCents(amountEur: number): number {
   return Math.round(amountEur * 100);

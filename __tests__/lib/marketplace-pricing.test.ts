@@ -9,15 +9,21 @@ describe("applyMarketplaceMarkup", () => {
   });
 
   // ─── Percent markup ───────────────────────────────────────────────────────
-  it("applies percent markup correctly", () => {
+  it("applies percent markup correctly (rounding=none)", () => {
     const config: MarkupConfig = { type: "percent", value: 10, rounding: "none" };
     expect(applyMarketplaceMarkup(10, config)).toBe(11);
   });
 
   // ─── Fixed markup ─────────────────────────────────────────────────────────
-  it("applies fixed markup correctly", () => {
+  it("applies fixed markup correctly (rounding=none)", () => {
     const config: MarkupConfig = { type: "fixed", value: 2, rounding: "none" };
     expect(applyMarketplaceMarkup(4.50, config)).toBe(6.50);
+  });
+
+  // ─── Multiplier markup ────────────────────────────────────────────────────
+  it("applies multiplier markup correctly (rounding=none)", () => {
+    const config: MarkupConfig = { type: "multiplier", value: 3, rounding: "none" };
+    expect(applyMarketplaceMarkup(4.2, config)).toBe(12.60);
   });
 
   // ─── Rounding: none (keeps 2 decimal places) ─────────────────────────────
@@ -27,56 +33,46 @@ describe("applyMarketplaceMarkup", () => {
     expect(applyMarketplaceMarkup(4.495, config)).toBe(4.99);
   });
 
-  // ─── Rounding: up (rounds to next euro) ───────────────────────────────────
-  it("rounds up to next euro (4.96 → 5)", () => {
+  // ─── Rounding: up (rounds to next 0.10€) ──────────────────────────────────
+  it("user case A405: +20% sur 4.20€ → 5.04€ → arrondi au dixième sup = 5.10€", () => {
+    const config: MarkupConfig = { type: "percent", value: 20, rounding: "up" };
+    expect(applyMarketplaceMarkup(4.2, config)).toBe(5.10);
+  });
+
+  it("rounds up to next 0.10€ (4.96 → 5.00 reste 5.00)", () => {
     const config: MarkupConfig = { type: "percent", value: 11, rounding: "up" };
-    // 4.468... * 1.11 ≈ 4.96 → ceil → 5
-    expect(applyMarketplaceMarkup(4.47, config)).toBe(5);
+    // 4.50 * 1.11 = 4.995 → ceil(49.95)/10 = 50/10 = 5.00
+    expect(applyMarketplaceMarkup(4.50, config)).toBe(5.00);
   });
 
-  it("rounds up to next euro (4.01 → 5)", () => {
-    const config: MarkupConfig = { type: "percent", value: 11, rounding: "up" };
-    // 4.50 * 1.11 = 4.995 → ceil → 5
-    expect(applyMarketplaceMarkup(4.50, config)).toBe(5);
-  });
-
-  it("does not round up when already an integer", () => {
-    const config: MarkupConfig = { type: "percent", value: 100, rounding: "up" };
-    // 5 * 2 = 10 → ceil → 10
-    expect(applyMarketplaceMarkup(5, config)).toBe(10);
-  });
-
-  it("rounds up small fractions to next euro", () => {
+  it("rounds up tiny fractions to next 0.10€ (5.01 → 5.10)", () => {
     const config: MarkupConfig = { type: "fixed", value: 0.01, rounding: "up" };
-    // 5 + 0.01 = 5.01 → ceil → 6
-    expect(applyMarketplaceMarkup(5, config)).toBe(6);
+    // 5 + 0.01 = 5.01 → ceil(50.1)/10 = 51/10 = 5.10
+    expect(applyMarketplaceMarkup(5, config)).toBe(5.10);
   });
 
-  // ─── Rounding: down (rounds to lower euro) ────────────────────────────────
-  it("rounds down to lower euro (4.96 → 4)", () => {
-    const config: MarkupConfig = { type: "percent", value: 11, rounding: "down" };
-    // 4.47 * 1.11 ≈ 4.9617 → floor → 4
-    expect(applyMarketplaceMarkup(4.47, config)).toBe(4);
-  });
-
-  it("rounds down when just below next euro (4.99 → 4)", () => {
-    const config: MarkupConfig = { type: "fixed", value: 0.99, rounding: "down" };
-    // 4 + 0.99 = 4.99 → floor → 4
-    expect(applyMarketplaceMarkup(4, config)).toBe(4);
-  });
-
-  it("does not round down when already an integer", () => {
-    const config: MarkupConfig = { type: "percent", value: 100, rounding: "down" };
-    // 5 * 2 = 10 → floor → 10
+  it("does not bump up when already on a 0.10€ step", () => {
+    const config: MarkupConfig = { type: "percent", value: 100, rounding: "up" };
+    // 5 * 2 = 10.00 → ceil(100)/10 = 10
     expect(applyMarketplaceMarkup(5, config)).toBe(10);
   });
 
-  // ─── User's exact reported case: +11% gives ~4.96 → should be 5, not 4.99 ─
-  it("user case: 11% markup on ~4.47 rounds up to 5, not 4.99", () => {
-    const config: MarkupConfig = { type: "percent", value: 11, rounding: "up" };
-    // Trying various base prices that produce ~4.96 after 11%
-    const result = applyMarketplaceMarkup(4.47, config);
-    expect(result).toBe(5);
-    expect(result).not.toBe(4.99);
+  // ─── Rounding: down (rounds to lower 0.10€) ───────────────────────────────
+  it("rounds down to lower 0.10€ (4.96 → 4.90)", () => {
+    const config: MarkupConfig = { type: "percent", value: 11, rounding: "down" };
+    // 4.47 * 1.11 ≈ 4.9617 → floor(49.617)/10 = 49/10 = 4.90
+    expect(applyMarketplaceMarkup(4.47, config)).toBe(4.90);
+  });
+
+  it("rounds down when just below next 0.10€ step (4.99 → 4.90)", () => {
+    const config: MarkupConfig = { type: "fixed", value: 0.99, rounding: "down" };
+    // 4 + 0.99 = 4.99 → floor(49.9)/10 = 49/10 = 4.90
+    expect(applyMarketplaceMarkup(4, config)).toBe(4.90);
+  });
+
+  it("does not bump down when already on a 0.10€ step", () => {
+    const config: MarkupConfig = { type: "percent", value: 100, rounding: "down" };
+    // 5 * 2 = 10.00 → floor(100)/10 = 10
+    expect(applyMarketplaceMarkup(5, config)).toBe(10);
   });
 });

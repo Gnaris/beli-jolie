@@ -29,6 +29,7 @@ import { autoLinkAnkorstoreVariants } from "@/lib/ankorstore-variant-link";
 import {
   loadAnkorstorePricingConfig,
   getAnkorstorePackedPrice,
+  getAnkorstoreChainedRetailPrice,
   toCents,
   type AnkorstorePricingConfig,
 } from "@/lib/ankorstore-pricing";
@@ -241,10 +242,11 @@ function getWholesalePrice(variant: FullVariant, config: AnkorstorePricingConfig
 }
 
 function getRetailPrice(variant: FullVariant, config: AnkorstorePricingConfig): number {
-  return getAnkorstorePackedPrice(
+  return getAnkorstoreChainedRetailPrice(
     Number(variant.unitPrice),
     variant.packQuantity,
     variant.saleType,
+    config.wholesale,
     config.retail,
   );
 }
