@@ -17,11 +17,15 @@ import { prisma } from "@/lib/prisma";
 import { ankorstoreGetVariants } from "@/lib/ankorstore-api";
 import { logger } from "@/lib/logger";
 
-function normSku(s: string | null | undefined): string {
-  return (s ?? "").toUpperCase().replace(/\s+/g, "");
+export function normSku(s: string | null | undefined): string {
+  return (s ?? "")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\s+/g, "");
 }
 
-function colorKeyOf(sku: string | null | undefined, reference: string): string | null {
+export function colorKeyOf(sku: string | null | undefined, reference: string): string | null {
   const n = normSku(sku);
   const refUp = reference.toUpperCase().replace(/\s+/g, "");
   const prefix = `${refUp}_`;
