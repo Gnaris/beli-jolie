@@ -8,6 +8,7 @@
 
 import type { AnkorstoreProduct, AnkorstoreVariant } from "@/lib/ankorstore-api";
 import { logger } from "@/lib/logger";
+import { canonicalColorKey } from "@/lib/ankorstore-color-synonyms";
 
 // ─────────────────────────────────────────────
 // Types
@@ -98,17 +99,12 @@ export function extractReference(product: AnkorstoreProduct): string | null {
 // ─────────────────────────────────────────────
 
 /**
- * Normalize a color name for comparison:
- * lowercase, remove accents, trim, collapse whitespace.
+ * Normalize a color name for comparison: uppercase, accents-stripped,
+ * alphanumeric only, then mapped to a canonical form so that known synonyms
+ * (e.g. "Brun" \u2194 "Marron") collapse to the same key.
  */
 function normalizeColor(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // remove diacritics
-    .replace(/[^a-z0-9]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return canonicalColorKey(name);
 }
 
 /**

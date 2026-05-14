@@ -16,6 +16,7 @@
 import { prisma } from "@/lib/prisma";
 import { ankorstoreGetVariants } from "@/lib/ankorstore-api";
 import { logger } from "@/lib/logger";
+import { canonicalColorKey } from "@/lib/ankorstore-color-synonyms";
 
 export function normSku(s: string | null | undefined): string {
   return (s ?? "")
@@ -32,7 +33,10 @@ export function colorKeyOf(sku: string | null | undefined, reference: string): s
   if (!n.startsWith(prefix)) return null;
   const rest = n.slice(prefix.length);
   const firstSeg = rest.split("_")[0];
-  return firstSeg || null;
+  if (!firstSeg) return null;
+  // Mappe sur la forme canonique (ex : MARRON → BRUN) pour que les synonymes
+  // de couleur côté Ankorstore matchent ceux côté boutique.
+  return canonicalColorKey(firstSeg);
 }
 
 export interface AutoLinkResult {
