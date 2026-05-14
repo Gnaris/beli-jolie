@@ -105,6 +105,19 @@ export function invalidateAnkorstoreToken(): void {
 }
 
 /**
+ * Amorce le cache de token (usage CLI uniquement).
+ * Permet aux scripts qui ne tournent pas dans une requete Next.js de fournir
+ * un token deja obtenu, afin que getAnkorstoreToken() court-circuite sans
+ * passer par getCachedAnkorstoreCredentials (qui depend de unstable_cache).
+ */
+export function primeAnkorstoreToken(accessToken: string, expiresInSec: number): void {
+  cachedToken = {
+    accessToken,
+    expiresAt: Date.now() + expiresInSec * 1000,
+  };
+}
+
+/**
  * Get standard headers for Ankorstore API requests.
  * Includes Bearer token and JSON:API Accept header.
  */

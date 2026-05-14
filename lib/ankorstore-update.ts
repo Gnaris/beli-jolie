@@ -391,7 +391,7 @@ function scaffoldEmpty(
  */
 export async function ankorstoreKickoffUpdate(
   productId: string,
-  options?: { forceFullSync?: boolean },
+  options?: { forceFullSync?: boolean; skipRevalidation?: boolean },
 ): Promise<AnkorstoreUpdateKickoffResult> {
   const product = await loadProductFull(productId);
   if (!product) return { success: false, error: "Produit introuvable en base" };
@@ -605,7 +605,9 @@ export async function ankorstoreKickoffUpdate(
           ...(allVariantsOutOfStock && product.status === "ONLINE" ? { status: "OFFLINE" } : {}),
         },
       });
-      revalidateTag("products", "default");
+      if (!options?.skipRevalidation) {
+        revalidateTag("products", "default");
+      }
       emitProductEvent({
         type: allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
         productId,

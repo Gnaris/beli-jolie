@@ -33,6 +33,8 @@ import {
   ankorstoreListAllProducts,
   type AnkorstoreProduct,
 } from "@/lib/ankorstore-api";
+import { primeAnkorstoreToken } from "@/lib/ankorstore-auth";
+import { decryptIfSensitive } from "@/lib/encryption";
 import {
   runAutoMatch,
   type BjProductForMatch,
@@ -40,6 +42,58 @@ import {
 } from "@/lib/ankorstore-match";
 import { autoLinkAnkorstoreVariants } from "@/lib/ankorstore-variant-link";
 import { ankorstoreKickoffUpdate } from "@/lib/ankorstore-update";
+
+const ANKORSTORE_TOKEN_URL = "https://www.ankorstore.com/oauth/token";
+
+/**
+ * Amorce le token Ankorstore depuis un script CLI (hors contexte Next.js).
+ * Lit les credentials chiffres dans SiteConfig, fait l'OAuth, puis appelle
+ * primeAnkorstoreToken pour que les libs aval (getAnkorstoreToken) court-
+ * circuitent le helper cache qui depend de unstable_cache.
+ */
+async function bootstrapAnkorstoreAuth(): Promise<void> {
+  const rows = await prisma.siteConfig.findMany({
+    where: { key: { in: ["ankors_client_id", "ankors_client_secret"] } },
+  });
+  const map = new Map(
+    rows.map((r) => [
+      r.key,
+      decryptIfSensitive(r.key, r.value)?.trim() ?? null,
+    ]),
+  );
+  const clientId = map.get("ankors_client_id");
+  const clientSecret = map.get("ankors_client_secret");
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      "Identifiants Ankorstore manquants — configurez-les dans Admin > Parametres > Marketplaces.",
+    );
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "client_credentials",
+    client_id: clientId,
+    client_secret: clientSecret,
+    scope: "*",
+  });
+  const res = await fetch(ANKORSTORE_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body: body.toString(),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Ankorstore auth a echoue (${res.status}) : ${txt.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { access_token?: string; expires_in?: number };
+  if (!data.access_token) {
+    throw new Error("Reponse OAuth Ankorstore sans access_token.");
+  }
+  primeAnkorstoreToken(data.access_token, data.expires_in ?? 3600);
+  console.log("Token Ankorstore amorce avec succes.");
+}
 
 export type Mode = "simulation" | "un-seul" | "tout";
 
@@ -170,7 +224,10 @@ async function poseLink(row: MatchedRow): Promise<{ ok: boolean; error?: string 
       );
     }
 
-    const kickoff = await ankorstoreKickoffUpdate(row.bjId, { forceFullSync: true });
+    const kickoff = await ankorstoreKickoffUpdate(row.bjId, {
+      forceFullSync: true,
+      skipRevalidation: true,
+    });
     if (!kickoff.success) {
       console.warn(`   note : kickoff overwrite Ankorstore a echoue : ${kickoff.error}`);
     }
@@ -199,7 +256,10 @@ async function main() {
     process.exit(0);
   }
 
-  // 2. Charger les produits Ankorstore
+  // 2. Amorcer le token Ankorstore (hors contexte Next.js)
+  await bootstrapAnkorstoreAuth();
+
+  // 3. Charger les produits Ankorstore
   const akProducts = await loadAnkorstoreProducts();
 
   // 3. Matching
