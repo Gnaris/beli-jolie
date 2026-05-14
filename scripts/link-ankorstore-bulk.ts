@@ -139,8 +139,13 @@ async function loadAnkorstoreProducts(): Promise<AnkorstoreProduct[]> {
       console.log(`  page ${idx + 1} → ${total} produits cumules`);
     },
   });
-  console.log(`OK : ${all.length} produits Ankorstore recuperes.`);
-  return all;
+  // Garde-fou : exclut les produits archives (= supprimes pour nous).
+  // L'API filtre deja via filter[archived]=false, mais on re-applique cote
+  // client pour etre certain.
+  const active = all.filter((p) => !p.archived);
+  const skipped = all.length - active.length;
+  console.log(`OK : ${all.length} produits recus, ${active.length} actifs${skipped > 0 ? ` (${skipped} archives ignores)` : ""}.`);
+  return active;
 }
 
 export interface MatchedRow {
@@ -177,9 +182,12 @@ export function buildMatchedRows(results: MatchResult[]): MatchedRow[] {
 export function pickRowsForUnSeul(
   rows: MatchedRow[],
   refArg: string | undefined,
+  rng: () => number = Math.random,
 ): { rows: MatchedRow[]; refNotFound: boolean } {
   if (!refArg) {
-    return { rows: rows.slice(0, 1), refNotFound: false };
+    if (rows.length === 0) return { rows: [], refNotFound: false };
+    const idx = Math.floor(rng() * rows.length);
+    return { rows: [rows[idx]], refNotFound: false };
   }
   const normalized = refArg.toLowerCase().trim();
   const filtered = rows.filter(

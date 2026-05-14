@@ -191,11 +191,17 @@ describe("pickRowsForUnSeul", () => {
     },
   ];
 
-  it("retourne la 1ere ligne quand aucune ref n'est fournie", () => {
-    const res = pickRowsForUnSeul(rows, undefined);
+  it("retourne une ligne tiree au sort quand aucune ref n'est fournie (rng=0 → 1ere)", () => {
+    const res = pickRowsForUnSeul(rows, undefined, () => 0);
     expect(res.rows).toHaveLength(1);
     expect(res.rows[0].bjReference).toBe("RBA1");
     expect(res.refNotFound).toBe(false);
+  });
+
+  it("rng proche de 1 → derniere ligne", () => {
+    const res = pickRowsForUnSeul(rows, undefined, () => 0.999);
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0].bjReference).toBe("RBA2");
   });
 
   it("retourne un tableau vide si aucune ligne disponible et pas de ref", () => {
