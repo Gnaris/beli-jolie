@@ -220,6 +220,22 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ ankorsLink: "x" }).ankorsProductId).toBeUndefined();
   });
 
+  it("filters linked products whose UNIT colors are all linked when ankorsLink=linked-vars-linked", () => {
+    const where = buildAdminProductsWhere({ ankorsLink: "linked-vars-linked" });
+    expect(where.ankorsProductId).toEqual({ not: null });
+    expect(where.AND).toEqual([
+      { NOT: { colors: { some: { saleType: "UNIT", ankorsVariantId: null } } } },
+    ]);
+  });
+
+  it("filters linked products with at least one unlinked UNIT color when ankorsLink=linked-vars-unlinked", () => {
+    const where = buildAdminProductsWhere({ ankorsLink: "linked-vars-unlinked" });
+    expect(where.ankorsProductId).toEqual({ not: null });
+    expect(where.AND).toEqual([
+      { colors: { some: { saleType: "UNIT", ankorsVariantId: null } } },
+    ]);
+  });
+
   it("combines pfsLink and ankorsLink without clobbering each other", () => {
     const where = buildAdminProductsWhere({ pfsLink: "linked", ankorsLink: "unlinked" });
     expect(where).toMatchObject({

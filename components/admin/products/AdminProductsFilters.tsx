@@ -526,6 +526,8 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   options={[
                     { value: "", label: "Tous" },
                     { value: "linked", label: "Lié à Ankorstore" },
+                    { value: "linked-vars-linked", label: "Lié + couleurs reliées" },
+                    { value: "linked-vars-unlinked", label: "Lié, couleurs non reliées" },
                     { value: "unlinked", label: "Non lié à Ankorstore" },
                   ]}
                   size="sm"

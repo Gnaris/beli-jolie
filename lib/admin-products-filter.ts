@@ -25,7 +25,13 @@ export interface AdminProductsFilterParams {
   stockBelow?: number | null;
   /** "linked" = pfsProductId renseigné, "unlinked" = pfsProductId vide */
   pfsLink?: string;
-  /** "linked" = ankorsProductId renseigné, "unlinked" = ankorsProductId vide */
+  /**
+   * Filtre sur le lien Ankorstore :
+   *   - "linked"               = ankorsProductId renseigné (peu importe les couleurs)
+   *   - "linked-vars-linked"   = produit lié ET toutes ses couleurs UNIT ont ankorsVariantId
+   *   - "linked-vars-unlinked" = produit lié ET au moins 1 couleur UNIT sans ankorsVariantId
+   *   - "unlinked"             = ankorsProductId vide
+   */
   ankorsLink?: string;
   /**
    * Liste des productId à retenir (intersection). Quand le filtre
@@ -153,6 +159,18 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     where.ankorsProductId = { not: null };
   } else if (params.ankorsLink === "unlinked") {
     where.ankorsProductId = null;
+  } else if (params.ankorsLink === "linked-vars-linked") {
+    where.ankorsProductId = { not: null };
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      { NOT: { colors: { some: { saleType: "UNIT", ankorsVariantId: null } } } },
+    ];
+  } else if (params.ankorsLink === "linked-vars-unlinked") {
+    where.ankorsProductId = { not: null };
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      { colors: { some: { saleType: "UNIT", ankorsVariantId: null } } },
+    ];
   }
 
   if (params.productIdsIn) {
