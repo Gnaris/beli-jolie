@@ -184,4 +184,31 @@ describe("loadFullCatalog + cache TTL", () => {
     const next = await loadFullCatalog();
     expect(next).toHaveLength(1);
   });
+
+  it("partage le cache via globalThis (résiste aux ré-imports type bundles séparés)", async () => {
+    // Reproduit le scénario Next.js : instrumentation et routes API sont
+    // bundlées séparément. Sans `globalThis`, chaque bundle aurait sa propre
+    // copie du module → mémoire jamais partagée. On vérifie ici que l'état
+    // vit bien sur `globalThis` sous une clé Symbol.for stable.
+    listAllMock.mockResolvedValue([makeProduct({ id: "p-shared", name: "Partagé" })]);
+    await loadFullCatalog();
+
+    const stateKey = Symbol.for("beliandjolie.ankorstoreCatalogCache");
+    const g = globalThis as Record<symbol, unknown>;
+    const sharedState = g[stateKey] as { cachedEntries: CatalogEntry[]; loadedAt: Date | null };
+
+    expect(sharedState).toBeDefined();
+    expect(sharedState.loadedAt).toBeInstanceOf(Date);
+    expect(sharedState.cachedEntries).toHaveLength(1);
+    expect(sharedState.cachedEntries[0].id).toBe("p-shared");
+
+    // Simule un "second bundle" qui modifierait l'état partagé via la même
+    // clé Symbol — l'API publique du module doit voir le changement.
+    sharedState.cachedEntries = [
+      ...sharedState.cachedEntries,
+      { id: "injected", name: "Autre", ref: null, externalId: null, firstImageUrl: null, variantCount: 0 },
+    ];
+    const seen = getCachedCatalog();
+    expect(seen?.map((e) => e.id)).toEqual(["p-shared", "injected"]);
+  });
 });

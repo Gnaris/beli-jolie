@@ -69,16 +69,41 @@ export interface CatalogStatus {
 }
 
 // ─────────────────────────────────────────────
-// État module-level
+// État partagé via globalThis
 // ─────────────────────────────────────────────
+//
+// Next.js compile `instrumentation.ts` et les routes API dans des bundles
+// Webpack séparés. Conséquence : si on déclare l'état avec de simples
+// `let cachedEntries = []`, chaque bundle se retrouve avec sa propre copie
+// du module → la préchauffe au boot remplit la mémoire d'un bundle, mais
+// la route `/api/admin/ankorstore-catalog` lit une autre mémoire (vide)
+// et redéclenche un téléchargement complet. On contourne en stockant
+// l'état sur `globalThis` (partagé par tous les bundles d'un même process).
 
 const TTL_MS = 6 * 60 * 60 * 1000; // 6 heures
 const AUTO_RELOAD_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 heures
 
-let cachedEntries: CatalogEntry[] = [];
-let loadedAt: Date | null = null;
-let activeLoad: Promise<CatalogEntry[]> | null = null;
-let autoReloadHandle: NodeJS.Timeout | null = null;
+interface CatalogState {
+  cachedEntries: CatalogEntry[];
+  loadedAt: Date | null;
+  activeLoad: Promise<CatalogEntry[]> | null;
+  autoReloadHandle: NodeJS.Timeout | null;
+}
+
+const STATE_KEY = Symbol.for("beliandjolie.ankorstoreCatalogCache");
+const g = globalThis as Record<symbol, CatalogState | undefined>;
+
+function getState(): CatalogState {
+  if (!g[STATE_KEY]) {
+    g[STATE_KEY] = {
+      cachedEntries: [],
+      loadedAt: null,
+      activeLoad: null,
+      autoReloadHandle: null,
+    };
+  }
+  return g[STATE_KEY] as CatalogState;
+}
 
 // ─────────────────────────────────────────────
 // Helpers internes
@@ -104,23 +129,25 @@ function toCatalogEntry(p: AnkorstoreProduct): CatalogEntry {
  * Ne déclenche PAS de chargement.
  */
 export function getCachedCatalog(): CatalogEntry[] | null {
-  if (!loadedAt) return null;
-  const age = Date.now() - loadedAt.getTime();
+  const state = getState();
+  if (!state.loadedAt) return null;
+  const age = Date.now() - state.loadedAt.getTime();
   if (age >= TTL_MS) return null;
-  return cachedEntries;
+  return state.cachedEntries;
 }
 
 /**
  * Statut du cache (pour l'API debug ou l'UI).
  */
 export function getCatalogStatus(): CatalogStatus {
-  const age = loadedAt ? Date.now() - loadedAt.getTime() : null;
+  const state = getState();
+  const age = state.loadedAt ? Date.now() - state.loadedAt.getTime() : null;
   return {
-    fresh: loadedAt !== null && age !== null && age < TTL_MS,
+    fresh: state.loadedAt !== null && age !== null && age < TTL_MS,
     ageMs: age,
-    entries: cachedEntries.length,
-    loadedAt: loadedAt?.toISOString() ?? null,
-    loading: activeLoad !== null,
+    entries: state.cachedEntries.length,
+    loadedAt: state.loadedAt?.toISOString() ?? null,
+    loading: state.activeLoad !== null,
   };
 }
 
@@ -129,8 +156,9 @@ export function getCatalogStatus(): CatalogStatus {
  * N'interrompt PAS un chargement déjà en cours.
  */
 export function invalidateCatalogCache(): void {
-  cachedEntries = [];
-  loadedAt = null;
+  const state = getState();
+  state.cachedEntries = [];
+  state.loadedAt = null;
   logger.info("[Ankorstore Catalog] Cache invalidé");
 }
 
@@ -144,11 +172,12 @@ export function invalidateCatalogCache(): void {
 export async function loadFullCatalog(
   onProgress?: (p: CatalogProgress) => void,
 ): Promise<CatalogEntry[]> {
-  if (activeLoad) {
-    return activeLoad;
+  const state = getState();
+  if (state.activeLoad) {
+    return state.activeLoad;
   }
 
-  activeLoad = (async () => {
+  state.activeLoad = (async () => {
     const start = Date.now();
     logger.info("[Ankorstore Catalog] Chargement complet démarré");
     try {
@@ -159,8 +188,8 @@ export async function loadFullCatalog(
         },
       });
       const entries = products.map(toCatalogEntry);
-      cachedEntries = entries;
-      loadedAt = new Date();
+      state.cachedEntries = entries;
+      state.loadedAt = new Date();
       logger.info("[Ankorstore Catalog] Chargement complet terminé", {
         entries: entries.length,
         durationMs: Date.now() - start,
@@ -172,11 +201,11 @@ export async function loadFullCatalog(
       });
       throw err;
     } finally {
-      activeLoad = null;
+      state.activeLoad = null;
     }
   })();
 
-  return activeLoad;
+  return state.activeLoad;
 }
 
 /**
@@ -184,7 +213,8 @@ export async function loadFullCatalog(
  * déjà en cours. Utilisée par l'instrumentation au boot.
  */
 export function preloadCatalogInBackground(): void {
-  if (activeLoad) return;
+  const state = getState();
+  if (state.activeLoad) return;
   if (getCachedCatalog()) return; // déjà frais
   void loadFullCatalog().catch(() => {
     // Les erreurs sont déjà loggées par loadFullCatalog.
@@ -201,8 +231,9 @@ export function preloadCatalogInBackground(): void {
  * tard 6h après leur création.
  */
 export function startCatalogAutoReload(): void {
-  if (autoReloadHandle) return;
-  autoReloadHandle = setInterval(() => {
+  const state = getState();
+  if (state.autoReloadHandle) return;
+  state.autoReloadHandle = setInterval(() => {
     void (async () => {
       try {
         logger.info("[Ankorstore Catalog] Rechargement automatique déclenché (cycle 6h)");
@@ -214,7 +245,7 @@ export function startCatalogAutoReload(): void {
     })();
   }, AUTO_RELOAD_INTERVAL_MS);
   // Ne bloque pas la sortie du process si on est en cours d'arrêt.
-  autoReloadHandle.unref?.();
+  state.autoReloadHandle.unref?.();
 }
 
 /**
@@ -270,11 +301,12 @@ function normalize(s: string): string {
 
 /** @internal — utilisé uniquement par les tests pour réinitialiser l'état module. */
 export function __resetCatalogCacheForTests(): void {
-  cachedEntries = [];
-  loadedAt = null;
-  activeLoad = null;
-  if (autoReloadHandle) {
-    clearInterval(autoReloadHandle);
-    autoReloadHandle = null;
+  const state = getState();
+  state.cachedEntries = [];
+  state.loadedAt = null;
+  state.activeLoad = null;
+  if (state.autoReloadHandle) {
+    clearInterval(state.autoReloadHandle);
+    state.autoReloadHandle = null;
   }
 }
