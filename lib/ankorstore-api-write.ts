@@ -271,12 +271,16 @@ function buildProductPayloadAttributes(p: AnkorstoreCatalogProductInput): Record
  * `delete` uses a different endpoint — see {@link ankorstoreKickoffDelete}.
  *
  * Pour `type: "update"`, on liste explicitement les champs modifiables.
+ * IMPORTANT : `updateFields` **restreint** la mise à jour à cette liste —
+ * un champ absent ici est silencieusement ignoré par Ankorstore, même si on
+ * l'envoie dans le payload (cf. docs/ankorstore-api.md:296).
  * (`tags` est volontairement absent : l'API publique ne le gère pas et tag
  * "bestseller" doit être posé manuellement dans le back-office Ankorstore.)
  */
 const ANKORSTORE_UPDATE_FIELDS = [
   "name",
   "description",
+  "main_image",
   "images",
   "vat_rate",
   "unit_multiplier",
