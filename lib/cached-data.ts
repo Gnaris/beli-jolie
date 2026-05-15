@@ -315,20 +315,40 @@ export const getCachedPfsBrands = unstable_cache(
 );
 
 // ─── PFS credentials (from SiteConfig) ──────────────────────────────────────
-export const getCachedPfsCredentials = unstable_cache(
-  async () => {
-    const rows = await prisma.siteConfig.findMany({
-      where: { key: { in: ["pfs_email", "pfs_password"] } },
-    });
-    const map = new Map(rows.map(r => [r.key, decryptIfSensitive(r.key, r.value)]));
-    return {
-      email: map.get("pfs_email") ?? null,
-      password: map.get("pfs_password") ?? null,
-    };
-  },
+async function readPfsCredentialsDirect() {
+  const rows = await prisma.siteConfig.findMany({
+    where: { key: { in: ["pfs_email", "pfs_password"] } },
+  });
+  const map = new Map(rows.map((r) => [r.key, decryptIfSensitive(r.key, r.value)]));
+  return {
+    email: map.get("pfs_email") ?? null,
+    password: map.get("pfs_password") ?? null,
+  };
+}
+
+const _cachedPfsCredentials = unstable_cache(
+  readPfsCredentialsDirect,
   ["pfs-credentials"],
-  { revalidate: 300, tags: ["site-config"] }
+  { revalidate: 300, tags: ["site-config"] },
 );
+
+/**
+ * Lit les identifiants PFS. Cache via unstable_cache (5 min) quand on est
+ * dans un contexte Next.js (route, server action). Hors contexte (scripts
+ * tsx standalone), unstable_cache lève "incrementalCache missing" — on
+ * retombe sur la lecture directe Prisma sans cacher.
+ */
+export async function getCachedPfsCredentials() {
+  try {
+    return await _cachedPfsCredentials();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("incrementalCache") || msg.includes("unstable_cache")) {
+      return await readPfsCredentialsDirect();
+    }
+    throw err;
+  }
+}
 
 // ─── Ankorstore — credentials, enabled, has-config (mêmes patterns que PFS) ──
 export const getCachedAnkorstoreCredentials = unstable_cache(
