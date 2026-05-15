@@ -2,7 +2,9 @@
 
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack, packLinesColorList, buildVariantDuplicateKey } from "./ColorVariantManager";
+import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, PackLineState, PfsColorOption, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack, packLinesColorList, buildVariantDuplicateKey } from "./ColorVariantManager";
+import PfsMappingSection from "./PfsMappingSection";
+import { detectPfsColorConflicts, formatConflictsMessage } from "@/lib/pfs-color-conflicts";
 import CompletenessChecklist, { computeChecklist } from "./CompletenessChecklist";
 import ProductFormNav from "./ProductFormNav";
 import { createProduct, updateProduct, saveProductTranslations, fetchProductFormAttributes } from "@/app/actions/admin/products";
@@ -17,6 +19,7 @@ import { LOCALE_FULL_NAMES } from "@/i18n/locales";
 import { useProductFormHeader } from "./ProductFormHeaderContext";
 import { getImageSrc } from "@/lib/image-utils";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+import { getAnkorstoreReferenceSuffixLength } from "@/lib/ankorstore-description";
 
 const DESCRIPTION_MIN_CHARS = 30;
 import type { MarketplaceId } from "@/lib/product-events";
@@ -80,6 +83,8 @@ interface ProductFormProps {
   hasPfsConfig?: boolean;
   hasAnkorstoreConfig?: boolean;
   ankorstoreEnabled?: boolean;
+  /** Liste des couleurs PFS disponibles (pour le sélecteur de mapping secondaire). */
+  pfsColorOptions?: PfsColorOption[];
   /** True when a marketplace sync is already in progress (from DB status on page load) */
   initialSyncing?: boolean;
   initialData?: {
@@ -155,6 +160,7 @@ function TagsDropdown({
   setDiscountPercent,
   hsCode,
   setHsCode,
+  existingHsCodes,
 }: {
   localTags: { id: string; name: string }[];
   tagNames: string[];
@@ -169,6 +175,7 @@ function TagsDropdown({
   setDiscountPercent: (v: string) => void;
   hsCode: string;
   setHsCode: (v: string) => void;
+  existingHsCodes?: { code: string; count: number }[];
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -392,6 +399,29 @@ function TagsDropdown({
           className="field-input w-full font-mono"
           maxLength={10}
         />
+        {existingHsCodes && existingHsCodes.length > 0 && (
+          <div className="pt-1.5">
+            <p className="text-[11px] text-text-muted font-body mb-1.5">
+              Déjà utilisés — cliquer pour pré-remplir :
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {existingHsCodes
+                .filter((h) => h.code !== hsCode)
+                .map((h) => (
+                  <button
+                    key={h.code}
+                    type="button"
+                    onClick={() => setHsCode(h.code)}
+                    title={`${h.count} produit${h.count > 1 ? "s" : ""} utilise${h.count > 1 ? "nt" : ""} ce code`}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-bg-tertiary text-text-secondary border border-border-light hover:border-text-primary hover:text-text-primary transition-colors text-[11px] font-mono"
+                  >
+                    {h.code}
+                    <span className="text-text-muted font-body">×{h.count}</span>
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
         <p className="text-[11px] text-text-muted font-body">
           Code douanier international (6 à 10 chiffres) — requis par Ankorstore.
         </p>
@@ -413,6 +443,7 @@ export default function ProductForm({
   hasPfsConfig = false,
   hasAnkorstoreConfig = false,
   ankorstoreEnabled = false,
+  pfsColorOptions,
   initialSyncing = false,
   initialData,
 }: ProductFormProps) {
@@ -434,6 +465,7 @@ export default function ProductForm({
   const [localCountries,    setLocalCountries]    = useState<{ id: string; name: string; isoCode: string | null }[]>(_initialCountries ?? []);
   const [localSeasons,      setLocalSeasons]      = useState<{ id: string; name: string }[]>(_initialSeasons ?? []);
   const [pfsSizes,          setPfsSizes]          = useState<{ reference: string; label: string }[]>([]);
+  const [localHsCodes,      setLocalHsCodes]      = useState<{ code: string; count: number }[]>([]);
   const [attributesLoaded,  setAttributesLoaded]  = useState(false);
 
   // Fetch all attributes from DB on mount (background, no cache)
@@ -449,6 +481,7 @@ export default function ProductForm({
       setLocalCountries(data.manufacturingCountries);
       setLocalSeasons(data.seasons);
       setPfsSizes(data.pfsSizes ?? []);
+      setLocalHsCodes(data.hsCodes ?? []);
       setAttributesLoaded(true);
     });
     return () => { cancelled = true; };
@@ -1097,7 +1130,7 @@ export default function ProductForm({
     if (!reference.trim())    errors.push("Référence produit manquante");
     if (!name.trim())         errors.push("Nom du produit manquant");
     if (!description.trim())  errors.push("Description manquante");
-    else if (description.trim().length < DESCRIPTION_MIN_CHARS) errors.push("Description trop courte (30 caractères minimum)");
+    else if (description.trim().length + getAnkorstoreReferenceSuffixLength(reference) < DESCRIPTION_MIN_CHARS) errors.push("Description trop courte (30 caractères minimum)");
     if (!categoryId)          errors.push("Catégorie non sélectionnée");
     if (compositions.length === 0) {
       errors.push("Au moins une composition est requise");
@@ -1479,6 +1512,7 @@ export default function ProductForm({
               .filter((line) => line.colorId)
               .map((line) => ({
                 colorId: line.colorId,
+                pfsColorRefOverride: line.pfsColorRefOverride ?? null,
                 sizeEntries: line.sizeEntries
                   .filter((se) => se.sizeId)
                   .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
@@ -1506,6 +1540,7 @@ export default function ProductForm({
                 })),
           packLines:     packLinesPayload,
           disabled:      v.disabled ?? false,
+          pfsColorRefOverride: v.pfsColorRefOverride ?? null,
         };
       }),
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
@@ -1605,6 +1640,34 @@ export default function ProductForm({
       if (canPublish && savedProductId) {
         const willBeDraftOnPfs = !alreadyOnPfs && finalStatus === "OFFLINE";
 
+        // ── Détection des conflits de mapping PFS sur les variantes saisies ──
+        // Si conflit, la case PFS est filtrée (impossible de publier tant que ce
+        // n'est pas résolu) et un toast explicatif est affiché à la place.
+        const pfsConflictItems: { key: string; label: string; principalRef: string | null; overrideRef: string | null }[] = [];
+        for (const v of variants) {
+          if (v.saleType === "PACK" && v.packLines.length > 0) {
+            for (const pl of v.packLines) {
+              const ac = localColors.find((c) => c.id === pl.colorId);
+              pfsConflictItems.push({
+                key: `v${v.tempId}-pl${pl.tempId}`,
+                label: pl.colorName || ac?.name || "Couleur",
+                principalRef: ac?.pfsColorRef ?? null,
+                overrideRef: pl.pfsColorRefOverride ?? null,
+              });
+            }
+          } else {
+            const ac = localColors.find((c) => c.id === v.colorId);
+            pfsConflictItems.push({
+              key: `v${v.tempId}`,
+              label: v.colorName || ac?.name || "Couleur",
+              principalRef: ac?.pfsColorRef ?? null,
+              overrideRef: v.pfsColorRefOverride ?? null,
+            });
+          }
+        }
+        const pfsConflicts = detectPfsColorConflicts(pfsConflictItems);
+        const hasPfsConflict = pfsConflicts.length > 0;
+
         const pfsRef = { current: false };
         const ankorstoreRef = { current: false };
         const checkboxes: {
@@ -1615,7 +1678,7 @@ export default function ProductForm({
         }[] = [];
         const isArchivingNow = finalStatus === "ARCHIVED";
 
-        if (hasPfsConfig) {
+        if (hasPfsConfig && !hasPfsConflict) {
           const pfsLabel = isArchivingNow && alreadyOnPfs
             ? "Archiver aussi sur Paris Fashion Shop"
             : alreadyOnPfs
@@ -1635,6 +1698,15 @@ export default function ProductForm({
               pfsRef.current = v;
             },
           });
+        } else if (hasPfsConfig && hasPfsConflict) {
+          // On ne peut pas afficher la case PFS en grisé via ConfirmDialog
+          // (pas de support disabled). On filtre la case et on prévient via
+          // setError pour que la cliente comprenne pourquoi PFS n'apparaît pas.
+          setError(
+            "Publication PFS bloquée — " +
+              formatConflictsMessage(pfsConflicts) +
+              " Définissez un mapping secondaire différent dans la section « Mapping Paris Fashion Shop ».",
+          );
         }
         if (showAnkorstore) {
           const akLabel = isArchivingNow && alreadyOnAnkorstore
@@ -2010,13 +2082,15 @@ export default function ProductForm({
                     Description *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
                   </label>
                   {activeLocale === "fr" && (() => {
-                    const len = description.trim().length;
-                    const tooShort = len < DESCRIPTION_MIN_CHARS;
+                    const refSuffixLen = getAnkorstoreReferenceSuffixLength(reference);
+                    const effectiveLen = description.trim().length + refSuffixLen;
+                    const tooShort = effectiveLen < DESCRIPTION_MIN_CHARS;
                     return (
                       <span
                         className={`text-[11px] font-body ${tooShort ? "text-[#EF4444]" : "text-text-tertiary"}`}
+                        title={refSuffixLen > 0 ? `Inclut ${refSuffixLen} caractères de la ligne « Référence produit : ${reference.trim()} » ajoutée automatiquement.` : undefined}
                       >
-                        {len} / {DESCRIPTION_MIN_CHARS} min
+                        {effectiveLen} / {DESCRIPTION_MIN_CHARS} min
                       </span>
                     );
                   })()}
@@ -2027,14 +2101,14 @@ export default function ProductForm({
                   onBlur={() => { if (activeLocale === "fr") markTouched("description"); }}
                   rows={4}
                   placeholder={activeLocale === "fr" ? "Description commerciale du produit (30 caractères minimum)…" : `Description en ${LOCALE_LABELS[activeLocale]}…`}
-                  className={`field-input resize-none${activeLocale === "fr" && (!description.trim() || description.trim().length < DESCRIPTION_MIN_CHARS) ? " field-error" : ""}`}
+                  className={`field-input resize-none${activeLocale === "fr" && (!description.trim() || description.trim().length + getAnkorstoreReferenceSuffixLength(reference) < DESCRIPTION_MIN_CHARS) ? " field-error" : ""}`}
                   required={activeLocale === "fr"}
                 />
                 {activeLocale === "fr" && touchedFields.has("description") && !description.trim() && (
                   <p className="text-[11px] text-[#EF4444] mt-1 font-body">La description est requise pour la mise en ligne.</p>
                 )}
-                {activeLocale === "fr" && touchedFields.has("description") && description.trim() && description.trim().length < DESCRIPTION_MIN_CHARS && (
-                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">Minimum {DESCRIPTION_MIN_CHARS} caractères requis. Actuellement : {description.trim().length}.</p>
+                {activeLocale === "fr" && touchedFields.has("description") && description.trim() && description.trim().length + getAnkorstoreReferenceSuffixLength(reference) < DESCRIPTION_MIN_CHARS && (
+                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">Minimum {DESCRIPTION_MIN_CHARS} caractères requis (ligne référence comprise). Actuellement : {description.trim().length + getAnkorstoreReferenceSuffixLength(reference)}.</p>
                 )}
               </div>
             </div>
@@ -2054,6 +2128,7 @@ export default function ProductForm({
               setDiscountPercent={setDiscountPercent}
               hsCode={hsCode}
               setHsCode={setHsCode}
+              existingHsCodes={localHsCodes}
             />
           </div>
 
@@ -2232,6 +2307,37 @@ export default function ProductForm({
             primaryColorId={primaryColorId}
             onChangePrimaryColorId={setPrimaryColorId}
           />
+
+          {/* ── Mapping Paris Fashion Shop par variante ── */}
+          {hasPfsConfig && variants.length > 0 && (
+            <PfsMappingSection
+              variants={variants}
+              availableColors={localColors}
+              pfsColorOptions={pfsColorOptions ?? []}
+              onChangeVariantOverride={(variantTempId, override) => {
+                setVariants((prev) =>
+                  prev.map((v) =>
+                    v.tempId === variantTempId ? { ...v, pfsColorRefOverride: override } : v,
+                  ),
+                );
+              }}
+              onChangePackLineOverride={(variantTempId, packLineTempId, override) => {
+                setVariants((prev) =>
+                  prev.map((v) => {
+                    if (v.tempId !== variantTempId) return v;
+                    return {
+                      ...v,
+                      packLines: v.packLines.map((pl) =>
+                        pl.tempId === packLineTempId
+                          ? { ...pl, pfsColorRefOverride: override }
+                          : pl,
+                      ),
+                    };
+                  }),
+                );
+              }}
+            />
+          )}
         </section>
 
         <div id="section-links" className="space-y-8 scroll-mt-24">

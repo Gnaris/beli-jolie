@@ -9,6 +9,7 @@ import {
   getCachedHasAnkorstoreConfig,
   getCachedAnkorstoreEnabled,
 } from "@/lib/cached-data";
+import { getPfsAnnexes } from "@/lib/pfs-annexes";
 
 export const metadata: Metadata = { title: "Dupliquer le produit" };
 export const dynamic = "force-dynamic";
@@ -120,6 +121,16 @@ export default async function DupliquerProduitPage({
 
   if (!product) notFound();
 
+  let pfsColorOptions: { ref: string; label?: string }[] = [];
+  if (hasPfsConfig) {
+    try {
+      const annexes = await getPfsAnnexes();
+      pfsColorOptions = (annexes.colors ?? []).map((ref) => ({ ref, label: ref }));
+    } catch {
+      pfsColorOptions = [];
+    }
+  }
+
   const relatedIds = [
     ...product.similarProducts.map((sp) => sp.similar.id),
     ...product.bundleChildren.map((b) => b.child.id),
@@ -145,6 +156,7 @@ export default async function DupliquerProduitPage({
           colorId: line.colorId,
           colorName: line.color?.name ?? "",
           colorHex: line.color?.hex ?? "#9CA3AF",
+          pfsColorRefOverride: line.pfsColorRefOverride ?? null,
           sizeEntries: line.sizes.map((ls) => ({
             tempId: uid(),
             sizeId: ls.sizeId,
@@ -183,6 +195,7 @@ export default async function DupliquerProduitPage({
       packQuantity: pc.packQuantity != null ? String(pc.packQuantity) : "",
       sku: "",
       disabled: false,
+      pfsColorRefOverride: pc.pfsColorRefOverride ?? null,
     };
   });
 
@@ -246,6 +259,7 @@ export default async function DupliquerProduitPage({
         hasPfsConfig={hasPfsConfig}
         hasAnkorstoreConfig={hasAnkorstoreConfig}
         ankorstoreEnabled={ankorstoreEnabled}
+        pfsColorOptions={pfsColorOptions}
         initialData={{
           reference: "",
           name: product.name,

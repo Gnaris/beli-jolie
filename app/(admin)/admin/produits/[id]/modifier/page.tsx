@@ -15,6 +15,7 @@ import {
   getCachedHasAnkorstoreConfig,
   getCachedAnkorstoreEnabled,
 } from "@/lib/cached-data";
+import { getPfsAnnexes } from "@/lib/pfs-annexes";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 export const dynamic = "force-dynamic";
@@ -126,6 +127,19 @@ export default async function ModifierProduitPage({
 
   if (!product) notFound();
 
+  // Charge les couleurs PFS disponibles (pour le sélecteur de mapping secondaire).
+  // Best-effort : si l'API PFS échoue, on retombe sur une liste vide et la
+  // section Mapping affiche "Couleurs PFS indisponibles".
+  let pfsColorOptions: { ref: string; label?: string }[] = [];
+  if (hasPfsConfig) {
+    try {
+      const annexes = await getPfsAnnexes();
+      pfsColorOptions = (annexes.colors ?? []).map((ref) => ({ ref, label: ref }));
+    } catch {
+      pfsColorOptions = [];
+    }
+  }
+
   // A product is a draft only if it was explicitly created as one (isIncomplete=true)
   // AND was never imported from PFS. Imported products may have isIncomplete=true
   // due to a previous save bug — they should always show as normal "Hors ligne",
@@ -165,6 +179,7 @@ export default async function ModifierProduitPage({
           colorId:   line.colorId,
           colorName: line.color?.name ?? "",
           colorHex:  line.color?.hex ?? "#9CA3AF",
+          pfsColorRefOverride: line.pfsColorRefOverride ?? null,
           sizeEntries: line.sizes.map((ls) => ({
             tempId:   uid(),
             sizeId:   ls.sizeId,
@@ -203,6 +218,7 @@ export default async function ModifierProduitPage({
       packQuantity:  pc.packQuantity != null ? String(pc.packQuantity) : "",
       sku:           pc.sku ?? "",
       disabled:      pc.disabled ?? false,
+      pfsColorRefOverride: pc.pfsColorRefOverride ?? null,
     };
   });
 
@@ -305,6 +321,7 @@ export default async function ModifierProduitPage({
           hasPfsConfig={hasPfsConfig}
           hasAnkorstoreConfig={hasAnkorstoreConfig}
           ankorstoreEnabled={ankorstoreEnabled}
+          pfsColorOptions={pfsColorOptions}
           initialData={{
             reference:         product.reference,
             name:              product.name,

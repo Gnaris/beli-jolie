@@ -50,6 +50,7 @@ import {
   type PfsVariantSnapshot,
 } from "@/lib/pfs-sync-diff";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
+import { assertNoPfsColorConflicts } from "@/lib/pfs-color-conflicts";
 
 export type PfsUpdateResult =
   | { success: true; archived: boolean }
@@ -78,10 +79,12 @@ interface FullVariant {
   variantSizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
   colorId: string | null;
   color: { id: string; name: string; pfsColorRef: string | null } | null;
+  pfsColorRefOverride: string | null;
   packLines: {
     colorId: string;
     color: { id: string; name: string; pfsColorRef: string | null };
     position: number;
+    pfsColorRefOverride: string | null;
     sizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
   }[];
   images: { path: string; order: number; colorId: string }[];
@@ -165,11 +168,13 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           },
           colorId: true,
           color: { select: { id: true, name: true, pfsColorRef: true } },
+          pfsColorRefOverride: true,
           packLines: {
             select: {
               colorId: true,
               color: { select: { id: true, name: true, pfsColorRef: true } },
               position: true,
+              pfsColorRefOverride: true,
               sizes: {
                 select: { size: { select: { name: true, pfsSizeRef: true } }, quantity: true },
                 orderBy: { size: { position: "asc" as const } },
@@ -219,13 +224,16 @@ async function buildColorLabelToRefMap(): Promise<Map<string, string>> {
 function resolvePfsColorRef(
   color: { name: string; pfsColorRef: string | null },
   colorRefMap?: Map<string, string>,
+  overrideRef?: string | null,
 ): string {
+  if (overrideRef?.trim()) return overrideRef.trim();
   if (color.pfsColorRef) return color.pfsColorRef;
   return colorRefMap?.get(color.name) ?? color.name;
 }
 
 function getEffectiveColorRef(variant: FullVariant, colorRefMap?: Map<string, string>): string | null {
   if (!variant.color) return null;
+  if (variant.pfsColorRefOverride?.trim()) return variant.pfsColorRefOverride.trim();
   if (variant.color.pfsColorRef) return variant.color.pfsColorRef;
   return colorRefMap?.get(variant.color.name) ?? variant.color.name;
 }
@@ -352,7 +360,7 @@ function buildVariantCreateData(
     if (variant.packLines.length > 0) {
       for (const pl of variant.packLines) {
         if (!pl.color?.name) continue;
-        const plColorRef = resolvePfsColorRef(pl.color, colorRefMap);
+        const plColorRef = resolvePfsColorRef(pl.color, colorRefMap, pl.pfsColorRefOverride);
         if (!firstColorRef) firstColorRef = plColorRef;
         if (pl.sizes && pl.sizes.length > 0) {
           for (const ps of pl.sizes) {
@@ -365,7 +373,7 @@ function buildVariantCreateData(
         }
       }
     } else if (variant.color?.name) {
-      firstColorRef = resolvePfsColorRef(variant.color, colorRefMap);
+      firstColorRef = resolvePfsColorRef(variant.color, colorRefMap, variant.pfsColorRefOverride);
       const variantSizes =
         variant.variantSizes.length > 0
           ? variant.variantSizes
@@ -426,13 +434,16 @@ function buildProductFieldsSnapshot(
 function buildVariantSnapshot(
   variant: FullVariant,
   pfsMarkup?: MarkupConfig,
+  colorRefMap?: Map<string, string>,
 ): PfsVariantSnapshot {
   const stock = variant.stock ?? 0;
+  const effective = getEffectiveColorRef(variant, colorRefMap) ?? undefined;
   return {
     price: getPfsUnitPrice(variant, pfsMarkup),
     stock,
     weight: variant.weight,
     isActive: stock > 0,
+    colorRef: effective,
   };
 }
 
@@ -505,6 +516,9 @@ export async function pfsUpdateProductInPlace(
   const pfsMarkup = markupConfigs.pfs;
   const colorRefMap = await buildColorLabelToRefMap();
 
+  // Filet de sécurité : refuse de mettre à jour si conflit de mapping PFS.
+  assertNoPfsColorConflicts(product.colors, colorRefMap);
+
   try {
     // Auto-resolve missing PFS IDs avant de construire le snapshot
     if (!product.category.pfsCategoryId || !product.category.pfsFamilyId) {
@@ -522,7 +536,7 @@ export async function pfsUpdateProductInPlace(
       }
       for (const pl of variant.packLines) {
         if (pl.color) {
-          const ref = resolvePfsColorRef(pl.color, colorRefMap);
+          const ref = resolvePfsColorRef(pl.color, colorRefMap, pl.pfsColorRefOverride);
           colorIdToPfsRef.set(pl.color.id, ref);
         }
       }
@@ -549,7 +563,7 @@ export async function pfsUpdateProductInPlace(
     const nextVariantsSnap: Record<string, PfsVariantSnapshot> = {};
     for (const variant of product.colors) {
       if (variant.pfsVariantId) {
-        nextVariantsSnap[variant.pfsVariantId] = buildVariantSnapshot(variant, pfsMarkup);
+        nextVariantsSnap[variant.pfsVariantId] = buildVariantSnapshot(variant, pfsMarkup, colorRefMap);
       }
     }
     const nextImagesSnap = buildImagesSnapshot(product, colorIdToPfsRef);

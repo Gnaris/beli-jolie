@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockSizeUpsert = vi.fn();
 const mockSizeFindMany = vi.fn();
 const mockCategoryFindMany = vi.fn();
 const mockColorFindMany = vi.fn();
@@ -14,7 +13,7 @@ const mockGetPfsAnnexes = vi.fn();
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     size: {
-      upsert: (...a: unknown[]) => mockSizeUpsert(...a),
+      upsert: vi.fn(),
       findMany: (...a: unknown[]) => mockSizeFindMany(...a),
     },
     category: { findMany: (...a: unknown[]) => mockCategoryFindMany(...a) },
@@ -55,9 +54,8 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 import { fetchProductFormAttributes } from "@/app/actions/admin/products";
-import { PROTECTED_SIZE_NAME, PROTECTED_SIZE_VIRTUAL_ID } from "@/lib/protected-sizes";
 
-describe("fetchProductFormAttributes — taille unique virtuelle", () => {
+describe("fetchProductFormAttributes — raccourcis Code SH", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCategoryFindMany.mockResolvedValue([]);
@@ -66,45 +64,74 @@ describe("fetchProductFormAttributes — taille unique virtuelle", () => {
     mockTagFindMany.mockResolvedValue([]);
     mockCountryFindMany.mockResolvedValue([]);
     mockSeasonFindMany.mockResolvedValue([]);
-    mockProductFindMany.mockResolvedValue([]);
+    mockSizeFindMany.mockResolvedValue([]);
     mockGetPfsAnnexes.mockResolvedValue(null);
   });
 
-  it("ne crée jamais la taille unique en base lors du chargement du formulaire", async () => {
-    mockSizeFindMany.mockResolvedValue([]);
+  it("retourne un tableau vide quand aucun produit n'a de code SH", async () => {
+    mockProductFindMany.mockResolvedValue([]);
+
+    const result = await fetchProductFormAttributes();
+
+    expect(result.hsCodes).toEqual([]);
+  });
+
+  it("regroupe les doublons et compte les utilisations par code", async () => {
+    mockProductFindMany.mockResolvedValue([
+      { hsCode: "7117190000" },
+      { hsCode: "7117190000" },
+      { hsCode: "7117190000" },
+      { hsCode: "6204620000" },
+    ]);
+
+    const result = await fetchProductFormAttributes();
+
+    expect(result.hsCodes).toEqual([
+      { code: "7117190000", count: 3 },
+      { code: "6204620000", count: 1 },
+    ]);
+  });
+
+  it("trie par fréquence décroissante puis par code croissant", async () => {
+    mockProductFindMany.mockResolvedValue([
+      { hsCode: "9999999999" },
+      { hsCode: "1111111111" },
+      { hsCode: "5555555555" },
+      { hsCode: "1111111111" },
+      { hsCode: "5555555555" },
+    ]);
+
+    const result = await fetchProductFormAttributes();
+
+    // 1111 et 5555 ont chacun 2 occurrences → tri alpha asc entre eux,
+    // 9999 a 1 occurrence → en dernier.
+    expect(result.hsCodes).toEqual([
+      { code: "1111111111", count: 2 },
+      { code: "5555555555", count: 2 },
+      { code: "9999999999", count: 1 },
+    ]);
+  });
+
+  it("ignore les codes vides ou espaces seulement", async () => {
+    mockProductFindMany.mockResolvedValue([
+      { hsCode: "7117190000" },
+      { hsCode: "" },
+      { hsCode: "   " },
+    ]);
+
+    const result = await fetchProductFormAttributes();
+
+    expect(result.hsCodes).toEqual([{ code: "7117190000", count: 1 }]);
+  });
+
+  it("ne retourne que les produits dont le code SH n'est pas null (filtre côté Prisma)", async () => {
+    mockProductFindMany.mockResolvedValue([{ hsCode: "7117190000" }]);
 
     await fetchProductFormAttributes();
 
-    expect(mockSizeUpsert).not.toHaveBeenCalled();
-  });
-
-  it("injecte une entrée virtuelle « Taille unique » quand absente en base", async () => {
-    mockSizeFindMany.mockResolvedValue([
-      { id: "s1", name: "M" },
-      { id: "s2", name: "L" },
-    ]);
-
-    const result = await fetchProductFormAttributes();
-
-    expect(result.sizes[0]).toEqual({
-      id: PROTECTED_SIZE_VIRTUAL_ID,
-      name: PROTECTED_SIZE_NAME,
+    expect(mockProductFindMany).toHaveBeenCalledWith({
+      where: { hsCode: { not: null } },
+      select: { hsCode: true },
     });
-    expect(result.sizes).toHaveLength(3);
-  });
-
-  it("retourne la vraie ligne sans dédoublon quand la taille est déjà en base", async () => {
-    mockSizeFindMany.mockResolvedValue([
-      { id: "real-tu", name: PROTECTED_SIZE_NAME },
-      { id: "s1", name: "M" },
-    ]);
-
-    const result = await fetchProductFormAttributes();
-
-    expect(result.sizes).toEqual([
-      { id: "real-tu", name: PROTECTED_SIZE_NAME },
-      { id: "s1", name: "M" },
-    ]);
-    expect(result.sizes.find((s) => s.id === PROTECTED_SIZE_VIRTUAL_ID)).toBeUndefined();
   });
 });

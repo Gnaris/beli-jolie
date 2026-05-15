@@ -35,7 +35,7 @@ vi.mock("@/lib/ankorstore-description", () => ({
         dims.push(`Circonférence : ${input.dimensionCircumference} cm`);
       }
       const tail = dims.length > 0 ? `\n${dims.join(" · ")}` : "";
-      return `${input.description}${tail}\n\nRéférence : ${input.reference}`;
+      return `${input.description}${tail}\n\nRéférence produit : ${input.reference}`;
     },
   ),
   formatAnkorstoreCompositionLabel: vi.fn().mockReturnValue(null),

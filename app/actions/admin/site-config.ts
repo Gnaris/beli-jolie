@@ -558,6 +558,45 @@ export async function validateDeeplApiKey(
   }
 }
 
+// ─── Garde-fou rafraîchissement (avertissement si récent) ──────────────────
+
+/**
+ * Configure le garde-fou qui prévient quand on tente de rafraîchir un produit
+ * déjà rafraîchi il y a moins de N jours.
+ *
+ * Clés SiteConfig : `refresh_warning_enabled` (bool) + `refresh_warning_days` (int).
+ * Désactivé = comportement actuel (aucun avertissement).
+ */
+export async function updateRefreshWarning(
+  enabled: boolean,
+  days: number,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    if (!Number.isFinite(days) || days < 1 || days > 365) {
+      return { success: false, error: "Le nombre de jours doit être entre 1 et 365." };
+    }
+    const intDays = Math.floor(days);
+    await Promise.all([
+      prisma.siteConfig.upsert({
+        where: { key: "refresh_warning_enabled" },
+        update: { value: enabled ? "true" : "false" },
+        create: { key: "refresh_warning_enabled", value: enabled ? "true" : "false" },
+      }),
+      prisma.siteConfig.upsert({
+        where: { key: "refresh_warning_days" },
+        update: { value: String(intDays) },
+        create: { key: "refresh_warning_days", value: String(intDays) },
+      }),
+    ]);
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
 // ─── Auto-translate toggle ─────────────────────────────────────────────────
 
 export async function updateAutoTranslate(

@@ -93,15 +93,23 @@ function NavigationLoader() {
       // Same pathname (only query/hash changed) — no overlay
       if (normalizedHref === normalizedCurrent) return;
 
-      showLoading();
+      // Defer to a microtask so that other click handlers in the same capture
+      // phase (e.g. ProductForm's unsaved-changes guard) get a chance to call
+      // e.preventDefault() first. Otherwise we'd flash the overlay and rely on
+      // the 8s safety timeout when the navigation is cancelled by a confirm.
+      queueMicrotask(() => {
+        if (e.defaultPrevented) return;
 
-      // Safety net: hide overlay after 8s if pathname never changed
-      // (navigation failed, interrupted, or took too long)
-      if (navigationTimer.current) clearTimeout(navigationTimer.current);
-      navigationTimer.current = setTimeout(() => {
-        hideLoading();
-        navigationTimer.current = null;
-      }, 8000);
+        showLoading();
+
+        // Safety net: hide overlay after 8s if pathname never changed
+        // (navigation failed, interrupted, or took too long)
+        if (navigationTimer.current) clearTimeout(navigationTimer.current);
+        navigationTimer.current = setTimeout(() => {
+          hideLoading();
+          navigationTimer.current = null;
+        }, 8000);
+      });
     }
 
     document.addEventListener("click", handleClick, true);

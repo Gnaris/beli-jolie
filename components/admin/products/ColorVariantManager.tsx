@@ -30,6 +30,8 @@ export interface PackLineState {
   colorName: string;
   colorHex: string;
   sizeEntries: SizeEntryState[];
+  /** Mapping PFS secondaire propre à cette ligne dans ce pack. null/undefined = utilise le principal. */
+  pfsColorRefOverride?: string | null;
 }
 
 export interface VariantState {
@@ -51,6 +53,8 @@ export interface VariantState {
   packLines: PackLineState[];
   sku: string;
   disabled: boolean;
+  /** Mapping PFS secondaire propre à cette variante. null/undefined = utilise le principal. */
+  pfsColorRefOverride?: string | null;
 }
 
 export interface ColorImageState {
@@ -69,6 +73,16 @@ export interface AvailableColor {
   name: string;
   hex: string | null;
   patternImage?: string | null;
+  /** Mapping PFS principal de la couleur (Color.pfsColorRef en BDD). */
+  pfsColorRef?: string | null;
+}
+
+/** Option de couleur PFS pour le sélecteur de mapping secondaire. */
+export interface PfsColorOption {
+  /** Référence PFS (ex: "DORE", "ARGENTE"). C'est ce qu'on stocke. */
+  ref: string;
+  /** Libellé humain (ex: "Doré"). Si absent, on affiche `ref`. */
+  label?: string;
 }
 
 export interface AvailableSize {

@@ -46,6 +46,27 @@ export interface FormatAnkorstoreDescriptionInput {
 }
 
 /**
+ * Préfixe figé de la ligne référence appendée à chaque description envoyée à
+ * Ankorstore. Exposé pour que la validation côté formulaire puisse calculer
+ * combien de caractères seront automatiquement ajoutés.
+ */
+export const ANKORSTORE_REFERENCE_LINE_PREFIX = "Référence produit : ";
+
+/**
+ * Retourne le nombre de caractères que la ligne référence (incluant les deux
+ * sauts de ligne qui la séparent du reste) ajoutera à la description envoyée
+ * à Ankorstore pour une référence donnée. Utilisé par le formulaire produit
+ * pour relâcher la contrainte "30 caractères minimum" : l'utilisatrice ne
+ * doit pas avoir à taper 30 caractères si la ligne référence en couvre déjà
+ * une partie.
+ */
+export function getAnkorstoreReferenceSuffixLength(reference: string): number {
+  const ref = (reference ?? "").trim();
+  if (!ref) return 0;
+  return `\n\n${ANKORSTORE_REFERENCE_LINE_PREFIX}${ref}`.length;
+}
+
+/**
  * Format the description sent to Ankorstore: original description + composition + reference.
  * Ankorstore requires a minimum of 30 characters in the description field — pad if needed.
  *
@@ -72,7 +93,7 @@ export function formatAnkorstoreDescription(input: FormatAnkorstoreDescriptionIn
   if (extraDims.length > 0) {
     lines.push(`\n${extraDims.join(" · ")}`);
   }
-  lines.push(`\nRéférence : ${input.reference}`);
+  lines.push(`\n${ANKORSTORE_REFERENCE_LINE_PREFIX}${input.reference}`);
   const out = lines.join("\n");
   return out.length >= 30 ? out : `${out}\n\nFiche produit complète sur la boutique.`;
 }

@@ -68,7 +68,7 @@ vi.mock("@/lib/ankorstore-pricing", () => ({
 vi.mock("@/lib/ankorstore-description", () => ({
   formatAnkorstoreDescription: vi.fn().mockImplementation(
     (input: { description: string; reference: string }) =>
-      `${input.description}\n\nRéférence : ${input.reference}`,
+      `${input.description}\n\nRéférence produit : ${input.reference}`,
   ),
   formatAnkorstoreCompositionLabel: vi.fn().mockReturnValue(null),
 }));
@@ -99,7 +99,7 @@ vi.mock("@/lib/prisma", () => ({
 
 import { prisma } from "@/lib/prisma";
 
-const FORMATTED_DESC = "Test description\n\nRéférence : REF001";
+const FORMATTED_DESC = "Test description\n\nRéférence produit : REF001";
 
 function makeSnapshot(overrides?: Partial<AnkorstoreSyncSnapshot>): AnkorstoreSyncSnapshot {
   return {

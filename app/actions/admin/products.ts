@@ -30,6 +30,7 @@ import {
   type PackLineInput,
   type SizeEntryInput,
 } from "@/lib/product-variant-validation";
+import { validateOverridesNotMatchingPrincipal } from "@/lib/pfs-color-conflicts";
 import {
   isProtectedSizeName,
   isProtectedSizeVirtualId,
@@ -180,6 +181,51 @@ export interface ProductInput {
 
 // validateVariants + isMultiColorPackInput : voir `lib/product-variant-validation.ts`
 
+/**
+ * Charge les pfsColorRef de toutes les couleurs référencées par les variantes
+ * (et par les lignes de pack) puis valide qu'aucun override secondaire n'est
+ * identique au mapping principal de sa couleur. Throw si violation.
+ *
+ * Utilisé par createProduct + updateProduct.
+ */
+async function validatePfsColorOverridesOrThrow(colors: ColorInput[]): Promise<void> {
+  const colorIds = new Set<string>();
+  for (const c of colors) {
+    if (c.colorId && c.pfsColorRefOverride) colorIds.add(c.colorId);
+    if (c.packLines) {
+      for (const pl of c.packLines) {
+        if (pl.colorId && pl.pfsColorRefOverride) colorIds.add(pl.colorId);
+      }
+    }
+  }
+  if (colorIds.size === 0) return;
+
+  const rows = await prisma.color.findMany({
+    where: { id: { in: [...colorIds] } },
+    select: { id: true, pfsColorRef: true },
+  });
+  const principalRefByColorId = new Map<string, string | null>(
+    rows.map((r) => [r.id, r.pfsColorRef]),
+  );
+  validateOverridesNotMatchingPrincipal(
+    colors.map((c) => ({
+      colorId: c.colorId ?? null,
+      pfsColorRefOverride: c.pfsColorRefOverride ?? null,
+      packLines: c.packLines?.map((pl) => ({
+        colorId: pl.colorId,
+        pfsColorRefOverride: pl.pfsColorRefOverride ?? null,
+      })),
+    })),
+    principalRefByColorId,
+  );
+}
+
+/** Normalise un override : trim + null si vide. */
+function normalizeOverride(value: string | null | undefined): string | null {
+  const t = value?.trim();
+  return t ? t : null;
+}
+
 // ─────────────────────────────────────────────
 // SKU assignment for all variants of a product
 // ─────────────────────────────────────────────
@@ -253,6 +299,9 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     validateVariants(input.colors);
     await assertTailleUniqueDetails(input);
   }
+  // Toujours valider les overrides PFS secondaires : un override égal au mapping
+  // principal est interdit qu'on soit en draft ou non.
+  await validatePfsColorOverridesOrThrow(input.colors);
 
   // Garantir une seule variante primaire avant l'écriture en BDD
   input = { ...input, colors: normalizePrimaryFlag(input.colors) };
@@ -346,15 +395,16 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       : (color.colorId || null);
     const variant = await prisma.productColor.create({
       data: {
-        productId:     product.id,
-        colorId:       primaryColorId,
-        unitPrice:     color.unitPrice,
-        weight:        color.weight,
-        stock:         color.stock,
-        isPrimary:     color.isPrimary,
-        saleType:      color.saleType,
-        packQuantity:  color.packQuantity,
-        disabled:      color.disabled ?? false,
+        productId:           product.id,
+        colorId:             primaryColorId,
+        unitPrice:           color.unitPrice,
+        weight:              color.weight,
+        stock:               color.stock,
+        isPrimary:           color.isPrimary,
+        saleType:            color.saleType,
+        packQuantity:        color.packQuantity,
+        disabled:            color.disabled ?? false,
+        pfsColorRefOverride: normalizeOverride(color.pfsColorRefOverride),
       },
       select: { id: true, colorId: true },
     });
@@ -366,9 +416,10 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         const line = color.packLines[li];
         await prisma.packColorLine.create({
           data: {
-            productColorId: variant.id,
-            colorId: line.colorId,
-            position: li,
+            productColorId:      variant.id,
+            colorId:             line.colorId,
+            position:            li,
+            pfsColorRefOverride: normalizeOverride(line.pfsColorRefOverride),
             sizes: {
               create: line.sizeEntries.map((se) => ({ sizeId: se.sizeId, quantity: se.quantity })),
             },
@@ -518,6 +569,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     validateVariants(input.colors);
     await assertTailleUniqueDetails(input);
   }
+  // Toujours valider les overrides PFS secondaires (cf. createProduct).
+  await validatePfsColorOverridesOrThrow(input.colors);
 
   // Garantir une seule variante primaire (corrige aussi les produits legacy
   // créés avant le fix où plusieurs variantes pouvaient être marquées primaires).
@@ -733,15 +786,16 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
           data: {
             // colorId / saleType / packQuantity : valeurs verrouillées, on garde
             // ce que la base contient et on ignore le client.
-            colorId:       existing.colorId,
-            saleType:      existing.saleType,
-            packQuantity:  existing.packQuantity,
+            colorId:             existing.colorId,
+            saleType:            existing.saleType,
+            packQuantity:        existing.packQuantity,
             // Champs librement modifiables :
-            unitPrice:     colorInput.unitPrice,
-            weight:        colorInput.weight,
-            stock:         colorInput.stock,
-            isPrimary:     colorInput.isPrimary,
-            disabled:      colorInput.disabled ?? false,
+            unitPrice:           colorInput.unitPrice,
+            weight:              colorInput.weight,
+            stock:               colorInput.stock,
+            isPrimary:           colorInput.isPrimary,
+            disabled:            colorInput.disabled ?? false,
+            pfsColorRefOverride: normalizeOverride(colorInput.pfsColorRefOverride),
           },
         });
         variantIdMap.push({ colorInput, variantId: colorInput.dbId, isNew: false });
@@ -753,15 +807,16 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
           : (colorInput.colorId || null);
         const created = await tx.productColor.create({
           data: {
-            productId:     id,
-            colorId:       primaryColorId,
-            unitPrice:     colorInput.unitPrice,
-            weight:        colorInput.weight,
-            stock:         colorInput.stock,
-            isPrimary:     colorInput.isPrimary,
-            saleType:      colorInput.saleType,
-            packQuantity:  colorInput.packQuantity,
-            disabled:      colorInput.disabled ?? false,
+            productId:           id,
+            colorId:             primaryColorId,
+            unitPrice:           colorInput.unitPrice,
+            weight:              colorInput.weight,
+            stock:               colorInput.stock,
+            isPrimary:           colorInput.isPrimary,
+            saleType:            colorInput.saleType,
+            packQuantity:        colorInput.packQuantity,
+            disabled:            colorInput.disabled ?? false,
+            pfsColorRefOverride: normalizeOverride(colorInput.pfsColorRefOverride),
           },
         });
         variantIdMap.push({ colorInput, variantId: created.id, isNew: true });
@@ -810,13 +865,35 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
         const line = colorInput.packLines[li];
         await tx.packColorLine.create({
           data: {
-            productColorId: variantId,
-            colorId: line.colorId,
-            position: li,
+            productColorId:      variantId,
+            colorId:             line.colorId,
+            position:            li,
+            pfsColorRefOverride: normalizeOverride(line.pfsColorRefOverride),
             sizes: {
               create: line.sizeEntries.map((se) => ({ sizeId: se.sizeId, quantity: se.quantity })),
             },
           },
+        });
+      }
+    }
+
+    // ── Override PFS secondaire des packLines pour les variantes EXISTANTES ──
+    // La composition (colorId + sizes) reste verrouillée mais l'override est un
+    // champ scalaire indépendant qu'on doit pouvoir éditer.
+    for (const { colorInput, variantId, isNew } of variantIdMap) {
+      if (isNew) continue;
+      if (!isMultiColorPackInput(colorInput) || !colorInput.packLines) continue;
+      const existingLines = await tx.packColorLine.findMany({
+        where: { productColorId: variantId },
+        select: { id: true, colorId: true },
+      });
+      const lineByColorId = new Map(existingLines.map((l) => [l.colorId, l.id]));
+      for (const line of colorInput.packLines) {
+        const lineId = lineByColorId.get(line.colorId);
+        if (!lineId) continue;
+        await tx.packColorLine.update({
+          where: { id: lineId },
+          data: { pfsColorRefOverride: normalizeOverride(line.pfsColorRefOverride) },
         });
       }
     }
@@ -1661,14 +1738,14 @@ export async function revalidateAfterImport() {
  */
 export async function fetchProductFormAttributes() {
   await requireAdmin();
-  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes, annexes] = await Promise.all([
+  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes, annexes, hsCodeRows] = await Promise.all([
     prisma.category.findMany({
       orderBy: { name: "asc" },
       include: { subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true, slug: true } } },
     }),
     prisma.color.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, hex: true, patternImage: true },
+      select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
     }),
     prisma.composition.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -1682,8 +1759,23 @@ export async function fetchProductFormAttributes() {
       select: { id: true, name: true },
     }),
     getPfsAnnexes().catch(() => null),
+    prisma.product.findMany({
+      where: { hsCode: { not: null } },
+      select: { hsCode: true },
+    }),
   ]);
   const pfsSizes = (annexes?.sizes ?? []).map((ref) => ({ reference: ref, label: ref }));
+
+  const hsCodeMap = new Map<string, number>();
+  for (const row of hsCodeRows) {
+    const code = row.hsCode?.trim();
+    if (!code) continue;
+    hsCodeMap.set(code, (hsCodeMap.get(code) ?? 0) + 1);
+  }
+  const hsCodes = [...hsCodeMap.entries()]
+    .map(([code, count]) => ({ code, count }))
+    .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
+
   return {
     categories,
     colors: colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage })),
@@ -1693,6 +1785,7 @@ export async function fetchProductFormAttributes() {
     seasons,
     sizes: withProtectedSize(sizes.map((s) => ({ id: s.id, name: s.name }))),
     pfsSizes,
+    hsCodes,
   };
 }
 

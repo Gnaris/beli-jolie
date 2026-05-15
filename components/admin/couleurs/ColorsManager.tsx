@@ -14,6 +14,8 @@ interface ColorItem {
   hex: string | null;
   patternImage: string | null;
   pfsColorRef: string | null;
+  /** Nombre d'autres couleurs partageant le même pfsColorRef (informatif). */
+  pfsSharedCount?: number;
   productCount: number;
   translations: Record<string, string>;
 }
@@ -137,6 +139,14 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
                     </td>
                     <td className="px-4 py-3">
                       <span className="font-medium text-text-primary">{color.name}</span>
+                      {color.pfsSharedCount && color.pfsSharedCount > 0 ? (
+                        <span
+                          className="ml-2 inline-flex items-center gap-1 text-[10px] font-body text-text-muted bg-bg-secondary border border-border rounded-full px-2 py-0.5"
+                          title={`Mapping PFS « ${color.pfsColorRef} » partagé avec ${color.pfsSharedCount} autre${color.pfsSharedCount > 1 ? "s" : ""} couleur${color.pfsSharedCount > 1 ? "s" : ""}. Pas bloquant — pensez à définir un mapping secondaire dans le formulaire produit si vous utilisez plusieurs de ces couleurs ensemble.`}
+                        >
+                          ⓘ partage PFS « {color.pfsColorRef} » (×{color.pfsSharedCount + 1})
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">
                       <span className="text-text-muted text-xs">{color.patternImage ? "Motif" : color.hex ?? "—"}</span>

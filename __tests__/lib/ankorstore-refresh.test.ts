@@ -23,7 +23,7 @@ vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 vi.mock("@/lib/ankorstore-description", () => ({
   formatAnkorstoreDescription: vi.fn().mockImplementation(
     (input: { description: string; reference: string }) =>
-      `${input.description}\n\nRéférence : ${input.reference}`,
+      `${input.description}\n\nRéférence produit : ${input.reference}`,
   ),
   formatAnkorstoreCompositionLabel: vi.fn().mockReturnValue(null),
 }));

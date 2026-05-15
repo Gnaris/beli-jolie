@@ -7,6 +7,7 @@ import SettingsMinOrderForm from "@/components/admin/settings/SettingsMinOrderFo
 import AdminPasswordResetButton from "@/components/admin/settings/AdminPasswordResetButton";
 import MaintenanceModeToggle from "@/components/admin/settings/MaintenanceModeToggle";
 import CatalogDisplayConfig from "@/components/admin/settings/CatalogDisplayConfig";
+import RefreshWarningConfig from "@/components/admin/settings/RefreshWarningConfig";
 import HomepageCarouselsConfig from "@/components/admin/settings/HomepageCarouselsConfig";
 import StockDisplayConfig from "@/components/admin/settings/StockDisplayConfig";
 import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
@@ -188,26 +189,41 @@ async function SocieteTab() {
    TAB : Catalogue — Affichage catalogue
    ═══════════════════════════════════════════════════════════════════════════ */
 async function CatalogueTab() {
-  const [displayConfigRow, categories, dbCollections, dbTags] = await Promise.all([
+  const [displayConfigRow, categories, dbCollections, dbTags, refreshWarnEnabledRow, refreshWarnDaysRow] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "product_display_config" } }),
     prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.siteConfig.findUnique({ where: { key: "refresh_warning_enabled" } }),
+    prisma.siteConfig.findUnique({ where: { key: "refresh_warning_days" } }),
   ]);
 
   const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
+  const refreshWarnEnabled = refreshWarnEnabledRow?.value === "true";
+  const parsedRefreshDays = refreshWarnDaysRow ? parseInt(refreshWarnDaysRow.value, 10) : NaN;
+  const refreshWarnDays = Number.isFinite(parsedRefreshDays) && parsedRefreshDays > 0 ? parsedRefreshDays : 7;
 
   return (
-    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
-      <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Affichage catalogue</h3>
-      <p className="text-sm text-text-secondary font-body mb-4">Ordre d&apos;affichage sur la page produits.</p>
-      <CatalogDisplayConfig
-        initialMode={displayConfig.catalogMode}
-        initialSections={displayConfig.sections}
-        categories={categories}
-        collections={dbCollections}
-        tags={dbTags}
-      />
+    <div className="space-y-6">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Affichage catalogue</h3>
+        <p className="text-sm text-text-secondary font-body mb-4">Ordre d&apos;affichage sur la page produits.</p>
+        <CatalogDisplayConfig
+          initialMode={displayConfig.catalogMode}
+          initialSections={displayConfig.sections}
+          categories={categories}
+          collections={dbCollections}
+          tags={dbTags}
+        />
+      </div>
+
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Garde-fou rafraîchissement</h3>
+        <p className="text-sm text-text-secondary font-body mb-4">
+          Évite de rafraîchir un produit qui vient déjà d&apos;être mis en avant récemment.
+        </p>
+        <RefreshWarningConfig initialEnabled={refreshWarnEnabled} initialDays={refreshWarnDays} />
+      </div>
     </div>
   );
 }

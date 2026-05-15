@@ -130,6 +130,73 @@ export async function refreshProductOnMarketplaces(
   return outcome;
 }
 
+// ─── Garde-fou : produits déjà rafraîchis récemment ────────────────────────
+
+export interface RecentlyRefreshedProduct {
+  productId: string;
+  reference: string;
+  productName: string;
+  lastRefreshedAt: string; // ISO — sérialisable côté client
+  daysAgo: number;
+}
+
+export interface RecentlyRefreshedCheck {
+  enabled: boolean;
+  thresholdDays: number;
+  items: RecentlyRefreshedProduct[];
+}
+
+/**
+ * Filtre la liste des produits demandés et retourne ceux qui ont été
+ * rafraîchis il y a strictement moins de `refresh_warning_days` jours.
+ * Si la config est désactivée → renvoie `enabled: false` et `items: []`.
+ *
+ * Utilisé par la modale d'avertissement avant de lancer un refresh manuel.
+ */
+export async function getRecentlyRefreshedProducts(
+  productIds: string[],
+): Promise<RecentlyRefreshedCheck> {
+  await requireAdmin();
+
+  const [enabledRow, daysRow] = await Promise.all([
+    prisma.siteConfig.findUnique({ where: { key: "refresh_warning_enabled" } }),
+    prisma.siteConfig.findUnique({ where: { key: "refresh_warning_days" } }),
+  ]);
+
+  const enabled = enabledRow?.value === "true";
+  const parsedDays = daysRow ? parseInt(daysRow.value, 10) : NaN;
+  const thresholdDays = Number.isFinite(parsedDays) && parsedDays > 0 ? parsedDays : 7;
+
+  if (!enabled || productIds.length === 0) {
+    return { enabled, thresholdDays, items: [] };
+  }
+
+  const cutoff = new Date(Date.now() - thresholdDays * 24 * 60 * 60 * 1000);
+  const products = await prisma.product.findMany({
+    where: {
+      id: { in: productIds },
+      lastRefreshedAt: { gt: cutoff },
+    },
+    select: { id: true, reference: true, name: true, lastRefreshedAt: true },
+    orderBy: { lastRefreshedAt: "desc" },
+  });
+
+  const now = Date.now();
+  const items: RecentlyRefreshedProduct[] = products.map((p) => {
+    const ts = p.lastRefreshedAt!.getTime();
+    const daysAgo = Math.floor((now - ts) / (24 * 60 * 60 * 1000));
+    return {
+      productId: p.id,
+      reference: p.reference,
+      productName: p.name,
+      lastRefreshedAt: p.lastRefreshedAt!.toISOString(),
+      daysAgo,
+    };
+  });
+
+  return { enabled, thresholdDays, items };
+}
+
 export async function refreshProductsOnMarketplaces(
   productIds: string[],
   options: MarketplaceRefreshOptions,

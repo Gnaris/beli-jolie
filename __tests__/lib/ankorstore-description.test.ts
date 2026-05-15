@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   formatAnkorstoreCompositionLabel,
   formatAnkorstoreDescription,
+  getAnkorstoreReferenceSuffixLength,
+  ANKORSTORE_REFERENCE_LINE_PREFIX,
 } from "@/lib/ankorstore-description";
 
 describe("formatAnkorstoreDescription", () => {
@@ -13,7 +15,7 @@ describe("formatAnkorstoreDescription", () => {
     });
     expect(out).toContain("Belle bague en argent.");
     expect(out).toContain("Composition : 92.5% Argent 925");
-    expect(out).toContain("Référence : BAG001");
+    expect(out).toContain("Référence produit : BAG001");
   });
 
   it("plusieurs compositions séparées par virgule", () => {
@@ -81,6 +83,29 @@ describe("formatAnkorstoreDescription", () => {
     });
     expect(out).not.toContain("Diamètre");
     expect(out).not.toContain("Circonférence");
+  });
+});
+
+describe("getAnkorstoreReferenceSuffixLength", () => {
+  it("retourne 0 quand la référence est vide ou que des espaces", () => {
+    expect(getAnkorstoreReferenceSuffixLength("")).toBe(0);
+    expect(getAnkorstoreReferenceSuffixLength("   ")).toBe(0);
+  });
+
+  it("compte les deux sauts de ligne, le préfixe « Référence produit : » et la référence", () => {
+    const ref = "BAG001";
+    const expected = `\n\n${ANKORSTORE_REFERENCE_LINE_PREFIX}${ref}`.length;
+    expect(getAnkorstoreReferenceSuffixLength(ref)).toBe(expected);
+  });
+
+  it("ignore les espaces de bord de la référence", () => {
+    expect(getAnkorstoreReferenceSuffixLength("  REF  ")).toBe(
+      getAnkorstoreReferenceSuffixLength("REF"),
+    );
+  });
+
+  it("avec une référence courte, le suffixe couvre déjà ≥ 22 caractères (laisse < 10 à taper pour atteindre 30)", () => {
+    expect(getAnkorstoreReferenceSuffixLength("X")).toBeGreaterThanOrEqual(22);
   });
 });
 

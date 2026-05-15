@@ -33,6 +33,14 @@ export interface PfsVariantSnapshot {
   stock: number;
   weight: number;
   isActive: boolean;
+  /**
+   * Mapping PFS effectif de la variante (override secondaire en priorité, sinon
+   * principal de la couleur). Optionnel pour compat des anciens snapshots — un
+   * snapshot sans ce champ ne déclenchera pas de re-sync sur le simple ajout
+   * du champ ; le diff verra "absent" et restera identique tant qu'on ne pose
+   * pas un override.
+   */
+  colorRef?: string;
 }
 
 export type PfsImagesSnapshot = {
@@ -94,7 +102,8 @@ export function variantSnapshotEqual(
     a.price === b.price &&
     a.stock === b.stock &&
     a.weight === b.weight &&
-    a.isActive === b.isActive
+    a.isActive === b.isActive &&
+    (a.colorRef ?? null) === (b.colorRef ?? null)
   );
 }
 

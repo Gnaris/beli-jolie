@@ -7,7 +7,12 @@ import {
   useMarketplaceRefreshQueue,
   type MarketplaceRefreshEnqueueInput,
 } from "@/components/admin/products/MarketplaceRefreshContext";
-import { refreshProductOnMarketplaces, type MarketplaceRefreshOptions } from "@/app/actions/admin/marketplace-refresh";
+import {
+  refreshProductOnMarketplaces,
+  getRecentlyRefreshedProducts,
+  type MarketplaceRefreshOptions,
+} from "@/app/actions/admin/marketplace-refresh";
+import { useRefreshWarning } from "@/components/admin/products/RecentlyRefreshedWarningModal";
 
 export interface RefreshableProduct {
   productId: string;
@@ -30,6 +35,30 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
   const { confirm } = useConfirm();
   const toast = useToast();
   const { enqueue } = useMarketplaceRefreshQueue();
+  const { ask: askWarning } = useRefreshWarning();
+
+  // Vérifie le garde-fou « refresh récent ». Retourne la liste finale à traiter,
+  // ou `null` si l'utilisatrice a annulé.
+  const applyRecentWarning = useCallback(
+    async (products: RefreshableProduct[]): Promise<RefreshableProduct[] | null> => {
+      const productIds = products.map((p) => p.productId);
+      const check = await getRecentlyRefreshedProducts(productIds);
+      if (!check.enabled || check.items.length === 0) {
+        return products;
+      }
+      const choice = await askWarning({
+        totalSelected: products.length,
+        thresholdDays: check.thresholdDays,
+        recentItems: check.items,
+      });
+      if (choice === "cancel") return null;
+      if (choice === "force_all") return products;
+      // skip_recent → on retire les produits récents
+      const recentIds = new Set(check.items.map((i) => i.productId));
+      return products.filter((p) => !recentIds.has(p.productId));
+    },
+    [askWarning],
+  );
 
   const askOptions = useCallback(
     async (count: number, firstProductName?: string): Promise<MarketplaceRefreshOptions | null> => {
@@ -104,13 +133,20 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
 
   const refreshSingle = useCallback(
     async (product: RefreshableProduct): Promise<boolean> => {
-      const options = await askOptions(1, product.productName);
+      const filtered = await applyRecentWarning([product]);
+      if (filtered === null) return false;
+      if (filtered.length === 0) {
+        toast.info("Rien à rafraîchir", "Le produit a été ignoré (rafraîchi récemment).");
+        return false;
+      }
+      const target = filtered[0]!;
+      const options = await askOptions(1, target.productName);
       if (!options) return false;
 
       // If only local (no marketplace), run directly — it's instant
       if (options.local && !options.pfs && !options.ankorstore) {
         try {
-          await refreshProductOnMarketplaces(product.productId, options);
+          await refreshProductOnMarketplaces(target.productId, options);
           toast.success("Produit remis en Nouveauté");
         } catch (err) {
           toast.error("Échec", err instanceof Error ? err.message : String(err));
@@ -128,10 +164,10 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       let localConsumed = false;
       if (options.pfs) {
         inputs.push({
-          productId: product.productId,
-          reference: product.reference,
-          productName: product.productName,
-          firstImage: product.firstImage ?? null,
+          productId: target.productId,
+          reference: target.reference,
+          productName: target.productName,
+          firstImage: target.firstImage ?? null,
           options: { local: options.local && !localConsumed, pfs: true, ankorstore: false },
           marketplace: "pfs",
         });
@@ -139,19 +175,19 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       }
       if (options.ankorstore) {
         inputs.push({
-          productId: product.productId,
-          reference: product.reference,
-          productName: product.productName,
-          firstImage: product.firstImage ?? null,
+          productId: target.productId,
+          reference: target.reference,
+          productName: target.productName,
+          firstImage: target.firstImage ?? null,
           options: { local: options.local && !localConsumed, pfs: false, ankorstore: true },
           marketplace: "ankorstore",
         });
       }
       enqueue(inputs);
-      toast.info("Ajouté à la file", `${product.reference} sera rafraîchi en arrière-plan.`);
+      toast.info("Ajouté à la file", `${target.reference} sera rafraîchi en arrière-plan.`);
       return true;
     },
-    [askOptions, enqueue, toast],
+    [applyRecentWarning, askOptions, enqueue, toast],
   );
 
   const refreshBulk = useCallback(
@@ -161,16 +197,22 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         toast.error("Trop de produits", "Vous ne pouvez rafraîchir que 100 produits à la fois.");
         return false;
       }
-      const options = await askOptions(products.length, products[0]?.productName);
+      const filtered = await applyRecentWarning(products);
+      if (filtered === null) return false;
+      if (filtered.length === 0) {
+        toast.info("Rien à rafraîchir", "Tous les produits sélectionnés ont été rafraîchis récemment.");
+        return false;
+      }
+      const options = await askOptions(filtered.length, filtered[0]?.productName);
       if (!options) return false;
 
       if (options.local && !options.pfs && !options.ankorstore) {
         // Run sequentially for local-only — quick operations
         try {
-          for (const p of products) {
+          for (const p of filtered) {
             await refreshProductOnMarketplaces(p.productId, options);
           }
-          toast.success(`${products.length} produit${products.length > 1 ? "s" : ""} remis en Nouveauté`);
+          toast.success(`${filtered.length} produit${filtered.length > 1 ? "s" : ""} remis en Nouveauté`);
         } catch (err) {
           toast.error("Échec", err instanceof Error ? err.message : String(err));
         }
@@ -180,7 +222,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       // Each item carries ONLY its marketplace flag (see refreshSingle for the
       // reason). `local` is consumed by the first item of each product.
       const inputs: MarketplaceRefreshEnqueueInput[] = [];
-      for (const p of products) {
+      for (const p of filtered) {
         let localConsumed = false;
         if (options.pfs) {
           inputs.push({
@@ -207,11 +249,11 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       enqueue(inputs);
       toast.info(
         "Ajoutés à la file",
-        `${products.length} produit${products.length > 1 ? "s" : ""} seront rafraîchis en arrière-plan.`,
+        `${filtered.length} produit${filtered.length > 1 ? "s" : ""} seront rafraîchis en arrière-plan.`,
       );
       return true;
     },
-    [askOptions, enqueue, toast],
+    [applyRecentWarning, askOptions, enqueue, toast],
   );
 
   return { refreshSingle, refreshBulk };

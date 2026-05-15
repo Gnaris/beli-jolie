@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { VariantState, ColorImageState } from "./ColorVariantManager";
 import { imageGroupKeyFromVariant, isMultiColorPack } from "./ColorVariantManager";
+import { getAnkorstoreReferenceSuffixLength } from "@/lib/ankorstore-description";
 
 const DESCRIPTION_MIN_CHARS = 30;
 
@@ -40,16 +41,18 @@ function computeChecklist(input: ChecklistInput): CheckItem[] {
     done: !!input.name.trim(),
   });
 
-  // 3. Description (30 chars min)
+  // 3. Description (30 chars min — la ligne référence ajoutée automatiquement à l'envoi Ankorstore compte aussi)
   const rawDescLen = input.description.trim().length;
+  const refSuffixLen = getAnkorstoreReferenceSuffixLength(input.reference);
+  const effectiveDescLen = rawDescLen + refSuffixLen;
   items.push({
     key: "description",
     label: `Description (FR, ${DESCRIPTION_MIN_CHARS} car. min)`,
-    done: rawDescLen >= DESCRIPTION_MIN_CHARS,
+    done: effectiveDescLen >= DESCRIPTION_MIN_CHARS,
     detail: rawDescLen === 0
       ? "vide"
-      : rawDescLen < DESCRIPTION_MIN_CHARS
-        ? `${rawDescLen} / ${DESCRIPTION_MIN_CHARS} car.`
+      : effectiveDescLen < DESCRIPTION_MIN_CHARS
+        ? `${effectiveDescLen} / ${DESCRIPTION_MIN_CHARS} car.`
         : undefined,
   });
 

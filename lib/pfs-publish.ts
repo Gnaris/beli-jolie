@@ -39,6 +39,7 @@ import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
 import { requirePfsBrand } from "@/lib/pfs-brand";
 import { mapLocalToPfsStatus } from "@/lib/pfs-status";
+import { assertNoPfsColorConflicts } from "@/lib/pfs-color-conflicts";
 
 export interface PfsPublishProgress {
   productId: string;
@@ -66,10 +67,12 @@ interface FullVariant {
   variantSizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
   colorId: string | null;
   color: { id: string; name: string; pfsColorRef: string | null } | null;
+  pfsColorRefOverride: string | null;
   packLines: {
     colorId: string;
     color: { id: string; name: string; pfsColorRef: string | null };
     position: number;
+    pfsColorRefOverride: string | null;
     sizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
   }[];
   images: { path: string; order: number; colorId: string }[];
@@ -134,7 +137,8 @@ async function buildColorLabelToRefMap(): Promise<Map<string, string>> {
 
 function getEffectiveColorRef(variant: FullVariant, colorRefMap?: Map<string, string>): string | null {
   if (!variant.color) return null;
-  // Priority: pfsColorRef from DB > label→ref mapping > raw name
+  // Priority: override secondaire > pfsColorRef de la couleur > label→ref mapping > raw name
+  if (variant.pfsColorRefOverride?.trim()) return variant.pfsColorRefOverride.trim();
   if (variant.color.pfsColorRef) return variant.color.pfsColorRef;
   return colorRefMap?.get(variant.color.name) ?? variant.color.name;
 }
@@ -142,7 +146,9 @@ function getEffectiveColorRef(variant: FullVariant, colorRefMap?: Map<string, st
 function resolvePfsColorRef(
   color: { name: string; pfsColorRef: string | null },
   colorRefMap?: Map<string, string>,
+  overrideRef?: string | null,
 ): string {
+  if (overrideRef?.trim()) return overrideRef.trim();
   if (color.pfsColorRef) return color.pfsColorRef;
   return colorRefMap?.get(color.name) ?? color.name;
 }
@@ -200,11 +206,13 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           },
           colorId: true,
           color: { select: { id: true, name: true, pfsColorRef: true } },
+          pfsColorRefOverride: true,
           packLines: {
             select: {
               colorId: true,
               color: { select: { id: true, name: true, pfsColorRef: true } },
               position: true,
+              pfsColorRefOverride: true,
               sizes: {
                 select: { size: { select: { name: true, pfsSizeRef: true } }, quantity: true },
                 orderBy: { size: { position: "asc" as const } },
@@ -353,6 +361,10 @@ export async function pfsPublishProduct(
   // Load PFS color label → reference mapping (e.g. "Doré" → "DORE")
   const colorRefMap = await buildColorLabelToRefMap();
 
+  // Filet de sécurité : refuse de publier si 2 variantes/lignes de pack
+  // partagent le même mapping PFS effectif (principal ou secondaire).
+  assertNoPfsColorConflicts(product.colors, colorRefMap);
+
   try {
     // ── Step 1 : Create product directly with the real reference ──
     report("Création du produit sur PFS...");
@@ -441,7 +453,7 @@ export async function pfsPublishProduct(
           // Multi-color pack: read sizes from each packLine
           for (const pl of variant.packLines) {
             if (!pl.color?.name) continue;
-            const plColorRef = resolvePfsColorRef(pl.color, colorRefMap);
+            const plColorRef = resolvePfsColorRef(pl.color, colorRefMap, pl.pfsColorRefOverride);
             if (!firstColorRef) firstColorRef = plColorRef;
             if (pl.sizes && pl.sizes.length > 0) {
               for (const ps of pl.sizes) {
@@ -456,7 +468,7 @@ export async function pfsPublishProduct(
           }
         } else if (variant.color?.name) {
           // Mono-color pack: use variantSizes
-          firstColorRef = resolvePfsColorRef(variant.color, colorRefMap);
+          firstColorRef = resolvePfsColorRef(variant.color, colorRefMap, variant.pfsColorRefOverride);
           const variantSizes =
             variant.variantSizes.length > 0
               ? variant.variantSizes
@@ -586,7 +598,7 @@ export async function pfsPublishProduct(
       }
       for (const pl of variant.packLines) {
         if (pl.color) {
-          const ref = resolvePfsColorRef(pl.color, colorRefMap);
+          const ref = resolvePfsColorRef(pl.color, colorRefMap, pl.pfsColorRefOverride);
           colorIdToPfsRef.set(pl.color.id, ref);
         }
       }

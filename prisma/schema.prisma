@@ -539,6 +539,10 @@ model ProductColor {
   pfsVariantId        String?
   // Identifiant variante Ankorstore — renseigné à la publication live
   ankorsVariantId     String?
+  // Mapping PFS secondaire propre à cette variante (override du pfsColorRef de Color).
+  // Sert à différencier 2 variantes dont les couleurs partagent le même mapping principal.
+  // Doit être différent du pfsColorRef principal de la couleur sélectionnée (validé applicatif).
+  pfsColorRefOverride String?
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
 
@@ -589,14 +593,17 @@ model VariantSize {
 // Ligne d'un PACK multi-couleurs : une couleur incluse dans le pack avec ses tailles
 // Ex: Pack tricolore = 1× ligne Rouge (S×2, M×3) + 1× ligne Bleu (M×2) + 1× ligne Noir (L×1)
 model PackColorLine {
-  id             String              @id @default(cuid())
-  productColorId String
-  productColor   ProductColor        @relation(fields: [productColorId], references: [id], onDelete: Cascade)
-  colorId        String
-  color          Color               @relation(fields: [colorId], references: [id])
-  position       Int                 @default(0) // ordre d'affichage
-  sizes          PackColorLineSize[]
-  createdAt      DateTime            @default(now())
+  id                  String              @id @default(cuid())
+  productColorId      String
+  productColor        ProductColor        @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  colorId             String
+  color               Color               @relation(fields: [colorId], references: [id])
+  position            Int                 @default(0) // ordre d'affichage
+  sizes               PackColorLineSize[]
+  // Mapping PFS secondaire propre à cette ligne dans ce pack (override de Color.pfsColorRef).
+  // Doit être différent du pfsColorRef principal de la couleur sélectionnée (validé applicatif).
+  pfsColorRefOverride String?
+  createdAt           DateTime            @default(now())
 
   @@unique([productColorId, colorId])
   @@index([productColorId])

@@ -21,6 +21,8 @@ export interface SizeEntryInput {
 export interface PackLineInput {
   colorId: string;
   sizeEntries: SizeEntryInput[];
+  /** Mapping PFS secondaire propre à cette ligne dans ce pack. null/undefined = utilise le principal. */
+  pfsColorRefOverride?: string | null;
 }
 
 export interface ColorInput {
@@ -36,6 +38,8 @@ export interface ColorInput {
   /** PACK multi-couleurs : si présent, supplante sizeEntries pour la composition. */
   packLines?: PackLineInput[];
   disabled?: boolean;
+  /** Mapping PFS secondaire propre à cette variante. null/undefined = utilise le principal. */
+  pfsColorRefOverride?: string | null;
 }
 
 export function isMultiColorPackInput(c: ColorInput): boolean {
