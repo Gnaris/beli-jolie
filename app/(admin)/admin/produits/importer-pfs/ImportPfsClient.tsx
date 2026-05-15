@@ -4,11 +4,9 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useToast } from "@/components/ui/Toast";
 import { useProductStream } from "@/hooks/useProductStream";
-import QuickCreateModal, { type QuickCreateType } from "@/components/admin/products/QuickCreateModal";
-import QuickCreateSizeModal from "@/components/admin/products/QuickCreateSizeModal";
-import type { PfsAttribute, PfsAttributeType, ImportablePfsProduct } from "@/lib/pfs-import";
+import type { ImportablePfsProduct } from "@/lib/pfs-import";
 
-type Step = "scan" | "products" | "import";
+type Step = "products" | "import";
 type ImportMode = "browse" | "byRef";
 
 interface ValidatedRef {
@@ -49,7 +47,7 @@ interface PfsJob {
 
 export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
   const toast = useToast();
-  const [step, setStep] = useState<Step>("scan");
+  const [step, setStep] = useState<Step>("products");
   const [productLimit, setProductLimit] = useState<string>("");
   const [checkingJob, setCheckingJob] = useState(true);
 
@@ -57,20 +55,13 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
   const [importMode, setImportMode] = useState<ImportMode>("browse");
   const [validatedRefs, setValidatedRefs] = useState<ValidatedRef[]>([]);
 
-  // Step 1 — scan
-  const [scanning, setScanning] = useState(false);
-  const [attributes, setAttributes] = useState<PfsAttribute[]>([]);
-  const [scanMeta, setScanMeta] = useState<{ scannedProducts: number; deepScannedProducts: number } | null>(null);
-  // Attribut actuellement en cours de création (ouvre le modal correspondant)
-  const [creatingAttr, setCreatingAttr] = useState<PfsAttribute | null>(null);
-
-  // Step 2 — products
+  // Phase produits (chargement + sélection)
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [productsLoaded, setProductsLoaded] = useState(false);
   const [products, setProducts] = useState<ImportablePfsProduct[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // Step 3 — import (server-side job)
+  // Phase import (job côté serveur)
   const [activeJob, setActiveJob] = useState<PfsJob | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [submittingImport, setSubmittingImport] = useState(false);
@@ -80,10 +71,6 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
    * Interroge le serveur pour savoir si un job PFS est en cours
    * (lancé par n'importe quel admin) ou récemment terminé. Si un job
    * actif est trouvé, bascule l'UI sur la phase « import ».
-   *
-   * Utilisé au montage de la page ET via le bouton « Rafraîchir le statut »
-   * pour sortir l'UI d'un état où elle aurait perdu le lien avec un job
-   * en cours.
    */
   const checkActiveJob = useCallback(async (): Promise<boolean> => {
     try {
@@ -128,9 +115,6 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
       const p = event.importProgress;
       setActiveJob((prev) => {
         if (!prev || prev.id !== p.jobId) return prev;
-        // On fusionne les résultats par pfsId : l'événement SSE porte les
-        // produits déjà terminés (Prêt / Erreur). La liste côté client est
-        // rafraîchie pour que les badges s'actualisent même en mode parallèle.
         const items = prev.resultDetails?.items ?? [];
         const prevResults = prev.resultDetails?.results ?? [];
         let mergedResults = prevResults;
@@ -179,113 +163,8 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
     })();
   }, [activeJob?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Step 1 actions
-  const runScan = useCallback(async (refs?: string[]) => {
-    setScanning(true);
-    try {
-      const searchParams = new URLSearchParams();
-      if (productLimit) searchParams.set("limit", productLimit);
-      if (refs && refs.length > 0) searchParams.set("references", refs.join(","));
-      const qs = searchParams.toString();
-      const res = await fetch(`/api/admin/pfs-import/scan-attributes${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new Error((await res.json()).error ?? "Erreur scan");
-      const data = await res.json();
-      setAttributes(data.attributes);
-      setScanMeta({ scannedProducts: data.scannedProducts, deepScannedProducts: data.deepScannedProducts });
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setScanning(false);
-    }
-  }, [toast, productLimit]);
-
-  /** Ouvre le modal de création approprié pour un attribut non mappé. */
-  const handleCreateMapping = useCallback((attr: PfsAttribute) => {
-    setCreatingAttr(attr);
-  }, []);
-
-  /** Appelé par le modal après création réussie : on met à jour la ligne
-   *  correspondante pour passer en "✓ mappé" sans re-scanner. */
-  const handleCreatedMapping = useCallback(
-    (id: string, name: string) => {
-      if (!creatingAttr) return;
-      const attr = creatingAttr;
-      setAttributes((prev) =>
-        prev.map((a) =>
-          a.type === attr.type && a.pfsRef === attr.pfsRef
-            ? { ...a, mapped: true, localId: id, localName: name }
-            : a
-        )
-      );
-      toast.success(`${name} créé`);
-      setCreatingAttr(null);
-    },
-    [creatingAttr, toast]
-  );
-
-  const missingCount = attributes.filter((a) => !a.mapped).length;
-  const canGoToProducts = attributes.length > 0 && missingCount === 0;
-
-  // Auto-skip to products step when all mappings are already done
-  useEffect(() => {
-    if (step === "scan" && canGoToProducts) {
-      setStep("products");
-    }
-  }, [step, canGoToProducts]);
-
-  // ── Création rapide de toutes les correspondances manquantes en un clic
-  const [bulkCreating, setBulkCreating] = useState(false);
-  const handleBulkCreate = useCallback(async () => {
-    const missing = attributes.filter((a) => !a.mapped);
-    if (missing.length === 0) return;
-    setBulkCreating(true);
-    try {
-      const items = missing.map((a) => ({
-        type: a.type,
-        pfsRef: a.pfsRef,
-        label: a.label,
-        // Libellé EN venant directement de PFS (sauter DeepL côté serveur).
-        ...(a.enLabel ? { enLabel: a.enLabel } : {}),
-        ...(a.type === "category" && a.meta ? {
-          pfsGender: a.meta.pfsGender ?? undefined,
-          pfsFamilyName: a.meta.pfsFamilyName ?? undefined,
-          pfsCategoryName: a.meta.pfsCategoryName ?? undefined,
-        } : {}),
-        ...(a.type === "color" && a.meta?.hex ? { hex: a.meta.hex } : {}),
-        // Code ISO pays (ex: "CN") — pré-rempli à la création.
-        ...(a.type === "country" && a.meta?.isoCode ? { isoCode: a.meta.isoCode } : {}),
-      }));
-      const res = await fetch("/api/admin/pfs-import/bulk-create-mappings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
-      const data: { results: { pfsRef: string; type: string; id?: string; name?: string; ok: boolean; error?: string }[] } = await res.json();
-      let created = 0;
-      let errors = 0;
-      setAttributes((prev) =>
-        prev.map((a) => {
-          const r = data.results.find((d) => d.type === a.type && d.pfsRef === a.pfsRef);
-          if (r?.ok && r.id && r.name) {
-            created++;
-            return { ...a, mapped: true, localId: r.id, localName: r.name };
-          }
-          if (r && !r.ok) errors++;
-          return a;
-        })
-      );
-      if (created > 0) toast.success(`${created} correspondance(s) créée(s)`);
-      if (errors > 0) toast.error(`${errors} erreur(s) — vérifiez les éléments restants`);
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setBulkCreating(false);
-    }
-  }, [attributes, toast]);
-
-  // ── Step 2 actions
-  const loadProducts = useCallback(async () => {
+  // ── Chargement des produits importables (mode browse)
+  const loadBrowseProducts = useCallback(async () => {
     setLoadingProducts(true);
     try {
       const params = productLimit ? `?limit=${productLimit}` : "";
@@ -301,29 +180,31 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
     }
   }, [toast, productLimit]);
 
-  useEffect(() => {
-    if (step === "products" && !productsLoaded && !loadingProducts) {
-      if (importMode === "byRef") {
-        // In by-reference mode, products are already known from validated refs
-        setProducts(
-          validatedRefs.map((r) => ({
-            pfsId: r.pfsId,
-            reference: r.reference,
-            name: r.name,
-            category: "",
-            family: "",
-            colorCount: 0,
-            variantCount: 0,
-            defaultImage: null,
-          }))
-        );
-        setSelected(new Set(validatedRefs.map((r) => r.pfsId)));
-        setProductsLoaded(true);
-      } else {
-        loadProducts();
-      }
-    }
-  }, [step, productsLoaded, loadingProducts, loadProducts, importMode, validatedRefs]);
+  // ── Charge les produits depuis les références validées (mode byRef)
+  const loadByRefProducts = useCallback(() => {
+    setProducts(
+      validatedRefs.map((r) => ({
+        pfsId: r.pfsId,
+        reference: r.reference,
+        name: r.name,
+        category: "",
+        family: "",
+        colorCount: 0,
+        variantCount: 0,
+        defaultImage: null,
+      }))
+    );
+    setSelected(new Set(validatedRefs.map((r) => r.pfsId)));
+    setProductsLoaded(true);
+  }, [validatedRefs]);
+
+  const handleModeChange = useCallback((m: ImportMode) => {
+    setImportMode(m);
+    setProductsLoaded(false);
+    setProducts([]);
+    setSelected(new Set());
+    setValidatedRefs([]);
+  }, []);
 
   const toggleSelect = (pfsId: string) => {
     setSelected((prev) => {
@@ -340,9 +221,9 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
     });
   };
 
-  // ── Step 3 — start server-side import
+  // ── Start server-side import
   const startImport = useCallback(async () => {
-    if (submittingImport) return; // garde-fou anti-double-clic
+    if (submittingImport) return;
     const items = products
       .filter((p) => selected.has(p.pfsId))
       .map((p) => ({ pfsId: p.pfsId, reference: p.reference, name: p.name }));
@@ -354,8 +235,6 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items }),
       });
-      // 409 = un autre import tourne déjà → on bascule l'UI sur ce job
-      // existant pour que l'utilisatrice puisse en suivre l'avancement.
       if (res.status === 409) {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error ?? "Un import PFS est déjà en cours.");
@@ -404,9 +283,7 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
   // ── Reset to start over
   const resetAll = useCallback(() => {
     setActiveJob(null);
-    setStep("scan");
-    setAttributes([]);
-    setScanMeta(null);
+    setStep("products");
     setProducts([]);
     setProductsLoaded(false);
     setSelected(new Set());
@@ -417,7 +294,6 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
     return <div className="p-10 text-center text-text-muted">Chargement…</div>;
   }
 
-  // ─────────────────────────────────────────
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Header */}
@@ -436,14 +312,12 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
         </>
       )}
 
-      {/* Stepper */}
+      {/* Stepper — 2 étapes */}
       <div className="flex items-center justify-between gap-2 text-sm">
         <div className="flex items-center gap-2">
-          <StepIndicator active={step === "scan"} done={step !== "scan"} label="1. Correspondances" />
+          <StepIndicator active={step === "products"} done={step === "import"} label="1. Sélection" />
           <StepArrow />
-          <StepIndicator active={step === "products"} done={step === "import"} label="2. Sélection" />
-          <StepArrow />
-          <StepIndicator active={step === "import"} done={false} label="3. Import" />
+          <StepIndicator active={step === "import"} done={false} label="2. Import" />
         </div>
         {step !== "import" && (
           <button
@@ -462,47 +336,27 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
       </div>
 
       {/* Step content */}
-      {step === "scan" && (
-        <ScanStep
-          scanning={scanning}
-          attributes={attributes}
-          scanMeta={scanMeta}
-          missingCount={missingCount}
-          canGoToProducts={canGoToProducts}
-          productLimit={productLimit}
-          onProductLimitChange={setProductLimit}
-          onRunScan={runScan}
-          onCreateMapping={handleCreateMapping}
-          onBulkCreate={handleBulkCreate}
-          bulkCreating={bulkCreating}
-          onNext={() => setStep("products")}
-          importMode={importMode}
-          onImportModeChange={(m) => {
-            setImportMode(m);
-            // Quand on change de mode après un scan, on réinitialise pour
-            // repartir d'un écran propre (sinon l'utilisatrice reste bloquée
-            // sur l'écran de résultats vide).
-            setAttributes([]);
-            setScanMeta(null);
-          }}
-          validatedRefs={validatedRefs}
-          onValidatedRefsChange={setValidatedRefs}
-          onResetScan={() => {
-            setAttributes([]);
-            setScanMeta(null);
-            setValidatedRefs([]);
-          }}
-        />
-      )}
-
       {step === "products" && (
         <ProductsStep
+          importMode={importMode}
+          onImportModeChange={handleModeChange}
+          productLimit={productLimit}
+          onProductLimitChange={setProductLimit}
+          validatedRefs={validatedRefs}
+          onValidatedRefsChange={setValidatedRefs}
           loading={loadingProducts}
+          productsLoaded={productsLoaded}
           products={products}
           selected={selected}
           onToggle={toggleSelect}
           onToggleAll={toggleAll}
-          onBack={() => setStep("scan")}
+          onLoadBrowse={loadBrowseProducts}
+          onLoadByRef={loadByRefProducts}
+          onResetLoaded={() => {
+            setProductsLoaded(false);
+            setProducts([]);
+            setSelected(new Set());
+          }}
           onNext={startImport}
           submitting={submittingImport}
         />
@@ -516,73 +370,7 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
           onReset={resetAll}
         />
       )}
-
-      <PfsCreateMappingModals
-        attr={creatingAttr}
-        onClose={() => setCreatingAttr(null)}
-        onCreated={handleCreatedMapping}
-      />
     </div>
-  );
-}
-
-/**
- * Route l'attribut PFS non mappé vers le bon modal de création : tailles →
- * modal taille dédié, tous les autres → QuickCreateModal (catégorie / couleur /
- * matière / pays / saison). La correspondance PFS est pré-remplie et verrouillée
- * : l'admin ne peut modifier que le nom et les traductions.
- */
-function PfsCreateMappingModals({
-  attr,
-  onClose,
-  onCreated,
-}: {
-  attr: PfsAttribute | null;
-  onClose: () => void;
-  onCreated: (id: string, name: string) => void;
-}) {
-  const open = !!attr;
-  const modalKey = attr ? `${attr.type}_${attr.pfsRef}` : "closed";
-  // Type size → modal taille dédié
-  if (open && attr!.type === "size") {
-    return (
-      <QuickCreateSizeModal
-        key={modalKey}
-        open={open}
-        onClose={onClose}
-        pfsSizes={[{ reference: attr!.pfsRef, label: attr!.label }]}
-        defaultName={attr!.label}
-        defaultPfsRef={attr!.pfsRef}
-        lockPfsRef
-        onCreated={(s) => onCreated(s.id, s.name)}
-      />
-    );
-  }
-  // Autres types → QuickCreateModal
-  const pfsType: QuickCreateType | null = attr
-    ? (attr.type as Exclude<PfsAttributeType, "size"> as QuickCreateType)
-    : null;
-  // Import PFS = on verrouille toujours la correspondance : l'admin ne doit
-  // jamais pouvoir toucher aux champs Genre / Famille / Catégorie PFS lors
-  // de l'import — les valeurs proviennent du produit PFS scanné. Si une
-  // valeur manque côté PFS, le verrou montre « — » et le bouton « + Créer »
-  // reste désactivé tant que genre + famille ne sont pas présents.
-  return (
-    <QuickCreateModal
-      key={modalKey}
-      type={pfsType ?? "color"}
-      open={open}
-      onClose={onClose}
-      onCreated={(item) => onCreated(item.id, item.name)}
-      defaultName={attr?.label}
-      defaultPfsRef={attr && attr.type !== "category" ? attr.pfsRef : undefined}
-      defaultPfsCategoryId={attr?.type === "category" ? attr.pfsRef : undefined}
-      defaultPfsGender={attr?.type === "category" ? attr.meta?.pfsGender ?? undefined : undefined}
-      defaultPfsFamilyName={attr?.type === "category" ? attr.meta?.pfsFamilyName ?? undefined : undefined}
-      defaultPfsCategoryName={attr?.type === "category" ? attr.meta?.pfsCategoryName ?? undefined : undefined}
-      defaultHex={attr?.type === "color" ? attr.meta?.hex ?? undefined : undefined}
-      lockPfs={!!attr}
-    />
   );
 }
 
@@ -609,303 +397,17 @@ function StepArrow() {
   return <span className="text-text-muted">→</span>;
 }
 
-function ScanStep({
-  scanning,
-  attributes,
-  scanMeta,
-  missingCount,
-  canGoToProducts,
-  productLimit,
-  onProductLimitChange,
-  onRunScan,
-  onCreateMapping,
-  onBulkCreate,
-  bulkCreating,
-  onNext,
-  importMode,
-  onImportModeChange,
-  validatedRefs,
-  onValidatedRefsChange,
-  onResetScan,
-}: {
-  scanning: boolean;
-  attributes: PfsAttribute[];
-  scanMeta: { scannedProducts: number; deepScannedProducts: number } | null;
-  missingCount: number;
-  canGoToProducts: boolean;
-  productLimit: string;
-  onProductLimitChange: (v: string) => void;
-  onRunScan: (refs?: string[]) => void;
-  onCreateMapping: (a: PfsAttribute) => void;
-  onBulkCreate: () => void;
-  bulkCreating: boolean;
-  onNext: () => void;
-  importMode: ImportMode;
-  onImportModeChange: (m: ImportMode) => void;
-  validatedRefs: ValidatedRef[];
-  onValidatedRefsChange: (refs: ValidatedRef[]) => void;
-  onResetScan: () => void;
-}) {
-  const groups: Record<PfsAttributeType, PfsAttribute[]> = {
-    category: [],
-    color: [],
-    composition: [],
-    country: [],
-    season: [],
-    size: [],
-  };
-  for (const a of attributes) groups[a.type].push(a);
-
-  const labels: Record<PfsAttributeType, string> = {
-    category: "Catégories",
-    color: "Couleurs",
-    composition: "Compositions",
-    country: "Pays de fabrication",
-    season: "Saisons",
-    size: "Tailles",
-  };
-
-  // Scan déjà effectué (au moins une réponse du serveur reçue). On se base sur
-  // `scanMeta` plutôt que sur `attributes.length` pour bien gérer le cas où le
-  // scan se termine sans aucun produit importable : sinon l'écran ne bougeait
-  // pas du tout et donnait l'impression que le bouton « Scanner PFS » ne
-  // faisait rien.
-  const hasScanned = scanMeta !== null;
-  const scanFoundNothing = hasScanned && attributes.length === 0;
-
-  // By-reference mode: show tag input first, then scan button
-  const byRefReady = importMode === "byRef" && validatedRefs.length > 0;
-
-  return (
-    <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-sm space-y-4">
-      {/* Mode selector — only visible before scan */}
-      {!hasScanned && (
-        <>
-          <div className="flex gap-2">
-            <button
-              onClick={() => onImportModeChange("browse")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                importMode === "browse"
-                  ? "bg-text-primary text-white"
-                  : "bg-bg-muted text-text-secondary hover:bg-bg-muted/80"
-              }`}
-            >
-              Parcourir le catalogue
-            </button>
-            <button
-              onClick={() => onImportModeChange("byRef")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                importMode === "byRef"
-                  ? "bg-text-primary text-white"
-                  : "bg-bg-muted text-text-secondary hover:bg-bg-muted/80"
-              }`}
-            >
-              Par référence
-            </button>
-          </div>
-
-          {importMode === "browse" ? (
-            <div className="text-center py-10 space-y-4">
-              <p className="text-text-muted">
-                Lancez un scan du catalogue PFS pour vérifier que toutes les correspondances existent chez vous.
-              </p>
-              <div className="flex items-center justify-center gap-3 flex-wrap">
-                <label className="text-sm text-text-secondary">Nombre de produits :</label>
-                <input
-                  type="number"
-                  min={1}
-                  placeholder="Tous"
-                  value={productLimit}
-                  onChange={(e) => onProductLimitChange(e.target.value)}
-                  className="border border-border rounded-lg px-3 py-2 text-sm bg-bg-primary w-28 text-center"
-                />
-                <span className="text-xs text-text-muted">Vide = importer la totalité du catalogue PFS</span>
-              </div>
-              <button onClick={() => onRunScan()} disabled={scanning} className="btn-primary">
-                {scanning ? "Scan en cours…" : "Scanner PFS"}
-              </button>
-            </div>
-          ) : (
-            <RefTagInput
-              validatedRefs={validatedRefs}
-              onValidatedRefsChange={onValidatedRefsChange}
-              scanning={scanning}
-              onRunScan={() => onRunScan(validatedRefs.map((r) => r.reference))}
-              byRefReady={byRefReady}
-            />
-          )}
-        </>
-      )}
-
-      {/* Aucun produit à importer — feedback explicite après scan vide.
-          Sinon l'écran reste sur l'état initial et donne l'impression que le
-          bouton « Scanner PFS » est cassé. */}
-      {scanFoundNothing && (
-        <div className="py-8 text-center space-y-4">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#dcfce7] text-[#15803d]">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-            </svg>
-          </div>
-          <div className="space-y-1">
-            <p className="text-text-primary font-medium">Aucun nouveau produit à importer</p>
-            <p className="text-text-muted text-sm max-w-md mx-auto">
-              {importMode === "browse"
-                ? "Tous les produits Paris Fashion Shop de votre marque sont déjà dans votre catalogue."
-                : "Aucune des références saisies n'a été trouvée sur Paris Fashion Shop, ou elles sont déjà toutes importées."}
-            </p>
-            {importMode === "browse" && (
-              <p className="text-text-muted text-sm max-w-md mx-auto">
-                Pour ajouter un produit précis créé récemment sur Paris Fashion Shop, utilisez le mode « Par référence ».
-              </p>
-            )}
-          </div>
-          <div className="flex items-center justify-center gap-2 flex-wrap pt-2">
-            <button
-              onClick={() => onRunScan(importMode === "byRef" ? validatedRefs.map((r) => r.reference) : undefined)}
-              disabled={scanning}
-              className="btn-secondary"
-            >
-              {scanning ? "Scan en cours…" : "Re-scanner"}
-            </button>
-            {importMode === "browse" ? (
-              <button
-                onClick={() => {
-                  onResetScan();
-                  onImportModeChange("byRef");
-                }}
-                className="btn-primary"
-              >
-                Importer par référence →
-              </button>
-            ) : (
-              <button
-                onClick={() => {
-                  onResetScan();
-                  onImportModeChange("browse");
-                }}
-                className="btn-ghost"
-              >
-                Retour au catalogue
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Mapping results (both modes) */}
-      {hasScanned && !scanFoundNothing && (
-        <>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-text-muted">
-              {scanMeta && (
-                <>
-                  {scanMeta.scannedProducts} produits scannés · {scanMeta.deepScannedProducts} en détail
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {missingCount > 0 ? (
-                <span className="badge badge-warning">{missingCount} correspondance(s) à créer</span>
-              ) : (
-                <span className="badge badge-success">Toutes les correspondances existent</span>
-              )}
-              {importMode === "browse" && (
-                <input
-                  type="number"
-                  min={1}
-                  placeholder="Tous"
-                  value={productLimit}
-                  onChange={(e) => onProductLimitChange(e.target.value)}
-                  title="Vide = importer la totalité du catalogue"
-                  className="border border-border rounded-lg px-2 py-1.5 text-sm bg-bg-primary w-24 text-center"
-                />
-              )}
-              <button onClick={() => onRunScan(importMode === "byRef" ? validatedRefs.map((r) => r.reference) : undefined)} disabled={scanning} className="btn-secondary">
-                {scanning ? "Scan…" : "Re-scanner"}
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {(Object.keys(groups) as PfsAttributeType[]).map((type) => {
-              const list = groups[type];
-              if (list.length === 0) return null;
-              const missing = list.filter((a) => !a.mapped).length;
-              return (
-                <div key={type} className="border border-border rounded-xl overflow-hidden">
-                  <div className="px-4 py-2 bg-bg-muted flex items-center justify-between">
-                    <span className="font-medium text-sm">{labels[type]}</span>
-                    <span className="text-xs text-text-muted">
-                      {list.length - missing}/{list.length} mappés
-                    </span>
-                  </div>
-                  <table className="w-full text-sm">
-                    <tbody>
-                      {list.map((a) => (
-                        <tr key={`${a.type}_${a.pfsRef}`} className="border-t border-border">
-                          <td className="px-4 py-2">
-                            <span className="text-sm">{a.label}</span>
-                            {a.label !== a.pfsRef && (
-                              <span className="text-xs text-text-muted ml-2">({a.pfsRef})</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-2 text-right">
-                            {a.mapped ? (
-                              <span className="text-[#15803D] text-sm">✓ {a.localName}</span>
-                            ) : (
-                              <button
-                                onClick={() => onCreateMapping(a)}
-                                className="btn-ghost text-sm px-3 py-1.5"
-                              >
-                                + Créer
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="flex items-center justify-between">
-            {missingCount > 0 ? (
-              <button
-                onClick={onBulkCreate}
-                disabled={bulkCreating}
-                className="btn-secondary"
-              >
-                {bulkCreating ? "Création en cours…" : `Créer les ${missingCount} correspondance(s) manquante(s)`}
-              </button>
-            ) : (
-              <div />
-            )}
-            <button onClick={onNext} disabled={!canGoToProducts} className="btn-primary">
-              Suivant — Choisir les produits →
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 /** Tag input for entering references one by one. */
 function RefTagInput({
   validatedRefs,
   onValidatedRefsChange,
-  scanning,
-  onRunScan,
-  byRefReady,
+  onLoad,
+  loading,
 }: {
   validatedRefs: ValidatedRef[];
   onValidatedRefsChange: (refs: ValidatedRef[]) => void;
-  scanning: boolean;
-  onRunScan: () => void;
-  byRefReady: boolean;
+  onLoad: () => void;
+  loading: boolean;
 }) {
   const toast = useToast();
   const [inputValue, setInputValue] = useState("");
@@ -916,7 +418,6 @@ function RefTagInput({
     const ref = inputValue.trim().toUpperCase();
     if (!ref) return;
 
-    // Check duplicate in already validated refs
     if (validatedRefs.some((r) => r.reference === ref)) {
       setError(`La référence ${ref} est déjà dans la liste`);
       return;
@@ -968,7 +469,6 @@ function RefTagInput({
         Tapez une référence produit PFS et appuyez sur Entrée pour l&apos;ajouter.
       </p>
 
-      {/* Input */}
       <div className="flex items-center gap-2">
         <input
           type="text"
@@ -988,7 +488,6 @@ function RefTagInput({
         </button>
       </div>
 
-      {/* Error message */}
       {error && (
         <div className="flex items-center gap-2 text-sm text-[#b91c1c] bg-[#fef2f2] border border-[#fecaca] rounded-lg px-3 py-2">
           <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -998,7 +497,6 @@ function RefTagInput({
         </div>
       )}
 
-      {/* Tags */}
       {validatedRefs.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {validatedRefs.map((r) => (
@@ -1022,17 +520,16 @@ function RefTagInput({
         </div>
       )}
 
-      {/* Counter + scan button */}
       <div className="flex items-center justify-between pt-2">
         <span className="text-sm text-text-muted">
           {validatedRefs.length} référence(s) ajoutée(s)
         </span>
         <button
-          onClick={onRunScan}
-          disabled={!byRefReady || scanning}
+          onClick={onLoad}
+          disabled={validatedRefs.length === 0 || loading}
           className="btn-primary"
         >
-          {scanning ? "Scan en cours…" : "Vérifier les correspondances →"}
+          {loading ? "Chargement…" : "Charger les produits →"}
         </button>
       </div>
     </div>
@@ -1042,21 +539,39 @@ function RefTagInput({
 const PRODUCTS_PER_PAGE = 40;
 
 function ProductsStep({
+  importMode,
+  onImportModeChange,
+  productLimit,
+  onProductLimitChange,
+  validatedRefs,
+  onValidatedRefsChange,
   loading,
+  productsLoaded,
   products,
   selected,
   onToggle,
   onToggleAll,
-  onBack,
+  onLoadBrowse,
+  onLoadByRef,
+  onResetLoaded,
   onNext,
   submitting,
 }: {
+  importMode: ImportMode;
+  onImportModeChange: (m: ImportMode) => void;
+  productLimit: string;
+  onProductLimitChange: (v: string) => void;
+  validatedRefs: ValidatedRef[];
+  onValidatedRefsChange: (refs: ValidatedRef[]) => void;
   loading: boolean;
+  productsLoaded: boolean;
   products: ImportablePfsProduct[];
   selected: Set<string>;
   onToggle: (id: string) => void;
   onToggleAll: () => void;
-  onBack: () => void;
+  onLoadBrowse: () => void;
+  onLoadByRef: () => void;
+  onResetLoaded: () => void;
   onNext: () => void;
   submitting: boolean;
 }) {
@@ -1080,26 +595,89 @@ function ProductsStep({
   const pageProducts = filtered.slice((safePage - 1) * PRODUCTS_PER_PAGE, safePage * PRODUCTS_PER_PAGE);
 
   // Sélection par page ou tout
-  const allFilteredIds = useMemo(() => new Set(filtered.map((p) => p.pfsId)), [filtered]);
   const allFilteredSelected = filtered.length > 0 && filtered.every((p) => selected.has(p.pfsId));
   const pageIds = useMemo(() => new Set(pageProducts.map((p) => p.pfsId)), [pageProducts]);
   const allPageSelected = pageProducts.length > 0 && pageProducts.every((p) => selected.has(p.pfsId));
 
-  // Remettre à la page 1 quand la recherche change
   useEffect(() => { setPage(1); }, [search]);
 
-  if (loading) return <div className="p-10 text-center text-text-muted">Chargement des produits PFS…</div>;
-
-  if (products.length === 0) {
+  // Phase 1 : pas encore chargé → mode selector + bouton de chargement
+  if (!productsLoaded) {
     return (
-      <div className="bg-bg-primary border border-border rounded-2xl p-10 shadow-sm text-center">
-        <p className="text-text-primary font-medium mb-2">Aucun nouveau produit à importer</p>
-        <p className="text-text-muted text-sm">Tous les produits PFS sont déjà dans votre catalogue.</p>
-        <button onClick={onBack} className="btn-secondary mt-6">← Retour</button>
+      <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-sm space-y-4">
+        <div className="flex gap-2">
+          <button
+            onClick={() => onImportModeChange("browse")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              importMode === "browse"
+                ? "bg-text-primary text-white"
+                : "bg-bg-muted text-text-secondary hover:bg-bg-muted/80"
+            }`}
+          >
+            Parcourir le catalogue
+          </button>
+          <button
+            onClick={() => onImportModeChange("byRef")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              importMode === "byRef"
+                ? "bg-text-primary text-white"
+                : "bg-bg-muted text-text-secondary hover:bg-bg-muted/80"
+            }`}
+          >
+            Par référence
+          </button>
+        </div>
+
+        {importMode === "browse" ? (
+          <div className="text-center py-10 space-y-4">
+            <p className="text-text-muted">
+              Chargez la liste des produits Paris Fashion Shop qui ne sont pas encore dans votre catalogue.
+              Les nouvelles matières, couleurs, tailles, pays, saisons et catégories seront créées automatiquement à l&apos;import.
+            </p>
+            <div className="flex items-center justify-center gap-3 flex-wrap">
+              <label className="text-sm text-text-secondary">Nombre maximum de produits :</label>
+              <input
+                type="number"
+                min={1}
+                placeholder="Tous"
+                value={productLimit}
+                onChange={(e) => onProductLimitChange(e.target.value)}
+                className="border border-border rounded-lg px-3 py-2 text-sm bg-bg-primary w-28 text-center"
+              />
+              <span className="text-xs text-text-muted">Vide = tout le catalogue</span>
+            </div>
+            <button onClick={onLoadBrowse} disabled={loading} className="btn-primary">
+              {loading ? "Chargement…" : "Charger les produits"}
+            </button>
+          </div>
+        ) : (
+          <RefTagInput
+            validatedRefs={validatedRefs}
+            onValidatedRefsChange={onValidatedRefsChange}
+            onLoad={onLoadByRef}
+            loading={loading}
+          />
+        )}
       </div>
     );
   }
 
+  // Phase 2 : produits chargés mais aucun à importer
+  if (products.length === 0) {
+    return (
+      <div className="bg-bg-primary border border-border rounded-2xl p-10 shadow-sm text-center space-y-4">
+        <p className="text-text-primary font-medium mb-2">Aucun nouveau produit à importer</p>
+        <p className="text-text-muted text-sm">
+          {importMode === "browse"
+            ? "Tous les produits Paris Fashion Shop de votre marque sont déjà dans votre catalogue."
+            : "Aucune des références saisies n'a été trouvée sur Paris Fashion Shop, ou elles sont déjà toutes importées."}
+        </p>
+        <button onClick={onResetLoaded} className="btn-secondary">← Retour</button>
+      </div>
+    );
+  }
+
+  // Phase 3 : grille de sélection
   return (
     <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-sm space-y-4">
       {/* Barre de recherche + compteurs */}
@@ -1129,15 +707,6 @@ function ProductsStep({
       <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={() => {
-            // Toggle sélection de la page courante
-            const newSelected = new Set(selected);
-            if (allPageSelected) {
-              for (const id of pageIds) newSelected.delete(id);
-            } else {
-              for (const id of pageIds) newSelected.add(id);
-            }
-            // On passe par onToggle pour chaque changement — mais c'est plus efficace
-            // d'utiliser onToggleAll modifié. On simule via toggle individuel.
             for (const p of pageProducts) {
               if (allPageSelected && selected.has(p.pfsId)) onToggle(p.pfsId);
               else if (!allPageSelected && !selected.has(p.pfsId)) onToggle(p.pfsId);
@@ -1156,7 +725,6 @@ function ProductsStep({
         {selected.size > 0 && (
           <button
             onClick={() => {
-              // Décocher tout
               for (const p of products) {
                 if (selected.has(p.pfsId)) onToggle(p.pfsId);
               }
@@ -1251,7 +819,7 @@ function ProductsStep({
       )}
 
       <div className="flex justify-between pt-2">
-        <button onClick={onBack} className="btn-secondary" disabled={submitting}>← Retour</button>
+        <button onClick={onResetLoaded} className="btn-secondary" disabled={submitting}>← Retour</button>
         <button
           onClick={onNext}
           disabled={selected.size === 0 || submitting}
@@ -1291,13 +859,7 @@ function ImportJobStep({
   const results = useMemo(() => job.resultDetails?.results ?? [], [job.resultDetails?.results]);
   const items = useMemo(() => job.resultDetails?.items ?? [], [job.resultDetails?.items]);
   const progressPercent = job.totalItems > 0 ? Math.round((job.processedItems / job.totalItems) * 100) : 0;
-  // Concurrence effective du worker : combien d'items affichent « en cours »
-  // en même temps. Côté serveur IMPORT_CONCURRENCY = 5 ; si l'info n'est
-  // pas reçue on retombe sur 1 (comportement séquentiel historique).
   const concurrency = Math.max(1, job.concurrency ?? 1);
-  // Ensemble des pfsId actuellement en cours d'import : on prend simplement
-  // les `concurrency` premiers items qui n'ont pas encore de résultat —
-  // c'est exactement ce que les workers sont en train de travailler.
   const inFlightIds = useMemo(() => {
     const set = new Set<string>();
     if (!isRunning) return set;
@@ -1310,7 +872,6 @@ function ImportJobStep({
     return set;
   }, [isRunning, results, items, concurrency]);
 
-  // Calcule l'état de chaque item pour les filtres + le rendu
   const itemStates = useMemo(() => {
     const map = new Map<string, ImportItemState>();
     for (const it of items) {
@@ -1355,10 +916,10 @@ function ImportJobStep({
             {job.errorItems > 0 ? ` · ${job.errorItems} erreur(s)` : ""}
           </p>
           <p className="text-sm text-text-muted">
-            {isRunning && "L\u2019import tourne en arrière-plan. Vous pouvez naviguer ailleurs et revenir ici pour suivre l\u2019avancement."}
+            {isRunning && "L’import tourne en arrière-plan. Vous pouvez naviguer ailleurs et revenir ici pour suivre l’avancement."}
             {job.status === "COMPLETED" && "Import terminé. Les images finissent de se télécharger en arrière-plan."}
-            {job.status === "FAILED" && "L\u2019import a rencontré des erreurs."}
-            {job.status === "CANCELLED" && "L\u2019import a été annulé."}
+            {job.status === "FAILED" && "L’import a rencontré des erreurs."}
+            {job.status === "CANCELLED" && "L’import a été annulé."}
           </p>
         </div>
         <div className="flex items-center gap-2">

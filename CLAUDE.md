@@ -110,6 +110,22 @@ Toutes les opérations Ankorstore (publish, update, refresh, delete) sont **asyn
 
 **Famille PFS** : stockée dans `Category.pfsFamilyName` (renseignée manuellement dans l'UI catégorie). `pfsCategoryId`/`pfsGender`/`pfsFamilyId` (IDs Salesforce) conservés pour référence.
 
+### Import PFS — auto-création des attributs (mai 2026)
+
+Workflow simplifié à **2 étapes** : `/admin/produits/importer-pfs` propose direct le choix des produits (mode "Parcourir le catalogue" ou "Par référence"), puis l'import. Plus de phase préalable de scan + validation des correspondances : `scanPfsAttributes` et les routes `/scan-attributes`, `/create-mapping`, `/bulk-create-mappings` ont été supprimées.
+
+Pendant l'import individuel (`approveAndImportPfsProduct` dans `lib/pfs-import.ts`), chaque attribut manquant en local est **créé automatiquement à la volée** via `createOrLinkMapping` :
+- **composition** : `pfsCompositionRef = label FR` (ex : "Métal")
+- **pays** : `pfsCountryRef = label FR` + `isoCode` (ex : "Chine", "CN")
+- **saison** : `pfsRef = collection.reference` (ex : "PE26")
+- **taille** : `pfsSizeRef` (gère le cas spécial "TU" → crée "Taille unique")
+- **couleur** : `pfsColorRef = reference PFS` + hex officiel PFS
+- **catégorie** : `pfsCategoryId` + nom FR + `pfsFamilyName` + `pfsGender`. Auto-création visible direct dans le menu public (pas de flag "publié" — l'admin nettoie après si besoin)
+
+La détection de doublon par nom local est conservée (alias silencieux si nom existe avec un `pfsRef` différent). Toutes les entités créées déclenchent une auto-traduction DeepL en arrière-plan.
+
+**Rattrapage produits déjà importés sans attributs** : `npx tsx scripts/enrich-pfs-products.ts` re-passe sur tous les produits PFS qui n'ont pas leur composition/pays/saison et les enrichit (auto-création + liaison BDD).
+
 ### Refresh produit (`lib/pfs-refresh.ts` / `lib/ankorstore-refresh.ts` + `app/actions/admin/marketplace-refresh.ts`)
 
 Bouton « Rafraîchir » dans `/admin/produits` (par ligne + bulk) et sur la page `/modifier`. Modale avec cases à cocher : **boutique** (bump `Product.lastRefreshedAt`, jamais `createdAt`) + **PFS** (re-push live via API, remplace `pfsProductId` + `pfsVariantId` après création nouveau) + **Ankorstore** (re-push live + archivage ancien + remplacement `ankorsProductId`/`ankorsVariantId`, visible uniquement si Ankorstore configuré et activé).

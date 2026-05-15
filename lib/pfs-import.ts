@@ -51,6 +51,13 @@ export { sanitizePfsFamilyName, inferPfsFamilyFromCategoryLabel };
 // Types exportés
 // ─────────────────────────────────────────────
 
+/**
+ * Type d'attribut PFS auto-créable côté local (compositions, saisons,
+ * pays, tailles, couleurs, catégories). Conservé pour piloter le helper
+ * `createOrLinkMapping`, qui sert maintenant uniquement à l'auto-création
+ * à la volée pendant l'import (la phase de scan/correspondances manuelles
+ * a été supprimée).
+ */
 export type PfsAttributeType =
   | "category"
   | "color"
@@ -58,38 +65,6 @@ export type PfsAttributeType =
   | "country"
   | "season"
   | "size";
-
-export interface PfsAttribute {
-  type: PfsAttributeType;
-  pfsRef: string;
-  label: string;
-  /** Libellé EN extrait directement de PFS — null si PFS ne l'a pas. Utilisé
-   *  pour sauter DeepL au moment de la création locale de l'attribut. */
-  enLabel?: string | null;
-  mapped: boolean;
-  localId?: string;
-  localName?: string;
-  /**
-   * Infos complémentaires renvoyées selon le type d'attribut :
-   *  - catégorie : genre / famille / sous-catégorie PFS (cascade complète)
-   *  - couleur : code hex officiel PFS pour pré-remplir l'aperçu de couleur
-   */
-  meta?: {
-    pfsGender?: string | null;
-    pfsFamilyName?: string | null;
-    pfsCategoryName?: string | null;
-    /** Code hex PFS (#RRGGBB) — rempli pour le type "color" uniquement. */
-    hex?: string | null;
-    /** Code ISO pays (ex: "CN") — rempli pour le type "country" uniquement. */
-    isoCode?: string | null;
-  };
-}
-
-export interface PfsAttributeScan {
-  attributes: PfsAttribute[];
-  scannedProducts: number;
-  deepScannedProducts: number;
-}
 
 export interface ImportablePfsProduct {
   pfsId: string;
@@ -188,13 +163,13 @@ const COUNTRY_LABELS_EN: Record<string, string> = {
   MD: "Moldova", ET: "Ethiopia", MG: "Madagascar", MU: "Mauritius", SN: "Senegal",
 };
 
-function countryLabel(code: string): string {
+export function countryLabel(code: string): string {
   const upper = code.trim().toUpperCase();
   return COUNTRY_LABELS_FR[upper] ?? code;
 }
 
 /** Libellé EN d'un pays à partir d'un code ISO. Renvoie null si inconnu. */
-function countryLabelEn(code: string | null | undefined): string | null {
+export function countryLabelEn(code: string | null | undefined): string | null {
   if (!code) return null;
   const upper = code.trim().toUpperCase();
   return COUNTRY_LABELS_EN[upper] ?? null;
@@ -596,524 +571,6 @@ async function filterImportable(products: PfsProduct[]): Promise<PfsProduct[]> {
   return products.filter((p) => !existingSet.has(p.reference.trim().toUpperCase()));
 }
 
-// ─────────────────────────────────────────────
-// 1 — Collecte des attributs utilisés
-// ─────────────────────────────────────────────
-
-/**
- * Parcourt TOUTES les pages listProducts puis un échantillon checkReference
- * pour extraire les attributs uniques (catégorie, famille, couleurs, tailles,
- * composition, pays, saison).
- */
-export async function scanPfsAttributes(options?: {
-  maxImportable?: number;
-  deepSampleSize?: number;
-  /** When provided, only scan these specific references (by-reference import mode). */
-  references?: string[];
-}): Promise<PfsAttributeScan> {
-  const maxImportable = options?.maxImportable;
-  const deepSampleSize = options?.deepSampleSize ?? DEEP_SCAN_SAMPLE_SIZE;
-  const targetRefs = options?.references?.map((r) => r.trim().toUpperCase());
-
-  // Marque PFS obligatoire : on filtre côté API pour ne descendre QUE les
-  // produits de la marque sélectionnée dans Paramètres.
-  const pfsBrand = await requirePfsBrand();
-  const brandId = pfsBrand.id;
-
-  let products: PfsProduct[];
-
-  if (targetRefs && targetRefs.length > 0) {
-    // By-reference mode: load pages until we find all target references
-    const targetSet = new Set(targetRefs);
-    const found: PfsProduct[] = [];
-    const first = await pfsListProducts(1, PFS_LIST_PAGE_SIZE, brandId);
-    const totalPages = first.meta?.last_page ?? 1;
-
-    for (const p of first.data) {
-      if (targetSet.has(p.reference.trim().toUpperCase())) found.push(p);
-    }
-
-    for (let p = 2; p <= totalPages; p++) {
-      if (found.length >= targetSet.size) break;
-      const pageData = await pfsListProducts(p, PFS_LIST_PAGE_SIZE, brandId);
-      if (pageData.data.length === 0) break;
-      for (const prod of pageData.data) {
-        if (targetSet.has(prod.reference.trim().toUpperCase())) found.push(prod);
-      }
-    }
-
-    products = found;
-  } else {
-    // Browse mode: load all pages and filter out existing products
-    const allLoaded: PfsProduct[] = [];
-    const first = await pfsListProducts(1, PFS_LIST_PAGE_SIZE, brandId);
-    allLoaded.push(...first.data);
-    const totalPages = first.meta?.last_page ?? 1;
-
-    products = await filterImportable(allLoaded);
-
-    for (let p = 2; p <= totalPages; p++) {
-      if (maxImportable && products.length >= maxImportable) break;
-      const pageData = await pfsListProducts(p, PFS_LIST_PAGE_SIZE, brandId);
-      if (pageData.data.length === 0) break;
-      allLoaded.push(...pageData.data);
-      products = await filterImportable(allLoaded);
-    }
-
-    if (maxImportable && products.length > maxImportable) {
-      products = products.slice(0, maxImportable);
-    }
-  }
-
-  // Référentiel PFS officiel des catégories : `listProducts` ne renvoie pas
-  // toujours les labels ni le genre, alors que `/catalog/attributes/categories`
-  // est la source qui fait autorité. On récupère la liste complète une seule
-  // fois et on l'indexe par id. Si l'appel échoue, on retombe en mode best-effort.
-  let pfsCategoriesList: PfsAttributeCategory[] = [];
-  try {
-    pfsCategoriesList = await pfsGetCategories();
-  } catch (err) {
-    logger.warn("[PFS Import] pfsGetCategories failed, using product-only data", {
-      err: err instanceof Error ? err.message : String(err),
-    });
-  }
-  const categoryById = new Map<string, PfsAttributeCategory>();
-  for (const c of pfsCategoriesList) categoryById.set(c.id, c);
-
-  // Toutes les familles connues de la taxonomie locale (set plat, pour vérif rapide)
-  const knownFamilyNames = new Set<string>();
-  for (const fams of Object.values(PFS_FAMILIES_BY_GENDER)) {
-    for (const f of fams) knownFamilyNames.add(f);
-  }
-
-  // Référentiel familles PFS : résout les IDs famille (prod.family) vers un
-  // nom compatible avec la taxonomie locale. Étapes de résolution :
-  //   1) Si l'ID brut est déjà dans la taxonomie → garder tel quel
-  //   2) Sinon chercher dans le référentiel API : label FR, puis ID → match taxonomie
-  //   3) Fallback : l'ID brut (sera affiché tel quel)
-  const familyIdToName = new Map<string, string>();
-  try {
-    const pfsFamiliesList = await pfsGetFamilies();
-    for (const f of pfsFamiliesList) {
-      // Si l'ID API est déjà un nom connu de la taxonomie, rien à faire
-      if (knownFamilyNames.has(f.id)) continue;
-      // Sinon essayer de trouver une correspondance via le label
-      const label = pickBestLabel(f.labels);
-      if (!label) continue;
-      // Le label peut contenir des espaces ("Bijoux Fantaisie") alors que
-      // la taxonomie utilise des underscores ("Bijoux_Fantaisie").
-      const underscored = label.replace(/\s+/g, "_");
-      if (knownFamilyNames.has(underscored)) {
-        familyIdToName.set(f.id, underscored);
-      } else if (knownFamilyNames.has(label)) {
-        familyIdToName.set(f.id, label);
-      } else {
-        // Aucune correspondance dans la taxonomie — stocker le label lisible
-        familyIdToName.set(f.id, label);
-      }
-    }
-  } catch (err) {
-    logger.warn("[PFS Import] pfsGetFamilies failed, falling back to raw family IDs", {
-      err: err instanceof Error ? err.message : String(err),
-    });
-  }
-
-  // Collecte des attributs "peu coûteux" (visibles dans listProducts)
-  const rawCategories: {
-    pfsRef: string;
-    label: string;
-    enLabel: string | null;
-    pfsGender: string | null;
-    pfsFamilyName: string | null;
-    pfsCategoryName: string | null;
-  }[] = [];
-  const rawColors: { pfsRef: string; label: string; enLabel: string | null; hex: string | null }[] = [];
-  const rawSizes: { pfsRef: string; label: string }[] = [];
-
-  for (const prod of products) {
-    // catégorie = category.id PFS (le type précis : Bagues, Boucles d'oreilles, etc.)
-    // et non family (le groupe large : Bijoux_Fantaisie) qui est identique pour tout
-    if (prod.category?.id) {
-      const refCategory = categoryById.get(prod.category.id);
-      // Libellé : on privilégie le référentiel officiel (plus complet) puis
-      // retombe sur labels embarqués sur le produit. JAMAIS sur l'ID ni sur
-      // `prod.family` — sinon la modale affiche un code au lieu d'un vrai nom.
-      const catLabel = pickBestLabel(refCategory?.labels) ?? pickBestLabel(prod.category.labels);
-      const catEnLabel = pickEnLabel(refCategory?.labels) ?? pickEnLabel(prod.category.labels);
-      const rawFamily = prod.family?.trim() || null;
-      // Résolution famille en cascade :
-      //   1) Référentiel PFS (label propre, ex: "Bijoux_Fantaisie")
-      //   2) Recherche inverse via la sous-catégorie (ex: "Bagues" → "Bijoux_Fantaisie")
-      //   3) ID brut SEULEMENT s'il correspond déjà à un nom de la taxonomie
-      // On refuse expressément d'écrire un ID Salesforce (ex: a035J00000185J7QAI)
-      // dans le champ `pfsFamilyName` — il s'afficherait tel quel dans l'UI et
-      // en BDD, et ne ferait jamais partie de la taxonomie côté export.
-      const familyName =
-        (rawFamily ? familyIdToName.get(rawFamily) ?? null : null) ??
-        inferPfsFamilyFromCategoryLabel(catLabel) ??
-        sanitizePfsFamilyName(rawFamily);
-      // Genre : 1) référentiel PFS (le plus fiable), 2) gender du produit,
-      // 3) inférence via la famille (essaie le nom résolu ET l'ID brut).
-      const pfsGender =
-        normalizePfsGenderCode(refCategory?.gender) ??
-        normalizePfsGenderCode(prod.gender) ??
-        inferPfsGenderFromFamily(familyName) ??
-        inferPfsGenderFromFamily(rawFamily);
-      rawCategories.push({
-        pfsRef: prod.category.id,
-        label: catLabel ?? familyName ?? prod.category.id,
-        enLabel: catEnLabel,
-        pfsGender,
-        pfsFamilyName: familyName,
-        pfsCategoryName: catLabel,
-      });
-    } else if (prod.family) {
-      const rawFamily = prod.family.trim();
-      const familyName =
-        familyIdToName.get(rawFamily) ?? sanitizePfsFamilyName(rawFamily);
-      rawCategories.push({
-        pfsRef: prod.family,
-        label: familyName ?? rawFamily,
-        enLabel: null,
-        pfsGender:
-          normalizePfsGenderCode(prod.gender) ??
-          inferPfsGenderFromFamily(familyName) ??
-          inferPfsGenderFromFamily(rawFamily),
-        pfsFamilyName: familyName,
-        pfsCategoryName: null,
-      });
-    }
-    // tailles listées sur le produit
-    for (const s of splitSizesString(prod.sizes)) {
-      rawSizes.push({ pfsRef: s, label: s });
-    }
-    // couleurs depuis les variantes (chaque variante ITEM a une couleur, PACK plusieurs)
-    for (const variant of prod.variants ?? []) {
-      const colors: PfsColorInfo[] = variant.item
-        ? [variant.item.color]
-        : (variant.packs ?? []).map((pk) => pk.color);
-      for (const col of colors) {
-        if (col?.reference) {
-          const frLabel = col.labels?.fr ?? col.labels?.en ?? col.reference;
-          const enLabel = pickEnLabel(col.labels);
-          const hex = typeof col.value === "string" && col.value.trim() ? col.value.trim() : null;
-          rawColors.push({ pfsRef: col.reference, label: frLabel, enLabel, hex });
-        }
-      }
-      // tailles visibles dans les variantes
-      if (variant.item?.size) {
-        rawSizes.push({ pfsRef: variant.item.size, label: variant.item.size });
-      }
-      for (const pk of variant.packs ?? []) {
-        for (const sz of pk.sizes ?? []) {
-          rawSizes.push({ pfsRef: sz.size, label: sz.size });
-        }
-      }
-    }
-  }
-
-  // Scan profond (checkReference) pour compositions / pays / saisons — par lots de 5
-  const rawCompositions: { pfsRef: string; label: string; enLabel: string | null }[] = [];
-  const rawCountries: { pfsRef: string; label: string; enLabel: string | null; isoCode: string | null }[] = [];
-  const rawSeasons: { pfsRef: string; label: string; enLabel: string | null }[] = [];
-
-  const DEEP_SCAN_BATCH = 5;
-  const sample = products.slice(0, deepSampleSize);
-  for (let i = 0; i < sample.length; i += DEEP_SCAN_BATCH) {
-    const batch = sample.slice(i, i + DEEP_SCAN_BATCH);
-    const results = await Promise.allSettled(
-      batch.map((prod) => pfsCheckReference(prod.reference)),
-    );
-    for (let j = 0; j < results.length; j++) {
-      const result = results[j];
-      if (result.status === "rejected") {
-        logger.warn("[PFS Import] scanAttributes checkReference failed", {
-          ref: batch[j].reference, err: result.reason?.message ?? String(result.reason),
-        });
-        continue;
-      }
-      const detail = result.value.product;
-      if (!detail) continue;
-
-      for (const mat of detail.material_composition ?? []) {
-        const label = mat.labels?.fr ?? mat.labels?.en ?? mat.reference;
-        const enLabel = pickEnLabel(mat.labels);
-        // On stocke le libellé FR comme `pfsRef` : c'est lui qui sert
-        // d'identifiant côté CustomSelect du mapping et côté matching
-        // produit→composition (la référence brute renvoyée par PFS — souvent
-        // un code interne — n'est pas affichée dans l'UI).
-        rawCompositions.push({ pfsRef: label, label, enLabel });
-      }
-
-      if (detail.country_of_manufacture) {
-        // Idem pour les pays : on stocke le libellé FR (ex: "Chine") plutôt
-        // que le code ISO ("CN"), pour rester cohérent avec ce que voit
-        // l'admin dans le menu déroulant. Le code ISO ("CN") est conservé
-        // à part dans `isoCode` pour pouvoir être enregistré à la création.
-        const isoCode = detail.country_of_manufacture.trim().toUpperCase() || null;
-        const ctryLabel = countryLabel(detail.country_of_manufacture);
-        const ctryEnLabel = countryLabelEn(detail.country_of_manufacture);
-        rawCountries.push({
-          pfsRef: ctryLabel,
-          label: ctryLabel,
-          enLabel: ctryEnLabel,
-          isoCode,
-        });
-      }
-
-      if (detail.collection?.reference) {
-        const seasonLabel = detail.collection.labels?.fr ?? detail.collection.labels?.en ?? detail.collection.reference;
-        const seasonEnLabel = pickEnLabel(detail.collection.labels);
-        rawSeasons.push({ pfsRef: detail.collection.reference, label: seasonLabel, enLabel: seasonEnLabel });
-      }
-    }
-  }
-
-  // Dédoublonnage catégorie. PFS expose parfois deux catégories différentes
-  // avec le MÊME libellé mais deux IDs (ancien obsolète + nouveau actif).
-  // Stratégie : si plusieurs entrées partagent le même libellé, on privilégie
-  // celle dont l'ID est encore présent dans `pfsGetCategories()` (le
-  // référentiel officiel = source qui fait autorité). Si aucune n'y figure
-  // ou si toutes y figurent, on garde la 1ère rencontrée.
-  const dedupedCategoriesByLabel = new Map<string, typeof rawCategories[number]>();
-  const droppedStaleCategoryIds: string[] = [];
-  for (const c of rawCategories) {
-    const key = (c.label ?? c.pfsRef).trim().toLowerCase();
-    const existing = dedupedCategoriesByLabel.get(key);
-    if (!existing) {
-      dedupedCategoriesByLabel.set(key, c);
-      continue;
-    }
-    if (existing.pfsRef === c.pfsRef) continue; // même ID, déjà connu
-    const existingIsOfficial = categoryById.has(existing.pfsRef);
-    const candidateIsOfficial = categoryById.has(c.pfsRef);
-    if (candidateIsOfficial && !existingIsOfficial) {
-      droppedStaleCategoryIds.push(existing.pfsRef);
-      dedupedCategoriesByLabel.set(key, c);
-    } else {
-      droppedStaleCategoryIds.push(c.pfsRef);
-    }
-  }
-  if (droppedStaleCategoryIds.length > 0) {
-    logger.info("[PFS Import] Catégories doublons écartées (ID absent du référentiel)", {
-      droppedCount: droppedStaleCategoryIds.length,
-      sampleIds: droppedStaleCategoryIds.slice(0, 10),
-    });
-  }
-  const categories = uniqueMap(Array.from(dedupedCategoriesByLabel.values()), (x) => x.pfsRef);
-  const colors = uniqueMap(rawColors, (x) => x.pfsRef);
-  const sizes = uniqueMap(rawSizes, (x) => x.pfsRef);
-  const compositions = uniqueMap(rawCompositions, (x) => x.pfsRef);
-  const countries = uniqueMap(rawCountries, (x) => x.pfsRef);
-  const seasons = uniqueMap(rawSeasons, (x) => x.pfsRef);
-
-  // Vérification du mapping dans notre DB.
-  // Pour les attributs autres que catégorie, on accepte un match soit par
-  // référence PFS (champ `pfs*Ref`) soit par nom (déjà présent dans la
-  // bibliothèque même si la référence PFS n'avait jamais été enregistrée).
-  // Ça évite que le scan propose de re-créer une couleur/taille/etc. qui
-  // existe déjà chez nous sous un nom équivalent.
-  const colorRefs = colors.map((c) => c.pfsRef);
-  const colorLabels = colors.map((c) => c.label);
-  const sizeRefs = sizes.map((s) => s.pfsRef);
-  const sizeLabels = sizes.map((s) => s.label);
-  const compRefs = compositions.map((c) => c.pfsRef);
-  const compLabels = compositions.map((c) => c.label);
-  const countryRefs = countries.map((c) => c.pfsRef);
-  const countryLabels = countries.map((c) => c.label);
-  const seasonRefs = seasons.map((s) => s.pfsRef);
-  const seasonLabels = seasons.map((s) => s.label);
-
-  const [localCategories, localColors, localSizes, localCompositions, localCountries, localSeasons] = await Promise.all([
-    prisma.category.findMany({
-      where: { pfsCategoryId: { in: categories.map((c) => c.pfsRef) } },
-      select: { id: true, name: true, pfsCategoryId: true },
-    }),
-    prisma.color.findMany({
-      where: {
-        OR: [
-          { pfsColorRef: { in: colorRefs } },
-          { name: { in: colorLabels } },
-        ],
-      },
-      select: { id: true, name: true, pfsColorRef: true },
-    }),
-    prisma.size.findMany({
-      where: {
-        OR: [
-          { pfsSizeRef: { in: sizeRefs } },
-          { name: { in: sizeLabels } },
-          // Cas spécial : si PFS envoie "TU" et qu'on a déjà la taille
-          // protégée « Taille unique » sans pfsSizeRef renseigné, on veut
-          // quand même la trouver pour la rattacher au lieu de proposer
-          // une nouvelle création.
-          ...(sizeRefs.includes(PROTECTED_SIZE_PFS_REF)
-            ? [{ name: PROTECTED_SIZE_NAME }]
-            : []),
-        ],
-      },
-      select: { id: true, name: true, pfsSizeRef: true },
-    }),
-    prisma.composition.findMany({
-      where: {
-        OR: [
-          { pfsCompositionRef: { in: compRefs } },
-          { name: { in: compLabels } },
-        ],
-      },
-      select: { id: true, name: true, pfsCompositionRef: true },
-    }),
-    prisma.manufacturingCountry.findMany({
-      where: {
-        OR: [
-          { pfsCountryRef: { in: countryRefs } },
-          { name: { in: countryLabels } },
-        ],
-      },
-      select: { id: true, name: true, pfsCountryRef: true },
-    }),
-    prisma.season.findMany({
-      where: {
-        OR: [
-          { pfsRef: { in: seasonRefs } },
-          { name: { in: seasonLabels } },
-        ],
-      },
-      select: { id: true, name: true, pfsRef: true },
-    }),
-  ]);
-
-  // Helper : normalisation pour comparer des libellés "à l'œil" (insensible à
-  // la casse / aux espaces de bordure). Les bibliothèques côté admin sont
-  // saisies en français — un libellé PFS « Doré » et un local « doré »
-  // doivent matcher.
-  const normalize = (s: string | null | undefined) =>
-    (s ?? "").trim().toLocaleLowerCase("fr-FR");
-
-  /**
-   * Construit deux index : par référence PFS et par nom normalisé.
-   * Permet ensuite de matcher un attribut PFS sur l'un ou l'autre.
-   */
-  function buildAttrIndex<T extends { id: string; name: string }>(
-    items: T[],
-    getRef: (item: T) => string | null | undefined,
-  ): { byRef: Map<string, T>; byName: Map<string, T> } {
-    const byRef = new Map<string, T>();
-    const byName = new Map<string, T>();
-    for (const item of items) {
-      const ref = getRef(item);
-      if (ref) byRef.set(ref, item);
-      const nameKey = normalize(item.name);
-      if (nameKey && !byName.has(nameKey)) byName.set(nameKey, item);
-    }
-    return { byRef, byName };
-  }
-
-  const catIndex = new Map(localCategories.map((c) => [c.pfsCategoryId!, c]));
-  const colIndex = buildAttrIndex(localColors, (c) => c.pfsColorRef);
-  const szIndex = buildAttrIndex(localSizes, (s) => s.pfsSizeRef);
-  const cpIndex = buildAttrIndex(localCompositions, (c) => c.pfsCompositionRef);
-  const ctryIndex = buildAttrIndex(localCountries, (c) => c.pfsCountryRef);
-  const seaIndex = buildAttrIndex(localSeasons, (s) => s.pfsRef);
-
-  // Cas spécial taille TU : on indexe la taille protégée « Taille unique »
-  // sous la référence "TU" et le nom "tu" pour que findLocal la retrouve même
-  // quand elle a été créée à la main avant que `pfsSizeRef` n'existe.
-  const protectedSize = localSizes.find((s) => isProtectedSizeName(s.name));
-  if (protectedSize) {
-    if (!szIndex.byRef.has(PROTECTED_SIZE_PFS_REF)) {
-      szIndex.byRef.set(PROTECTED_SIZE_PFS_REF, protectedSize);
-    }
-    const tuKey = normalize(PROTECTED_SIZE_PFS_REF);
-    if (!szIndex.byName.has(tuKey)) {
-      szIndex.byName.set(tuKey, protectedSize);
-    }
-  }
-
-  const findLocal = <T extends { id: string; name: string }>(
-    index: { byRef: Map<string, T>; byName: Map<string, T> },
-    pfsRef: string,
-    label: string,
-  ): T | undefined => index.byRef.get(pfsRef) ?? index.byName.get(normalize(label));
-
-  const out: PfsAttribute[] = [];
-
-  for (const c of categories) {
-    const local = catIndex.get(c.pfsRef);
-    out.push({
-      type: "category",
-      pfsRef: c.pfsRef,
-      label: c.label,
-      enLabel: c.enLabel,
-      mapped: !!local,
-      localId: local?.id,
-      localName: local?.name,
-      meta: {
-        pfsGender: c.pfsGender,
-        pfsFamilyName: c.pfsFamilyName,
-        pfsCategoryName: c.pfsCategoryName,
-      },
-    });
-  }
-  for (const c of colors) {
-    const local = findLocal(colIndex, c.pfsRef, c.label);
-    out.push({
-      type: "color",
-      pfsRef: c.pfsRef,
-      label: c.label,
-      enLabel: c.enLabel,
-      mapped: !!local,
-      localId: local?.id,
-      localName: local?.name,
-      meta: { hex: c.hex },
-    });
-  }
-  for (const s of sizes) {
-    const local = findLocal(szIndex, s.pfsRef, s.label);
-    // Pour la taille TU on affiche le nom canonique « Taille unique » côté
-    // admin : c'est plus parlant et c'est exactement comme ça qu'elle sera
-    // créée si on déclenche la création.
-    const displayLabel =
-      s.pfsRef.trim().toUpperCase() === PROTECTED_SIZE_PFS_REF
-        ? PROTECTED_SIZE_NAME
-        : s.label;
-    out.push({
-      type: "size",
-      pfsRef: s.pfsRef,
-      label: displayLabel,
-      mapped: !!local,
-      localId: local?.id,
-      localName: local?.name,
-    });
-  }
-  for (const c of compositions) {
-    const local = findLocal(cpIndex, c.pfsRef, c.label);
-    out.push({ type: "composition", pfsRef: c.pfsRef, label: c.label, enLabel: c.enLabel, mapped: !!local, localId: local?.id, localName: local?.name });
-  }
-  for (const c of countries) {
-    const local = findLocal(ctryIndex, c.pfsRef, c.label);
-    out.push({
-      type: "country",
-      pfsRef: c.pfsRef,
-      label: c.label,
-      enLabel: c.enLabel,
-      mapped: !!local,
-      localId: local?.id,
-      localName: local?.name,
-      meta: { isoCode: c.isoCode },
-    });
-  }
-  for (const s of seasons) {
-    const local = findLocal(seaIndex, s.pfsRef, s.label);
-    out.push({ type: "season", pfsRef: s.pfsRef, label: s.label, enLabel: s.enLabel, mapped: !!local, localId: local?.id, localName: local?.name });
-  }
-
-  return {
-    attributes: out,
-    scannedProducts: products.length,
-    deepScannedProducts: sample.length,
-  };
-}
 
 // ─────────────────────────────────────────────
 // 2 — Créer / lier une correspondance manquante
@@ -1932,16 +1389,32 @@ export async function approveAndImportPfsProduct(
       : Promise.resolve([]),
   ]);
 
-  const { category, matchedBy } = pickImportCategory(
+  const picked = pickImportCategory(
     primaryCategory,
     fallbackCategory,
     nameFallbackCategory,
   );
+  let category: ImportCategoryRow | null = picked.category;
   if (!category) {
-    const catLabel = product.category?.labels?.fr ?? product.family;
-    throw new Error(`Catégorie non mappée : "${catLabel}". Créez d'abord la correspondance.`);
-  }
-  if (matchedBy === "name") {
+    // Auto-création de la catégorie depuis les infos PFS
+    const catLabelFr = product.category?.labels?.fr?.trim() || null;
+    const catLabelEn = product.category?.labels?.en?.trim() || null;
+    const catLabel = catLabelFr ?? catLabelEn ?? product.family ?? null;
+    if (!catLabel || !pfsCatId) {
+      throw new Error("Catégorie absente sur Paris Fashion Shop");
+    }
+    const enLabel = pickEnLabel(product.category?.labels);
+    const createdCat = await createOrLinkMapping({
+      type: "category",
+      pfsRef: pfsCatId,
+      label: catLabel,
+      enLabel,
+      pfsGender: product.gender?.trim() || null,
+      pfsFamilyName: familyLabel ?? rawFamily,
+      pfsCategoryName: catLabel,
+    });
+    category = { id: createdCat.id, name: createdCat.name };
+  } else if (picked.matchedBy === "name") {
     warnings.push(
       `Catégorie associée par nom : "${category.name}" (la référence PFS d'origine semble obsolète — vérifiez la correspondance dans Paramètres > PFS > Catégories).`,
     );
@@ -1949,21 +1422,57 @@ export async function approveAndImportPfsProduct(
 
   let manufacturingCountryId: string | null = null;
   if (ctryLabelFr) {
-    if (countryRow) manufacturingCountryId = countryRow.id;
-    else warnings.push(`Pays "${ctryLabelFr}" non mappé (produit créé sans pays)`);
+    if (countryRow) {
+      manufacturingCountryId = countryRow.id;
+    } else {
+      const isoCode = ctryCode ? ctryCode.trim().toUpperCase() || null : null;
+      const ctryEnLabel = countryLabelEn(ctryCode);
+      const createdCountry = await createOrLinkMapping({
+        type: "country",
+        pfsRef: ctryLabelFr,
+        label: ctryLabelFr,
+        enLabel: ctryEnLabel,
+        isoCode,
+      });
+      manufacturingCountryId = createdCountry.id;
+    }
   }
 
-  const seasonId: string | null = seasonRow?.id ?? null;
+  let seasonId: string | null = seasonRow?.id ?? null;
   if (seasonRef && !seasonRow) {
-    warnings.push(`Saison "${seasonRef}" non mappée (produit créé sans saison)`);
+    const seasonLabel =
+      detail?.collection?.labels?.fr ??
+      detail?.collection?.labels?.en ??
+      seasonRef;
+    const seasonEnLabel = pickEnLabel(detail?.collection?.labels);
+    const createdSeason = await createOrLinkMapping({
+      type: "season",
+      pfsRef: seasonRef,
+      label: seasonLabel,
+      enLabel: seasonEnLabel,
+    });
+    seasonId = createdSeason.id;
   }
 
   const compositionByLabel = new Map(compositionRows.map((c) => [c.pfsCompositionRef, c]));
   const compositionsInput: { compositionId: string; percentage: number }[] = [];
   for (const mat of materialEntries) {
-    const comp = compositionByLabel.get(mat.label);
-    if (comp) compositionsInput.push({ compositionId: comp.id, percentage: mat.percentage });
-    else warnings.push(`Composition "${mat.label}" non mappée (ignorée)`);
+    let comp = compositionByLabel.get(mat.label);
+    if (!comp) {
+      const matSource = detail?.material_composition?.find(
+        (m) => (m.labels?.fr ?? m.labels?.en ?? m.reference) === mat.label,
+      );
+      const enLabel = pickEnLabel(matSource?.labels);
+      const createdComp = await createOrLinkMapping({
+        type: "composition",
+        pfsRef: mat.label,
+        label: mat.label,
+        enLabel,
+      });
+      comp = { id: createdComp.id, pfsCompositionRef: mat.label };
+      compositionByLabel.set(mat.label, comp);
+    }
+    compositionsInput.push({ compositionId: comp.id, percentage: mat.percentage });
   }
 
   let variantsToResolve: PfsVariantItem[] = product.variants ?? [];
@@ -2249,7 +1758,7 @@ export async function approveAndImportPfsProduct(
   }
 }
 
-async function resolveColorIdForPfsInfo(c: PfsColorInfo): Promise<string | null> {
+async function resolveColorIdForPfsInfo(c: PfsColorInfo): Promise<string> {
   const candidates = pfsColorMatchCandidates(c);
   for (const candidate of candidates) {
     const found = await prisma.color.findFirst({
@@ -2270,22 +1779,43 @@ async function resolveColorIdForPfsInfo(c: PfsColorInfo): Promise<string | null>
     }
     return found.id;
   }
-  return null;
+  // Auto-création de la couleur si aucun candidat ne correspond
+  const label =
+    c.labels?.fr?.trim() ||
+    c.labels?.en?.trim() ||
+    c.reference;
+  const enLabel = pickEnLabel(c.labels);
+  const created = await createOrLinkMapping({
+    type: "color",
+    pfsRef: c.reference,
+    label,
+    enLabel,
+    hex: c.value ?? null,
+  });
+  return created.id;
 }
 
 async function resolveSizeEntries(
   sizes: { size: string; qty: number }[],
-  warnings: string[],
-  variantId: string,
+  _warnings: string[],
+  _variantId: string,
 ): Promise<{ sizeId: string; quantity: number }[]> {
   const out: { sizeId: string; quantity: number }[] = [];
   for (const s of sizes) {
-    const size = await prisma.size.findFirst({
+    let size = await prisma.size.findFirst({
       where: { pfsSizeRef: s.size },
       select: { id: true },
     });
-    if (size) out.push({ sizeId: size.id, quantity: s.qty });
-    else warnings.push(`Taille "${s.size}" non mappée (ignorée pour variante ${variantId})`);
+    if (!size) {
+      // Auto-création de la taille (gère aussi le cas "TU" via createOrLinkMapping)
+      const created = await createOrLinkMapping({
+        type: "size",
+        pfsRef: s.size,
+        label: s.size,
+      });
+      size = { id: created.id };
+    }
+    out.push({ sizeId: size.id, quantity: s.qty });
   }
   return out;
 }
@@ -2322,14 +1852,9 @@ async function resolveVariant(
   };
 
   if (v.item) {
-    // UNIT : une seule couleur, une seule taille.
+    // UNIT : une seule couleur, une seule taille. La couleur est créée à la
+    // volée si inconnue (resolveColorIdForPfsInfo retourne toujours un id).
     const primary = await resolveColorIdForPfsInfo(v.item.color);
-    if (!primary) {
-      const candidates = pfsColorMatchCandidates(v.item.color);
-      throw new Error(
-        `Couleur "${colorRef}" introuvable dans la bibliothèque (essayé : ${candidates.join(", ")})`,
-      );
-    }
     primaryColorId = primary;
     pushPair(primary, v.item.color);
     resolvedSizeEntries = await resolveSizeEntries(
@@ -2346,12 +1871,6 @@ async function resolveVariant(
     const resolvedPacks: { colorId: string; sizeEntries: { sizeId: string; quantity: number }[] }[] = [];
     for (const pk of v.packs ?? []) {
       const colorId = await resolveColorIdForPfsInfo(pk.color);
-      if (!colorId) {
-        const candidates = pfsColorMatchCandidates(pk.color);
-        throw new Error(
-          `Couleur "${pk.color.reference}" introuvable dans la bibliothèque (essayé : ${candidates.join(", ")})`,
-        );
-      }
       pushPair(colorId, pk.color);
       const sizeEntries = await resolveSizeEntries(
         (pk.sizes ?? []).map((sz) => ({ size: sz.size, qty: sz.qty })),
