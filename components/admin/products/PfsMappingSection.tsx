@@ -126,6 +126,27 @@ export default function PfsMappingSection({
     };
 
     for (const v of variants) {
+      // 1) On ajoute TOUJOURS un target sur la variante racine si elle a une
+      //    couleur principale, même pour les packs multi-couleurs. C'est ce
+      //    pfsColorRefOverride (au niveau ProductColor) qui est lu côté serveur
+      //    par getEffectiveColorRef pour décider de la couleur envoyée à PFS —
+      //    sans ce target, changer le mapping ne propagerait jamais à la
+      //    couleur principale d'une variante pack, et la sync PFS ne verrait
+      //    aucun changement.
+      if (v.colorId) {
+        const ac = availableColors.find((c) => c.id === v.colorId);
+        upsert({
+          colorId: v.colorId,
+          colorName: v.colorName || ac?.name || "Couleur sans nom",
+          colorHex: v.colorHex || ac?.hex || "#9CA3AF",
+          principalRef: ac?.pfsColorRef ?? null,
+          overrideRef: v.pfsColorRefOverride ?? null,
+          target: { variantTempId: v.tempId },
+        });
+      }
+      // 2) Pour les packs multi-couleurs : un target supplémentaire par ligne
+      //    de pack. La même couleur peut alors apparaître sur la variante racine
+      //    ET sur une ligne — elles seront fusionnées par nom dans le upsert.
       if (v.saleType === "PACK" && v.packLines.length > 0) {
         for (const pl of v.packLines) {
           if (!pl.colorId) continue;
@@ -139,18 +160,7 @@ export default function PfsMappingSection({
             target: { variantTempId: v.tempId, packLineTempId: pl.tempId },
           });
         }
-        continue;
       }
-      if (!v.colorId) continue;
-      const ac = availableColors.find((c) => c.id === v.colorId);
-      upsert({
-        colorId: v.colorId,
-        colorName: v.colorName || ac?.name || "Couleur sans nom",
-        colorHex: v.colorHex || ac?.hex || "#9CA3AF",
-        principalRef: ac?.pfsColorRef ?? null,
-        overrideRef: v.pfsColorRefOverride ?? null,
-        target: { variantTempId: v.tempId },
-      });
     }
     // On retourne sans le champ interne `colorIdsSeen` (pas exposé dans le type ColorRow).
     return Array.from(byName.values()).map(({ colorIdsSeen: _ignored, ...row }) => row);
