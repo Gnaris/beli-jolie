@@ -661,7 +661,22 @@ export default function ProductForm({
 
   const buildSnapshot = useCallback(() => JSON.stringify({
     reference, name, description, categoryId, subCategoryIds,
-    variants: variants.map((v) => ({ colorId: v.colorId, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries, disabled: v.disabled ?? false })),
+    variants: variants.map((v) => ({
+      colorId: v.colorId,
+      unitPrice: v.unitPrice,
+      weight: v.weight,
+      stock: v.stock,
+      saleType: v.saleType,
+      packQuantity: v.packQuantity,
+      sizeEntries: v.sizeEntries,
+      disabled: v.disabled ?? false,
+      pfsColorRefOverride: v.pfsColorRefOverride ?? null,
+      packLines: v.packLines.map((pl) => ({
+        colorId: pl.colorId,
+        sizeEntries: pl.sizeEntries,
+        pfsColorRefOverride: pl.pfsColorRefOverride ?? null,
+      })),
+    })),
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
     compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCode, productStatus,
