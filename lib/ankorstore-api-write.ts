@@ -492,22 +492,6 @@ export async function ankorstorePatchVariantStock(
   );
 }
 
-/**
- * DELETE direct d'une variante via son ID Ankorstore.
- *
- * Synchrone : 204 No Content = succès. Utilisé pour retirer une couleur d'un
- * produit qui reste publié (vs `ankorstoreKickoffDelete` qui archive le
- * produit entier via catalog-integration et n'accepte pas de suppression
- * partielle — `Could not archive the following SKU(s): X` quand on lui passe
- * une sous-liste).
- */
-export async function ankorstoreDeleteVariantDirect(variantId: string): Promise<void> {
-  await ankorstoreFetchJson<unknown>(
-    `/product-variants/${encodeURIComponent(variantId)}`,
-    { method: "DELETE" }
-  );
-}
-
 /** Patch wholesale + retail prices of a single variant (both required, in cents). */
 export async function ankorstorePatchVariantPrices(
   variantId: string,

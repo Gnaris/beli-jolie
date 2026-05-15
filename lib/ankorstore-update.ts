@@ -23,7 +23,6 @@ import {
   ankorstoreStartOperation,
   ankorstorePatchVariantStock,
   ankorstorePatchVariantPrices,
-  ankorstoreDeleteVariantDirect,
   type AnkorstoreCatalogProductInput,
 } from "@/lib/ankorstore-api-write";
 import { autoLinkAnkorstoreVariants } from "@/lib/ankorstore-variant-link";
@@ -470,30 +469,32 @@ export async function ankorstoreKickoffUpdate(
       };
     }
 
-    // Vérifie que chaque variante locale liée a un SKU réel correspondant.
-    // Si non → on refuse plutôt que de risquer un doublon.
-    const missingVariants = product.colors.filter(
+    // Variantes locales liées à un ankorsVariantId qui n'apparaît plus dans
+    // le catalog Ankorstore actif (archivée côté AS, ou supprimée). On les
+    // auto-délie en base + en mémoire → elles seront traitées comme "nouvelle
+    // variante" plus bas (création côté AS si possible, ou conflit de SKU
+    // que l'admin résoudra manuellement sur le dashboard AS).
+    //
+    // Avant : on retournait une erreur "Re-liez le produit" qui bloquait tout
+    // push tant que la fiche AS n'était pas nettoyée à la main. Trop strict
+    // dans le cas légitime où l'admin a archivé une variante côté AS.
+    const stalLinked = product.colors.filter(
       (v) => v.ankorsVariantId && !ankorsRealSkuById.has(v.ankorsVariantId),
     );
-    if (missingVariants.length > 0) {
-      const colorNames = missingVariants
-        .map((v) => v.color?.name ?? "?")
-        .join(", ");
-      logger.warn("[Ankorstore Update] Variantes liées introuvables sur Ankorstore", {
+    if (stalLinked.length > 0) {
+      logger.warn("[Ankorstore Update] Variantes liées à des AS variants absents/archivés — auto-délie", {
         ankorsProductId,
-        missing: missingVariants.map((v) => ({
+        cleared: stalLinked.map((v) => ({
           bjVariantId: v.id,
           ankorsVariantId: v.ankorsVariantId,
           color: v.color?.name,
         })),
       });
-      return {
-        success: false,
-        error:
-          "Certaines variantes (" + colorNames + ") sont liées à Ankorstore mais " +
-          "n'y existent plus (peut-être archivées/supprimées). Re-liez le produit Ankorstore " +
-          "via l'icône 🔗 à côté du badge avant de réessayer.",
-      };
+      await prisma.productColor.updateMany({
+        where: { id: { in: stalLinked.map((v) => v.id) } },
+        data: { ankorsVariantId: null },
+      });
+      for (const v of stalLinked) v.ankorsVariantId = null;
     }
 
     // Build next snapshot
@@ -553,21 +554,23 @@ export async function ankorstoreKickoffUpdate(
       return { success: true, operationId: null, archived: allVariantsOutOfStock };
     }
 
-    // Step 0: Couleurs supprimées localement → DELETE direct sur chaque
-    // variante via /product-variants/{id} (synchrone, 204 = succès).
+    // Step 0: Couleurs supprimées localement → on met leur stock à 0 côté
+    // Ankorstore (variante rendue inachetable) + on les purge du snapshot.
     //
-    // Pourquoi pas catalog-integration/operations/delete : ce dernier
-    // archive le PRODUIT entier (exige tous ses SKUs). Avec une sous-liste,
-    // AS répond "Could not archive the following SKU(s)" (cas constaté en
-    // prod sur A405 le 15/05). DELETE direct retire la variante sans
-    // toucher au produit.
+    // Pourquoi pas de vraie suppression :
+    //   - DELETE /product-variants/{id} renvoie 405 (méthode non supportée).
+    //   - catalog-integration/operations/delete archive le PRODUIT entier
+    //     (exige tous ses SKUs). Une sous-liste répond "Could not archive
+    //     the following SKU(s)" (cas constaté sur A405 le 15/05).
+    // Stocker 0 est la seule action atomique fiable côté variante. La cliente
+    // peut archiver la variante manuellement sur le dashboard AS si elle veut
+    // qu'elle disparaisse complètement.
     const variantsRemovedSucceeded: string[] = [];
     if (diff.variantsRemoved.length > 0) {
       const failures: { ankorsVariantId: string; error: string }[] = [];
       for (const r of diff.variantsRemoved) {
         if (!ankorsRealSkuById.has(r.ankorsVariantId)) {
-          // Déjà absente d'AS → rien à supprimer, on purge juste le snapshot.
-          logger.info("[Ankorstore Update] Variante déjà absente d'AS — purge snapshot", {
+          logger.info("[Ankorstore Update] Variante déjà absente/archivée côté AS — purge snapshot", {
             ankorsProductId,
             ankorsVariantId: r.ankorsVariantId,
           });
@@ -575,8 +578,11 @@ export async function ankorstoreKickoffUpdate(
           continue;
         }
         try {
-          await ankorstoreDeleteVariantDirect(r.ankorsVariantId);
-          logger.info("[Ankorstore Update] Variante supprimée (DELETE direct)", {
+          await ankorstorePatchVariantStock(r.ankorsVariantId, {
+            stockQuantity: 0,
+            isAlwaysInStock: false,
+          });
+          logger.info("[Ankorstore Update] Variante mise à stock 0 (= inachetable)", {
             ankorsProductId,
             ankorsVariantId: r.ankorsVariantId,
             sku: ankorsRealSkuById.get(r.ankorsVariantId),
@@ -584,7 +590,7 @@ export async function ankorstoreKickoffUpdate(
           variantsRemovedSucceeded.push(r.ankorsVariantId);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          logger.error("[Ankorstore Update] DELETE variante échoué", {
+          logger.error("[Ankorstore Update] PATCH stock 0 échoué pour variante supprimée", {
             ankorsProductId,
             ankorsVariantId: r.ankorsVariantId,
             sku: ankorsRealSkuById.get(r.ankorsVariantId),
@@ -597,13 +603,14 @@ export async function ankorstoreKickoffUpdate(
         return {
           success: false,
           error:
-            "Suppression de variante échouée côté Ankorstore : " +
+            "Mise à 0 de stock variante échouée côté Ankorstore : " +
             failures.map((f) => `${f.ankorsVariantId} (${f.error})`).join(", "),
         };
       }
     }
 
-    // Purge synchrone des variantes supprimées dans le snapshot local.
+    // Purge synchrone des variantes supprimées dans le snapshot local pour
+    // que le prochain diff ne re-déclenche pas une PATCH stock 0 inutile.
     for (const vid of variantsRemovedSucceeded) {
       delete committedSnapshot.variants[vid];
     }

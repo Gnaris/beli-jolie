@@ -31,6 +31,13 @@ export interface AnkorstoreVariant {
   availableQuantity: number | null;
   stockQuantity: number | null;
   isAlwaysInStock: boolean;
+  /**
+   * Date d'archivage côté Ankorstore (= retirée de la vente). Une variante
+   * archivée reste dans le catalog (avec son SKU) mais n'est plus vendable.
+   * AS ne permet pas de re-archiver ni de hard-delete : il faut donc filtrer
+   * ces variantes des lectures pour ne pas polluer auto-link / diff.
+   */
+  archivedAt?: string | null;
   options?: { name: "color" | "size" | "material" | "style"; value: string }[];
   images?: { order: number; url: string }[];
 }
@@ -420,14 +427,24 @@ export async function ankorstoreGetProduct(
 }
 
 /**
- * Get all variants for a product by its Ankorstore ID.
+ * Get variants for a product by its Ankorstore ID.
+ *
+ * Par défaut filtre les variantes archivées (= retirées de la vente) côté AS.
+ * Une variante archivée garde son SKU et son ID mais n'est plus vendable —
+ * la lister dans l'auto-link ou le diff produirait des liaisons fantômes
+ * (cf. bug A405 / `A405_TEST_UNIT_3` archivée manuellement sur le dashboard
+ * AS le 15/05). Passer `includeArchived: true` pour les voir (utilisé par
+ * la suppression complète du produit qui veut tout nettoyer).
  */
 export async function ankorstoreGetVariants(
-  productId: string
+  productId: string,
+  opts?: { includeArchived?: boolean }
 ): Promise<AnkorstoreVariant[]> {
   const url = `/product-variants?filter[productId][]=${encodeURIComponent(productId)}&page[limit]=100`;
   const resp = await ankorstoreFetch<{ data: JsonApiVariantItem[] }>(url);
-  return (resp.data ?? []).map((v) => ({ ...v.attributes, id: v.id }));
+  const all = (resp.data ?? []).map((v) => ({ ...v.attributes, id: v.id }));
+  if (opts?.includeArchived) return all;
+  return all.filter((v) => !v.archivedAt);
 }
 
 /**

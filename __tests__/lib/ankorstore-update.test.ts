@@ -29,15 +29,12 @@ const mockPatchVariantPrices = vi.fn().mockResolvedValue(undefined);
 const mockCreateCatalogOperation = vi.fn().mockResolvedValue({ operationId: "op-test" });
 const mockAddProductsToOperation = vi.fn().mockResolvedValue({ totalProductsCount: 1 });
 const mockStartOperation = vi.fn().mockResolvedValue(undefined);
-const mockDeleteVariantDirect = vi.fn().mockResolvedValue(undefined);
-
 vi.mock("@/lib/ankorstore-api-write", () => ({
   ankorstorePatchVariantStock: (...args: unknown[]) => mockPatchVariantStock(...args),
   ankorstorePatchVariantPrices: (...args: unknown[]) => mockPatchVariantPrices(...args),
   ankorstoreCreateCatalogOperation: (...args: unknown[]) => mockCreateCatalogOperation(...args),
   ankorstoreAddProductsToOperation: (...args: unknown[]) => mockAddProductsToOperation(...args),
   ankorstoreStartOperation: (...args: unknown[]) => mockStartOperation(...args),
-  ankorstoreDeleteVariantDirect: (...args: unknown[]) => mockDeleteVariantDirect(...args),
 }));
 
 vi.mock("@/lib/ankorstore-variant-link", () => ({
@@ -195,7 +192,6 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     mockProductUpdate.mockResolvedValue({});
     mockAnkorstoreOperationCreate.mockResolvedValue({});
     mockAnkorstoreOperationUpdateMany.mockResolvedValue({ count: 0 });
-    mockDeleteVariantDirect.mockResolvedValue(undefined);
     vi.mocked(prisma.companyInfo.findFirst).mockResolvedValue({ shopName: "Test Boutique" } as never);
   });
 
@@ -451,11 +447,12 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     expect(newVariant?.sku?.toLowerCase()).toContain("vert");
   });
 
-  it("Test 7: variante supprimée localement → DELETE direct synchrone sur l'ID Ankorstore", async () => {
+  it("Test 7: variante supprimée localement → PATCH stock 0 (la seule action atomique fiable)", async () => {
     // Avant fix : le diff voyait "rien à patcher" (la variante supprimée
     // n'apparaissait nulle part), early return instant, AS gardait la variante.
-    // Après fix : on détecte la variante supprimée, on appelle l'endpoint
-    // DELETE /product-variants/{id} directement (synchrone, 204 = succès).
+    // Après fix : on détecte la variante supprimée, on PATCHe son stock à 0
+    // sur AS (DELETE direct = 405, catalog-integration delete archive tout
+    // le produit). Purge synchrone du snapshot.
     // Snapshot stocke le SKU lowercase (comme `buildVariantSku` le produit).
     const prevSnapshot = makeSnapshot({
       variants: {
@@ -500,13 +497,16 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    // DELETE direct appelé avec l'ankorsVariantId de la variante retirée
-    expect(mockDeleteVariantDirect).toHaveBeenCalledWith("ank-variant-2");
-    // Suppression synchrone → operationId null (rien à attendre côté callback)
+    // PATCH stock 0 sur l'ankorsVariantId de la variante supprimée
+    expect(mockPatchVariantStock).toHaveBeenCalledWith("ank-variant-2", {
+      stockQuantity: 0,
+      isAlwaysInStock: false,
+    });
+    // Synchrone → operationId null
     expect(result.operationId).toBe(null);
-    // Pas d'op UPDATE catalogue créée (rien d'autre n'a changé)
+    // Pas d'op UPDATE catalogue créée
     expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
-    // Pas d'AnkorstoreOperation row (synchrone, pas besoin de tracker)
+    // Pas d'AnkorstoreOperation row (synchrone)
     expect(mockAnkorstoreOperationCreate).not.toHaveBeenCalled();
   });
 
