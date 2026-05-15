@@ -3,7 +3,7 @@ import { getCachedShopName, getCachedFavicon } from "@/lib/cached-data";
 import { readFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 
-export const size = { width: 32, height: 32 };
+export const size = { width: 192, height: 192 };
 export const contentType = "image/png";
 // Force per-request rendering so admin can swap the favicon without rebuilds.
 // The browser still caches the favicon aggressively; the request to this route
@@ -41,9 +41,9 @@ export default async function Icon() {
           justifyContent: "center",
           background: "#0f172a",
           color: "#ffffff",
-          fontSize: 22,
+          fontSize: 130,
           fontWeight: 700,
-          borderRadius: 6,
+          borderRadius: 36,
         }}
       >
         {initial}
