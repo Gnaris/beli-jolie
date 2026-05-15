@@ -41,6 +41,10 @@ const SIZES = {
   thumb:  { width: 400,  height: 400 },
 } as const;
 
+// Ankorstore exige une largeur minimale de 500px. On garantit 600px (marge)
+// pour la version "large" qui sert de source aux URLs envoyées aux marketplaces.
+export const MIN_LARGE_WIDTH = 600;
+
 const WEBP_OPTS = { lossless: true, quality: 100, effort: 4 } as const;
 
 // ─────────────────────────────────────────────
@@ -78,12 +82,22 @@ export async function processProductImage(
 
   // Auto-rotate based on EXIF orientation before resizing (fixes rotated images from bulk import)
   const oriented = sharp(buffer).rotate();
+  const meta = await oriented.metadata();
+  const sourceWidth = meta.width ?? 0;
+  const sourceHeight = meta.height ?? 0;
+  const smallSource =
+    sourceWidth > 0 && sourceHeight > 0 &&
+    Math.min(sourceWidth, sourceHeight) < MIN_LARGE_WIDTH;
+
+  const largeResize = smallSource
+    ? { width: MIN_LARGE_WIDTH, height: MIN_LARGE_WIDTH, fit: "inside" as const, withoutEnlargement: false }
+    : { width: SIZES.large.width, height: SIZES.large.height, fit: "inside" as const, withoutEnlargement: true };
 
   // Process all 3 sizes in parallel
   const [largeBuffer, mediumBuffer, thumbBuffer] = await Promise.all([
     oriented
       .clone()
-      .resize(SIZES.large.width, SIZES.large.height, { fit: "inside", withoutEnlargement: true })
+      .resize(largeResize.width, largeResize.height, { fit: largeResize.fit, withoutEnlargement: largeResize.withoutEnlargement })
       .webp(WEBP_OPTS)
       .toBuffer(),
     oriented
