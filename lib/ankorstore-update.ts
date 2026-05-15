@@ -345,20 +345,31 @@ function buildVariantSnapshot(
 }
 
 function buildImagesSnapshot(product: FullProduct): AnkorstoreImagesSnapshot {
-  // Le snapshot d'images DOIT refléter la couleur principale (primaryColorId),
-  // pas la première variante : sinon un changement de couleur principale ne
-  // produit aucun diff et la photo produit reste figée côté Ankorstore.
-  // Cohérent avec le payload réel construit plus bas (mainImage + images).
+  // Le snapshot suit les images de TOUTES les couleurs (pas seulement la
+  // principale). Sinon, ajouter / supprimer / remplacer une image sur une
+  // couleur secondaire ne produit aucun diff → la sync ne se déclenche pas,
+  // et AS reste avec les anciennes images sur cette couleur (bug constaté
+  // sur la couleur TEST de A405 le 15/05).
+  //
+  // Clé "main" pour la couleur principale (rétrocompat avec les snapshots
+  // existants en BDD), colorId pour les autres couleurs.
   const primaryColorId =
     product.primaryColorId ?? product.colors[0]?.colorId ?? null;
   const out: AnkorstoreImagesSnapshot = {};
-  const filtered = product.colorImages
-    .filter((img) => !primaryColorId || img.colorId === primaryColorId)
-    .sort((a, b) => a.order - b.order);
-  if (filtered.length > 0) {
-    out["main"] = {};
-    filtered.forEach((img, i) => {
-      out["main"][String(i + 1)] = img.path;
+
+  const byColor = new Map<string, typeof product.colorImages>();
+  for (const img of product.colorImages) {
+    if (!byColor.has(img.colorId)) byColor.set(img.colorId, []);
+    byColor.get(img.colorId)!.push(img);
+  }
+
+  for (const [colorId, imgs] of byColor.entries()) {
+    const sorted = [...imgs].sort((a, b) => a.order - b.order);
+    if (sorted.length === 0) continue;
+    const key = colorId === primaryColorId ? "main" : colorId;
+    out[key] = {};
+    sorted.forEach((img, i) => {
+      out[key][String(i + 1)] = img.path;
     });
   }
   return out;
