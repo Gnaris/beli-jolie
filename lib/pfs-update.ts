@@ -687,9 +687,36 @@ export async function pfsUpdateProductInPlace(
 
     // 2a. Patch existing variants — uniquement celles signalées dans le diff
     const changedSet = new Set(diff.variantsChanged);
-    const variantsToPatch = variantsToUpdate.filter(({ pfsVariantId: vid }) =>
+    const variantsChangedUpdate = variantsToUpdate.filter(({ pfsVariantId: vid }) =>
       changedSet.has(vid),
     );
+
+    // Sépare les changements en deux familles :
+    //   - couleur effective modifiée → recreate (PFS ne permet pas de patcher
+    //     la couleur d'une variante existante)
+    //   - autres changements (prix/stock/poids) → patch normal
+    const variantsToRecreate: { bjVariant: FullVariant; oldPfsVariantId: string; pfsData: PfsVariantCreateData }[] = [];
+    const variantsToPatch: typeof variantsChangedUpdate = [];
+    for (const item of variantsChangedUpdate) {
+      const prevVariantSnap = prevSnapshot?.variants[item.pfsVariantId];
+      const nextVariantSnap = nextVariantsSnap[item.pfsVariantId];
+      const colorChanged =
+        !!prevVariantSnap &&
+        !!nextVariantSnap &&
+        (prevVariantSnap.colorRef ?? null) !== (nextVariantSnap.colorRef ?? null);
+      if (colorChanged) {
+        const pfsData = buildVariantCreateData(item.bjVariant, colorRefMap, pfsMarkup);
+        if (pfsData) {
+          variantsToRecreate.push({
+            bjVariant: item.bjVariant,
+            oldPfsVariantId: item.pfsVariantId,
+            pfsData,
+          });
+          continue;
+        }
+      }
+      variantsToPatch.push(item);
+    }
 
     if (variantsToPatch.length > 0) {
       const patches: PfsVariantUpdateData[] = variantsToPatch.map(({ bjVariant, pfsVariantId }) => ({
@@ -708,17 +735,88 @@ export async function pfsUpdateProductInPlace(
         }
         logger.info("[PFS Update] Patched variants", {
           count: patches.length,
-          skipped: variantsToUpdate.length - variantsToPatch.length,
+          skipped: variantsToUpdate.length - variantsToPatch.length - variantsToRecreate.length,
         });
       } catch (err) {
         logger.error("[PFS Update] Failed to patch variants", {
           error: err,
         });
       }
-    } else if (variantsToUpdate.length > 0) {
+    } else if (variantsToUpdate.length > 0 && variantsToRecreate.length === 0) {
       logger.info("[PFS Update] All existing variants unchanged → skip patch", {
         count: variantsToUpdate.length,
       });
+    }
+
+    // 2a-bis. Recreate variants whose effective color changed (PFS variants
+    // are color-immutable → delete then create with the new color).
+    if (variantsToRecreate.length > 0) {
+      report(
+        `Recréation de ${variantsToRecreate.length} variante(s) suite à un changement de couleur PFS...`,
+      );
+      for (const item of variantsToRecreate) {
+        try {
+          await pfsDeleteVariant(item.oldPfsVariantId);
+        } catch (err) {
+          logger.error("[PFS Update] Failed to delete old variant before recreate", {
+            error: err,
+            pfsVariantId: item.oldPfsVariantId,
+          });
+          // Si on ne peut pas supprimer, on n'essaie pas de créer (risque de
+          // doublon couleur+taille côté PFS). On laisse la variante pour le
+          // prochain run.
+          continue;
+        }
+        try {
+          const { variantIds } = await pfsCreateVariants(pfsProductId, [item.pfsData]);
+          const newId = variantIds[0];
+          if (!newId) {
+            logger.error("[PFS Update] Recreate succeeded delete but create returned no id", {
+              bjVariantId: item.bjVariant.id,
+            });
+            // Snapshot : on retire l'ancien (il a été supprimé sur PFS)
+            delete committedSnapshot.variants[item.oldPfsVariantId];
+            continue;
+          }
+          await prisma.productColor.update({
+            where: { id: item.bjVariant.id },
+            data: { pfsVariantId: newId },
+          });
+          // Si stock = 0 sur la nouvelle variante, force is_active=false côté PFS.
+          if (item.pfsData.stock_qty === 0) {
+            try {
+              await pfsPatchVariants([{ variant_id: newId, stock_qty: 0, is_active: false }]);
+            } catch { /* ignore */ }
+          }
+          // Snapshot : retire l'ancien id, ajoute le nouveau avec la nouvelle couleur
+          delete committedSnapshot.variants[item.oldPfsVariantId];
+          committedSnapshot.variants[newId] = buildVariantSnapshot(
+            item.bjVariant,
+            pfsMarkup,
+            colorRefMap,
+          );
+          logger.info("[PFS Update] Recreated variant with new color", {
+            oldPfsVariantId: item.oldPfsVariantId,
+            newPfsVariantId: newId,
+            color: item.pfsData.color,
+          });
+        } catch (err) {
+          logger.error("[PFS Update] Failed to recreate variant after delete", {
+            error: err,
+            bjVariantId: item.bjVariant.id,
+            color: item.pfsData.color,
+          });
+          // Ancien supprimé côté PFS, BDD garde encore l'ancien id : on l'efface
+          // pour que le prochain run la traite comme une nouvelle variante à créer.
+          try {
+            await prisma.productColor.update({
+              where: { id: item.bjVariant.id },
+              data: { pfsVariantId: null },
+            });
+          } catch { /* ignore */ }
+          delete committedSnapshot.variants[item.oldPfsVariantId];
+        }
+      }
     }
 
     // 2b. Create new variants
