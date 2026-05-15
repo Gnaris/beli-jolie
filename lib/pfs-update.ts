@@ -651,7 +651,15 @@ export async function pfsUpdateProductInPlace(
     report("Synchronisation des variantes...");
 
     // Get existing PFS variants
-    let existingPfsVariants: { id: string; type: string; item?: { color: { reference: string }; size: string }; stock_qty: number }[] = [];
+    // NB : on inclut `packs` car les variantes PACK n'ont pas de `item` —
+    // leur couleur principale vit dans packs[0].color.reference côté PFS.
+    let existingPfsVariants: {
+      id: string;
+      type: string;
+      item?: { color: { reference: string }; size: string };
+      packs?: { color: { reference: string } }[];
+      stock_qty: number;
+    }[] = [];
     try {
       const pfsVariantsResp = await pfsGetVariants(pfsProductId);
       existingPfsVariants = pfsVariantsResp.data ?? [];
@@ -737,13 +745,18 @@ export async function pfsUpdateProductInPlace(
         if (prevColorRef) {
           colorChanged = prevColorRef !== nextColorRef;
         } else {
-          // Snapshot absent (resynchro forcée) OU snapshot legacy sans colorRef :
-          // on compare à la couleur réelle remontée par pfsGetVariants pour
-          // décider. Si on n'a pas l'info (variante manquante côté PFS), on
-          // recrée par sécurité — le but du forceFullSync est de réaligner.
+          // Snapshot absent (resynchro forcée OU produit refresh récent) :
+          // on compare à la couleur réelle remontée par pfsGetVariants. Pour
+          // ITEM la couleur vit dans `item.color.reference`, pour PACK dans
+          // `packs[0].color.reference` (la couleur principale du pack côté PFS).
+          // Si on n'a aucune info, on recrée par sécurité — le but ici est de
+          // réaligner local et marketplace après une opération de réinit.
           const pfsVariant = existingPfsVariants.find((v) => v.id === item.pfsVariantId);
-          const pfsRef = pfsVariant?.item?.color?.reference ?? null;
-          colorChanged = pfsRef !== null ? pfsRef !== nextColorRef : !!options?.forceFullSync;
+          const pfsRef =
+            pfsVariant?.item?.color?.reference
+            ?? pfsVariant?.packs?.[0]?.color?.reference
+            ?? null;
+          colorChanged = pfsRef !== null ? pfsRef !== nextColorRef : true;
         }
       }
       if (colorChanged) {
