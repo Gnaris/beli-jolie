@@ -221,53 +221,40 @@ export interface PfsColorOption {
   label: string;
 }
 
-const cachedColorOptions = unstable_cache(
-  async (): Promise<PfsColorOption[]> => {
-    try {
-      const pfsColors = await pfsGetColors();
-      const out: PfsColorOption[] = pfsColors
-        .map((c) => {
-          const ref = c.reference?.trim();
-          if (!ref) return null;
-          const fr = c.labels?.fr?.trim();
-          return { ref, label: fr || ref };
-        })
-        .filter((v): v is PfsColorOption => v !== null);
-      // Tri par label pour un affichage prévisible côté admin.
-      out.sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
-      return out;
-    } catch (err) {
-      logger.warn("[PFS Color Options] failed to load", { error: String(err) });
-      return [];
-    }
-  },
-  ["pfs-color-options-v1"],
-  { revalidate: 3600, tags: ["pfs-annexes"] },
-);
+// Cache module-level simple : évite les comportements imprévisibles
+// d'unstable_cache (qui pouvait rester bloqué sur un résultat vide).
+// TTL : 1h. Une instance Node = un cache.
+let colorOptionsCache: { value: PfsColorOption[]; expiresAt: number } | null = null;
+const COLOR_OPTIONS_TTL_MS = 60 * 60 * 1000; // 1h
+
+async function loadColorOptionsFresh(): Promise<PfsColorOption[]> {
+  const pfsColors = await pfsGetColors();
+  const out: PfsColorOption[] = pfsColors
+    .map((c) => {
+      const ref = c.reference?.trim();
+      if (!ref) return null;
+      const fr = c.labels?.fr?.trim();
+      return { ref, label: fr || ref };
+    })
+    .filter((v): v is PfsColorOption => v !== null);
+  out.sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+  return out;
+}
 
 export async function getPfsColorOptions(): Promise<PfsColorOption[]> {
-  const cached = await cachedColorOptions();
-  if (cached.length > 0) return cached;
-  // Cache vide : retente direct + invalide pour les prochaines requêtes.
+  const now = Date.now();
+  // Hit cache uniquement s'il a une vraie liste (jamais cacher un résultat vide).
+  if (colorOptionsCache && colorOptionsCache.value.length > 0 && colorOptionsCache.expiresAt > now) {
+    return colorOptionsCache.value;
+  }
   try {
-    const pfsColors = await pfsGetColors();
-    const fresh: PfsColorOption[] = pfsColors
-      .map((c) => {
-        const ref = c.reference?.trim();
-        if (!ref) return null;
-        const fr = c.labels?.fr?.trim();
-        return { ref, label: fr || ref };
-      })
-      .filter((v): v is PfsColorOption => v !== null);
-    fresh.sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+    const fresh = await loadColorOptionsFresh();
     if (fresh.length > 0) {
-      try {
-        const { revalidateTag } = await import("next/cache");
-        revalidateTag("pfs-annexes", "default");
-      } catch { /* hors contexte Next */ }
+      colorOptionsCache = { value: fresh, expiresAt: now + COLOR_OPTIONS_TTL_MS };
     }
     return fresh;
-  } catch {
+  } catch (err) {
+    logger.warn("[PFS Color Options] failed to load", { error: String(err) });
     return [];
   }
 }
