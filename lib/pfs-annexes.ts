@@ -213,10 +213,13 @@ export async function getPfsAnnexes(): Promise<PfsAnnexes> {
   // exemple), on retente un appel direct et on invalide le cache pour que la
   // version fraîche soit cachée la prochaine fois. Évite que l'admin reste
   // bloqué 60 min avec « Couleurs PFS indisponibles ».
-  if (cached.colors.length === 0 && cached.families.length === 0) {
+  // Test uniquement sur colors : si la liste des couleurs PFS est vide, on
+  // considère le cache invalide (les autres listes peuvent être OK même si
+  // pfsGetColors a planté individuellement).
+  if (cached.colors.length === 0) {
     try {
       const fresh = await loadFresh();
-      if (fresh.colors.length > 0 || fresh.families.length > 0) {
+      if (fresh.colors.length > 0) {
         try {
           const { revalidateTag } = await import("next/cache");
           revalidateTag("pfs-annexes", "default");
