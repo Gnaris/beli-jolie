@@ -3,6 +3,11 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import CustomSelect from "@/components/ui/CustomSelect";
+import {
+  clearFilters as clearMemorizedFilters,
+  loadFiltersToRestore,
+  saveFilters as saveMemorizedFilters,
+} from "@/lib/admin-products-filter-memory";
 
 const PRESET_PER_PAGE = [20, 30, 50, 100];
 
@@ -67,6 +72,19 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   useEffect(() => { setLocalDateFrom(urlDateFrom); }, [urlDateFrom]);
   useEffect(() => { setLocalDateTo(urlDateTo); }, [urlDateTo]);
   useEffect(() => { setLocalStockBelow(urlStockBelow); }, [urlStockBelow]);
+
+  // Mémorise/restaure les filtres dans sessionStorage : retrouver la même vue
+  // quand on revient sur la liste depuis une fiche produit ou un autre écran.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const qs = searchParams.toString();
+    const toRestore = loadFiltersToRestore(qs, window.sessionStorage);
+    if (toRestore) {
+      router.replace(`/admin/produits?${toRestore}`);
+      return;
+    }
+    saveMemorizedFilters(qs, window.sessionStorage);
+  }, [searchParams, router]);
 
   const localQ = localTerms.join(",");
   const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink);
@@ -182,6 +200,9 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
     setLocalDateFrom("");
     setLocalDateTo("");
     setLocalStockBelow("");
+    if (typeof window !== "undefined") {
+      clearMemorizedFilters(window.sessionStorage);
+    }
     startTransition(() => {
       router.push("/admin/produits");
     });
