@@ -29,7 +29,7 @@ interface Target {
   needSeason: boolean;
 }
 
-async function pickEnLabel(labels: Record<string, string> | null | undefined): Promise<string | null> {
+function pickEnLabel(labels: Record<string, string> | null | undefined): string | null {
   if (!labels) return null;
   const en = labels.en?.trim();
   return en && en.length > 0 ? en : null;
@@ -48,7 +48,7 @@ async function enrichOne(t: Target): Promise<{ ok: true } | { ok: false; error: 
       const materialEntries = detail.material_composition.map((mat) => ({
         label: mat.labels?.fr ?? mat.labels?.en ?? mat.reference,
         percentage: mat.percentage,
-        enLabel: await pickEnLabel(mat.labels),
+        enLabel: pickEnLabel(mat.labels),
       }));
       const compositionsInput: { compositionId: string; percentage: number }[] = [];
       for (const mat of materialEntries) {
@@ -64,7 +64,7 @@ async function enrichOne(t: Target): Promise<{ ok: true } | { ok: false; error: 
             type: "composition",
             pfsRef: mat.label,
             label: mat.label,
-            enLabel: await mat.enLabel,
+            enLabel: mat.enLabel,
           });
           compositionId = created.id;
         }
@@ -120,7 +120,7 @@ async function enrichOne(t: Target): Promise<{ ok: true } | { ok: false; error: 
           detail.collection.labels?.fr ??
           detail.collection.labels?.en ??
           seasonRef;
-        const seasonEnLabel = await pickEnLabel(detail.collection.labels);
+        const seasonEnLabel = pickEnLabel(detail.collection.labels);
         const created = await createOrLinkMapping({
           type: "season",
           pfsRef: seasonRef,
