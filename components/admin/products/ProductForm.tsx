@@ -1726,11 +1726,17 @@ export default function ProductForm({
           });
         }
 
+        // Le titre suit ce qui est réellement présent dans la modale
+        // (et pas seulement ce qui est configuré côté serveur). Sinon, quand
+        // la case PFS est retirée à cause d'un conflit, on continue d'afficher
+        // « Mettre à jour sur Paris Fashion Shop ? » alors que seule la case
+        // Ankorstore est cochable.
+        const hasPfsCheckbox = checkboxes.some((c) => c.id === "pfs");
         const dialogTitle = isArchivingNow
           ? "Propager l'archivage aux marketplaces ?"
           : checkboxes.length > 1
             ? "Publier sur les marketplaces ?"
-            : hasPfsConfig
+            : hasPfsCheckbox
               ? alreadyOnPfs
                 ? "Mettre à jour sur Paris Fashion Shop ?"
                 : willBeDraftOnPfs
