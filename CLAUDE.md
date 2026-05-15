@@ -90,6 +90,8 @@ Renseignés à l'import (PFS) ou à la liaison manuelle depuis la fiche produit 
 
 **Annexes PFS** : alimentées en LIVE via `lib/pfs-annexes.ts` (cache `unstable_cache` 60min, tag `pfs-annexes`) qui appelle `pfsGetGenders/Families/Categories/Colors/Compositions/Countries/Sizes/Collections`. Plus de parsing du template Excel.
 
+**Proxy images marketplace** : les URL d'image envoyées à Ankorstore passent toutes par `/api/marketplace-image?path=/uploads/...` (helper `buildMarketplaceImageUrl` dans `lib/marketplace-image.ts`). Cette route lit le fichier local, vérifie sa largeur via sharp et — uniquement si la source fait moins de 500px de large — l'upscale à la volée à 500px (ratio préservé, Lanczos3, WebP lossless) avant de répondre. Les fichiers d'origine sur disque ne sont jamais modifiés. Motif : Ankorstore exige une largeur ≥ 500px (`validation_error: The image width is too small`). Pas appliqué à PFS qui upload des fichiers et non des URLs.
+
 **Delete** :
 - PFS : 100 % local — `deleteProduct(id)` et `bulkDeleteProducts(ids)` ne touchent pas à PFS.
 - Ankorstore : **propagation automatique** — si `ankorsProductId` existe et Ankorstore activé, on lance `ankorstoreKickoffStandaloneDelete()` (mode callback-only) AVANT la suppression locale. Le webhook confirme plus tard via `ankorstoreFinalizeDelete`.

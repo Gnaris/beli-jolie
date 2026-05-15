@@ -28,6 +28,7 @@ import { buildAnkorstoreShapeProperties } from "@/lib/ankorstore-shape";
 import type { MarkupConfig } from "@/lib/marketplace-pricing";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
+import { buildMarketplaceImageUrl } from "@/lib/marketplace-image";
 import { emitProductEvent } from "@/lib/product-events";
 
 // ─────────────────────────────────────────────
@@ -192,9 +193,13 @@ function buildVariantSku(
   return `${product.reference}_${colorSlug}_${variant.saleType}_${index + 1}`;
 }
 
+/**
+ * URL envoyée à Ankorstore : passe par /api/marketplace-image qui
+ * garantit une largeur ≥ 500px (upscale à la volée si nécessaire,
+ * sans modifier le fichier d'origine sur disque).
+ */
 function buildPublicImageUrl(dbPath: string): string {
-  const base = (process.env.NEXTAUTH_URL ?? "https://beliandjolie.com").replace(/\/$/, "");
-  return `${base}${dbPath.startsWith("/") ? "" : "/"}${dbPath}`;
+  return buildMarketplaceImageUrl(dbPath);
 }
 
 function getVariantStock(variant: FullVariant): number {
