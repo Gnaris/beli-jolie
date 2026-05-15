@@ -559,14 +559,32 @@ export async function ankorstoreKickoffUpdate(
     // SKUs à retirer ; (2) finalize peut nettoyer le snapshot uniquement
     // sur succès du callback, évitant les états incohérents si le delete rate.
     let variantDeleteOperationId: string | null = null;
+    let variantsAlreadyGoneFromAs: string[] = [];
     if (diff.variantsRemoved.length > 0) {
-      const removed = diff.variantsRemoved.filter((v) => v.sku && v.sku.trim().length > 0);
-      if (removed.length === 0) {
-        logger.warn("[Ankorstore Update] Variantes supprimées sans SKU — saute", {
-          ankorsProductId,
-          variantsRemoved: diff.variantsRemoved,
-        });
-      } else {
+      // ankorsRealSkuById = SKUs tels qu'Ankorstore les stocke réellement.
+      // On les préfère aux SKUs du snapshot précédent car AS peut normaliser
+      // la casse (ex: stocke `A405_TEST_UNIT_3` quand on a envoyé
+      // `A405_test_UNIT_3`) → archiver avec la mauvaise casse échoue avec
+      // "Could not archive the following SKU(s)".
+      const removed: { ankorsVariantId: string; sku: string }[] = [];
+      for (const r of diff.variantsRemoved) {
+        const realSku = ankorsRealSkuById.get(r.ankorsVariantId);
+        if (realSku && realSku.trim().length > 0) {
+          removed.push({ ankorsVariantId: r.ankorsVariantId, sku: realSku });
+        } else if (r.sku && r.sku.trim().length > 0) {
+          // Pas trouvé dans le fetch fresh → la variante est peut-être déjà
+          // partie d'AS (suppression manuelle, op précédente passée). Sans
+          // SKU canonique, on saute le delete et on purge le snapshot.
+          logger.warn("[Ankorstore Update] Variante absente du catalog Ankorstore — purge snapshot sans appel DELETE", {
+            ankorsProductId,
+            ankorsVariantId: r.ankorsVariantId,
+            snapshotSku: r.sku,
+          });
+          variantsAlreadyGoneFromAs.push(r.ankorsVariantId);
+        }
+      }
+
+      if (removed.length > 0) {
         const delRes = await ankorstoreKickoffVariantDelete({
           productId,
           reference: product.reference,
@@ -585,7 +603,16 @@ export async function ankorstoreKickoffUpdate(
         logger.info("[Ankorstore Update] Variant-delete kicked off", {
           operationId: delRes.operationId,
           removedCount: removed.length,
+          skus: removed.map((r) => r.sku),
         });
+      }
+    }
+
+    // Purge immédiatement du snapshot local les variantes déjà absentes d'AS
+    // (pas d'appel DELETE à attendre pour celles-là).
+    if (variantsAlreadyGoneFromAs.length > 0) {
+      for (const vid of variantsAlreadyGoneFromAs) {
+        delete committedSnapshot.variants[vid];
       }
     }
 

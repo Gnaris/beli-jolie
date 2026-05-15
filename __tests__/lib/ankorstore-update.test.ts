@@ -456,6 +456,7 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     // n'apparaissait nulle part), early return instant, AS gardait la variante.
     // Après fix : on détecte la variante supprimée, on appelle l'endpoint
     // DELETE d'Ankorstore avec son SKU, et finalize purgera le snapshot.
+    // Snapshot stocke le SKU lowercase (comme `buildVariantSku` le produit).
     const prevSnapshot = makeSnapshot({
       variants: {
         "ank-variant-1": {
@@ -469,7 +470,7 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
           optionMaterial: null,
         },
         "ank-variant-2": {
-          sku: "REF001_blue_UNIT_2",
+          sku: "REF001_blue_UNIT_2", // lowercase dans le snapshot
           wholesalePriceCents: 1000,
           retailPriceCents: 1000,
           stockQty: 5,
@@ -487,9 +488,11 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
       // colors par défaut = juste la variante Rouge
     });
     vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+    // AS retourne le SKU en UPPERCASE (cas réel constaté en prod sur A405) —
+    // c'est CE SKU que le DELETE doit envoyer pour que AS reconnaisse la variante.
     mockGetVariants.mockResolvedValueOnce([
-      { id: "ank-variant-1", sku: "REF001_red_UNIT_1" },
-      { id: "ank-variant-2", sku: "REF001_blue_UNIT_2" },
+      { id: "ank-variant-1", sku: "REF001_RED_UNIT_1" },
+      { id: "ank-variant-2", sku: "REF001_BLUE_UNIT_2" },
     ]);
 
     const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
@@ -497,8 +500,8 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    // Kickoff DELETE partiel a été appelé avec le SKU de la variante retirée
-    expect(mockKickoffDelete).toHaveBeenCalledWith("REF001", ["REF001_blue_UNIT_2"]);
+    // Kickoff DELETE doit utiliser le SKU canonique AS (uppercase), pas celui du snapshot.
+    expect(mockKickoffDelete).toHaveBeenCalledWith("REF001", ["REF001_BLUE_UNIT_2"]);
     // operationId retourné = celui du DELETE partiel (pas null)
     expect(result.operationId).toBe("op-delete");
     // Pas d'op UPDATE catalogue créée (rien d'autre n'a changé)
