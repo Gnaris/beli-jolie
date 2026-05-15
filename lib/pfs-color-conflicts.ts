@@ -14,6 +14,14 @@
 export interface VariantColorRefInput {
   /** Identifiant local pour reporter le conflit (ex: dbId, slot, ou index). */
   key: string;
+  /**
+   * Identifiant logique de la couleur (Color.id). Sert à dédupliquer les
+   * entrées qui pointent sur la MÊME couleur du produit : si plusieurs
+   * variantes utilisent la même couleur (ex : 2 tailles différentes de la
+   * couleur « Doré »), elles ne comptent que comme une seule "couleur
+   * produit" — pas comme un conflit. À défaut, la dédup retombe sur `label`.
+   */
+  colorId?: string | null;
   /** Libellé humain de la variante (ex: "Or pâle"). Utilisé dans les messages. */
   label: string;
   /** Mapping PFS principal de la couleur (Color.pfsColorRef). null si non mappée. */
@@ -46,6 +54,12 @@ export function effectivePfsColorRef(input: {
 /**
  * Détecte tous les groupes de variantes qui partagent le même mapping PFS
  * effectif. Variantes sans mapping (principal=null ET override=null) ignorées.
+ *
+ * Règle : un conflit n'existe qu'entre **deux couleurs différentes** qui
+ * pointent sur la même cible PFS. Si deux variantes utilisent la même couleur
+ * (même `colorId`, ou à défaut même `label`), elles ne comptent que comme une
+ * seule "couleur produit" — c'est juste la même couleur réutilisée et PFS la
+ * recevra de toute façon une seule fois.
  */
 export function detectPfsColorConflicts(
   variants: VariantColorRefInput[],
@@ -63,8 +77,18 @@ export function detectPfsColorConflicts(
   }
   const conflicts: ColorRefConflictGroup[] = [];
   for (const [ref, arr] of buckets.entries()) {
-    if (arr.length >= 2) {
-      conflicts.push({ effectiveRef: ref, variants: arr });
+    // Dédupe par couleur logique : 2 variantes de la même couleur sur la même
+    // cible PFS, ce n'est pas un conflit.
+    const seen = new Set<string>();
+    const uniqueByColor: VariantColorRefInput[] = [];
+    for (const v of arr) {
+      const dedupKey = (v.colorId?.trim() || v.label.trim()).toLowerCase();
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+      uniqueByColor.push(v);
+    }
+    if (uniqueByColor.length >= 2) {
+      conflicts.push({ effectiveRef: ref, variants: uniqueByColor });
     }
   }
   return conflicts;
@@ -143,10 +167,10 @@ export function formatConflictsMessage(conflicts: ColorRefConflictGroup[]): stri
  * `FullVariant` locaux des fichiers pfs-publish/update/refresh).
  */
 export interface DbVariantForConflictCheck {
-  color: { name: string; pfsColorRef: string | null } | null;
+  color: { id?: string; name: string; pfsColorRef: string | null } | null;
   pfsColorRefOverride: string | null;
   packLines: {
-    color: { name: string; pfsColorRef: string | null };
+    color: { id?: string; name: string; pfsColorRef: string | null };
     pfsColorRefOverride: string | null;
   }[];
 }
@@ -173,6 +197,7 @@ export function detectPfsConflictsForDbProduct(
         ?? v.color.name;
       items.push({
         key: `v${idx}`,
+        colorId: v.color.id ?? null,
         label: v.color.name,
         principalRef: principal,
         overrideRef: v.pfsColorRefOverride ?? null,
@@ -184,6 +209,7 @@ export function detectPfsConflictsForDbProduct(
         ?? pl.color.name;
       items.push({
         key: `v${idx}-pl${pl.color.name}`,
+        colorId: pl.color.id ?? null,
         label: pl.color.name,
         principalRef: principal,
         overrideRef: pl.pfsColorRefOverride ?? null,

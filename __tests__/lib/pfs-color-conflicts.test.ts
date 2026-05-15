@@ -94,6 +94,46 @@ describe("detectPfsColorConflicts", () => {
     expect(result).toHaveLength(1);
     expect(result[0]!.variants).toHaveLength(3);
   });
+
+  it("ne détecte pas de conflit pour 2 variantes de la MÊME couleur (même colorId)", () => {
+    // Cas A322 : 2 variantes UNIT de couleur « Doré » → même mapping PFS « DORE ».
+    // C'est juste la même couleur réutilisée, pas un conflit.
+    const result = detectPfsColorConflicts([
+      { key: "v1", colorId: "doreId", label: "Doré", principalRef: "DORE", overrideRef: null },
+      { key: "v2", colorId: "doreId", label: "Doré", principalRef: "DORE", overrideRef: null },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("ne détecte pas de conflit pour 2 variantes de la même couleur (dédup par label si pas de colorId)", () => {
+    const result = detectPfsColorConflicts([
+      { key: "v1", label: "Doré", principalRef: "DORE", overrideRef: null },
+      { key: "v2", label: "Doré", principalRef: "DORE", overrideRef: null },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("détecte conflit entre 2 couleurs DIFFÉRENTES qui pointent sur la même cible", () => {
+    const result = detectPfsColorConflicts([
+      { key: "v1", colorId: "orPaleId", label: "Or pâle", principalRef: "DORE", overrideRef: null },
+      { key: "v2", colorId: "orRoseId", label: "Or rose", principalRef: "DORE", overrideRef: null },
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.variants).toHaveLength(2);
+  });
+
+  it("dédup mixte : 3 variantes même couleur + 1 variante autre couleur sur même cible → conflit entre 2 couleurs uniques", () => {
+    const result = detectPfsColorConflicts([
+      { key: "v1", colorId: "doreId", label: "Doré", principalRef: "DORE", overrideRef: null },
+      { key: "v2", colorId: "doreId", label: "Doré", principalRef: "DORE", overrideRef: null },
+      { key: "v3", colorId: "doreId", label: "Doré", principalRef: "DORE", overrideRef: null },
+      { key: "v4", colorId: "bronzeId", label: "Bronze", principalRef: "DORE", overrideRef: null },
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.variants).toHaveLength(2);
+    const labels = result[0]!.variants.map((v) => v.label).sort();
+    expect(labels).toEqual(["Bronze", "Doré"]);
+  });
 });
 
 describe("validateOverrideAgainstPrincipal", () => {
@@ -243,6 +283,22 @@ describe("detectPfsConflictsForDbProduct + assertNoPfsColorConflicts", () => {
     ]);
     expect(conflicts).toHaveLength(1);
     expect(conflicts[0]!.effectiveRef).toBe("DORE");
+  });
+
+  it("ne détecte pas de conflit DB pour 2 variantes UNIT de la même couleur (cas A322)", () => {
+    const conflicts = detectPfsConflictsForDbProduct([
+      {
+        color: { id: "doreId", name: "Doré", pfsColorRef: "DORE" },
+        pfsColorRefOverride: null,
+        packLines: [],
+      },
+      {
+        color: { id: "doreId", name: "Doré", pfsColorRef: "DORE" },
+        pfsColorRefOverride: null,
+        packLines: [],
+      },
+    ]);
+    expect(conflicts).toEqual([]);
   });
 
   it("assertNoPfsColorConflicts ne throw pas si pas de conflit", () => {

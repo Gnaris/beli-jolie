@@ -1658,13 +1658,14 @@ export default function ProductForm({
         // ── Détection des conflits de mapping PFS sur les variantes saisies ──
         // Si conflit, la case PFS est filtrée (impossible de publier tant que ce
         // n'est pas résolu) et un toast explicatif est affiché à la place.
-        const pfsConflictItems: { key: string; label: string; principalRef: string | null; overrideRef: string | null }[] = [];
+        const pfsConflictItems: { key: string; colorId: string | null; label: string; principalRef: string | null; overrideRef: string | null }[] = [];
         for (const v of variants) {
           if (v.saleType === "PACK" && v.packLines.length > 0) {
             for (const pl of v.packLines) {
               const ac = localColors.find((c) => c.id === pl.colorId);
               pfsConflictItems.push({
                 key: `v${v.tempId}-pl${pl.tempId}`,
+                colorId: pl.colorId || null,
                 label: pl.colorName || ac?.name || "Couleur",
                 principalRef: ac?.pfsColorRef ?? null,
                 overrideRef: pl.pfsColorRefOverride ?? null,
@@ -1674,6 +1675,7 @@ export default function ProductForm({
             const ac = localColors.find((c) => c.id === v.colorId);
             pfsConflictItems.push({
               key: `v${v.tempId}`,
+              colorId: v.colorId || null,
               label: v.colorName || ac?.name || "Couleur",
               principalRef: ac?.pfsColorRef ?? null,
               overrideRef: v.pfsColorRefOverride ?? null,

@@ -106,6 +106,7 @@ export default function PfsMappingSection({
   const conflicts = useMemo(() => {
     const items: VariantColorRefInput[] = rows.map((r) => ({
       key: r.key,
+      colorId: r.colorId,
       label: r.colorName,
       principalRef: r.principalRef,
       overrideRef: r.overrideRef,
@@ -113,14 +114,23 @@ export default function PfsMappingSection({
     return detectPfsColorConflicts(items);
   }, [rows]);
 
-  // Set des row keys en conflit pour décoration.
+  // Set des row keys en conflit pour décoration : on collecte les colorId en
+  // conflit puis on remonte à TOUTES les rows qui utilisent ces couleurs (pas
+  // seulement la première qui survit à la dédup), pour que toutes les lignes
+  // concernées soient surlignées.
   const keysInConflict = useMemo(() => {
-    const s = new Set<string>();
+    const colorIdsInConflict = new Set<string>();
     for (const c of conflicts) {
-      for (const v of c.variants) s.add(v.key);
+      for (const v of c.variants) {
+        if (v.colorId) colorIdsInConflict.add(v.colorId);
+      }
+    }
+    const s = new Set<string>();
+    for (const r of rows) {
+      if (r.colorId && colorIdsInConflict.has(r.colorId)) s.add(r.key);
     }
     return s;
-  }, [conflicts]);
+  }, [conflicts, rows]);
 
   if (rows.length === 0) return null;
 
