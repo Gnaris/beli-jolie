@@ -2337,25 +2337,37 @@ export default function ProductForm({
               variants={variants}
               availableColors={localColors}
               pfsColorOptions={pfsColorOptions ?? []}
-              onChangeVariantOverride={(variantTempId, override) => {
-                setVariants((prev) =>
-                  prev.map((v) =>
-                    v.tempId === variantTempId ? { ...v, pfsColorRefOverride: override } : v,
-                  ),
-                );
-              }}
-              onChangePackLineOverride={(variantTempId, packLineTempId, override) => {
+              onChangeOverrideForTargets={(targets, override) => {
+                // Construit deux index pour appliquer le nouvel override en
+                // UN SEUL setVariants (au lieu de boucler des appels qui
+                // peuvent échapper au batching React selon le contexte).
+                const variantTempIds = new Set<string>();
+                const packLineTempIds = new Set<string>();
+                for (const t of targets) {
+                  if (t.packLineTempId) {
+                    packLineTempIds.add(t.packLineTempId);
+                  } else {
+                    variantTempIds.add(t.variantTempId);
+                  }
+                }
                 setVariants((prev) =>
                   prev.map((v) => {
-                    if (v.tempId !== variantTempId) return v;
-                    return {
-                      ...v,
-                      packLines: v.packLines.map((pl) =>
-                        pl.tempId === packLineTempId
-                          ? { ...pl, pfsColorRefOverride: override }
-                          : pl,
-                      ),
-                    };
+                    let next: VariantState = v;
+                    if (variantTempIds.has(v.tempId)) {
+                      next = { ...next, pfsColorRefOverride: override };
+                    }
+                    if (next.packLines.length > 0) {
+                      let packChanged = false;
+                      const newPackLines = next.packLines.map((pl) => {
+                        if (packLineTempIds.has(pl.tempId)) {
+                          packChanged = true;
+                          return { ...pl, pfsColorRefOverride: override };
+                        }
+                        return pl;
+                      });
+                      if (packChanged) next = { ...next, packLines: newPackLines };
+                    }
+                    return next;
                   }),
                 );
               }}

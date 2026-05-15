@@ -39,10 +39,11 @@ interface Props {
   variants: VariantState[];
   availableColors: AvailableColor[];
   pfsColorOptions: PfsColorOption[];
-  onChangeVariantOverride: (variantTempId: string, override: string | null) => void;
-  onChangePackLineOverride: (
-    variantTempId: string,
-    packLineTempId: string,
+  /** Pose le même override sur toutes les variantes/lignes ciblées en UN
+   * SEUL appel — évite tout problème de batching React quand plusieurs
+   * variantes partagent la même couleur. */
+  onChangeOverrideForTargets: (
+    targets: { variantTempId: string; packLineTempId?: string }[],
     override: string | null,
   ) => void;
 }
@@ -81,8 +82,7 @@ export default function PfsMappingSection({
   variants,
   availableColors,
   pfsColorOptions,
-  onChangeVariantOverride,
-  onChangePackLineOverride,
+  onChangeOverrideForTargets,
 }: Props) {
   // Build rows : 1 ligne par couleur unique (par nom) du produit. On agrège
   // les variantes UNIT/PACK + toutes les lignes de pack en groupant par nom
@@ -270,14 +270,9 @@ export default function PfsMappingSection({
                       value={r.overrideRef ?? ""}
                       onChange={(v) => {
                         const next = v ? v : null;
-                        // Propage à toutes les variantes/lignes utilisant cette couleur.
-                        for (const t of r.targets) {
-                          if (t.packLineTempId) {
-                            onChangePackLineOverride(t.variantTempId, t.packLineTempId, next);
-                          } else {
-                            onChangeVariantOverride(t.variantTempId, next);
-                          }
-                        }
+                        // Propage à toutes les variantes/lignes utilisant cette couleur,
+                        // en UN SEUL appel — l'orchestration des MAJ se fait côté parent.
+                        onChangeOverrideForTargets(r.targets, next);
                       }}
                       options={selectOptions}
                       placeholder="— (utiliser le mapping principal)"
