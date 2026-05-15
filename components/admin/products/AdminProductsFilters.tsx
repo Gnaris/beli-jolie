@@ -372,277 +372,224 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
         </button>
       </div>
 
-      {/* Panneau de filtres déroulant */}
+      {/* Panneau de filtres déroulant — sections en colonnes côte à côte pour gagner en hauteur */}
       {filtersOpen && (
-        <div className="space-y-4 pt-3 border-t border-border">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-            {/* Catégorie — applies immediately */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Catégorie
-              </label>
-              <CustomSelect
-                value={urlCat}
-                onChange={(v) => navigate({ cat: v || null, subCat: null })}
-                options={[
-                  { value: "", label: "Toutes" },
-                  ...categories.map((c) => ({ value: c.id, label: c.name })),
-                ]}
-                size="sm"
-              />
-            </div>
-
-            {/* Sous-catégorie — applies immediately, filtered by selected category if any */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Sous-catégorie
-              </label>
-              <CustomSelect
-                value={urlSubCat}
-                onChange={(v) => navigate({ subCat: v || null })}
-                options={[
-                  { value: "", label: "Toutes" },
-                  ...categories.flatMap((c) =>
-                    (urlCat && c.id !== urlCat ? [] : (c.subCategories ?? [])).map((s) => ({
-                      value: s.id,
-                      label: urlCat ? s.name : `${c.name} › ${s.name}`,
-                    }))
-                  ),
-                ]}
-                size="sm"
-              />
-            </div>
-
-            {/* Statut — applies immediately */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Statut
-              </label>
-              <CustomSelect
-                value={urlStatus}
-                onChange={(v) => navigate({ status: v || null })}
-                options={[
-                  { value: "", label: "Tous" },
-                  { value: "ONLINE", label: "En ligne" },
-                  { value: "OFFLINE", label: "Hors ligne" },
-                  { value: "DRAFT", label: "Brouillons" },
-                  { value: "ARCHIVED", label: "Archivé" },
-                ]}
-                size="sm"
-              />
-            </div>
-
-            {/* Mot-clé — applies immediately */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Mot-clé
-              </label>
-              <CustomSelect
-                value={urlTag}
-                onChange={(v) => navigate({ tag: v || null })}
-                options={[
-                  { value: "", label: "Tous" },
-                  ...tags.map((t) => ({ value: t.id, label: t.name })),
-                ]}
-                size="sm"
-              />
-            </div>
-
-            {/* Composition — applies immediately */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Composition
-              </label>
-              <CustomSelect
-                value={urlComposition}
-                onChange={(v) => navigate({ composition: v || null })}
-                options={[
-                  { value: "", label: "Toutes" },
-                  ...compositions.map((c) => ({ value: c.id, label: c.name })),
-                ]}
-                size="sm"
-              />
-            </div>
-
-            {/* Best-sellers — applies immediately */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Best-sellers
-              </label>
-              <CustomSelect
-                value={urlBestSeller}
-                onChange={(v) => navigate({ bestSeller: v || null })}
-                options={[
-                  { value: "", label: "Tous" },
-                  { value: "1", label: "Best-sellers uniquement" },
-                ]}
-                size="sm"
-              />
-            </div>
-
-            {/* Images — applies immediately */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Images
-              </label>
-              <CustomSelect
-                value={urlMissingImages}
-                onChange={(v) => navigate({ missingImages: v || null })}
-                options={[
-                  { value: "", label: "Toutes" },
-                  { value: "1", label: "Au moins une variante sans image" },
-                ]}
-                size="sm"
-              />
-            </div>
-
-            {/* Rafraîchissement — applies immediately */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Rafraîchissement
-              </label>
-              <CustomSelect
-                value={urlRefresh}
-                onChange={(v) => navigate({ refresh: v || null })}
-                options={[
-                  { value: "", label: "Tous" },
-                  { value: "recent", label: "Rafraîchi récemment (30j)" },
-                  { value: "refreshed", label: "Déjà rafraîchi" },
-                  { value: "never", label: "Jamais rafraîchi" },
-                  { value: "dateDesc", label: "Date récente → ancienne" },
-                  { value: "dateAsc", label: "Date ancienne → récente" },
-                ]}
-                size="sm"
-              />
-            </div>
-
-            {/* Lien Paris Fashion Shop — applies immediately */}
-            {hasPfsConfig && (
-              <div>
-                <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                  Lien Paris Fashion Shop
-                </label>
+        <div className="pt-3 border-t border-border">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-x-4 gap-y-4 xl:gap-x-0 xl:gap-y-0">
+            {/* Colonne : Catalogue */}
+            <FilterColumn title="Catalogue">
+              <FilterField label="Catégorie">
                 <CustomSelect
-                  value={urlPfsLink}
-                  onChange={(v) => navigate({ pfsLink: v || null })}
+                  value={urlCat}
+                  onChange={(v) => navigate({ cat: v || null, subCat: null })}
                   options={[
-                    { value: "", label: "Tous" },
-                    { value: "linked", label: "Lié à PFS" },
-                    { value: "unlinked", label: "Non lié à PFS" },
+                    { value: "", label: "Toutes" },
+                    ...categories.map((c) => ({ value: c.id, label: c.name })),
                   ]}
                   size="sm"
                 />
-              </div>
-            )}
-
-            {/* Lien Ankorstore — applies immediately, only when Ankorstore configured */}
-            {hasAnkorstoreConfig && (
-              <div>
-                <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                  Lien Ankorstore
-                </label>
+              </FilterField>
+              <FilterField label="Sous-catégorie">
                 <CustomSelect
-                  value={urlAnkorsLink}
-                  onChange={(v) => navigate({ ankorsLink: v || null })}
+                  value={urlSubCat}
+                  onChange={(v) => navigate({ subCat: v || null })}
                   options={[
-                    { value: "", label: "Tous" },
-                    { value: "linked", label: "Lié à Ankorstore" },
-                    { value: "linked-vars-linked", label: "Lié + couleurs reliées" },
-                    { value: "linked-vars-unlinked", label: "Lié, couleurs non reliées" },
-                    { value: "unlinked", label: "Non lié à Ankorstore" },
+                    { value: "", label: "Toutes" },
+                    ...categories.flatMap((c) =>
+                      (urlCat && c.id !== urlCat ? [] : (c.subCategories ?? [])).map((s) => ({
+                        value: s.id,
+                        label: urlCat ? s.name : `${c.name} › ${s.name}`,
+                      }))
+                    ),
                   ]}
                   size="sm"
                 />
-              </div>
+              </FilterField>
+              <FilterField label="Mot-clé">
+                <CustomSelect
+                  value={urlTag}
+                  onChange={(v) => navigate({ tag: v || null })}
+                  options={[
+                    { value: "", label: "Tous" },
+                    ...tags.map((t) => ({ value: t.id, label: t.name })),
+                  ]}
+                  size="sm"
+                />
+              </FilterField>
+              <FilterField label="Composition">
+                <CustomSelect
+                  value={urlComposition}
+                  onChange={(v) => navigate({ composition: v || null })}
+                  options={[
+                    { value: "", label: "Toutes" },
+                    ...compositions.map((c) => ({ value: c.id, label: c.name })),
+                  ]}
+                  size="sm"
+                />
+              </FilterField>
+            </FilterColumn>
+
+            {/* Colonne : Statut & visibilité */}
+            <FilterColumn title="Statut & visibilité">
+              <FilterField label="Statut">
+                <CustomSelect
+                  value={urlStatus}
+                  onChange={(v) => navigate({ status: v || null })}
+                  options={[
+                    { value: "", label: "Tous" },
+                    { value: "ONLINE", label: "En ligne" },
+                    { value: "OFFLINE", label: "Hors ligne" },
+                    { value: "DRAFT", label: "Brouillons" },
+                    { value: "ARCHIVED", label: "Archivé" },
+                  ]}
+                  size="sm"
+                />
+              </FilterField>
+              <FilterField label="Best-sellers">
+                <CustomSelect
+                  value={urlBestSeller}
+                  onChange={(v) => navigate({ bestSeller: v || null })}
+                  options={[
+                    { value: "", label: "Tous" },
+                    { value: "1", label: "Best-sellers uniquement" },
+                  ]}
+                  size="sm"
+                />
+              </FilterField>
+              <FilterField label="Images">
+                <CustomSelect
+                  value={urlMissingImages}
+                  onChange={(v) => navigate({ missingImages: v || null })}
+                  options={[
+                    { value: "", label: "Toutes" },
+                    { value: "1", label: "Au moins une variante sans image" },
+                  ]}
+                  size="sm"
+                />
+              </FilterField>
+            </FilterColumn>
+
+            {/* Colonne : Prix & stock */}
+            <FilterColumn title="Prix & stock">
+              <FilterField label="Prix min (€)">
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={localMinPrice}
+                  onChange={(e) => setLocalMinPrice(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="0"
+                  className="w-full px-2.5 py-1.5 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
+                />
+              </FilterField>
+              <FilterField label="Prix max (€)">
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={localMaxPrice}
+                  onChange={(e) => setLocalMaxPrice(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="∞"
+                  className="w-full px-2.5 py-1.5 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
+                />
+              </FilterField>
+              <FilterField label="Stock ≤">
+                <input
+                  type="number"
+                  min={0}
+                  value={localStockBelow}
+                  onChange={(e) => setLocalStockBelow(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="ex: 5"
+                  className="w-full px-2.5 py-1.5 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
+                />
+              </FilterField>
+            </FilterColumn>
+
+            {/* Colonne : Dates & fraîcheur */}
+            <FilterColumn title="Dates & fraîcheur">
+              <FilterField label="Créé depuis">
+                <input
+                  type="date"
+                  value={localDateFrom}
+                  onChange={(e) => setLocalDateFrom(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="w-full px-2.5 py-1.5 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
+                />
+              </FilterField>
+              <FilterField label="Créé avant">
+                <input
+                  type="date"
+                  value={localDateTo}
+                  onChange={(e) => setLocalDateTo(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="w-full px-2.5 py-1.5 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
+                />
+              </FilterField>
+              <FilterField label="Rafraîchissement">
+                <CustomSelect
+                  value={urlRefresh}
+                  onChange={(v) => navigate({ refresh: v || null })}
+                  options={[
+                    { value: "", label: "Tous" },
+                    { value: "recent", label: "Rafraîchi récemment (30j)" },
+                    { value: "refreshed", label: "Déjà rafraîchi" },
+                    { value: "never", label: "Jamais rafraîchi" },
+                    { value: "dateDesc", label: "Date récente → ancienne" },
+                    { value: "dateAsc", label: "Date ancienne → récente" },
+                  ]}
+                  size="sm"
+                />
+              </FilterField>
+            </FilterColumn>
+
+            {/* Colonne : Marketplaces (visible uniquement si au moins une est configurée) */}
+            {(hasPfsConfig || hasAnkorstoreConfig) && (
+              <FilterColumn title="Marketplaces">
+                {hasPfsConfig && (
+                  <FilterField label="Lien Paris Fashion Shop">
+                    <CustomSelect
+                      value={urlPfsLink}
+                      onChange={(v) => navigate({ pfsLink: v || null })}
+                      options={[
+                        { value: "", label: "Tous" },
+                        { value: "linked", label: "Lié à PFS" },
+                        { value: "unlinked", label: "Non lié à PFS" },
+                      ]}
+                      size="sm"
+                    />
+                  </FilterField>
+                )}
+                {hasAnkorstoreConfig && (
+                  <FilterField label="Lien Ankorstore">
+                    <CustomSelect
+                      value={urlAnkorsLink}
+                      onChange={(v) => navigate({ ankorsLink: v || null })}
+                      options={[
+                        { value: "", label: "Tous" },
+                        { value: "linked", label: "Lié à Ankorstore" },
+                        { value: "linked-vars-linked", label: "Lié + couleurs reliées" },
+                        { value: "linked-vars-unlinked", label: "Lié, couleurs non reliées" },
+                        { value: "unlinked", label: "Non lié à Ankorstore" },
+                      ]}
+                      size="sm"
+                    />
+                  </FilterField>
+                )}
+              </FilterColumn>
             )}
-
-            {/* Prix min — local state */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Prix min (&euro;)
-              </label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={localMinPrice}
-                onChange={(e) => setLocalMinPrice(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="0"
-                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
-              />
-            </div>
-
-            {/* Prix max — local state */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Prix max (&euro;)
-              </label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={localMaxPrice}
-                onChange={(e) => setLocalMaxPrice(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="&infin;"
-                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
-              />
-            </div>
-
-            {/* Date du — local state */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Créé depuis
-              </label>
-              <input
-                type="date"
-                value={localDateFrom}
-                onChange={(e) => setLocalDateFrom(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
-              />
-            </div>
-
-            {/* Date au — local state */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Créé avant
-              </label>
-              <input
-                type="date"
-                value={localDateTo}
-                onChange={(e) => setLocalDateTo(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
-              />
-            </div>
-
-            {/* Stock ≤ X — local state */}
-            <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Stock &le;
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={localStockBelow}
-                onChange={(e) => setLocalStockBelow(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="ex: 5"
-                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
-              />
-            </div>
           </div>
 
           {/* Rechercher button */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 pt-3 mt-3 border-t border-border">
             <button
               type="button"
               onClick={() => applyFilters()}
-              className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 text-sm font-body font-medium rounded-lg transition-colors"
+              className="btn-primary inline-flex items-center gap-2 px-4 py-2 text-xs font-body font-medium rounded-lg transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
@@ -656,6 +603,34 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Colonne thématique de filtres : titre discret en haut puis champs empilés verticalement.
+ * Sur grand écran (xl), bordure verticale à gauche pour séparer visuellement chaque colonne ;
+ * désactivée sur la première colonne et sur les breakpoints intermédiaires (gap suffit).
+ */
+function FilterColumn({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-2 xl:px-4 xl:first:pl-0 xl:last:pr-0 xl:border-l xl:border-border xl:first:border-l-0">
+      <h3 className="text-[10px] font-heading font-semibold text-text-muted uppercase tracking-[0.12em] pb-1.5 border-b border-border/60">
+        {title}
+      </h3>
+      <div className="space-y-2">{children}</div>
+    </section>
+  );
+}
+
+/** Champ de filtre individuel avec son label. */
+function FilterField({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-0.5">
+        {label}
+      </label>
+      {children}
     </div>
   );
 }

@@ -17,6 +17,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
+import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
@@ -31,6 +32,55 @@ export function computeShowStockBadges(p: { status: string; isIncomplete: boolea
   if (p.status === "OFFLINE") return false;
   if (p.status === "ARCHIVED") return false;
   return true;
+}
+
+/**
+ * Éligibilité des actions par ligne dans le menu "Actions" — exporté pour tests.
+ *
+ * - `canPutOnline` : false si déjà ONLINE ou si le produit est incomplet
+ *   (la mise en ligne échouerait côté serveur faute d'image obligatoire).
+ * - `canPutOffline` / `canArchive` : false si le produit est déjà dans ce statut.
+ * - `canSync` : true si publié sur au moins une marketplace active (PFS et/ou
+ *   Ankorstore avec kill-switch ON), sinon il n'y a rien à resynchroniser.
+ */
+export interface RowActionContext {
+  hasPfsConfig: boolean;
+  hasAnkorstoreConfig: boolean;
+  ankorstoreEnabled: boolean;
+}
+
+export interface RowActionEligibility {
+  canPutOnline: boolean;
+  putOnlineReason?: string;
+  canPutOffline: boolean;
+  canArchive: boolean;
+  canSync: boolean;
+}
+
+export function computeRowActionEligibility(
+  product: {
+    status: string;
+    isIncomplete: boolean;
+    pfsProductId: string | null;
+    ankorsProductId: string | null;
+  },
+  ctx: RowActionContext,
+): RowActionEligibility {
+  const showAnkorstore = ctx.hasAnkorstoreConfig && ctx.ankorstoreEnabled;
+  const syncPfs = ctx.hasPfsConfig && !!product.pfsProductId;
+  const syncAnkors = showAnkorstore && !!product.ankorsProductId;
+
+  let putOnlineReason: string | undefined;
+  if (product.status === "ONLINE") putOnlineReason = "Déjà en ligne";
+  else if (product.isIncomplete) putOnlineReason = "Produit incomplet — complétez la fiche d'abord";
+
+  return {
+    canPutOnline: product.status !== "ONLINE" && !product.isIncomplete,
+    putOnlineReason,
+    canPutOffline: product.status !== "OFFLINE",
+    canArchive: product.status !== "ARCHIVED",
+    canSync: syncPfs || syncAnkors,
+  };
 }
 
 // ─── Marketplace publish badge ─────────────────────────────────────────────────
@@ -444,17 +494,29 @@ function ActionsDropdown({
   expanded,
   refreshing,
   anchorRef,
+  eligibility,
   onClose,
   onExpandToggle,
   onRefresh,
+  onPutOnline,
+  onPutOffline,
+  onArchive,
+  onSync,
+  onDelete,
 }: {
   productId: string;
   expanded: boolean;
   refreshing: boolean;
   anchorRef: React.RefObject<HTMLDivElement | null>;
+  eligibility: RowActionEligibility;
   onClose: () => void;
   onExpandToggle: () => void;
   onRefresh: () => void;
+  onPutOnline: () => void;
+  onPutOffline: () => void;
+  onArchive: () => void;
+  onSync: () => void;
+  onDelete: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -464,12 +526,13 @@ function ActionsDropdown({
     const anchor = anchorRef.current;
     if (!anchor) return;
     const rect = anchor.getBoundingClientRect();
-    const menuHeight = 220; // estimated menu height
+    // Hauteur estimée du menu — on compte tous les items potentiels
+    const menuHeight = 380;
     const spaceBelow = window.innerHeight - rect.bottom;
     const openAbove = spaceBelow < menuHeight && rect.top > menuHeight;
     setPos({
       top: openAbove ? rect.top - menuHeight - 4 : rect.bottom + 4,
-      left: rect.right - 176, // 176px = w-44
+      left: rect.right - 200, // 200px = w-50
     });
   }, [anchorRef]);
 
@@ -488,15 +551,20 @@ function ActionsDropdown({
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose, anchorRef]);
 
+  const itemClass =
+    "block w-full text-left px-4 py-2 text-xs font-body text-text-primary hover:bg-bg-tertiary transition-colors no-underline border-none bg-transparent cursor-pointer";
+  const itemDisabledClass =
+    "block w-full text-left px-4 py-2 text-xs font-body text-text-muted opacity-50 cursor-not-allowed border-none bg-transparent";
+
   return (
     <div
       ref={menuRef}
-      className="w-44 bg-bg-primary border border-border rounded-xl shadow-lg py-1 animate-fadeIn"
-      style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 9999 }}
+      className="w-50 bg-bg-primary border border-border rounded-xl shadow-lg py-1 animate-fadeIn"
+      style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 9999, width: 200 }}
     >
       <Link
         href={`/admin/produits/${productId}/modifier`}
-        className="block w-full text-left px-4 py-2 text-xs font-body text-text-primary hover:bg-bg-tertiary transition-colors no-underline"
+        className={itemClass}
         onClick={onClose}
       >
         Modifier
@@ -504,14 +572,14 @@ function ActionsDropdown({
       <Link
         href={`/fr/produits/${productId}`}
         target="_blank"
-        className="block w-full text-left px-4 py-2 text-xs font-body text-text-primary hover:bg-bg-tertiary transition-colors no-underline"
+        className={itemClass}
         onClick={onClose}
       >
         Voir côté client
       </Link>
       <Link
         href={`/admin/produits/${productId}/dupliquer`}
-        className="block w-full text-left px-4 py-2 text-xs font-body text-text-primary hover:bg-bg-tertiary transition-colors no-underline"
+        className={itemClass}
         onClick={onClose}
       >
         Dupliquer
@@ -519,18 +587,94 @@ function ActionsDropdown({
       <button
         type="button"
         onClick={onExpandToggle}
-        className="block w-full text-left px-4 py-2 text-xs font-body text-text-primary hover:bg-bg-tertiary transition-colors border-none bg-transparent cursor-pointer"
+        className={itemClass}
       >
         {expanded ? "Masquer les variantes" : "Voir les variantes"}
       </button>
+
       <div className="border-t border-border my-1" />
+
+      {/* ── Changements de statut ── */}
+      {eligibility.canPutOnline ? (
+        <button type="button" onClick={onPutOnline} className={itemClass}>
+          <span className="inline-flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
+            Mettre en ligne
+          </span>
+        </button>
+      ) : (
+        <span className={itemDisabledClass} title={eligibility.putOnlineReason ?? ""}>
+          <span className="inline-flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
+            Mettre en ligne
+          </span>
+        </span>
+      )}
+
+      {eligibility.canPutOffline ? (
+        <button type="button" onClick={onPutOffline} className={itemClass}>
+          <span className="inline-flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#9CA3AF]" />
+            Mettre hors ligne
+          </span>
+        </button>
+      ) : (
+        <span className={itemDisabledClass} title="Déjà hors ligne">
+          <span className="inline-flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#9CA3AF]" />
+            Mettre hors ligne
+          </span>
+        </span>
+      )}
+
+      {eligibility.canArchive ? (
+        <button type="button" onClick={onArchive} className={itemClass}>
+          <span className="inline-flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
+            Archiver
+          </span>
+        </button>
+      ) : (
+        <span className={itemDisabledClass} title="Déjà archivé">
+          <span className="inline-flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
+            Archiver
+          </span>
+        </span>
+      )}
+
+      <div className="border-t border-border my-1" />
+
+      {/* ── Sync marketplaces (différent de "Rafraîchir") ── */}
+      {eligibility.canSync && (
+        <button type="button" onClick={onSync} className={itemClass}>
+          <span className="inline-flex items-center gap-2">
+            <svg className="w-3 h-3 text-[#6366F1]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+            </svg>
+            Synchroniser
+          </span>
+        </button>
+      )}
+
       <button
         type="button"
         onClick={onRefresh}
         disabled={refreshing}
-        className={`block w-full text-left px-4 py-2 text-xs font-body text-text-primary hover:bg-bg-tertiary transition-colors border-none bg-transparent cursor-pointer ${refreshing ? "opacity-50 cursor-wait" : ""}`}
+        className={`${itemClass} ${refreshing ? "opacity-50 cursor-wait" : ""}`}
       >
         {refreshing ? "Rafraîchissement…" : "Rafraîchir"}
+      </button>
+
+      <div className="border-t border-border my-1" />
+
+      {/* ── Suppression ── */}
+      <button
+        type="button"
+        onClick={onDelete}
+        className="block w-full text-left px-4 py-2 text-xs font-body text-red-600 hover:bg-red-50 transition-colors border-none bg-transparent cursor-pointer"
+      >
+        Supprimer
       </button>
     </div>
   );
@@ -552,6 +696,9 @@ function ProductRow({
   onToggleVariant,
   onToggleAllVariants,
   isDeleting = false,
+  onRowStatus,
+  onRowDelete,
+  onRowSync,
 }: {
   product: AdminProduct;
   rowNumber: number;
@@ -566,6 +713,9 @@ function ProductRow({
   onToggleVariant: (id: string) => void;
   onToggleAllVariants: (ids: string[], select: boolean) => void;
   isDeleting?: boolean;
+  onRowStatus: (productId: string, status: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
+  onRowDelete: (productId: string) => void;
+  onRowSync: (productId: string) => void;
 }) {
   const [refreshing, setRefreshing] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -596,6 +746,12 @@ function ProductRow({
 
   const variantIds = product.colors.map((c) => c.id);
   const allVariantsSelected = variantIds.length > 0 && variantIds.every((id) => selectedVariantIds.has(id));
+
+  const eligibility = computeRowActionEligibility(product, {
+    hasPfsConfig,
+    hasAnkorstoreConfig,
+    ankorstoreEnabled,
+  });
 
   return (
     <>
@@ -802,6 +958,7 @@ function ProductRow({
                 expanded={expanded}
                 refreshing={refreshing}
                 anchorRef={actionsRef}
+                eligibility={eligibility}
                 onClose={() => setActionsOpen(false)}
                 onExpandToggle={() => { onExpandToggle(); setActionsOpen(false); }}
                 onRefresh={async () => {
@@ -819,6 +976,11 @@ function ProductRow({
                     setRefreshing(false);
                   }
                 }}
+                onPutOnline={() => { setActionsOpen(false); onRowStatus(product.id, "ONLINE"); }}
+                onPutOffline={() => { setActionsOpen(false); onRowStatus(product.id, "OFFLINE"); }}
+                onArchive={() => { setActionsOpen(false); onRowStatus(product.id, "ARCHIVED"); }}
+                onSync={() => { setActionsOpen(false); onRowSync(product.id); }}
+                onDelete={() => { setActionsOpen(false); onRowDelete(product.id); }}
               />,
               document.body
             )}
@@ -1215,7 +1377,7 @@ function BulkVariantBar({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, startIndex, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, deletingIds,
+  products, startIndex, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, deletingIds, onRowStatus, onRowDelete, onRowSync,
 }: {
   products: AdminProduct[];
   startIndex: number;
@@ -1232,6 +1394,9 @@ function TableWithTopScroll({
   toggleVariant: (id: string) => void;
   toggleAllVariants: (ids: string[], select: boolean) => void;
   deletingIds: Set<string>;
+  onRowStatus: (productId: string, status: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
+  onRowDelete: (productId: string) => void;
+  onRowSync: (productId: string) => void;
 }) {
   const topScrollRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -1335,6 +1500,9 @@ function TableWithTopScroll({
                 onToggleVariant={toggleVariant}
                 onToggleAllVariants={toggleAllVariants}
                 isDeleting={deletingIds.has(product.id)}
+                onRowStatus={onRowStatus}
+                onRowDelete={onRowDelete}
+                onRowSync={onRowSync}
               />
             ))}
           </tbody>
@@ -1427,9 +1595,16 @@ export default function AdminProductsTable({
   }, []);
 
   // ─── Bulk product actions ──
-  const handleBulkStatus = useCallback(async (status: "ONLINE" | "OFFLINE" | "ARCHIVED") => {
-    const ids = [...selectedIds];
+  // `idsOverride` permet l'appel depuis une ligne unique (menu Actions). Quand
+  // il est fourni, on ne touche pas à `selectedIds` (la sélection reste intacte).
+  const handleBulkStatus = useCallback(async (
+    status: "ONLINE" | "OFFLINE" | "ARCHIVED",
+    idsOverride?: string[],
+  ) => {
+    const ids = idsOverride ?? [...selectedIds];
     const count = ids.length;
+    if (count === 0) return;
+    const fromBulk = idsOverride === undefined;
     const statusLabels: Record<string, { verb: string; title: string; type: "info" | "warning" }> = {
       ONLINE:   { verb: "mis en ligne", title: "Mettre en ligne", type: "info" },
       OFFLINE:  { verb: "mis hors ligne", title: "Mettre hors ligne", type: "warning" },
@@ -1469,7 +1644,7 @@ export default function AdminProductsTable({
             type: result.errors.length > 0 ? "error" : "success",
             text: msgs.join(" — "),
           });
-          setSelectedIds(new Set());
+          if (fromBulk) setSelectedIds(new Set());
           router.refresh();
         } catch (e) {
           setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
@@ -1566,9 +1741,11 @@ export default function AdminProductsTable({
     }
   }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, router]);
 
-  const handleBulkDelete = useCallback(async () => {
-    const ids = [...selectedIds];
+  const handleBulkDelete = useCallback(async (idsOverride?: string[]) => {
+    const ids = idsOverride ?? [...selectedIds];
     const count = ids.length;
+    if (count === 0) return;
+    const fromBulk = idsOverride === undefined;
 
     // Ask the server which products will be deleted vs archived so we can show
     // the admin exactly what the action will do before they confirm.
@@ -1711,7 +1888,7 @@ export default function AdminProductsTable({
           type: "success",
           text: msgs.join(" — ") || "Aucun produit traité",
         });
-        setSelectedIds(new Set());
+        if (fromBulk) setSelectedIds(new Set());
         router.refresh();
 
         // Suppression PFS en arrière-plan si l'admin a confirmé
@@ -1742,6 +1919,88 @@ export default function AdminProductsTable({
     });
   }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, hasPfsConfig, showAnkorstore, toast, router]);
 
+  // Synchroniser un (ou plusieurs) produit(s) avec les marketplaces : renvoie
+  // toutes les données (prix, stock, images, statut, etc.) au même `pfsProductId`
+  // / `ankorsProductId` (resync forcée — `forceFullSync: true` côté serveur).
+  const handleBulkSync = useCallback(async (idsOverride: string[]) => {
+    const ids = idsOverride;
+    if (ids.length === 0) return;
+    const targets = allProducts.filter((p) => ids.includes(p.id));
+    const pfsTargets = hasPfsConfig ? targets.filter((p) => p.pfsProductId) : [];
+    const ankorsTargets = showAnkorstore ? targets.filter((p) => p.ankorsProductId) : [];
+
+    if (pfsTargets.length === 0 && ankorsTargets.length === 0) {
+      toast.error("Rien à synchroniser", "Ce produit n'est publié sur aucune marketplace.");
+      return;
+    }
+
+    const pfsRef = { current: pfsTargets.length > 0 };
+    const ankorsRef = { current: ankorsTargets.length > 0 };
+    const checkboxes: {
+      id: string;
+      label: string;
+      defaultChecked: boolean;
+      onChange: (v: boolean) => void;
+    }[] = [];
+    if (pfsTargets.length > 0) {
+      checkboxes.push({
+        id: "pfs",
+        label: `Paris Fashion Shop (${pfsTargets.length} produit${pfsTargets.length > 1 ? "s" : ""})`,
+        defaultChecked: true,
+        onChange: (v) => { pfsRef.current = v; },
+      });
+    }
+    if (ankorsTargets.length > 0) {
+      checkboxes.push({
+        id: "ankorstore",
+        label: `Ankorstore (${ankorsTargets.length} produit${ankorsTargets.length > 1 ? "s" : ""})`,
+        defaultChecked: true,
+        onChange: (v) => { ankorsRef.current = v; },
+      });
+    }
+
+    const ok = await confirm({
+      type: "info",
+      title: `Synchroniser ${ids.length} produit${ids.length > 1 ? "s" : ""} avec les marketplaces ?`,
+      message:
+        "Toutes les informations actuelles (prix, stock, images, statut, etc.) seront renvoyées aux marketplaces cochées. Le produit garde le même identifiant en ligne.",
+      checkboxesLabel: "Marketplaces",
+      checkboxes,
+      confirmLabel: "Synchroniser",
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+
+    const inputs: Parameters<typeof enqueuePfs>[0] = [];
+    if (pfsRef.current) {
+      for (const p of pfsTargets) {
+        inputs.push({
+          productId: p.id,
+          reference: p.reference,
+          productName: p.name,
+          firstImage: p.firstImage,
+          options: { local: false, pfs: true },
+          mode: "resync" as const,
+          marketplace: "pfs" as const,
+        });
+      }
+    }
+    if (ankorsRef.current) {
+      for (const p of ankorsTargets) {
+        inputs.push({
+          productId: p.id,
+          reference: p.reference,
+          productName: p.name,
+          firstImage: p.firstImage,
+          options: { local: false, pfs: false, ankorstore: true },
+          mode: "resync" as const,
+          marketplace: "ankorstore" as const,
+        });
+      }
+    }
+    if (inputs.length > 0) enqueuePfs(inputs);
+  }, [allProducts, hasPfsConfig, showAnkorstore, confirm, enqueuePfs, toast]);
+
   // ─── Bulk variant actions ──
   const handleBulkVariantUpdate = useCallback(async (data: Record<string, unknown>) => {
     const ids = [...selectedVariantIds];
@@ -1751,6 +2010,7 @@ export default function AdminProductsTable({
 
     showLoading();
     startTransition(async () => {
+      let bulkSucceeded = false;
       try {
         if (hasIncrement) {
           const field = Object.keys(data)[0];
@@ -1772,12 +2032,14 @@ export default function AdminProductsTable({
             type: "success",
             text: `${updated} variante${updated > 1 ? "s" : ""} mise${updated > 1 ? "s" : ""} à jour`,
           });
+          bulkSucceeded = updated > 0;
         } else {
           const result = await bulkUpdateVariants(ids, data as Record<string, number | string | null>);
           setBulkMessage({
             type: "success",
             text: `${result.updated} variante${result.updated > 1 ? "s" : ""} mise${result.updated > 1 ? "s" : ""} à jour`,
           });
+          bulkSucceeded = result.updated > 0;
         }
         setSelectedVariantIds(new Set());
       } catch (e) {
@@ -1785,8 +2047,86 @@ export default function AdminProductsTable({
       } finally {
         hideLoading();
       }
+
+      // Propose la mise à jour marketplaces (PFS + Ankorstore) sur les produits
+      // dont au moins une variante a été modifiée.
+      if (!bulkSucceeded) return;
+      const { affectedProducts, pfsProducts, ankorsProducts } =
+        computeBulkVariantMarketplaceTargets(allProducts, ids, {
+          hasPfsConfig,
+          showAnkorstore,
+        });
+      if (pfsProducts.length === 0 && ankorsProducts.length === 0) return;
+
+      const pfsRef = { current: pfsProducts.length > 0 };
+      const ankorsRef = { current: ankorsProducts.length > 0 };
+      const checkboxes: {
+        id: string;
+        label: string;
+        defaultChecked: boolean;
+        onChange: (v: boolean) => void;
+      }[] = [];
+      if (pfsProducts.length > 0) {
+        checkboxes.push({
+          id: "pfs",
+          label: `Mettre à jour sur Paris Fashion Shop (${pfsProducts.length} produit${pfsProducts.length > 1 ? "s" : ""})`,
+          defaultChecked: true,
+          onChange: (v) => {
+            pfsRef.current = v;
+          },
+        });
+      }
+      if (ankorsProducts.length > 0) {
+        checkboxes.push({
+          id: "ankorstore",
+          label: `Mettre à jour sur Ankorstore (${ankorsProducts.length} produit${ankorsProducts.length > 1 ? "s" : ""})`,
+          defaultChecked: true,
+          onChange: (v) => {
+            ankorsRef.current = v;
+          },
+        });
+      }
+      const ok = await confirm({
+        type: "info",
+        title: "Propager aux marketplaces ?",
+        message: `${affectedProducts.length} produit${affectedProducts.length > 1 ? "s" : ""} touché${affectedProducts.length > 1 ? "s" : ""} par cette modification — cochez les marketplaces où l'envoyer.`,
+        checkboxesLabel: "Marketplaces",
+        checkboxes,
+        confirmLabel: "Mettre à jour",
+        cancelLabel: "Plus tard",
+      });
+      if (ok !== true) return;
+
+      const inputs: Parameters<typeof enqueuePfs>[0] = [];
+      if (pfsRef.current) {
+        for (const p of pfsProducts) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: true },
+            mode: "publish",
+            marketplace: "pfs",
+          });
+        }
+      }
+      if (ankorsRef.current) {
+        for (const p of ankorsProducts) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: false, ankorstore: true },
+            mode: "publish",
+            marketplace: "ankorstore",
+          });
+        }
+      }
+      if (inputs.length > 0) enqueuePfs(inputs);
     });
-  }, [selectedVariantIds, allProducts, startTransition, showLoading, hideLoading]);
+  }, [selectedVariantIds, allProducts, startTransition, showLoading, hideLoading, hasPfsConfig, showAnkorstore, confirm, enqueuePfs]);
 
   if (allProducts.length === 0) {
     return (
@@ -1870,7 +2210,7 @@ export default function AdminProductsTable({
           <div className="h-4 w-px bg-bg-primary/20" />
           <button
             type="button"
-            onClick={handleBulkDelete}
+            onClick={() => handleBulkDelete()}
             disabled={isPending}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/80 text-white text-xs font-medium rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors font-body"
           >
@@ -1908,7 +2248,7 @@ export default function AdminProductsTable({
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} deletingIds={deletingIds} />
+      <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (

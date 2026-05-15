@@ -67,3 +67,8 @@ docs/superpowers/
 
 # verrou Claude Code
 /.claude/scheduled_tasks.lock
+
+# listes de références produit utilisées ponctuellement par les scripts de
+# maintenance (re-push ciblé, restore-links, etc.) — données de travail
+# locales, ne pas commit.
+/refs-*.txt
