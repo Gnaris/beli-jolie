@@ -139,6 +139,25 @@ export function pfsStatusToBjStatus(
   return pfsStatus.trim().toUpperCase() === "READY_FOR_SALE" ? "ONLINE" : "OFFLINE";
 }
 
+/**
+ * Force OFFLINE quand au moins une couleur du produit n'a aucune image
+ * téléchargée. Cohérent avec la règle de validation du formulaire admin :
+ * un produit en ligne doit avoir au moins une photo par couleur.
+ */
+export function applyMissingImageDowngrade(
+  initialStatus: "ONLINE" | "OFFLINE",
+  variantColorIds: readonly string[],
+  imageColorIds: readonly string[],
+): { status: "ONLINE" | "OFFLINE"; missingColorIds: string[] } {
+  const wanted = new Set(variantColorIds);
+  const have = new Set(imageColorIds);
+  const missing = [...wanted].filter((cid) => !have.has(cid));
+  if (initialStatus === "ONLINE" && missing.length > 0) {
+    return { status: "OFFLINE", missingColorIds: missing };
+  }
+  return { status: initialStatus, missingColorIds: missing };
+}
+
 /** Traduction des codes pays courants en noms français */
 const COUNTRY_LABELS_FR: Record<string, string> = {
   CN: "Chine", FR: "France", IT: "Italie", ES: "Espagne", DE: "Allemagne",
@@ -2025,7 +2044,7 @@ export async function approveAndImportPfsProduct(
     warnings,
   );
 
-  const finalStatus = pfsStatusToBjStatus(product.status);
+  const pfsFinalStatus = pfsStatusToBjStatus(product.status);
 
   const plannedVariants = resolvedVariants.map((rv, i) => ({
     localId: `local-${i}`,
@@ -2046,6 +2065,21 @@ export async function approveAndImportPfsProduct(
     })),
     { isCancelled },
   );
+
+  const { status: finalStatus, missingColorIds: colorsMissingImages } =
+    applyMissingImageDowngrade(
+      pfsFinalStatus,
+      plannedVariants.map((pv) => pv.rv.colorId),
+      downloadedImages.map((di) => di.img.colorId),
+    );
+  if (pfsFinalStatus === "ONLINE" && finalStatus === "OFFLINE") {
+    const missingNames = colorsMissingImages
+      .map((cid) => colorNameMap.get(cid) ?? cid)
+      .join(", ");
+    warnings.push(
+      `Produit basculé en OFFLINE car ${colorsMissingImages.length} couleur(s) sans image : ${missingNames}`,
+    );
+  }
 
   const destDir = `public/${productImageDir(reference)}`;
   type ProcessedImage = {
