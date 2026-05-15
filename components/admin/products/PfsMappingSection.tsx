@@ -3,15 +3,22 @@
 /**
  * Section « Mapping Paris Fashion Shop » du formulaire produit.
  *
- * Affiche pour chaque variante (et chaque ligne d'un pack multi-couleurs) :
+ * Affiche **une ligne par couleur unique** du produit (et non par variante).
+ * Pour chaque couleur :
  *   - le mapping PFS principal de la couleur (lecture seule, info)
  *   - un sélecteur facultatif de mapping PFS **secondaire** (override propre
  *     à ce produit), qui exclut le principal de la couleur sélectionnée
  *
+ * Quand on change le mapping secondaire d'une couleur, il est propagé en
+ * cascade à TOUTES les variantes (UNIT/PACK) et lignes de pack qui utilisent
+ * cette couleur — il n'y a aucun cas d'usage où deux variantes de la même
+ * couleur voudraient des mappings PFS différents.
+ *
  * Calcule en temps réel les conflits sur le mapping effectif (override OU
- * principal) et affiche un avertissement par variante en conflit + un bandeau
- * récapitulatif. La case « Paris Fashion Shop » de la modale post-save est
- * gérée séparément depuis ProductForm en lisant ces mêmes conflits.
+ * principal) : un conflit n'existe qu'entre 2 couleurs DIFFÉRENTES qui
+ * pointent sur la même cible PFS. La case « Paris Fashion Shop » de la
+ * modale post-save est gérée séparément depuis ProductForm en lisant ces
+ * mêmes conflits.
  */
 
 import { useMemo } from "react";
@@ -19,7 +26,6 @@ import CustomSelect from "@/components/ui/CustomSelect";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import type {
   AvailableColor,
-  PackLineState,
   PfsColorOption,
   VariantState,
 } from "./ColorVariantManager";
@@ -41,16 +47,15 @@ interface Props {
   ) => void;
 }
 
-interface RowItem {
-  /** Clé stable pour la détection des conflits. */
-  key: string;
-  variantTempId: string;
-  packLineTempId?: string;
+/** Une ligne = une couleur unique du produit, avec les pointeurs vers
+ * toutes les variantes/lignes de pack à mettre à jour quand l'override change. */
+interface ColorRow {
   colorId: string;
   colorName: string;
   colorHex: string;
   principalRef: string | null;
   overrideRef: string | null;
+  targets: { variantTempId: string; packLineTempId?: string }[];
 }
 
 function principalLabelOf(principalRef: string | null, options: PfsColorOption[]): string {
@@ -66,46 +71,75 @@ export default function PfsMappingSection({
   onChangeVariantOverride,
   onChangePackLineOverride,
 }: Props) {
-  // Build rows : 1 ligne pour chaque variante UNIT/PACK + 1 par ligne d'un pack multi-couleurs.
-  const rows: RowItem[] = useMemo(() => {
-    const out: RowItem[] = [];
+  // Build rows : 1 ligne par couleur unique du produit. On agrège les
+  // variantes UNIT/PACK + toutes les lignes de pack en groupant par colorId.
+  const rows: ColorRow[] = useMemo(() => {
+    const byColor = new Map<string, ColorRow>();
+    const upsert = (input: {
+      colorId: string;
+      colorName: string;
+      colorHex: string;
+      principalRef: string | null;
+      overrideRef: string | null;
+      target: { variantTempId: string; packLineTempId?: string };
+    }) => {
+      const existing = byColor.get(input.colorId);
+      if (existing) {
+        // Si une autre variante portait déjà un override pour cette couleur
+        // et que celui-ci est null, on adopte le premier override non-null
+        // qu'on rencontre (cohérence d'affichage avant que l'utilisatrice ne
+        // re-sélectionne).
+        if (!existing.overrideRef && input.overrideRef) {
+          existing.overrideRef = input.overrideRef;
+        }
+        existing.targets.push(input.target);
+        return;
+      }
+      byColor.set(input.colorId, {
+        colorId: input.colorId,
+        colorName: input.colorName,
+        colorHex: input.colorHex,
+        principalRef: input.principalRef,
+        overrideRef: input.overrideRef,
+        targets: [input.target],
+      });
+    };
+
     for (const v of variants) {
-      // Pack multi-couleurs : on liste les lignes (la variante elle-même partage
-      // sa couleur avec la 1re ligne, donc on n'affiche pas la variante "racine").
       if (v.saleType === "PACK" && v.packLines.length > 0) {
         for (const pl of v.packLines) {
+          if (!pl.colorId) continue;
           const ac = availableColors.find((c) => c.id === pl.colorId);
-          out.push({
-            key: `v${v.tempId}-pl${pl.tempId}`,
-            variantTempId: v.tempId,
-            packLineTempId: pl.tempId,
+          upsert({
             colorId: pl.colorId,
             colorName: pl.colorName || ac?.name || "Couleur sans nom",
             colorHex: pl.colorHex || ac?.hex || "#9CA3AF",
             principalRef: ac?.pfsColorRef ?? null,
             overrideRef: pl.pfsColorRefOverride ?? null,
+            target: { variantTempId: v.tempId, packLineTempId: pl.tempId },
           });
         }
         continue;
       }
+      if (!v.colorId) continue;
       const ac = availableColors.find((c) => c.id === v.colorId);
-      out.push({
-        key: `v${v.tempId}`,
-        variantTempId: v.tempId,
+      upsert({
         colorId: v.colorId,
         colorName: v.colorName || ac?.name || "Couleur sans nom",
         colorHex: v.colorHex || ac?.hex || "#9CA3AF",
         principalRef: ac?.pfsColorRef ?? null,
         overrideRef: v.pfsColorRefOverride ?? null,
+        target: { variantTempId: v.tempId },
       });
     }
-    return out;
+    return Array.from(byColor.values());
   }, [variants, availableColors]);
 
-  // Conflits sur le mapping effectif.
+  // Conflits sur le mapping effectif. Comme les rows sont déjà uniques par
+  // couleur, le helper ne dédupliquera rien de plus côté UI.
   const conflicts = useMemo(() => {
     const items: VariantColorRefInput[] = rows.map((r) => ({
-      key: r.key,
+      key: r.colorId,
       colorId: r.colorId,
       label: r.colorName,
       principalRef: r.principalRef,
@@ -114,23 +148,15 @@ export default function PfsMappingSection({
     return detectPfsColorConflicts(items);
   }, [rows]);
 
-  // Set des row keys en conflit pour décoration : on collecte les colorId en
-  // conflit puis on remonte à TOUTES les rows qui utilisent ces couleurs (pas
-  // seulement la première qui survit à la dédup), pour que toutes les lignes
-  // concernées soient surlignées.
-  const keysInConflict = useMemo(() => {
-    const colorIdsInConflict = new Set<string>();
+  const colorIdsInConflict = useMemo(() => {
+    const s = new Set<string>();
     for (const c of conflicts) {
       for (const v of c.variants) {
-        if (v.colorId) colorIdsInConflict.add(v.colorId);
+        if (v.colorId) s.add(v.colorId);
       }
     }
-    const s = new Set<string>();
-    for (const r of rows) {
-      if (r.colorId && colorIdsInConflict.has(r.colorId)) s.add(r.key);
-    }
     return s;
-  }, [conflicts, rows]);
+  }, [conflicts]);
 
   if (rows.length === 0) return null;
 
@@ -141,8 +167,9 @@ export default function PfsMappingSection({
           Mapping Paris Fashion Shop
         </h3>
         <p className="text-sm text-text-secondary font-body">
-          Pour chaque variante, vérifiez le mapping PFS de la couleur. Si deux variantes pointent
-          sur le même mapping, vous pouvez en choisir un secondaire propre à ce produit.
+          Pour chaque couleur du produit, vérifiez son mapping PFS. Le mapping
+          secondaire est partagé entre toutes les variantes (et lignes de pack)
+          qui utilisent cette couleur.
         </p>
       </div>
 
@@ -168,19 +195,17 @@ export default function PfsMappingSection({
 
       <div className="border border-border rounded-xl overflow-hidden">
         <div className="grid grid-cols-12 gap-2 bg-bg-secondary px-4 py-2 text-[11px] uppercase tracking-wider font-semibold text-text-muted font-body">
-          <div className="col-span-4">Variante</div>
+          <div className="col-span-4">Couleur</div>
           <div className="col-span-3">Mapping principal</div>
           <div className="col-span-5">Mapping secondaire (facultatif)</div>
         </div>
         <div className="divide-y divide-border">
           {rows.map((r) => {
-            const inConflict = keysInConflict.has(r.key);
+            const inConflict = colorIdsInConflict.has(r.colorId);
             const effective = effectivePfsColorRef({
               principalRef: r.principalRef,
               overrideRef: r.overrideRef,
             });
-            // Le sélecteur exclut le mapping principal (logique : le secondaire
-            // doit être différent). On affiche tout le reste.
             const selectOptions = [
               { value: "", label: "— (utiliser le mapping principal)" },
               ...pfsColorOptions
@@ -192,7 +217,7 @@ export default function PfsMappingSection({
             ];
             return (
               <div
-                key={r.key}
+                key={r.colorId}
                 className={`grid grid-cols-12 gap-2 items-center px-4 py-3 ${
                   inConflict ? "bg-amber-50/60" : ""
                 }`}
@@ -202,9 +227,6 @@ export default function PfsMappingSection({
                   <span className="text-[13px] font-body text-text-primary truncate">
                     {r.colorName}
                   </span>
-                  {r.packLineTempId && (
-                    <span className="text-[10px] text-text-muted font-body">(pack)</span>
-                  )}
                 </div>
                 <div className="col-span-3 text-[12px] font-body text-text-secondary">
                   {principalLabelOf(r.principalRef, pfsColorOptions)}
@@ -219,10 +241,13 @@ export default function PfsMappingSection({
                       value={r.overrideRef ?? ""}
                       onChange={(v) => {
                         const next = v ? v : null;
-                        if (r.packLineTempId) {
-                          onChangePackLineOverride(r.variantTempId, r.packLineTempId, next);
-                        } else {
-                          onChangeVariantOverride(r.variantTempId, next);
+                        // Propage à toutes les variantes/lignes utilisant cette couleur.
+                        for (const t of r.targets) {
+                          if (t.packLineTempId) {
+                            onChangePackLineOverride(t.variantTempId, t.packLineTempId, next);
+                          } else {
+                            onChangeVariantOverride(t.variantTempId, next);
+                          }
                         }
                       }}
                       options={selectOptions}
