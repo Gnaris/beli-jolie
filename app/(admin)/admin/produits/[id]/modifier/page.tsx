@@ -478,6 +478,7 @@ export default async function ModifierProduitPage({
         hasPfsConfig={hasPfsConfig}
         hasAnkorstoreConfig={hasAnkorstoreConfig}
         ankorstoreEnabled={ankorstoreEnabled}
+        pfsColorOptions={pfsColorOptions}
         initialData={{
           reference:         product.reference,
           name:              product.name,
