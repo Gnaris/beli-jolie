@@ -695,15 +695,35 @@ export async function pfsUpdateProductInPlace(
     //   - couleur effective modifiée → recreate (PFS ne permet pas de patcher
     //     la couleur d'une variante existante)
     //   - autres changements (prix/stock/poids) → patch normal
+    //
+    // Détection de changement de couleur :
+    //   1) On compare au snapshot précédent (chemin nominal — update au save)
+    //   2) Si le snapshot est absent (resynchro forcée ↻ ou snapshot vide),
+    //      on compare à la couleur réelle remontée par pfsGetVariants — sinon
+    //      on raterait les changements en mode forceFullSync.
     const variantsToRecreate: { bjVariant: FullVariant; oldPfsVariantId: string; pfsData: PfsVariantCreateData }[] = [];
     const variantsToPatch: typeof variantsChangedUpdate = [];
     for (const item of variantsChangedUpdate) {
       const prevVariantSnap = prevSnapshot?.variants[item.pfsVariantId];
       const nextVariantSnap = nextVariantsSnap[item.pfsVariantId];
-      const colorChanged =
-        !!prevVariantSnap &&
-        !!nextVariantSnap &&
-        (prevVariantSnap.colorRef ?? null) !== (nextVariantSnap.colorRef ?? null);
+      const nextColorRef = nextVariantSnap?.colorRef ?? null;
+      let colorChanged = false;
+      if (nextColorRef) {
+        const prevColorRef = prevVariantSnap?.colorRef ?? null;
+        if (prevColorRef) {
+          colorChanged = prevColorRef !== nextColorRef;
+        } else {
+          // Snapshot absent (resynchro forcée) OU snapshot legacy sans colorRef :
+          // on compare à la couleur réelle remontée par pfsGetVariants pour
+          // décider. Si on n'a pas l'info (variante manquante côté PFS), on ne
+          // touche pas — la branche patch normal gérera le cas.
+          const pfsVariant = existingPfsVariants.find((v) => v.id === item.pfsVariantId);
+          const pfsRef = pfsVariant?.item?.color?.reference ?? null;
+          if (pfsRef !== null) {
+            colorChanged = pfsRef !== nextColorRef;
+          }
+        }
+      }
       if (colorChanged) {
         const pfsData = buildVariantCreateData(item.bjVariant, colorRefMap, pfsMarkup);
         if (pfsData) {
