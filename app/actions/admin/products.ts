@@ -1778,7 +1778,13 @@ export async function fetchProductFormAttributes() {
 
   return {
     categories,
-    colors: colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage })),
+    colors: colors.map((c) => ({
+      id: c.id,
+      name: c.name,
+      hex: c.hex,
+      patternImage: c.patternImage,
+      pfsColorRef: c.pfsColorRef,
+    })),
     compositions,
     tags,
     manufacturingCountries,

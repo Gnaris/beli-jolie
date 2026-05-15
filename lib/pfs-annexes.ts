@@ -208,7 +208,29 @@ const cachedAnnexes = unstable_cache(loadFresh, ["pfs-annexes-v2"], {
 });
 
 export async function getPfsAnnexes(): Promise<PfsAnnexes> {
-  return cachedAnnexes();
+  const cached = await cachedAnnexes();
+  // Si le cache a été rempli avec un résultat vide (1ère tentative ratée par
+  // exemple), on retente un appel direct et on invalide le cache pour que la
+  // version fraîche soit cachée la prochaine fois. Évite que l'admin reste
+  // bloqué 60 min avec « Couleurs PFS indisponibles ».
+  if (cached.colors.length === 0 && cached.families.length === 0) {
+    try {
+      const fresh = await loadFresh();
+      if (fresh.colors.length > 0 || fresh.families.length > 0) {
+        try {
+          const { revalidateTag } = await import("next/cache");
+          revalidateTag("pfs-annexes", "default");
+        } catch {
+          // Hors contexte Next : on ne peut pas invalider, mais on retourne
+          // quand même les données fraîches pour cette requête.
+        }
+        return fresh;
+      }
+    } catch {
+      // Si loadFresh plante aussi, on retombe sur le cache vide.
+    }
+  }
+  return cached;
 }
 
 /** Pour les tests : pas de cache. */
