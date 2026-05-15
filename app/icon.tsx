@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import sharp from "sharp";
 import { getCachedShopName, getCachedFavicon } from "@/lib/cached-data";
 import { readFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
@@ -15,7 +16,18 @@ export default async function Icon() {
   if (custom?.icon) {
     try {
       const buffer = await readFile(keyFromDbPath(custom.icon));
-      return new Response(new Uint8Array(buffer), {
+      // Google requires favicons ≥ 48px square (recommended: 192×192). If the
+      // uploaded file is smaller, upscale it to match the declared size.
+      const meta = await sharp(buffer).metadata();
+      const needsResize =
+        (meta.width ?? 0) < size.width || (meta.height ?? 0) < size.height;
+      const final = needsResize
+        ? await sharp(buffer)
+            .resize(size.width, size.height, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+            .png()
+            .toBuffer()
+        : buffer;
+      return new Response(new Uint8Array(final), {
         headers: {
           "Content-Type": "image/png",
           "Cache-Control": "public, max-age=0, must-revalidate",
