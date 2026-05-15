@@ -911,17 +911,34 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
     return { hex: v.colorHex || opt?.hex, patternImage: opt?.patternImage ?? null };
   }
 
-  const [uploadingSlots, setUploadingSlots] = useState<Record<string, number | null>>({});
+  const [uploadingSlots, setUploadingSlots] = useState<Record<string, number[]>>({});
+  // Suit tous les uploads en cours par couleur (positions des slots).
+  // Un ref permet d'éviter les courses entre uploads parallèles : on lit
+  // toujours la version la plus récente, sans dépendre du re-render React.
+  const inFlightRef = useRef<Map<string, Set<number>>>(new Map());
 
   async function handleAddImageAtPosition(groupKey: string, file: File, _position: number) {
     const state = colorImagesRef.current.find((c) => c.groupKey === groupKey);
     if (!state) return;
-    const usedPositions = new Set(state.orders);
+    // On exclut les positions déjà utilisées ET celles déjà réservées par un
+    // upload en cours, sinon deux uploads parallèles peuvent se voir attribuer
+    // la même position.
+    const reserved = inFlightRef.current.get(groupKey) ?? new Set<number>();
+    const usedPositions = new Set([...state.orders, ...reserved]);
     let position = 0;
     while (usedPositions.has(position)) position++;
     if (position >= 5) return;
     const blob = URL.createObjectURL(file);
-    setUploadingSlots((prev) => ({ ...prev, [groupKey]: position }));
+
+    // Marque cet upload comme en cours.
+    let inFlight = inFlightRef.current.get(groupKey);
+    if (!inFlight) { inFlight = new Set<number>(); inFlightRef.current.set(groupKey, inFlight); }
+    inFlight.add(position);
+
+    setUploadingSlots((prev) => {
+      const existing = prev[groupKey] ?? [];
+      return { ...prev, [groupKey]: [...existing, position] };
+    });
     onChange(colorImagesRef.current.map((c) => c.groupKey === groupKey
       ? { ...c, imagePreviews: [...c.imagePreviews, blob], orders: [...c.orders, position], uploading: true }
       : c
@@ -937,7 +954,15 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
       const json = await res.json();
       if (res.ok) path = json.path;
     } catch { console.error("Erreur upload"); }
-    setUploadingSlots((prev) => ({ ...prev, [groupKey]: null }));
+
+    // Cet upload est terminé — on le retire de la liste.
+    inFlight.delete(position);
+    const stillUploading = inFlight.size > 0;
+
+    setUploadingSlots((prev) => {
+      const existing = prev[groupKey] ?? [];
+      return { ...prev, [groupKey]: existing.filter((p) => p !== position) };
+    });
     if (!path) {
       onChange(colorImagesRef.current.map((c) => {
         if (c.groupKey !== groupKey) return c;
@@ -945,14 +970,14 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
           ...c,
           imagePreviews: c.imagePreviews.filter((p) => p !== blob),
           orders: c.orders.filter((_, j) => c.imagePreviews[j] !== blob),
-          uploading: false,
+          uploading: stillUploading,
         };
       }));
       return;
     }
     onChange(colorImagesRef.current.map((c) => {
       if (c.groupKey !== groupKey) return c;
-      return { ...c, uploadedPaths: [...c.uploadedPaths, path], uploading: false };
+      return { ...c, uploadedPaths: [...c.uploadedPaths, path], uploading: stillUploading };
     }));
   }
 
@@ -1092,7 +1117,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
                   onSwapPositions={(from, to) => handleSwapPositions(cimg.groupKey, from, to)}
                   onCrossColorDrop={(srcGroupKey, srcPos, targetPos) => handleCrossColorDrop(srcGroupKey, srcPos, cimg.groupKey, targetPos)}
                   uploading={cimg.uploading}
-                  uploadingPosition={uploadingSlots[cimg.groupKey] ?? null}
+                  uploadingPositions={uploadingSlots[cimg.groupKey] ?? []}
                   hasError={missingImages}
                 />
                 {missingImages && (

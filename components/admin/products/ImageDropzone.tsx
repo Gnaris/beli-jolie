@@ -12,7 +12,7 @@ interface ImageDropzoneProps {
   onSwapPositions: (fromPos: number, toPos: number) => void;
   onCrossColorDrop?: (sourceGroupKey: string, sourcePos: number, targetPos: number) => void;
   uploading: boolean;
-  uploadingPosition?: number | null;
+  uploadingPositions?: number[];
   hasError?: boolean;
 }
 
@@ -28,9 +28,10 @@ export default function ImageDropzone({
   onSwapPositions,
   onCrossColorDrop,
   uploading,
-  uploadingPosition,
+  uploadingPositions,
   hasError,
 }: ImageDropzoneProps) {
+  const inFlight = uploadingPositions ?? [];
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [draggedPos, setDraggedPos] = useState<number | null>(null);
   const [dragOverPos, setDragOverPos] = useState<number | null>(null);
@@ -151,7 +152,7 @@ export default function ImageDropzone({
       <div className="grid grid-cols-5 gap-2">
         {Array.from({ length: MAX_IMAGES }, (_, pos) => {
           const img = getImageAtPosition(pos);
-          const isUploading = uploading && uploadingPosition === pos;
+          const isUploading = uploading && inFlight.includes(pos);
           const isDraggedFrom = draggedPos === pos;
           const isDragOver = dragOverPos === pos;
 
