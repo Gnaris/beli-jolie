@@ -17,9 +17,59 @@ import {
 } from "@/lib/ankorstore-api";
 import { primeAnkorstoreToken, primeAnkorstoreCredentials } from "@/lib/ankorstore-auth";
 import { decryptIfSensitive } from "@/lib/encryption";
-import { runAutoMatch, type BjProductForMatch } from "@/lib/ankorstore-match";
+import { runAutoMatch, type BjProductForMatch, type MatchResult } from "@/lib/ankorstore-match";
 import { autoLinkAnkorstoreVariants } from "@/lib/ankorstore-variant-link";
-import { buildMatchedRows, splitAmbiguousAkSide } from "@/scripts/link-ankorstore-bulk";
+
+interface MatchedRow {
+  bjId: string;
+  bjName: string;
+  bjReference: string;
+  akId: string;
+  akName: string;
+  variantPairs: { localColorId: string; ankorstoreVariantId: string }[];
+}
+
+function buildMatchedRows(results: MatchResult[]): MatchedRow[] {
+  return results
+    .filter((r) => r.status === "matched")
+    .map((r) => ({
+      bjId: r.bjProductIds[0],
+      bjName: r.bjProductNames[0],
+      bjReference: r.extractedRef ?? "?",
+      akId: r.ankorstoreProduct.id,
+      akName: r.ankorstoreProduct.name,
+      variantPairs: (r.variantMatches ?? [])
+        .filter((vm) => vm.bjColorId !== null)
+        .map((vm) => ({
+          localColorId: vm.bjColorId as string,
+          ankorstoreVariantId: vm.ankorstoreVariant.id,
+        })),
+    }));
+}
+
+function splitAmbiguousAkSide(rows: MatchedRow[]): {
+  safe: MatchedRow[];
+  ambiguousAk: { bjId: string; bjReference: string; akCandidates: string[] }[];
+} {
+  const byBjId = new Map<string, MatchedRow[]>();
+  for (const r of rows) {
+    const list = byBjId.get(r.bjId) ?? [];
+    list.push(r);
+    byBjId.set(r.bjId, list);
+  }
+  const safe: MatchedRow[] = [];
+  const ambiguousAk: { bjId: string; bjReference: string; akCandidates: string[] }[] = [];
+  for (const [bjId, list] of byBjId) {
+    if (list.length === 1) safe.push(list[0]);
+    else
+      ambiguousAk.push({
+        bjId,
+        bjReference: list[0].bjReference,
+        akCandidates: list.map((r) => r.akId),
+      });
+  }
+  return { safe, ambiguousAk };
+}
 
 const ANKORSTORE_TOKEN_URL = "https://www.ankorstore.com/oauth/token";
 
