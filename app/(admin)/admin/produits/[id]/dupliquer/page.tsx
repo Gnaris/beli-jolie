@@ -9,7 +9,7 @@ import {
   getCachedHasAnkorstoreConfig,
   getCachedAnkorstoreEnabled,
 } from "@/lib/cached-data";
-import { getPfsAnnexes } from "@/lib/pfs-annexes";
+import { getPfsColorOptions } from "@/lib/pfs-annexes";
 
 export const metadata: Metadata = { title: "Dupliquer le produit" };
 export const dynamic = "force-dynamic";
@@ -121,15 +121,7 @@ export default async function DupliquerProduitPage({
 
   if (!product) notFound();
 
-  let pfsColorOptions: { ref: string; label?: string }[] = [];
-  if (hasPfsConfig) {
-    try {
-      const annexes = await getPfsAnnexes();
-      pfsColorOptions = (annexes.colors ?? []).map((ref) => ({ ref, label: ref }));
-    } catch {
-      pfsColorOptions = [];
-    }
-  }
+  const pfsColorOptions = hasPfsConfig ? await getPfsColorOptions() : [];
 
   const relatedIds = [
     ...product.similarProducts.map((sp) => sp.similar.id),

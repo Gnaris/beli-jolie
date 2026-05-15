@@ -6,7 +6,7 @@ import {
   getCachedHasAnkorstoreConfig,
   getCachedAnkorstoreEnabled,
 } from "@/lib/cached-data";
-import { getPfsAnnexes } from "@/lib/pfs-annexes";
+import { getPfsColorOptions } from "@/lib/pfs-annexes";
 import { CreatePageWrapper, CreatePageToggle } from "./CreatePageWrapper";
 
 export const metadata: Metadata = { title: "Nouveau produit" };
@@ -18,15 +18,7 @@ export default async function NouveauProduitPage() {
     getCachedAnkorstoreEnabled(),
   ]);
 
-  let pfsColorOptions: { ref: string; label?: string }[] = [];
-  if (hasPfsConfig) {
-    try {
-      const annexes = await getPfsAnnexes();
-      pfsColorOptions = (annexes.colors ?? []).map((ref) => ({ ref, label: ref }));
-    } catch {
-      pfsColorOptions = [];
-    }
-  }
+  const pfsColorOptions = hasPfsConfig ? await getPfsColorOptions() : [];
 
   return (
     <CreatePageWrapper>

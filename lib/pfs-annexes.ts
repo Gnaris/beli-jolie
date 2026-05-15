@@ -207,6 +207,71 @@ const cachedAnnexes = unstable_cache(loadFresh, ["pfs-annexes-v2"], {
   tags: ["pfs-annexes"],
 });
 
+/**
+ * Liste des couleurs PFS sous forme `{ ref, label }` pour le sélecteur de
+ * mapping secondaire dans le formulaire produit.
+ *
+ * Pourquoi distinct de `getPfsAnnexes().colors` : ce dernier renvoie
+ * uniquement le label FR (string[]), ce qui est incompatible avec ce qu'on
+ * stocke côté Color.pfsColorRef (la référence PFS, ex: "GOLDEN"). On a donc
+ * besoin du couple (référence stockée, libellé affiché).
+ */
+export interface PfsColorOption {
+  ref: string;
+  label: string;
+}
+
+const cachedColorOptions = unstable_cache(
+  async (): Promise<PfsColorOption[]> => {
+    try {
+      const pfsColors = await pfsGetColors();
+      const out: PfsColorOption[] = pfsColors
+        .map((c) => {
+          const ref = c.reference?.trim();
+          if (!ref) return null;
+          const fr = c.labels?.fr?.trim();
+          return { ref, label: fr || ref };
+        })
+        .filter((v): v is PfsColorOption => v !== null);
+      // Tri par label pour un affichage prévisible côté admin.
+      out.sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+      return out;
+    } catch (err) {
+      logger.warn("[PFS Color Options] failed to load", { error: String(err) });
+      return [];
+    }
+  },
+  ["pfs-color-options-v1"],
+  { revalidate: 3600, tags: ["pfs-annexes"] },
+);
+
+export async function getPfsColorOptions(): Promise<PfsColorOption[]> {
+  const cached = await cachedColorOptions();
+  if (cached.length > 0) return cached;
+  // Cache vide : retente direct + invalide pour les prochaines requêtes.
+  try {
+    const pfsColors = await pfsGetColors();
+    const fresh: PfsColorOption[] = pfsColors
+      .map((c) => {
+        const ref = c.reference?.trim();
+        if (!ref) return null;
+        const fr = c.labels?.fr?.trim();
+        return { ref, label: fr || ref };
+      })
+      .filter((v): v is PfsColorOption => v !== null);
+    fresh.sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+    if (fresh.length > 0) {
+      try {
+        const { revalidateTag } = await import("next/cache");
+        revalidateTag("pfs-annexes", "default");
+      } catch { /* hors contexte Next */ }
+    }
+    return fresh;
+  } catch {
+    return [];
+  }
+}
+
 export async function getPfsAnnexes(): Promise<PfsAnnexes> {
   const cached = await cachedAnnexes();
   // Si le cache a été rempli avec un résultat vide (1ère tentative ratée par

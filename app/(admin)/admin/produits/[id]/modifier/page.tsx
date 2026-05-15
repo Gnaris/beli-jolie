@@ -15,7 +15,7 @@ import {
   getCachedHasAnkorstoreConfig,
   getCachedAnkorstoreEnabled,
 } from "@/lib/cached-data";
-import { getPfsAnnexes } from "@/lib/pfs-annexes";
+import { getPfsColorOptions } from "@/lib/pfs-annexes";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 export const dynamic = "force-dynamic";
@@ -130,15 +130,9 @@ export default async function ModifierProduitPage({
   // Charge les couleurs PFS disponibles (pour le sélecteur de mapping secondaire).
   // Best-effort : si l'API PFS échoue, on retombe sur une liste vide et la
   // section Mapping affiche "Couleurs PFS indisponibles".
-  let pfsColorOptions: { ref: string; label?: string }[] = [];
-  if (hasPfsConfig) {
-    try {
-      const annexes = await getPfsAnnexes();
-      pfsColorOptions = (annexes.colors ?? []).map((ref) => ({ ref, label: ref }));
-    } catch {
-      pfsColorOptions = [];
-    }
-  }
+  // Couleurs PFS au format { ref, label } pour le sélecteur de mapping secondaire.
+  // On stocke la ref (ex: "GOLDEN") et on affiche le label FR (ex: "Doré").
+  const pfsColorOptions = hasPfsConfig ? await getPfsColorOptions() : [];
 
   // A product is a draft only if it was explicitly created as one (isIncomplete=true)
   // AND was never imported from PFS. Imported products may have isIncomplete=true
