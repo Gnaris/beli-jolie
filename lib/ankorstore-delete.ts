@@ -17,16 +17,29 @@ import {
   extractFailureReason,
   fetchDetailedFailureMessage,
 } from "@/lib/ankorstore-publish";
+import {
+  ANKORSTORE_SNAPSHOT_VERSION,
+  type AnkorstoreSyncSnapshot,
+} from "@/lib/ankorstore-sync-diff";
 import { logger } from "@/lib/logger";
 
 export type AnkorstoreDeleteKickoffResult =
   | { success: true; operationId: string }
   | { success: false; error: string };
 
-/** Payload sauvegardé pour DELETE (rien d'utile à finaliser au-delà du log). */
+/**
+ * Payload sauvegardé pour DELETE.
+ *
+ * - Suppression complète (produit retiré entièrement) : seuls reference et
+ *   oldAnkorsProductId sont posés.
+ * - Suppression partielle (une/plusieurs couleurs retirées d'un produit qui
+ *   reste publié) : `variantOnlyDeletedAnkorsVariantIds` liste les IDs AS à
+ *   purger du snapshot local au moment du finalize.
+ */
 export interface AnkorstoreDeletePayload {
   reference: string;
   oldAnkorsProductId: string;
+  variantOnlyDeletedAnkorsVariantIds?: string[];
 }
 
 /**
@@ -89,8 +102,75 @@ export async function ankorstoreKickoffStandaloneDelete(args: {
 }
 
 /**
- * Finalize a DELETE operation. Just records the outcome; no DB mutations
- * needed (the local product was deleted synchronously by the admin action).
+ * Lance la suppression PARTIELLE de variantes (couleurs supprimées localement)
+ * d'un produit qui reste publié sur Ankorstore. Le finalize purgera ces
+ * variantes du snapshot local sur succès.
+ */
+export async function ankorstoreKickoffVariantDelete(args: {
+  productId: string;
+  reference: string;
+  ankorsProductId: string;
+  removedVariants: { ankorsVariantId: string; sku: string }[];
+}): Promise<AnkorstoreDeleteKickoffResult> {
+  const { productId, reference, ankorsProductId, removedVariants } = args;
+
+  if (removedVariants.length === 0) {
+    return { success: false, error: "Aucune variante à supprimer" };
+  }
+
+  try {
+    const skus = removedVariants
+      .map((v) => v.sku)
+      .filter((s): s is string => !!s && s.trim().length > 0);
+    if (skus.length === 0) {
+      return { success: false, error: "Aucun SKU valide pour la suppression partielle" };
+    }
+
+    const { operationId } = await ankorstoreKickoffDelete(reference, skus);
+
+    const payload: AnkorstoreDeletePayload = {
+      reference,
+      oldAnkorsProductId: ankorsProductId,
+      variantOnlyDeletedAnkorsVariantIds: removedVariants.map((v) => v.ankorsVariantId),
+    };
+
+    await prisma.ankorstoreOperation.create({
+      data: {
+        id: operationId,
+        productId,
+        type: "DELETE",
+        status: "PENDING",
+        payload: payload as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    logger.info("[Ankorstore Delete] Variant-only kickoff", {
+      operationId,
+      productId,
+      reference,
+      skuCount: skus.length,
+    });
+
+    return { success: true, operationId };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    logger.error("[Ankorstore Delete] Variant-only kickoff failed", {
+      productId,
+      reference,
+      error: err,
+    });
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * Finalize a DELETE operation.
+ *
+ * - Suppression complète : juste journaliser, le produit local est déjà parti.
+ * - Suppression partielle (variantOnlyDeletedAnkorsVariantIds présent) :
+ *   sur succès, retirer ces variantes du snapshot pour que le diff suivant
+ *   ne tente pas de re-supprimer. Sur échec, laisser le snapshot intact pour
+ *   pouvoir réessayer.
  */
 export async function ankorstoreFinalizeDelete(
   op: AnkorstoreOperation,
@@ -99,8 +179,47 @@ export async function ankorstoreFinalizeDelete(
   if (op.status !== "PENDING") return;
 
   const callbackStatus = readCallbackStatus(callbackPayload);
+  const payload = op.payload as unknown as AnkorstoreDeletePayload;
+  const variantOnlyIds = payload.variantOnlyDeletedAnkorsVariantIds ?? [];
 
   if (callbackStatus === "succeeded" || callbackStatus === "partially_failed") {
+    if (variantOnlyIds.length > 0) {
+      try {
+        const product = await prisma.product.findUnique({
+          where: { id: op.productId },
+          select: { ankorsLastSyncSnapshot: true },
+        });
+        const raw = product?.ankorsLastSyncSnapshot;
+        if (raw && typeof raw === "object") {
+          const snapshot = raw as Partial<AnkorstoreSyncSnapshot>;
+          if (
+            snapshot.schemaVersion === ANKORSTORE_SNAPSHOT_VERSION &&
+            snapshot.variants
+          ) {
+            const cleanedVariants = { ...snapshot.variants };
+            for (const vid of variantOnlyIds) delete cleanedVariants[vid];
+            const cleanedSnapshot: AnkorstoreSyncSnapshot = {
+              ...(snapshot as AnkorstoreSyncSnapshot),
+              variants: cleanedVariants,
+            };
+            await prisma.product.update({
+              where: { id: op.productId },
+              data: {
+                ankorsLastSyncSnapshot:
+                  cleanedSnapshot as unknown as Prisma.InputJsonValue,
+              },
+            });
+          }
+        }
+      } catch (err) {
+        logger.error("[Ankorstore Delete] Snapshot cleanup failed", {
+          operationId: op.id,
+          productId: op.productId,
+          error: err,
+        });
+      }
+    }
+
     await prisma.ankorstoreOperation.update({
       where: { id: op.id },
       data: {
@@ -113,6 +232,7 @@ export async function ankorstoreFinalizeDelete(
       operationId: op.id,
       productId: op.productId,
       status: callbackStatus,
+      variantOnly: variantOnlyIds.length > 0,
     });
     return;
   }

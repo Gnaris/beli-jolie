@@ -29,6 +29,7 @@ const mockPatchVariantPrices = vi.fn().mockResolvedValue(undefined);
 const mockCreateCatalogOperation = vi.fn().mockResolvedValue({ operationId: "op-test" });
 const mockAddProductsToOperation = vi.fn().mockResolvedValue({ totalProductsCount: 1 });
 const mockStartOperation = vi.fn().mockResolvedValue(undefined);
+const mockKickoffDelete = vi.fn().mockResolvedValue({ operationId: "op-delete" });
 
 vi.mock("@/lib/ankorstore-api-write", () => ({
   ankorstorePatchVariantStock: (...args: unknown[]) => mockPatchVariantStock(...args),
@@ -36,6 +37,7 @@ vi.mock("@/lib/ankorstore-api-write", () => ({
   ankorstoreCreateCatalogOperation: (...args: unknown[]) => mockCreateCatalogOperation(...args),
   ankorstoreAddProductsToOperation: (...args: unknown[]) => mockAddProductsToOperation(...args),
   ankorstoreStartOperation: (...args: unknown[]) => mockStartOperation(...args),
+  ankorstoreKickoffDelete: (...args: unknown[]) => mockKickoffDelete(...args),
 }));
 
 vi.mock("@/lib/ankorstore-variant-link", () => ({
@@ -193,6 +195,7 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     mockProductUpdate.mockResolvedValue({});
     mockAnkorstoreOperationCreate.mockResolvedValue({});
     mockAnkorstoreOperationUpdateMany.mockResolvedValue({ count: 0 });
+    mockKickoffDelete.mockResolvedValue({ operationId: "op-delete" });
     vi.mocked(prisma.companyInfo.findFirst).mockResolvedValue({ shopName: "Test Boutique" } as never);
   });
 
@@ -446,6 +449,73 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
       (v) => v.options.find((o) => o.name === "color")?.value === "Vert",
     );
     expect(newVariant?.sku?.toLowerCase()).toContain("vert");
+  });
+
+  it("Test 7: variante supprimée localement → kickoff DELETE partiel + AnkorstoreOperation row VARIANT-only", async () => {
+    // Avant fix : le diff voyait "rien à patcher" (la variante supprimée
+    // n'apparaissait nulle part), early return instant, AS gardait la variante.
+    // Après fix : on détecte la variante supprimée, on appelle l'endpoint
+    // DELETE d'Ankorstore avec son SKU, et finalize purgera le snapshot.
+    const prevSnapshot = makeSnapshot({
+      variants: {
+        "ank-variant-1": {
+          sku: "REF001_red_UNIT_1",
+          wholesalePriceCents: 1000,
+          retailPriceCents: 1000,
+          stockQty: 10,
+          isAlwaysInStock: false,
+          optionColor: "Rouge",
+          optionSize: "TU",
+          optionMaterial: null,
+        },
+        "ank-variant-2": {
+          sku: "REF001_blue_UNIT_2",
+          wholesalePriceCents: 1000,
+          retailPriceCents: 1000,
+          stockQty: 5,
+          isAlwaysInStock: false,
+          optionColor: "Bleu",
+          optionSize: "TU",
+          optionMaterial: null,
+        },
+      },
+    });
+
+    // Local : seul Rouge subsiste, Bleu a été supprimé
+    const product = makeProduct({
+      ankorsLastSyncSnapshot: prevSnapshot,
+      // colors par défaut = juste la variante Rouge
+    });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+    mockGetVariants.mockResolvedValueOnce([
+      { id: "ank-variant-1", sku: "REF001_red_UNIT_1" },
+      { id: "ank-variant-2", sku: "REF001_blue_UNIT_2" },
+    ]);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    // Kickoff DELETE partiel a été appelé avec le SKU de la variante retirée
+    expect(mockKickoffDelete).toHaveBeenCalledWith("REF001", ["REF001_blue_UNIT_2"]);
+    // operationId retourné = celui du DELETE partiel (pas null)
+    expect(result.operationId).toBe("op-delete");
+    // Pas d'op UPDATE catalogue créée (rien d'autre n'a changé)
+    expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
+    // Une AnkorstoreOperation row DELETE a bien été créée
+    expect(mockAnkorstoreOperationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          id: "op-delete",
+          type: "DELETE",
+          status: "PENDING",
+          payload: expect.objectContaining({
+            variantOnlyDeletedAnkorsVariantIds: ["ank-variant-2"],
+          }),
+        }),
+      }),
+    );
   });
 
   it("Bonus: produit introuvable en base → retourne error", async () => {

@@ -70,6 +70,12 @@ export interface AnkorstoreSyncSnapshot {
 export interface AnkorstoreSyncDiff {
   productChanged: boolean;
   variantsChanged: string[];
+  /**
+   * Variantes présentes dans le snapshot précédent mais plus dans le nouveau
+   * (= couleur supprimée localement). Le SKU est repris du prev snapshot car
+   * c'est ce qu'attend l'endpoint de suppression Ankorstore.
+   */
+  variantsRemoved: { ankorsVariantId: string; sku: string }[];
   imagesToUpload: { colorKey: string; slot: number; path: string }[];
   imagesToDelete: { colorKey: string; slot: number }[];
   statusChanged: boolean;
@@ -131,6 +137,7 @@ export function diffAnkorstoreSnapshots(
     return {
       productChanged: true,
       variantsChanged: Object.keys(next.variants),
+      variantsRemoved: [],
       imagesToUpload,
       imagesToDelete: [],
       statusChanged: true,
@@ -141,13 +148,20 @@ export function diffAnkorstoreSnapshots(
   const statusChanged = prev.status !== next.status;
 
   // Variants : seules celles présentes dans `next` peuvent être patchées.
-  // Celles présentes dans `prev` mais plus dans `next` sont gérées séparément
-  // (suppression Ankorstore) — on n'a rien à diffuser pour elles.
   const variantsChanged: string[] = [];
   for (const [vid, nextVariant] of Object.entries(next.variants)) {
     const prevVariant = prev.variants[vid];
     if (!prevVariant || !variantSnapshotEqual(prevVariant, nextVariant)) {
       variantsChanged.push(vid);
+    }
+  }
+
+  // Variantes supprimées : présentes dans prev mais plus dans next.
+  // Le caller utilisera l'endpoint DELETE dédié d'Ankorstore avec ces SKUs.
+  const variantsRemoved: AnkorstoreSyncDiff["variantsRemoved"] = [];
+  for (const [vid, prevVariant] of Object.entries(prev.variants)) {
+    if (!next.variants[vid]) {
+      variantsRemoved.push({ ankorsVariantId: vid, sku: prevVariant.sku });
     }
   }
 
@@ -178,6 +192,7 @@ export function diffAnkorstoreSnapshots(
   return {
     productChanged,
     variantsChanged,
+    variantsRemoved,
     imagesToUpload,
     imagesToDelete,
     statusChanged,
@@ -193,6 +208,7 @@ export function diffIsEmpty(diff: AnkorstoreSyncDiff): boolean {
     !diff.productChanged &&
     !diff.statusChanged &&
     diff.variantsChanged.length === 0 &&
+    diff.variantsRemoved.length === 0 &&
     diff.imagesToUpload.length === 0 &&
     diff.imagesToDelete.length === 0
   );

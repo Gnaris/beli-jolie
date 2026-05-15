@@ -96,6 +96,39 @@ describe("diffAnkorstoreSnapshots", () => {
     expect(diff.imagesToDelete).toEqual([{ colorKey: "Rouge", slot: 1 }]);
   });
 
+  it("retire une variante → variantsRemoved porte l'ID + SKU, diff non vide", () => {
+    const prev: AnkorstoreSyncSnapshot = {
+      ...baseSnap,
+      variants: {
+        v1: baseSnap.variants.v1,
+        v2: {
+          sku: "REF1_B_UNIT_2",
+          wholesalePriceCents: 1500,
+          retailPriceCents: 3000,
+          stockQty: 4,
+          isAlwaysInStock: false,
+          optionColor: "Bleu",
+          optionSize: "M",
+          optionMaterial: null,
+        },
+      },
+    };
+    const next: AnkorstoreSyncSnapshot = {
+      ...prev,
+      variants: { v1: prev.variants.v1 },
+    };
+    const diff = diffAnkorstoreSnapshots(prev, next);
+    expect(diff.variantsRemoved).toEqual([
+      { ankorsVariantId: "v2", sku: "REF1_B_UNIT_2" },
+    ]);
+    expect(diffIsEmpty(diff)).toBe(false);
+  });
+
+  it("aucune variante retirée → variantsRemoved vide", () => {
+    const diff = diffAnkorstoreSnapshots(baseSnap, baseSnap);
+    expect(diff.variantsRemoved).toEqual([]);
+  });
+
   it("change le statut → statusChanged=true", () => {
     const next: AnkorstoreSyncSnapshot = { ...baseSnap, status: "archived" };
     const diff = diffAnkorstoreSnapshots(baseSnap, next);

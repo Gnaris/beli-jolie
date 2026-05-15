@@ -26,6 +26,7 @@ import {
   type AnkorstoreCatalogProductInput,
 } from "@/lib/ankorstore-api-write";
 import { autoLinkAnkorstoreVariants } from "@/lib/ankorstore-variant-link";
+import { ankorstoreKickoffVariantDelete } from "@/lib/ankorstore-delete";
 import {
   loadAnkorstorePricingConfig,
   getAnkorstorePackedPrice,
@@ -552,6 +553,42 @@ export async function ankorstoreKickoffUpdate(
       return { success: true, operationId: null, archived: allVariantsOutOfStock };
     }
 
+    // Step 0: Couleurs supprimées localement → kickoff DELETE partiel pour
+    // les retirer côté Ankorstore. On garde l'opération séparée du flux
+    // UPDATE pour deux raisons : (1) l'endpoint AS dédié exige la liste des
+    // SKUs à retirer ; (2) finalize peut nettoyer le snapshot uniquement
+    // sur succès du callback, évitant les états incohérents si le delete rate.
+    let variantDeleteOperationId: string | null = null;
+    if (diff.variantsRemoved.length > 0) {
+      const removed = diff.variantsRemoved.filter((v) => v.sku && v.sku.trim().length > 0);
+      if (removed.length === 0) {
+        logger.warn("[Ankorstore Update] Variantes supprimées sans SKU — saute", {
+          ankorsProductId,
+          variantsRemoved: diff.variantsRemoved,
+        });
+      } else {
+        const delRes = await ankorstoreKickoffVariantDelete({
+          productId,
+          reference: product.reference,
+          ankorsProductId,
+          removedVariants: removed,
+        });
+        if (!delRes.success) {
+          return {
+            success: false,
+            error:
+              "La suppression de variante côté Ankorstore n'a pas pu être lancée : " +
+              delRes.error,
+          };
+        }
+        variantDeleteOperationId = delRes.operationId;
+        logger.info("[Ankorstore Update] Variant-delete kicked off", {
+          operationId: delRes.operationId,
+          removedCount: removed.length,
+        });
+      }
+    }
+
     // Step A: Apply direct PATCHes for variant stock/prices.
     // Parallèle pour minimiser la latence (avant : séquentiel, ~4-8s pour 4 variantes).
     if (diff.variantsChanged.length > 0) {
@@ -599,7 +636,9 @@ export async function ankorstoreKickoffUpdate(
       hasNewVariants;
 
     if (!needsAsyncOp) {
-      // Only PATCHes happened — save snapshot now and return.
+      // Only PATCHes (et/ou variant-delete) — save snapshot now and return.
+      // La snapshot conserve les variantes supprimées : ankorstoreFinalizeDelete
+      // les purgera quand le callback Ankorstore confirmera la suppression.
       await prisma.product.update({
         where: { id: productId },
         data: {
@@ -614,7 +653,11 @@ export async function ankorstoreKickoffUpdate(
         type: allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
         productId,
       });
-      return { success: true, operationId: null, archived: allVariantsOutOfStock };
+      return {
+        success: true,
+        operationId: variantDeleteOperationId,
+        archived: allVariantsOutOfStock,
+      };
     }
 
     // Cancel any earlier pending update op for this product
@@ -744,8 +787,19 @@ export async function ankorstoreKickoffUpdate(
 
     // Reflect the async pieces (images, product fields, status) into the
     // committed snapshot — finalize will commit on success.
+    // On purge aussi les variantes supprimées : sinon le finalize UPDATE
+    // réécrirait la snapshot avec ces variantes, annulant le travail de
+    // ankorstoreFinalizeDelete (l'ordre des deux callbacks n'est pas garanti).
+    const removedVariantIdSet = new Set(
+      diff.variantsRemoved.map((v) => v.ankorsVariantId),
+    );
+    const cleanedVariants: AnkorstoreSyncSnapshot["variants"] = {};
+    for (const [vid, snap] of Object.entries(committedSnapshot.variants)) {
+      if (!removedVariantIdSet.has(vid)) cleanedVariants[vid] = snap;
+    }
     const committedAfterAsync: AnkorstoreSyncSnapshot = {
       ...committedSnapshot,
+      variants: cleanedVariants,
       product: nextProductSnap,
       images: nextImagesSnap,
       status: targetStatus,
