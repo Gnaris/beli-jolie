@@ -703,14 +703,41 @@ export async function pfsUpdateProductInPlace(
     //      on raterait les changements en mode forceFullSync.
     const variantsToRecreate: { bjVariant: FullVariant; oldPfsVariantId: string; pfsData: PfsVariantCreateData }[] = [];
     const variantsToPatch: typeof variantsChangedUpdate = [];
+
+    // Trace de diagnostic : on affiche TOUTES les variantes à analyser pour
+    // pouvoir tracer pourquoi une variante n'est pas recréée comme attendu.
+    logger.info("[PFS Update] [color-change-debug] candidates", {
+      pfsProductId,
+      reference: product.reference,
+      forceFullSync: !!options?.forceFullSync,
+      hasPrevSnapshot: !!prevSnapshot,
+      changedVids: Array.from(changedSet),
+      candidates: variantsChangedUpdate.map((item) => {
+        const prevVariantSnap = prevSnapshot?.variants[item.pfsVariantId];
+        const nextVariantSnap = nextVariantsSnap[item.pfsVariantId];
+        const pfsVariant = existingPfsVariants.find((v) => v.id === item.pfsVariantId);
+        return {
+          bjId: item.bjVariant.id,
+          colorName: item.bjVariant.color?.name ?? null,
+          colorOverride: item.bjVariant.pfsColorRefOverride ?? null,
+          pfsVariantId: item.pfsVariantId,
+          prevColorRefSnap: prevVariantSnap?.colorRef ?? null,
+          nextColorRef: nextVariantSnap?.colorRef ?? null,
+          pfsActualColorRef: pfsVariant?.item?.color?.reference ?? null,
+        };
+      }),
+    });
+
     for (const item of variantsChangedUpdate) {
       const prevVariantSnap = prevSnapshot?.variants[item.pfsVariantId];
       const nextVariantSnap = nextVariantsSnap[item.pfsVariantId];
       const nextColorRef = nextVariantSnap?.colorRef ?? null;
       let colorChanged = false;
+      let detectionPath: "skipped-no-next" | "snapshot" | "pfs-state" | "no-info" = "skipped-no-next";
       if (nextColorRef) {
         const prevColorRef = prevVariantSnap?.colorRef ?? null;
         if (prevColorRef) {
+          detectionPath = "snapshot";
           colorChanged = prevColorRef !== nextColorRef;
         } else {
           // Snapshot absent (resynchro forcée) OU snapshot legacy sans colorRef :
@@ -720,10 +747,19 @@ export async function pfsUpdateProductInPlace(
           const pfsVariant = existingPfsVariants.find((v) => v.id === item.pfsVariantId);
           const pfsRef = pfsVariant?.item?.color?.reference ?? null;
           if (pfsRef !== null) {
+            detectionPath = "pfs-state";
             colorChanged = pfsRef !== nextColorRef;
+          } else {
+            detectionPath = "no-info";
           }
         }
       }
+      logger.info("[PFS Update] [color-change-debug] decision", {
+        bjId: item.bjVariant.id,
+        pfsVariantId: item.pfsVariantId,
+        detectionPath,
+        colorChanged,
+      });
       if (colorChanged) {
         const pfsData = buildVariantCreateData(item.bjVariant, colorRefMap, pfsMarkup);
         if (pfsData) {
@@ -733,10 +769,24 @@ export async function pfsUpdateProductInPlace(
             pfsData,
           });
           continue;
+        } else {
+          logger.warn("[PFS Update] [color-change-debug] colorChanged=true mais buildVariantCreateData=null", {
+            bjId: item.bjVariant.id,
+          });
         }
       }
       variantsToPatch.push(item);
     }
+
+    logger.info("[PFS Update] [color-change-debug] split", {
+      toPatch: variantsToPatch.map((v) => v.pfsVariantId),
+      toRecreate: variantsToRecreate.map((v) => ({
+        bjId: v.bjVariant.id,
+        oldPfsVariantId: v.oldPfsVariantId,
+        newColor: v.pfsData.color,
+        newSize: v.pfsData.size,
+      })),
+    });
 
     if (variantsToPatch.length > 0) {
       const patches: PfsVariantUpdateData[] = variantsToPatch.map(({ bjVariant, pfsVariantId }) => ({
@@ -775,8 +825,17 @@ export async function pfsUpdateProductInPlace(
         `Recréation de ${variantsToRecreate.length} variante(s) suite à un changement de couleur PFS...`,
       );
       for (const item of variantsToRecreate) {
+        logger.info("[PFS Update] [color-change-debug] recreate-start", {
+          bjId: item.bjVariant.id,
+          oldPfsVariantId: item.oldPfsVariantId,
+          newColor: item.pfsData.color,
+          newSize: item.pfsData.size,
+        });
         try {
           await pfsDeleteVariant(item.oldPfsVariantId);
+          logger.info("[PFS Update] [color-change-debug] recreate-delete-ok", {
+            oldPfsVariantId: item.oldPfsVariantId,
+          });
         } catch (err) {
           logger.error("[PFS Update] Failed to delete old variant before recreate", {
             error: err,
@@ -790,6 +849,11 @@ export async function pfsUpdateProductInPlace(
         try {
           const { variantIds } = await pfsCreateVariants(pfsProductId, [item.pfsData]);
           const newId = variantIds[0];
+          logger.info("[PFS Update] [color-change-debug] recreate-create-result", {
+            bjId: item.bjVariant.id,
+            newPfsVariantId: newId,
+            allReturnedIds: variantIds,
+          });
           if (!newId) {
             logger.error("[PFS Update] Recreate succeeded delete but create returned no id", {
               bjVariantId: item.bjVariant.id,
