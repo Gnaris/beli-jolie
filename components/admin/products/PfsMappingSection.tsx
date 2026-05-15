@@ -48,14 +48,27 @@ interface Props {
 }
 
 /** Une ligne = une couleur unique du produit, avec les pointeurs vers
- * toutes les variantes/lignes de pack à mettre à jour quand l'override change. */
+ * toutes les variantes/lignes de pack à mettre à jour quand l'override change.
+ *
+ * On regroupe par **nom de couleur** (et non par colorId) pour gérer le cas où
+ * la bibliothèque contient plusieurs entrées portant exactement le même nom
+ * (ex : 2 fiches « Doré » créées par erreur) — sinon le formulaire afficherait
+ * 2 lignes "Doré" et changer l'une ne propagerait pas à l'autre.
+ */
 interface ColorRow {
-  colorId: string;
+  /** Clé de groupage : le nom normalisé (lower + trim). */
+  groupKey: string;
   colorName: string;
   colorHex: string;
   principalRef: string | null;
   overrideRef: string | null;
+  /** Vrai s'il existe au moins 2 entrées de couleur partageant ce nom. */
+  hasNameCollision: boolean;
   targets: { variantTempId: string; packLineTempId?: string }[];
+}
+
+function normalizeName(name: string): string {
+  return name.trim().toLowerCase();
 }
 
 function principalLabelOf(principalRef: string | null, options: PfsColorOption[]): string {
@@ -71,10 +84,12 @@ export default function PfsMappingSection({
   onChangeVariantOverride,
   onChangePackLineOverride,
 }: Props) {
-  // Build rows : 1 ligne par couleur unique du produit. On agrège les
-  // variantes UNIT/PACK + toutes les lignes de pack en groupant par colorId.
+  // Build rows : 1 ligne par couleur unique (par nom) du produit. On agrège
+  // les variantes UNIT/PACK + toutes les lignes de pack en groupant par nom
+  // normalisé. Détecte aussi les collisions de noms (plusieurs fiches couleur
+  // portant le même libellé).
   const rows: ColorRow[] = useMemo(() => {
-    const byColor = new Map<string, ColorRow>();
+    const byName = new Map<string, ColorRow & { colorIdsSeen: Set<string> }>();
     const upsert = (input: {
       colorId: string;
       colorName: string;
@@ -83,7 +98,8 @@ export default function PfsMappingSection({
       overrideRef: string | null;
       target: { variantTempId: string; packLineTempId?: string };
     }) => {
-      const existing = byColor.get(input.colorId);
+      const key = normalizeName(input.colorName);
+      const existing = byName.get(key);
       if (existing) {
         // Si une autre variante portait déjà un override pour cette couleur
         // et que celui-ci est null, on adopte le premier override non-null
@@ -92,15 +108,19 @@ export default function PfsMappingSection({
         if (!existing.overrideRef && input.overrideRef) {
           existing.overrideRef = input.overrideRef;
         }
+        existing.colorIdsSeen.add(input.colorId);
+        existing.hasNameCollision = existing.colorIdsSeen.size > 1;
         existing.targets.push(input.target);
         return;
       }
-      byColor.set(input.colorId, {
-        colorId: input.colorId,
+      byName.set(key, {
+        groupKey: key,
         colorName: input.colorName,
         colorHex: input.colorHex,
         principalRef: input.principalRef,
         overrideRef: input.overrideRef,
+        hasNameCollision: false,
+        colorIdsSeen: new Set([input.colorId]),
         targets: [input.target],
       });
     };
@@ -132,15 +152,16 @@ export default function PfsMappingSection({
         target: { variantTempId: v.tempId },
       });
     }
-    return Array.from(byColor.values());
+    // On retourne sans le champ interne `colorIdsSeen` (pas exposé dans le type ColorRow).
+    return Array.from(byName.values()).map(({ colorIdsSeen: _ignored, ...row }) => row);
   }, [variants, availableColors]);
 
-  // Conflits sur le mapping effectif. Comme les rows sont déjà uniques par
-  // couleur, le helper ne dédupliquera rien de plus côté UI.
+  // Conflits sur le mapping effectif. La clé de groupage côté conflits est le
+  // groupKey (nom normalisé) — cohérent avec la dédup par nom des rows.
   const conflicts = useMemo(() => {
     const items: VariantColorRefInput[] = rows.map((r) => ({
-      key: r.colorId,
-      colorId: r.colorId,
+      key: r.groupKey,
+      colorId: r.groupKey,
       label: r.colorName,
       principalRef: r.principalRef,
       overrideRef: r.overrideRef,
@@ -148,7 +169,7 @@ export default function PfsMappingSection({
     return detectPfsColorConflicts(items);
   }, [rows]);
 
-  const colorIdsInConflict = useMemo(() => {
+  const groupKeysInConflict = useMemo(() => {
     const s = new Set<string>();
     for (const c of conflicts) {
       for (const v of c.variants) {
@@ -201,7 +222,7 @@ export default function PfsMappingSection({
         </div>
         <div className="divide-y divide-border">
           {rows.map((r) => {
-            const inConflict = colorIdsInConflict.has(r.colorId);
+            const inConflict = groupKeysInConflict.has(r.groupKey);
             const effective = effectivePfsColorRef({
               principalRef: r.principalRef,
               overrideRef: r.overrideRef,
@@ -217,7 +238,7 @@ export default function PfsMappingSection({
             ];
             return (
               <div
-                key={r.colorId}
+                key={r.groupKey}
                 className={`grid grid-cols-12 gap-2 items-center px-4 py-3 ${
                   inConflict ? "bg-amber-50/60" : ""
                 }`}
@@ -227,6 +248,14 @@ export default function PfsMappingSection({
                   <span className="text-[13px] font-body text-text-primary truncate">
                     {r.colorName}
                   </span>
+                  {r.hasNameCollision && (
+                    <span
+                      className="text-[10px] text-amber-700 bg-amber-100 rounded px-1.5 py-0.5 font-body"
+                      title="Plusieurs fiches couleur portent ce nom dans la bibliothèque. Le mapping s'appliquera à toutes les variantes du produit utilisant ce nom."
+                    >
+                      Doublons biblio
+                    </span>
+                  )}
                 </div>
                 <div className="col-span-3 text-[12px] font-body text-text-secondary">
                   {principalLabelOf(r.principalRef, pfsColorOptions)}
