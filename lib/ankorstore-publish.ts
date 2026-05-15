@@ -190,7 +190,11 @@ function buildVariantSku(
 ): string {
   if (variant.sku) return variant.sku;
   const colorSlug = variant.color?.name?.replace(/\s+/g, "-").toLowerCase() ?? `v${index}`;
-  return `${product.reference}_${colorSlug}_${variant.saleType}_${index + 1}`;
+  // Suffix stable basé sur l'ID local de la variante : voir commentaire
+  // identique dans ankorstore-update.ts. Les SKU d'Ankorstore sont cramés
+  // pour toujours une fois utilisés (même après archivage).
+  const idSuffix = variant.id.slice(-8);
+  return `${product.reference}_${colorSlug}_${variant.saleType}_${index + 1}_${idSuffix}`;
 }
 
 /**
