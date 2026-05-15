@@ -373,6 +373,81 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     expect(products[0].mainImage).toContain("ref001-blue-1.webp");
   });
 
+  it("Test 6: nouvelle variante locale (sans ankorsVariantId) → incluse dans le payload async avec SKU local", async () => {
+    // Avant fix : la nouvelle variante était filtrée → AS ne la créait jamais.
+    // Après fix : elle est envoyée à AS avec son SKU local, AS la crée,
+    // finalize relance l'auto-link pour récupérer le nouveau ankorsVariantId.
+    const prevSnapshot = makeSnapshot();
+    const product = makeProduct({
+      ankorsLastSyncSnapshot: prevSnapshot,
+      colors: [
+        // Couleur déjà liée (Rouge → ank-variant-1)
+        {
+          id: "variant-1",
+          ankorsVariantId: "ank-variant-1",
+          unitPrice: 10,
+          weight: 0.5,
+          stock: 10,
+          isPrimary: true,
+          saleType: "UNIT",
+          packQuantity: null,
+          sku: "REF001_red_UNIT_1",
+          variantSizes: [],
+          colorId: "color-1",
+          color: { id: "color-1", name: "Rouge" },
+          packLines: [],
+          images: [],
+        },
+        // Nouvelle couleur ajoutée localement, pas encore sur AS
+        {
+          id: "variant-2",
+          ankorsVariantId: null,
+          unitPrice: 12,
+          weight: 0.5,
+          stock: 7,
+          isPrimary: false,
+          saleType: "UNIT",
+          packQuantity: null,
+          sku: null,
+          variantSizes: [],
+          colorId: "color-3",
+          color: { id: "color-3", name: "Vert" },
+          packLines: [],
+          images: [],
+        },
+      ],
+    });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+    // AS ne connaît que la variante existante → auto-link ne trouvera rien
+    // pour la nouvelle (mock par défaut retourne matched=0,0).
+    mockGetVariants.mockResolvedValueOnce([
+      { id: "ank-variant-1", sku: "REF001_red_UNIT_1" },
+    ]);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    // Une op asynchrone DOIT être créée juste pour pousser la nouvelle variante
+    expect(result.operationId).toBe("op-test");
+    expect(mockCreateCatalogOperation).toHaveBeenCalledWith("update");
+
+    // Le payload doit contenir LES DEUX variantes (la liée et la nouvelle)
+    const addCall = mockAddProductsToOperation.mock.calls[0];
+    const products = addCall[1] as { variants: { sku: string; options: { name: string; value: string }[] }[] }[];
+    expect(products[0].variants).toHaveLength(2);
+    const colors = products[0].variants
+      .map((v) => v.options.find((o) => o.name === "color")?.value)
+      .sort();
+    expect(colors).toEqual(["Rouge", "Vert"]);
+    // La nouvelle variante porte son SKU local (Ankorstore créera la variante)
+    const newVariant = products[0].variants.find(
+      (v) => v.options.find((o) => o.name === "color")?.value === "Vert",
+    );
+    expect(newVariant?.sku?.toLowerCase()).toContain("vert");
+  });
+
   it("Bonus: produit introuvable en base → retourne error", async () => {
     vi.mocked(prisma.product.findUnique).mockResolvedValue(null);
 

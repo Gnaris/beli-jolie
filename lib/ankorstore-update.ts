@@ -536,25 +536,19 @@ export async function ankorstoreKickoffUpdate(
 
     const diff = diffAnkorstoreSnapshots(prevSnapshot, nextSnapshot);
 
-    // Garde-fou anti-doublon (Brique 4) : les variantes locales sans
-    // ankorsVariantId ne sont PAS envoyées à AS lors d'un update (le
-    // payload des variants est filtré plus bas). Donc on ne déclenche pas
-    // d'opération AS uniquement pour ces variantes-là — il faut passer par
-    // la modale « Variantes non liées » pour les lier avant.
-    const unlinkedCount = product.colors.filter((v) => !v.ankorsVariantId).length;
-    if (diffIsEmpty(diff)) {
-      if (unlinkedCount > 0) {
-        logger.info("[Ankorstore Update] Variantes non liées ignorées (pas de doublon créé)", {
-          ankorsProductId,
-          reference: product.reference,
-          unlinkedCount,
-        });
-      } else {
-        logger.info("[Ankorstore Update] Aucun changement détecté", {
-          ankorsProductId,
-          reference: product.reference,
-        });
-      }
+    // Variantes locales sans ankorsVariantId = couleurs nouvellement ajoutées
+    // après la 1re publication. `autoLinkAnkorstoreVariants` a déjà tenté de
+    // les matcher par SKU et par couleur ci-dessus : si elles restent ici,
+    // c'est qu'aucune jumelle n'existe encore côté AS → on doit les pousser
+    // dans l'update payload pour qu'AS les crée. Pas de risque de doublon
+    // puisque le matching a déjà confirmé l'absence.
+    const unlinkedVariants = product.colors.filter((v) => !v.ankorsVariantId);
+    const hasNewVariants = unlinkedVariants.length > 0;
+    if (diffIsEmpty(diff) && !hasNewVariants) {
+      logger.info("[Ankorstore Update] Aucun changement détecté", {
+        ankorsProductId,
+        reference: product.reference,
+      });
       return { success: true, operationId: null, archived: allVariantsOutOfStock };
     }
 
@@ -594,12 +588,15 @@ export async function ankorstoreKickoffUpdate(
       });
     }
 
-    // Step B: Async catalog update operation for product fields / images
+    // Step B: Async catalog update operation for product fields / images /
+    // nouvelles variantes. Les variantes encore non liées (hasNewVariants)
+    // sont incluses dans le payload plus bas pour qu'AS les crée.
     const needsAsyncOp =
       diff.productChanged ||
       diff.imagesToUpload.length > 0 ||
       diff.imagesToDelete.length > 0 ||
-      diff.statusChanged;
+      diff.statusChanged ||
+      hasNewVariants;
 
     if (!needsAsyncOp) {
       // Only PATCHes happened — save snapshot now and return.
@@ -680,23 +677,16 @@ export async function ankorstoreKickoffUpdate(
       countryCode: nextProductSnap.countryCode,
       ...(nextProductSnap.hsCode ? { hsCode: nextProductSnap.hsCode } : {}),
       ...(shapeProperties ? { shapeProperties } : {}),
-      // Garde-fou anti-doublon : pour un produit DÉJÀ publié (ankorsProductId
-      // posé), on n'envoie que les variantes liées (ankorsVariantId connu).
-      // Une variante locale sans jumelle AS ne doit JAMAIS être pushée ici —
-      // ça créerait un doublon côté Ankorstore. Pour l'ajouter, passer par la
-      // modale "Variantes non liées" (Brique 1) qui pose la liaison d'abord.
-      variants: product.colors
-        .map((variant, i) => ({ variant, i }))
-        .filter(({ variant }) => {
-          if (variant.ankorsVariantId) return true;
-          logger.warn("[Ankorstore Update] Variante locale non liée — skip pour éviter doublon", {
-            productId,
-            bjVariantId: variant.id,
-            colorName: variant.color?.name,
-          });
-          return false;
-        })
-        .map(({ variant, i }) => {
+      // Variantes envoyées à AS :
+      //  - liées (ankorsVariantId connu) → on utilise leur SKU réel AS pour
+      //    qu'AS les mette à jour en place (sinon doublon).
+      //  - non liées (nouvelle couleur ajoutée après la 1re publication) →
+      //    on utilise notre SKU local, AS la crée. `autoLinkAnkorstoreVariants`
+      //    a déjà confirmé qu'aucune jumelle n'existe côté AS pour cette
+      //    couleur → aucun risque de doublon. Après le webhook succeeded,
+      //    finalize relancera l'auto-link pour récupérer le nouvel
+      //    ankorsVariantId créé par AS.
+      variants: product.colors.map((variant, i) => {
         // Utilise le SKU réel d'Ankorstore pour les variantes déjà liées
         // (sinon Ankorstore créerait une nouvelle variante au lieu de modifier
         // l'existante).
@@ -870,6 +860,27 @@ export async function ankorstoreFinalizeUpdate(
         },
       }),
     ]);
+
+    // Récupère les ankorsVariantId des couleurs nouvellement créées côté AS
+    // (variantes qui n'avaient pas de jumelle au moment du kickoff). Sans ça,
+    // la prochaine modif de stock/prix ne saurait pas vers où PATCH-er.
+    try {
+      const link = await autoLinkAnkorstoreVariants(op.productId);
+      if (link.matchedExact + link.matchedColor > 0) {
+        logger.info("[Ankorstore Update] Auto-linked new variants after finalize", {
+          operationId: op.id,
+          productId: op.productId,
+          matchedExact: link.matchedExact,
+          matchedColor: link.matchedColor,
+        });
+      }
+    } catch (err) {
+      logger.error("[Ankorstore Update] Auto-link post-finalize failed", {
+        operationId: op.id,
+        productId: op.productId,
+        error: err,
+      });
+    }
 
     revalidateTag("products", "default");
     emitProductEvent({
