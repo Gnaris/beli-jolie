@@ -701,6 +701,30 @@ export async function pfsUpdateProductInPlace(
     //   2) Si le snapshot est absent (resynchro forcée ↻ ou snapshot vide),
     //      on compare à la couleur réelle remontée par pfsGetVariants — sinon
     //      on raterait les changements en mode forceFullSync.
+    // [override-debug] : trace ce que le diff voit pour chaque variante
+    // candidate au patch — permet de confirmer que les 2 Doré sont bien tous
+    // les deux détectés comme changés en BDD.
+    logger.info("[PFS Update] [override-debug] variantsToUpdate vs diff", {
+      pfsProductId,
+      reference: product.reference,
+      forceFullSync: !!options?.forceFullSync,
+      hasPrevSnapshot: !!prevSnapshot,
+      changedVids: Array.from(changedSet),
+      variantsToUpdate: variantsToUpdate.map((u) => {
+        const prev = prevSnapshot?.variants[u.pfsVariantId];
+        const next = nextVariantsSnap[u.pfsVariantId];
+        return {
+          bjId: u.bjVariant.id,
+          colorName: u.bjVariant.color?.name ?? null,
+          override: u.bjVariant.pfsColorRefOverride ?? null,
+          pfsVariantId: u.pfsVariantId,
+          inChangedSet: changedSet.has(u.pfsVariantId),
+          prevColorRef: prev?.colorRef ?? null,
+          nextColorRef: next?.colorRef ?? null,
+        };
+      }),
+    });
+
     const variantsToRecreate: { bjVariant: FullVariant; oldPfsVariantId: string; pfsData: PfsVariantCreateData }[] = [];
     const variantsToPatch: typeof variantsChangedUpdate = [];
     for (const item of variantsChangedUpdate) {

@@ -554,6 +554,22 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   await requireAdmin();
   input = await resolveProtectedSizeId(input);
 
+  // [override-debug] Trace : on log les overrides PFS reçus dans le payload pour
+  // confirmer que le formulaire envoie bien les overrides de TOUTES les variantes.
+  logger.info("[updateProduct] [override-debug] payload colors received", {
+    productId: id,
+    reference: input.reference,
+    colors: input.colors?.map((c) => ({
+      dbId: c.dbId ?? null,
+      colorId: c.colorId ?? null,
+      pfsColorRefOverride: c.pfsColorRefOverride ?? null,
+      packLines: c.packLines?.map((pl) => ({
+        colorId: pl.colorId,
+        pfsColorRefOverride: pl.pfsColorRefOverride ?? null,
+      })) ?? [],
+    })),
+  });
+
   // ── Defensive validation: DB non-nullable constraints ────────
   if (!input.reference?.trim()) throw new Error("La référence est requise.");
   if (/\s/.test(input.reference)) throw new Error("La référence ne doit pas contenir d'espaces.");
