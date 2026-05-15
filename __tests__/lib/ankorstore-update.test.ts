@@ -29,7 +29,7 @@ const mockPatchVariantPrices = vi.fn().mockResolvedValue(undefined);
 const mockCreateCatalogOperation = vi.fn().mockResolvedValue({ operationId: "op-test" });
 const mockAddProductsToOperation = vi.fn().mockResolvedValue({ totalProductsCount: 1 });
 const mockStartOperation = vi.fn().mockResolvedValue(undefined);
-const mockKickoffDelete = vi.fn().mockResolvedValue({ operationId: "op-delete" });
+const mockDeleteVariantDirect = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@/lib/ankorstore-api-write", () => ({
   ankorstorePatchVariantStock: (...args: unknown[]) => mockPatchVariantStock(...args),
@@ -37,7 +37,7 @@ vi.mock("@/lib/ankorstore-api-write", () => ({
   ankorstoreCreateCatalogOperation: (...args: unknown[]) => mockCreateCatalogOperation(...args),
   ankorstoreAddProductsToOperation: (...args: unknown[]) => mockAddProductsToOperation(...args),
   ankorstoreStartOperation: (...args: unknown[]) => mockStartOperation(...args),
-  ankorstoreKickoffDelete: (...args: unknown[]) => mockKickoffDelete(...args),
+  ankorstoreDeleteVariantDirect: (...args: unknown[]) => mockDeleteVariantDirect(...args),
 }));
 
 vi.mock("@/lib/ankorstore-variant-link", () => ({
@@ -195,7 +195,7 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     mockProductUpdate.mockResolvedValue({});
     mockAnkorstoreOperationCreate.mockResolvedValue({});
     mockAnkorstoreOperationUpdateMany.mockResolvedValue({ count: 0 });
-    mockKickoffDelete.mockResolvedValue({ operationId: "op-delete" });
+    mockDeleteVariantDirect.mockResolvedValue(undefined);
     vi.mocked(prisma.companyInfo.findFirst).mockResolvedValue({ shopName: "Test Boutique" } as never);
   });
 
@@ -451,11 +451,11 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     expect(newVariant?.sku?.toLowerCase()).toContain("vert");
   });
 
-  it("Test 7: variante supprimée localement → kickoff DELETE partiel + AnkorstoreOperation row VARIANT-only", async () => {
+  it("Test 7: variante supprimée localement → DELETE direct synchrone sur l'ID Ankorstore", async () => {
     // Avant fix : le diff voyait "rien à patcher" (la variante supprimée
     // n'apparaissait nulle part), early return instant, AS gardait la variante.
     // Après fix : on détecte la variante supprimée, on appelle l'endpoint
-    // DELETE d'Ankorstore avec son SKU, et finalize purgera le snapshot.
+    // DELETE /product-variants/{id} directement (synchrone, 204 = succès).
     // Snapshot stocke le SKU lowercase (comme `buildVariantSku` le produit).
     const prevSnapshot = makeSnapshot({
       variants: {
@@ -500,25 +500,14 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    // Kickoff DELETE doit utiliser le SKU canonique AS (uppercase), pas celui du snapshot.
-    expect(mockKickoffDelete).toHaveBeenCalledWith("REF001", ["REF001_BLUE_UNIT_2"]);
-    // operationId retourné = celui du DELETE partiel (pas null)
-    expect(result.operationId).toBe("op-delete");
+    // DELETE direct appelé avec l'ankorsVariantId de la variante retirée
+    expect(mockDeleteVariantDirect).toHaveBeenCalledWith("ank-variant-2");
+    // Suppression synchrone → operationId null (rien à attendre côté callback)
+    expect(result.operationId).toBe(null);
     // Pas d'op UPDATE catalogue créée (rien d'autre n'a changé)
     expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
-    // Une AnkorstoreOperation row DELETE a bien été créée
-    expect(mockAnkorstoreOperationCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          id: "op-delete",
-          type: "DELETE",
-          status: "PENDING",
-          payload: expect.objectContaining({
-            variantOnlyDeletedAnkorsVariantIds: ["ank-variant-2"],
-          }),
-        }),
-      }),
-    );
+    // Pas d'AnkorstoreOperation row (synchrone, pas besoin de tracker)
+    expect(mockAnkorstoreOperationCreate).not.toHaveBeenCalled();
   });
 
   it("Bonus: produit introuvable en base → retourne error", async () => {

@@ -23,10 +23,10 @@ import {
   ankorstoreStartOperation,
   ankorstorePatchVariantStock,
   ankorstorePatchVariantPrices,
+  ankorstoreDeleteVariantDirect,
   type AnkorstoreCatalogProductInput,
 } from "@/lib/ankorstore-api-write";
 import { autoLinkAnkorstoreVariants } from "@/lib/ankorstore-variant-link";
-import { ankorstoreKickoffVariantDelete } from "@/lib/ankorstore-delete";
 import {
   loadAnkorstorePricingConfig,
   getAnkorstorePackedPrice,
@@ -553,67 +553,59 @@ export async function ankorstoreKickoffUpdate(
       return { success: true, operationId: null, archived: allVariantsOutOfStock };
     }
 
-    // Step 0: Couleurs supprimées localement → kickoff DELETE partiel pour
-    // les retirer côté Ankorstore. On garde l'opération séparée du flux
-    // UPDATE pour deux raisons : (1) l'endpoint AS dédié exige la liste des
-    // SKUs à retirer ; (2) finalize peut nettoyer le snapshot uniquement
-    // sur succès du callback, évitant les états incohérents si le delete rate.
-    let variantDeleteOperationId: string | null = null;
-    let variantsAlreadyGoneFromAs: string[] = [];
+    // Step 0: Couleurs supprimées localement → DELETE direct sur chaque
+    // variante via /product-variants/{id} (synchrone, 204 = succès).
+    //
+    // Pourquoi pas catalog-integration/operations/delete : ce dernier
+    // archive le PRODUIT entier (exige tous ses SKUs). Avec une sous-liste,
+    // AS répond "Could not archive the following SKU(s)" (cas constaté en
+    // prod sur A405 le 15/05). DELETE direct retire la variante sans
+    // toucher au produit.
+    const variantsRemovedSucceeded: string[] = [];
     if (diff.variantsRemoved.length > 0) {
-      // ankorsRealSkuById = SKUs tels qu'Ankorstore les stocke réellement.
-      // On les préfère aux SKUs du snapshot précédent car AS peut normaliser
-      // la casse (ex: stocke `A405_TEST_UNIT_3` quand on a envoyé
-      // `A405_test_UNIT_3`) → archiver avec la mauvaise casse échoue avec
-      // "Could not archive the following SKU(s)".
-      const removed: { ankorsVariantId: string; sku: string }[] = [];
+      const failures: { ankorsVariantId: string; error: string }[] = [];
       for (const r of diff.variantsRemoved) {
-        const realSku = ankorsRealSkuById.get(r.ankorsVariantId);
-        if (realSku && realSku.trim().length > 0) {
-          removed.push({ ankorsVariantId: r.ankorsVariantId, sku: realSku });
-        } else if (r.sku && r.sku.trim().length > 0) {
-          // Pas trouvé dans le fetch fresh → la variante est peut-être déjà
-          // partie d'AS (suppression manuelle, op précédente passée). Sans
-          // SKU canonique, on saute le delete et on purge le snapshot.
-          logger.warn("[Ankorstore Update] Variante absente du catalog Ankorstore — purge snapshot sans appel DELETE", {
+        if (!ankorsRealSkuById.has(r.ankorsVariantId)) {
+          // Déjà absente d'AS → rien à supprimer, on purge juste le snapshot.
+          logger.info("[Ankorstore Update] Variante déjà absente d'AS — purge snapshot", {
             ankorsProductId,
             ankorsVariantId: r.ankorsVariantId,
-            snapshotSku: r.sku,
           });
-          variantsAlreadyGoneFromAs.push(r.ankorsVariantId);
+          variantsRemovedSucceeded.push(r.ankorsVariantId);
+          continue;
+        }
+        try {
+          await ankorstoreDeleteVariantDirect(r.ankorsVariantId);
+          logger.info("[Ankorstore Update] Variante supprimée (DELETE direct)", {
+            ankorsProductId,
+            ankorsVariantId: r.ankorsVariantId,
+            sku: ankorsRealSkuById.get(r.ankorsVariantId),
+          });
+          variantsRemovedSucceeded.push(r.ankorsVariantId);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.error("[Ankorstore Update] DELETE variante échoué", {
+            ankorsProductId,
+            ankorsVariantId: r.ankorsVariantId,
+            sku: ankorsRealSkuById.get(r.ankorsVariantId),
+            error: msg,
+          });
+          failures.push({ ankorsVariantId: r.ankorsVariantId, error: msg });
         }
       }
-
-      if (removed.length > 0) {
-        const delRes = await ankorstoreKickoffVariantDelete({
-          productId,
-          reference: product.reference,
-          ankorsProductId,
-          removedVariants: removed,
-        });
-        if (!delRes.success) {
-          return {
-            success: false,
-            error:
-              "La suppression de variante côté Ankorstore n'a pas pu être lancée : " +
-              delRes.error,
-          };
-        }
-        variantDeleteOperationId = delRes.operationId;
-        logger.info("[Ankorstore Update] Variant-delete kicked off", {
-          operationId: delRes.operationId,
-          removedCount: removed.length,
-          skus: removed.map((r) => r.sku),
-        });
+      if (failures.length > 0) {
+        return {
+          success: false,
+          error:
+            "Suppression de variante échouée côté Ankorstore : " +
+            failures.map((f) => `${f.ankorsVariantId} (${f.error})`).join(", "),
+        };
       }
     }
 
-    // Purge immédiatement du snapshot local les variantes déjà absentes d'AS
-    // (pas d'appel DELETE à attendre pour celles-là).
-    if (variantsAlreadyGoneFromAs.length > 0) {
-      for (const vid of variantsAlreadyGoneFromAs) {
-        delete committedSnapshot.variants[vid];
-      }
+    // Purge synchrone des variantes supprimées dans le snapshot local.
+    for (const vid of variantsRemovedSucceeded) {
+      delete committedSnapshot.variants[vid];
     }
 
     // Step A: Apply direct PATCHes for variant stock/prices.
@@ -682,7 +674,7 @@ export async function ankorstoreKickoffUpdate(
       });
       return {
         success: true,
-        operationId: variantDeleteOperationId,
+        operationId: null,
         archived: allVariantsOutOfStock,
       };
     }
