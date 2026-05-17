@@ -393,6 +393,7 @@ model Product {
   ankorsLastSyncSnapshot Json?
   ankorsLastRefreshedAt  DateTime?
   ankorstoreOperations   AnkorstoreOperation[]
+  marketplaceRefreshJobs MarketplaceRefreshJob[]
 
   // Performance indexes for 78k+ products
   @@index([status, createdAt]) // catalog listing (default sort)
@@ -455,6 +456,59 @@ model AnkorstoreOperation {
   @@index([productId])
   @@index([status])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// File de rafraîchissement marketplace — pilotée côté serveur (temps réel)
+// La row est créée par l'API enqueue, traitée par un worker singleton démarré
+// dans instrumentation-node.ts, et consommée par le widget admin qui poll
+// /api/admin/marketplace-queue toutes les 2s. Permet à l'utilisatrice de
+// recharger la page ou de quitter le navigateur sans perdre la file en cours.
+// ─────────────────────────────────────────────
+enum MarketplaceJobTarget {
+  PFS
+  ANKORSTORE
+}
+
+enum MarketplaceJobMode {
+  PUBLISH
+  REFRESH
+  RESYNC
+}
+
+enum MarketplaceJobStatus {
+  QUEUED            // en attente du worker
+  IN_PROGRESS       // en cours de traitement par le worker
+  AWAITING_CALLBACK // Ankorstore en mode callback : kickoff envoyé, on attend le webhook
+  SUCCEEDED         // terminé sans erreur
+  FAILED            // terminé avec une erreur côté marketplace
+  CANCELLED         // annulé par l'admin (bouton Stop) avant le démarrage
+}
+
+model MarketplaceRefreshJob {
+  id                String                @id @default(cuid())
+  productId         String
+  product           Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  marketplace       MarketplaceJobTarget
+  mode              MarketplaceJobMode
+  /// { reference, productName, firstImage, options } figés au enqueue pour l'affichage
+  payload           Json
+  status            MarketplaceJobStatus  @default(QUEUED)
+  /// TargetOutcome sérialisé (forme identique côté client) ou null
+  localOutcome      Json?
+  pfsOutcome        Json?
+  ankorsOutcome     Json?
+  /// Opération Ankorstore liée quand status == AWAITING_CALLBACK (suit la chaîne 2 phases)
+  ankorsOperationId String?
+  errorMessage      String?               @db.Text
+  createdAt         DateTime              @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+
+  @@index([status])
+  @@index([productId])
+  @@index([createdAt])
+  @@index([status, createdAt])
 }
 
 // Traductions automatiques des produits

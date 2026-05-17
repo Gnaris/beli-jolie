@@ -56,6 +56,23 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de la file de rafraîchissement marketplace (pilote MarketplaceRefreshJob).
+  // Démarré aussi après 5s pour laisser le serveur initialiser ses routes et son
+  // accès BDD. Le worker est idempotent : il sweep les IN_PROGRESS orphelins au
+  // premier tick et n'a pas besoin d'attendre d'évènement extérieur.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startMarketplaceQueueWorker } = await import("@/lib/marketplace-queue-worker");
+        startMarketplaceQueueWorker();
+      } catch (err) {
+        logger.error("[Marketplace Queue] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",
