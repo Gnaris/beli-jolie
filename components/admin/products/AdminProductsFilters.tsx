@@ -104,7 +104,6 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink);
   const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localExactRef !== urlExactRef || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
-  const [customValue, setCustomValue] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(hasFilters);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -222,16 +221,6 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
     });
   };
 
-  const isPreset = PRESET_PER_PAGE.map(String).includes(perPage);
-
-  const applyCustom = () => {
-    const val = parseInt(customValue);
-    if (!isNaN(val) && val > 0) {
-      navigate({ perPage: String(val) });
-      setCustomValue("");
-    }
-  };
-
   return (
     <div className="space-y-3">
       {/* Ligne principale : recherche + filtres toggle + perPage */}
@@ -330,24 +319,6 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 {n}
               </button>
             ))}
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                min={1}
-                value={customValue}
-                onChange={(e) => setCustomValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") applyCustom(); }}
-                placeholder={!isPreset ? perPage : "..."}
-                className={`w-14 px-2 py-1 text-xs border rounded-lg font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors ${
-                  !isPreset ? "border-bg-dark bg-bg-secondary" : "border-border bg-bg-primary"
-                }`}
-              />
-              {customValue && (
-                <button type="button" onClick={applyCustom} className="px-2 py-1 text-xs bg-bg-dark text-text-inverse font-body rounded-lg hover:bg-neutral-800 transition-colors">
-                  OK
-                </button>
-              )}
-            </div>
           </div>
           <span className="text-xs text-text-muted font-body whitespace-nowrap">
             / {totalCount}
