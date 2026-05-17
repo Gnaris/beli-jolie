@@ -522,6 +522,11 @@ export async function ankorstoreKickoffPublish(
     }
     await ankorstoreStartOperation(operationId);
 
+    logger.info("[Ankorstore Publish] Persisting PUBLISH row", {
+      operationId,
+      productId,
+      reference: built.payload.reference,
+    });
     await prisma.ankorstoreOperation.create({
       data: {
         id: operationId,

@@ -184,6 +184,11 @@ export async function ankorstoreKickoffRefresh(
       archiveRetryCount: 0,
     };
 
+    logger.info("[Ankorstore Refresh] Persisting REFRESH_DELETE_OLD row", {
+      operationId,
+      productId,
+      reference: product.reference,
+    });
     await prisma.ankorstoreOperation.create({
       data: {
         id: operationId,
@@ -253,6 +258,11 @@ export async function ankorstoreFinalizeRefreshDeleteOld(
           ...payload,
           archiveRetryCount: currentRetry + 1,
         };
+        logger.info("[Ankorstore Refresh] Persisting REFRESH_DELETE_OLD retry row", {
+          operationId: retryOpId,
+          previousOpId: op.id,
+          productId: op.productId,
+        });
         await prisma.$transaction([
           prisma.ankorstoreOperation.update({
             where: { id: op.id },
@@ -316,6 +326,11 @@ export async function ankorstoreFinalizeRefreshDeleteOld(
     }
     await ankorstoreStartOperation(newOpId);
 
+    logger.info("[Ankorstore Refresh] Persisting REFRESH_CREATE_NEW row", {
+      operationId: newOpId,
+      deleteOpId: op.id,
+      productId: op.productId,
+    });
     await prisma.$transaction([
       prisma.ankorstoreOperation.update({
         where: { id: op.id },

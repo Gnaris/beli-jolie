@@ -165,6 +165,11 @@ function outcomesFromPublishServer(
 }
 
 const CONCURRENCY = 5;
+// Ankorstore reste sérialisé (1 à la fois, in_progress + awaiting_callback) parce
+// que leur API renvoie parfois deux fois le même operationId en parallèle —
+// collisions PRIMARY KEY sur AnkorstoreOperation observées en prod le 17/05/26.
+// En série on garde aussi un fil log clair pour retracer un éventuel doublon.
+const ANKORSTORE_CONCURRENCY = 1;
 
 export function MarketplaceRefreshProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<MarketplaceRefreshItem[]>([]);
@@ -272,15 +277,33 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     })();
   }, []);
 
-  // Queue processor — fills up to CONCURRENCY parallel slots
+  // Queue processor — fills up to CONCURRENCY parallel slots, but Ankorstore
+  // items are throttled separately (ANKORSTORE_CONCURRENCY) and count their
+  // awaiting_callback state too so that we never have two in flight.
   useEffect(() => {
     const freeSlots = CONCURRENCY - runningIdsRef.current.size;
     if (freeSlots <= 0) return;
 
+    const ankorsInFlight = items.filter(
+      (i) =>
+        i.marketplace === "ankorstore" &&
+        (i.status === "in_progress" || i.status === "awaiting_callback"),
+    ).length;
+    let ankorsBudget = Math.max(0, ANKORSTORE_CONCURRENCY - ankorsInFlight);
+
     const queued = items.filter(
       (i) => i.status === "queued" && !runningIdsRef.current.has(i.id),
     );
-    const batch = queued.slice(0, freeSlots);
+
+    const batch: MarketplaceRefreshItem[] = [];
+    for (const item of queued) {
+      if (batch.length >= freeSlots) break;
+      if (item.marketplace === "ankorstore") {
+        if (ankorsBudget <= 0) continue;
+        ankorsBudget--;
+      }
+      batch.push(item);
+    }
     for (const item of batch) {
       processItem(item);
     }

@@ -76,6 +76,12 @@ export async function ankorstoreKickoffStandaloneDelete(args: {
 
     const payload: AnkorstoreDeletePayload = { reference, oldAnkorsProductId: ankorsProductId };
 
+    logger.info("[Ankorstore Delete] Persisting DELETE row", {
+      operationId,
+      productId,
+      reference,
+      skuCount: skus.length,
+    });
     await prisma.ankorstoreOperation.create({
       data: {
         id: operationId,
@@ -134,6 +140,12 @@ export async function ankorstoreKickoffVariantDelete(args: {
       variantOnlyDeletedAnkorsVariantIds: removedVariants.map((v) => v.ankorsVariantId),
     };
 
+    logger.info("[Ankorstore Delete] Persisting variant-only DELETE row", {
+      operationId,
+      productId,
+      reference,
+      skuCount: skus.length,
+    });
     await prisma.ankorstoreOperation.create({
       data: {
         id: operationId,

@@ -860,6 +860,11 @@ export async function ankorstoreKickoffUpdate(
       reference: product.reference,
     };
 
+    logger.info("[Ankorstore Update] Persisting UPDATE row", {
+      operationId,
+      productId,
+      reference: product.reference,
+    });
     await prisma.ankorstoreOperation.create({
       data: {
         id: operationId,
