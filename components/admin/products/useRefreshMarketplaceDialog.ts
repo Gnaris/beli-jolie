@@ -34,8 +34,27 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
 
   const { confirm } = useConfirm();
   const toast = useToast();
-  const { enqueue } = useMarketplaceRefreshQueue();
+  const { enqueue, inFlightProductIds } = useMarketplaceRefreshQueue();
   const { ask: askWarning } = useRefreshWarning();
+
+  // Retire les produits déjà en cours de rafraîchissement (queued, in_progress
+  // ou awaiting_callback dans la file marketplace). Retourne la liste filtrée
+  // et le nombre ignoré pour le toast d'information.
+  const filterOutInFlight = useCallback(
+    (products: RefreshableProduct[]): { kept: RefreshableProduct[]; skipped: number } => {
+      const kept: RefreshableProduct[] = [];
+      let skipped = 0;
+      for (const p of products) {
+        if (inFlightProductIds.has(p.productId)) {
+          skipped++;
+        } else {
+          kept.push(p);
+        }
+      }
+      return { kept, skipped };
+    },
+    [inFlightProductIds],
+  );
 
   // Vérifie le garde-fou « refresh récent ». Retourne la liste finale à traiter,
   // ou `null` si l'utilisatrice a annulé.
@@ -133,7 +152,17 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
 
   const refreshSingle = useCallback(
     async (product: RefreshableProduct): Promise<boolean> => {
-      const filtered = await applyRecentWarning([product]);
+      // 1) Bloque si le produit est déjà en cours de rafraîchissement.
+      const inFlight = filterOutInFlight([product]);
+      if (inFlight.kept.length === 0) {
+        toast.info(
+          "Déjà en cours",
+          "Ce produit est déjà en cours de rafraîchissement.",
+        );
+        return false;
+      }
+      // 2) Garde-fou « refresh récent » + dialog d'options + enqueue.
+      const filtered = await applyRecentWarning(inFlight.kept);
       if (filtered === null) return false;
       if (filtered.length === 0) {
         toast.info("Rien à rafraîchir", "Le produit a été ignoré (rafraîchi récemment).");
@@ -187,7 +216,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       toast.info("Ajouté à la file", `${target.reference} sera rafraîchi en arrière-plan.`);
       return true;
     },
-    [applyRecentWarning, askOptions, enqueue, toast],
+    [applyRecentWarning, askOptions, enqueue, toast, filterOutInFlight],
   );
 
   const refreshBulk = useCallback(
@@ -197,7 +226,23 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         toast.error("Trop de produits", "Vous ne pouvez rafraîchir que 100 produits à la fois.");
         return false;
       }
-      const filtered = await applyRecentWarning(products);
+      // 1) Retire les produits déjà en cours de rafraîchissement.
+      const { kept: notInFlight, skipped: skippedInFlight } = filterOutInFlight(products);
+      if (notInFlight.length === 0) {
+        toast.info(
+          "Déjà en cours",
+          `Tous les produits sélectionnés (${skippedInFlight}) sont déjà en cours de rafraîchissement.`,
+        );
+        return false;
+      }
+      if (skippedInFlight > 0) {
+        toast.info(
+          "Produits ignorés",
+          `${skippedInFlight} produit${skippedInFlight > 1 ? "s" : ""} déjà en cours de rafraîchissement — ${notInFlight.length} restant${notInFlight.length > 1 ? "s" : ""}.`,
+        );
+      }
+      // 2) Garde-fou « refresh récent ».
+      const filtered = await applyRecentWarning(notInFlight);
       if (filtered === null) return false;
       if (filtered.length === 0) {
         toast.info("Rien à rafraîchir", "Tous les produits sélectionnés ont été rafraîchis récemment.");
@@ -253,7 +298,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       );
       return true;
     },
-    [applyRecentWarning, askOptions, enqueue, toast],
+    [applyRecentWarning, askOptions, enqueue, toast, filterOutInFlight],
   );
 
   return { refreshSingle, refreshBulk };

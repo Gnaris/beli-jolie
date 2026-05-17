@@ -5,9 +5,11 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
 import type {
   MarketplaceRefreshOptions,
   MarketplaceRefreshOutcome,
@@ -66,6 +68,16 @@ interface MarketplaceRefreshContextValue {
   isAllFinished: boolean;
   runningCount: number;
   queuedCount: number;
+  /** productIds avec au moins un item actif (queued, in_progress, awaiting_callback). */
+  inFlightProductIds: Set<string>;
+}
+
+export function isItemActive(item: MarketplaceRefreshItem): boolean {
+  return (
+    item.status === "queued" ||
+    item.status === "in_progress" ||
+    item.status === "awaiting_callback"
+  );
 }
 
 const MarketplaceRefreshContext = createContext<MarketplaceRefreshContextValue | null>(null);
@@ -174,6 +186,9 @@ const ANKORSTORE_CONCURRENCY = 1;
 export function MarketplaceRefreshProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<MarketplaceRefreshItem[]>([]);
   const runningIdsRef = useRef<Set<string>>(new Set());
+  const router = useRouter();
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastDoneCountRef = useRef<number>(0);
 
   const enqueue = useCallback((inputs: MarketplaceRefreshEnqueueInput[]) => {
     if (inputs.length === 0) return;
@@ -397,6 +412,40 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
   const isAllFinished =
     items.length > 0 && runningCount === 0 && queuedCount === 0 && awaitingCount === 0;
 
+  const inFlightProductIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of items) {
+      if (isItemActive(item)) set.add(item.productId);
+    }
+    return set;
+  }, [items]);
+
+  // Quand un item bascule vers "done", on rafraîchit silencieusement les données
+  // de la page courante (RSC) pour que la date du dernier rafraîchissement,
+  // les badges marketplace et les autres champs apparaissent sans recharger.
+  // Debounce 800 ms pour grouper les fins de refresh quasi-simultanées.
+  const doneCount = items.filter((i) => i.status === "done").length;
+  useEffect(() => {
+    if (doneCount > lastDoneCountRef.current) {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        router.refresh();
+        refreshTimerRef.current = null;
+      }, 800);
+    }
+    lastDoneCountRef.current = doneCount;
+  }, [doneCount, router]);
+
+  // Cleanup du timer uniquement à l'unmount du Provider.
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const value: MarketplaceRefreshContextValue = {
     items,
     enqueue,
@@ -405,6 +454,7 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     isAllFinished,
     runningCount,
     queuedCount,
+    inFlightProductIds,
   };
 
   return (
