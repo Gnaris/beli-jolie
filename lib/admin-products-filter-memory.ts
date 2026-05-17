@@ -10,7 +10,7 @@ export const ADMIN_PRODUCTS_FILTERS_STORAGE_KEY = "admin-products-filters-v1";
 
 /**
  * Toutes les clés de query string considérées comme "état de la liste produits".
- * Inclut la pagination (page) pour retrouver exactement la même vue.
+ * Inclut pagination (page/perPage) pour retrouver exactement la même vue.
  * Volontairement hors liste : `tab` (onglet Catégories/Couleurs/etc.), `refresh`
  * de force, et tout ce qui n'est pas un filtre persistant.
  */
@@ -33,6 +33,7 @@ export const ADMIN_PRODUCTS_FILTER_KEYS = [
   "pfsLink",
   "ankorsLink",
   "page",
+  "perPage",
 ] as const;
 
 /**

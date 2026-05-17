@@ -353,6 +353,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       <div className="bg-bg-primary border border-border rounded-2xl px-6 py-5 mt-4 shadow-sm">
         <Suspense>
           <AdminProductsFilters
+            totalCount={totalCount}
             categories={categories}
             tags={tags}
             compositions={compositions}

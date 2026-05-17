@@ -10,12 +10,15 @@ import {
   saveFilters as saveMemorizedFilters,
 } from "@/lib/admin-products-filter-memory";
 
+const PRESET_PER_PAGE = [20, 30, 50, 100];
+
 interface SubCategoryOption { id: string; name: string }
 interface CategoryOption { id: string; name: string; subCategories?: SubCategoryOption[] }
 interface TagOption { id: string; name: string }
 interface CompositionOption { id: string; name: string }
 
 interface Props {
+  totalCount: number;
   categories: CategoryOption[];
   tags?: TagOption[];
   compositions?: CompositionOption[];
@@ -23,7 +26,7 @@ interface Props {
   hasAnkorstoreConfig?: boolean;
 }
 
-export default function AdminProductsFilters({ categories, tags = [], compositions = [], hasPfsConfig = false, hasAnkorstoreConfig = false }: Props) {
+export default function AdminProductsFilters({ totalCount, categories, tags = [], compositions = [], hasPfsConfig = false, hasAnkorstoreConfig = false }: Props) {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -46,6 +49,7 @@ export default function AdminProductsFilters({ categories, tags = [], compositio
   const urlMissingImages = searchParams.get("missingImages") ?? "";
   const urlPfsLink = searchParams.get("pfsLink") ?? "";
   const urlAnkorsLink = searchParams.get("ankorsLink") ?? "";
+  const perPage      = searchParams.get("perPage")    ?? "20";
 
   // Parse "REF1,REF2,REF3" → ["REF1", "REF2", "REF3"]
   const parseQ = (raw: string): string[] =>
@@ -100,6 +104,7 @@ export default function AdminProductsFilters({ categories, tags = [], compositio
   const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink);
   const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localExactRef !== urlExactRef || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
+  const [customValue, setCustomValue] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(hasFilters);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -217,9 +222,19 @@ export default function AdminProductsFilters({ categories, tags = [], compositio
     });
   };
 
+  const isPreset = PRESET_PER_PAGE.map(String).includes(perPage);
+
+  const applyCustom = () => {
+    const val = parseInt(customValue);
+    if (!isNaN(val) && val > 0) {
+      navigate({ perPage: String(val) });
+      setCustomValue("");
+    }
+  };
+
   return (
     <div className="space-y-3">
-      {/* Ligne principale : recherche + filtres toggle */}
+      {/* Ligne principale : recherche + filtres toggle + perPage */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
         {/* Recherche multi-références */}
         <div className="flex-1 max-w-md">
@@ -292,6 +307,52 @@ export default function AdminProductsFilters({ categories, tags = [], compositio
           </svg>
           Réf. exacte
         </label>
+
+        <div className="hidden sm:block h-5 w-px bg-border" />
+
+        {/* Quantité par page */}
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-text-muted font-body whitespace-nowrap">
+            Afficher
+          </span>
+          <div className="flex items-center gap-1">
+            {PRESET_PER_PAGE.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => navigate({ perPage: String(n) })}
+                className={`px-2.5 py-1 text-xs font-body border rounded-lg transition-colors ${
+                  String(n) === perPage
+                    ? "bg-bg-dark text-text-inverse border-bg-dark"
+                    : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark hover:text-text-primary"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={1}
+                value={customValue}
+                onChange={(e) => setCustomValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") applyCustom(); }}
+                placeholder={!isPreset ? perPage : "..."}
+                className={`w-14 px-2 py-1 text-xs border rounded-lg font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors ${
+                  !isPreset ? "border-bg-dark bg-bg-secondary" : "border-border bg-bg-primary"
+                }`}
+              />
+              {customValue && (
+                <button type="button" onClick={applyCustom} className="px-2 py-1 text-xs bg-bg-dark text-text-inverse font-body rounded-lg hover:bg-neutral-800 transition-colors">
+                  OK
+                </button>
+              )}
+            </div>
+          </div>
+          <span className="text-xs text-text-muted font-body whitespace-nowrap">
+            / {totalCount}
+          </span>
+        </div>
 
         {/* Reset */}
         {hasFilters && (
