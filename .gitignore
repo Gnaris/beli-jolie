@@ -72,3 +72,7 @@ docs/superpowers/
 # maintenance (re-push ciblé, restore-links, etc.) — données de travail
 # locales, ne pas commit.
 /refs-*.txt
+
+# journal de suivi du renommage des produits (skill produits-nom) — vit
+# uniquement sur le VPS et évolue à chaque session, ne jamais commit.
+/data/
