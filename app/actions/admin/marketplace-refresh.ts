@@ -7,6 +7,10 @@ import { prisma } from "@/lib/prisma";
 import { pfsRefreshProduct } from "@/lib/pfs-refresh";
 import { emitProductEvent } from "@/lib/product-events";
 import { logger } from "@/lib/logger";
+import {
+  getRefreshIneligibilityReason,
+  labelForIneligibility,
+} from "@/lib/refresh-eligibility";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -52,11 +56,32 @@ export async function refreshProductOnMarketplaces(
 
   const product = await prisma.product.findUnique({
     where: { id: productId },
-    select: { id: true, reference: true, name: true, status: true },
+    select: {
+      id: true,
+      reference: true,
+      name: true,
+      status: true,
+      isIncomplete: true,
+      pfsProductId: true,
+    },
   });
 
   if (!product) {
     throw new Error("Produit introuvable.");
+  }
+
+  // Garde-fou statut : un produit Archivé / Hors ligne / Brouillon / SYNCING
+  // ne peut pas être rafraîchi. Vérif locale pour défense en profondeur même
+  // si l'UI a déjà filtré côté client.
+  const ineligibility = getRefreshIneligibilityReason({
+    status: product.status,
+    isIncomplete: product.isIncomplete,
+    wasImported: !!product.pfsProductId,
+  });
+  if (ineligibility) {
+    throw new Error(
+      `Impossible de rafraîchir ce produit : ${labelForIneligibility(ineligibility)}.`,
+    );
   }
 
   const outcome: MarketplaceRefreshOutcome = {

@@ -12,6 +12,7 @@ import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
 import { MarketplaceRefreshProvider } from "@/components/admin/products/MarketplaceRefreshContext";
 import { MarketplaceRefreshWidget } from "@/components/admin/products/MarketplaceRefreshWidget";
 import { RefreshWarningProvider } from "@/components/admin/products/RecentlyRefreshedWarningModal";
+import { IneligibleRefreshProvider } from "@/components/admin/products/IneligibleRefreshModal";
 import { getCachedSiteConfig } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
@@ -61,6 +62,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <DeeplConfigProvider enabled={deeplEnabled} autoTranslateEnabled={autoTranslateEnabled}>
     <MarketplaceRefreshProvider>
     <RefreshWarningProvider>
+    <IneligibleRefreshProvider>
     <div id="admin-theme-wrapper" className="min-h-screen bg-bg-secondary flex">
 
       <AdminDesktopShell
@@ -88,6 +90,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <AdminChatWidgetLoader />
       <MarketplaceRefreshWidget />
     </div>
+    </IneligibleRefreshProvider>
     </RefreshWarningProvider>
     </MarketplaceRefreshProvider>
     </DeeplConfigProvider>

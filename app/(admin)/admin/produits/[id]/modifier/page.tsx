@@ -451,6 +451,9 @@ export default async function ModifierProduitPage({
                 reference={product.reference}
                 productName={product.name}
                 firstImage={colorImagesDb[0]?.path ?? null}
+                status={product.status}
+                isIncomplete={product.isIncomplete}
+                wasImported={wasImported}
                 hasPfsConfig={hasPfsConfig}
                 hasAnkorstoreConfig={hasAnkorstoreConfig}
                 ankorstoreEnabled={ankorstoreEnabled}

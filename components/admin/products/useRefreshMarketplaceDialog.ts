@@ -13,12 +13,20 @@ import {
   type MarketplaceRefreshOptions,
 } from "@/app/actions/admin/marketplace-refresh";
 import { useRefreshWarning } from "@/components/admin/products/RecentlyRefreshedWarningModal";
+import { useIneligibleRefresh } from "@/components/admin/products/IneligibleRefreshModal";
+import {
+  getRefreshIneligibilityReason,
+  labelForIneligibility,
+} from "@/lib/refresh-eligibility";
 
 export interface RefreshableProduct {
   productId: string;
   reference: string;
   productName: string;
   firstImage?: string | null;
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
+  isIncomplete: boolean;
+  wasImported: boolean;
 }
 
 export interface UseRefreshMarketplaceDialogOptions {
@@ -36,6 +44,30 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
   const toast = useToast();
   const { enqueue, inFlightProductIds } = useMarketplaceRefreshQueue();
   const { ask: askWarning } = useRefreshWarning();
+  const { ask: askIneligible } = useIneligibleRefresh();
+
+  // Sépare la sélection en éligibles / non éligibles selon le statut local
+  // (ONLINE + complet). Vérifié en premier car instantané et déterministe.
+  const splitByEligibility = useCallback(
+    (products: RefreshableProduct[]) => {
+      const eligible: RefreshableProduct[] = [];
+      const ineligible: Array<RefreshableProduct & { reason: ReturnType<typeof getRefreshIneligibilityReason> }> = [];
+      for (const p of products) {
+        const reason = getRefreshIneligibilityReason({
+          status: p.status,
+          isIncomplete: p.isIncomplete,
+          wasImported: p.wasImported,
+        });
+        if (reason) {
+          ineligible.push({ ...p, reason });
+        } else {
+          eligible.push(p);
+        }
+      }
+      return { eligible, ineligible };
+    },
+    [],
+  );
 
   // Retire les produits déjà en cours de rafraîchissement (queued, in_progress
   // ou awaiting_callback dans la file marketplace). Retourne la liste filtrée
@@ -152,8 +184,21 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
 
   const refreshSingle = useCallback(
     async (product: RefreshableProduct): Promise<boolean> => {
-      // 1) Bloque si le produit est déjà en cours de rafraîchissement.
-      const inFlight = filterOutInFlight([product]);
+      // 1) Garde-fou statut : un seul produit non éligible → toast direct,
+      // pas la peine d'ouvrir la modale.
+      const { eligible, ineligible } = splitByEligibility([product]);
+      if (eligible.length === 0) {
+        const reason = ineligible[0]?.reason;
+        toast.error(
+          "Impossible de rafraîchir",
+          reason
+            ? `Ce produit est ${labelForIneligibility(reason).toLowerCase()}.`
+            : "Ce produit n'est pas éligible au rafraîchissement.",
+        );
+        return false;
+      }
+      // 2) Bloque si le produit est déjà en cours de rafraîchissement.
+      const inFlight = filterOutInFlight(eligible);
       if (inFlight.kept.length === 0) {
         toast.info(
           "Déjà en cours",
@@ -161,7 +206,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         );
         return false;
       }
-      // 2) Garde-fou « refresh récent » + dialog d'options + enqueue.
+      // 3) Garde-fou « refresh récent » + dialog d'options + enqueue.
       const filtered = await applyRecentWarning(inFlight.kept);
       if (filtered === null) return false;
       if (filtered.length === 0) {
@@ -216,7 +261,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       toast.info("Ajouté à la file", `${target.reference} sera rafraîchi en arrière-plan.`);
       return true;
     },
-    [applyRecentWarning, askOptions, enqueue, toast, filterOutInFlight],
+    [applyRecentWarning, askOptions, enqueue, toast, filterOutInFlight, splitByEligibility],
   );
 
   const refreshBulk = useCallback(
@@ -226,8 +271,31 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         toast.error("Trop de produits", "Vous ne pouvez rafraîchir que 100 produits à la fois.");
         return false;
       }
-      // 1) Retire les produits déjà en cours de rafraîchissement.
-      const { kept: notInFlight, skipped: skippedInFlight } = filterOutInFlight(products);
+      // 1) Garde-fou statut : ouvre la modale « non éligibles » si mix,
+      // toast direct si tout est inéligible.
+      const { eligible, ineligible } = splitByEligibility(products);
+      if (eligible.length === 0) {
+        toast.error(
+          "Aucun produit éligible",
+          `Les ${products.length} produits sélectionnés sont archivés, hors ligne, en brouillon ou en cours d'importation.`,
+        );
+        return false;
+      }
+      if (ineligible.length > 0) {
+        const choice = await askIneligible({
+          totalSelected: products.length,
+          ineligibleItems: ineligible.map((p) => ({
+            productId: p.productId,
+            reference: p.reference,
+            productName: p.productName,
+            firstImage: p.firstImage ?? null,
+            reason: p.reason!,
+          })),
+        });
+        if (choice === "cancel") return false;
+      }
+      // 2) Retire les produits déjà en cours de rafraîchissement.
+      const { kept: notInFlight, skipped: skippedInFlight } = filterOutInFlight(eligible);
       if (notInFlight.length === 0) {
         toast.info(
           "Déjà en cours",
@@ -298,7 +366,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       );
       return true;
     },
-    [applyRecentWarning, askOptions, enqueue, toast, filterOutInFlight],
+    [applyRecentWarning, askOptions, enqueue, toast, filterOutInFlight, splitByEligibility, askIneligible],
   );
 
   return { refreshSingle, refreshBulk };

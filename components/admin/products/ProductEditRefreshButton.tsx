@@ -8,6 +8,9 @@ export function ProductEditRefreshButton({
   reference,
   productName,
   firstImage,
+  status,
+  isIncomplete,
+  wasImported,
   hasPfsConfig = true,
   hasAnkorstoreConfig = false,
   ankorstoreEnabled = false,
@@ -16,6 +19,9 @@ export function ProductEditRefreshButton({
   reference: string;
   productName: string;
   firstImage?: string | null;
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
+  isIncomplete: boolean;
+  wasImported: boolean;
   hasPfsConfig?: boolean;
   hasAnkorstoreConfig?: boolean;
   ankorstoreEnabled?: boolean;
@@ -31,7 +37,15 @@ export function ProductEditRefreshButton({
         if (pending) return;
         setPending(true);
         try {
-          await refreshSingle({ productId, reference, productName, firstImage });
+          await refreshSingle({
+            productId,
+            reference,
+            productName,
+            firstImage,
+            status,
+            isIncomplete,
+            wasImported,
+          });
         } finally {
           setPending(false);
         }

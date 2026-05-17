@@ -971,6 +971,9 @@ function ProductRow({
                       reference: product.reference,
                       productName: product.name,
                       firstImage: product.firstImage,
+                      status: product.status,
+                      isIncomplete: product.isIncomplete,
+                      wasImported: !!product.pfsProductId,
                     });
                   } finally {
                     setRefreshing(false);
@@ -2196,6 +2199,9 @@ export default function AdminProductsTable({
                   reference: p.reference,
                   productName: p.name,
                   firstImage: p.firstImage,
+                  status: p.status,
+                  isIncomplete: p.isIncomplete,
+                  wasImported: !!p.pfsProductId,
                 }));
               await refreshBulk(selectedProducts);
             }}
