@@ -313,11 +313,18 @@ function ConfirmModal({
 // ─────────────────────────────────────────────
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
-  const [current, setCurrent] = useState<{ opts: ConfirmOptions; resolve: (v: ConfirmResult) => void } | null>(null);
+  // ID unique par appel : sert de `key` au composant modal pour forcer un
+  // remount complet quand deux confirms s'enchaînent rapidement. Sans ce
+  // key, React batche `setCurrent(null)` + `setCurrent({...})` et réutilise
+  // l'instance de modal, qui garde son state interne `closing=true` →
+  // la 2e modale reste invisible.
+  const idRef = useRef(0);
+  const [current, setCurrent] = useState<{ id: number; opts: ConfirmOptions; resolve: (v: ConfirmResult) => void } | null>(null);
 
   const confirmFn = useCallback((opts: ConfirmOptions): Promise<ConfirmResult> => {
     return new Promise<ConfirmResult>((resolve) => {
-      setCurrent({ opts, resolve });
+      const id = ++idRef.current;
+      setCurrent({ id, opts, resolve });
     });
   }, []);
 
@@ -329,7 +336,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   return (
     <ConfirmContext.Provider value={{ confirm: confirmFn }}>
       {children}
-      {current && <ConfirmModal opts={current.opts} onResult={handleResult} />}
+      {current && <ConfirmModal key={current.id} opts={current.opts} onResult={handleResult} />}
 
       <style jsx global>{`
         @keyframes confirmFadeIn {
