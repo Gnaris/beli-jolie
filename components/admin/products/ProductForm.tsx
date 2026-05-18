@@ -1476,13 +1476,30 @@ export default function ProductForm({
       if (initialData.categoryId && !categoryId) {
         issues.push("La catégorie a disparu");
       }
-      if (!allVariantsRemoved && initialData.variants.length > 0 && variants.every((v) => !v.dbId)) {
-        issues.push("Les IDs de variantes existantes ont été perdus");
-      }
       if (issues.length > 0) {
         return setError(
           `Erreur d'intégrité détectée (${issues.join(", ")}). Rechargez la page et réessayez.`
         );
+      }
+
+      // Remplacement complet des variantes : l'utilisatrice a supprimé toutes
+      // les anciennes et ajouté de nouvelles (cas légitime, ex : passer de
+      // packs à variantes à l'unité). On demande confirmation au lieu de
+      // bloquer, car ça peut aussi être un bug silencieux d'état React.
+      const fullVariantReplacement =
+        initialData.variants.length > 0 &&
+        variants.length > 0 &&
+        variants.every((v) => !v.dbId);
+      if (fullVariantReplacement) {
+        const okReplace = await confirmDialog({
+          type: "warning",
+          title: "Remplacement complet des variantes",
+          message:
+            "Toutes les variantes d'origine vont être supprimées et remplacées par les nouvelles. Cette action est irréversible. Voulez-vous continuer ?",
+          confirmLabel: "Remplacer les variantes",
+          cancelLabel: "Annuler",
+        });
+        if (!okReplace) return;
       }
     }
 

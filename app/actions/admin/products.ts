@@ -749,7 +749,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     const existingVariants = await tx.productColor.findMany({
       where: { productId: id },
       select: { id: true, colorId: true, stock: true, unitPrice: true, saleType: true, packQuantity: true,
-        variantSizes: { select: { quantity: true } } },
+        variantSizes: { select: { quantity: true } },
+        packLines: { select: { colorId: true } } },
     });
     const existingIds = existingVariants.map((v) => v.id);
     const oldStockMap = new Map(existingVariants.map((v) => [v.id, v.stock]));
@@ -917,6 +918,40 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     // ── Assign/update SKUs for all variants ──────────
     await assignVariantSkus(id, input.reference, tx);
 
+    // ── Nettoyage disque des images orphelines ──────────────────────────
+    // Si une variante est supprimée et qu'aucune autre variante (existante
+    // OU nouvellement ajoutée dans le même save) ne réutilise sa couleur,
+    // les fichiers image de cette couleur deviennent orphelins sur le
+    // disque. On capture leurs chemins ICI (avant la purge BDD ci-dessous)
+    // pour pouvoir les supprimer après le commit de la transaction.
+    const beforeColorIds = new Set<string>();
+    for (const v of existingVariants) {
+      if (v.colorId) beforeColorIds.add(v.colorId);
+      for (const pl of v.packLines) {
+        if (pl.colorId) beforeColorIds.add(pl.colorId);
+      }
+    }
+    const afterColorIds = new Set<string>();
+    for (const c of input.colors) {
+      if (isMultiColorPackInput(c) && c.packLines) {
+        if (c.colorId) afterColorIds.add(c.colorId);
+        for (const pl of c.packLines) {
+          if (pl.colorId) afterColorIds.add(pl.colorId);
+        }
+      } else if (c.colorId) {
+        afterColorIds.add(c.colorId);
+      }
+    }
+    const removedColorIds = [...beforeColorIds].filter((cid) => !afterColorIds.has(cid));
+    let orphanImagePaths: string[] = [];
+    if (removedColorIds.length > 0) {
+      const orphanRecords = await tx.productColorImage.findMany({
+        where: { productId: id, colorId: { in: removedColorIds } },
+        select: { path: true },
+      });
+      orphanImagePaths = orphanRecords.map((r) => r.path);
+    }
+
     // ── Images : full replace, 1 entrée par (productId, colorId, order) ──
     // Couleur attachée au produit (productColorId = NULL). Plus de matching variante.
     if (input.imagePaths && input.imagePaths.length > 0) {
@@ -986,7 +1021,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       });
     }
 
-    return { oldStockMap, oldVariantMap, variantIdMap };
+    return { oldStockMap, oldVariantMap, variantIdMap, orphanImagePaths };
     }, { timeout: 30000 });
   } catch (err) {
     // Si la transaction échoue après un rename de dossier, on remet le dossier
@@ -1009,7 +1044,26 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     // Should be unreachable: the transaction either returns a value or throws.
     throw new Error("Erreur interne : transaction sans résultat.");
   }
-  const { oldStockMap, oldVariantMap, variantIdMap } = txResult;
+  const { oldStockMap, oldVariantMap, variantIdMap, orphanImagePaths } = txResult;
+
+  // ── Suppression effective des fichiers image orphelins (post-transaction) ──
+  // Couleurs disparues sans remplacement → on supprime les 3 tailles
+  // (large/md/thumb) de chaque image associée. Best-effort : on logge en
+  // cas d'échec mais on ne fait pas échouer le save.
+  if (orphanImagePaths.length > 0) {
+    const keys = orphanImagePaths.flatMap((path) => {
+      const paths = getImagePaths(path);
+      return [paths.large, paths.medium, paths.thumb].map(keyFromDbPath);
+    });
+    try {
+      await deleteFiles(keys);
+      logger.info(`[Storage] Deleted ${keys.length} orphan image files for product ${id} (colors removed)`);
+    } catch (err) {
+      logger.error(`[Storage] Failed to delete orphan image files for product ${id}`, {
+        error: err,
+      });
+    }
+  }
 
   // Traductions : remplacer toutes les traductions existantes
   if (input.translations !== undefined) {
