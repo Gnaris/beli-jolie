@@ -89,7 +89,7 @@ function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, str
       if (!colorMap.has(gk)) {
         colorMap.set(gk, {
           groupKey: gk, colorId: v.colorId, name: v.color?.name, hex: v.color?.hex, patternImage: v.color?.patternImage,
-          firstImage: imageMap.get(p.id)?.get(v.id) ?? null,
+          firstImage: imageMap.get(p.id)?.get(v.id) ?? imageMap.get(p.id)?.get(v.colorId) ?? null,
           unitPrice: Number(v.unitPrice),
           isPrimary: primaryColorId != null && v.colorId === primaryColorId,
           totalStock: 0,
@@ -98,7 +98,7 @@ function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, str
       }
       const cd = colorMap.get(gk)!;
       // If this variant has an image and the group doesn't yet, use it
-      if (!cd.firstImage) cd.firstImage = imageMap.get(p.id)?.get(v.id) ?? null;
+      if (!cd.firstImage) cd.firstImage = imageMap.get(p.id)?.get(v.id) ?? imageMap.get(p.id)?.get(v.colorId) ?? null;
       cd.unitPrice = Math.min(cd.unitPrice, Number(v.unitPrice));
       cd.totalStock += v.stock ?? 0;
       if (primaryColorId != null && v.colorId === primaryColorId) cd.isPrimary = true;

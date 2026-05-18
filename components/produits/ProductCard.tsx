@@ -295,9 +295,6 @@ export default function ProductCard({
                 </span>
               ));
             })()}
-            <span className="bg-bg-primary/80 backdrop-blur-sm text-text-muted text-[9px] font-mono px-1.5 py-0.5 rounded-full border border-border w-fit">
-              {reference}
-            </span>
           </div>
 
           {/* Favori + coloris count */}
@@ -368,6 +365,10 @@ export default function ProductCard({
 
           <p className="text-xs text-text-muted font-body">
             {tc(category)}{subCategory && <> · {tc(subCategory)}</>}
+          </p>
+
+          <p className="text-[11px] text-text-muted font-body">
+            {t("reference")} : <span className="font-mono text-text-secondary">{reference}</span>
           </p>
 
           {/* Tags */}

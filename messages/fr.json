@@ -327,6 +327,7 @@
   },
   "product": {
     "ref": "Réf.",
+    "reference": "Référence",
     "color": "Couleur",
     "size": "Taille",
     "stock": "En stock",

@@ -65,7 +65,7 @@ function shapeProducts(products: any[], imageMap: Map<string, Map<string, string
           name:          v.color?.name,
           hex:           v.color?.hex,
           patternImage:  v.color?.patternImage,
-          firstImage:    imageMap.get(p.id)?.get(v.id) ?? null,
+          firstImage:    imageMap.get(p.id)?.get(v.id) ?? imageMap.get(p.id)?.get(v.colorId) ?? null,
           unitPrice:     Number(v.unitPrice),
           isPrimary:     primaryColorId != null && v.colorId === primaryColorId,
           totalStock:    0,
@@ -73,7 +73,7 @@ function shapeProducts(products: any[], imageMap: Map<string, Map<string, string
         });
       }
       const cd = colorMap.get(gk)!;
-      if (!cd.firstImage) cd.firstImage = imageMap.get(p.id)?.get(v.id) ?? null;
+      if (!cd.firstImage) cd.firstImage = imageMap.get(p.id)?.get(v.id) ?? imageMap.get(p.id)?.get(v.colorId) ?? null;
       cd.unitPrice = Math.min(cd.unitPrice, Number(v.unitPrice));
       cd.totalStock += v.stock ?? 0;
       if (primaryColorId != null && v.colorId === primaryColorId) cd.isPrimary = true;

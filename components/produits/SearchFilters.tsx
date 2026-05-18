@@ -493,23 +493,6 @@ export default function SearchFilters({
         </div>
       </div>
 
-      {/* Masquer rupture de stock */}
-      {showOosToggle && (
-        <div>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={hideOos}
-              onChange={() => toggleBool("hideOos", hideOos)}
-              className="w-4 h-4 rounded border-border text-text-primary accent-[#1A1A1A]"
-            />
-            <span className="text-xs text-text-secondary font-body">
-              {t("hideOutOfStock")}
-            </span>
-          </label>
-        </div>
-      )}
-
       {/* Reset */}
       {hasAny && (
         <button
