@@ -676,6 +676,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     oldStockMap: Map<string, number>;
     oldVariantMap: Map<string, { stock: number; unitPrice: number; saleType: "UNIT" | "PACK"; packQuantity: number | null; totalPackQty: number }>;
     variantIdMap: { colorInput: ColorInput; variantId: string; isNew: boolean }[];
+    orphanImagePaths: string[];
   } | null = null;
   try {
     txResult = await prisma.$transaction(async (tx) => {
