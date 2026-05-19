@@ -183,19 +183,10 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
   }) as unknown as FullProduct | null;
 }
 
-function buildVariantSku(
-  product: Pick<FullProduct, "reference">,
-  variant: FullVariant,
-  index: number,
-): string {
-  if (variant.sku) return variant.sku;
-  const colorSlug = variant.color?.name?.replace(/\s+/g, "-").toLowerCase() ?? `v${index}`;
-  // Suffix stable basé sur l'ID local de la variante : voir commentaire
-  // identique dans ankorstore-update.ts. Les SKU d'Ankorstore sont cramés
-  // pour toujours une fois utilisés (même après archivage).
-  const idSuffix = variant.id.slice(-8);
-  return `${product.reference}_${colorSlug}_${variant.saleType}_${index + 1}_${idSuffix}`;
-}
+// SKU centralisé : voir lib/ankorstore-sku.ts pour la logique de doublon +
+// inclusion taille. On garde le helper local en simple ré-export pour ne
+// pas casser les imports existants.
+import { buildVariantSkus as buildVariantSkusShared } from "@/lib/ankorstore-sku";
 
 /**
  * URL envoyée à Ankorstore : passe par /api/marketplace-image qui
@@ -284,9 +275,14 @@ function buildAnkorstoreVariants(
     entry: AnkorstoreCatalogProductInput["variants"][number];
   }[] = [];
 
+  // Génère tous les SKU d'un coup : permet de détecter les doublons de SKU
+  // manuel entre variantes du même produit et basculer ces variantes sur un
+  // SKU auto-généré qui inclut la taille.
+  const skuByVariantId = buildVariantSkusShared(product.reference, colors);
+
   for (let i = 0; i < colors.length; i++) {
     const variant = colors[i];
-    const sku = buildVariantSku(product, variant, i);
+    const sku = skuByVariantId.get(variant.id) ?? variant.id;
     const stock = getEffectiveStockForAnkorstore(variant, product.status);
     const wholesalePrice = getAnkorstoreWholesalePrice(variant, wholesaleMarkup);
     const retailPrice = getAnkorstoreRetailPrice(variant, wholesaleMarkup, retailMarkup);

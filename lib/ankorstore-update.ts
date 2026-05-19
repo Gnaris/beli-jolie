@@ -211,19 +211,19 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
   }) as unknown as FullProduct | null;
 }
 
+// SKU centralisé : voir lib/ankorstore-sku.ts. Wrapper local pour les sites
+// d'appel existants (snapshot + branche linked qui override avec realSku AS).
+import {
+  buildVariantSkus as buildVariantSkusShared,
+  buildSingleVariantSku,
+} from "@/lib/ankorstore-sku";
+
 function buildVariantSku(
   product: Pick<FullProduct, "reference">,
   variant: FullVariant,
   index: number,
 ): string {
-  if (variant.sku) return variant.sku;
-  const colorSlug = variant.color?.name?.replace(/\s+/g, "-").toLowerCase() ?? `v${index}`;
-  // Suffix stable basé sur l'ID local de la variante pour éviter les conflits
-  // de SKU côté Ankorstore : une fois qu'un SKU a été utilisé chez eux, il
-  // reste cramé même après archivage. Le suffix garantit qu'un nouveau
-  // ProductColor (même couleur, même index) génère toujours un SKU frais.
-  const idSuffix = variant.id.slice(-8);
-  return `${product.reference}_${colorSlug}_${variant.saleType}_${index + 1}_${idSuffix}`;
+  return buildSingleVariantSku(product.reference, variant, index);
 }
 
 /**
@@ -771,14 +771,23 @@ export async function ankorstoreKickoffUpdate(
       //    couleur → aucun risque de doublon. Après le webhook succeeded,
       //    finalize relancera l'auto-link pour récupérer le nouvel
       //    ankorsVariantId créé par AS.
-      variants: product.colors.map((variant, i) => {
+      //
+      // Pour les variantes non liées, on construit d'abord la map des SKU
+      // avec déduplication interne (cf. lib/ankorstore-sku.ts) — sinon deux
+      // tailles d'une même couleur partagent le SKU manuel et AS refuse.
+      variants: ((): AnkorstoreCatalogProductInput["variants"] => {
+        const localSkuByVariantId = buildVariantSkusShared(
+          product.reference,
+          product.colors,
+        );
+        return product.colors.map((variant, i) => {
         // Utilise le SKU réel d'Ankorstore pour les variantes déjà liées
         // (sinon Ankorstore créerait une nouvelle variante au lieu de modifier
         // l'existante).
         const realSku = variant.ankorsVariantId
           ? ankorsRealSkuById.get(variant.ankorsVariantId)
           : null;
-        const sku = realSku ?? buildVariantSku(product, variant, i);
+        const sku = realSku ?? localSkuByVariantId.get(variant.id) ?? buildVariantSku(product, variant, i);
         const variantWholesale = getWholesalePrice(variant, config);
         const variantRetail = getRetailPrice(variant, config);
         const colorLabel =
@@ -824,7 +833,8 @@ export async function ankorstoreKickoffUpdate(
           ],
           ...(variantImages.length > 0 ? { images: variantImages } : {}),
         };
-      }),
+        });
+      })(),
     };
 
     // Reflect the async pieces (images, product fields, status) into the

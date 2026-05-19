@@ -30,8 +30,11 @@ import { ankorstoreKickoffPublish } from "@/lib/ankorstore-publish";
 import { ankorstoreKickoffRefresh } from "@/lib/ankorstore-refresh";
 
 const ANKORSTORE_TOKEN_URL = "https://www.ankorstore.com/oauth/token";
-const CONCURRENCY = 2;
-const DELAY_MS = 400;
+// Séquentiel pur : Ankorstore renvoie 403 "Status of the operation cannot be
+// updated from [pending] to [started]" quand on enchaîne trop vite. La file
+// AS n'autorise qu'une opération à la fois par marque.
+const CONCURRENCY = 1;
+const DELAY_MS = 2000;
 
 async function bootstrapAnkorstoreAuth(): Promise<void> {
   const rows = await prisma.siteConfig.findMany({
