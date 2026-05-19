@@ -19,6 +19,7 @@ import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefr
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+import LinkAnkorstoreProductModal from "@/components/admin/products/LinkAnkorstoreProductModal";
 
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
 
@@ -108,7 +109,13 @@ function MarketplaceBadge({ published }: { published: boolean }) {
   );
 }
 
-function AnkorstoreBadge({ published }: { published: boolean }) {
+function AnkorstoreBadge({
+  published,
+  onLinkClick,
+}: {
+  published: boolean;
+  onLinkClick?: () => void;
+}) {
   if (published) {
     return (
       <span
@@ -118,6 +125,25 @@ function AnkorstoreBadge({ published }: { published: boolean }) {
         <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
         Ankorstore
       </span>
+    );
+  }
+  if (onLinkClick) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onLinkClick();
+        }}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border hover:border-text-secondary hover:text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
+        title="Cliquer pour lier à un produit Ankorstore"
+      >
+        <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
+        Ankorstore
+        <svg className="w-2.5 h-2.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+        </svg>
+      </button>
     );
   }
   return (
@@ -719,7 +745,9 @@ function ProductRow({
 }) {
   const [refreshing, setRefreshing] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [linkAkOpen, setLinkAkOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
   const { confirm } = useConfirm();
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const { refreshSingle } = useRefreshMarketplaceDialog({ showPfs: hasPfsConfig, showAnkorstore });
@@ -912,10 +940,21 @@ function ProductRow({
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-1.5 flex-nowrap">
-              <MarketplaceBadge published={!!product.pfsProductId} />
-              <AnkorstoreBadge published={!!product.ankorsProductId} />
-            </div>
+          </div>
+        </td>
+
+        {/* Marketplaces */}
+        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
+          <div className="flex flex-col gap-1.5 items-start">
+            <MarketplaceBadge published={!!product.pfsProductId} />
+            <AnkorstoreBadge
+              published={!!product.ankorsProductId}
+              onLinkClick={
+                showAnkorstore && !product.ankorsProductId
+                  ? () => setLinkAkOpen(true)
+                  : undefined
+              }
+            />
           </div>
         </td>
 
@@ -994,7 +1033,7 @@ function ProductRow({
       {/* ── Tiroir variantes ── */}
       {expanded && (
         <tr>
-          <td colSpan={10} className="p-0">
+          <td colSpan={11} className="p-0">
             <div className="drawer-variant-container" style={{ position: 'relative' }}>
               {/* En-tête du tiroir */}
               <div
@@ -1073,6 +1112,18 @@ function ProductRow({
             </div>
           </td>
         </tr>
+      )}
+
+      {linkAkOpen && (
+        <LinkAnkorstoreProductModal
+          productId={product.id}
+          productName={product.name}
+          reference={product.reference}
+          onClose={() => {
+            setLinkAkOpen(false);
+            router.refresh();
+          }}
+        />
       )}
     </>
   );
@@ -1482,6 +1533,7 @@ function TableWithTopScroll({
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Catégorie</th>
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Couleurs</th>
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Statut</th>
+              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Marketplaces</th>
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Date</th>
               <th className="px-3 py-3.5 text-right text-[10px] w-28"></th>
             </tr>
