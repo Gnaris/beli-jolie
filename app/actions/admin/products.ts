@@ -1809,7 +1809,7 @@ export async function revalidateAfterImport() {
  */
 export async function fetchProductFormAttributes() {
   await requireAdmin();
-  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes, annexes, hsCodeRows] = await Promise.all([
+  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes, annexes, hsCodes] = await Promise.all([
     prisma.category.findMany({
       orderBy: { name: "asc" },
       include: { subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true, slug: true } } },
@@ -1830,22 +1830,12 @@ export async function fetchProductFormAttributes() {
       select: { id: true, name: true },
     }),
     getPfsAnnexes().catch(() => null),
-    prisma.product.findMany({
-      where: { hsCode: { not: null } },
-      select: { hsCode: true },
+    prisma.hsCode.findMany({
+      orderBy: { code: "asc" },
+      select: { id: true, code: true, label: true },
     }),
   ]);
   const pfsSizes = (annexes?.sizes ?? []).map((ref) => ({ reference: ref, label: ref }));
-
-  const hsCodeMap = new Map<string, number>();
-  for (const row of hsCodeRows) {
-    const code = row.hsCode?.trim();
-    if (!code) continue;
-    hsCodeMap.set(code, (hsCodeMap.get(code) ?? 0) + 1);
-  }
-  const hsCodes = [...hsCodeMap.entries()]
-    .map(([code, count]) => ({ code, count }))
-    .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
 
   return {
     categories,

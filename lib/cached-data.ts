@@ -64,6 +64,17 @@ export const getCachedTags = unstable_cache(
   { revalidate: 60, tags: ["tags"] }
 );
 
+// ─── Codes SH (bibliothèque douanière) ──────────────────────────────────────
+export const getCachedHsCodes = unstable_cache(
+  async () =>
+    prisma.hsCode.findMany({
+      orderBy: { code: "asc" },
+      select: { id: true, code: true, label: true },
+    }),
+  ["filter-hs-codes"],
+  { revalidate: 3600, tags: ["hs-codes"] }
+);
+
 // ─── Pays de fabrication ─────────────────────────────────────────────────────
 export const getCachedManufacturingCountries = unstable_cache(
   async () =>

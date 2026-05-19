@@ -9,6 +9,7 @@ const mockTagFindMany = vi.fn();
 const mockCountryFindMany = vi.fn();
 const mockSeasonFindMany = vi.fn();
 const mockProductFindMany = vi.fn();
+const mockHsCodeFindMany = vi.fn();
 const mockGetPfsAnnexes = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
@@ -24,6 +25,7 @@ vi.mock("@/lib/prisma", () => ({
     manufacturingCountry: { findMany: (...a: unknown[]) => mockCountryFindMany(...a) },
     season: { findMany: (...a: unknown[]) => mockSeasonFindMany(...a) },
     product: { findMany: (...a: unknown[]) => mockProductFindMany(...a) },
+    hsCode: { findMany: (...a: unknown[]) => mockHsCodeFindMany(...a) },
   },
 }));
 
@@ -67,6 +69,7 @@ describe("fetchProductFormAttributes — taille unique virtuelle", () => {
     mockCountryFindMany.mockResolvedValue([]);
     mockSeasonFindMany.mockResolvedValue([]);
     mockProductFindMany.mockResolvedValue([]);
+    mockHsCodeFindMany.mockResolvedValue([]);
     mockGetPfsAnnexes.mockResolvedValue(null);
   });
 
