@@ -857,7 +857,25 @@ export async function ankorstoreKickoffUpdate(
       status: targetStatus,
     };
 
-    const { operationId } = await ankorstoreCreateCatalogOperation("update");
+    // Choix du type d'opération AS :
+    //   - "update" : modifie en place les variantes déjà liées. Ne crée PAS
+    //     de nouvelles variantes (les SKU inconnus du payload sont ignorés
+    //     silencieusement).
+    //   - "import" : crée OU met à jour (superset). Nécessaire quand on a
+    //     des variantes locales sans `ankorsVariantId` à créer côté AS.
+    //
+    // On choisit dynamiquement : "import" dès qu'il y a au moins une
+    // variante locale non liée à pousser. Sinon "update" (plus léger côté AS).
+    const opType: "import" | "update" = hasNewVariants ? "import" : "update";
+    const { operationId } = await ankorstoreCreateCatalogOperation(opType);
+    logger.info("[Ankorstore Update] Creating catalog operation", {
+      operationId,
+      opType,
+      productId,
+      reference: product.reference,
+      hasNewVariants,
+      unlinkedVariantCount: unlinkedVariants.length,
+    });
     const addResp = await ankorstoreAddProductsToOperation(operationId, [productInput]);
     if (addResp.totalProductsCount === 0) {
       throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");
