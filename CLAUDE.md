@@ -52,6 +52,8 @@ Protection : `middleware.ts` (edge) + group `layout.tsx` (server fallback). Midd
 
 `Product` → `ProductColor[]` (variantes UNIT ou PACK) → images, sizes, pack color lines. **Une variante = une couleur** (plus de sous-couleurs/composition). Pricing : UNIT = `unitPrice` direct, PACK = calculé via `computeTotalPrice()`. Pour les **packs multi-couleurs** (ex : pack tricolore), composition dans `PackColorLine[]` + `PackColorLineSize[]` (1 ligne par couleur du pack avec ses tailles/quantités). Le `Color.name` (bibliothèque) doit correspondre exactement à ce que PFS attend pour l'export Excel.
 
+**Codes SH** : bibliothèque dédiée (`model HsCode` — `code` 6-10 chiffres + `label` libellé court). Gérée depuis `/admin/codes-sh` ou l'onglet « Codes SH » de `/admin/produits`. Le formulaire produit affiche une liste déroulante (`CustomSelect searchable`) avec bouton « + Créer un nouveau code SH » qui ouvre `HsCodeModal` à la volée. `Product.hsCodeId` relie au code (SetNull à la suppression). Le **numéro** part chez Ankorstore (`hs_code`) ; le libellé reste interne. PFS n'utilise pas le code SH.
+
 ### Marketplace publishing via API live (PFS + Ankorstore)
 
 Create / update sur PFS et Ankorstore = **direct via les API**. Plus d'export Excel manuel.
