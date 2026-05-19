@@ -1,23 +1,20 @@
 /**
  * Génération des SKU envoyés à Ankorstore.
  *
- * Règles :
- *   - Si la variante a un SKU manuel renseigné côté BJ ET qu'il est unique
- *     parmi toutes les variantes du produit, on garde ce SKU manuel.
- *   - Sinon (pas de SKU manuel, OU SKU manuel partagé par ≥ 2 variantes du
- *     même produit ex: 3 tailles du même coloris), on génère un SKU auto.
+ * Règle (mise à jour 2026-05-19) : **toujours auto-générer**.
  *
- * SKU auto :
+ * On ignore systématiquement le champ `ProductColor.sku` stocké en BDD —
+ * il a pu être rempli par une ancienne version du code (sans taille ni
+ * suffixe) ou rester d'un import historique. Pour garantir qu'aucun SKU
+ * envoyé à AS ne puisse rentrer en conflit, on régénère TOUT à chaque
+ * envoi avec le format complet :
+ *
  *   {reference}_{couleur-slug}_{taille-slug}_{UNIT|PACK}_{index+1}_{idSuffix}
  *
- * Pourquoi la taille dans le SKU : sans elle, deux variantes UNIT de la même
- * couleur en tailles différentes (ex : H39 Doré S vs H39 Doré M) ressortent
- * du formulaire BJ avec le même SKU manuel — et Ankorstore refuse les SKU
- * en doublon dans un même produit.
- *
- * Le suffix `idSuffix` (derniers 8 caractères de l'ID de variante BJ) reste
- * en queue pour garantir l'unicité même après archivage côté AS (un SKU une
- * fois utilisé chez eux est "cramé" et ne peut pas être réutilisé).
+ * Note importante : les variantes **déjà liées à AS** (`ankorsVariantId`
+ * connu) sont protégées en amont par les appelants (publish/update) qui
+ * utilisent le SKU réel d'AS pour ces variantes — donc changer la logique
+ * locale ne risque pas de casser des liens existants.
  */
 
 type Variant = {
@@ -69,49 +66,30 @@ function generatedSku(
 
 /**
  * Construit la map { variantId → sku } pour un produit donné.
- * Détecte les SKU manuels en doublon et bascule les variantes concernées
- * sur SKU auto-généré.
+ *
+ * Régénère systématiquement le SKU pour TOUTES les variantes (on ignore le
+ * SKU stocké en BDD). Voir doc du fichier pour le raisonnement.
  */
 export function buildVariantSkus(
   reference: string,
   variants: Variant[],
 ): Map<string, string> {
-  // Compte les SKU manuels (normalisés) pour détecter les doublons
-  const manualSkuCount = new Map<string, number>();
-  for (const v of variants) {
-    const key = v.sku?.trim().toLowerCase();
-    if (key) manualSkuCount.set(key, (manualSkuCount.get(key) ?? 0) + 1);
-  }
-
   const out = new Map<string, string>();
   for (let i = 0; i < variants.length; i++) {
-    const v = variants[i];
-    const manual = v.sku?.trim();
-    const manualKey = manual?.toLowerCase();
-    const isDuplicate = manualKey ? (manualSkuCount.get(manualKey) ?? 0) > 1 : false;
-
-    if (manual && !isDuplicate) {
-      out.set(v.id, manual);
-      continue;
-    }
-
-    out.set(v.id, generatedSku(reference, v, i));
+    out.set(variants[i].id, generatedSku(reference, variants[i], i));
   }
-
   return out;
 }
 
 /**
- * Helper unitaire pour un seul SKU (sans contexte de doublon). À utiliser
- * uniquement quand on n'a pas accès à la liste complète des variantes.
- * Préfère `buildVariantSkus` quand possible.
+ * Helper unitaire pour un seul SKU. À utiliser uniquement quand on n'a pas
+ * accès à la liste complète des variantes. Préfère `buildVariantSkus` quand
+ * possible (qui garantit l'unicité d'index).
  */
 export function buildSingleVariantSku(
   reference: string,
   variant: Variant,
   index: number,
 ): string {
-  const manual = variant.sku?.trim();
-  if (manual) return manual;
   return generatedSku(reference, variant, index);
 }
