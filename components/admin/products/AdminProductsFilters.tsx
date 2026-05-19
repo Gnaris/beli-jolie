@@ -22,7 +22,7 @@ interface Props {
   categories: CategoryOption[];
   tags?: TagOption[];
   compositions?: CompositionOption[];
-  hsCodes?: string[];
+  hsCodes?: { id: string; code: string; label: string }[];
   hasPfsConfig?: boolean;
   hasAnkorstoreConfig?: boolean;
 }
@@ -50,7 +50,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlMissingImages = searchParams.get("missingImages") ?? "";
   const urlPfsLink = searchParams.get("pfsLink") ?? "";
   const urlAnkorsLink = searchParams.get("ankorsLink") ?? "";
-  const urlHsCode    = searchParams.get("hsCode")     ?? "";
+  const urlHsCodeId  = searchParams.get("hsCodeId")   ?? "";
   const perPage      = searchParams.get("perPage")    ?? "20";
 
   // Parse "REF1,REF2,REF3" → ["REF1", "REF2", "REF3"]
@@ -412,14 +412,18 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
               </FilterField>
               <FilterField label="Code SH">
                 <CustomSelect
-                  value={urlHsCode}
-                  onChange={(v) => navigate({ hsCode: v || null })}
+                  value={urlHsCodeId}
+                  onChange={(v) => navigate({ hsCodeId: v || null })}
                   options={[
                     { value: "", label: "Tous" },
                     { value: "__none__", label: "Sans code SH" },
-                    ...hsCodes.map((c) => ({ value: c, label: c })),
+                    ...hsCodes.map((c) => ({
+                      value: c.id,
+                      label: `${c.code} — ${c.label}`,
+                    })),
                   ]}
                   size="sm"
+                  searchable
                 />
               </FilterField>
             </FilterColumn>

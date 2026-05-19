@@ -32,6 +32,7 @@ export const ADMIN_PRODUCTS_FILTER_KEYS = [
   "missingImages",
   "pfsLink",
   "ankorsLink",
+  "hsCodeId",
   "page",
   "perPage",
 ] as const;

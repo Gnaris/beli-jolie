@@ -23,7 +23,12 @@ export interface AdminProductsFilterParams {
   dateFrom?: string;
   dateTo?: string;
   stockBelow?: number | null;
-  /** "linked" = pfsProductId renseigné, "unlinked" = pfsProductId vide */
+  /**
+   * Filtre sur le lien Paris Fashion Shop — un produit est considéré « lié »
+   * seulement s'il est complètement lié (produit + toutes ses couleurs UNIT).
+   *   - "linked"   = `pfsProductId` renseigné ET aucune couleur UNIT sans `pfsVariantId`
+   *   - "unlinked" = `pfsProductId` vide OU au moins une couleur UNIT sans `pfsVariantId`
+   */
   pfsLink?: string;
   /**
    * Filtre sur le lien Ankorstore — un produit est considéré « lié » seulement
@@ -35,12 +40,13 @@ export interface AdminProductsFilterParams {
    */
   ankorsLink?: string;
   /**
-   * Filtre sur le code SH (douanier) du produit :
+   * Filtre sur le code SH (douanier) du produit, désormais en relation
+   * avec la bibliothèque HsCode :
    *   - `""`         = pas de filtre (tous)
-   *   - `"__none__"` = produits sans code SH (NULL ou chaîne vide)
-   *   - autre        = égalité stricte (code SH exact)
+   *   - `"__none__"` = produits sans code SH (hsCodeId NULL)
+   *   - autre        = id du code SH (égalité stricte sur Product.hsCodeId)
    */
-  hsCode?: string;
+  hsCodeId?: string;
   /**
    * Liste des productId à retenir (intersection). Quand le filtre
    * « variantes sans image » est actif, on précalcule les IDs côté serveur
@@ -159,8 +165,20 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
 
   if (params.pfsLink === "linked") {
     where.pfsProductId = { not: null };
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
+    ];
   } else if (params.pfsLink === "unlinked") {
-    where.pfsProductId = null;
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      {
+        OR: [
+          { pfsProductId: null },
+          { colors: { some: { saleType: "UNIT", pfsVariantId: null } } },
+        ],
+      },
+    ];
   }
 
   if (params.ankorsLink === "linked") {
@@ -181,13 +199,13 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     ];
   }
 
-  if (params.hsCode === "__none__") {
+  if (params.hsCodeId === "__none__") {
     where.AND = [
       ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
-      { OR: [{ hsCode: null }, { hsCode: "" }] },
+      { hsCodeId: null },
     ];
-  } else if (params.hsCode) {
-    where.hsCode = params.hsCode;
+  } else if (params.hsCodeId) {
+    where.hsCodeId = params.hsCodeId;
   }
 
   if (params.productIdsIn) {

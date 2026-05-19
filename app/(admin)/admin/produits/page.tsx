@@ -55,7 +55,7 @@ interface PageProps {
     missingImages?: string;
     pfsLink?: string;
     ankorsLink?: string;
-    hsCode?: string;
+    hsCodeId?: string;
   }>;
 }
 
@@ -143,7 +143,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     missingImages = "",
     pfsLink = "",
     ankorsLink = "",
-    hsCode = "",
+    hsCodeId = "",
   } = params;
 
   const exactRef   = exactRefParam === "1";
@@ -176,7 +176,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     stockBelow,
     pfsLink,
     ankorsLink,
-    hsCode,
+    hsCodeId,
     productIdsIn,
   });
 
@@ -229,12 +229,10 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     }),
     getCachedTags(),
     getCachedCompositions(),
-    // Liste distincte des codes SH déjà utilisés (pour le filtre dédié)
-    prisma.product.findMany({
-      where: { hsCode: { not: null } },
-      select: { hsCode: true },
-      distinct: ["hsCode"],
-      orderBy: { hsCode: "asc" },
+    // Bibliothèque des codes SH (pour le filtre dédié)
+    prisma.hsCode.findMany({
+      orderBy: { code: "asc" },
+      select: { id: true, code: true, label: true },
     }),
     // Section counts for tabs (lightweight parallel queries)
     Promise.all([
@@ -251,10 +249,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
 
   const totalPages = Math.ceil(totalCount / perPage);
 
-  // On retire les chaînes vides éventuelles (codes stockés "" plutôt que NULL).
-  const hsCodes = hsCodeRows
-    .map((r) => r.hsCode)
-    .filter((c): c is string => !!c && c.trim().length > 0);
+  const hsCodes = hsCodeRows;
 
   // Images chargées en une seule requête, indexées par (productId, colorId).
   // L'image étant rattachée au couple Produit × Couleur (et pas à une variante
