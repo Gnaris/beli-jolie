@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Beli & Jolie — Renommer les produits</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f4;
+      color: #1c1917;
+      line-height: 1.5;
+    }
+    .topbar {
+      position: sticky; top: 0; z-index: 10;
+      background: white;
+      border-bottom: 1px solid #e7e5e4;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .progress-wrap { flex: 1; max-width: 480px; }
+    .progress-label { font-size: 13px; color: #57534e; margin-bottom: 4px; }
+    .progress-bar { height: 8px; background: #e7e5e4; border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #16a34a; transition: width .3s; }
+    .push-btn {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .push-btn.ready {
+      background: #16a34a;
+      color: white;
+    }
+    .push-btn.disabled {
+      background: #e7e5e4;
+      color: #a8a29e;
+      cursor: not-allowed;
+    }
+    .push-btn.pushed {
+      background: #0369a1;
+      color: white;
+    }
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .product-card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 1fr 1.4fr;
+      gap: 0;
+    }
+    @media (max-width: 900px) {
+      .product-card { grid-template-columns: 1fr; }
+    }
+    .image-section {
+      background: #fafaf9;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      border-right: 1px solid #e7e5e4;
+    }
+    .product-image {
+      width: 100%;
+      max-width: 380px;
+      aspect-ratio: 1;
+      object-fit: contain;
+      background: white;
+      border-radius: 12px;
+      border: 1px solid #e7e5e4;
+    }
+    .ref-line {
+      font-size: 13px;
+      color: #57534e;
+      text-align: center;
+    }
+    .ref-line strong { color: #1c1917; font-size: 16px; }
+    .current-meta {
+      width: 100%;
+      max-width: 380px;
+      background: #fafaf9;
+      border: 1px dashed #d6d3d1;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 12px;
+      color: #57534e;
+    }
+    .current-meta-label { font-weight: 600; color: #44403c; }
+    .choices-section {
+      padding: 24px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .section-title {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: #57534e;
+      margin-bottom: 8px;
+    }
+    .option {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid #e7e5e4;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-bottom: 6px;
+      transition: all .15s;
+    }
+    .option:hover { background: #fafaf9; }
+    .option.selected {
+      background: #ecfdf5;
+      border-color: #16a34a;
+    }
+    .option input[type="radio"] {
+      margin-top: 2px;
+      accent-color: #16a34a;
+      cursor: pointer;
+    }
+    .option-text { flex: 1; font-size: 14px; }
+    .option.none-option {
+      border-color: #fde68a;
+      background: #fffbeb;
+    }
+    .option.none-option.selected {
+      background: #fef3c7;
+      border-color: #d97706;
+    }
+    .comment-area {
+      margin-top: 10px;
+      padding: 12px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+    }
+    .comment-area label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #92400e;
+      margin-bottom: 6px;
+    }
+    .comment-area textarea {
+      width: 100%;
+      min-height: 60px;
+      border: 1px solid #fde68a;
+      border-radius: 6px;
+      padding: 8px;
+      font-family: inherit;
+      font-size: 13px;
+      resize: vertical;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      padding-top: 8px;
+      border-top: 1px solid #e7e5e4;
+      margin-top: 4px;
+    }
+    .btn {
+      padding: 12px 20px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+      flex: 1;
+    }
+    .btn-primary {
+      background: #16a34a;
+      color: white;
+    }
+    .btn-primary:disabled {
+      background: #d6d3d1;
+      cursor: not-allowed;
+    }
+    .btn-regen {
+      background: #d97706;
+      color: white;
+    }
+    .btn-secondary {
+      background: white;
+      border: 1px solid #d6d3d1;
+      color: #44403c;
+    }
+    .btn-secondary:disabled {
+      color: #a8a29e;
+      cursor: not-allowed;
+    }
+    .navigation {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-top: 16px;
+    }
+    .nav-btn {
+      background: white;
+      border: 1px solid #d6d3d1;
+      padding: 8px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .nav-btn:disabled { color: #a8a29e; cursor: not-allowed; }
+    .nav-position {
+      font-size: 14px;
+      color: #57534e;
+      font-weight: 500;
+    }
+    .empty {
+      text-align: center;
+      padding: 80px 24px;
+      color: #57534e;
+    }
+    .empty h2 { font-size: 24px; margin-bottom: 12px; color: #1c1917; }
+    .empty p { font-size: 15px; margin-bottom: 24px; }
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.6);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .modal {
+      background: white;
+      border-radius: 16px;
+      max-width: 520px;
+      width: 100%;
+      padding: 32px;
+      text-align: center;
+    }
+    .modal h2 { font-size: 22px; margin-bottom: 12px; }
+    .modal p { margin-bottom: 16px; color: #44403c; }
+    .modal .ref-badge {
+      display: inline-block;
+      background: #f5f5f4;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-weight: 600;
+      margin: 0 4px;
+    }
+    .modal .comment-box {
+      background: #fafaf9;
+      border: 1px solid #e7e5e4;
+      border-radius: 8px;
+      padding: 12px;
+      margin: 12px 0;
+      text-align: left;
+      font-size: 13px;
+      color: #57534e;
+    }
+    .pulse {
+      width: 12px;
+      height: 12px;
+      background: #d97706;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 8px;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .4; }
+    }
+    .saved-indicator {
+      font-size: 12px;
+      color: #16a34a;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1c1917;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 200;
+      opacity: 0;
+      transition: opacity .3s;
+    }
+    .toast.show { opacity: 1; }
+
+    /* RECAP VIEW */
+    .recap-header {
+      background: white;
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .recap-header.pushed { background: #ecfdf5; border: 1px solid #16a34a; }
+    .recap-header h1 { font-size: 22px; margin-bottom: 8px; }
+    .recap-header.pushed h1 { color: #15803d; }
+    .recap-header p { color: #57534e; }
+    .recap-stat { font-size: 36px; font-weight: 700; color: #16a34a; margin: 8px 0; }
+    .recap-list {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      overflow: hidden;
+    }
+    .recap-row {
+      display: grid;
+      grid-template-columns: 80px 1fr auto;
+      gap: 16px;
+      padding: 16px 20px;
+      border-bottom: 1px solid #f5f5f4;
+      align-items: center;
+    }
+    .recap-row:last-child { border-bottom: none; }
+    .recap-thumb {
+      width: 70px;
+      height: 70px;
+      object-fit: contain;
+      background: #fafaf9;
+      border-radius: 8px;
+      border: 1px solid #e7e5e4;
+    }
+    .recap-thumb-empty {
+      width: 70px;
+      height: 70px;
+      background: #fafaf9;
+      border-radius: 8px;
+      border: 1px dashed #d6d3d1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #a8a29e;
+      font-size: 11px;
+    }
+    .recap-info { min-width: 0; }
+    .recap-ref {
+      font-size: 12px;
+      font-weight: 700;
+      color: #78716c;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 4px;
+    }
+    .recap-name { font-size: 15px; font-weight: 600; color: #1c1917; }
+    .recap-desc { font-size: 13px; color: #57534e; margin-top: 2px; font-style: italic; }
+    .recap-skip {
+      display: inline-block;
+      padding: 2px 8px;
+      background: #f5f5f4;
+      color: #78716c;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .recap-edit {
+      background: white;
+      border: 1px solid #d6d3d1;
+      color: #44403c;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .recap-edit:hover { background: #fafaf9; }
+    .recap-actions {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 24px;
+      flex-wrap: wrap;
+    }
+    .recap-actions .btn {
+      flex: 0 1 auto;
+      min-width: 200px;
+      padding: 14px 24px;
+    }
+    .btn-back {
+      background: white;
+      border: 1px solid #d6d3d1;
+      color: #44403c;
+    }
+    .btn-big-push {
+      background: #16a34a;
+      color: white;
+      font-size: 15px;
+      box-shadow: 0 2px 6px rgba(22,163,74,.3);
+    }
+    .btn-big-push:hover { background: #15803d; }
+    .btn-big-push:disabled { background: #d6d3d1; cursor: not-allowed; box-shadow: none; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="progress-wrap">
+      <div class="progress-label">
+        <span id="progress-text">Chargement…</span>
+        <span id="saved-info" class="saved-indicator" style="float:right; display:none;">✓ Sauvegardé</span>
+      </div>
+      <div class="progress-bar"><div id="progress-fill" class="progress-fill" style="width: 0%"></div></div>
+    </div>
+    <button id="push-btn" class="push-btn disabled" disabled>Tout pousser sur le site</button>
+  </div>
+
+  <div class="container">
+    <div id="main"></div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    let session = null;
+    let currentIdx = 0;
+    let selectedName = null;
+    let selectedDesc = null;
+    let nameComment = '';
+    let descComment = '';
+    let viewMode = 'edit'; // 'edit' | 'recap'
+    let autoRecapShown = false; // basculement auto en recap déjà fait une fois ?
+
+    async function fetchSession() {
+      const r = await fetch('/api/session');
+      if (!r.ok) return null;
+      return await r.json();
+    }
+
+    async function postJSON(url, body) {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      return r.ok;
+    }
+
+    function toast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2200);
+    }
+
+    function showSaved() {
+      const el = document.getElementById('saved-info');
+      el.style.display = 'inline-flex';
+      el.textContent = '✓ Sauvegardé';
+      setTimeout(() => { el.style.display = 'none'; }, 1800);
+    }
+
+    function findFirstUnvalidatedIdx() {
+      if (!session) return 0;
+      const products = session.products || [];
+      const decisions = session.decisions || {};
+      for (let i = 0; i < products.length; i++) {
+        if (!decisions[products[i].reference]) return i;
+      }
+      return Math.max(0, products.length - 1);
+    }
+
+    function countValidated() {
+      if (!session) return 0;
+      return Object.keys(session.decisions || {}).length;
+    }
+
+    function render() {
+      if (!session) {
+        document.getElementById('main').innerHTML = '<div class="empty"><h2>Chargement…</h2></div>';
+        return;
+      }
+
+      const products = session.products || [];
+      const totalCount = products.length;
+      const validatedCount = countValidated();
+
+      // Topbar
+      document.getElementById('progress-text').textContent =
+        `${validatedCount} sur ${totalCount} produit(s) traité(s)`;
+      document.getElementById('progress-fill').style.width =
+        totalCount > 0 ? `${(validatedCount / totalCount) * 100}%` : '0%';
+
+      const pushBtn = document.getElementById('push-btn');
+      if (session.status === 'pushed') {
+        pushBtn.className = 'push-btn pushed';
+        pushBtn.disabled = true;
+        pushBtn.textContent = '✓ Envoyé sur le site';
+      } else if (validatedCount > 0) {
+        pushBtn.className = 'push-btn ready';
+        pushBtn.disabled = false;
+        pushBtn.textContent = `Tout pousser sur le site (${validatedCount})`;
+      } else {
+        pushBtn.className = 'push-btn disabled';
+        pushBtn.disabled = true;
+        pushBtn.textContent = 'Tout pousser sur le site';
+      }
+
+      // Awaiting regen overlay?
+      const existingOverlay = document.querySelector('.overlay');
+      if (session.awaitingRegen) {
+        if (!existingOverlay) {
+          const what = session.awaitingRegen.what === 'name' ? 'noms'
+            : session.awaitingRegen.what === 'description' ? 'descriptions'
+            : 'noms et descriptions';
+          const overlay = document.createElement('div');
+          overlay.className = 'overlay';
+          overlay.innerHTML = `
+            <div class="modal">
+              <h2><span class="pulse"></span>Regénération en cours</h2>
+              <p>
+                Vous avez demandé de regénérer les <strong>${what}</strong>
+                pour le produit <span class="ref-badge">${session.awaitingRegen.ref}</span>.
+              </p>
+              <div class="comment-box">
+                <strong>Votre commentaire :</strong><br>
+                ${escapeHtml(session.awaitingRegen.comment || '(aucun)')}
+              </div>
+              <p style="font-weight:600; color:#d97706;">
+                Revenez dans Claude Code et tapez simplement :<br>
+                <code style="background:#fafaf9; padding:4px 8px; border-radius:4px; font-size:15px;">regénère</code>
+              </p>
+              <p style="font-size:12px; color:#78716c; margin-top:16px;">
+                Cette page se mettra à jour automatiquement dès que les nouvelles propositions seront prêtes.
+              </p>
+            </div>
+          `;
+          document.body.appendChild(overlay);
+        }
+        return;
+      } else {
+        if (existingOverlay) existingOverlay.remove();
+      }
+
+      // Empty?
+      if (totalCount === 0) {
+        document.getElementById('main').innerHTML = `
+          <div class="empty">
+            <h2>Aucun produit dans la session</h2>
+            <p>Retournez dans Claude Code pour créer une session.</p>
+          </div>`;
+        return;
+      }
+
+      // Recap view: shown after push, after explicit toggle, or auto-once when all validated
+      const allValidated = products.every(p => (session.decisions || {})[p.reference]);
+      if (session.status === 'pushed') {
+        viewMode = 'recap';
+        renderRecap();
+        return;
+      }
+      if (viewMode === 'recap') {
+        renderRecap();
+        return;
+      }
+      if (allValidated && !autoRecapShown) {
+        autoRecapShown = true;
+        viewMode = 'recap';
+        renderRecap();
+        return;
+      }
+
+      const p = products[currentIdx];
+      if (!p) { currentIdx = 0; render(); return; }
+
+      const existingDecision = (session.decisions || {})[p.reference];
+      if (selectedName === null && existingDecision) selectedName = existingDecision.name;
+      if (selectedDesc === null && existingDecision) selectedDesc = existingDecision.description;
+
+      const imgSrc = `/images/${p.reference.toLowerCase()}.webp`;
+      const namesHtml = (p.names || []).map((n, i) => `
+        <label class="option ${selectedName === n ? 'selected' : ''}">
+          <input type="radio" name="name" value="${escapeAttr(n)}" ${selectedName === n ? 'checked' : ''} onchange="onSelectName(this.value)">
+          <span class="option-text">${escapeHtml(n)}</span>
+        </label>
+      `).join('');
+
+      const descsHtml = (p.descs || []).map((d, i) => `
+        <label class="option ${selectedDesc === d ? 'selected' : ''}">
+          <input type="radio" name="desc" value="${escapeAttr(d)}" ${selectedDesc === d ? 'checked' : ''} onchange="onSelectDesc(this.value)">
+          <span class="option-text">${escapeHtml(d)}</span>
+        </label>
+      `).join('');
+
+      const isNoneName = selectedName === '__NONE__';
+      const isNoneDesc = selectedDesc === '__NONE__';
+
+      document.getElementById('main').innerHTML = `
+        <div class="product-card">
+          <div class="image-section">
+            <img class="product-image" src="${imgSrc}" alt="${p.reference}" onerror="this.style.display='none'">
+            <div class="ref-line">
+              Référence : <strong>${p.reference}</strong>
+              ${p.category ? `<br><small>${escapeHtml(p.category)}</small>` : ''}
+            </div>
+            ${p.name || p.description ? `
+              <div class="current-meta">
+                <div class="current-meta-label">Texte actuel sur le site :</div>
+                ${p.name ? `<div style="margin-top:4px;"><strong>${escapeHtml(p.name)}</strong></div>` : ''}
+                ${p.description ? `<div style="margin-top:4px; font-style:italic;">${escapeHtml(p.description)}</div>` : ''}
+              </div>` : ''}
+          </div>
+
+          <div class="choices-section">
+            <div>
+              <div class="section-title">Choisissez un nom</div>
+              ${namesHtml}
+              <label class="option none-option ${isNoneName ? 'selected' : ''}">
+                <input type="radio" name="name" value="__NONE__" ${isNoneName ? 'checked' : ''} onchange="onSelectName(this.value)">
+                <span class="option-text">⚠ Aucun ne va — me redemander</span>
+              </label>
+              ${isNoneName ? `
+                <div class="comment-area">
+                  <label for="name-comment">Pourquoi aucun nom ne va ?</label>
+                  <textarea id="name-comment" placeholder="Ex : il n'y a pas de cœur sur ce produit, c'est une croix" oninput="nameComment = this.value">${escapeHtml(nameComment)}</textarea>
+                </div>` : ''}
+            </div>
+
+            <div>
+              <div class="section-title">Choisissez une description</div>
+              ${descsHtml}
+              <label class="option none-option ${isNoneDesc ? 'selected' : ''}">
+                <input type="radio" name="desc" value="__NONE__" ${isNoneDesc ? 'checked' : ''} onchange="onSelectDesc(this.value)">
+                <span class="option-text">⚠ Aucune ne va — me redemander</span>
+              </label>
+              ${isNoneDesc ? `
+                <div class="comment-area">
+                  <label for="desc-comment">Pourquoi aucune description ne va ?</label>
+                  <textarea id="desc-comment" placeholder="Ex : il n'y a pas de strass, mais des perles" oninput="descComment = this.value">${escapeHtml(descComment)}</textarea>
+                </div>` : ''}
+            </div>
+
+            <div class="actions">
+              ${(isNoneName || isNoneDesc) ? `
+                <button class="btn btn-regen" onclick="requestRegen()">
+                  Demander de regénérer
+                </button>` : `
+                <button class="btn btn-primary" onclick="validate()" ${(!selectedName || !selectedDesc) ? 'disabled' : ''}>
+                  ${existingDecision ? 'Mettre à jour' : 'Valider'} et passer au suivant
+                </button>`}
+              <button class="btn btn-secondary" onclick="skip()">Passer (sans choisir)</button>
+            </div>
+
+            <div class="navigation">
+              <button class="nav-btn" onclick="goPrev()" ${currentIdx === 0 ? 'disabled' : ''}>← Précédent</button>
+              <span class="nav-position">Produit ${currentIdx + 1} / ${totalCount}</span>
+              <button class="nav-btn" onclick="goNext()" ${currentIdx === totalCount - 1 ? 'disabled' : ''}>Suivant →</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderRecap() {
+      const products = session.products || [];
+      const decisions = session.decisions || {};
+      const validatedCount = Object.keys(decisions).length;
+      const isPushed = session.status === 'pushed';
+
+      const rowsHtml = products.map((p, idx) => {
+        const d = decisions[p.reference];
+        const imgSrc = `/images/${p.reference.toLowerCase()}.webp`;
+        const right = isPushed
+          ? '<span class="recap-skip" style="background:#dcfce7; color:#15803d;">✓ Envoyé</span>'
+          : `<button class="recap-edit" onclick="editFromRecap(${idx})">Modifier</button>`;
+        if (!d) {
+          return `
+            <div class="recap-row">
+              <img class="recap-thumb" src="${imgSrc}" alt="" onerror="this.outerHTML='<div class=&quot;recap-thumb-empty&quot;>—</div>'">
+              <div class="recap-info">
+                <div class="recap-ref">${p.reference}</div>
+                <div class="recap-name" style="color:#a8a29e; font-style:italic;">— passé sans choix —</div>
+              </div>
+              ${right}
+            </div>`;
+        }
+        return `
+          <div class="recap-row">
+            <img class="recap-thumb" src="${imgSrc}" alt="" onerror="this.outerHTML='<div class=&quot;recap-thumb-empty&quot;>—</div>'">
+            <div class="recap-info">
+              <div class="recap-ref">${p.reference}</div>
+              <div class="recap-name">${escapeHtml(d.name)}</div>
+              <div class="recap-desc">${escapeHtml(d.description)}</div>
+            </div>
+            ${right}
+          </div>`;
+      }).join('');
+
+      const headerHtml = isPushed ? `
+        <div class="recap-header pushed">
+          <h1>✓ Tout est parti sur le site !</h1>
+          <div class="recap-stat">${session.pushed_count || validatedCount}</div>
+          <p>produit(s) envoyés à votre boutique, à Paris Fashion Shop et à Ankorstore.</p>
+          <p style="margin-top:12px; font-size:13px;">Les traductions (anglais, allemand, etc.) sont en cours de mise à jour en arrière-plan, comptez quelques minutes.</p>
+        </div>
+      ` : `
+        <div class="recap-header">
+          <h1>Récapitulatif du lot</h1>
+          <div class="recap-stat">${validatedCount} <span style="font-size:18px; color:#78716c; font-weight:400;">/ ${products.length}</span></div>
+          <p>produit(s) prêts à être envoyés. Vérifiez et cliquez sur « Tout pousser » quand vous êtes prête.</p>
+        </div>
+      `;
+
+      const actionsHtml = isPushed ? `
+        <div class="recap-actions">
+          <p style="text-align:center; font-size:13px; color:#57534e;">
+            Vous pouvez fermer cette page. Pour démarrer un nouveau lot, retournez dans Claude Code et tapez <code style="background:#f5f5f4; padding:2px 6px; border-radius:4px;">/produits-nom</code>.
+          </p>
+        </div>
+      ` : `
+        <div class="recap-actions">
+          <button class="btn btn-back" onclick="backToEdit()">← Revoir les produits un par un</button>
+          <button class="btn btn-big-push" onclick="pushFromRecap()" ${validatedCount === 0 ? 'disabled' : ''}>
+            Tout pousser sur le site (${validatedCount})
+          </button>
+        </div>
+      `;
+
+      document.getElementById('main').innerHTML = headerHtml + '<div class="recap-list">' + rowsHtml + '</div>' + actionsHtml;
+    }
+
+    function editFromRecap(idx) {
+      currentIdx = idx;
+      viewMode = 'edit';
+      selectedName = null;
+      selectedDesc = null;
+      nameComment = '';
+      descComment = '';
+      render();
+    }
+
+    function backToEdit() {
+      viewMode = 'edit';
+      currentIdx = findFirstUnvalidatedIdx();
+      render();
+    }
+
+    async function pushFromRecap() {
+      document.getElementById('push-btn').click();
+    }
+
+    function escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/\n/g, ' ');
+    }
+
+    function onSelectName(v) { selectedName = v; render(); }
+    function onSelectDesc(v) { selectedDesc = v; render(); }
+
+    async function validate() {
+      if (!selectedName || !selectedDesc || selectedName === '__NONE__' || selectedDesc === '__NONE__') return;
+      const p = session.products[currentIdx];
+      const ok = await postJSON('/api/validate', {
+        ref: p.reference,
+        name: selectedName,
+        description: selectedDesc
+      });
+      if (!ok) { toast('Erreur de sauvegarde'); return; }
+      session.decisions = session.decisions || {};
+      session.decisions[p.reference] = { name: selectedName, description: selectedDesc, validated_at: new Date().toISOString() };
+      showSaved();
+      // Reset selections and go next
+      selectedName = null;
+      selectedDesc = null;
+      nameComment = '';
+      descComment = '';
+      if (currentIdx < session.products.length - 1) {
+        currentIdx++;
+      } else {
+        toast('Vous avez fini ce lot !');
+      }
+      render();
+    }
+
+    async function requestRegen() {
+      const p = session.products[currentIdx];
+      const what =
+        (selectedName === '__NONE__' && selectedDesc === '__NONE__') ? 'both'
+        : selectedName === '__NONE__' ? 'name'
+        : 'description';
+      const comment = what === 'name' ? nameComment
+        : what === 'description' ? descComment
+        : `NOMS: ${nameComment} | DESCRIPTIONS: ${descComment}`;
+      if (!comment.trim()) { toast('Écrivez d\'abord pourquoi rien ne va'); return; }
+      const ok = await postJSON('/api/request-regen', { ref: p.reference, comment, what });
+      if (!ok) { toast('Erreur'); return; }
+      session.awaitingRegen = { ref: p.reference, comment, what, at: new Date().toISOString() };
+      render();
+    }
+
+    function goPrev() {
+      if (currentIdx > 0) {
+        currentIdx--;
+        selectedName = null;
+        selectedDesc = null;
+        nameComment = '';
+        descComment = '';
+        render();
+      }
+    }
+    function goNext() {
+      if (currentIdx < session.products.length - 1) {
+        currentIdx++;
+        selectedName = null;
+        selectedDesc = null;
+        nameComment = '';
+        descComment = '';
+        render();
+      }
+    }
+    function skip() { goNext(); }
+
+    document.getElementById('push-btn').addEventListener('click', async () => {
+      if (!confirm('Pousser tous les produits validés sur le vrai site ?\n\nÇa va mettre à jour la boutique + PFS + Ankorstore.\nVous pouvez fermer la page après, l\'envoi continuera tout seul.')) return;
+      const r = await fetch('/api/push-all', { method: 'POST' });
+      if (r.ok) {
+        toast('Envoi lancé ! Vous pouvez fermer la page.');
+        const data = await r.json();
+        if (data.count !== undefined) toast(`${data.count} produit(s) en cours d'envoi`);
+        setTimeout(refresh, 500);
+      } else {
+        toast('Erreur lors de l\'envoi');
+      }
+    });
+
+    async function refresh() {
+      const s = await fetchSession();
+      if (!s) return;
+      const prevAwaiting = session?.awaitingRegen?.ref;
+      const newAwaiting = s.awaitingRegen?.ref;
+      // If we were awaiting and it's resolved → reload current product
+      const wasResolved = prevAwaiting && !newAwaiting;
+      session = s;
+      if (wasResolved) {
+        selectedName = null;
+        selectedDesc = null;
+        nameComment = '';
+        descComment = '';
+        toast('Nouvelles propositions chargées !');
+      }
+      render();
+    }
+
+    (async () => {
+      session = await fetchSession();
+      if (session && session.products && session.products.length > 0) {
+        currentIdx = findFirstUnvalidatedIdx();
+      }
+      render();
+      setInterval(refresh, 2500);
+    })();
+  </script>
+</body>
+</html>

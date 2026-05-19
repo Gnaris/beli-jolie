@@ -1,0 +1,247 @@
+/**
+ * Mini-serveur HTTP local pour le skill produits-nom.
+ *
+ * Sert la page web (page.html) + les images téléchargées + une mini API.
+ *
+ * Usage : node scripts/server.cjs <chemin-session.json> [port]
+ *
+ * Le fichier session.json doit déjà exister avec la structure :
+ * {
+ *   "version": 1,
+ *   "created_at": "...",
+ *   "status": "in_progress",
+ *   "products": [{ reference, name, description, category, names, descs, ... }],
+ *   "decisions": {},
+ *   "awaitingRegen": null
+ * }
+ */
+
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
+const os = require('os');
+
+const SESSION_FILE = process.argv[2];
+const PORT = parseInt(process.argv[3] || process.env.PORT || '3010', 10);
+
+if (!SESSION_FILE) {
+  console.error('Usage: node server.cjs <chemin-session.json> [port]');
+  process.exit(1);
+}
+
+if (!fs.existsSync(SESSION_FILE)) {
+  console.error(`Fichier session introuvable : ${SESSION_FILE}`);
+  process.exit(1);
+}
+
+const IMAGES_DIR = path.join(os.homedir(), 'Desktop', 'beli-images-temp');
+const PAGE_FILE = path.join(__dirname, 'page.html');
+
+// Sauvegarde automatique sur le VPS (filet de secours contre les crashs PC)
+const VPS_BACKUP_PATH = '/var/www/beliandjolie/data/name-session-backup/session.json';
+const VPS_HOST = 'root@72.61.106.128';
+
+function readSession() {
+  try {
+    return JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+  } catch (e) {
+    return null;
+  }
+}
+
+let vpsSyncPending = false;
+let vpsSyncQueued = false;
+
+function syncToVps() {
+  // Coalesce : si une sync est en cours, on note qu'il faudra en refaire une après
+  if (vpsSyncPending) { vpsSyncQueued = true; return; }
+  vpsSyncPending = true;
+  const posixSrc = SESSION_FILE
+    .replace(/^([A-Z]):/i, (_, d) => `/${d.toLowerCase()}`)
+    .replace(/\\/g, '/');
+  const child = spawn('bash', ['-c',
+    `scp -o ConnectTimeout=5 -o BatchMode=yes "${posixSrc}" "${VPS_HOST}:${VPS_BACKUP_PATH}" > /dev/null 2>&1`
+  ], { detached: true, stdio: 'ignore' });
+  child.on('exit', () => {
+    vpsSyncPending = false;
+    if (vpsSyncQueued) { vpsSyncQueued = false; syncToVps(); }
+  });
+  child.unref();
+}
+
+function writeSession(s) {
+  s.updated_at = new Date().toISOString();
+  const tmp = SESSION_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(s, null, 2));
+  fs.renameSync(tmp, SESSION_FILE);
+  syncToVps();
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch (e) {
+        reject(e);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function sendJSON(res, status, data) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end(JSON.stringify(data));
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+
+    if (url.pathname === '/' && req.method === 'GET') {
+      const html = fs.readFileSync(PAGE_FILE, 'utf-8');
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      res.end(html);
+      return;
+    }
+
+    if (url.pathname === '/api/session' && req.method === 'GET') {
+      const s = readSession();
+      if (!s) return sendJSON(res, 500, { error: 'session unreadable' });
+      return sendJSON(res, 200, s);
+    }
+
+    if (url.pathname === '/api/validate' && req.method === 'POST') {
+      const body = await readBody(req);
+      const { ref, name, description } = body;
+      if (!ref || !name || !description) {
+        return sendJSON(res, 400, { error: 'ref, name, description requis' });
+      }
+      const s = readSession();
+      if (!s) return sendJSON(res, 500, { error: 'session unreadable' });
+      s.decisions = s.decisions || {};
+      s.decisions[ref] = {
+        name,
+        description,
+        validated_at: new Date().toISOString(),
+      };
+      writeSession(s);
+      return sendJSON(res, 200, { ok: true, count: Object.keys(s.decisions).length });
+    }
+
+    if (url.pathname === '/api/request-regen' && req.method === 'POST') {
+      const body = await readBody(req);
+      const { ref, comment, what } = body;
+      if (!ref || !what) {
+        return sendJSON(res, 400, { error: 'ref et what requis' });
+      }
+      const s = readSession();
+      if (!s) return sendJSON(res, 500, { error: 'session unreadable' });
+      s.awaitingRegen = {
+        ref,
+        comment: comment || '',
+        what,
+        requested_at: new Date().toISOString(),
+      };
+      writeSession(s);
+      return sendJSON(res, 200, { ok: true });
+    }
+
+    if (url.pathname === '/api/push-all' && req.method === 'POST') {
+      const s = readSession();
+      if (!s) return sendJSON(res, 500, { error: 'session unreadable' });
+      const decisions = s.decisions || {};
+      const items = Object.entries(decisions).map(([ref, d]) => ({
+        ref,
+        name: d.name,
+        description: d.description,
+      }));
+      if (items.length === 0) {
+        return sendJSON(res, 400, { error: 'aucune validation à envoyer' });
+      }
+
+      // Build payload
+      const payloadPath = path.join(os.tmpdir(), `beli-nom-payload-${Date.now()}.json`);
+      fs.writeFileSync(
+        payloadPath,
+        JSON.stringify({ syncMarketplaces: true, items }, null, 2),
+      );
+
+      // Launch scp + ssh in background. We rely on bash being available
+      // (Git Bash / WSL / Cygwin). Path is converted from Windows to POSIX.
+      const posixPayload = payloadPath
+        .replace(/^([A-Z]):/i, (_, d) => `/${d.toLowerCase()}`)
+        .replace(/\\/g, '/');
+
+      const bashCmd = [
+        `scp "${posixPayload}" root@72.61.106.128:/tmp/_apply_payload.json`,
+        `ssh root@72.61.106.128 'cd /var/www/beliandjolie && NODE_OPTIONS="-r ./scripts/_lib_no_next_cache.cjs" npx tsx scripts/name-batch-apply.ts /tmp/_apply_payload.json && rm /tmp/_apply_payload.json' > /tmp/beli-push.log 2>&1`,
+        `rm "${posixPayload}"`,
+      ].join(' && ');
+
+      const child = spawn('bash', ['-c', bashCmd], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+
+      s.status = 'pushed';
+      s.pushed_at = new Date().toISOString();
+      s.pushed_count = items.length;
+      writeSession(s);
+
+      return sendJSON(res, 200, { ok: true, count: items.length });
+    }
+
+    if (url.pathname.startsWith('/images/') && req.method === 'GET') {
+      const filename = path.basename(decodeURIComponent(url.pathname.replace('/images/', '')));
+      if (!/^[a-z0-9._-]+\.webp$/i.test(filename)) {
+        res.writeHead(400); return res.end();
+      }
+      const filepath = path.join(IMAGES_DIR, filename);
+      if (!fs.existsSync(filepath)) {
+        res.writeHead(404); return res.end();
+      }
+      const stat = fs.statSync(filepath);
+      res.writeHead(200, {
+        'Content-Type': 'image/webp',
+        'Content-Length': stat.size,
+        'Cache-Control': 'public, max-age=3600',
+      });
+      fs.createReadStream(filepath).pipe(res);
+      return;
+    }
+
+    if (url.pathname === '/favicon.ico') {
+      res.writeHead(204); return res.end();
+    }
+
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not found');
+  } catch (e) {
+    console.error('Server error:', e);
+    sendJSON(res, 500, { error: e.message || 'internal error' });
+  }
+});
+
+server.listen(PORT, '127.0.0.1', () => {
+  console.log(`\n  🟢 Serveur prêt sur http://localhost:${PORT}`);
+  console.log(`  📄 Session : ${SESSION_FILE}`);
+  console.log(`  🖼  Images  : ${IMAGES_DIR}`);
+  console.log(`\n  Ouvrez http://localhost:${PORT} dans votre navigateur.\n`);
+});
+
+process.on('SIGINT', () => {
+  console.log('\n  Serveur arrêté.');
+  process.exit(0);
+});
