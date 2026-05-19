@@ -212,6 +212,16 @@ model ColorTranslation {
   @@unique([colorId, locale])
 }
 
+// Bibliothèque des codes SH (Système Harmonisé / code douanier)
+// Numéro à 6-10 chiffres + libellé court FR.
+model HsCode {
+  id        String    @id @default(cuid())
+  code      String    @unique
+  label     String
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
 // Pays de fabrication
 model ManufacturingCountry {
   id            String                            @id @default(cuid())
@@ -350,10 +360,11 @@ model Product {
   dimensionHeight        Float?
   dimensionDiameter      Float?
   dimensionCircumference Float?
-  // Code SH (Système Harmonisé / HS code) — code douanier international,
-  // 6 à 10 chiffres. Utilisé par les marketplaces qui requièrent une
-  // classification douanière (Ankorstore champ `hs_code`).
-  hsCode                 String?
+  // Code SH (Système Harmonisé) — relation vers la bibliothèque HsCode.
+  // SetNull : si le code de la bibliothèque est supprimé, le produit perd
+  // simplement son code SH.
+  hsCodeId               String?
+  hsCode                 HsCode?               @relation(fields: [hsCodeId], references: [id], onDelete: SetNull)
   manufacturingCountryId String?
   manufacturingCountry   ManufacturingCountry? @relation(fields: [manufacturingCountryId], references: [id], onDelete: SetNull)
   seasonId               String?
