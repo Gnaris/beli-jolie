@@ -22,11 +22,12 @@ interface Props {
   categories: CategoryOption[];
   tags?: TagOption[];
   compositions?: CompositionOption[];
+  hsCodes?: string[];
   hasPfsConfig?: boolean;
   hasAnkorstoreConfig?: boolean;
 }
 
-export default function AdminProductsFilters({ totalCount, categories, tags = [], compositions = [], hasPfsConfig = false, hasAnkorstoreConfig = false }: Props) {
+export default function AdminProductsFilters({ totalCount, categories, tags = [], compositions = [], hsCodes = [], hasPfsConfig = false, hasAnkorstoreConfig = false }: Props) {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -49,6 +50,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlMissingImages = searchParams.get("missingImages") ?? "";
   const urlPfsLink = searchParams.get("pfsLink") ?? "";
   const urlAnkorsLink = searchParams.get("ankorsLink") ?? "";
+  const urlHsCode    = searchParams.get("hsCode")     ?? "";
   const perPage      = searchParams.get("perPage")    ?? "20";
 
   // Parse "REF1,REF2,REF3" → ["REF1", "REF2", "REF3"]
@@ -58,7 +60,6 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   // Local state for all text/number/date inputs (not applied until button click)
   const [localTerms, setLocalTerms]       = useState<string[]>(parseQ(urlQ));
   const [draft, setDraft]                 = useState("");
-  const [localExactRef, setLocalExactRef] = useState(urlExactRef);
   const [localMinPrice, setLocalMinPrice] = useState(urlMinPrice);
   const [localMaxPrice, setLocalMaxPrice] = useState(urlMaxPrice);
   const [localDateFrom, setLocalDateFrom] = useState(urlDateFrom);
@@ -67,7 +68,6 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
 
   // Sync local state when URL params change (e.g. after reset or back navigation)
   useEffect(() => { setLocalTerms(parseQ(urlQ)); }, [urlQ]);
-  useEffect(() => { setLocalExactRef(urlExactRef); }, [urlExactRef]);
   useEffect(() => { setLocalMinPrice(urlMinPrice); }, [urlMinPrice]);
   useEffect(() => { setLocalMaxPrice(urlMaxPrice); }, [urlMaxPrice]);
   useEffect(() => { setLocalDateFrom(urlDateFrom); }, [urlDateFrom]);
@@ -101,8 +101,8 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   }, [searchParams, router]);
 
   const localQ = localTerms.join(",");
-  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink);
-  const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localExactRef !== urlExactRef || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
+  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlHsCode);
+  const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
   const [filtersOpen, setFiltersOpen] = useState(hasFilters);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -139,7 +139,6 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
 
     const updates: Record<string, string> = {
       q: terms.join(","),
-      exactRef: localExactRef ? "1" : "",
       minPrice: localMinPrice,
       maxPrice: localMaxPrice,
       dateFrom: localDateFrom,
@@ -156,7 +155,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
     startTransition(() => {
       router.push(`/admin/produits?${params.toString()}`);
     });
-  }, [searchParams, localTerms, localExactRef, localMinPrice, localMaxPrice, localDateFrom, localDateTo, localStockBelow, router, startTransition]);
+  }, [searchParams, localTerms, localMinPrice, localMaxPrice, localDateFrom, localDateTo, localStockBelow, router, startTransition]);
 
   // Add the draft as a new search badge.
   const commitDraft = useCallback(() => {
@@ -207,7 +206,6 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const resetAll = () => {
     setLocalTerms([]);
     setDraft("");
-    setLocalExactRef(false);
     setLocalMinPrice("");
     setLocalMaxPrice("");
     setLocalDateFrom("");
@@ -276,19 +274,19 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
         {/* Référence exacte */}
         <label
           className={`flex items-center gap-2 px-3 py-2 cursor-pointer select-none shrink-0 text-xs font-body font-medium border rounded-lg transition-colors ${
-            localExactRef
+            urlExactRef
               ? "border-bg-dark bg-bg-dark text-text-inverse"
               : "border-border bg-bg-primary text-text-secondary hover:border-bg-dark hover:text-text-primary"
           }`}
         >
           <input
             type="checkbox"
-            checked={localExactRef}
-            onChange={() => setLocalExactRef((v) => !v)}
+            checked={urlExactRef}
+            onChange={() => navigate({ exactRef: urlExactRef ? null : "1" })}
             className="sr-only"
           />
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            {localExactRef ? (
+            {urlExactRef ? (
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4.5 12.75l6 6 9-13.5" />
             ) : (
               <rect x="3" y="3" width="18" height="18" rx="3" strokeWidth={1.5} />
@@ -408,6 +406,18 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   options={[
                     { value: "", label: "Toutes" },
                     ...compositions.map((c) => ({ value: c.id, label: c.name })),
+                  ]}
+                  size="sm"
+                />
+              </FilterField>
+              <FilterField label="Code SH">
+                <CustomSelect
+                  value={urlHsCode}
+                  onChange={(v) => navigate({ hsCode: v || null })}
+                  options={[
+                    { value: "", label: "Tous" },
+                    { value: "__none__", label: "Sans code SH" },
+                    ...hsCodes.map((c) => ({ value: c, label: c })),
                   ]}
                   size="sm"
                 />
@@ -555,8 +565,6 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                       options={[
                         { value: "", label: "Tous" },
                         { value: "linked", label: "Lié à Ankorstore" },
-                        { value: "linked-vars-linked", label: "Lié + couleurs reliées" },
-                        { value: "linked-vars-unlinked", label: "Lié, couleurs non reliées" },
                         { value: "unlinked", label: "Non lié à Ankorstore" },
                       ]}
                       size="sm"

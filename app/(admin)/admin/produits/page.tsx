@@ -54,6 +54,7 @@ interface PageProps {
     missingImages?: string;
     pfsLink?: string;
     ankorsLink?: string;
+    hsCode?: string;
   }>;
 }
 
@@ -140,6 +141,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     missingImages = "",
     pfsLink = "",
     ankorsLink = "",
+    hsCode = "",
   } = params;
 
   const exactRef   = exactRefParam === "1";
@@ -172,6 +174,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     stockBelow,
     pfsLink,
     ankorsLink,
+    hsCode,
     productIdsIn,
   });
 
@@ -181,6 +184,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     categories,
     tags,
     compositions,
+    hsCodeRows,
     sectionCounts,
     hasPfsConfig,
     hasAnkorstoreConfig,
@@ -223,6 +227,13 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     }),
     getCachedTags(),
     getCachedCompositions(),
+    // Liste distincte des codes SH déjà utilisés (pour le filtre dédié)
+    prisma.product.findMany({
+      where: { hsCode: { not: null } },
+      select: { hsCode: true },
+      distinct: ["hsCode"],
+      orderBy: { hsCode: "asc" },
+    }),
     // Section counts for tabs (lightweight parallel queries)
     Promise.all([
       prisma.product.count(),
@@ -237,6 +248,11 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   ]);
 
   const totalPages = Math.ceil(totalCount / perPage);
+
+  // On retire les chaînes vides éventuelles (codes stockés "" plutôt que NULL).
+  const hsCodes = hsCodeRows
+    .map((r) => r.hsCode)
+    .filter((c): c is string => !!c && c.trim().length > 0);
 
   // Images chargées en une seule requête, indexées par (productId, colorId).
   // L'image étant rattachée au couple Produit × Couleur (et pas à une variante
@@ -357,6 +373,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
             categories={categories}
             tags={tags}
             compositions={compositions}
+            hsCodes={hsCodes}
             hasPfsConfig={hasPfsConfig}
             hasAnkorstoreConfig={hasAnkorstoreConfig}
           />
