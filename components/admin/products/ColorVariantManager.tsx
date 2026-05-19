@@ -338,6 +338,24 @@ export function applyDonorAutofill(target: VariantState, donor: VariantState, ma
   };
 }
 
+/**
+ * Récupère prix / stock / poids de la dernière variante non désactivée qui en a au moins un de rempli.
+ * Sert au pré-remplissage lors de l'ajout d'une nouvelle variante (bouton "+ Ajouter une variante"
+ * ou modale "Création rapide") quand le produit a déjà des variantes existantes.
+ */
+export function findLastFilledBasics(
+  variants: VariantState[]
+): { unitPrice: string; weight: string; stock: string } | null {
+  for (let i = variants.length - 1; i >= 0; i--) {
+    const v = variants[i];
+    if (v.disabled) continue;
+    if (v.unitPrice.trim() || v.weight.trim() || v.stock.trim()) {
+      return { unitPrice: v.unitPrice, weight: v.weight, stock: v.stock };
+    }
+  }
+  return null;
+}
+
 interface BulkEditState { unitPrice: string; weight: string; stock: string; }
 function defaultBulkEdit(): BulkEditState { return { unitPrice: "", weight: "", stock: "" }; }
 
@@ -1350,7 +1368,7 @@ function QuickAddModal({
   onConfirm: (variants: VariantState[]) => void;
 }) {
   const backdrop = useBackdropClose(onClose);
-  const [colorLines, setColorLines] = useState<QuickAddColorLine[]>([{ id: uid(), color: null }]);
+  const [colorLines, setColorLines] = useState<QuickAddColorLine[]>([]);
   const [saleType, setSaleType] = useState<"UNIT" | "PACK">("UNIT");
   const [unitPrice, setUnitPrice] = useState("");
   const [stock, setStock] = useState("");
@@ -1367,14 +1385,15 @@ function QuickAddModal({
 
   useEffect(() => {
     if (open) {
-      setColorLines([{ id: uid(), color: null }]);
+      const basics = findLastFilledBasics(existingVariants);
+      setColorLines([]);
       setSaleType("UNIT");
-      setUnitPrice("");
-      setStock("");
-      setWeight("");
+      setUnitPrice(basics?.unitPrice ?? "");
+      setStock(basics?.stock ?? "");
+      setWeight(basics?.weight ?? "");
       setSizeEntries([]);
     }
-  }, [open]);
+  }, [open, existingVariants]);
 
   const existingCombos = useMemo(() => computeExistingColorCombos(existingVariants), [existingVariants]);
   const usedSizeIds = new Set(sizeEntries.map((s) => s.sizeId));
@@ -1421,6 +1440,7 @@ function QuickAddModal({
   const canConfirm = validLines.length > 0;
 
   function handleConfirm() {
+    if (validLines.length === 0) return;
     const isUnitType = saleType === "UNIT";
     const totalQty = sizeEntries.reduce((s, e) => s + (parseInt(e.quantity) || 0), 0);
     const newVariants: VariantState[] = validLines.map((line, i) => {
@@ -1525,7 +1545,7 @@ function QuickAddModal({
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                Ajouter une autre couleur
+                {colorLines.length === 0 ? "Ajouter une couleur" : "Ajouter une autre couleur"}
               </button>
             </div>
           </section>
@@ -1743,7 +1763,11 @@ export default function ColorVariantManager({
   function addVariant() {
     const def = defaultVariant();
     const isPrimary = variants.length === 0;
-    onChange([...variants, { ...def, isPrimary }]);
+    const basics = findLastFilledBasics(variants);
+    const next: VariantState = basics
+      ? { ...def, isPrimary, unitPrice: basics.unitPrice, weight: basics.weight, stock: basics.stock }
+      : { ...def, isPrimary };
+    onChange([...variants, next]);
   }
 
   function handleQuickAddConfirm(newVariants: VariantState[]) {

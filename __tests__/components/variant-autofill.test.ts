@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   findDonorVariant,
   applyDonorAutofill,
+  findLastFilledBasics,
   type VariantState,
 } from "@/components/admin/products/ColorVariantManager";
 
@@ -121,5 +122,45 @@ describe("applyDonorAutofill", () => {
     expect(filled.weight).toBe("1.5");
     expect(filled.sizeEntries).toEqual([]);
     expect(filled.packQuantity).toBe("");
+  });
+});
+
+/**
+ * findLastFilledBasics : utilisé pour pré-remplir prix / stock / poids quand on ajoute
+ * une nouvelle variante (bouton "+ Ajouter une variante" ou modale "Création rapide")
+ * à un produit qui en a déjà au moins une.
+ */
+describe("findLastFilledBasics", () => {
+  it("renvoie null sur une liste vide", () => {
+    expect(findLastFilledBasics([])).toBeNull();
+  });
+
+  it("renvoie null si aucune variante n'a de prix / stock / poids", () => {
+    const a = makeVariant({ colorId: "rouge" });
+    const b = makeVariant({ colorId: "bleu" });
+    expect(findLastFilledBasics([a, b])).toBeNull();
+  });
+
+  it("renvoie les valeurs de la dernière variante remplie", () => {
+    const a = makeVariant({ colorId: "rouge", unitPrice: "10", stock: "5", weight: "0.250" });
+    const b = makeVariant({ colorId: "bleu", unitPrice: "12", stock: "3", weight: "0.300" });
+    expect(findLastFilledBasics([a, b])).toEqual({ unitPrice: "12", stock: "3", weight: "0.300" });
+  });
+
+  it("retient la dernière variante remplie même si la toute dernière est vide", () => {
+    const filled = makeVariant({ colorId: "rouge", unitPrice: "20", stock: "8", weight: "0.5" });
+    const empty = makeVariant({ colorId: "bleu" });
+    expect(findLastFilledBasics([filled, empty])).toEqual({ unitPrice: "20", stock: "8", weight: "0.5" });
+  });
+
+  it("ignore les variantes désactivées", () => {
+    const disabled = makeVariant({ colorId: "rouge", unitPrice: "99", stock: "9", weight: "9", disabled: true });
+    const active = makeVariant({ colorId: "bleu", unitPrice: "12", stock: "3", weight: "0.300" });
+    expect(findLastFilledBasics([disabled, active])).toEqual({ unitPrice: "12", stock: "3", weight: "0.300" });
+  });
+
+  it("considère qu'une variante avec seulement le stock rempli compte aussi", () => {
+    const stockOnly = makeVariant({ colorId: "rouge", stock: "4" });
+    expect(findLastFilledBasics([stockOnly])).toEqual({ unitPrice: "", stock: "4", weight: "" });
   });
 });
