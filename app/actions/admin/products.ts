@@ -170,7 +170,7 @@ export interface ProductInput {
   dimensionHeight: number | null;
   dimensionDiameter: number | null;
   dimensionCircumference: number | null;
-  hsCode?: string | null;
+  hsCodeId?: string | null;
   manufacturingCountryId?: string | null;
   seasonId?: string | null;
   translations?: TranslationInput[];
@@ -369,7 +369,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       dimensionHeight:       input.dimensionHeight,
       dimensionDiameter:     input.dimensionDiameter,
       dimensionCircumference: input.dimensionCircumference,
-      hsCode: input.hsCode?.trim() || null,
+      hsCodeId: input.hsCodeId || null,
       manufacturingCountryId: input.manufacturingCountryId || null,
       seasonId: input.seasonId || null,
       discountPercent: input.discountPercent,
@@ -716,7 +716,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
         dimensionHeight:       input.dimensionHeight,
         dimensionDiameter:     input.dimensionDiameter,
         dimensionCircumference: input.dimensionCircumference,
-        hsCode: input.hsCode?.trim() || null,
+        hsCodeId: input.hsCodeId || null,
         manufacturingCountryId: input.manufacturingCountryId || null,
         seasonId: input.seasonId || null,
         discountPercent: input.discountPercent,
