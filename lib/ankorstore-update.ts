@@ -109,7 +109,7 @@ interface FullProduct {
   dimensionHeight: number | null;
   dimensionDiameter: number | null;
   dimensionCircumference: number | null;
-  hsCode: string | null;
+  hsCode: { code: string } | null;
   sizeDetailsTu: string | null;
   category: {
     id: string;
@@ -150,7 +150,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       dimensionHeight: true,
       dimensionDiameter: true,
       dimensionCircumference: true,
-      hsCode: true,
+      hsCode: { select: { code: true } },
       sizeDetailsTu: true,
       category: {
         select: {
@@ -301,7 +301,7 @@ function buildProductFieldsSnapshot(
     dimensionLengthMm: toIntegerOrNull(product.dimensionLength, 10),
     dimensionWidthMm: toIntegerOrNull(product.dimensionWidth, 10),
     dimensionHeightMm: toIntegerOrNull(product.dimensionHeight, 10),
-    hsCode: product.hsCode?.trim() || null,
+    hsCode: product.hsCode?.code?.trim() || null,
   };
 }
 

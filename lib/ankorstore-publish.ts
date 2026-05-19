@@ -84,7 +84,7 @@ interface FullProduct {
   dimensionHeight: number | null;
   dimensionDiameter: number | null;
   dimensionCircumference: number | null;
-  hsCode: string | null;
+  hsCode: { code: string } | null;
   sizeDetailsTu: string | null;
   category: {
     id: string;
@@ -123,7 +123,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       dimensionHeight: true,
       dimensionDiameter: true,
       dimensionCircumference: true,
-      hsCode: true,
+      hsCode: { select: { code: true } },
       sizeDetailsTu: true,
       category: {
         select: {
@@ -450,7 +450,7 @@ export async function buildPublishProductInput(productId: string): Promise<
       product.manufacturingCountry?.isoCode ??
       product.manufacturingCountry?.pfsCountryRef ??
       "FR",
-    ...(product.hsCode && product.hsCode.trim() ? { hsCode: product.hsCode.trim() } : {}),
+    ...(product.hsCode?.code ? { hsCode: product.hsCode.code } : {}),
     ...(shapeProperties ? { shapeProperties } : {}),
     variants: variantEntries.map((v) => v.entry),
   };

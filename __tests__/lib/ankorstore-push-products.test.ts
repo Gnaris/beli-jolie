@@ -366,7 +366,7 @@ describe("ankorstoreKickoffPublish — payload kickoff", () => {
   it("code SH renseigné → présent dans le payload (hsCode)", async () => {
     const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
     mockProductFindUnique.mockResolvedValue(
-      makeUnitProduct({ hsCode: "7117190000" }),
+      makeUnitProduct({ hsCode: { code: "7117190000" } }),
     );
 
     const result = await ankorstoreKickoffPublish("p1");
