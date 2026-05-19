@@ -25,6 +25,7 @@ import ColorsManager from "@/components/admin/couleurs/ColorsManager";
 import CompositionsManager from "@/components/admin/compositions/CompositionsManager";
 import ManufacturingCountriesManager from "@/components/admin/manufacturing-countries/ManufacturingCountriesManager";
 import SeasonsManager from "@/components/admin/seasons/SeasonsManager";
+import HsCodesManager from "@/components/admin/codes-sh/HsCodesManager";
 import SizesManager from "@/components/admin/tailles/SizesManager";
 import TagsManager from "@/app/(admin)/admin/mots-cles/TagsManager";
 
@@ -58,7 +59,7 @@ interface PageProps {
   }>;
 }
 
-const VALID_TABS = ["produits", "categories", "couleurs", "compositions", "pays", "saisons", "tailles", "mots-cles"] as const;
+const VALID_TABS = ["produits", "categories", "couleurs", "compositions", "pays", "saisons", "codes-sh", "tailles", "mots-cles"] as const;
 type TabKey = (typeof VALID_TABS)[number];
 
 /** Render only the active tab's content server-side (avoids PFS calls + heavy queries for hidden tabs) */
@@ -70,6 +71,7 @@ function getActiveTabContent(activeTab: TabKey, params: Record<string, string | 
     case "compositions": return <CompositionsContent />;
     case "pays":         return <PaysContent />;
     case "saisons":      return <SaisonsContent />;
+    case "codes-sh":     return <CodesShContent />;
     case "tailles":      return <TaillesContent />;
     case "mots-cles":    return <MotsClesContent />;
   }
@@ -623,6 +625,38 @@ async function SaisonsContent() {
       </div>
 
       <SeasonsManager initialSeasons={seasonItems} />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB: Codes SH
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function CodesShContent() {
+  const rows = await prisma.hsCode.findMany({
+    orderBy: { code: "asc" },
+    include: { _count: { select: { products: true } } },
+  });
+
+  const items = rows.map((r) => ({
+    id: r.id,
+    code: r.code,
+    label: r.label,
+    productCount: r._count.products,
+  }));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="page-title">Codes SH</h1>
+          <p className="page-subtitle">
+            Bibliothèque des codes douaniers (Système Harmonisé) attribués aux produits.
+          </p>
+        </div>
+      </div>
+
+      <HsCodesManager initialItems={items} />
     </div>
   );
 }
