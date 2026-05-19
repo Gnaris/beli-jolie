@@ -13,6 +13,7 @@ import { VALID_LOCALES, LOCALE_LABELS, NON_DEFAULT_LOCALES } from "@/i18n/locale
 import LocaleTabs from "./LocaleTabs";
 import QuickCreateModal, { QuickCreateType } from "./QuickCreateModal";
 import CustomSelect from "@/components/ui/CustomSelect";
+import HsCodeModal from "@/components/admin/codes-sh/HsCodeModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
@@ -108,7 +109,7 @@ interface ProductFormProps {
     dimHeight: string;
     dimDiameter: string;
     dimCircumference: string;
-    hsCode?: string;
+    hsCodeId?: string | null;
     manufacturingCountryId?: string;
     seasonId?: string;
     translations?: { locale: string; name: string; description: string }[];
@@ -158,9 +159,10 @@ function TagsDropdown({
   loading = false,
   discountPercent,
   setDiscountPercent,
-  hsCode,
-  setHsCode,
-  existingHsCodes,
+  hsCodeId,
+  setHsCodeId,
+  hsCodeOptions,
+  onCreateHsCodeClick,
 }: {
   localTags: { id: string; name: string }[];
   tagNames: string[];
@@ -173,9 +175,10 @@ function TagsDropdown({
   loading?: boolean;
   discountPercent: string;
   setDiscountPercent: (v: string) => void;
-  hsCode: string;
-  setHsCode: (v: string) => void;
-  existingHsCodes?: { code: string; count: number }[];
+  hsCodeId: string;
+  setHsCodeId: (v: string) => void;
+  hsCodeOptions: { id: string; code: string; label: string }[];
+  onCreateHsCodeClick: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -372,7 +375,7 @@ function TagsDropdown({
         </div>
       </div>
 
-      {/* Code SH (douanier) — juste sous la Remise produit */}
+      {/* Code SH (douanier) — bibliothèque + dropdown */}
       <div className="pt-3 border-t border-border-light space-y-1.5">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <p className="text-sm font-semibold text-text-primary font-heading">Code SH</p>
@@ -389,39 +392,30 @@ function TagsDropdown({
             </svg>
           </a>
         </div>
-        <input
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={hsCode}
-          placeholder="ex : 7117190000"
-          onChange={(e) => setHsCode(e.target.value.replace(/[^\d]/g, ""))}
-          className="field-input w-full font-mono"
-          maxLength={10}
+
+        <CustomSelect
+          value={hsCodeId}
+          onChange={(v) => setHsCodeId(v)}
+          options={[
+            { value: "", label: "Aucun" },
+            ...hsCodeOptions.map((c) => ({
+              value: c.id,
+              label: `${c.code} — ${c.label}`,
+            })),
+          ]}
+          size="md"
+          searchable
+          placeholder="Aucun"
         />
-        {existingHsCodes && existingHsCodes.length > 0 && (
-          <div className="pt-1.5">
-            <p className="text-[11px] text-text-muted font-body mb-1.5">
-              Déjà utilisés — cliquer pour pré-remplir :
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {existingHsCodes
-                .filter((h) => h.code !== hsCode)
-                .map((h) => (
-                  <button
-                    key={h.code}
-                    type="button"
-                    onClick={() => setHsCode(h.code)}
-                    title={`${h.count} produit${h.count > 1 ? "s" : ""} utilise${h.count > 1 ? "nt" : ""} ce code`}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-bg-tertiary text-text-secondary border border-border-light hover:border-text-primary hover:text-text-primary transition-colors text-[11px] font-mono"
-                  >
-                    {h.code}
-                    <span className="text-text-muted font-body">×{h.count}</span>
-                  </button>
-                ))}
-            </div>
-          </div>
-        )}
+
+        <button
+          type="button"
+          onClick={onCreateHsCodeClick}
+          className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
+        >
+          + Créer un nouveau code SH
+        </button>
+
         <p className="text-[11px] text-text-muted font-body">
           Code douanier international (6 à 10 chiffres) — requis par Ankorstore.
         </p>
@@ -465,7 +459,8 @@ export default function ProductForm({
   const [localCountries,    setLocalCountries]    = useState<{ id: string; name: string; isoCode: string | null }[]>(_initialCountries ?? []);
   const [localSeasons,      setLocalSeasons]      = useState<{ id: string; name: string }[]>(_initialSeasons ?? []);
   const [pfsSizes,          setPfsSizes]          = useState<{ reference: string; label: string }[]>([]);
-  const [localHsCodes,      setLocalHsCodes]      = useState<{ code: string; count: number }[]>([]);
+  const [localHsCodes,      setLocalHsCodes]      = useState<{ id: string; code: string; label: string }[]>([]);
+  const [hsCodeQuickCreateOpen, setHsCodeQuickCreateOpen] = useState(false);
   const [attributesLoaded,  setAttributesLoaded]  = useState(false);
 
   // Fetch all attributes from DB on mount (background, no cache)
@@ -524,7 +519,7 @@ export default function ProductForm({
   const [dimHeight,        setDimHeight]        = useState(initialData?.dimHeight        ?? "");
   const [dimDiameter,      setDimDiameter]      = useState(initialData?.dimDiameter      ?? "");
   const [dimCircumference, setDimCircumference] = useState(initialData?.dimCircumference ?? "");
-  const [hsCode,           setHsCode]           = useState(initialData?.hsCode           ?? "");
+  const [hsCodeId,         setHsCodeId]         = useState<string>(initialData?.hsCodeId    ?? "");
 
   const [error, setError] = useState("");
   const [onlineErrors, setOnlineErrors] = useState<string[]>([]);
@@ -679,9 +674,9 @@ export default function ProductForm({
     })),
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
     compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent,
-    dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCode, productStatus,
+    dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus,
     manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId,
-  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCode, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId]);
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId]);
 
   // Détecte si au moins une variante utilise "Taille Unique" / "TU"
   const hasTailleUnique = useMemo(() => {
@@ -1367,7 +1362,7 @@ export default function ProductForm({
       dimensionHeight:        dimHeight        ? parseFloat(dimHeight)        : null,
       dimensionDiameter:      dimDiameter      ? parseFloat(dimDiameter)      : null,
       dimensionCircumference: dimCircumference ? parseFloat(dimCircumference) : null,
-      hsCode: hsCode.trim() || null,
+      hsCodeId: hsCodeId || null,
       manufacturingCountryId: manufacturingCountryId || null,
       seasonId: seasonId || null,
       sizeDetailsTu: sizeDetailsTu.trim() || null,
@@ -1603,7 +1598,7 @@ export default function ProductForm({
       dimensionHeight:        dimHeight        ? parseFloat(dimHeight)        : null,
       dimensionDiameter:      dimDiameter      ? parseFloat(dimDiameter)      : null,
       dimensionCircumference: dimCircumference ? parseFloat(dimCircumference) : null,
-      hsCode: hsCode.trim() || null,
+      hsCodeId: hsCodeId || null,
       manufacturingCountryId: manufacturingCountryId || null,
       seasonId: seasonId || null,
       sizeDetailsTu: sizeDetailsTu.trim() || null,
@@ -2166,9 +2161,10 @@ export default function ProductForm({
               loading={!attributesLoaded}
               discountPercent={discountPercent}
               setDiscountPercent={setDiscountPercent}
-              hsCode={hsCode}
-              setHsCode={setHsCode}
-              existingHsCodes={localHsCodes}
+              hsCodeId={hsCodeId}
+              setHsCodeId={setHsCodeId}
+              hsCodeOptions={localHsCodes}
+              onCreateHsCodeClick={() => setHsCodeQuickCreateOpen(true)}
             />
           </div>
 
@@ -2572,6 +2568,22 @@ export default function ProductForm({
         onCreated={handleModalCreated}
         categoryId={categoryId}
         pfsEnabled={hasPfsConfig}
+      />
+
+      {/* ── Quick-create code SH ── */}
+      <HsCodeModal
+        open={hsCodeQuickCreateOpen}
+        onClose={() => setHsCodeQuickCreateOpen(false)}
+        onSaved={(saved) => {
+          setLocalHsCodes((prev) => {
+            const filtered = prev.filter((h) => h.id !== saved.id);
+            return [...filtered, { id: saved.id, code: saved.code, label: saved.label }].sort(
+              (a, b) => a.code.localeCompare(b.code),
+            );
+          });
+          setHsCodeId(saved.id);
+          setHsCodeQuickCreateOpen(false);
+        }}
       />
 
     </>

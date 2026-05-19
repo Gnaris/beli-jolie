@@ -298,7 +298,7 @@ export default async function DupliquerProduitPage({
           dimHeight: product.dimensionHeight != null ? String(product.dimensionHeight) : "",
           dimDiameter: product.dimensionDiameter != null ? String(product.dimensionDiameter) : "",
           dimCircumference: product.dimensionCircumference != null ? String(product.dimensionCircumference) : "",
-          hsCode: product.hsCode ?? "",
+          hsCodeId: product.hsCodeId ?? "",
           manufacturingCountryId: product.manufacturingCountryId ?? "",
           seasonId: product.seasonId ?? "",
           discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
