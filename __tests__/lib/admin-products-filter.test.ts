@@ -194,12 +194,25 @@ describe("buildAdminProductsWhere", () => {
     });
   });
 
-  it("filters products linked to PFS when pfsLink=linked", () => {
-    expect(buildAdminProductsWhere({ pfsLink: "linked" }).pfsProductId).toEqual({ not: null });
+  it("requires both product and all UNIT colors to be linked when pfsLink=linked", () => {
+    const where = buildAdminProductsWhere({ pfsLink: "linked" });
+    expect(where.pfsProductId).toEqual({ not: null });
+    expect(where.AND).toEqual([
+      { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
+    ]);
   });
 
-  it("filters products NOT linked to PFS when pfsLink=unlinked", () => {
-    expect(buildAdminProductsWhere({ pfsLink: "unlinked" }).pfsProductId).toBeNull();
+  it("matches products that are unlinked OR have at least one unlinked UNIT color when pfsLink=unlinked", () => {
+    const where = buildAdminProductsWhere({ pfsLink: "unlinked" });
+    expect(where.pfsProductId).toBeUndefined();
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { pfsProductId: null },
+          { colors: { some: { saleType: "UNIT", pfsVariantId: null } } },
+        ],
+      },
+    ]);
   });
 
   it("ignores pfsLink when value is empty or unknown", () => {
@@ -237,6 +250,7 @@ describe("buildAdminProductsWhere", () => {
     const where = buildAdminProductsWhere({ pfsLink: "linked", ankorsLink: "unlinked" });
     expect(where.pfsProductId).toEqual({ not: null });
     expect(where.AND).toEqual([
+      { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
       {
         OR: [
           { ankorsProductId: null },

@@ -813,14 +813,30 @@ export async function pfsUpdateProductInPlace(
         try {
           await pfsDeleteVariant(item.oldPfsVariantId);
         } catch (err) {
-          logger.error("[PFS Update] Failed to delete old variant before recreate", {
-            error: err,
-            pfsVariantId: item.oldPfsVariantId,
-          });
-          // Si on ne peut pas supprimer, on n'essaie pas de créer (risque de
-          // doublon couleur+taille côté PFS). On laisse la variante pour le
-          // prochain run.
-          continue;
+          // PFS refuse souvent de supprimer une variante vendue. La nouvelle
+          // variante a une couleur différente (c'est tout l'intérêt du
+          // recreate) → aucun risque de doublon couleur+taille. On désactive
+          // l'ancienne pour qu'elle disparaisse de la vitrine PFS, puis on
+          // crée la nouvelle.
+          logger.warn(
+            "[PFS Update] Delete refused before recreate, deactivating old variant instead",
+            {
+              error: err,
+              pfsVariantId: item.oldPfsVariantId,
+            },
+          );
+          try {
+            await pfsPatchVariants([
+              { variant_id: item.oldPfsVariantId, stock_qty: 0, is_active: false },
+            ]);
+          } catch (patchErr) {
+            logger.error("[PFS Update] Deactivation of old variant also failed", {
+              error: patchErr,
+              pfsVariantId: item.oldPfsVariantId,
+            });
+            // Même si la désactivation échoue, on tente la création : pire
+            // cas, PFS rejette le doublon et on aura simplement raté ce run.
+          }
         }
         try {
           const { variantIds } = await pfsCreateVariants(pfsProductId, [item.pfsData]);
@@ -945,19 +961,37 @@ export async function pfsUpdateProductInPlace(
     }
 
     // 2c. Delete removed variants
+    // PFS refuse de supprimer une variante qui a déjà été vendue (verrou
+    // historique côté Salesforce). Quand DELETE échoue, on désactive la
+    // variante à la place (is_active=false + stock_qty=0) : PFS n'affiche
+    // plus les variantes inactives dans la vitrine, et les commandes passées
+    // restent rattachées proprement.
     if (variantsToDelete.length > 0) {
       report(`Suppression de ${variantsToDelete.length} variante(s) retirée(s)...`);
       for (const v of variantsToDelete) {
         try {
           await pfsDeleteVariant(v.id);
-          // Plus dans la cible, retire-la aussi du snapshot committé
           delete committedSnapshot.variants[v.id];
           logger.info("[PFS Update] Deleted variant from PFS", { pfsVariantId: v.id });
         } catch (err) {
-          logger.warn("[PFS Update] Failed to delete variant", {
+          logger.warn("[PFS Update] Delete refused, deactivating variant instead", {
             pfsVariantId: v.id,
             error: err,
           });
+          try {
+            await pfsPatchVariants([
+              { variant_id: v.id, stock_qty: 0, is_active: false },
+            ]);
+            delete committedSnapshot.variants[v.id];
+            logger.info("[PFS Update] Variant deactivated (delete fallback)", {
+              pfsVariantId: v.id,
+            });
+          } catch (patchErr) {
+            logger.error("[PFS Update] Deactivation fallback also failed", {
+              pfsVariantId: v.id,
+              error: patchErr,
+            });
+          }
         }
       }
     }
