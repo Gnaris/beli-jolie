@@ -73,7 +73,7 @@ export function parseSizeField(sizeStr: string | undefined, saleType: "UNIT" | "
 // Types (mirrored from import route)
 // ─────────────────────────────────────────────
 
-interface ProductImportRow {
+export interface ProductImportRow {
   _rowIndex: number;
   reference: string;
   name: string;
@@ -99,6 +99,14 @@ interface ProductImportRow {
   dimensionHeight?: number;
   dimensionDiameter?: number;
   dimensionCircumference?: number;
+  // Niveau produit, ajoutés mai 2026 pour aligner l'import sur le formulaire manuel
+  hsCode?: string;                // code SH (6-10 chiffres)
+  primaryColor?: string;          // nom de la couleur principale (doit faire partie des variantes)
+  sizeDetailsTu?: string;         // détail texte libre quand une variante utilise « Taille unique »
+  status?: "OFFLINE" | "ONLINE" | "ARCHIVED";
+  isBestSeller?: boolean;
+  nameEn?: string;                // traduction anglaise du nom
+  descriptionEn?: string;         // traduction anglaise de la description
 }
 
 interface DraftProductRow extends ProductImportRow {
@@ -129,6 +137,30 @@ interface ImageDraftRow {
 // ─────────────────────────────────────────────
 // Product parsing (same logic as import route)
 // ─────────────────────────────────────────────
+
+/** Lit un booléen tolérant : "true"/"1"/"oui" => true ; "false"/"0"/"non"/"" => false. */
+export function boolish(raw: unknown): boolean | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const s = String(raw).trim().toLowerCase();
+  if (s === "") return undefined;
+  if (["true", "1", "oui", "yes", "vrai", "x"].includes(s)) return true;
+  if (["false", "0", "non", "no", "faux"].includes(s)) return false;
+  return undefined;
+}
+
+/** Lit un statut produit autorisé (OFFLINE / ONLINE / ARCHIVED). SYNCING n'est pas
+ *  exposé à l'import — c'est un état système géré par la sync marketplace. */
+export function readStatus(raw: unknown): "OFFLINE" | "ONLINE" | "ARCHIVED" | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const s = String(raw).trim().toUpperCase();
+  if (s === "" ) return undefined;
+  // Aliases FR
+  if (["EN LIGNE", "ONLINE", "PUBLIE", "PUBLIÉ"].includes(s)) return "ONLINE";
+  if (["HORS LIGNE", "OFFLINE", "BROUILLON"].includes(s)) return "OFFLINE";
+  if (["ARCHIVE", "ARCHIVÉ", "ARCHIVED"].includes(s)) return "ARCHIVED";
+  if (s === "OFFLINE" || s === "ONLINE" || s === "ARCHIVED") return s;
+  return undefined;
+}
 
 function normalizeRow(raw: Record<string, unknown>, index: number): ProductImportRow {
   const str = (v: unknown) => (v != null ? String(v).trim() : "");
@@ -170,10 +202,17 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     dimensionCircumference: num(raw["dimension_circumference"] ?? raw["circonference"] ?? raw["circonférence"] ?? raw["Circonférence (cm)"]),
     manufacturingCountry: str(raw["manufacturing_country"] ?? raw["pays_fabrication"] ?? raw["pays"] ?? raw["Pays fabrication"]) || undefined,
     season: str(raw["season"] ?? raw["saison"] ?? raw["collection"] ?? raw["Saison"]) || undefined,
+    hsCode: str(raw["hs_code"] ?? raw["code_sh"] ?? raw["hsCode"] ?? raw["Code SH"]) || undefined,
+    primaryColor: str(raw["primary_color"] ?? raw["couleur_principale"] ?? raw["primaryColor"] ?? raw["Couleur principale"]) || undefined,
+    sizeDetailsTu: str(raw["taille_unique_details"] ?? raw["detail_taille_unique"] ?? raw["sizeDetailsTu"] ?? raw["Détail taille unique"]) || undefined,
+    status: readStatus(raw["status"] ?? raw["statut"] ?? raw["Statut"]),
+    isBestSeller: boolish(raw["best_seller"] ?? raw["isBestSeller"] ?? raw["bestseller"] ?? raw["Best Seller"]),
+    nameEn: str(raw["name_en"] ?? raw["nom_en"] ?? raw["Nom (EN)"] ?? raw["nameEn"]) || undefined,
+    descriptionEn: str(raw["description_en"] ?? raw["Description (EN)"] ?? raw["descriptionEn"]) || undefined,
   };
 }
 
-function parseJSON(text: string): ProductImportRow[] {
+export function parseJSON(text: string): ProductImportRow[] {
   const data = JSON.parse(text);
   if (!Array.isArray(data)) throw new Error("Le JSON doit être un tableau.");
   const rows: ProductImportRow[] = [];
@@ -213,6 +252,13 @@ function parseJSON(text: string): ProductImportRow[] {
         dimensionCircumference: item.dimensionCircumference ?? item.dimension_circumference ?? undefined,
         manufacturingCountry: item.manufacturingCountry ?? item.manufacturing_country ?? item.pays_fabrication ?? undefined,
         season: item.season ?? item.saison ?? item.collection ?? undefined,
+        hsCode: item.hsCode ?? item.hs_code ?? item.code_sh ?? undefined,
+        primaryColor: item.primaryColor ?? item.primary_color ?? item.couleur_principale ?? undefined,
+        sizeDetailsTu: item.sizeDetailsTu ?? item.size_details_tu ?? item.taille_unique_details ?? item.detail_taille_unique ?? undefined,
+        status: readStatus(item.status ?? item.statut),
+        isBestSeller: boolish(item.isBestSeller ?? item.best_seller ?? item.bestseller),
+        nameEn: item.name_en ?? item.nameEn ?? item.nom_en ?? undefined,
+        descriptionEn: item.description_en ?? item.descriptionEn ?? undefined,
       });
       idx++;
     }
@@ -317,7 +363,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
     // Inherit product-level fields from the group: find the first row that has each
     // field and propagate to all rows. This handles cases where product-level fields
     // (name, category, composition, etc.) are on any row, not just the first.
-    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "similarRefs", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference"] as const;
+    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "similarRefs", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference", "hsCode", "primaryColor", "sizeDetailsTu", "status", "isBestSeller", "nameEn", "descriptionEn"] as const;
     for (const [, groupRows] of preGrouped) {
       for (const field of productFields) {
         // Find the first row that has this field
@@ -402,8 +448,9 @@ export async function processProductImport(jobId: string, maxProducts?: number):
 
     const countryNames = [...new Set(allValidRows.filter((r) => r.manufacturingCountry).map((r) => r.manufacturingCountry!))];
     const seasonNames = [...new Set(allValidRows.filter((r) => r.season).map((r) => r.season!))];
+    const hsCodes = [...new Set(allValidRows.filter((r) => r.hsCode).map((r) => r.hsCode!.trim()))];
 
-    const [dbColors, dbCategories, dbTags, dbCompositions, dbSubCategories, dbCountries, dbSeasons, existingProducts] = await Promise.all([
+    const [dbColors, dbCategories, dbTags, dbCompositions, dbSubCategories, dbCountries, dbSeasons, dbHsCodes, existingProducts] = await Promise.all([
       prisma.color.findMany({ where: { name: { in: colorNames } } }),
       prisma.category.findMany({ where: { name: { in: categoryNames } } }),
       prisma.tag.findMany({ where: { name: { in: tagNames } } }),
@@ -411,6 +458,9 @@ export async function processProductImport(jobId: string, maxProducts?: number):
       prisma.subCategory.findMany(),
       prisma.manufacturingCountry.findMany({ where: { name: { in: countryNames } } }),
       prisma.season.findMany({ where: { name: { in: seasonNames } } }),
+      hsCodes.length > 0
+        ? prisma.hsCode.findMany({ where: { code: { in: hsCodes } }, select: { id: true, code: true } })
+        : Promise.resolve([] as { id: string; code: string }[]),
       prisma.product.findMany({ where: { reference: { in: [...grouped.keys()] } }, select: { reference: true } }),
     ]);
 
@@ -421,6 +471,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
     const subCatMap = new Map(dbSubCategories.map((s) => [s.name.toLowerCase(), s]));
     const countryMap = new Map(dbCountries.map((c) => [c.name.toLowerCase(), c]));
     const seasonMap = new Map(dbSeasons.map((s) => [s.name.toLowerCase(), s]));
+    const hsCodeMap = new Map(dbHsCodes.map((h) => [h.code.trim(), h]));
     const existingRefs = new Set(existingProducts.map((p) => p.reference.toUpperCase()));
 
     let successCount = 0;
@@ -594,6 +645,62 @@ export async function processProductImport(jobId: string, maxProducts?: number):
           }
         }
 
+        // Code SH — error if specified but not found in HsCode library
+        let hsCodeId: string | null = null;
+        if (firstRow.hsCode) {
+          const hs = hsCodeMap.get(firstRow.hsCode.trim());
+          if (hs) {
+            hsCodeId = hs.id;
+          } else {
+            for (const row of colorRows) {
+              if (!errorRows.some((e) => e._rowIndex === row._rowIndex)) {
+                errorRows.push({ ...row, errors: [`Code SH "${firstRow.hsCode}" introuvable. Créez-le d'abord dans Administration > Codes SH.`] });
+              }
+            }
+            processedCount++;
+            continue;
+          }
+        }
+
+        // Couleur principale du produit — doit être l'une des couleurs des variantes.
+        // Si vide, on laisse null (le serveur Prisma utilisera resolvePrimaryColorId au
+        // prochain enregistrement manuel ; ici l'import laisse explicitement vide).
+        let primaryColorId: string | null = null;
+        if (firstRow.primaryColor) {
+          const wanted = normalizeColorName(firstRow.primaryColor.trim());
+          const matchInVariants = resolvedColors.find(
+            ({ mainColor }) => normalizeColorName(mainColor.name) === wanted,
+          );
+          if (matchInVariants) {
+            primaryColorId = matchInVariants.mainColor.id;
+          } else {
+            for (const row of colorRows) {
+              if (!errorRows.some((e) => e._rowIndex === row._rowIndex)) {
+                errorRows.push({ ...row, errors: [`Couleur principale "${firstRow.primaryColor}" introuvable parmi les variantes du produit.`] });
+              }
+            }
+            processedCount++;
+            continue;
+          }
+        }
+
+        // Détail taille unique : obligatoire dès qu'une variante utilise la taille
+        // protégée « Taille unique » (cf. lib/protected-sizes.ts). On regarde tous
+        // les noms de tailles parsés pour cette référence.
+        const usesProtectedSize = resolvedColors.some(({ row }) => {
+          const parsed = parseSizeField(row.size, row.saleType);
+          return parsed.some((e) => e.name.trim().toLowerCase() === "taille unique");
+        });
+        if (usesProtectedSize && !firstRow.sizeDetailsTu?.trim()) {
+          for (const row of colorRows) {
+            if (!errorRows.some((e) => e._rowIndex === row._rowIndex)) {
+              errorRows.push({ ...row, errors: [`Détail taille unique manquant (obligatoire quand une variante utilise « Taille unique »).`] });
+            }
+          }
+          processedCount++;
+          continue;
+        }
+
         try {
           const product = await prisma.product.create({
             data: {
@@ -603,8 +710,11 @@ export async function processProductImport(jobId: string, maxProducts?: number):
               categoryId: categoryId ?? (await prisma.category.findFirst().then((c) => c?.id ?? "")),
               manufacturingCountryId,
               seasonId,
-              status: "OFFLINE",
-              isBestSeller: false,
+              hsCodeId,
+              primaryColorId,
+              sizeDetailsTu: firstRow.sizeDetailsTu?.trim() || null,
+              status: firstRow.status ?? "OFFLINE",
+              isBestSeller: firstRow.isBestSeller ?? false,
               discountPercent: firstRow.discountPercent ?? null,
               dimensionLength: firstRow.dimensionLength ?? null,
               dimensionWidth: firstRow.dimensionWidth ?? null,
@@ -723,6 +833,29 @@ export async function processProductImport(jobId: string, maxProducts?: number):
             }
             // Clean up resolved pending links
             await prisma.pendingSimilar.deleteMany({ where: { similarRef: ref } });
+          }
+
+          // Traductions explicites depuis le fichier — créées avant la traduction auto.
+          // Si la cliente fournit la version EN dans son Excel, elle est prioritaire
+          // (l'auto-translate respecte les traductions déjà présentes).
+          const explicitNameEn = firstRow.nameEn?.trim();
+          const explicitDescriptionEn = firstRow.descriptionEn?.trim();
+          if (explicitNameEn || explicitDescriptionEn) {
+            await prisma.productTranslation.upsert({
+              where: { productId_locale: { productId: product.id, locale: "en" } },
+              update: {
+                ...(explicitNameEn ? { name: explicitNameEn } : {}),
+                ...(explicitDescriptionEn ? { description: explicitDescriptionEn } : {}),
+              },
+              create: {
+                productId: product.id,
+                locale: "en",
+                name: explicitNameEn || firstRow.name,
+                description: explicitDescriptionEn || firstRow.description || "",
+              },
+            }).catch((err) => {
+              logger.warn("[import-processor] productTranslation upsert failed", { productId: product.id, error: err });
+            });
           }
 
           successCount++;

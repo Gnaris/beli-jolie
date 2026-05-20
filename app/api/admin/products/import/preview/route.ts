@@ -61,6 +61,26 @@ export interface PreviewResult {
 // Row normalizer (same as import route)
 // ─────────────────────────────────────────────
 
+/** Bool tolérant (true/1/oui...) — voir lib/import-processor.ts pour la version "source de vérité". */
+function boolish(raw: unknown): boolean | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const s = String(raw).trim().toLowerCase();
+  if (s === "") return undefined;
+  if (["true", "1", "oui", "yes", "vrai", "x"].includes(s)) return true;
+  if (["false", "0", "non", "no", "faux"].includes(s)) return false;
+  return undefined;
+}
+function readStatus(raw: unknown): "OFFLINE" | "ONLINE" | "ARCHIVED" | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const s = String(raw).trim().toUpperCase();
+  if (s === "") return undefined;
+  if (["EN LIGNE", "ONLINE", "PUBLIE", "PUBLIÉ"].includes(s)) return "ONLINE";
+  if (["HORS LIGNE", "OFFLINE", "BROUILLON"].includes(s)) return "OFFLINE";
+  if (["ARCHIVE", "ARCHIVÉ", "ARCHIVED"].includes(s)) return "ARCHIVED";
+  if (s === "OFFLINE" || s === "ONLINE" || s === "ARCHIVED") return s;
+  return undefined;
+}
+
 function normalizeRow(raw: Record<string, unknown>, index: number) {
   const str = (v: unknown) => (v != null ? String(v).trim() : "");
   const num = (v: unknown) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return isNaN(n) ? undefined : n; };
@@ -89,6 +109,13 @@ function normalizeRow(raw: Record<string, unknown>, index: number) {
     size: str(raw["size"] ?? raw["taille"] ?? raw["Taille"]) || undefined,
     manufacturingCountry: str(raw["manufacturing_country"] ?? raw["pays_fabrication"] ?? raw["pays"] ?? raw["Pays fabrication"]) || undefined,
     season: str(raw["season"] ?? raw["saison"] ?? raw["collection"] ?? raw["Saison"]) || undefined,
+    hsCode: str(raw["hs_code"] ?? raw["code_sh"] ?? raw["hsCode"] ?? raw["Code SH"]) || undefined,
+    primaryColor: str(raw["primary_color"] ?? raw["couleur_principale"] ?? raw["primaryColor"] ?? raw["Couleur principale"]) || undefined,
+    sizeDetailsTu: str(raw["taille_unique_details"] ?? raw["detail_taille_unique"] ?? raw["sizeDetailsTu"] ?? raw["Détail taille unique"]) || undefined,
+    status: readStatus(raw["status"] ?? raw["statut"] ?? raw["Statut"]),
+    isBestSeller: boolish(raw["best_seller"] ?? raw["isBestSeller"] ?? raw["bestseller"] ?? raw["Best Seller"]),
+    nameEn: str(raw["name_en"] ?? raw["nom_en"] ?? raw["Nom (EN)"] ?? raw["nameEn"]) || undefined,
+    descriptionEn: str(raw["description_en"] ?? raw["Description (EN)"] ?? raw["descriptionEn"]) || undefined,
   };
 }
 
@@ -126,6 +153,13 @@ function parseJSON(text: string) {
         size: c.size ?? c.taille ?? undefined,
         manufacturingCountry: item.manufacturingCountry ?? item.manufacturing_country ?? item.pays_fabrication ?? undefined,
         season: item.season ?? item.saison ?? item.collection ?? undefined,
+        hsCode: item.hsCode ?? item.hs_code ?? item.code_sh ?? undefined,
+        primaryColor: item.primaryColor ?? item.primary_color ?? item.couleur_principale ?? undefined,
+        sizeDetailsTu: item.sizeDetailsTu ?? item.size_details_tu ?? item.taille_unique_details ?? item.detail_taille_unique ?? undefined,
+        status: readStatus(item.status ?? item.statut),
+        isBestSeller: boolish(item.isBestSeller ?? item.best_seller ?? item.bestseller),
+        nameEn: item.name_en ?? item.nameEn ?? item.nom_en ?? undefined,
+        descriptionEn: item.description_en ?? item.descriptionEn ?? undefined,
       });
       idx++;
     }
@@ -228,8 +262,9 @@ export async function POST(req: NextRequest) {
 
     const countryNames = [...new Set(rows.filter((r) => r.manufacturingCountry).map((r) => r.manufacturingCountry!))];
     const seasonNames = [...new Set(rows.filter((r) => r.season).map((r) => r.season!))];
+    const hsCodes = [...new Set(rows.filter((r) => r.hsCode).map((r) => r.hsCode!.trim()))];
 
-    const [dbColors, dbCategories, dbCompositions, dbSubCategories, existingProducts, dbCountries, dbSeasons] = await Promise.all([
+    const [dbColors, dbCategories, dbCompositions, dbSubCategories, existingProducts, dbCountries, dbSeasons, dbHsCodes] = await Promise.all([
       prisma.color.findMany({ where: { name: { in: colorNames } }, select: { name: true, id: true } }),
       prisma.category.findMany({ where: { name: { in: categoryNames } }, select: { name: true, id: true } }),
       prisma.composition.findMany({ where: { name: { in: compositionMaterials } }, select: { name: true, id: true } }),
@@ -237,6 +272,9 @@ export async function POST(req: NextRequest) {
       prisma.product.findMany({ where: { reference: { in: references } }, select: { reference: true } }),
       prisma.manufacturingCountry.findMany({ where: { name: { in: countryNames } }, select: { name: true, id: true } }),
       prisma.season.findMany({ where: { name: { in: seasonNames } }, select: { name: true, id: true } }),
+      hsCodes.length > 0
+        ? prisma.hsCode.findMany({ where: { code: { in: hsCodes } }, select: { code: true, id: true } })
+        : Promise.resolve([] as { code: string; id: string }[]),
     ]);
 
     const colorSet = new Set(dbColors.map((c) => normalizeColorName(c.name)));
@@ -245,6 +283,7 @@ export async function POST(req: NextRequest) {
     const subCatSet = new Set(dbSubCategories.map((s) => s.name.toLowerCase()));
     const countrySet = new Set(dbCountries.map((c) => c.name.toLowerCase()));
     const seasonSet = new Set(dbSeasons.map((s) => s.name.toLowerCase()));
+    const hsCodeSet = new Set(dbHsCodes.map((h) => h.code.trim()));
     const existingRefSet = new Set(existingProducts.map((p) => p.reference.toUpperCase()));
 
     // Track missing entities with usage counts
@@ -269,7 +308,7 @@ export async function POST(req: NextRequest) {
 
     // Inherit product-level fields from the group: find the first row that has each
     // field and propagate to all rows (field can be on any row, not just the first)
-    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference"] as const;
+    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference", "hsCode", "primaryColor", "sizeDetailsTu", "status", "isBestSeller", "nameEn", "descriptionEn"] as const;
     for (const [, groupRows] of grouped) {
       for (const field of productFields) {
         const source = groupRows.find((r) => r[field as keyof typeof r]);
@@ -342,6 +381,29 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Validate HS code
+      let hsCodeFound = true;
+      if (firstRow.hsCode) {
+        if (!hsCodeSet.has(firstRow.hsCode.trim())) {
+          hsCodeFound = false;
+        }
+      }
+
+      // Validate primary color : doit être présente parmi les couleurs des variantes
+      let primaryColorValid = true;
+      if (firstRow.primaryColor) {
+        const wanted = normalizeColorName(firstRow.primaryColor.trim());
+        const matchInGroup = groupRows.some((r) => normalizeColorName(r.color || "") === wanted);
+        if (!matchInGroup) primaryColorValid = false;
+      }
+
+      // Validate « Taille unique » : si une variante l'utilise, sizeDetailsTu obligatoire
+      const groupUsesTailleUnique = groupRows.some((r) => {
+        const sizes = (r.size ?? "").split(",").map((s) => s.split(":")[0].trim().toLowerCase());
+        return sizes.includes("taille unique");
+      });
+      const tailleUniqueDetailsMissing = groupUsesTailleUnique && !firstRow.sizeDetailsTu?.trim();
+
       const variants: PreviewVariant[] = groupRows.map((row) => {
         const errors: string[] = [];
         const colorName = row.color ? row.color.trim() : "";
@@ -384,6 +446,9 @@ export async function POST(req: NextRequest) {
       if (!subCategoriesFound) productErrors.push("Sous-catégorie(s) introuvable(s).");
       if (!countryFound) productErrors.push(`Pays "${firstRow.manufacturingCountry}" introuvable.`);
       if (!seasonFound) productErrors.push(`Saison "${firstRow.season}" introuvable.`);
+      if (!hsCodeFound) productErrors.push(`Code SH "${firstRow.hsCode}" introuvable (créez-le dans Administration > Codes SH).`);
+      if (!primaryColorValid) productErrors.push(`Couleur principale "${firstRow.primaryColor}" introuvable parmi les variantes.`);
+      if (tailleUniqueDetailsMissing) productErrors.push(`Détail taille unique manquant (obligatoire quand une variante utilise « Taille unique »).`);
       if (referenceExists) productErrors.push(`La référence "${ref}" existe déjà.`);
 
       const variantErrors = variants.flatMap((v) => v.errors);

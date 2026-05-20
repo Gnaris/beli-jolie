@@ -65,20 +65,27 @@ const COLUMNS: ColumnDef[] = [
   { key: "category", header: "Catégorie", width: 20, required: false, description: "Doit exister dans la base", example: "Accessoires" },
   { key: "sub_categories", header: "Sous-catégories", width: 22, required: false, description: "Séparées par des virgules", example: "Sautoir,Fin" },
   { key: "color", header: "Couleur *", width: 24, required: true, description: "Multi-couleurs séparées par /", example: "Doré" },
+  { key: "primary_color", header: "Couleur principale", width: 20, required: false, description: "Nom de la couleur affichée par défaut (doit faire partie des variantes)", example: "Doré" },
   { key: "sale_type", header: "Type de vente *", width: 15, required: true, description: "UNIT ou PACK", example: "UNIT" },
   { key: "unit_price", header: "Prix unitaire *", width: 15, required: true, description: "Prix HT en euros", example: "12.50" },
   { key: "pack_qty", header: "Qté pack", width: 12, required: false, description: "Auto-calculé depuis les tailles si PACK", example: "" },
   { key: "stock", header: "Stock *", width: 10, required: true, description: "Quantité en stock", example: "200" },
   { key: "weight_g", header: "Poids (g)", width: 12, required: false, description: "Poids en grammes", example: "30" },
   { key: "is_primary", header: "Primaire", width: 12, required: false, description: "true = variante principale", example: "true" },
-  { key: "discount_type", header: "Type remise", width: 15, required: false, description: "PERCENT ou AMOUNT", example: "" },
-  { key: "discount_value", header: "Valeur remise", width: 15, required: false, description: "Valeur de la remise", example: "" },
-  { key: "size", header: "Taille *", width: 18, required: true, description: "Obligatoire. UNIT: nom (ex: M, 42). PACK: taille:qté (ex: S:2,M:3,L:1)", example: "M" },
+  { key: "discount_type", header: "Type remise", width: 15, required: false, description: "PERCENT (seul type supporté, AMOUNT prévu)", example: "" },
+  { key: "discount_value", header: "Valeur remise", width: 15, required: false, description: "Valeur de la remise en %", example: "" },
+  { key: "size", header: "Taille *", width: 18, required: true, description: "Obligatoire. UNIT: nom (ex: M, 42). PACK: taille:qté (ex: S:2,M:3,L:1). Écrivez \"Taille unique\" pour le bloc PFS TU.", example: "M" },
+  { key: "taille_unique_details", header: "Détail taille unique", width: 22, required: false, description: "Texte libre (ex: 52-56). Obligatoire dès qu'une variante utilise « Taille unique ».", example: "52-56" },
   { key: "tags", header: "Tags", width: 26, required: false, description: "Mots-clés séparés par des virgules", example: "étoile,fin,tendance" },
   { key: "composition", header: "Composition", width: 32, required: false, description: "Matière:% (ex: Coton:85,Polyester:15)", example: "Coton:100" },
   { key: "similar_refs", header: "Réf. similaires", width: 22, required: false, description: "Références produits similaires (virgules)", example: "PRD-002,PRD-003" },
   { key: "pays_fabrication", header: "Pays fabrication", width: 18, required: false, description: "Doit exister dans la base", example: "France" },
   { key: "saison", header: "Saison", width: 16, required: false, description: "Doit exister dans la base", example: "Été 2026" },
+  { key: "hs_code", header: "Code SH", width: 14, required: false, description: "Code douanier (doit exister dans Administration > Codes SH)", example: "71171900" },
+  { key: "status", header: "Statut", width: 12, required: false, description: "OFFLINE (défaut), ONLINE ou ARCHIVED", example: "OFFLINE" },
+  { key: "best_seller", header: "Best Seller", width: 12, required: false, description: "true = mis en avant dans les filtres", example: "false" },
+  { key: "name_en", header: "Nom (EN)", width: 28, required: false, description: "Traduction anglaise du nom (sinon DeepL traduit auto)", example: "" },
+  { key: "description_en", header: "Description (EN)", width: 38, required: false, description: "Traduction anglaise de la description", example: "" },
   { key: "dimension_length", header: "Longueur (cm)", width: 16, required: false, description: "Longueur en cm", example: "45" },
   { key: "dimension_width", header: "Largeur (cm)", width: 16, required: false, description: "Largeur en cm", example: "2" },
   { key: "dimension_height", header: "Hauteur (cm)", width: 16, required: false, description: "Hauteur en cm", example: "" },
@@ -279,6 +286,38 @@ export async function GET() {
     "• Les dimensions sont des champs produit : elles ne doivent être renseignées que sur la ligne principale.",
   ]);
 
+  addSection("🏛️  Code SH (douanier)", [
+    "• hs_code : code douanier à 6-10 chiffres (ex: 71171900 pour bijoux fantaisie).",
+    "• Le code doit exister dans Administration > Codes SH avant l'import (créez-le sinon).",
+    "• Envoyé à Ankorstore au champ « hs_code ». PFS n'utilise pas ce code.",
+  ]);
+
+  addSection("🎯  Couleur principale", [
+    "• primary_color : nom de la couleur affichée par défaut sur la fiche produit.",
+    "• Doit correspondre à l'une des couleurs des variantes (sinon erreur à l'import).",
+    "• Laissé vide = pas de couleur principale forcée (le serveur prendra la 1ʳᵉ).",
+    "• Champ produit : à renseigner uniquement sur la ligne principale.",
+  ]);
+
+  addSection("📏  Taille unique", [
+    "• Pour une variante dont la taille est universelle, écrivez « Taille unique » dans la colonne size.",
+    "• Quand au moins une variante utilise « Taille unique », la colonne taille_unique_details devient OBLIGATOIRE.",
+    "• Renseignez un texte libre comme « 52-56 » qui décrit le tour réel — affiché sur la fiche et envoyé à PFS.",
+  ]);
+
+  addSection("🔁  Statut & Best Seller", [
+    "• status : OFFLINE (défaut, brouillon), ONLINE (publié) ou ARCHIVED.",
+    "• Laissez vide pour démarrer en brouillon hors ligne.",
+    "• best_seller : true = mis en avant dans les filtres clients.",
+    "• Ces deux champs sont au niveau produit : ligne principale uniquement.",
+  ]);
+
+  addSection("🌐  Traductions", [
+    "• name_en / description_en : versions anglaises rédigées manuellement.",
+    "• Si laissées vides, DeepL traduit automatiquement à l'import (selon votre quota).",
+    "• Vos versions ont la priorité sur la traduction automatique.",
+  ]);
+
   // Column reference table
   row += 1;
   wsInstructions.mergeCells(`B${row}:H${row}`);
@@ -463,6 +502,32 @@ export async function GET() {
       showErrorMessage: true,
       errorTitle: "Valeur invalide",
       error: 'Indiquez "true" ou laissez vide',
+    };
+  }
+
+  // status dropdown
+  const statusCol = COLUMNS.findIndex((c) => c.key === "status") + 1;
+  for (let r = dataStartRow; r <= dataEndRow; r++) {
+    wsProduits.getCell(r, statusCol).dataValidation = {
+      type: "list",
+      allowBlank: true,
+      formulae: ['"OFFLINE,ONLINE,ARCHIVED"'],
+      showErrorMessage: true,
+      errorTitle: "Valeur invalide",
+      error: "Choisissez OFFLINE, ONLINE ou ARCHIVED (ou laissez vide).",
+    };
+  }
+
+  // best_seller dropdown
+  const bestSellerCol = COLUMNS.findIndex((c) => c.key === "best_seller") + 1;
+  for (let r = dataStartRow; r <= dataEndRow; r++) {
+    wsProduits.getCell(r, bestSellerCol).dataValidation = {
+      type: "list",
+      allowBlank: true,
+      formulae: ['"true,false"'],
+      showErrorMessage: true,
+      errorTitle: "Valeur invalide",
+      error: 'Indiquez "true" ou "false" (ou laissez vide).',
     };
   }
 
