@@ -168,7 +168,7 @@ export async function POST(req: Request) {
       },
       receipt_email: user?.email ?? undefined,
       description: `${shopName} — ${user?.company ?? "Client"} (${user?.email ?? "?"}) — ${(totalTTC).toFixed(2)} € TTC`,
-      ...(statementDescriptor ? { statement_descriptor: statementDescriptor } : {}),
+      ...(statementDescriptor ? { statement_descriptor_suffix: statementDescriptor } : {}),
     });
 
     return NextResponse.json({
