@@ -113,4 +113,60 @@ describe("computeRowActionEligibility — actions du menu par ligne", () => {
       expect(e.canSync).toBe(true);
     });
   });
+
+  describe("canPublishAnkorstore", () => {
+    it("true si Ankorstore configuré + activé et produit non encore publié", () => {
+      const e = computeRowActionEligibility(baseProduct, fullCtx);
+      expect(e.canPublishAnkorstore).toBe(true);
+      expect(e.publishAnkorstoreReason).toBeUndefined();
+    });
+
+    it("false si déjà publié sur Ankorstore", () => {
+      const e = computeRowActionEligibility(
+        { ...baseProduct, ankorsProductId: "ANK-456" },
+        fullCtx,
+      );
+      expect(e.canPublishAnkorstore).toBe(false);
+      expect(e.publishAnkorstoreReason).toContain("Déjà publié");
+    });
+
+    it("false si Ankorstore pas configuré", () => {
+      const e = computeRowActionEligibility(baseProduct, {
+        ...fullCtx,
+        hasAnkorstoreConfig: false,
+      });
+      expect(e.canPublishAnkorstore).toBe(false);
+      expect(e.publishAnkorstoreReason).toBeDefined();
+    });
+
+    it("false si kill-switch Ankorstore OFF", () => {
+      const e = computeRowActionEligibility(baseProduct, {
+        ...fullCtx,
+        ankorstoreEnabled: false,
+      });
+      expect(e.canPublishAnkorstore).toBe(false);
+      expect(e.publishAnkorstoreReason).toBeDefined();
+    });
+
+    it("false si la fiche locale est incomplète (image manquante)", () => {
+      const e = computeRowActionEligibility(
+        { ...baseProduct, isIncomplete: true },
+        fullCtx,
+      );
+      expect(e.canPublishAnkorstore).toBe(false);
+      expect(e.publishAnkorstoreReason).toContain("incomplet");
+    });
+
+    it("indépendant du statut OFFLINE/ONLINE/ARCHIVED", () => {
+      expect(
+        computeRowActionEligibility({ ...baseProduct, status: "ONLINE" }, fullCtx).canPublishAnkorstore,
+      ).toBe(true);
+      expect(
+        computeRowActionEligibility({ ...baseProduct, status: "OFFLINE" }, fullCtx).canPublishAnkorstore,
+      ).toBe(true);
+      expect(
+        computeRowActionEligibility({ ...baseProduct, status: "ARCHIVED" }, fullCtx).canPublishAnkorstore,
+      ).toBe(true);
+    });
+  });
 });

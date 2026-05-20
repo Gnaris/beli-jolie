@@ -56,6 +56,14 @@ export interface RowActionEligibility {
   canPutOffline: boolean;
   canArchive: boolean;
   canSync: boolean;
+  /**
+   * `canPublishAnkorstore` : true si Ankorstore est configuré + activé,
+   * que le produit n'y est pas encore (pas d'`ankorsProductId`), et que la
+   * fiche locale n'est pas incomplète. Sert à conditionner l'affichage du
+   * bouton "Publier sur Ankorstore" dans le badge et le menu Actions.
+   */
+  canPublishAnkorstore: boolean;
+  publishAnkorstoreReason?: string;
 }
 
 export function computeRowActionEligibility(
@@ -75,12 +83,26 @@ export function computeRowActionEligibility(
   if (product.status === "ONLINE") putOnlineReason = "Déjà en ligne";
   else if (product.isIncomplete) putOnlineReason = "Produit incomplet — complétez la fiche d'abord";
 
+  let publishAnkorstoreReason: string | undefined;
+  let canPublishAnkorstore = false;
+  if (!showAnkorstore) {
+    publishAnkorstoreReason = "Ankorstore n'est pas configuré ou est désactivé";
+  } else if (product.ankorsProductId) {
+    publishAnkorstoreReason = "Déjà publié sur Ankorstore";
+  } else if (product.isIncomplete) {
+    publishAnkorstoreReason = "Produit incomplet — complétez la fiche d'abord";
+  } else {
+    canPublishAnkorstore = true;
+  }
+
   return {
     canPutOnline: product.status !== "ONLINE" && !product.isIncomplete,
     putOnlineReason,
     canPutOffline: product.status !== "OFFLINE",
     canArchive: product.status !== "ARCHIVED",
     canSync: syncPfs || syncAnkors,
+    canPublishAnkorstore,
+    publishAnkorstoreReason,
   };
 }
 
@@ -111,9 +133,11 @@ function MarketplaceBadge({ published }: { published: boolean }) {
 
 function AnkorstoreBadge({
   published,
+  onPublishClick,
   onLinkClick,
 }: {
   published: boolean;
+  onPublishClick?: () => void;
   onLinkClick?: () => void;
 }) {
   if (published) {
@@ -127,23 +151,46 @@ function AnkorstoreBadge({
       </span>
     );
   }
-  if (onLinkClick) {
+  // Non publié : on propose deux actions côte à côte quand elles sont
+  // disponibles — "Publier" (créer une nouvelle fiche Ankorstore) et "Lier"
+  // (rattacher à une fiche existante). Si seule une callback est passée,
+  // on affiche la pastille correspondante.
+  if (onPublishClick || onLinkClick) {
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onLinkClick();
-        }}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border hover:border-text-secondary hover:text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
-        title="Cliquer pour lier à un produit Ankorstore"
-      >
-        <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
-        Ankorstore
-        <svg className="w-2.5 h-2.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-        </svg>
-      </button>
+      <span className="inline-flex items-center gap-1">
+        {onPublishClick && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPublishClick();
+            }}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
+            title="Cliquer pour publier ce produit sur Ankorstore"
+          >
+            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Ankorstore
+          </button>
+        )}
+        {onLinkClick && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onLinkClick();
+            }}
+            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-muted bg-bg-secondary border border-border hover:border-text-secondary hover:text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
+            title="Lier à un produit Ankorstore existant"
+            aria-label="Lier à un produit Ankorstore existant"
+          >
+            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+            </svg>
+          </button>
+        )}
+      </span>
     );
   }
   return (
@@ -528,6 +575,7 @@ function ActionsDropdown({
   onPutOffline,
   onArchive,
   onSync,
+  onPublishAnkorstore,
   onDelete,
 }: {
   productId: string;
@@ -542,6 +590,7 @@ function ActionsDropdown({
   onPutOffline: () => void;
   onArchive: () => void;
   onSync: () => void;
+  onPublishAnkorstore: () => void;
   onDelete: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -683,6 +732,18 @@ function ActionsDropdown({
         </button>
       )}
 
+      {/* ── Publier sur Ankorstore (uniquement si non encore publié) ── */}
+      {eligibility.canPublishAnkorstore && (
+        <button type="button" onClick={onPublishAnkorstore} className={itemClass}>
+          <span className="inline-flex items-center gap-2">
+            <svg className="w-3 h-3 text-[#DC2626]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Publier sur Ankorstore
+          </span>
+        </button>
+      )}
+
       <button
         type="button"
         onClick={onRefresh}
@@ -749,8 +810,35 @@ function ProductRow({
   const actionsRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { confirm } = useConfirm();
+  const { enqueue } = useMarketplaceRefreshQueue();
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const { refreshSingle } = useRefreshMarketplaceDialog({ showPfs: hasPfsConfig, showAnkorstore });
+
+  // Demande la création d'une nouvelle fiche sur Ankorstore — appelé depuis le
+  // badge "+ Ankorstore" et l'item du menu Actions. On passe par une simple
+  // confirmation puis on enqueue : le widget en bas à droite affichera la
+  // progression (callback Ankorstore asynchrone, voir CLAUDE.md > mode callback-only).
+  const handlePublishAnkorstore = useCallback(async () => {
+    const ok = await confirm({
+      type: "warning",
+      title: "Publier sur Ankorstore ?",
+      message: `"${product.name}" (${product.reference}) n'est pas encore sur Ankorstore. Une nouvelle fiche y sera créée avec les infos, photos, prix et stock actuels du produit.`,
+      confirmLabel: "Oui, publier",
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+    enqueue([
+      {
+        productId: product.id,
+        reference: product.reference,
+        productName: product.name,
+        firstImage: product.firstImage,
+        options: { local: false, pfs: false, ankorstore: true },
+        mode: "publish",
+        marketplace: "ankorstore",
+      },
+    ]);
+  }, [confirm, enqueue, product]);
 
   // Toutes les couleurs uniques attribuées au produit (UNIT + PACK confondus).
   const uniqueColors = [...new Map(product.colors
@@ -949,6 +1037,11 @@ function ProductRow({
             <MarketplaceBadge published={!!product.pfsProductId} />
             <AnkorstoreBadge
               published={!!product.ankorsProductId}
+              onPublishClick={
+                eligibility.canPublishAnkorstore
+                  ? () => { void handlePublishAnkorstore(); }
+                  : undefined
+              }
               onLinkClick={
                 showAnkorstore && !product.ankorsProductId
                   ? () => setLinkAkOpen(true)
@@ -1022,6 +1115,7 @@ function ProductRow({
                 onPutOffline={() => { setActionsOpen(false); onRowStatus(product.id, "OFFLINE"); }}
                 onArchive={() => { setActionsOpen(false); onRowStatus(product.id, "ARCHIVED"); }}
                 onSync={() => { setActionsOpen(false); onRowSync(product.id); }}
+                onPublishAnkorstore={() => { setActionsOpen(false); void handlePublishAnkorstore(); }}
                 onDelete={() => { setActionsOpen(false); onRowDelete(product.id); }}
               />,
               document.body
