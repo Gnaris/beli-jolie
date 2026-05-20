@@ -174,12 +174,25 @@ function CarouselCard({
       : activeVariant.stock
     : 1;
 
-  // Price for selected color
-  const basePrice = selectedColor?.unitPrice ?? 0;
-  const discountedPrice = selectedColor?.discountedPrice ?? basePrice;
-  const hasProductDiscount = discountedPrice < basePrice;
+  // Prix affiché PAR UNITÉ (pour PACK : total / packQuantity)
+  const variantPricePerUnit = (v: CarouselVariant): number => {
+    const p = Number(v.unitPrice);
+    if (v.saleType === "PACK" && v.packQuantity && v.packQuantity > 0) return p / v.packQuantity;
+    return p;
+  };
 
-  const priceBeforeClient = activeVariant ? Number(activeVariant.unitPrice) : discountedPrice;
+  // basePrice = prix brut par unité (avant toute remise) pour la variante active
+  const basePrice = activeVariant
+    ? variantPricePerUnit(activeVariant)
+    : (selectedColor?.unitPrice ?? 0);
+
+  // Ratio de remise produit calculé côté serveur sur le prix de référence couleur
+  const productDiscountRatio = selectedColor && selectedColor.unitPrice > 0 && selectedColor.hasDiscount
+    ? (selectedColor.discountedPrice ?? selectedColor.unitPrice) / selectedColor.unitPrice
+    : 1;
+  const hasProductDiscount = productDiscountRatio < 1;
+  const priceBeforeClient = basePrice * productDiscountRatio;
+
   const finalPrice = applyClientDiscount(priceBeforeClient, clientDiscount);
   const hasClientDiscount = !!clientDiscount && finalPrice < priceBeforeClient;
 

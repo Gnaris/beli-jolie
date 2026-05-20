@@ -200,7 +200,10 @@ export default function CatalogProductCard({
       : null) ??
     product.colorImages[0]?.path;
 
-  const price = Number(activeVariant.unitPrice);
+  // Prix affiché PAR UNITÉ : pour PACK, on divise le total stocké par packQuantity
+  const price = activeVariant.saleType === "PACK" && activeVariant.packQuantity && activeVariant.packQuantity > 0
+    ? Number(activeVariant.unitPrice) / activeVariant.packQuantity
+    : Number(activeVariant.unitPrice);
 
   function handleColorChange(group: ColorGroup) {
     setActiveGroup(group);

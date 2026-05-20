@@ -55,8 +55,17 @@ interface ProductCardProps {
   onFavoriteChange?: (isFavorite: boolean) => void;
 }
 
+// Prix par unité : pour UNIT c'est unitPrice direct, pour PACK on divise le total par packQuantity
+function variantPricePerUnit(v: VariantData): number {
+  const price = Number(v.unitPrice);
+  if (v.saleType === "PACK" && v.packQuantity && v.packQuantity > 0) {
+    return price / v.packQuantity;
+  }
+  return price;
+}
+
 function computeVariantPrice(v: VariantData, discountPercent?: number | null): number {
-  const base = Number(v.unitPrice);
+  const base = variantPricePerUnit(v);
   if (!discountPercent || discountPercent <= 0) return base;
   return Math.max(0, base * (1 - discountPercent / 100));
 }
@@ -111,23 +120,6 @@ export default function ProductCard({
 
   const displayed = selectedColor ?? primaryColor;
   const image = displayed?.firstImage;
-
-  // Compute prices with product discount
-  const basePrice = displayed?.unitPrice ?? Math.min(...colors.map((c) => c.unitPrice));
-  const minVariantPrice = displayed?.variants?.length
-    ? Math.min(...displayed.variants.map((v) => computeVariantPrice(v, discountPercent)))
-    : basePrice;
-  const hasProductDiscount = minVariantPrice < basePrice;
-
-  // Apply client discount on top
-  const priceAfterProductDiscount = minVariantPrice;
-  const finalPrice = applyClientDiscount(priceAfterProductDiscount, clientDiscount);
-  const hasClientDiscount = !!clientDiscount && finalPrice < priceAfterProductDiscount;
-
-  // Display logic
-  const showStrikethrough = hasProductDiscount || hasClientDiscount;
-  const strikethroughPrice = hasClientDiscount ? priceAfterProductDiscount : basePrice;
-  const displayedFinalPrice = hasClientDiscount ? finalPrice : priceAfterProductDiscount;
 
   // Check if this product has a discount
   const anyVariantHasDiscount = !!discountPercent && discountPercent > 0;
@@ -204,6 +196,19 @@ export default function ProductCard({
 
   const packOptions = (displayed?.variants.filter((v) => v.saleType === "PACK") ?? [])
     .sort((a, b) => (b.packQuantity ?? 0) - (a.packQuantity ?? 0));
+
+  // ── Calcul prix affichés (dépend de activeVariant pour suivre UNIT/PACK) ──
+  const basePrice = activeVariant
+    ? variantPricePerUnit(activeVariant)
+    : (displayed?.unitPrice ?? Math.min(...colors.map((c) => c.unitPrice)));
+  const priceAfterProductDiscount = anyVariantHasDiscount
+    ? Math.max(0, basePrice * (1 - (discountPercent ?? 0) / 100))
+    : basePrice;
+  const finalPrice = applyClientDiscount(priceAfterProductDiscount, clientDiscount);
+  const hasClientDiscount = !!clientDiscount && finalPrice < priceAfterProductDiscount;
+  const showStrikethrough = anyVariantHasDiscount || hasClientDiscount;
+  const strikethroughPrice = hasClientDiscount ? priceAfterProductDiscount : basePrice;
+  const displayedFinalPrice = hasClientDiscount ? finalPrice : priceAfterProductDiscount;
 
   // Stock check: is selected color entirely out of stock?
   const selectedColorOutOfStock = (displayed?.totalStock ?? 0) <= 0;
