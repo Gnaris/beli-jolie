@@ -730,8 +730,11 @@ export default function ProductForm({
         // Discard and navigate
         isDirty.current = false;
         router.push(href);
+      } else {
+        // false = cancel, stay on page — clear any overlay that NavigationLoader
+        // may have shown if its microtask ran before our preventDefault landed.
+        hideLoading();
       }
-      // false = cancel, stay on page
     } else {
       const ok = await confirmDialog({
         title: "Modifications non enregistrées",
@@ -742,10 +745,12 @@ export default function ProductForm({
       if (ok) {
         isDirty.current = false;
         router.push(href);
+      } else {
+        hideLoading();
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router, confirmDialog, mode]);
+  }, [router, confirmDialog, mode, hideLoading]);
 
   // Intercept ALL client-side link clicks inside the page
   useEffect(() => {
@@ -759,6 +764,10 @@ export default function ProductForm({
       if (href.startsWith("http") && !href.startsWith(window.location.origin)) return;
       e.preventDefault();
       e.stopPropagation();
+      // stopImmediatePropagation : empêche d'autres listeners en capture
+      // sur `document` (notamment NavigationLoader) de programmer leur
+      // overlay alors qu'on est en train de bloquer la navigation.
+      e.stopImmediatePropagation();
       navigateWithGuard(href);
     }
     document.addEventListener("click", onClick, true);
