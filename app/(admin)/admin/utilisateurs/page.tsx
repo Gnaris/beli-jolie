@@ -204,7 +204,7 @@ export default async function UtilisateursPage({
                     </td>
                     <td className="px-5 py-4 whitespace-nowrap">
                       <p className="font-body text-xs text-text-secondary">
-                        {new Date(c.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
+                        {new Date(c.createdAt).toLocaleString("fr-FR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                       </p>
                     </td>
                     <td className="px-5 py-4 text-right whitespace-nowrap">

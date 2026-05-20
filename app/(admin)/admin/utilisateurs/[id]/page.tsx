@@ -131,8 +131,9 @@ export default async function ClientDetailPage({
   const kbisExt     = kbisFilename.split(".").pop()?.toLowerCase() ?? "";
   const isPdf       = kbisExt === "pdf";
 
-  const formattedDate = new Date(user.createdAt).toLocaleDateString("fr-FR", {
+  const formattedDate = new Date(user.createdAt).toLocaleString("fr-FR", {
     day: "numeric", month: "long", year: "numeric",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
   });
 
   const totalOrders = orders.length;
