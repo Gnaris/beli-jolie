@@ -75,8 +75,14 @@ export async function checkColorMergeConflicts(
 
   const conflicts: ColorMergeConflict[] = [];
 
-  // 1) Doublon variante : un produit qui a déjà les deux couleurs en variante
-  const variantDupes = await prisma.$queryRaw<
+  // 1) Doublon variante : un produit qui a déjà les deux couleurs en variante.
+  //
+  // Filtre SQL grossier : produits qui ont les deux colorIds en ProductColor.
+  // Puis on raffine côté JS : un vrai conflit existe seulement si après merge,
+  // deux variantes auraient la même "groupKey" (saleType + sizes triées). Un
+  // produit avec UNIT(X) + PACK(Y) n'est PAS un conflit — après merge il aura
+  // UNIT(X) + PACK(X) qui restent deux variantes distinctes.
+  const candidateRows = await prisma.$queryRaw<
     Array<{ productId: string; reference: string; name: string }>
   >`
     SELECT pc.productId as productId, p.reference as reference, p.name as name
@@ -86,13 +92,44 @@ export async function checkColorMergeConflicts(
     GROUP BY pc.productId, p.reference, p.name
     HAVING COUNT(DISTINCT pc.colorId) = 2
   `;
-  for (const row of variantDupes) {
-    conflicts.push({
-      kind: "variant_duplicate",
-      productId: row.productId,
-      reference: row.reference,
-      productName: row.name,
+  if (candidateRows.length > 0) {
+    const candidateIds = candidateRows.map((r) => r.productId);
+    const variants = await prisma.productColor.findMany({
+      where: {
+        productId: { in: candidateIds },
+        colorId: { in: [keptId, absorbedId] },
+      },
+      select: {
+        productId: true,
+        colorId: true,
+        saleType: true,
+        variantSizes: { select: { sizeId: true, quantity: true } },
+      },
     });
+    function pseudoKey(v: (typeof variants)[number]): string {
+      const sizeKey = [...v.variantSizes]
+        .sort((a, b) => a.sizeId.localeCompare(b.sizeId))
+        .map((s) => `${s.sizeId}:${s.quantity}`)
+        .join(",");
+      return `${v.saleType}::${sizeKey}`;
+    }
+    for (const row of candidateRows) {
+      const productVariants = variants.filter((v) => v.productId === row.productId);
+      const keptKeys = new Set(
+        productVariants.filter((v) => v.colorId === keptId).map(pseudoKey),
+      );
+      const realCollision = productVariants
+        .filter((v) => v.colorId === absorbedId)
+        .some((v) => keptKeys.has(pseudoKey(v)));
+      if (realCollision) {
+        conflicts.push({
+          kind: "variant_duplicate",
+          productId: row.productId,
+          reference: row.reference,
+          productName: row.name,
+        });
+      }
+    }
   }
 
   // 2) Doublon pack-line (viole unique productColorId+colorId)
