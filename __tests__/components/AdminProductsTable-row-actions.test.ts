@@ -114,6 +114,49 @@ describe("computeRowActionEligibility — actions du menu par ligne", () => {
     });
   });
 
+  describe("canPublishPfs", () => {
+    it("true si PFS configuré et produit non encore publié", () => {
+      const e = computeRowActionEligibility(baseProduct, fullCtx);
+      expect(e.canPublishPfs).toBe(true);
+      expect(e.publishPfsReason).toBeUndefined();
+    });
+
+    it("false si déjà publié sur PFS", () => {
+      const e = computeRowActionEligibility(
+        { ...baseProduct, pfsProductId: "PFS-123" },
+        fullCtx,
+      );
+      expect(e.canPublishPfs).toBe(false);
+      expect(e.publishPfsReason).toContain("Déjà publié");
+    });
+
+    it("false si PFS pas configuré", () => {
+      const e = computeRowActionEligibility(baseProduct, {
+        ...fullCtx,
+        hasPfsConfig: false,
+      });
+      expect(e.canPublishPfs).toBe(false);
+      expect(e.publishPfsReason).toBeDefined();
+    });
+
+    it("false si la fiche locale est incomplète (image manquante)", () => {
+      const e = computeRowActionEligibility(
+        { ...baseProduct, isIncomplete: true },
+        fullCtx,
+      );
+      expect(e.canPublishPfs).toBe(false);
+      expect(e.publishPfsReason).toContain("incomplet");
+    });
+
+    it("indépendant du kill-switch Ankorstore", () => {
+      const e = computeRowActionEligibility(baseProduct, {
+        ...fullCtx,
+        ankorstoreEnabled: false,
+      });
+      expect(e.canPublishPfs).toBe(true);
+    });
+  });
+
   describe("canPublishAnkorstore", () => {
     it("true si Ankorstore configuré + activé et produit non encore publié", () => {
       const e = computeRowActionEligibility(baseProduct, fullCtx);

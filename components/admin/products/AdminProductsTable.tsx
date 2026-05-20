@@ -17,6 +17,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
+import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import LinkAnkorstoreProductModal from "@/components/admin/products/LinkAnkorstoreProductModal";
@@ -57,6 +58,14 @@ export interface RowActionEligibility {
   canArchive: boolean;
   canSync: boolean;
   /**
+   * `canPublishPfs` : true si PFS est configuré, que le produit n'y est pas
+   * encore (pas de `pfsProductId`), et que la fiche locale n'est pas
+   * incomplète. Conditionne l'affichage du bouton "Publier sur PFS" dans le
+   * badge et le menu Actions.
+   */
+  canPublishPfs: boolean;
+  publishPfsReason?: string;
+  /**
    * `canPublishAnkorstore` : true si Ankorstore est configuré + activé,
    * que le produit n'y est pas encore (pas d'`ankorsProductId`), et que la
    * fiche locale n'est pas incomplète. Sert à conditionner l'affichage du
@@ -83,6 +92,18 @@ export function computeRowActionEligibility(
   if (product.status === "ONLINE") putOnlineReason = "Déjà en ligne";
   else if (product.isIncomplete) putOnlineReason = "Produit incomplet — complétez la fiche d'abord";
 
+  let publishPfsReason: string | undefined;
+  let canPublishPfs = false;
+  if (!ctx.hasPfsConfig) {
+    publishPfsReason = "Paris Fashion Shop n'est pas configuré";
+  } else if (product.pfsProductId) {
+    publishPfsReason = "Déjà publié sur Paris Fashion Shop";
+  } else if (product.isIncomplete) {
+    publishPfsReason = "Produit incomplet — complétez la fiche d'abord";
+  } else {
+    canPublishPfs = true;
+  }
+
   let publishAnkorstoreReason: string | undefined;
   let canPublishAnkorstore = false;
   if (!showAnkorstore) {
@@ -101,6 +122,8 @@ export function computeRowActionEligibility(
     canPutOffline: product.status !== "OFFLINE",
     canArchive: product.status !== "ARCHIVED",
     canSync: syncPfs || syncAnkors,
+    canPublishPfs,
+    publishPfsReason,
     canPublishAnkorstore,
     publishAnkorstoreReason,
   };
@@ -108,7 +131,36 @@ export function computeRowActionEligibility(
 
 // ─── Marketplace publish badge ─────────────────────────────────────────────────
 
-function MarketplaceBadge({ published }: { published: boolean }) {
+function MarketplaceBadge({
+  published,
+  publishing = false,
+  onPublishClick,
+}: {
+  published: boolean;
+  /** Une publication / mise à jour PFS est en cours pour ce produit. */
+  publishing?: boolean;
+  onPublishClick?: () => void;
+}) {
+  if (publishing) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]"
+        title="Publication PFS en cours…"
+      >
+        <svg
+          className="w-2.5 h-2.5 animate-spin"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={2.5}
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+        </svg>
+        PFS en cours…
+      </span>
+    );
+  }
   if (published) {
     return (
       <span
@@ -118,6 +170,24 @@ function MarketplaceBadge({ published }: { published: boolean }) {
         <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
         PFS
       </span>
+    );
+  }
+  if (onPublishClick) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onPublishClick();
+        }}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
+        title="Cliquer pour publier ce produit sur Paris Fashion Shop"
+      >
+        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        PFS
+      </button>
     );
   }
   return (
@@ -133,13 +203,36 @@ function MarketplaceBadge({ published }: { published: boolean }) {
 
 function AnkorstoreBadge({
   published,
+  publishing = false,
   onPublishClick,
   onLinkClick,
 }: {
   published: boolean;
+  /** Une publication / mise à jour Ankorstore est en cours pour ce produit. */
+  publishing?: boolean;
   onPublishClick?: () => void;
   onLinkClick?: () => void;
 }) {
+  if (publishing) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]"
+        title="Publication Ankorstore en cours… (1 à 5 minutes)"
+      >
+        <svg
+          className="w-2.5 h-2.5 animate-spin"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={2.5}
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+        </svg>
+        Ankorstore en cours…
+      </span>
+    );
+  }
   if (published) {
     return (
       <span
@@ -568,6 +661,8 @@ function ActionsDropdown({
   refreshing,
   anchorRef,
   eligibility,
+  ankorstorePublishing,
+  pfsPublishing,
   onClose,
   onExpandToggle,
   onRefresh,
@@ -575,6 +670,7 @@ function ActionsDropdown({
   onPutOffline,
   onArchive,
   onSync,
+  onPublishPfs,
   onPublishAnkorstore,
   onDelete,
 }: {
@@ -583,6 +679,10 @@ function ActionsDropdown({
   refreshing: boolean;
   anchorRef: React.RefObject<HTMLDivElement | null>;
   eligibility: RowActionEligibility;
+  /** Publication / sync Ankorstore en cours pour ce produit. */
+  ankorstorePublishing: boolean;
+  /** Publication / sync PFS en cours pour ce produit. */
+  pfsPublishing: boolean;
   onClose: () => void;
   onExpandToggle: () => void;
   onRefresh: () => void;
@@ -590,6 +690,7 @@ function ActionsDropdown({
   onPutOffline: () => void;
   onArchive: () => void;
   onSync: () => void;
+  onPublishPfs: () => void;
   onPublishAnkorstore: () => void;
   onDelete: () => void;
 }) {
@@ -732,14 +833,48 @@ function ActionsDropdown({
         </button>
       )}
 
+      {/* ── Publier sur PFS (uniquement si non encore publié) ── */}
+      {eligibility.canPublishPfs && (
+        <button
+          type="button"
+          onClick={onPublishPfs}
+          disabled={pfsPublishing}
+          className={`${itemClass} ${pfsPublishing ? "opacity-50 cursor-wait" : ""}`}
+        >
+          <span className="inline-flex items-center gap-2">
+            {pfsPublishing ? (
+              <svg className="w-3 h-3 text-[#4F46E5] animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+              </svg>
+            ) : (
+              <svg className="w-3 h-3 text-[#DC2626]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+            )}
+            {pfsPublishing ? "Publication PFS en cours…" : "Publier sur Paris Fashion Shop"}
+          </span>
+        </button>
+      )}
+
       {/* ── Publier sur Ankorstore (uniquement si non encore publié) ── */}
       {eligibility.canPublishAnkorstore && (
-        <button type="button" onClick={onPublishAnkorstore} className={itemClass}>
+        <button
+          type="button"
+          onClick={onPublishAnkorstore}
+          disabled={ankorstorePublishing}
+          className={`${itemClass} ${ankorstorePublishing ? "opacity-50 cursor-wait" : ""}`}
+        >
           <span className="inline-flex items-center gap-2">
-            <svg className="w-3 h-3 text-[#DC2626]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            Publier sur Ankorstore
+            {ankorstorePublishing ? (
+              <svg className="w-3 h-3 text-[#4F46E5] animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+              </svg>
+            ) : (
+              <svg className="w-3 h-3 text-[#DC2626]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+            )}
+            {ankorstorePublishing ? "Publication Ankorstore en cours…" : "Publier sur Ankorstore"}
           </span>
         </button>
       )}
@@ -810,15 +945,60 @@ function ProductRow({
   const actionsRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { confirm } = useConfirm();
-  const { enqueue } = useMarketplaceRefreshQueue();
+  const { enqueue, items: queueItems } = useMarketplaceRefreshQueue();
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const { refreshSingle } = useRefreshMarketplaceDialog({ showPfs: hasPfsConfig, showAnkorstore });
+
+  // État "loading" des badges marketplaces : on regarde la dernière opération
+  // marketplace pour ce produit et on bloque les clics tant qu'elle est en
+  // file/exécution/attente du callback. Verrou local supplémentaire pour le
+  // bref instant entre le clic et la mise à jour de la file (anti-double-clic).
+  const pfsOp = findLatestOpForProduct(queueItems, product.id, "pfs");
+  const pfsBadgeState = computeMarketplaceBadgeState(product.pfsProductId, pfsOp, "pfs");
+  const [pendingPfsEnqueue, setPendingPfsEnqueue] = useState(false);
+  const isPfsPublishing = pfsBadgeState.loading || pendingPfsEnqueue;
+
+  const ankorstoreOp = findLatestOpForProduct(queueItems, product.id, "ankorstore");
+  const ankorstoreBadgeState = computeMarketplaceBadgeState(
+    product.ankorsProductId,
+    ankorstoreOp,
+    "ankorstore",
+  );
+  const [pendingAnkorstoreEnqueue, setPendingAnkorstoreEnqueue] = useState(false);
+  const isAnkorstorePublishing = ankorstoreBadgeState.loading || pendingAnkorstoreEnqueue;
+
+  // Demande la création d'une nouvelle fiche sur PFS — même logique que pour
+  // Ankorstore mais sans la possibilité de "lier à existant" (pas de modale).
+  const handlePublishPfs = useCallback(async () => {
+    if (isPfsPublishing) return;
+    const ok = await confirm({
+      type: "warning",
+      title: "Publier sur Paris Fashion Shop ?",
+      message: `"${product.name}" (${product.reference}) n'est pas encore sur Paris Fashion Shop. Une nouvelle fiche y sera créée avec les infos, photos, prix et stock actuels du produit.`,
+      confirmLabel: "Oui, publier",
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+    setPendingPfsEnqueue(true);
+    enqueue([
+      {
+        productId: product.id,
+        reference: product.reference,
+        productName: product.name,
+        firstImage: product.firstImage,
+        options: { local: false, pfs: true },
+        mode: "publish",
+        marketplace: "pfs",
+      },
+    ]);
+  }, [confirm, enqueue, product, isPfsPublishing]);
 
   // Demande la création d'une nouvelle fiche sur Ankorstore — appelé depuis le
   // badge "+ Ankorstore" et l'item du menu Actions. On passe par une simple
   // confirmation puis on enqueue : le widget en bas à droite affichera la
   // progression (callback Ankorstore asynchrone, voir CLAUDE.md > mode callback-only).
   const handlePublishAnkorstore = useCallback(async () => {
+    if (isAnkorstorePublishing) return;
     const ok = await confirm({
       type: "warning",
       title: "Publier sur Ankorstore ?",
@@ -827,6 +1007,7 @@ function ProductRow({
       cancelLabel: "Annuler",
     });
     if (ok !== true) return;
+    setPendingAnkorstoreEnqueue(true);
     enqueue([
       {
         productId: product.id,
@@ -838,7 +1019,20 @@ function ProductRow({
         marketplace: "ankorstore",
       },
     ]);
-  }, [confirm, enqueue, product]);
+  }, [confirm, enqueue, product, isAnkorstorePublishing]);
+
+  // Quand la file remonte enfin l'opération en queue/in_progress, on lâche le
+  // verrou local : c'est maintenant l'état serveur qui pilote l'affichage.
+  useEffect(() => {
+    if (pendingPfsEnqueue && pfsBadgeState.loading) {
+      setPendingPfsEnqueue(false);
+    }
+  }, [pendingPfsEnqueue, pfsBadgeState.loading]);
+  useEffect(() => {
+    if (pendingAnkorstoreEnqueue && ankorstoreBadgeState.loading) {
+      setPendingAnkorstoreEnqueue(false);
+    }
+  }, [pendingAnkorstoreEnqueue, ankorstoreBadgeState.loading]);
 
   // Toutes les couleurs uniques attribuées au produit (UNIT + PACK confondus).
   const uniqueColors = [...new Map(product.colors
@@ -1034,16 +1228,25 @@ function ProductRow({
         {/* Marketplaces */}
         <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
           <div className="flex flex-col gap-1.5 items-start">
-            <MarketplaceBadge published={!!product.pfsProductId} />
+            <MarketplaceBadge
+              published={!!product.pfsProductId}
+              publishing={isPfsPublishing}
+              onPublishClick={
+                eligibility.canPublishPfs && !isPfsPublishing
+                  ? () => { void handlePublishPfs(); }
+                  : undefined
+              }
+            />
             <AnkorstoreBadge
               published={!!product.ankorsProductId}
+              publishing={isAnkorstorePublishing}
               onPublishClick={
-                eligibility.canPublishAnkorstore
+                eligibility.canPublishAnkorstore && !isAnkorstorePublishing
                   ? () => { void handlePublishAnkorstore(); }
                   : undefined
               }
               onLinkClick={
-                showAnkorstore && !product.ankorsProductId
+                showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing
                   ? () => setLinkAkOpen(true)
                   : undefined
               }
@@ -1091,6 +1294,8 @@ function ProductRow({
                 refreshing={refreshing}
                 anchorRef={actionsRef}
                 eligibility={eligibility}
+                ankorstorePublishing={isAnkorstorePublishing}
+                pfsPublishing={isPfsPublishing}
                 onClose={() => setActionsOpen(false)}
                 onExpandToggle={() => { onExpandToggle(); setActionsOpen(false); }}
                 onRefresh={async () => {
@@ -1115,6 +1320,7 @@ function ProductRow({
                 onPutOffline={() => { setActionsOpen(false); onRowStatus(product.id, "OFFLINE"); }}
                 onArchive={() => { setActionsOpen(false); onRowStatus(product.id, "ARCHIVED"); }}
                 onSync={() => { setActionsOpen(false); onRowSync(product.id); }}
+                onPublishPfs={() => { setActionsOpen(false); void handlePublishPfs(); }}
                 onPublishAnkorstore={() => { setActionsOpen(false); void handlePublishAnkorstore(); }}
                 onDelete={() => { setActionsOpen(false); onRowDelete(product.id); }}
               />,
