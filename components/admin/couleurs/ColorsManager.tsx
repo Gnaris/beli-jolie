@@ -7,9 +7,8 @@ import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations"
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import MergeColorsModal from "./MergeColorsModal";
 import ColorResyncModal from "./ColorResyncModal";
-import type { AffectedProduct } from "@/app/actions/admin/color-merge";
+import type { AffectedProduct } from "@/app/actions/admin/colors";
 
 interface ColorItem {
   id: string;
@@ -38,7 +37,6 @@ export default function ColorsManager({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [mergeOpen, setMergeOpen] = useState(false);
   const [editResync, setEditResync] = useState<{
     products: AffectedProduct[];
     pfsChecked: boolean;
@@ -128,28 +126,16 @@ export default function ColorsManager({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {initialColors.length >= 2 && (
-            <button
-              type="button"
-              onClick={() => setMergeOpen(true)}
-              className="px-3 py-1.5 text-sm font-body text-text-secondary border border-border rounded-lg hover:bg-bg-secondary"
-              title="Fusionner deux couleurs en une seule"
-            >
-              Fusionner deux couleurs
-            </button>
-          )}
-          <TranslateAllButton
-            items={initialColors.map((c) => ({
-              id: c.id,
-              text: c.name,
-              hasTranslations: Object.keys(c.translations).length > 0,
-            }))}
-            onTranslated={handleTranslateAll}
-            label="Tout traduire"
-            onlyMissing
-          />
-        </div>
+        <TranslateAllButton
+          items={initialColors.map((c) => ({
+            id: c.id,
+            text: c.name,
+            hasTranslations: Object.keys(c.translations).length > 0,
+          }))}
+          onTranslated={handleTranslateAll}
+          label="Tout traduire"
+          onlyMissing
+        />
       </div>
 
       {error && (
@@ -270,20 +256,6 @@ export default function ColorsManager({
           }}
         />
       )}
-
-      <MergeColorsModal
-        open={mergeOpen}
-        onClose={() => setMergeOpen(false)}
-        colors={initialColors.map((c) => ({
-          id: c.id,
-          name: c.name,
-          hex: c.hex,
-          patternImage: c.patternImage,
-        }))}
-        pfsEnabled={pfsEnabled}
-        ankorstoreEnabled={ankorstoreEnabled}
-        onDone={() => router.refresh()}
-      />
 
       {editResync && (
         <ColorResyncModal

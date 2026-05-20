@@ -9,12 +9,47 @@ import { getCachedPfsColors } from "@/lib/cached-data";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import { deleteFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
-import { loadAffectedProductMeta, type AffectedProduct } from "./color-merge";
+
+export interface AffectedProduct {
+  productId: string;
+  reference: string;
+  productName: string;
+  firstImage: string | null;
+}
 
 export interface ColorUpdateResult {
   nameChanged: boolean;
   pfsColorRefChanged: boolean;
   affectedProducts: AffectedProduct[];
+}
+
+/**
+ * Charge les méta-données nécessaires au widget de re-sync (réf, nom, première
+ * image de la variante principale) pour une liste de produitIds.
+ */
+async function loadAffectedProductMeta(productIds: string[]): Promise<AffectedProduct[]> {
+  if (productIds.length === 0) return [];
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: {
+      id: true,
+      reference: true,
+      name: true,
+      colors: {
+        where: { isPrimary: true },
+        select: {
+          images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
+        },
+        take: 1,
+      },
+    },
+  });
+  return products.map((p) => ({
+    productId: p.id,
+    reference: p.reference,
+    productName: p.name,
+    firstImage: p.colors[0]?.images[0]?.path ?? null,
+  }));
 }
 
 /**

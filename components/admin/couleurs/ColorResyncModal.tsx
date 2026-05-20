@@ -6,7 +6,7 @@ import {
   useMarketplaceRefreshQueue,
   type MarketplaceRefreshEnqueueInput,
 } from "@/components/admin/products/MarketplaceRefreshContext";
-import type { AffectedProduct } from "@/app/actions/admin/color-merge";
+import type { AffectedProduct } from "@/app/actions/admin/colors";
 
 export interface ColorResyncModalProps {
   open: boolean;
