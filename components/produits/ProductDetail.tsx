@@ -743,6 +743,11 @@ export default function ProductDetail({
                           <p className={`font-heading font-semibold text-lg ${anyDsc ? "text-[#EF4444]" : "text-text-primary"}`}>
                             {displayPrice.toFixed(2)} €
                           </p>
+                          {v.packQuantity && v.packQuantity > 1 && (
+                            <p className="text-xs text-text-secondary font-body">
+                              {(displayPrice / v.packQuantity).toFixed(2)} € {t("perUnit")}
+                            </p>
+                          )}
                           {qty > 1 && (
                             <p className="text-xs text-text-muted font-body">
                               = {(displayPrice * qty).toFixed(2)} € total

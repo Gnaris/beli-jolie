@@ -472,13 +472,17 @@ async function CategoriesContent() {
    TAB: Couleurs
    ═══════════════════════════════════════════════════════════════════════════ */
 async function CouleursContent() {
-  const colors = await prisma.color.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      _count: { select: { productColors: true } },
-      translations: true,
-    },
-  });
+  const [colors, pfsEnabled, ankorstoreEnabled] = await Promise.all([
+    prisma.color.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        _count: { select: { productColors: true } },
+        translations: true,
+      },
+    }),
+    getCachedPfsEnabled(),
+    getCachedAnkorstoreEnabled(),
+  ]);
 
   const colorItems = colors.map((c) => ({
     id: c.id,
@@ -506,7 +510,11 @@ async function CouleursContent() {
         <h2 className="font-heading text-sm font-semibold text-text-secondary uppercase tracking-wider border-b border-border pb-2">
           Couleurs ({colors.length})
         </h2>
-        <ColorsManager initialColors={colorItems} />
+        <ColorsManager
+          initialColors={colorItems}
+          pfsEnabled={pfsEnabled}
+          ankorstoreEnabled={ankorstoreEnabled}
+        />
       </section>
     </div>
   );

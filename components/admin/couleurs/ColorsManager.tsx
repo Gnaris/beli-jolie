@@ -7,6 +7,9 @@ import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations"
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import MergeColorsModal from "./MergeColorsModal";
+import ColorResyncModal from "./ColorResyncModal";
+import type { AffectedProduct } from "@/app/actions/admin/color-merge";
 
 interface ColorItem {
   id: string;
@@ -20,13 +23,27 @@ interface ColorItem {
   translations: Record<string, string>;
 }
 
-export default function ColorsManager({ initialColors }: { initialColors: ColorItem[] }) {
+export default function ColorsManager({
+  initialColors,
+  pfsEnabled,
+  ankorstoreEnabled,
+}: {
+  initialColors: ColorItem[];
+  pfsEnabled: boolean;
+  ankorstoreEnabled: boolean;
+}) {
   const router = useRouter();
   const { confirm } = useConfirm();
   const [editTarget, setEditTarget] = useState<ColorItem | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [editResync, setEditResync] = useState<{
+    products: AffectedProduct[];
+    pfsChecked: boolean;
+    ankorsChecked: boolean;
+  } | null>(null);
 
   const filtered = search.trim()
     ? initialColors.filter((c) => c.name.toLowerCase().includes(search.trim().toLowerCase()))
@@ -65,8 +82,28 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
     extra?: { ref?: string; pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null },
   ) {
     if (!editTarget) return;
-    await updateColorDirect(editTarget.id, name, hex ?? null, translations, patternImage ?? null, extra?.ref || null);
+    const res = await updateColorDirect(
+      editTarget.id,
+      name,
+      hex ?? null,
+      translations,
+      patternImage ?? null,
+      extra?.ref || null,
+    );
     router.refresh();
+
+    // Nom changé → Ankorstore concerné. Ref PFS changée → PFS concerné. Les deux
+    // → on propose les deux. Aucune modale si rien d'impactant n'a changé ou si
+    // aucun produit n'utilise la couleur.
+    const proposeAnkorstore = res.nameChanged && ankorstoreEnabled;
+    const proposePfs = res.pfsColorRefChanged && pfsEnabled;
+    if ((proposeAnkorstore || proposePfs) && res.affectedProducts.length > 0) {
+      setEditResync({
+        products: res.affectedProducts,
+        pfsChecked: proposePfs,
+        ankorsChecked: proposeAnkorstore,
+      });
+    }
   }
 
   async function handleTranslateAll(translations: Record<string, Record<string, string>>) {
@@ -91,16 +128,28 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
         </div>
-        <TranslateAllButton
-          items={initialColors.map((c) => ({
-            id: c.id,
-            text: c.name,
-            hasTranslations: Object.keys(c.translations).length > 0,
-          }))}
-          onTranslated={handleTranslateAll}
-          label="Tout traduire"
-          onlyMissing
-        />
+        <div className="flex items-center gap-2 flex-wrap">
+          {initialColors.length >= 2 && (
+            <button
+              type="button"
+              onClick={() => setMergeOpen(true)}
+              className="px-3 py-1.5 text-sm font-body text-text-secondary border border-border rounded-lg hover:bg-bg-secondary"
+              title="Fusionner deux couleurs en une seule"
+            >
+              Fusionner deux couleurs
+            </button>
+          )}
+          <TranslateAllButton
+            items={initialColors.map((c) => ({
+              id: c.id,
+              text: c.name,
+              hasTranslations: Object.keys(c.translations).length > 0,
+            }))}
+            onTranslated={handleTranslateAll}
+            label="Tout traduire"
+            onlyMissing
+          />
+        </div>
       </div>
 
       {error && (
@@ -219,6 +268,34 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
             pfsRef: editTarget.pfsColorRef,
             onSave: handleSave,
           }}
+        />
+      )}
+
+      <MergeColorsModal
+        open={mergeOpen}
+        onClose={() => setMergeOpen(false)}
+        colors={initialColors.map((c) => ({
+          id: c.id,
+          name: c.name,
+          hex: c.hex,
+          patternImage: c.patternImage,
+        }))}
+        pfsEnabled={pfsEnabled}
+        ankorstoreEnabled={ankorstoreEnabled}
+        onDone={() => router.refresh()}
+      />
+
+      {editResync && (
+        <ColorResyncModal
+          open={!!editResync}
+          onClose={() => setEditResync(null)}
+          products={editResync.products}
+          title="Couleur modifiée"
+          subtitle={`${editResync.products.length} produit${editResync.products.length > 1 ? "s" : ""} utilise${editResync.products.length > 1 ? "nt" : ""} cette couleur. Re-pousser sur les marketplaces ?`}
+          pfsAvailable={pfsEnabled}
+          ankorstoreAvailable={ankorstoreEnabled}
+          pfsDefaultChecked={editResync.pfsChecked}
+          ankorstoreDefaultChecked={editResync.ankorsChecked}
         />
       )}
     </>

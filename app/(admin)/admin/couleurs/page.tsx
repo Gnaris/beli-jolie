@@ -2,17 +2,22 @@ import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
 import EntityCreateButton from "@/components/admin/EntityCreateButton";
 import ColorsManager from "@/components/admin/couleurs/ColorsManager";
+import { getCachedPfsEnabled, getCachedAnkorstoreEnabled } from "@/lib/cached-data";
 
 export const metadata: Metadata = { title: "Bibliothèque de couleurs" };
 
 export default async function CouleursPage() {
-  const colors = await prisma.color.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      _count: { select: { productColors: true } },
-      translations: true,
-    },
-  });
+  const [colors, pfsEnabled, ankorstoreEnabled] = await Promise.all([
+    prisma.color.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        _count: { select: { productColors: true } },
+        translations: true,
+      },
+    }),
+    getCachedPfsEnabled(),
+    getCachedAnkorstoreEnabled(),
+  ]);
 
   // Compte de partage par pfsColorRef : combien d'autres couleurs pointent
   // sur le même mapping PFS principal. Sert à afficher un badge informatif
@@ -53,7 +58,11 @@ export default async function CouleursPage() {
         <h2 className="font-heading text-sm font-semibold text-text-secondary uppercase tracking-wider border-b border-border pb-2">
           Couleurs ({colors.length})
         </h2>
-        <ColorsManager initialColors={colorItems} />
+        <ColorsManager
+          initialColors={colorItems}
+          pfsEnabled={pfsEnabled}
+          ankorstoreEnabled={ankorstoreEnabled}
+        />
       </section>
     </div>
   );

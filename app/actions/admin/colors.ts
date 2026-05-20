@@ -9,6 +9,13 @@ import { getCachedPfsColors } from "@/lib/cached-data";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import { deleteFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { loadAffectedProductMeta, type AffectedProduct } from "./color-merge";
+
+export interface ColorUpdateResult {
+  nameChanged: boolean;
+  pfsColorRefChanged: boolean;
+  affectedProducts: AffectedProduct[];
+}
 
 /**
  * A motif file is owned by exactly one Color. Before mutating
@@ -87,37 +94,40 @@ export async function updateColorDirect(
   translations: Record<string, string>,
   patternImage?: string | null,
   pfsColorRef?: string | null,
-) {
+): Promise<ColorUpdateResult> {
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");
 
+  // Snapshot AVANT pour comparer ce qui a réellement changé (sert au routage marketplace).
+  const before = await prisma.color.findUnique({
+    where: { id },
+    select: { name: true, pfsColorRef: true, patternImage: true },
+  });
+  if (!before) throw new Error("Couleur introuvable.");
+
+  const newName = name.trim();
+  // `pfsColorRef === undefined` = champ non touché par l'appelant : on garde l'ancien.
+  const newPfsRef =
+    pfsColorRef === undefined ? before.pfsColorRef : pfsColorRef?.trim() || null;
+  const nameChanged = before.name !== newName;
+  const pfsColorRefChanged = before.pfsColorRef !== newPfsRef;
+
   const data: { name: string; hex: string | null; patternImage?: string | null; pfsColorRef?: string | null } = {
-    name: name.trim(),
+    name: newName,
     hex: patternImage ? null : hex,
   };
   if (patternImage !== undefined) {
     data.patternImage = patternImage;
   }
   if (pfsColorRef !== undefined) {
-    data.pfsColorRef = pfsColorRef?.trim() || null;
-  }
-
-  // If patternImage is being touched (changed or cleared), remember the old
-  // file so we can purge it AFTER the BDD update succeeds.
-  let previousPattern: string | null = null;
-  if (patternImage !== undefined) {
-    const previous = await prisma.color.findUnique({
-      where: { id },
-      select: { patternImage: true },
-    });
-    previousPattern = previous?.patternImage ?? null;
+    data.pfsColorRef = newPfsRef;
   }
 
   await prisma.color.update({ where: { id }, data });
 
   // Old motif is orphan as soon as the new path is stored: purge it.
-  if (patternImage !== undefined && previousPattern && previousPattern !== patternImage) {
-    await purgePatternFile(previousPattern);
+  if (patternImage !== undefined && before.patternImage && before.patternImage !== patternImage) {
+    await purgePatternFile(before.patternImage);
   }
 
   for (const locale of NON_DEFAULT_LOCALES) {
@@ -135,6 +145,36 @@ export async function updateColorDirect(
 
   revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
+
+  // Pas de scan produit si ni le nom ni la ref PFS n'ont changé : aucune marketplace impactée.
+  if (!nameChanged && !pfsColorRefChanged) {
+    return { nameChanged: false, pfsColorRefChanged: false, affectedProducts: [] };
+  }
+
+  const productIds = await collectProductIdsByColor(id);
+  const affectedProducts = await loadAffectedProductMeta(productIds);
+  return { nameChanged, pfsColorRefChanged, affectedProducts };
+}
+
+async function collectProductIdsByColor(colorId: string): Promise<string[]> {
+  const set = new Set<string>();
+  const v = await prisma.productColor.findMany({
+    where: { colorId },
+    select: { productId: true },
+    distinct: ["productId"],
+  });
+  for (const r of v) set.add(r.productId);
+  const pl = await prisma.packColorLine.findMany({
+    where: { colorId },
+    select: { productColor: { select: { productId: true } } },
+  });
+  for (const r of pl) set.add(r.productColor.productId);
+  const pri = await prisma.product.findMany({
+    where: { primaryColorId: colorId },
+    select: { id: true },
+  });
+  for (const r of pri) set.add(r.id);
+  return [...set];
 }
 
 /**
