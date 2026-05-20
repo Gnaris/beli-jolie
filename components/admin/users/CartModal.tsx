@@ -95,9 +95,8 @@ export default function CartModal({ items, cartTotal }: Props) {
                 <tbody className="divide-y divide-border-light">
                   {items.map((item) => {
                     const isPack = item.saleType === "PACK";
-                    const linePrice = isPack
-                      ? item.unitPrice * (item.packQuantity ?? 1) * item.quantity
-                      : item.unitPrice * item.quantity;
+                    // unitPrice en BDD = prix total déjà calculé (UNIT = prix unité, PACK = prix total du pack)
+                    const linePrice = item.unitPrice * item.quantity;
 
                     return (
                       <tr key={item.id} className="hover:bg-bg-secondary/50">

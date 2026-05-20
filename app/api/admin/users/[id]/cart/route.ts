@@ -61,10 +61,8 @@ export async function GET(
     if (discountPercent && discountPercent > 0) {
       unitPrice = unitPrice * (1 - discountPercent / 100);
     }
-    const lineTotal =
-      v.saleType === "PACK" && v.packQuantity
-        ? unitPrice * v.packQuantity * item.quantity
-        : unitPrice * item.quantity;
+    // unitPrice en BDD = prix total déjà calculé (UNIT = prix unité, PACK = prix total du pack)
+    const lineTotal = unitPrice * item.quantity;
 
     return {
       id: item.id,

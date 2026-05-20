@@ -216,10 +216,8 @@ export async function placeOrder(
   // ── 2. Calculs ─────────────────────────────────────────────────────────
 
   function computeUnitPrice(variant: (typeof cartItems)[0]["variant"]): number {
-    const price = Number(variant.unitPrice);
-    const base = variant.saleType === "UNIT"
-      ? price
-      : price * (variant.packQuantity ?? 1);
+    // unitPrice en BDD = prix total déjà calculé (UNIT = prix unité, PACK = prix total du pack)
+    const base = Number(variant.unitPrice);
     const discountPercent = variant.product.discountPercent != null ? Number(variant.product.discountPercent) : null;
     if (!discountPercent || discountPercent <= 0) return base;
     return Math.max(0, base * (1 - discountPercent / 100));

@@ -77,8 +77,8 @@ export async function POST(req: Request) {
   type Variant = (typeof cartItems)[0]["variant"];
 
   function computeUnitPrice(v: Variant): number {
-    const price = Number(v.unitPrice);
-    const base = v.saleType === "UNIT" ? price : price * (v.packQuantity ?? 1);
+    // unitPrice en BDD = prix total déjà calculé (UNIT = prix unité, PACK = prix total du pack)
+    const base = Number(v.unitPrice);
     const discountPercent = v.product?.discountPercent != null ? Number(v.product.discountPercent) : null;
     if (!discountPercent || discountPercent <= 0) return base;
     return Math.max(0, base * (1 - discountPercent / 100));
