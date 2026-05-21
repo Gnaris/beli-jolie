@@ -25,14 +25,18 @@ import LinkAnkorstoreProductModal from "@/components/admin/products/LinkAnkorsto
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
 
 /**
- * Products in draft (OFFLINE or isIncomplete) and archived products don't
- * expose a "rupture" / "stock partiel" signal — they're not sellable, so stock
- * is irrelevant. Exported for unit testing.
+ * Drafts (OFFLINE ou isIncomplete) n'exposent jamais de signal de stock.
+ * Produits ARCHIVÉS : on affiche le badge "Rupture" (utile pour repérer ceux
+ * auto-archivés à stock=0) mais pas "Stock partiel" (signal sans valeur car
+ * non vendable). Exporté pour les tests unitaires.
  */
-export function computeShowStockBadges(p: { status: string; isIncomplete: boolean }): boolean {
+export function computeShowStockBadges(
+  p: { status: string; isIncomplete: boolean },
+  kind: "rupture" | "partial" = "partial",
+): boolean {
   if (p.isIncomplete) return false;
   if (p.status === "OFFLINE") return false;
-  if (p.status === "ARCHIVED") return false;
+  if (p.status === "ARCHIVED") return kind === "rupture";
   return true;
 }
 
@@ -1046,8 +1050,8 @@ function ProductRow({
   // Stock status
   const isFullyOutOfStock = product.colors.length > 0 && product.colors.every((c) => c.stock === 0);
   const hasPartialOutOfStock = !isFullyOutOfStock && product.colors.some((c) => c.stock === 0);
-  // Drafts & archived products don't expose a "rupture" state — they're not live.
-  const showStockBadges = computeShowStockBadges({ status: product.status, isIncomplete: product.isIncomplete });
+  const showRuptureBadge = computeShowStockBadges({ status: product.status, isIncomplete: product.isIncomplete }, "rupture");
+  const showPartialBadge = computeShowStockBadges({ status: product.status, isIncomplete: product.isIncomplete }, "partial");
 
   const allNonFrLocales = NON_DEFAULT_LOCALES;
   const existingLocales = new Set(product.translations.map((t) => t.locale));
@@ -1196,7 +1200,7 @@ function ProductRow({
               )}
             </div>
             <div className="flex items-center gap-1.5 flex-nowrap">
-              {showStockBadges && isFullyOutOfStock && (
+              {showRuptureBadge && isFullyOutOfStock && (
                 <span
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]"
                   title="Toutes les variantes sont en rupture de stock"
@@ -1204,7 +1208,7 @@ function ProductRow({
                   Rupture
                 </span>
               )}
-              {showStockBadges && hasPartialOutOfStock && (
+              {showPartialBadge && hasPartialOutOfStock && (
                 <span
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#C2410C] border border-[#FED7AA]"
                   title="Certaines variantes sont en rupture de stock"
