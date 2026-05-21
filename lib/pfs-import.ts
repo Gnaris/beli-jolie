@@ -263,13 +263,20 @@ export type ImportCategoryMatch = "pfsCategoryId" | "pfsFamilyName" | "name";
  * Choisit la catégorie locale à associer à un produit importé depuis PFS,
  * dans cet ordre de priorité :
  *  1. Match exact par `pfsCategoryId` (cas nominal)
- *  2. Repli par `pfsFamilyName` (mapping via la famille parente PFS)
- *  3. Repli par nom local (`Category.name` = libellé FR/EN du produit PFS)
+ *  2. Repli par nom local (`Category.name` = libellé FR/EN du produit PFS)
+ *  3. Repli par `pfsFamilyName` (dernier recours, très large)
  *
- * Le 3e cas couvre les **doublons PFS** : PFS expose parfois deux IDs pour la
- * même catégorie (ex: deux "Blouses"). La cliente a mappé la version active,
- * mais des produits anciens reviennent avec l'ID obsolète. Le repli par nom
- * permet de raccrocher quand même.
+ * ⚠ Le match par NOM passe AVANT celui par rayon/famille : la famille
+ * (ex: "Bijoux_Fantaisie") est partagée par toutes les catégories du même
+ * rayon (Bagues, Colliers, Parures, Bracelets…). La prendre comme repli
+ * avant le nom collapserait toutes les sous-catégories du même rayon sur
+ * la première créée lors d'un bulk import (bug observé : toutes les bagues
+ * atterrissaient dans « Parures de bijoux » créée juste avant).
+ *
+ * Le repli par nom couvre aussi les **doublons PFS** : PFS expose parfois
+ * deux IDs pour la même catégorie (ex: deux "Blouses"). La cliente a mappé
+ * la version active, mais des produits anciens reviennent avec l'ID obsolète.
+ * Le match par nom permet de raccrocher quand même.
  */
 export function pickImportCategory(
   primary: ImportCategoryRow | null,
@@ -277,8 +284,8 @@ export function pickImportCategory(
   nameFallback: ImportCategoryRow | null,
 ): { category: ImportCategoryRow | null; matchedBy: ImportCategoryMatch | null } {
   if (primary) return { category: primary, matchedBy: "pfsCategoryId" };
-  if (familyFallback) return { category: familyFallback, matchedBy: "pfsFamilyName" };
   if (nameFallback) return { category: nameFallback, matchedBy: "name" };
+  if (familyFallback) return { category: familyFallback, matchedBy: "pfsFamilyName" };
   return { category: null, matchedBy: null };
 }
 
@@ -1318,13 +1325,8 @@ export async function approveAndImportPfsProduct(
   // Résolution catégorie
   const pfsCatId = product.category?.id;
   const rawFamily = product.family?.trim() || null;
-  const familyLookupValues: string[] = [];
-  if (rawFamily) familyLookupValues.push(rawFamily);
   const familyMatch = families.find((f) => f.id === rawFamily);
   const familyLabel = pickBestLabel(familyMatch?.labels);
-  if (familyLabel && !familyLookupValues.includes(familyLabel)) familyLookupValues.push(familyLabel);
-  const familyUnderscored = familyLabel?.replace(/\s+/g, "_");
-  if (familyUnderscored && !familyLookupValues.includes(familyUnderscored)) familyLookupValues.push(familyUnderscored);
 
   // ── Phase parallèle 2 : résolutions Prisma read-only
   const ctryCode = detail?.country_of_manufacture ?? null;
@@ -1345,7 +1347,6 @@ export async function approveAndImportPfsProduct(
 
   const [
     primaryCategory,
-    fallbackCategory,
     nameFallbackCategory,
     countryRow,
     seasonRow,
@@ -1354,12 +1355,6 @@ export async function approveAndImportPfsProduct(
     pfsCatId
       ? prisma.category.findFirst({
           where: { pfsCategoryId: pfsCatId },
-          select: { id: true, name: true },
-        })
-      : Promise.resolve(null),
-    familyLookupValues.length > 0
-      ? prisma.category.findFirst({
-          where: { pfsFamilyName: { in: familyLookupValues } },
           select: { id: true, name: true },
         })
       : Promise.resolve(null),
@@ -1391,7 +1386,7 @@ export async function approveAndImportPfsProduct(
 
   const picked = pickImportCategory(
     primaryCategory,
-    fallbackCategory,
+    null,
     nameFallbackCategory,
   );
   let category: ImportCategoryRow | null = picked.category;
@@ -1404,19 +1399,36 @@ export async function approveAndImportPfsProduct(
       throw new Error("Catégorie absente sur Paris Fashion Shop");
     }
     const enLabel = pickEnLabel(product.category?.labels);
+    // Résolution du rayon/famille PFS. Quand PFS renvoie un ID Salesforce
+    // brut non résolu par pfsGetFamilies(), `sanitizePfsFamilyName()` le
+    // rejette et le champ resterait vide → les produits ne pourraient plus
+    // être re-publiés sur PFS. Filet de sécurité : on déduit la famille
+    // depuis le nom de la catégorie via la taxonomie locale (ex: "Bagues"
+    // → "Bijoux_Fantaisie").
+    const candidateFamily = familyLabel ?? rawFamily;
+    const sanitizedFamily = sanitizePfsFamilyName(candidateFamily);
+    const resolvedFamily =
+      sanitizedFamily ?? inferPfsFamilyFromCategoryLabel(catLabel);
+    if (!sanitizedFamily && resolvedFamily) {
+      logger.info("[PFS Import] Famille déduite depuis le nom de catégorie", {
+        category: catLabel,
+        inferredFamily: resolvedFamily,
+        rawFamily: candidateFamily,
+      });
+    }
     const createdCat = await createOrLinkMapping({
       type: "category",
       pfsRef: pfsCatId,
       label: catLabel,
       enLabel,
       pfsGender: product.gender?.trim() || null,
-      pfsFamilyName: familyLabel ?? rawFamily,
+      pfsFamilyName: resolvedFamily,
       pfsCategoryName: catLabel,
     });
     category = { id: createdCat.id, name: createdCat.name };
-  } else if (picked.matchedBy === "name") {
+  } else if (picked.matchedBy === "pfsFamilyName") {
     warnings.push(
-      `Catégorie associée par nom : "${category.name}" (la référence PFS d'origine semble obsolète — vérifiez la correspondance dans Paramètres > PFS > Catégories).`,
+      `Catégorie associée par rayon (faute de mieux) : "${category.name}". Vérifiez la correspondance dans Paramètres > Catégories — il manque peut-être une catégorie locale plus précise.`,
     );
   }
 
