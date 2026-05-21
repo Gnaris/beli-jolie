@@ -104,22 +104,20 @@ export async function efashionUpdateProductInPlace(
       packQuantity: c.packQuantity,
       markup,
     });
-    // visible = ONLINE + variante non disabled + pas en rupture totale
-    const totalStock =
-      c.saleType === "PACK"
-        ? c.stock
-        : c.variantSizes.reduce((sum, vs) => sum + (vs.quantity ?? 0), 0);
+    // `ProductColor.stock` est la source de vérité pour le stock — pareil que
+    // ce que fait `lib/ankorstore-publish.ts:getVariantStock`. En UNIT
+    // notamment, `variantSizes[0].quantity` est juste un marqueur descriptif
+    // (souvent = 1) et n'a aucun rapport avec le vrai stock disponible.
+    const totalStock = c.stock;
     const visible = product.status === "ONLINE" && !c.disabled && totalStock > 0;
 
-    // Stock par taille : pour UNIT, une entrée par taille ; pour PACK, juste "TU" (à confirmer)
+    // eFashion attend une entrée stock par (couleur, taille). UNIT BJ a au max
+    // une taille descriptive, PACK BJ a une taille placeholder ("TU" ou la 1ʳᵉ
+    // ligne de pack). Dans les deux cas on pousse `c.stock` sur la taille
+    // disponible (ou "TU" en fallback).
     const stockByTaille: Record<string, number> = {};
-    if (c.saleType === "UNIT" && c.variantSizes.length > 0) {
-      for (const vs of c.variantSizes) {
-        stockByTaille[vs.size.name] = vs.quantity ?? 0;
-      }
-    } else {
-      stockByTaille[c.variantSizes[0]?.size.name ?? "TU"] = c.stock;
-    }
+    const tailleLabel = c.variantSizes[0]?.size.name ?? "TU";
+    stockByTaille[tailleLabel] = c.stock;
 
     return {
       efashionProductId: c.efashionProductId as number,

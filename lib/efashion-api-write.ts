@@ -63,15 +63,19 @@ export async function efashionUpdateProduit(
 /**
  * Met à jour le stock pour 1 couple (couleur, taille). Utilise UpsertProduitStock
  * (création si pas encore renseigné, mise à jour sinon).
+ *
+ * ⚠️ La mutation retourne en réalité un **boolean** (true = succès), pas la
+ * nouvelle valeur de stock. Confirmé par test (mai 2026). Pour lire le stock
+ * effectif après, passer par `productsPage.items[].stock_value`.
  */
 export async function efashionUpsertProduitStock(args: {
   id_produit: number;
   id_couleur: number;
   value: number;
   taille?: string | null;
-}): Promise<number | string> {
+}): Promise<boolean> {
   await ensureEfashionSession();
-  const data = await efashionGraphql<{ upsertProduitStock: number | string }>(
+  const data = await efashionGraphql<{ upsertProduitStock: boolean }>(
     `mutation UpsertProduitStock(
       $id_produit: Int!, $id_couleur: Int!, $value: Int!, $taille: String
     ) {
@@ -89,7 +93,7 @@ export async function efashionUpsertProduitStock(args: {
       taille: args.taille ?? null,
     },
   );
-  return data.upsertProduitStock;
+  return data.upsertProduitStock ?? true;
 }
 
 /**

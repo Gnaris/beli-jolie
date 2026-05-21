@@ -5,6 +5,8 @@ import {
   getCachedPfsEnabled,
   getCachedHasAnkorstoreConfig,
   getCachedAnkorstoreEnabled,
+  getCachedHasEfashionConfig,
+  getCachedEfashionEnabled,
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
 import { CreatePageWrapper, CreatePageToggle } from "./CreatePageWrapper";
@@ -12,10 +14,18 @@ import { CreatePageWrapper, CreatePageToggle } from "./CreatePageWrapper";
 export const metadata: Metadata = { title: "Nouveau produit" };
 
 export default async function NouveauProduitPage() {
-  const [hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled] = await Promise.all([
+  const [
+    hasPfsConfig,
+    hasAnkorstoreConfig,
+    ankorstoreEnabled,
+    hasEfashionConfig,
+    efashionEnabled,
+  ] = await Promise.all([
     getCachedPfsEnabled(),
     getCachedHasAnkorstoreConfig(),
     getCachedAnkorstoreEnabled(),
+    getCachedHasEfashionConfig(),
+    getCachedEfashionEnabled(),
   ]);
 
   const pfsColorOptions = hasPfsConfig ? await getPfsColorOptions() : [];
@@ -41,6 +51,8 @@ export default async function NouveauProduitPage() {
           hasPfsConfig={hasPfsConfig}
           hasAnkorstoreConfig={hasAnkorstoreConfig}
           ankorstoreEnabled={ankorstoreEnabled}
+          hasEfashionConfig={hasEfashionConfig}
+          efashionEnabled={efashionEnabled}
           pfsColorOptions={pfsColorOptions}
         />
       </div>

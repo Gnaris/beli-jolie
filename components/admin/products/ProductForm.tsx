@@ -84,6 +84,8 @@ interface ProductFormProps {
   hasPfsConfig?: boolean;
   hasAnkorstoreConfig?: boolean;
   ankorstoreEnabled?: boolean;
+  hasEfashionConfig?: boolean;
+  efashionEnabled?: boolean;
   /** Liste des couleurs PFS disponibles (pour le sélecteur de mapping secondaire). */
   pfsColorOptions?: PfsColorOption[];
   /** True when a marketplace sync is already in progress (from DB status on page load) */
@@ -119,6 +121,8 @@ interface ProductFormProps {
     /** ID marketplace — présent = déjà publié sur cette marketplace */
     pfsProductId?: string | null;
     ankorsProductId?: string | null;
+    /** eFashion : on a une `referenceBase` plutôt qu'un id unique (1 couleur = 1 ligne) */
+    efashionReferenceBase?: string | null;
     /** Couleur principale du produit (refonte : ne dépend plus de la variante isPrimary) */
     primaryColorId?: string | null;
   };
@@ -436,6 +440,8 @@ export default function ProductForm({
   productId,
   hasPfsConfig = false,
   hasAnkorstoreConfig = false,
+  hasEfashionConfig = false,
+  efashionEnabled = false,
   ankorstoreEnabled = false,
   pfsColorOptions,
   initialSyncing = false,
@@ -1663,7 +1669,9 @@ export default function ProductForm({
       // - Pas encore publié + OFFLINE + complet → proposer "Publier (en brouillon sur PFS)"
       const alreadyOnPfs = !!initialData?.pfsProductId;
       const alreadyOnAnkorstore = !!initialData?.ankorsProductId;
+      const alreadyOnEfashion = !!initialData?.efashionReferenceBase;
       const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
+      const showEfashion = hasEfashionConfig && efashionEnabled;
 
       // La popup marketplace s'affiche aussi pour le passage en ARCHIVED
       // (Ankorstore : on envoie stock 0 → produit non commandable, équivalent
@@ -1671,7 +1679,7 @@ export default function ProductForm({
       const canPublish =
         savedProductId &&
         !isIncomplete &&
-        (hasPfsConfig || showAnkorstore);
+        (hasPfsConfig || showAnkorstore || showEfashion);
 
       if (canPublish && savedProductId) {
         const willBeDraftOnPfs = !alreadyOnPfs && finalStatus === "OFFLINE";
@@ -1708,6 +1716,7 @@ export default function ProductForm({
 
         const pfsRef = { current: false };
         const ankorstoreRef = { current: false };
+        const efashionRef = { current: false };
         const checkboxes: {
           id: string;
           label: string;
@@ -1760,6 +1769,26 @@ export default function ProductForm({
             defaultChecked: akDefaultChecked,
             onChange: (v) => {
               ankorstoreRef.current = v;
+            },
+          });
+        }
+
+        if (showEfashion) {
+          const efLabel = isArchivingNow && alreadyOnEfashion
+            ? "Mettre hors ligne sur eFashion Paris (stock à 0)"
+            : alreadyOnEfashion
+              ? "Mettre à jour sur eFashion Paris"
+              : "Publier sur eFashion Paris";
+          // Si on archive un produit jamais publié, pas la peine de cocher
+          // eFashion par défaut (rien à archiver).
+          const efDefaultChecked = !isArchivingNow || alreadyOnEfashion;
+          efashionRef.current = efDefaultChecked;
+          checkboxes.push({
+            id: "efashion",
+            label: efLabel,
+            defaultChecked: efDefaultChecked,
+            onChange: (v) => {
+              efashionRef.current = v;
             },
           });
         }
@@ -1818,6 +1847,17 @@ export default function ProductForm({
               options: { local: false, pfs: false, ankorstore: true },
               mode: "publish",
               marketplace: "ankorstore",
+            });
+          }
+          if (efashionRef.current) {
+            inputs.push({
+              productId: savedProductId,
+              reference: payload.reference,
+              productName: payload.name,
+              firstImage: firstImagePath,
+              options: { local: false, pfs: false, ankorstore: false, efashion: true },
+              mode: "publish",
+              marketplace: "efashion",
             });
           }
           if (inputs.length > 0) enqueuePublish(inputs);

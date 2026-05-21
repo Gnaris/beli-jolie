@@ -111,15 +111,36 @@ export async function previewEfashionMatchByReference(
       premelFilter: "en_ligne",
     });
 
+    // ⚠️ Le filtre `reference` côté eFashion est PARTIEL ("contient") — quand on
+    // cherche "A21" on récupère A21, A210, A2100, A2101, etc. On fait un 2ᵉ
+    // passe ici pour ne garder QUE les lignes dont le `reference_base`
+    // correspond exactement (insensible à la casse et aux espaces) à ce que
+    // l'utilisatrice cherche, sinon la liste est inutilisable.
+    const needle = referenceBase.toLowerCase().trim();
+    const filteredItems = list.items.filter(
+      (it) => (it.reference_base ?? "").toLowerCase().trim() === needle,
+    );
+
+    // Un même Color peut apparaître sur plusieurs ProductColor (ex: une variante
+    // UNIT + une variante PACK de la même couleur). Côté eFashion, 1 couleur
+    // = 1 produit, donc on dédoublonne ici par Color.id — la liaison est posée
+    // au niveau de la couleur BJ (via efashionColorId) et tous les ProductColor
+    // qui partagent cette couleur recevront le même efashionProductId.
+    const seenColorIds = new Set<string>();
     const localColors = product.colors
       .filter((pc) => pc.color)
+      .filter((pc) => {
+        if (seenColorIds.has(pc.color!.id)) return false;
+        seenColorIds.add(pc.color!.id);
+        return true;
+      })
       .map((pc) => ({
         id: pc.color!.id,
         name: pc.color!.name,
         norm: normalizeColorName(pc.color!.name),
       }));
 
-    const candidates: EfashionLinkCandidate[] = list.items.map(
+    const candidates: EfashionLinkCandidate[] = filteredItems.map(
       (it: EfashionProductListItem) => {
         const norm = normalizeColorName(it.couleur);
         const suggested = localColors.find((c) => c.norm === norm);
@@ -146,7 +167,9 @@ export async function previewEfashionMatchByReference(
         referenceBase,
         localColors: localColors.map((c) => ({ id: c.id, name: c.name })),
         candidates,
-        totalOnEfashion: list.total,
+        // On expose le nombre exact (après filtre strict) plutôt que `list.total`
+        // qui inclut les références partielles non pertinentes.
+        totalOnEfashion: candidates.length,
       },
     };
   } catch (err) {
@@ -215,10 +238,12 @@ export async function linkEfashionProductManually(
       });
 
       for (const l of links) {
-        const pc = product.colors.find((c) => c.colorId === l.localColorId);
-        if (!pc) continue;
-        await tx.productColor.update({
-          where: { id: pc.id },
+        // Si plusieurs ProductColor partagent la même Color (UNIT + PACK par ex.),
+        // ils reçoivent tous le même efashionProductId — côté eFashion il n'y a
+        // qu'1 ligne produit par couleur, donc toutes les variantes BJ de cette
+        // couleur pointent vers la même ligne eFashion.
+        await tx.productColor.updateMany({
+          where: { productId, colorId: l.localColorId },
           data: { efashionProductId: l.efashionProductId },
         });
 

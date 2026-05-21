@@ -213,7 +213,9 @@ Plusieurs uploads possibles par productId. Format observé : JPEG. Acceptent pro
 - `POST /shootings/product/{id_produit}/delete` (body vide).
 - **Réponse** : `{success:true, message:"Produit(s) supprimé(s) avec succès"}`.
 
-❓ **À vérifier** : marque-t-il `supprimer:true` (soft delete) ou efface-t-il vraiment ? Le champ `supprimer` est présent dans le modèle Product → certainement soft delete. À confirmer en relisant le produit après deletion.
+✅ **Test mai 2026 (suite session test exhaustive)** : c'est un **HARD DELETE**, pas un soft delete. Le produit-couleur disparaît complètement du listing — même avec `premelFilter:"tous"`, on ne le retrouve plus. Donc impossible de le « ressusciter » côté API. Pour réintroduire une couleur supprimée, il faut passer par la modification globale du produit (PUT avec la couleur dans `couleurs[]`), ce qui re-créera un nouveau `id_produit`.
+
+⚠️ Conséquence pratique : ne pas confondre **suppression d'une couleur d'un produit** (= delete d'1 productId, laisse les autres couleurs vivantes) et **suppression d'un produit** (= delete de tous les productIds du même `reference_base`).
 
 ---
 
@@ -462,10 +464,10 @@ UI :
 | 2 | Format prix : TTC ou HT ? | Demander à eFashion ou tester avec un produit dont on connaît le prix |
 | 3 | Préfixe CDN photos (`https://...`) | Inspecter le HTML du front eFashion |
 | 4 | Endpoints autorisés pour `melOption`, `premelFilter`, `statut` | Documenter au fur et à mesure |
-| 5 | Suppression hard vs soft : `supprimer:true` reste lisible ? | Tester : relire un produit supprimé |
+| 5 | ~~Suppression hard vs soft~~ | ✅ **Résolu (mai 2026)** : c'est un **hard delete**. Cf. §5. |
 | 6 | Limite d'appels par minute / RateLimit | Pas observé — à monitorer en prod |
 | 7 | Webhooks entrants (commandes, retours) | Aucun observé — à confirmer auprès d'eFashion |
-| 8 | Format image accepté (JPEG/PNG/WebP) + dimensions min | Tester en prod ou doc officielle |
+| 8 | ~~Format image accepté (JPEG/PNG/WebP)~~ | ✅ **Résolu (mai 2026)** : JPEG est OBLIGATOIRE. Test envoi WebP brut → eFashion l'accepte mais peut ne pas convertir correctement. **Toujours convertir en JPEG via sharp avant upload** (c'est ce que fait déjà `lib/efashion-photos.ts`). |
 | 9 | Comportement pagination `productsPage` (take=10 → 24 items) | À comprendre avant d'écrire un loop full-catalog |
 | 10 | Introspection GraphQL ? | Tester `{ __schema { types { name } } }` — si activé, gain énorme pour découvrir le reste du schéma |
 
@@ -658,3 +660,105 @@ L'EfashionMappingPicker color mode est maintenant un vrai picker avec swatches h
 | `ManufacturingCountry.efashionProvenanceId` | Pays > eFashion (liste plate) |
 | `Season.efashionCollectionId` | Saisons > eFashion (liste plate) |
 | `Composition.efashionId` | Compositions > eFashion (autocomplete) |
+
+---
+
+## 18. Session de test exhaustive (mai 2026) — apprentissages et corrections
+
+Cette section consolide ce qui a été découvert pendant une session de test end-to-end où on a appliqué toutes les opérations du workflow eFashion sur un seul produit (création → ajout/réorg/suppression de photos → changement de couleur principale → renommage → changement catégorie/poids/saison/pays/prix/déclinaison/composition → ajout de couleur → mise en rupture → suppression de couleur). Scripts de référence dans `scripts/efashion-test-*.ts`.
+
+### 18.1. Bug corrigé : `dateRemise` plafonné par MySQL
+
+**Symptôme** : `save-mel-draft` retournait `HTTP 400 ER_TRUNCATED_WRONG_VALUE: Incorrect datetime value: '2099-12-31 00:00:00.000' for column produits_remises.date_remise`.
+
+**Cause** : `lib/efashion-publish.ts` envoyait `dateRemise: "2099-12-31"`. La colonne MySQL côté eFashion est en TIMESTAMP (range max = **2038-01-19**), donc toute date au-delà est rejetée.
+
+**Fix appliqué** : remplacé par `"2037-12-31"` — placeholder « pas de remise » safe et lointain.
+
+**Implication code de prod** : si on saisit un jour une vraie `dateRemise` côté UI BJ, il faudra valider que l'année ≤ 2037 avant d'envoyer à eFashion (sinon échec silencieux à la publication).
+
+### 18.2. Faits validés
+
+#### Création produit
+- `melOption: "upload"` confirmé (option studio jamais utilisée).
+- `save-mel-draft` retourne 1 `productId` par couleur — l'ordre du tableau `couleurs` correspond à l'ordre des `productIds` renvoyés (les uploads photo s'appuient là-dessus, voir `efashion-publish.ts`).
+- Marque BJ : `id_vendeur_marque = 3228` (à hardcoder pour le compte vendeur 2017).
+- L'API `/shootings/check-references-exists-batch` permet de prévalider une référence avant `save-mel-draft`.
+
+#### Ajout d'une couleur après création
+✅ **Découverte importante** : envoyer un `PUT /shootings/product/{id}` avec une **nouvelle couleur dans `couleurs[]`** crée **automatiquement** un nouveau `id_produit` pour cette couleur (avec son propre stock, ses propres photos, etc.). Pas besoin d'endpoint séparé « ajouter une couleur ».
+- À chaque ajout de couleur via PUT → lire le listing via `productsPage` pour récupérer le nouvel `id_produit` (filtrer par `id_couleur` de la nouvelle couleur).
+
+#### Renommage de référence
+- `PUT /shootings/product/{id}` avec un nouveau `reference` propage le renommage à **toutes les couleurs liées** (même `reference_base`).
+- eFashion ajoute automatiquement le suffixe couleur : `TEST-EF-X` → `TEST-EF-X-MOUTARDE`, `TEST-EF-X-TURQUOISE`, etc.
+
+#### Quels champs sont « par groupe » vs « par couleur »
+| Champ | Par groupe (1 PUT propage à tous) | Par couleur (1 PUT par id_produit) |
+|---|---|---|
+| `id_categorie` | ✅ | |
+| `id_collection` (saison) | ✅ | |
+| `id_provenance` (pays) | ✅ | |
+| `id_declinaison` | ✅ | |
+| `id_pack` | ✅ | |
+| `prix` | ✅ | |
+| `couleurs[]` | ✅ | |
+| `couleurPrincipaleId` | ✅ | |
+| `compositions[]` | ✅ | |
+| `caracteristiques[]` | ✅ | |
+| `descriptionFr/En/It/Es/Zh` | ✅ | |
+| `dateRemise`, `pourcentageRemise` | ✅ | |
+| **`poids`** | | ✅ **(propre à chaque id_produit !)** |
+| **stock (par taille)** | | ✅ **(propre à chaque id_produit)** |
+| **photos** | | ✅ **(propre à chaque id_produit)** |
+
+→ **Conséquence pratique pour le worker de sync** : un seul `PUT` global suffit pour les champs « par groupe ». Pour `poids` et le stock, il faut **boucler sur les `id_produit` de chaque couleur**.
+
+#### Composition Cuivre
+- ID composition « CUIVRE » = **77** (utile pour les tests).
+
+#### Description multilingue
+- Le PUT `/shootings/product/{id}` accepte directement `descriptionFr/En/It/Es/Zh`.
+- Pas besoin de passer par la mutation GraphQL `saveProduitDescription` quand on fait un PUT global (utilisée seulement pour des modifs ciblées hors PUT).
+
+### 18.3. Photos — comportements observés
+
+- **Upload** (`/api/upload-product-photo`) : multipart, accepte plusieurs photos en 1 requête. Toujours convertir WebP → JPEG via sharp avant envoi (eFashion attend du JPEG).
+- **Numérotation** : 1ʳᵉ photo uploadée = `c.jpg` (principale), suivantes = `z-1.jpg`, `z-2.jpg`, etc.
+- **Réorganisation** (`/api/product-photos/reorder`) : eFashion **ne renomme PAS les fichiers** — il échange leur contenu en interne. Le GET `/api/product-photos/{id}` continue à renvoyer la liste avec les mêmes suffixes (`c, z-1, z-2`) mais le visuel à chaque position change.
+- **Suppression** (`/api/product-photo/delete`) : eFashion **renumérote automatiquement** les photos restantes après suppression. Si on supprime `c.jpg`, ce qui était `z-1.jpg` devient le nouveau `c.jpg`, et `z-2.jpg` devient `z-1.jpg`. Bonne info pour ne pas se reposer sur une numérotation stable.
+
+### 18.4. Stocks — particularités
+
+- `saveProduitStocks` et `upsertProduitStock` retournent **`boolean`** (pas la valeur). Les types dans `lib/efashion-api-write.ts` sont à corriger pour `upsertProduitStock` (déclaré `Promise<number | string>`, en réalité `Promise<boolean>`).
+- **Source de vérité du stock** : `productsPage.items[].stock_value` + `stock_renseigne` (pas le shooting endpoint !).
+- ⚠️ `/shootings/shooting/{id}` renvoie `couleurs_stocks[].tailleStocks[].stock = null` même quand le stock est explicitement à 0 ou positif. Ce champ n'est pas authoritative. **Ne jamais l'utiliser pour lire l'état du stock**.
+- `stock_value = 0` + `stock_renseigne = true` = **rupture explicite** (différent de `stock_value = null` + `stock_renseigne = false` qui veut dire « stock pas renseigné », donc inconnu).
+- Les stocks sont stockés **par (couleur, taille)** — il faut envoyer 1 entrée par taille de la déclinaison pour mettre une couleur entière en rupture.
+
+### 18.5. Suppression d'une couleur
+
+- `POST /shootings/product/{id_produit}/delete` supprime **uniquement le productId ciblé** (= 1 couleur). Les autres couleurs du `reference_base` restent vivantes.
+- C'est un **hard delete**, le productId disparaît du listing même avec `premelFilter:"tous"`.
+- Pour supprimer un produit entier multi-couleurs, il faut faire 1 `delete` par couleur.
+
+### 18.6. Scripts de test disponibles
+
+Tous ces scripts ont été utilisés pendant la session et restent dans `scripts/efashion-test-*.ts` pour servir de référence ou être réutilisés :
+
+| Script | Action |
+|---|---|
+| `efashion-test-create.ts` | Crée un produit complet au hasard depuis les annexes |
+| `efashion-test-upload-photos.ts` | Uploade N photos par couleur (WebP→JPEG via sharp) |
+| `efashion-test-add-photo.ts` | Ajoute 1 photo de plus à une couleur existante |
+| `efashion-test-swap-photos.ts` | Échange 2 positions de photos (test réordonnancement) |
+| `efashion-test-delete-photo.ts` | Supprime 1 photo nommée |
+| `efashion-test-set-main-color.ts` | Change la couleur principale (via PUT) |
+| `efashion-test-rename-reference.ts` | Renomme la référence d'un produit |
+| `efashion-test-change-category-weight.ts` | Change catégorie + poids d'une couleur |
+| `efashion-test-set-outofstock.ts` | Met une couleur en rupture (stock=0 partout) |
+| `efashion-test-mega-update.ts` | Modif groupée : saison, pays, prix, déclinaison, composition, ajout couleur, descriptions |
+| `efashion-test-delete-color.ts` | Supprime 1 couleur d'un produit |
+| `efashion-test-inspect.ts` | Lit l'état complet d'un produit (listing + photos par couleur) |
+| `efashion-test-find-other.ts` | Liste tous les produits préfixés « TEST » du vendeur |
+| `efashion-test-check-stock.ts` | Lit les stocks via l'endpoint shooting (rappel : non-authoritative) |

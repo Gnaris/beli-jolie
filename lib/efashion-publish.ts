@@ -204,7 +204,11 @@ export async function efashionPublishProduct(
     stock: "",
     prix: String(efashionPrice),
     prixReduit: "",
-    dateRemise: "2099-12-31",
+    // ⚠️ La colonne MySQL `produits_remises.date_remise` est en TIMESTAMP — la
+    // valeur max acceptée est 2038-01-19. "2099-12-31" est rejetée
+    // (ER_TRUNCATED_WRONG_VALUE). On utilise "2037-12-31" comme placeholder
+    // « pas de remise » très lointain mais sûr.
+    dateRemise: "2037-12-31",
     pourcentageRemise: "0",
     dimensions: "",
     minimumCommande: "",

@@ -8,6 +8,8 @@ import {
   getCachedPfsEnabled,
   getCachedHasAnkorstoreConfig,
   getCachedAnkorstoreEnabled,
+  getCachedHasEfashionConfig,
+  getCachedEfashionEnabled,
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
 
@@ -32,6 +34,8 @@ export default async function DupliquerProduitPage({
     hasPfsConfig,
     hasAnkorstoreConfig,
     ankorstoreEnabled,
+    hasEfashionConfig,
+    efashionEnabled,
   ] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
@@ -117,6 +121,8 @@ export default async function DupliquerProduitPage({
     getCachedPfsEnabled(),
     getCachedHasAnkorstoreConfig(),
     getCachedAnkorstoreEnabled(),
+    getCachedHasEfashionConfig(),
+    getCachedEfashionEnabled(),
   ]);
 
   if (!product) notFound();
@@ -251,6 +257,8 @@ export default async function DupliquerProduitPage({
         hasPfsConfig={hasPfsConfig}
         hasAnkorstoreConfig={hasAnkorstoreConfig}
         ankorstoreEnabled={ankorstoreEnabled}
+        hasEfashionConfig={hasEfashionConfig}
+        efashionEnabled={efashionEnabled}
         pfsColorOptions={pfsColorOptions}
         initialData={{
           reference: "",

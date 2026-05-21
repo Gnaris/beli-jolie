@@ -321,6 +321,8 @@ export default async function ModifierProduitPage({
           hasPfsConfig={hasPfsConfig}
           hasAnkorstoreConfig={hasAnkorstoreConfig}
           ankorstoreEnabled={ankorstoreEnabled}
+          hasEfashionConfig={hasEfashionConfig}
+          efashionEnabled={efashionEnabled}
           pfsColorOptions={pfsColorOptions}
           initialData={{
             reference:         product.reference,
@@ -376,6 +378,7 @@ export default async function ModifierProduitPage({
             sizeDetailsTu: product.sizeDetailsTu ?? "",
             pfsProductId: product.pfsProductId,
             ankorsProductId: product.ankorsProductId,
+            efashionReferenceBase: product.efashionReferenceBase,
             primaryColorId: product.primaryColorId ?? null,
           }}
         />
@@ -490,6 +493,8 @@ export default async function ModifierProduitPage({
         hasPfsConfig={hasPfsConfig}
         hasAnkorstoreConfig={hasAnkorstoreConfig}
         ankorstoreEnabled={ankorstoreEnabled}
+        hasEfashionConfig={hasEfashionConfig}
+        efashionEnabled={efashionEnabled}
         pfsColorOptions={pfsColorOptions}
         initialData={{
           reference:         product.reference,
@@ -544,6 +549,7 @@ export default async function ModifierProduitPage({
           discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
           sizeDetailsTu: product.sizeDetailsTu ?? "",
           pfsProductId: product.pfsProductId,
+          efashionReferenceBase: product.efashionReferenceBase,
           primaryColorId: product.primaryColorId ?? null,
         }}
       />
