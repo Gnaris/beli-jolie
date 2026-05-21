@@ -13,6 +13,7 @@ interface CountryItem {
   name: string;
   isoCode: string | null;
   pfsCountryRef: string | null;
+  efashionProvenanceId?: number | null;
   productCount: number;
   translations: Record<string, string>;
 }
@@ -127,7 +128,7 @@ export default function ManufacturingCountriesManager({
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Nom</th>
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Code ISO</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Produits</th>
-                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Réf Paris Fashion Shop</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Marketplaces</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Traduction</th>
                   <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Actions</th>
                 </tr>
@@ -151,11 +152,20 @@ export default function ManufacturingCountriesManager({
                       <span className="badge badge-neutral text-[10px]">{item.productCount}</span>
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
-                      {item.pfsCountryRef ? (
-                        <span className="badge badge-purple text-[10px]">PFS: {item.pfsCountryRef}</span>
-                      ) : (
-                        <span className="text-text-muted text-xs">—</span>
-                      )}
+                      <div className="flex flex-col gap-1 items-start">
+                        {item.pfsCountryRef ? (
+                          <span className="badge badge-purple text-[10px]">PFS: {item.pfsCountryRef}</span>
+                        ) : null}
+                        {item.efashionProvenanceId != null ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]">
+                            <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
+                            eFashion: {item.efashionProvenanceId}
+                          </span>
+                        ) : null}
+                        {!item.pfsCountryRef && item.efashionProvenanceId == null && (
+                          <span className="text-text-muted text-xs">—</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-center hidden sm:table-cell">
                       {Object.keys(item.translations).length === 0 ? (
@@ -219,6 +229,7 @@ export default function ManufacturingCountriesManager({
             translations: editTarget.translations,
             pfsRef: editTarget.pfsCountryRef,
             isoCode: editTarget.isoCode,
+            efashionCurrentId: editTarget.efashionProvenanceId ?? null,
             onSave: handleSave,
           }}
         />

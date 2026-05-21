@@ -20,6 +20,7 @@ export default async function PaysPage() {
     name: c.name,
     isoCode: c.isoCode,
     pfsCountryRef: c.pfsCountryRef,
+    efashionProvenanceId: c.efashionProvenanceId,
     productCount: c._count.products,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));

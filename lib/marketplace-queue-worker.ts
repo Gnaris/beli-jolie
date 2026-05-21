@@ -38,6 +38,7 @@ interface QueueJobPayload {
     local?: boolean;
     pfs?: boolean;
     ankorstore?: boolean;
+    efashion?: boolean;
   };
 }
 
@@ -238,6 +239,8 @@ async function processJob(jobId: string): Promise<void> {
     const payload = job.payload as unknown as QueueJobPayload;
     if (job.marketplace === "PFS") {
       await runPfsJob(job, payload);
+    } else if (job.marketplace === "EFASHION") {
+      await runEfashionJob(job, payload);
     } else {
       await runAnkorstoreJob(job, payload);
     }
@@ -512,6 +515,123 @@ async function markAnkorstoreFailed(
     data: {
       status: "FAILED",
       ankorsOutcome: outcome as Prisma.InputJsonValue,
+      errorMessage: message,
+      completedAt: new Date(),
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// eFashion Paris — sync synchrone (mode update uniquement pour Lot 3 ;
+// publish/refresh via shooting arrivent au Lot 4-5)
+// ─────────────────────────────────────────────────────────────────────
+async function runEfashionJob(job: JobRow, payload: QueueJobPayload): Promise<void> {
+  if (payload.options.efashion === false) {
+    await prisma.marketplaceRefreshJob.update({
+      where: { id: job.id },
+      data: { status: "SUCCEEDED", completedAt: new Date() },
+    });
+    return;
+  }
+
+  const { getCachedEfashionEnabled } = await import("@/lib/cached-data");
+  const enabled = await getCachedEfashionEnabled();
+  if (!enabled) {
+    await markEfashionFailed(job.id, "error", "Sync eFashion désactivée dans Paramètres.");
+    return;
+  }
+
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id: job.productId },
+      select: { efashionReferenceBase: true },
+    });
+    const isLinked = !!product?.efashionReferenceBase;
+
+    if (job.mode === "RESYNC") {
+      if (!isLinked) {
+        await markEfashionFailed(
+          job.id,
+          "error",
+          "Produit non lié à eFashion — impossible de resynchroniser.",
+        );
+        return;
+      }
+      const { efashionUpdateProductInPlace } = await import("@/lib/efashion-update");
+      const res = await efashionUpdateProductInPlace(job.productId, { forceFullSync: true });
+      if (res.success) {
+        await markEfashionSuccess(job.id, false);
+      } else {
+        await markEfashionFailed(job.id, "error", res.error ?? "Erreur inconnue");
+      }
+    } else if (job.mode === "PUBLISH") {
+      if (isLinked) {
+        // Déjà publié → update incrémental (équivalent du fallback PFS).
+        const { efashionUpdateProductInPlace } = await import("@/lib/efashion-update");
+        const res = await efashionUpdateProductInPlace(job.productId);
+        if (res.success) {
+          await markEfashionSuccess(job.id, false);
+        } else {
+          await markEfashionFailed(job.id, "error", res.error ?? "Erreur inconnue");
+        }
+      } else {
+        // 1ʳᵉ publication via workflow shooting
+        const { efashionPublishProduct } = await import("@/lib/efashion-publish");
+        const res = await efashionPublishProduct(job.productId);
+        if (res.success) {
+          await markEfashionSuccess(job.id, false);
+        } else {
+          await markEfashionFailed(job.id, "error", res.error ?? "Erreur inconnue");
+        }
+      }
+    } else if (job.mode === "REFRESH") {
+      // REFRESH = update si lié, sinon publish (même logique que PUBLISH).
+      if (isLinked) {
+        const { efashionUpdateProductInPlace } = await import("@/lib/efashion-update");
+        const res = await efashionUpdateProductInPlace(job.productId);
+        if (res.success) await markEfashionSuccess(job.id, false);
+        else await markEfashionFailed(job.id, "error", res.error ?? "Erreur inconnue");
+      } else {
+        const { efashionPublishProduct } = await import("@/lib/efashion-publish");
+        const res = await efashionPublishProduct(job.productId);
+        if (res.success) await markEfashionSuccess(job.id, false);
+        else await markEfashionFailed(job.id, "error", res.error ?? "Erreur inconnue");
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Marketplace Queue] eFashion unexpected error", {
+      productId: job.productId,
+      jobId: job.id,
+      error: message,
+    });
+    await markEfashionFailed(job.id, "error", message);
+  }
+}
+
+async function markEfashionSuccess(jobId: string, archived: boolean): Promise<void> {
+  const outcome: TargetOutcome = { ok: true, archived };
+  await prisma.marketplaceRefreshJob.update({
+    where: { id: jobId },
+    data: {
+      status: "SUCCEEDED",
+      efashionOutcome: outcome as Prisma.InputJsonValue,
+      completedAt: new Date(),
+    },
+  });
+}
+
+async function markEfashionFailed(
+  jobId: string,
+  kind: "not_found" | "error",
+  message: string,
+): Promise<void> {
+  const outcome: TargetOutcome = { ok: false, kind, message };
+  await prisma.marketplaceRefreshJob.update({
+    where: { id: jobId },
+    data: {
+      status: "FAILED",
+      efashionOutcome: outcome as Prisma.InputJsonValue,
       errorMessage: message,
       completedAt: new Date(),
     },

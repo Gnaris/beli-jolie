@@ -37,6 +37,7 @@ export default async function CouleursPage() {
     patternImage: c.patternImage,
     pfsColorRef: c.pfsColorRef,
     pfsSharedCount: c.pfsColorRef ? Math.max(0, (pfsRefCount.get(c.pfsColorRef) ?? 1) - 1) : 0,
+    efashionColorId: c.efashionColorId,
     productCount: c._count.productColors,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));

@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { pfsDeleteProduct } from "@/lib/pfs-api-write";
 import { ankorstoreKickoffStandaloneDelete } from "@/lib/ankorstore-delete";
+import { efashionDeleteShootingProduct } from "@/lib/efashion-shootings";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 
@@ -135,6 +136,52 @@ export async function deleteProductsOnAnkorstore(
       });
       results.push({
         ankorsProductId: item.ankorsProductId,
+        reference: item.reference,
+        status: "error",
+        message,
+      });
+    }
+  }
+  return results;
+}
+
+// ─── eFashion Paris (Lot 5) ─────────────────────────────────────────────────
+
+export interface EfashionDeleteOutcome {
+  efashionProductId: number;
+  reference: string;
+  status: "ok" | "error";
+  message?: string;
+}
+
+/**
+ * Suppression synchrone d'une liste de produits-couleurs eFashion.
+ * Appelle `POST /shootings/product/{id}/delete` pour chacun.
+ * À appeler AVANT la suppression locale (mais peu critique côté FK puisque
+ * `ProductColor.efashionProductId` n'a pas de contrainte).
+ */
+export async function deleteProductsOnEfashion(
+  items: Array<{ efashionProductId: number; reference: string }>,
+): Promise<EfashionDeleteOutcome[]> {
+  await requireAdmin();
+  const results: EfashionDeleteOutcome[] = [];
+  for (const item of items) {
+    try {
+      await efashionDeleteShootingProduct(item.efashionProductId);
+      results.push({
+        efashionProductId: item.efashionProductId,
+        reference: item.reference,
+        status: "ok",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error("[Marketplace Delete] eFashion delete failed", {
+        efashionProductId: item.efashionProductId,
+        reference: item.reference,
+        error: message,
+      });
+      results.push({
+        efashionProductId: item.efashionProductId,
         reference: item.reference,
         status: "error",
         message,

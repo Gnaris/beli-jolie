@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import {
   updatePfsCredentials, validatePfsCredentials,
   updateAnkorstoreCredentials, validateAnkorstoreCredentials, toggleAnkorstoreEnabled,
+  updateEfashionCredentials, validateEfashionCredentials, toggleEfashionEnabled,
   updateMarketplaceMarkup,
   loadPfsBrands, updatePfsBrand,
 } from "@/app/actions/admin/site-config";
@@ -22,11 +23,14 @@ interface Props {
   pfsBrand: { id: string; name: string } | null;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
+  hasEfashionConfig: boolean;
+  efashionEnabled: boolean;
   markupSettings: {
     pfs: MarkupState;
     ankorstoreWholesale: MarkupState;
     ankorstoreRetail: MarkupState;
     ankorstoreVatRate: number;
+    efashion: MarkupState;
   };
 }
 
@@ -217,6 +221,8 @@ export default function MarketplaceConfig({
   pfsBrand: initialPfsBrand,
   hasAnkorstoreConfig,
   ankorstoreEnabled: initialAnkorstoreEnabled,
+  hasEfashionConfig,
+  efashionEnabled: initialEfashionEnabled,
   markupSettings,
 }: Props) {
   // ── PFS state ──────────────────────────────────────────────────────────────
@@ -285,6 +291,20 @@ export default function MarketplaceConfig({
   const [ankorstoreRetail, setAnkorstoreRetail] = useState<MarkupState>(markupSettings.ankorstoreRetail);
   const [ankorstoreVatRate, setAnkorstoreVatRate] = useState<number>(markupSettings.ankorstoreVatRate);
 
+  // ── eFashion state ──────────────────────────────────────────────────────────
+  const [efashionEmail, setEfashionEmail] = useState("");
+  const [efashionPassword, setEfashionPassword] = useState("");
+  const [efashionStatus, setEfashionStatus] = useState<"none" | "valid" | "invalid" | "checking">(
+    hasEfashionConfig ? "valid" : "none"
+  );
+  const [efashionEditing, setEfashionEditing] = useState(!hasEfashionConfig);
+  const [isSavingEfashion, startSavingEfashion] = useTransition();
+  const [isValidatingEfashion, startValidatingEfashion] = useTransition();
+  const [isTogglingEfashion, startTogglingEfashion] = useTransition();
+  const [efashionEnabled, setEfashionEnabled] = useState(initialEfashionEnabled);
+  const [efashionMarkup, setEfashionMarkup] = useState<MarkupState>(markupSettings.efashion);
+  const [efashionVendor, setEfashionVendor] = useState<{ id: number; name: string } | null>(null);
+
   // ── Shared ──────────────────────────────────────────────────────────────────
   const [isSavingMarkup, startSavingMarkup] = useTransition();
   const toast = useToast();
@@ -292,6 +312,7 @@ export default function MarketplaceConfig({
 
   const isPendingPfs = isSavingPfs || isValidatingPfs;
   const isPendingAnkorstore = isSavingAnkorstore || isValidatingAnkorstore;
+  const isPendingEfashion = isSavingEfashion || isValidatingEfashion;
 
   // ── PFS handlers ────────────────────────────────────────────────────────────
   function handlePfsValidate() {
@@ -402,6 +423,76 @@ export default function MarketplaceConfig({
     });
   }
 
+  // ── eFashion handlers ───────────────────────────────────────────────────────
+  function handleEfashionValidate() {
+    if (!efashionEmail.trim() || !efashionPassword.trim()) return;
+    showLoading();
+    startValidatingEfashion(async () => {
+      try {
+        setEfashionStatus("checking");
+        setEfashionVendor(null);
+        const result = await validateEfashionCredentials({
+          email: efashionEmail.trim(),
+          password: efashionPassword.trim(),
+        });
+        if (result.valid) {
+          setEfashionStatus("valid");
+          if (result.vendor) setEfashionVendor(result.vendor);
+          toast.success(
+            "Connexion réussie",
+            result.vendor
+              ? `Bienvenue ${result.vendor.name} (vendeur n°${result.vendor.id}).`
+              : "Identifiants eFashion Paris valides."
+          );
+        } else {
+          setEfashionStatus("invalid");
+          toast.error("Connexion échouée", result.error ?? "Identifiants invalides.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handleEfashionSave() {
+    showLoading();
+    startSavingEfashion(async () => {
+      try {
+        const result = await updateEfashionCredentials({
+          email: efashionEmail.trim(),
+          password: efashionPassword.trim(),
+        });
+        if (result.success) {
+          toast.success("Enregistré", "Identifiants eFashion Paris sauvegardés.");
+          setEfashionEditing(false);
+          setEfashionEmail("");
+          setEfashionPassword("");
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handleToggleEfashion(checked: boolean) {
+    startTogglingEfashion(async () => {
+      const result = await toggleEfashionEnabled(checked);
+      if (result.success) {
+        setEfashionEnabled(checked);
+        toast.success(
+          checked ? "eFashion activé" : "eFashion désactivé",
+          checked
+            ? "La synchronisation eFashion Paris est maintenant active."
+            : "La synchronisation eFashion Paris est maintenant désactivée."
+        );
+      } else {
+        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      }
+    });
+  }
+
   // ── Markup save ─────────────────────────────────────────────────────────────
   function handleSaveMarkup() {
     showLoading();
@@ -412,6 +503,7 @@ export default function MarketplaceConfig({
           ankorstoreWholesale: ankorstoreWholesale,
           ankorstoreRetail: ankorstoreRetail,
           ankorstoreVatRate: ankorstoreVatRate,
+          efashion: efashionMarkup,
         });
         if (result.success) {
           toast.success("Enregistré", "Majorations marketplace sauvegardées.");
@@ -426,7 +518,7 @@ export default function MarketplaceConfig({
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
         {/* ── PFS card ────────────────────────────────────────────────────── */}
         <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
@@ -779,6 +871,152 @@ export default function MarketplaceConfig({
                 className="w-24 h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
               />
             </div>
+          </div>
+        </div>
+
+        {/* ── eFashion Paris card ─────────────────────────────────────────── */}
+        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
+                <IconShop className="w-[18px] h-[18px] text-text-primary" />
+              </div>
+              <div>
+                <h3 className="font-heading text-sm font-semibold text-text-primary leading-tight">
+                  eFashion Paris
+                </h3>
+                <div className="mt-0.5">
+                  <StatusBadge status={efashionStatus} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Toggle activation */}
+          <div className="px-5 pt-4 pb-3 border-b border-border/60">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={efashionEnabled}
+                  disabled={isTogglingEfashion}
+                  onChange={(e) => handleToggleEfashion(e.target.checked)}
+                />
+                <div className="w-10 h-6 rounded-full border border-border bg-bg-secondary peer-checked:bg-bg-dark peer-checked:border-bg-dark transition-colors" />
+                <div className="absolute top-1 left-1 w-4 h-4 rounded-full bg-text-muted peer-checked:bg-text-inverse peer-checked:translate-x-4 transition-all" />
+              </div>
+              <span className="font-body text-sm font-medium text-text-primary">
+                Activer la sync eFashion
+              </span>
+              {isTogglingEfashion && <IconLoader className="w-4 h-4 text-text-muted" />}
+            </label>
+          </div>
+
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-2 mb-3">
+              <IconKey className="w-4 h-4 text-text-muted" />
+              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                Connexion
+              </p>
+            </div>
+
+            {!efashionEditing && hasEfashionConfig ? (
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-secondary/60">
+                <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
+                  ••••••••••••••••
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEfashionEditing(true)}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+                >
+                  <IconPencil className="w-3.5 h-3.5" />
+                  Modifier
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <div>
+                  <label className="font-body text-[11px] text-text-muted mb-1 block">Email</label>
+                  <input
+                    type="email"
+                    value={efashionEmail}
+                    onChange={(e) => {
+                      setEfashionEmail(e.target.value);
+                      if (efashionStatus === "valid" || efashionStatus === "invalid") setEfashionStatus("none");
+                    }}
+                    placeholder="votre@email-efashion.com"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+                    disabled={isPendingEfashion}
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className="font-body text-[11px] text-text-muted mb-1 block">Mot de passe</label>
+                  <input
+                    type="password"
+                    value={efashionPassword}
+                    onChange={(e) => {
+                      setEfashionPassword(e.target.value);
+                      if (efashionStatus === "valid" || efashionStatus === "invalid") setEfashionStatus("none");
+                    }}
+                    placeholder="••••••••"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+                    disabled={isPendingEfashion}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleEfashionValidate}
+                    disabled={isPendingEfashion || !efashionEmail.trim() || !efashionPassword.trim()}
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
+                  >
+                    {isValidatingEfashion ? (
+                      <><IconLoader className="w-3.5 h-3.5" /> Vérification…</>
+                    ) : (
+                      <><IconCheck className="w-3.5 h-3.5" /> Tester la connexion</>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleEfashionSave}
+                    disabled={isPendingEfashion || !efashionEmail.trim() || !efashionPassword.trim() || efashionStatus !== "valid"}
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+                  >
+                    {isSavingEfashion ? "Enregistrement…" : "Sauvegarder"}
+                  </button>
+                  {hasEfashionConfig && (
+                    <button
+                      type="button"
+                      onClick={() => { setEfashionEditing(false); setEfashionEmail(""); setEfashionPassword(""); setEfashionStatus("valid"); }}
+                      disabled={isPendingEfashion}
+                      className="inline-flex items-center gap-1 h-9 px-3 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
+                    >
+                      <IconX className="w-3.5 h-3.5" />
+                      Annuler
+                    </button>
+                  )}
+                </div>
+                {efashionVendor && (
+                  <p className="mt-2 font-body text-[11px] text-success">
+                    Connecté à <strong>{efashionVendor.name}</strong> (vendeur n°{efashionVendor.id}).
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto">
+            <div className="flex items-center gap-2 mb-4">
+              <IconTag className="w-4 h-4 text-text-muted" />
+              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                Majoration des prix
+              </p>
+            </div>
+            <MarkupRow label="Prix de gros" state={efashionMarkup} onChange={setEfashionMarkup} />
           </div>
         </div>
       </div>

@@ -36,6 +36,7 @@ export async function createCategoryQuick(
   pfsFamilyName?: string | null,
   pfsCategoryName?: string | null,
   pfsCategoryId?: string | null,
+  efashionCategorieId?: number | null,
 ): Promise<{ id: string; name: string; subCategories: { id: string; name: string }[] }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
@@ -58,6 +59,7 @@ export async function createCategoryQuick(
         pfsFamilyName: familyName,
         pfsCategoryName: pfsCategoryName?.trim() || null,
         pfsCategoryId: pfsCategoryId?.trim() || null,
+        ...(efashionCategorieId !== undefined ? { efashionCategorieId } : {}),
       },
     });
     for (const [locale, value] of Object.entries(translations)) {
@@ -87,6 +89,7 @@ export async function createCategoryQuick(
       pfsFamilyName: familyName,
       pfsCategoryName: pfsCategoryName?.trim() || null,
       pfsCategoryId: pfsCategoryId?.trim() || null,
+      efashionCategorieId: efashionCategorieId ?? null,
     },
   });
   for (const [locale, value] of Object.entries(translations)) {
@@ -131,6 +134,7 @@ export async function createColorQuick(
   hex: string | null | undefined,
   patternImage: string | null | undefined,
   pfsColorRef?: string | null,
+  efashionColorId?: number | null,
 ): Promise<{ id: string; name: string; hex: string | null; patternImage: string | null }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
@@ -143,7 +147,13 @@ export async function createColorQuick(
     throw new Error(`La couleur « ${existing.name} » existe déjà dans la bibliothèque.`);
   }
   const created = await prisma.color.create({
-    data: { name, hex: hex ?? null, patternImage: patternImage ?? null, pfsColorRef: pfsColorRef?.trim() || null },
+    data: {
+      name,
+      hex: hex ?? null,
+      patternImage: patternImage ?? null,
+      pfsColorRef: pfsColorRef?.trim() || null,
+      efashionColorId: efashionColorId ?? null,
+    },
   });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
@@ -153,6 +163,36 @@ export async function createColorQuick(
       update: { name: value.trim() },
     });
   }
+
+  // Si une liaison eFashion est demandée → on tente systématiquement
+  // d'ajouter la couleur au catalogue vendeur eFashion. Si elle y est déjà,
+  // eFashion renvoie « Cette couleur est déjà dans votre catalogue » — on
+  // ignore cette erreur (cas idempotent). Toute autre erreur est loguée mais
+  // ne bloque pas la création BJ (le mapping est déjà posé).
+  if (efashionColorId) {
+    try {
+      const { efashionGetMe } = await import("@/lib/efashion-api");
+      const { efashionAddCouleurToVendeur } = await import("@/lib/efashion-api-write");
+      const me = await efashionGetMe();
+      await efashionAddCouleurToVendeur({
+        id_vendeur: me.id_vendeur,
+        id_couleur: efashionColorId,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/déjà dans votre catalogue/i.test(msg)) {
+        const { logger } = await import("@/lib/logger");
+        logger.warn("[eFashion] addCouleurToVendeur failed at color creation", {
+          colorId: created.id,
+          efashionColorId,
+          error: msg,
+        });
+      }
+    }
+    // Invalide le cache des annexes pour que la couleur apparaisse comme "in catalog" la prochaine fois
+    revalidateTag("efashion-annexes", "default");
+  }
+
   revalidateTag("colors", "default");
   return { id: created.id, name: created.name, hex: created.hex, patternImage: created.patternImage };
 }
@@ -160,11 +200,14 @@ export async function createColorQuick(
 export async function createCompositionQuick(
   translations: Record<string, string>,
   pfsCompositionRef?: string | null,
+  efashionId?: number | null,
 ): Promise<{ id: string; name: string }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
-  const created = await prisma.composition.create({ data: { name, pfsCompositionRef: pfsCompositionRef ?? null } });
+  const created = await prisma.composition.create({
+    data: { name, pfsCompositionRef: pfsCompositionRef ?? null, efashionId: efashionId ?? null },
+  });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
     await prisma.compositionTranslation.upsert({
@@ -181,6 +224,7 @@ export async function createManufacturingCountryQuick(
   translations: Record<string, string>,
   isoCode?: string | null,
   pfsCountryRef?: string | null,
+  efashionProvenanceId?: number | null,
 ): Promise<{ id: string; name: string }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
@@ -204,7 +248,12 @@ export async function createManufacturingCountryQuick(
     throw new Error(`Ce code ISO est déjà utilisé par le pays « ${isoConflict.name} ».`);
   }
   const created = await prisma.manufacturingCountry.create({
-    data: { name, isoCode: normalizedIso, pfsCountryRef: normalizedRef },
+    data: {
+      name,
+      isoCode: normalizedIso,
+      pfsCountryRef: normalizedRef,
+      efashionProvenanceId: efashionProvenanceId ?? null,
+    },
   });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
@@ -221,6 +270,7 @@ export async function createManufacturingCountryQuick(
 export async function createSeasonQuick(
   translations: Record<string, string>,
   pfsRef?: string | null,
+  efashionCollectionId?: number | null,
 ): Promise<{ id: string; name: string }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
@@ -230,7 +280,7 @@ export async function createSeasonQuick(
     throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
   }
   const created = await prisma.season.create({
-    data: { name, pfsRef: normalizedRef },
+    data: { name, pfsRef: normalizedRef, efashionCollectionId: efashionCollectionId ?? null },
   });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;

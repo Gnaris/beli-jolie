@@ -19,6 +19,7 @@ export default async function SaisonsPage() {
     id: s.id,
     name: s.name,
     pfsRef: s.pfsRef,
+    efashionCollectionId: s.efashionCollectionId,
     productCount: s._count.products,
     translations: Object.fromEntries(s.translations.map((t) => [t.locale, t.name])),
   }));

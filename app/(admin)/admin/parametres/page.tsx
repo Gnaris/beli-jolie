@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
-import { getCachedShopName, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedSiteConfig, getCachedPfsBrand } from "@/lib/cached-data";
+import { getCachedShopName, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedSiteConfig, getCachedPfsBrand, getCachedHasEfashionConfig, getCachedEfashionEnabled } from "@/lib/cached-data";
 import { parseDisplayConfig } from "@/lib/product-display";
 import SettingsPageTabs from "@/components/admin/settings/SettingsPageTabs";
 import SettingsMinOrderForm from "@/components/admin/settings/SettingsMinOrderForm";
@@ -357,6 +357,11 @@ async function MarketplacesTab() {
     ankorstoreRetailValue,
     ankorstoreRetailRounding,
     ankorstoreVatRateRaw,
+    hasEfashionConfig,
+    efashionEnabled,
+    efashionMarkupType,
+    efashionMarkupValue,
+    efashionMarkupRounding,
   ] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
     prisma.siteConfig.findMany({
@@ -378,6 +383,11 @@ async function MarketplacesTab() {
     getCachedSiteConfig("ankorstore_retail_markup_value"),
     getCachedSiteConfig("ankorstore_retail_markup_rounding"),
     getCachedSiteConfig("ankorstore_default_vat_rate"),
+    getCachedHasEfashionConfig(),
+    getCachedEfashionEnabled(),
+    getCachedSiteConfig("efashion_price_markup_type"),
+    getCachedSiteConfig("efashion_price_markup_value"),
+    getCachedSiteConfig("efashion_price_markup_rounding"),
   ]);
 
   const markupMap = new Map(markupRows.map((r) => [r.key, r.value]));
@@ -389,6 +399,8 @@ async function MarketplacesTab() {
         pfsBrand={pfsBrand}
         hasAnkorstoreConfig={hasAnkorstoreConfig}
         ankorstoreEnabled={ankorstoreEnabled}
+        hasEfashionConfig={hasEfashionConfig}
+        efashionEnabled={efashionEnabled}
         markupSettings={{
           pfs: {
             type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed" | "multiplier") || "percent",
@@ -406,6 +418,11 @@ async function MarketplacesTab() {
             rounding: (ankorstoreRetailRounding?.value as "none" | "down" | "up") || "up",
           },
           ankorstoreVatRate: Number(ankorstoreVatRateRaw?.value) || 20,
+          efashion: {
+            type: (efashionMarkupType?.value as "percent" | "fixed" | "multiplier") || "percent",
+            value: Number(efashionMarkupValue?.value) || 0,
+            rounding: (efashionMarkupRounding?.value as "none" | "down" | "up") || "none",
+          },
         }}
       />
     </div>

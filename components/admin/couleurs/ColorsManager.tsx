@@ -18,6 +18,7 @@ interface ColorItem {
   pfsColorRef: string | null;
   /** Nombre d'autres couleurs partageant le même pfsColorRef (informatif). */
   pfsSharedCount?: number;
+  efashionColorId?: number | null;
   productCount: number;
   translations: Record<string, string>;
 }
@@ -156,6 +157,7 @@ export default function ColorsManager({
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Nom</th>
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Valeur</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Produits</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Marketplaces</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Traduction</th>
                   <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Actions</th>
                 </tr>
@@ -188,6 +190,22 @@ export default function ColorsManager({
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className="badge badge-neutral text-[10px]">{color.productCount}</span>
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell">
+                      <div className="flex flex-col gap-1 items-start">
+                        {color.pfsColorRef ? (
+                          <span className="badge badge-purple text-[10px]">PFS: {color.pfsColorRef}</span>
+                        ) : null}
+                        {color.efashionColorId != null ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]">
+                            <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
+                            eFashion: {color.efashionColorId}
+                          </span>
+                        ) : null}
+                        {!color.pfsColorRef && color.efashionColorId == null && (
+                          <span className="text-text-muted text-xs">—</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-center hidden sm:table-cell">
                       {Object.keys(color.translations).length === 0 ? (
@@ -252,6 +270,7 @@ export default function ColorsManager({
             hex: editTarget.hex,
             patternImage: editTarget.patternImage,
             pfsRef: editTarget.pfsColorRef,
+            efashionCurrentId: editTarget.efashionColorId ?? null,
             onSave: handleSave,
           }}
         />

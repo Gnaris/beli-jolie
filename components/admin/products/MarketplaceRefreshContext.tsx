@@ -21,7 +21,7 @@ export type QueueItemStatus = "queued" | "in_progress" | "awaiting_callback" | "
  */
 export type QueueItemMode = "refresh" | "publish" | "resync";
 
-export type MarketplaceTarget = "pfs" | "ankorstore";
+export type MarketplaceTarget = "pfs" | "ankorstore" | "efashion";
 
 export type TargetOutcome =
   | { ok: true; archived?: boolean; opId?: string; warning?: string }
@@ -40,6 +40,7 @@ export interface MarketplaceRefreshItem {
   localOutcome?: TargetOutcome;
   pfsOutcome?: TargetOutcome;
   ankorsOutcome?: TargetOutcome;
+  efashionOutcome?: TargetOutcome;
   ankorsOperationId?: string;
 }
 
@@ -78,6 +79,7 @@ export function isItemActive(item: MarketplaceRefreshItem): boolean {
 export function hasError(item: MarketplaceRefreshItem): boolean {
   if (item.pfsOutcome && !item.pfsOutcome.ok) return true;
   if (item.ankorsOutcome && !item.ankorsOutcome.ok) return true;
+  if (item.efashionOutcome && !item.efashionOutcome.ok) return true;
   return false;
 }
 

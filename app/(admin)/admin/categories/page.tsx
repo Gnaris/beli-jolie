@@ -52,6 +52,7 @@ export default async function CategoriesPage() {
         pfsGender: c.pfsGender,
         pfsFamilyName: c.pfsFamilyName,
         pfsCategoryName: c.pfsCategoryName,
+        efashionCategorieId: c.efashionCategorieId,
         productCount: c._count.products,
         translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
         subCategories: c.subCategories.map((s) => ({

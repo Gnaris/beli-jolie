@@ -24,6 +24,8 @@ export default async function TaillesPage() {
       position: s.position,
       variantCount: s._count.variantSizes,
       pfsSizeRef: s.pfsSizeRef,
+      efashionDeclinaisonId: s.efashionDeclinaisonId,
+      efashionDeclinaisonField: s.efashionDeclinaisonField,
     })),
   );
 

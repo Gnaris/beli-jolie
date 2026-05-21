@@ -19,6 +19,7 @@ export default async function CompositionsPage() {
     id: c.id,
     name: c.name,
     pfsCompositionRef: c.pfsCompositionRef,
+    efashionId: c.efashionId,
     productCount: c._count.products,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));

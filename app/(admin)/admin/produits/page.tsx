@@ -8,7 +8,7 @@ import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import {
@@ -191,6 +191,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     hasPfsConfig,
     hasAnkorstoreConfig,
     ankorstoreEnabled,
+    hasEfashionConfig,
+    efashionEnabled,
   ] = await Promise.all([
     prisma.product.findMany({
       where,
@@ -203,16 +205,17 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         colors: {
           orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
           select: {
-            id:            true,
-            colorId:       true,
-            unitPrice:     true,
-            weight:        true,
-            stock:         true,
-            isPrimary:     true,
-            saleType:      true,
-            packQuantity:  true,
-            color:         { select: { name: true, hex: true, patternImage: true } },
-            variantSizes:  { select: { quantity: true, size: { select: { name: true } } } },
+            id:                  true,
+            colorId:             true,
+            unitPrice:           true,
+            weight:              true,
+            stock:               true,
+            isPrimary:           true,
+            saleType:            true,
+            packQuantity:        true,
+            efashionProductId:   true,
+            color:               { select: { name: true, hex: true, patternImage: true } },
+            variantSizes:        { select: { quantity: true, size: { select: { name: true } } } },
           },
         },
         translations: { select: { locale: true } },
@@ -245,6 +248,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     getCachedPfsEnabled(),
     getCachedHasAnkorstoreConfig(),
     getCachedAnkorstoreEnabled(),
+    getCachedHasEfashionConfig(),
+    getCachedEfashionEnabled(),
   ]);
 
   const totalPages = Math.ceil(totalCount / perPage);
@@ -285,16 +290,17 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     pfsProductId:    p.pfsProductId,
     ankorsProductId: p.ankorsProductId,
     colors:          p.colors.map((c) => ({
-      id:            c.id,
-      colorId:       c.colorId ?? "",
-      unitPrice:     Number(c.unitPrice),
-      weight:        c.weight,
-      stock:         c.stock,
-      isPrimary:     c.isPrimary,
-      saleType:      c.saleType as "UNIT" | "PACK",
-      packQuantity:  c.packQuantity,
-      variantSizes:  c.variantSizes,
-      color:         c.color ?? { name: "—", hex: null, patternImage: null },
+      id:                c.id,
+      colorId:           c.colorId ?? "",
+      unitPrice:         Number(c.unitPrice),
+      weight:            c.weight,
+      stock:             c.stock,
+      isPrimary:         c.isPrimary,
+      saleType:          c.saleType as "UNIT" | "PACK",
+      packQuantity:      c.packQuantity,
+      efashionProductId: c.efashionProductId ?? null,
+      variantSizes:      c.variantSizes,
+      color:             c.color ?? { name: "—", hex: null, patternImage: null },
     })),
     translations:    p.translations,
     };
@@ -396,6 +402,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         hasPfsConfig={hasPfsConfig}
         hasAnkorstoreConfig={hasAnkorstoreConfig}
         ankorstoreEnabled={ankorstoreEnabled}
+        hasEfashionConfig={hasEfashionConfig}
+        efashionEnabled={efashionEnabled}
       />
 
       {/* Pagination */}

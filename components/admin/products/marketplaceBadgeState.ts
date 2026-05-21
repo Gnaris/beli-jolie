@@ -14,7 +14,9 @@ function outcomeForTarget(
   item: MarketplaceRefreshItem,
   target: MarketplaceTarget,
 ): TargetOutcome | undefined {
-  return target === "ankorstore" ? item.ankorsOutcome : item.pfsOutcome;
+  if (target === "ankorstore") return item.ankorsOutcome;
+  if (target === "efashion") return item.efashionOutcome;
+  return item.pfsOutcome;
 }
 
 export function findLatestOpForProduct(

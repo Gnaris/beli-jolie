@@ -406,6 +406,63 @@ export const getCachedAnkorstoreEnabled = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
+// ─── eFashion — credentials, enabled, has-config (même pattern que PFS/Ankorstore) ──
+async function readEfashionCredentialsDirect() {
+  const rows = await prisma.siteConfig.findMany({
+    where: { key: { in: ["efashion_email", "efashion_password"] } },
+  });
+  const map = new Map(rows.map((r) => [r.key, decryptIfSensitive(r.key, r.value)]));
+  return {
+    email: map.get("efashion_email") ?? null,
+    password: map.get("efashion_password") ?? null,
+  };
+}
+
+const _cachedEfashionCredentials = unstable_cache(
+  readEfashionCredentialsDirect,
+  ["efashion-credentials"],
+  { revalidate: 300, tags: ["site-config"] },
+);
+
+export async function getCachedEfashionCredentials() {
+  try {
+    return await _cachedEfashionCredentials();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("incrementalCache") || msg.includes("unstable_cache")) {
+      return await readEfashionCredentialsDirect();
+    }
+    throw err;
+  }
+}
+
+export const getCachedHasEfashionConfig = unstable_cache(
+  async () => {
+    const row = await prisma.siteConfig.findUnique({
+      where: { key: "efashion_email" },
+      select: { key: true },
+    });
+    return !!row;
+  },
+  ["has-efashion-config"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
+export const getCachedEfashionEnabled = unstable_cache(
+  async () => {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: ["efashion_email", "efashion_enabled"] } },
+      select: { key: true, value: true },
+    });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const hasConfig = map.has("efashion_email");
+    const enabled = map.get("efashion_enabled");
+    return hasConfig && enabled !== "false";
+  },
+  ["efashion-enabled"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
 // ─── Product count (expensive count on 78k rows, cache 5min) ───────────────────
 export const getCachedProductCount = unstable_cache(
   async () => prisma.product.count({ where: { status: "ONLINE" } }),

@@ -12,6 +12,7 @@ interface CompositionItem {
   id: string;
   name: string;
   pfsCompositionRef: string | null;
+  efashionId?: number | null;
   productCount: number;
   translations: Record<string, string>;
 }
@@ -124,7 +125,7 @@ export default function CompositionsManager({
                 <tr className="bg-bg-secondary border-b border-border">
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Nom</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Produits</th>
-                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Réf Paris Fashion Shop</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Marketplaces</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Traduction</th>
                   <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Actions</th>
                 </tr>
@@ -139,11 +140,20 @@ export default function CompositionsManager({
                       <span className="badge badge-neutral text-[10px]">{comp.productCount}</span>
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
-                      {comp.pfsCompositionRef ? (
-                        <span className="badge badge-purple text-[10px]">PFS: {comp.pfsCompositionRef}</span>
-                      ) : (
-                        <span className="text-text-muted text-xs">—</span>
-                      )}
+                      <div className="flex flex-col gap-1 items-start">
+                        {comp.pfsCompositionRef ? (
+                          <span className="badge badge-purple text-[10px]">PFS: {comp.pfsCompositionRef}</span>
+                        ) : null}
+                        {comp.efashionId != null ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]">
+                            <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
+                            eFashion: {comp.efashionId}
+                          </span>
+                        ) : null}
+                        {!comp.pfsCompositionRef && comp.efashionId == null && (
+                          <span className="text-text-muted text-xs">—</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-center hidden sm:table-cell">
                       {Object.keys(comp.translations).length === 0 ? (
@@ -206,6 +216,7 @@ export default function CompositionsManager({
             name: editTarget.name,
             translations: editTarget.translations,
             pfsRef: editTarget.pfsCompositionRef,
+            efashionCurrentId: editTarget.efashionId ?? null,
             onSave: handleSave,
           }}
         />

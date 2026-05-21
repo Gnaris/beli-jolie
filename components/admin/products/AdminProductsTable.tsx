@@ -11,7 +11,7 @@ import {
   updateVariantQuick,
   bulkUpdateVariants,
 } from "@/app/actions/admin/products";
-import { deleteProductsOnPfs, deleteProductsOnAnkorstore } from "@/app/actions/admin/marketplace-delete";
+import { deleteProductsOnPfs, deleteProductsOnAnkorstore, deleteProductsOnEfashion } from "@/app/actions/admin/marketplace-delete";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
@@ -319,6 +319,7 @@ interface ColorVariant {
   packQuantity: number | null;
   variantSizes?: VariantSizeEntry[];
   color: { name: string; hex: string | null; patternImage?: string | null };
+  efashionProductId?: number | null;
 }
 
 interface ProductTranslation {
@@ -349,6 +350,8 @@ interface Props {
   hasPfsConfig: boolean;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
+  hasEfashionConfig: boolean;
+  efashionEnabled: boolean;
 }
 
 // ─── Variant Editor Row ────────────────────────────────────────────────────────
@@ -1880,6 +1883,8 @@ export default function AdminProductsTable({
   hasPfsConfig,
   hasAnkorstoreConfig,
   ankorstoreEnabled,
+  hasEfashionConfig,
+  efashionEnabled,
 }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -2160,9 +2165,24 @@ export default function AdminProductsTable({
           .filter((p) => ids.includes(p.id) && p.ankorsProductId)
           .map((p) => ({ ankorsProductId: p.ankorsProductId as string, reference: p.reference }))
       : [];
+    // eFashion : 1 produit BJ = N produit-couleurs côté eFashion (1 par couleur)
+    const showEfashion = hasEfashionConfig && efashionEnabled;
+    const efashionCandidates = showEfashion
+      ? allProducts
+          .filter((p) => ids.includes(p.id))
+          .flatMap((p) =>
+            (p.colors ?? [])
+              .filter((c) => c.efashionProductId != null)
+              .map((c) => ({
+                efashionProductId: c.efashionProductId as number,
+                reference: p.reference,
+              })),
+          )
+      : [];
 
     const pfsRef = { current: false };
     const ankorsRef = { current: false };
+    const efashionRef = { current: false };
 
     const checkboxes: {
       id: string;
@@ -2190,6 +2210,17 @@ export default function AdminProductsTable({
         },
       });
     }
+    if (efashionCandidates.length > 0) {
+      const productsWithEfashion = new Set(efashionCandidates.map((c) => c.reference)).size;
+      checkboxes.push({
+        id: "efashion",
+        label: `Supprimer aussi sur eFashion Paris (${efashionCandidates.length} fiche${efashionCandidates.length > 1 ? "s" : ""}-couleur sur ${productsWithEfashion} produit${productsWithEfashion > 1 ? "s" : ""})`,
+        defaultChecked: false,
+        onChange: (v) => {
+          efashionRef.current = v;
+        },
+      });
+    }
 
     const confirmed = await confirm({
       type: "danger",
@@ -2206,6 +2237,7 @@ export default function AdminProductsTable({
 
     const confirmPfsDelete = pfsRef.current && pfsCandidates.length > 0;
     const confirmAnkorsDelete = ankorsRef.current && ankorsCandidates.length > 0;
+    const confirmEfashionDelete = efashionRef.current && efashionCandidates.length > 0;
 
     setBulkMessage(null);
     setDeletingIds(new Set(ids));
@@ -2250,6 +2282,26 @@ export default function AdminProductsTable({
         if (fromBulk) setSelectedIds(new Set());
         router.refresh();
 
+        // Suppression eFashion en parallèle (synchrone) si l'admin a confirmé
+        if (confirmEfashionDelete) {
+          try {
+            const efResults = await deleteProductsOnEfashion(efashionCandidates);
+            const okCount = efResults.filter((r) => r.status === "ok").length;
+            const errCount = efResults.length - okCount;
+            if (errCount === 0) {
+              toast.success(`${okCount} fiche${okCount > 1 ? "s" : ""} supprimée${okCount > 1 ? "s" : ""} sur eFashion Paris`);
+            } else {
+              const errRefs = efResults.filter((r) => r.status === "error").map((r) => r.reference).join(", ");
+              toast.error(
+                "Suppression eFashion partielle",
+                `${okCount} OK · ${errCount} échec${errCount > 1 ? "s" : ""} (${errRefs})`,
+              );
+            }
+          } catch (err) {
+            toast.error("Échec suppression eFashion", err instanceof Error ? err.message : String(err));
+          }
+        }
+
         // Suppression PFS en arrière-plan si l'admin a confirmé
         if (confirmPfsDelete) {
           try {
@@ -2276,7 +2328,7 @@ export default function AdminProductsTable({
         setDeletingIds(new Set());
       }
     });
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, hasPfsConfig, showAnkorstore, toast, router]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, toast, router]);
 
   // Synchroniser un (ou plusieurs) produit(s) avec les marketplaces : renvoie
   // toutes les données (prix, stock, images, statut, etc.) au même `pfsProductId`

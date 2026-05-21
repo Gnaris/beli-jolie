@@ -509,6 +509,75 @@ export async function validateAnkorstoreCredentials(config: {
   }
 }
 
+// ─── eFashion Paris Configuration ────────────────────────────────────────────
+
+export async function updateEfashionCredentials(config: {
+  email: string;
+  password: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const email = config.email.trim();
+    const password = config.password.trim();
+
+    const upsertOrDelete = (key: string, value: string) => {
+      if (!value) return prisma.siteConfig.deleteMany({ where: { key } });
+      const stored = encryptIfSensitive(key, value);
+      return prisma.siteConfig.upsert({
+        where: { key },
+        update: { value: stored },
+        create: { key, value: stored },
+      });
+    };
+
+    await Promise.all([
+      upsertOrDelete("efashion_email", email),
+      upsertOrDelete("efashion_password", password),
+    ]);
+
+    // Force réauth au prochain appel API (l'ancienne session devient invalide).
+    const { invalidateEfashionSession } = await import("@/lib/efashion-auth");
+    invalidateEfashionSession();
+
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export async function toggleEfashionEnabled(
+  enabled: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await prisma.siteConfig.upsert({
+      where: { key: "efashion_enabled" },
+      update: { value: enabled ? "true" : "false" },
+      create: { key: "efashion_enabled", value: enabled ? "true" : "false" },
+    });
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export async function validateEfashionCredentials(config: {
+  email: string;
+  password: string;
+}): Promise<{ valid: boolean; error?: string; vendor?: { id: number; name: string } }> {
+  try {
+    await requireAdmin();
+    const { testEfashionCredentials } = await import("@/lib/efashion-auth");
+    return await testEfashionCredentials(config.email.trim(), config.password.trim());
+  } catch {
+    return { valid: false, error: "Impossible de contacter eFashion Paris." };
+  }
+}
+
 // ─── DeepL Configuration ────────────────────────────────────────────────────
 
 export async function updateDeeplApiKey(
@@ -765,6 +834,7 @@ export interface MarketplaceMarkupSettings {
   ankorstoreWholesale?: MarkupState;
   ankorstoreRetail?: MarkupState;
   ankorstoreVatRate?: number;
+  efashion?: MarkupState;
 }
 
 export async function updateMarketplaceMarkup(
@@ -801,6 +871,14 @@ export async function updateMarketplaceMarkup(
 
     if (settings.ankorstoreVatRate !== undefined) {
       pairs.push({ key: "ankorstore_default_vat_rate", value: String(settings.ankorstoreVatRate) });
+    }
+
+    if (settings.efashion) {
+      pairs.push(
+        { key: "efashion_price_markup_type", value: settings.efashion.type },
+        { key: "efashion_price_markup_value", value: String(settings.efashion.value) },
+        { key: "efashion_price_markup_rounding", value: settings.efashion.rounding }
+      );
     }
 
     await Promise.all(

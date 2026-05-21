@@ -39,6 +39,7 @@ export interface MarketplaceRefreshOptions {
   local: boolean; // Bump lastRefreshedAt (makes product "Nouveauté" again)
   pfs: boolean; // Re-push to PFS (create new + soft-delete old)
   ankorstore?: boolean; // Re-push to Ankorstore (Phase 4)
+  efashion?: boolean; // Re-push to eFashion Paris (Lot 3 = update / Lot 5 = refresh complet)
 }
 
 async function refreshLocal(productId: string): Promise<void> {

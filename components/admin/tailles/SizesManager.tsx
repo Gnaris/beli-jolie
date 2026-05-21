@@ -13,6 +13,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import CustomSelect from "@/components/ui/CustomSelect";
+import SizeMappingModal from "./SizeMappingModal";
 import { isProtectedSizeName } from "@/lib/protected-sizes";
 
 interface SizeItem {
@@ -21,6 +22,8 @@ interface SizeItem {
   position: number;
   variantCount: number;
   pfsSizeRef: string | null;
+  efashionDeclinaisonId?: number | null;
+  efashionDeclinaisonField?: string | null;
 }
 
 interface PfsSizeOption {
@@ -50,6 +53,8 @@ export default function SizesManager({
   // Edit state (per-row inline)
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  // Marketplace mapping modal target
+  const [mappingModal, setMappingModal] = useState<SizeItem | null>(null);
 
   // Sizes state (reorder + optimistic PFS ref)
   const [sizes, setSizes] = useState(initialSizes);
@@ -100,7 +105,17 @@ export default function SizesManager({
         const created = await createSize(trimmedName, newPfsRef);
         setNewName("");
         setNewPfsRef("");
-        toast.success(`Taille « ${created.name} » créée.`);
+        toast.success(`Taille « ${created.name} » créée — ajoutez maintenant le mapping eFashion.`);
+        // Auto-ouvre la modale Marketplaces pour proposer le mapping eFashion à chaud
+        setMappingModal({
+          id: created.id,
+          name: created.name,
+          position: 0,
+          variantCount: 0,
+          pfsSizeRef: created.pfsSizeRef,
+          efashionDeclinaisonId: null,
+          efashionDeclinaisonField: null,
+        });
         router.refresh();
       } catch (err: unknown) {
         const message = (err as Error).message;
@@ -388,20 +403,23 @@ export default function SizesManager({
                         </div>
                       </div>
 
-                      {/* PFS single-ref CustomSelect */}
-                      {pfsEnabled && (
-                        <div className="shrink-0 w-56">
-                          <CustomSelect
-                            value={size.pfsSizeRef ?? ""}
-                            onChange={(v) => handleSetPfsRef(size.id, v)}
-                            options={pfsOptions}
-                            size="sm"
-                            searchable
-                            placeholder="Choisir une réf PFS…"
-                            emptyMessage="Aucune référence"
-                            disabled={pfsSaving === size.id || isProtected}
-                            aria-label={`Référence PFS pour ${size.name}`}
-                          />
+                      {/* Bouton PFS (eFashion résolu auto au publish) */}
+                      {!isProtected && pfsEnabled && (
+                        <div className="shrink-0 flex items-center gap-1.5">
+                          {size.pfsSizeRef && (
+                            <span className="badge badge-purple text-[10px]">PFS: {size.pfsSizeRef}</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setMappingModal(size)}
+                            className="inline-flex items-center gap-1 h-7 px-2.5 text-[11px] font-body font-medium rounded-md border border-border bg-bg-secondary text-text-secondary hover:bg-bg-tertiary transition-colors"
+                            title="Modifier la correspondance PFS"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+                            </svg>
+                            Mapping PFS
+                          </button>
                         </div>
                       )}
 
@@ -446,6 +464,25 @@ export default function SizesManager({
           </div>
         )}
       </div>
+
+      {mappingModal && (
+        <SizeMappingModal
+          sizeId={mappingModal.id}
+          sizeName={mappingModal.name}
+          pfsRef={mappingModal.pfsSizeRef}
+          efashionDeclinaisonId={mappingModal.efashionDeclinaisonId ?? null}
+          efashionDeclinaisonField={mappingModal.efashionDeclinaisonField ?? null}
+          pfsOptions={pfsSizes}
+          pfsEnabled={pfsEnabled}
+          onSavePfsRef={async (sizeId, ref) => {
+            await handleSetPfsRef(sizeId, ref);
+          }}
+          onClose={() => {
+            setMappingModal(null);
+            router.refresh();
+          }}
+        />
+      )}
     </>
   );
 }

@@ -18,6 +18,7 @@ import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
 import TranslateButton from "@/components/admin/TranslateButton";
 import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
 import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
+import EfashionMappingPicker, { type EmbeddedPickerKind } from "@/components/admin/EfashionMappingPicker";
 import PfsSuggestions, { type PfsCategoryTriple, type PfsRefOption } from "@/components/admin/pfs/PfsSuggestions";
 import {
   PFS_COLORS,
@@ -63,6 +64,8 @@ interface QuickCreateModalProps {
     pfsFamilyName?: string | null;
     pfsCategoryName?: string | null;
     isoCode?: string | null;
+    /** ID eFashion actuellement lié (Int ou null). Active la section eFashion dans la sidebar. */
+    efashionCurrentId?: number | null;
     onSave: (
       name: string,
       translations: Record<string, string>,
@@ -128,6 +131,9 @@ export default function QuickCreateModal({
   const [pfsGender, setPfsGender] = useState<string | null>(null);
   const [pfsFamilyName, setPfsFamilyName] = useState<string | null>(null);
   const [pfsCategoryName, setPfsCategoryName] = useState<string | null>(null);
+  // eFashion mapping state (utilisé uniquement en mode création — en édition,
+  // le picker auto-save directement via les server actions update).
+  const [efashionCreateId, setEfashionCreateId] = useState<number | null>(null);
 
   // ISO2 (country-only): code pays normalisé pour usage marketplace
   const [isoCode, setIsoCode] = useState<string>("");
@@ -393,18 +399,18 @@ export default function QuickCreateModal({
 
       let result: { id: string; name: string; hex?: string | null; patternImage?: string | null; subCategories?: { id: string; name: string }[] };
       if (type === "category") {
-        result = await createCategoryQuick(names, pfsGender, pfsFamilyName, pfsCategoryName, defaultPfsCategoryId ?? null);
+        result = await createCategoryQuick(names, pfsGender, pfsFamilyName, pfsCategoryName, defaultPfsCategoryId ?? null, efashionCreateId);
       } else if (type === "subcategory") {
         if (!categoryId) throw new Error("Catégorie parente requise.");
         result = await createSubCategoryQuick(names, categoryId);
       } else if (type === "composition") {
-        result = await createCompositionQuick(names, pfsRef || null);
+        result = await createCompositionQuick(names, pfsRef || null, efashionCreateId);
       } else if (type === "tag") {
         result = await createTagQuick(names);
       } else if (type === "country") {
-        result = await createManufacturingCountryQuick(names, normalizedIso, pfsRef || null);
+        result = await createManufacturingCountryQuick(names, normalizedIso, pfsRef || null, efashionCreateId);
       } else if (type === "season") {
-        result = await createSeasonQuick(names, pfsRef || null);
+        result = await createSeasonQuick(names, pfsRef || null, efashionCreateId);
       } else {
         let patternPath: string | null = null;
         if (colorMode === "pattern") {
@@ -416,7 +422,7 @@ export default function QuickCreateModal({
           if (!res.ok) throw new Error(data.error || "Erreur upload motif.");
           patternPath = data.path;
         }
-        result = await createColorQuick(names, colorMode === "hex" ? hex : null, colorMode === "pattern" ? patternPath : null, pfsRef || null);
+        result = await createColorQuick(names, colorMode === "hex" ? hex : null, colorMode === "pattern" ? patternPath : null, pfsRef || null, efashionCreateId);
       }
       onCreated(result);
       onClose();
@@ -448,7 +454,7 @@ export default function QuickCreateModal({
       onMouseUp={backdrop.onMouseUp}
     >
       <div
-        className={`bg-bg-primary rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.3)] flex flex-col max-h-[90vh] ${hasMappableType ? "w-full max-w-[780px]" : "w-full max-w-lg"}`}
+        className={`bg-bg-primary rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.3)] flex flex-col max-h-[90vh] ${hasMappableType ? "w-full max-w-[920px]" : "w-full max-w-lg"}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Header ── */}
@@ -601,35 +607,76 @@ export default function QuickCreateModal({
             <>
               <div className="w-px bg-border shrink-0" />
 
-              <div className="w-[300px] shrink-0 p-6 overflow-y-auto">
+              <div className="w-[360px] shrink-0 p-6 overflow-y-auto bg-bg-secondary/30">
                 <p className="text-[11px] text-text-muted font-body uppercase tracking-wide mb-4">
                   {lockPfs ? "Correspondance Paris Fashion Shop" : "Correspondances Marketplaces"}
                 </p>
 
-                {lockPfs ? (
-                  <LockedPfsMapping
-                    type={type}
-                    pfsRef={pfsRef}
-                    pfsGender={pfsGender}
-                    pfsFamilyName={pfsFamilyName}
-                    pfsCategoryName={pfsCategoryName}
-                  />
-                ) : type === "category" ? (
-                  <MarketplaceMappingSection
-                    entityType="category"
-                    pfsGender={pfsGender}
-                    pfsFamilyName={pfsFamilyName}
-                    pfsCategoryName={pfsCategoryName}
-                    onPfsGenderChange={setPfsGender}
-                    onPfsFamilyNameChange={setPfsFamilyName}
-                    onPfsCategoryNameChange={setPfsCategoryName}
-                  />
-                ) : (
-                  <MarketplaceMappingSection
-                    entityType={type as "color" | "composition" | "country" | "season"}
-                    pfsRef={pfsRef}
-                    onPfsRefChange={setPfsRef}
-                  />
+                {/* ── Bloc PFS ─────────────────────────────────────────── */}
+                <div className="space-y-3 mb-6">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex w-1.5 h-1.5 rounded-full bg-purple-500" />
+                    <p className="text-xs font-semibold text-text-primary font-body uppercase tracking-wider">
+                      Paris Fashion Shop
+                    </p>
+                  </div>
+                  {lockPfs ? (
+                    <LockedPfsMapping
+                      type={type}
+                      pfsRef={pfsRef}
+                      pfsGender={pfsGender}
+                      pfsFamilyName={pfsFamilyName}
+                      pfsCategoryName={pfsCategoryName}
+                    />
+                  ) : type === "category" ? (
+                    <MarketplaceMappingSection
+                      entityType="category"
+                      pfsGender={pfsGender}
+                      pfsFamilyName={pfsFamilyName}
+                      pfsCategoryName={pfsCategoryName}
+                      onPfsGenderChange={setPfsGender}
+                      onPfsFamilyNameChange={setPfsFamilyName}
+                      onPfsCategoryNameChange={setPfsCategoryName}
+                    />
+                  ) : (
+                    <MarketplaceMappingSection
+                      entityType={type as "color" | "composition" | "country" | "season"}
+                      pfsRef={pfsRef}
+                      onPfsRefChange={setPfsRef}
+                    />
+                  )}
+                </div>
+
+                {/* ── Bloc eFashion Paris (création OU édition, types supportés) ── */}
+                {(type === "category" || type === "country" || type === "season" || type === "composition" || type === "color") && !lockPfs && (
+                  <div className="space-y-3 pt-4 border-t border-border">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      <p className="text-xs font-semibold text-text-primary font-body uppercase tracking-wider">
+                        eFashion Paris
+                      </p>
+                    </div>
+                    {isEdit && editMode ? (
+                      <EfashionMappingPicker
+                        entityId={editMode.id}
+                        kind={type as EmbeddedPickerKind}
+                        initialValue={editMode.efashionCurrentId ?? null}
+                        entityName={names["fr"] ?? editMode.name}
+                      />
+                    ) : (
+                      <EfashionMappingPicker
+                        kind={type as EmbeddedPickerKind}
+                        initialValue={efashionCreateId}
+                        entityName={names["fr"]}
+                        onChange={setEfashionCreateId}
+                      />
+                    )}
+                    <p className="text-[11px] text-text-muted font-body leading-relaxed">
+                      {isEdit
+                        ? "Enregistré automatiquement à chaque changement."
+                        : "Sera enregistré à la création — vous pouvez aussi le laisser vide et le compléter plus tard."}
+                    </p>
+                  </div>
                 )}
 
                 {type === "country" && (

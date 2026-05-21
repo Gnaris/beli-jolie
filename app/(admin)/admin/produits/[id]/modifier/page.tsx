@@ -14,6 +14,8 @@ import {
   getCachedPfsEnabled,
   getCachedHasAnkorstoreConfig,
   getCachedAnkorstoreEnabled,
+  getCachedHasEfashionConfig,
+  getCachedEfashionEnabled,
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
 
@@ -38,6 +40,8 @@ export default async function ModifierProduitPage({
     hasPfsConfig,
     hasAnkorstoreConfig,
     ankorstoreEnabled,
+    hasEfashionConfig,
+    efashionEnabled,
   ] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
@@ -123,6 +127,8 @@ export default async function ModifierProduitPage({
     getCachedPfsEnabled(),
     getCachedHasAnkorstoreConfig(),
     getCachedAnkorstoreEnabled(),
+    getCachedHasEfashionConfig(),
+    getCachedEfashionEnabled(),
   ]);
 
   if (!product) notFound();
@@ -427,6 +433,9 @@ export default async function ModifierProduitPage({
                 )}
                 <span className="hidden sm:block h-4 w-px bg-border" />
                 <MarketplaceStatusButtons
+                  efashionLinked={product.colors.some((c) => c.efashionProductId !== null)}
+                  hasEfashionConfig={hasEfashionConfig}
+                  efashionEnabled={efashionEnabled}
                   productId={product.id}
                   reference={product.reference}
                   productName={product.name}

@@ -27,6 +27,7 @@ interface Category {
   pfsGender: string | null;
   pfsFamilyName: string | null;
   pfsCategoryName: string | null;
+  efashionCategorieId?: number | null;
   productCount: number;
   translations: Record<string, string>;
   subCategories: SubCategoryItem[];
@@ -174,7 +175,7 @@ export default function CategoriesManager({ categories }: { categories: Category
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Sous-cat.</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Produits</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Traduction</th>
-                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Paris Fashion Shop</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Marketplaces</th>
                   <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Actions</th>
                 </tr>
               </thead>
@@ -250,27 +251,36 @@ export default function CategoriesManager({ categories }: { categories: Category
                             </span>
                           )}
                         </td>
-                        {/* PFS */}
+                        {/* Marketplaces : PFS + eFashion */}
                         <td className="px-4 py-3 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
-                          {cat.pfsGender && cat.pfsFamilyName && !isSalesforceId(cat.pfsFamilyName) && cat.pfsCategoryName ? (
-                            <div className="flex flex-col gap-0.5">
-                              <span className="badge badge-purple text-[10px]">
-                                {GENDER_LABELS[cat.pfsGender] ?? cat.pfsGender}
+                          <div className="flex flex-col gap-1 items-start">
+                            {cat.pfsGender && cat.pfsFamilyName && !isSalesforceId(cat.pfsFamilyName) && cat.pfsCategoryName ? (
+                              <div className="flex flex-col gap-0.5">
+                                <span className="badge badge-purple text-[10px]">
+                                  {GENDER_LABELS[cat.pfsGender] ?? cat.pfsGender}
+                                </span>
+                                <span className="text-[10px] text-text-muted">
+                                  {cat.pfsFamilyName.replace(/_/g, " ")} &gt; {cat.pfsCategoryName}
+                                </span>
+                              </div>
+                            ) : cat.pfsGender ? (
+                              <div className="flex flex-col gap-0.5">
+                                <span className="badge badge-warning text-[10px]">
+                                  {GENDER_LABELS[cat.pfsGender] ?? cat.pfsGender}
+                                </span>
+                                <span className="text-[10px] text-amber-600">PFS incomplet</span>
+                              </div>
+                            ) : null}
+                            {cat.efashionCategorieId != null ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]">
+                                <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
+                                eFashion: {cat.efashionCategorieId}
                               </span>
-                              <span className="text-[10px] text-text-muted">
-                                {cat.pfsFamilyName.replace(/_/g, " ")} &gt; {cat.pfsCategoryName}
-                              </span>
-                            </div>
-                          ) : cat.pfsGender ? (
-                            <div className="flex flex-col gap-0.5">
-                              <span className="badge badge-warning text-[10px]">
-                                {GENDER_LABELS[cat.pfsGender] ?? cat.pfsGender}
-                              </span>
-                              <span className="text-[10px] text-amber-600">Mapping incomplet</span>
-                            </div>
-                          ) : (
-                            <span className="text-text-muted text-xs">—</span>
-                          )}
+                            ) : null}
+                            {!cat.pfsGender && cat.efashionCategorieId == null && (
+                              <span className="text-text-muted text-xs">—</span>
+                            )}
+                          </div>
                         </td>
                         {/* Actions */}
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -412,6 +422,7 @@ export default function CategoriesManager({ categories }: { categories: Category
             pfsGender: editCat.pfsGender,
             pfsFamilyName: isSalesforceId(editCat.pfsFamilyName) ? null : editCat.pfsFamilyName,
             pfsCategoryName: editCat.pfsCategoryName,
+            efashionCurrentId: editCat.efashionCategorieId ?? null,
             onSave: handleSaveCat,
           }}
         />
