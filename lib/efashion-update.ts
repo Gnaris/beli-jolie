@@ -89,11 +89,19 @@ export async function efashionUpdateProductInPlace(
 
   const markup = await loadEfashionMarkup();
 
-  const linkedColors = product.colors.filter((c) => c.efashionProductId !== null);
-  const unlinkedCount = product.colors.length - linkedColors.length;
+  // eFashion ne synchronise que les variantes UNIT. Une variante PACK qui
+  // posséderait un efashionProductId (cas legacy avant le script de migration)
+  // est explicitement ignorée ici.
+  const unitColors = product.colors.filter((c) => c.saleType === "UNIT");
+  const linkedColors = unitColors.filter((c) => c.efashionProductId !== null);
+  const unlinkedCount = unitColors.length - linkedColors.length;
 
   if (linkedColors.length === 0) {
-    return { success: false, error: "Aucune couleur de ce produit n'est liée à eFashion." };
+    return {
+      success: false,
+      error:
+        "Aucune variante à l'unité de ce produit n'est liée à eFashion (les packs ne sont pas synchronisés).",
+    };
   }
 
   // Construit le snapshot cible

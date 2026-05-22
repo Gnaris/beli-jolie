@@ -98,6 +98,18 @@ export async function efashionPublishProduct(
   if (product.colors.length === 0)
     return { success: false, error: "Le produit n'a aucune couleur." };
 
+  // eFashion ne gère qu'1 ligne par couleur (pas de notion UNIT/PACK).
+  // On reproduit la règle Ankorstore : seules les variantes UNIT sont
+  // synchronisées. Les packs sont ignorés silencieusement.
+  product.colors = product.colors.filter((c) => c.saleType === "UNIT");
+  if (product.colors.length === 0) {
+    return {
+      success: false,
+      error:
+        "Aucune variante à l'unité — eFashion ne synchronise que les variantes vendues à l'unité (les packs sont ignorés). Ajoutez au moins une variante de type Unité pour publier sur eFashion.",
+    };
+  }
+
   // Validations centralisées — on liste TOUT ce qui manque pour donner un retour clair.
   // ⚠️ Les tailles ne sont PLUS validées au niveau Size.efashionDeclinaisonId :
   // la déclinaison est résolue dynamiquement (cf. resolveEfashionDeclinaison ci-dessous).
