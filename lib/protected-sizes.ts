@@ -39,6 +39,8 @@ export interface SizeManagerItem {
   pfsSizeRef: string | null;
   efashionDeclinaisonId?: number | null;
   efashionDeclinaisonField?: string | null;
+  /** Libellé résolu eFashion (ex : "Bagues / taille_50"). Affichage seulement. */
+  efashionLabel?: string | null;
 }
 
 /** Same as withProtectedSize but for the admin SizesManager item shape. */

@@ -8,16 +8,26 @@
  */
 
 import { ensureEfashionSession } from "@/lib/efashion-auth";
-import { efashionGraphql } from "@/lib/efashion-client";
+import { efashionFetch, efashionGraphql } from "@/lib/efashion-client";
+import { logger } from "@/lib/logger";
 
 interface UpdateProduitInput {
   id_produit: number;
+  // ⚠️ Pour que `prix` ne soit pas propagé à toutes les couleurs, il faut
+  // envoyer le payload **complet** comme le fait l'UI eFashion (cf. HAR de
+  // mai 2026). Avec seulement `{ id_produit, prix }`, eFashion considère
+  // que c'est une modif au niveau « groupe » et propage à toutes les couleurs.
+  reference?: string;
+  reference_base?: string;
   visible?: boolean;
   prix?: number | string;
   prixReduit?: number | string | null;
   poids?: number | string;
   vendu_par?: "couleurs" | "tailles";
+  id_vendeur_marque?: number;
+  id_provenance?: number;
   id_collection?: number;
+  id_declinaison?: number;
   id_categorie?: number;
   id_pack?: number | null;
 }
@@ -58,6 +68,25 @@ export async function efashionUpdateProduit(
     throw new Error("eFashion: updateProduit a renvoyé un résultat vide");
   }
   return data.updateProduit;
+}
+
+/**
+ * Bascule la couleur principale (`main = true`) du groupe vers `idProduit`.
+ * eFashion garantit qu'il n'y a qu'une seule main par groupe : appeler ça
+ * sur une variante non-main la promeut et démote l'ancienne automatiquement.
+ *
+ * Retourne `true` quand la bascule a réussi côté eFashion (no-op idempotent
+ * si la cible est déjà main).
+ */
+export async function efashionToggleMainProduct(idProduit: number): Promise<boolean> {
+  await ensureEfashionSession();
+  const data = await efashionGraphql<{ toggleMainProduct: boolean }>(
+    `mutation ToggleMainProduct($idProduit: Int!) {
+      toggleMainProduct(idProduit: $idProduit)
+    }`,
+    { idProduit },
+  );
+  return data.toggleMainProduct ?? true;
 }
 
 /**
@@ -143,6 +172,112 @@ export async function efashionAddCouleurToVendeur(args: {
     { id_vendeur: args.id_vendeur, id_couleur: args.id_couleur },
   );
   return data.addCouleurToVendeur;
+}
+
+// ─── Traduction de texte via le moteur d'eFashion ────────────────────────
+//
+// Le back-office d'eFashion utilise deux endpoints REST sous wapi pour
+// traduire à la volée (cf. HAR de mai 2026, capturé sur leur UI) :
+//   - POST /translate/detect  → détecte la langue source
+//   - POST /translate         → traduit vers une liste de langues cibles
+//
+// Les codes de langue sont **en français** : "francais", "anglais", "italien",
+// "espagnol", "chinois". Pas de codes ISO. La réponse est un objet plat
+// indexé par ces mêmes libellés ({ "anglais": "...", "italien": "...", ... }).
+
+const EFASHION_LANG_CODES = {
+  fr: "francais",
+  en: "anglais",
+  it: "italien",
+  es: "espagnol",
+  zh: "chinois",
+} as const;
+
+type EfashionTargetLocale = Exclude<keyof typeof EFASHION_LANG_CODES, "fr">;
+
+/**
+ * Traduit un texte FR vers les langues cibles via le moteur d'eFashion
+ * (utilise leur back-office REST, pas DeepL local). Retourne les
+ * traductions dans un dico locale → texte. Les locales absentes de la
+ * réponse retombent sur le texte FR d'origine (graceful fallback).
+ *
+ * Lance une erreur si l'appel HTTP échoue ou si la session n'est pas valide.
+ */
+async function callTranslateOnce(text: string, targets: EfashionTargetLocale[]) {
+  const targetLangs = targets.map((loc) => EFASHION_LANG_CODES[loc]);
+
+  logger.info("[eFashion translate] Appel /translate", {
+    targetLangs,
+    textLength: text.length,
+  });
+
+  const res = await efashionFetch("/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text,
+      sourceLang: EFASHION_LANG_CODES.fr,
+      targetLangs,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`eFashion /translate HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return (await res.json()) as Record<string, string>;
+}
+
+export async function efashionTranslateText(args: {
+  text: string;
+  targetLocales?: EfashionTargetLocale[];
+}): Promise<Record<EfashionTargetLocale, string>> {
+  await ensureEfashionSession();
+
+  const targets: EfashionTargetLocale[] =
+    args.targetLocales && args.targetLocales.length > 0
+      ? args.targetLocales
+      : ["en", "it", "es", "zh"];
+
+  // 1ʳᵉ tentative : toutes les langues demandées (en/it/es/zh par défaut).
+  // Si ça plante (souvent parce que `chinois` n'est pas supporté côté eFashion),
+  // on retombe sur le sous-ensemble certain (en/it/es) — observé dans le HAR
+  // de leur back-office.
+  let json: Record<string, string>;
+  try {
+    json = await callTranslateOnce(args.text, targets);
+  } catch (err) {
+    const wantsZh = targets.includes("zh");
+    if (!wantsZh) throw err;
+    const fallback = targets.filter((t) => t !== "zh");
+    logger.warn(
+      "[eFashion translate] Premier appel échoué, retry sans chinois",
+      { error: err instanceof Error ? err.message : String(err) },
+    );
+    json = await callTranslateOnce(args.text, fallback);
+  }
+
+  const out = {} as Record<EfashionTargetLocale, string>;
+  for (const loc of targets) {
+    const langKey = EFASHION_LANG_CODES[loc];
+    const value = json[langKey];
+    if (typeof value === "string" && value.length > 0) {
+      out[loc] = value;
+    } else {
+      // L'endpoint a répondu mais sans la langue demandée — fallback sur le FR
+      // d'origine (préférable à une chaîne vide qui « casse » la fiche eFashion).
+      logger.warn("[eFashion translate] Langue manquante dans la réponse", {
+        missing: langKey,
+        responseKeys: Object.keys(json),
+      });
+      out[loc] = args.text;
+    }
+  }
+  logger.info("[eFashion translate] Traductions obtenues", {
+    locales: Object.keys(out),
+    sampleEn: out.en?.slice(0, 60),
+  });
+  return out;
 }
 
 // ─── Description multilingue (live edit) ─────────────────────────────────

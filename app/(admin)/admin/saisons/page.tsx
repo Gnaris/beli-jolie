@@ -3,23 +3,28 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import EntityCreateButton from "@/components/admin/EntityCreateButton";
 import SeasonsManager from "@/components/admin/seasons/SeasonsManager";
+import { getEfashionLabelMaps, resolveCollectionLabel } from "@/lib/efashion-labels";
 
 export const metadata: Metadata = { title: "Saisons" };
 
 export default async function SaisonsPage() {
-  const seasons = await prisma.season.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      _count: { select: { products: true } },
-      translations: true,
-    },
-  });
+  const [seasons, efashionLabels] = await Promise.all([
+    prisma.season.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        _count: { select: { products: true } },
+        translations: true,
+      },
+    }),
+    getEfashionLabelMaps(),
+  ]);
 
   const seasonItems = seasons.map((s) => ({
     id: s.id,
     name: s.name,
     pfsRef: s.pfsRef,
     efashionCollectionId: s.efashionCollectionId,
+    efashionCollectionLabel: resolveCollectionLabel(efashionLabels, s.efashionCollectionId),
     productCount: s._count.products,
     translations: Object.fromEntries(s.translations.map((t) => [t.locale, t.name])),
   }));

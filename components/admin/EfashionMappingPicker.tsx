@@ -16,11 +16,11 @@
  */
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useToast } from "@/components/ui/Toast";
 import {
   loadEfashionAnnexes,
-  searchEfashionCompositionsAction,
   updateCategoryEfashionMapping,
   updateManufacturingCountryEfashionMapping,
   updateSeasonEfashionMapping,
@@ -114,19 +114,22 @@ export default function EfashionMappingPicker({
   onChange,
 }: Props) {
   const toast = useToast();
+  const router = useRouter();
   const [value, setValue] = useState<number | null>(initialValue);
+
+  // Re-synchronise la valeur affichée si le parent passe une nouvelle valeur
+  // initiale (ex : après router.refresh() qui repropage les props).
+  useEffect(() => {
+    setValue(initialValue);
+  }, [initialValue]);
   const [annexes, setAnnexes] = useState<EfashionAnnexes | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
 
-  // Charge les annexes (sauf pour Composition qui utilise l'autocomplete)
+  // Charge les annexes pour tous les types — les compositions (~190) y sont
+  // pré-chargées, plus besoin de l'autocomplete réseau.
   useEffect(() => {
-    if (kind === "composition") {
-      setLoading(false);
-      return;
-    }
-    // Color, category, country, season → besoin des annexes
     setLoading(true);
     ensureAnnexes()
       .then((data) => {
@@ -161,6 +164,11 @@ export default function EfashionMappingPicker({
         toast.error("Sauvegarde eFashion échouée", res.error ?? "Erreur inconnue");
         // Rollback visuel
         setValue(initialValue);
+      } else {
+        // Forcer le re-render du Server Component parent pour que la valeur
+        // sauvegardée soit visible immédiatement (badge tableau, prochaine
+        // réouverture de la modale).
+        router.refresh();
       }
     });
   }
@@ -201,6 +209,11 @@ export default function EfashionMappingPicker({
       options = annexes.collections
         .filter((c) => !seen.has(c.id) && (seen.add(c.id), true))
         .map((c) => ({ value: String(c.id), label: c.label }));
+    } else if (kind === "composition") {
+      const seen = new Set<number>();
+      options = annexes.compositions
+        .filter((c) => !seen.has(c.id) && (seen.add(c.id), true))
+        .map((c) => ({ value: String(c.id), label: c.label }));
     }
   }
 
@@ -218,21 +231,7 @@ export default function EfashionMappingPicker({
     );
   }
 
-  if (kind === "composition") {
-    return (
-      <div className="space-y-2">
-        <EfashionSuggestionsForComposition name={entityName} onPick={saveValue} />
-        <CompositionAutoSelect
-          currentId={value}
-          currentLabel={initialLabel}
-          disabled={disabled || isPending}
-          onPick={saveValue}
-        />
-      </div>
-    );
-  }
-
-  // Pré-suggestions basées sur le nom FR pour catégorie / pays / saison
+  // Pré-suggestions basées sur le nom FR pour catégorie / pays / saison / composition
   const suggestions = annexes && entityName
     ? suggestMatches(
         entityName,
@@ -240,7 +239,9 @@ export default function EfashionMappingPicker({
           ? annexes.categories.filter((c) => c.isLeaf).map((c) => ({ id: c.id, label: c.path }))
           : kind === "country"
             ? annexes.provenances.map((p) => ({ id: p.id, label: p.libelle }))
-            : annexes.collections.map((c) => ({ id: c.id, label: c.label })),
+            : kind === "composition"
+              ? annexes.compositions
+              : annexes.collections.map((c) => ({ id: c.id, label: c.label })),
       )
     : [];
   const showSuggestions = suggestions.length > 0 && value === null;
@@ -301,44 +302,6 @@ function SuggestionsBox({
       </div>
     </div>
   );
-}
-
-// ─── Suggestions pour Composition (autocomplete en arrière-plan) ───────────
-
-function EfashionSuggestionsForComposition({
-  name,
-  onPick,
-}: {
-  name: string | undefined;
-  onPick: (id: number) => void;
-}) {
-  const [results, setResults] = useState<Array<{ id: number; label: string }>>([]);
-  useEffect(() => {
-    const trimmed = name?.trim() ?? "";
-    if (trimmed.length < 2) {
-      setResults([]);
-      return;
-    }
-    let cancelled = false;
-    searchEfashionCompositionsAction(trimmed).then((res) => {
-      if (cancelled) return;
-      if (res.success && res.results) {
-        const norm = normalize(trimmed);
-        // Garde uniquement les matches forts (égalité ou contient le nom)
-        const filtered = res.results
-          .filter((r) => {
-            const rn = normalize(r.label);
-            return rn === norm || rn.includes(norm) || norm.includes(rn);
-          })
-          .slice(0, 3);
-        setResults(filtered);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [name]);
-
-  if (results.length === 0) return null;
-  return <SuggestionsBox suggestions={results.map((r) => ({ ...r, score: 0 }))} onPick={onPick} disabled={false} />;
 }
 
 // ─── Picker complet pour Color (avec swatches + add-to-catalog) ──────────
@@ -526,106 +489,3 @@ function ColorPicker({
   );
 }
 
-// ─── Composition : autocomplete (eFashion ne pré-charge pas la liste) ──────
-
-function CompositionAutoSelect({
-  currentId,
-  currentLabel,
-  disabled,
-  onPick,
-}: {
-  currentId: number | null;
-  currentLabel: string | null | undefined;
-  disabled?: boolean;
-  onPick: (id: number | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [term, setTerm] = useState("");
-  const [results, setResults] = useState<Array<{ id: number; label: string }>>([]);
-  const [searching, setSearching] = useState(false);
-
-  // Recherche debouncée
-  useEffect(() => {
-    if (term.trim().length < 1) {
-      setResults([]);
-      return;
-    }
-    const handle = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const res = await searchEfashionCompositionsAction(term);
-        if (res.success && res.results) setResults(res.results);
-      } finally {
-        setSearching(false);
-      }
-    }, 250);
-    return () => clearTimeout(handle);
-  }, [term]);
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        disabled={disabled}
-        className="w-full text-left px-3 py-2 rounded-lg border border-border bg-bg-primary text-sm font-body hover:bg-bg-secondary transition-colors flex items-center justify-between disabled:opacity-50"
-      >
-        <span className={currentId !== null ? "text-text-primary" : "text-text-muted"}>
-          {currentId !== null
-            ? `${currentLabel ?? "Liée"} (id ${currentId})`
-            : "Tapez pour rechercher…"}
-        </span>
-        <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="absolute z-30 mt-1 w-full bg-bg-primary border border-border rounded-lg shadow-lg p-2 max-h-72 overflow-y-auto">
-          <input
-            type="text"
-            value={term}
-            onChange={(e) => setTerm(e.target.value)}
-            autoFocus
-            placeholder="Tapez 2-3 lettres (ex : Aci, Mét…)"
-            className="w-full h-9 px-3 mb-2 rounded-md border border-border bg-bg-primary text-sm font-body"
-          />
-          {searching && <p className="text-xs text-text-muted font-body px-2">Recherche…</p>}
-          {!searching && results.length === 0 && term.length > 0 && (
-            <p className="text-xs text-text-muted font-body px-2">Aucun résultat.</p>
-          )}
-          <div className="space-y-1">
-            {results.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => {
-                  onPick(r.id);
-                  setOpen(false);
-                  setTerm("");
-                }}
-                className="w-full text-left flex items-center justify-between px-2 py-1.5 rounded hover:bg-bg-secondary text-sm font-body"
-              >
-                <span>{r.label}</span>
-                <span className="text-[11px] text-text-muted">id {r.id}</span>
-              </button>
-            ))}
-          </div>
-          {currentId !== null && (
-            <button
-              type="button"
-              onClick={() => {
-                onPick(null);
-                setOpen(false);
-                setTerm("");
-              }}
-              className="w-full mt-2 px-2 py-1.5 rounded text-xs font-body text-[#DC2626] hover:bg-[#FEF2F2] border-t border-border pt-2"
-            >
-              Effacer la liaison
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}

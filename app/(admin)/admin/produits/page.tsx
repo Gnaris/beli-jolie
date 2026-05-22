@@ -17,6 +17,15 @@ import {
   findProductIdsWithMissingVariantImages,
 } from "@/lib/admin-products-filter";
 import { withProtectedSizeItem, type SizeManagerItem } from "@/lib/protected-sizes";
+import {
+  getEfashionLabelMaps,
+  resolveCategoryLabel,
+  resolveColorLabel,
+  resolveCompositionLabel,
+  resolveProvenanceLabel,
+  resolveCollectionLabel,
+  resolveDeclinaisonLabel,
+} from "@/lib/efashion-labels";
 
 // Attribute managers
 import CategoriesManager from "@/components/admin/categories/SubCategoryList";
@@ -425,17 +434,20 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
    TAB: Catégories
    ═══════════════════════════════════════════════════════════════════════════ */
 async function CategoriesContent() {
-  const categories = await prisma.category.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      subCategories: {
-        orderBy: { name: "asc" },
-        include: { translations: true },
+  const [categories, efashionLabels] = await Promise.all([
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        subCategories: {
+          orderBy: { name: "asc" },
+          include: { translations: true },
+        },
+        translations: true,
+        _count: { select: { products: true } },
       },
-      translations: true,
-      _count: { select: { products: true } },
-    },
-  });
+    }),
+    getEfashionLabelMaps(),
+  ]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
@@ -463,6 +475,8 @@ async function CategoriesContent() {
           pfsGender: c.pfsGender,
           pfsFamilyName: c.pfsFamilyName,
           pfsCategoryName: c.pfsCategoryName,
+          efashionCategorieId: c.efashionCategorieId,
+          efashionCategorieLabel: resolveCategoryLabel(efashionLabels, c.efashionCategorieId),
           productCount: c._count.products,
           translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
           subCategories: c.subCategories.map((s) => ({
@@ -480,7 +494,7 @@ async function CategoriesContent() {
    TAB: Couleurs
    ═══════════════════════════════════════════════════════════════════════════ */
 async function CouleursContent() {
-  const [colors, pfsEnabled, ankorstoreEnabled] = await Promise.all([
+  const [colors, pfsEnabled, ankorstoreEnabled, efashionLabels] = await Promise.all([
     prisma.color.findMany({
       orderBy: { name: "asc" },
       include: {
@@ -490,6 +504,7 @@ async function CouleursContent() {
     }),
     getCachedPfsEnabled(),
     getCachedAnkorstoreEnabled(),
+    getEfashionLabelMaps(),
   ]);
 
   const colorItems = colors.map((c) => ({
@@ -498,6 +513,8 @@ async function CouleursContent() {
     hex: c.hex,
     patternImage: c.patternImage,
     pfsColorRef: c.pfsColorRef ?? null,
+    efashionColorId: c.efashionColorId,
+    efashionColorLabel: resolveColorLabel(efashionLabels, c.efashionColorId),
     productCount: c._count.productColors,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));
@@ -532,18 +549,23 @@ async function CouleursContent() {
    TAB: Compositions
    ═══════════════════════════════════════════════════════════════════════════ */
 async function CompositionsContent() {
-  const compositions = await prisma.composition.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      _count: { select: { products: true } },
-      translations: true,
-    },
-  });
+  const [compositions, efashionLabels] = await Promise.all([
+    prisma.composition.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        _count: { select: { products: true } },
+        translations: true,
+      },
+    }),
+    getEfashionLabelMaps(),
+  ]);
 
   const compositionItems = compositions.map((c) => ({
     id: c.id,
     name: c.name,
     pfsCompositionRef: c.pfsCompositionRef,
+    efashionId: c.efashionId,
+    efashionLabel: resolveCompositionLabel(efashionLabels, c.efashionId),
     productCount: c._count.products,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));
@@ -569,19 +591,24 @@ async function CompositionsContent() {
    TAB: Pays de fabrication
    ═══════════════════════════════════════════════════════════════════════════ */
 async function PaysContent() {
-  const countries = await prisma.manufacturingCountry.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      _count: { select: { products: true } },
-      translations: true,
-    },
-  });
+  const [countries, efashionLabels] = await Promise.all([
+    prisma.manufacturingCountry.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        _count: { select: { products: true } },
+        translations: true,
+      },
+    }),
+    getEfashionLabelMaps(),
+  ]);
 
   const countryItems = countries.map((c) => ({
     id: c.id,
     name: c.name,
     isoCode: c.isoCode,
     pfsCountryRef: c.pfsCountryRef,
+    efashionProvenanceId: c.efashionProvenanceId,
+    efashionProvenanceLabel: resolveProvenanceLabel(efashionLabels, c.efashionProvenanceId),
     productCount: c._count.products,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));
@@ -607,18 +634,23 @@ async function PaysContent() {
    TAB: Saisons
    ═══════════════════════════════════════════════════════════════════════════ */
 async function SaisonsContent() {
-  const seasons = await prisma.season.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      _count: { select: { products: true } },
-      translations: true,
-    },
-  });
+  const [seasons, efashionLabels] = await Promise.all([
+    prisma.season.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        _count: { select: { products: true } },
+        translations: true,
+      },
+    }),
+    getEfashionLabelMaps(),
+  ]);
 
   const seasonItems = seasons.map((s) => ({
     id: s.id,
     name: s.name,
     pfsRef: s.pfsRef,
+    efashionCollectionId: s.efashionCollectionId,
+    efashionCollectionLabel: resolveCollectionLabel(efashionLabels, s.efashionCollectionId),
     productCount: s._count.products,
     translations: Object.fromEntries(s.translations.map((t) => [t.locale, t.name])),
   }));
@@ -676,7 +708,7 @@ async function CodesShContent() {
    TAB: Tailles
    ═══════════════════════════════════════════════════════════════════════════ */
 async function TaillesContent() {
-  const [sizes, annexes] = await Promise.all([
+  const [sizes, annexes, efashionLabels] = await Promise.all([
     prisma.size.findMany({
       orderBy: { position: "asc" },
       include: {
@@ -684,6 +716,7 @@ async function TaillesContent() {
       },
     }),
     getPfsAnnexes().catch(() => null),
+    getEfashionLabelMaps(),
   ]);
 
   const pfsSizes = (annexes?.sizes ?? []).map((ref) => ({ reference: ref, label: ref }));
@@ -695,6 +728,13 @@ async function TaillesContent() {
       position: s.position,
       variantCount: s._count.variantSizes,
       pfsSizeRef: s.pfsSizeRef,
+      efashionDeclinaisonId: s.efashionDeclinaisonId,
+      efashionDeclinaisonField: s.efashionDeclinaisonField,
+      efashionLabel: resolveDeclinaisonLabel(
+        efashionLabels,
+        s.efashionDeclinaisonId,
+        s.efashionDeclinaisonField,
+      ),
     })),
   );
 

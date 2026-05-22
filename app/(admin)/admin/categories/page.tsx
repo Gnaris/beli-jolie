@@ -4,23 +4,27 @@ import { deleteCategory } from "@/app/actions/admin/categories";
 import DeleteButton from "@/components/admin/categories/DeleteButton";
 import CategoriesManager from "@/components/admin/categories/SubCategoryList";
 import EntityCreateButton from "@/components/admin/EntityCreateButton";
+import { getEfashionLabelMaps, resolveCategoryLabel } from "@/lib/efashion-labels";
 
 export const metadata: Metadata = {
   title: "Catégories",
 };
 
 export default async function CategoriesPage() {
-  const categories = await prisma.category.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      subCategories: {
-        orderBy: { name: "asc" },
-        include: { translations: true },
+  const [categories, efashionLabels] = await Promise.all([
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        subCategories: {
+          orderBy: { name: "asc" },
+          include: { translations: true },
+        },
+        translations: true,
+        _count: { select: { products: true } },
       },
-      translations: true,
-      _count: { select: { products: true } },
-    },
-  });
+    }),
+    getEfashionLabelMaps(),
+  ]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -53,6 +57,7 @@ export default async function CategoriesPage() {
         pfsFamilyName: c.pfsFamilyName,
         pfsCategoryName: c.pfsCategoryName,
         efashionCategorieId: c.efashionCategorieId,
+        efashionCategorieLabel: resolveCategoryLabel(efashionLabels, c.efashionCategorieId),
         productCount: c._count.products,
         translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
         subCategories: c.subCategories.map((s) => ({

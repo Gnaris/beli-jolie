@@ -14,6 +14,7 @@ import {
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import MarketplaceMappingBadge from "@/components/admin/MarketplaceMappingBadge";
 
 interface SubCategoryItem {
   id: string;
@@ -28,6 +29,8 @@ interface Category {
   pfsFamilyName: string | null;
   pfsCategoryName: string | null;
   efashionCategorieId?: number | null;
+  /** Libellé résolu de la catégorie eFashion (ex : "Femme > Bijoux > Bracelets"). */
+  efashionCategorieLabel?: string | null;
   productCount: number;
   translations: Record<string, string>;
   subCategories: SubCategoryItem[];
@@ -175,7 +178,8 @@ export default function CategoriesManager({ categories }: { categories: Category
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Sous-cat.</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Produits</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Traduction</th>
-                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Marketplaces</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Paris Fashion Shop</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">eFashion</th>
                   <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Actions</th>
                 </tr>
               </thead>
@@ -251,36 +255,29 @@ export default function CategoriesManager({ categories }: { categories: Category
                             </span>
                           )}
                         </td>
-                        {/* Marketplaces : PFS + eFashion */}
+                        {/* Paris Fashion Shop */}
                         <td className="px-4 py-3 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex flex-col gap-1 items-start">
-                            {cat.pfsGender && cat.pfsFamilyName && !isSalesforceId(cat.pfsFamilyName) && cat.pfsCategoryName ? (
-                              <div className="flex flex-col gap-0.5">
-                                <span className="badge badge-purple text-[10px]">
-                                  {GENDER_LABELS[cat.pfsGender] ?? cat.pfsGender}
-                                </span>
-                                <span className="text-[10px] text-text-muted">
-                                  {cat.pfsFamilyName.replace(/_/g, " ")} &gt; {cat.pfsCategoryName}
-                                </span>
-                              </div>
-                            ) : cat.pfsGender ? (
-                              <div className="flex flex-col gap-0.5">
-                                <span className="badge badge-warning text-[10px]">
-                                  {GENDER_LABELS[cat.pfsGender] ?? cat.pfsGender}
-                                </span>
-                                <span className="text-[10px] text-amber-600">PFS incomplet</span>
-                              </div>
-                            ) : null}
-                            {cat.efashionCategorieId != null ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]">
-                                <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
-                                eFashion: {cat.efashionCategorieId}
-                              </span>
-                            ) : null}
-                            {!cat.pfsGender && cat.efashionCategorieId == null && (
-                              <span className="text-text-muted text-xs">—</span>
-                            )}
-                          </div>
+                          {(() => {
+                            const genderLabel = cat.pfsGender ? (GENDER_LABELS[cat.pfsGender] ?? cat.pfsGender) : null;
+                            const familyLabel = cat.pfsFamilyName && !isSalesforceId(cat.pfsFamilyName)
+                              ? cat.pfsFamilyName.replace(/_/g, " ")
+                              : null;
+                            if (genderLabel && familyLabel && cat.pfsCategoryName) {
+                              return (
+                                <MarketplaceMappingBadge
+                                  value={`${genderLabel} > ${familyLabel} > ${cat.pfsCategoryName}`}
+                                />
+                              );
+                            }
+                            return <MarketplaceMappingBadge value={null} />;
+                          })()}
+                        </td>
+                        {/* eFashion */}
+                        <td className="px-4 py-3 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
+                          <MarketplaceMappingBadge
+                            value={cat.efashionCategorieLabel ?? (cat.efashionCategorieId != null ? `id ${cat.efashionCategorieId}` : null)}
+                            title={cat.efashionCategorieId != null ? `id ${cat.efashionCategorieId}` : undefined}
+                          />
                         </td>
                         {/* Actions */}
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -315,7 +312,7 @@ export default function CategoriesManager({ categories }: { categories: Category
                       {/* Subcategory drawer */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={7} className="p-0">
+                          <td colSpan={8} className="p-0">
                             <div className="bg-bg-tertiary/50 border-t border-border px-6 py-4">
                               <div className="flex items-center justify-between mb-3">
                                 <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-heading">

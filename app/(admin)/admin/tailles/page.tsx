@@ -3,11 +3,12 @@ import type { Metadata } from "next";
 import SizesManager from "@/components/admin/tailles/SizesManager";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { withProtectedSizeItem, type SizeManagerItem } from "@/lib/protected-sizes";
+import { getEfashionLabelMaps, resolveDeclinaisonLabel } from "@/lib/efashion-labels";
 
 export const metadata: Metadata = { title: "Gestion des tailles" };
 
 export default async function TaillesPage() {
-  const [sizes, annexes] = await Promise.all([
+  const [sizes, annexes, efashionLabels] = await Promise.all([
     prisma.size.findMany({
       orderBy: { position: "asc" },
       include: {
@@ -15,6 +16,7 @@ export default async function TaillesPage() {
       },
     }),
     getPfsAnnexes().catch(() => null),
+    getEfashionLabelMaps(),
   ]);
 
   const sizeItems: SizeManagerItem[] = withProtectedSizeItem(
@@ -26,6 +28,11 @@ export default async function TaillesPage() {
       pfsSizeRef: s.pfsSizeRef,
       efashionDeclinaisonId: s.efashionDeclinaisonId,
       efashionDeclinaisonField: s.efashionDeclinaisonField,
+      efashionLabel: resolveDeclinaisonLabel(
+        efashionLabels,
+        s.efashionDeclinaisonId,
+        s.efashionDeclinaisonField,
+      ),
     })),
   );
 

@@ -307,6 +307,35 @@ export async function efashionPublishProduct(
     }
   });
 
+  // Étape 8 : alignement des attributs par couleur (prix, poids, stock,
+  // visibilité). `saveMelDraft` n'accepte qu'**un seul prix** pour toutes les
+  // couleurs (= celui de la couleur principale), donc à ce stade toutes les
+  // lignes eFashion ont le prix de la principale. On enchaîne avec un
+  // `efashionUpdateProductInPlace` forceFullSync pour pousser les prix/poids
+  // spécifiques à chaque couleur. Best-effort : si ça plante, le publish reste
+  // success (l'admin peut relancer un sync manuel pour rattraper).
+  try {
+    const { efashionUpdateProductInPlace } = await import("@/lib/efashion-update");
+    const alignRes = await efashionUpdateProductInPlace(productId, { forceFullSync: true });
+    if (!alignRes.success) {
+      logger.warn("[eFashion publish] Alignement par couleur en erreur", {
+        productId,
+        error: alignRes.error,
+      });
+    } else {
+      logger.info("[eFashion publish] Alignement par couleur OK", {
+        productId,
+        variantsUpdated: alignRes.variantsUpdated,
+        stockMutations: alignRes.stockMutationsCount,
+      });
+    }
+  } catch (err) {
+    logger.warn("[eFashion publish] Alignement par couleur a planté (non bloquant)", {
+      productId,
+      error: err as Error,
+    });
+  }
+
   return {
     success: true,
     productIds,

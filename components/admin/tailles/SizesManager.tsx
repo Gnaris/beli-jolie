@@ -15,6 +15,7 @@ import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import CustomSelect from "@/components/ui/CustomSelect";
 import SizeMappingModal from "./SizeMappingModal";
 import { isProtectedSizeName } from "@/lib/protected-sizes";
+import MarketplaceMappingBadge from "@/components/admin/MarketplaceMappingBadge";
 
 interface SizeItem {
   id: string;
@@ -24,6 +25,7 @@ interface SizeItem {
   pfsSizeRef: string | null;
   efashionDeclinaisonId?: number | null;
   efashionDeclinaisonField?: string | null;
+  efashionLabel?: string | null;
 }
 
 interface PfsSizeOption {
@@ -403,22 +405,24 @@ export default function SizesManager({
                         </div>
                       </div>
 
-                      {/* Bouton PFS (eFashion résolu auto au publish) */}
+                      {/* Badges PFS + eFashion (mapping via modale dédiée) */}
                       {!isProtected && pfsEnabled && (
-                        <div className="shrink-0 flex items-center gap-1.5">
-                          {size.pfsSizeRef && (
-                            <span className="badge badge-purple text-[10px]">PFS: {size.pfsSizeRef}</span>
-                          )}
+                        <div className="shrink-0 flex items-center gap-1.5 flex-wrap">
+                          <MarketplaceMappingBadge value={size.pfsSizeRef} title="Paris Fashion Shop" />
+                          <MarketplaceMappingBadge
+                            value={size.efashionLabel ?? (size.efashionDeclinaisonId != null ? `décl. ${size.efashionDeclinaisonId} / ${size.efashionDeclinaisonField}` : null)}
+                            title={size.efashionDeclinaisonId != null ? `eFashion · décl. ${size.efashionDeclinaisonId} / ${size.efashionDeclinaisonField}` : "eFashion"}
+                          />
                           <button
                             type="button"
                             onClick={() => setMappingModal(size)}
                             className="inline-flex items-center gap-1 h-7 px-2.5 text-[11px] font-body font-medium rounded-md border border-border bg-bg-secondary text-text-secondary hover:bg-bg-tertiary transition-colors"
-                            title="Modifier la correspondance PFS"
+                            title="Modifier la correspondance Marketplaces"
                           >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
                             </svg>
-                            Mapping PFS
+                            Mapping Marketplaces
                           </button>
                         </div>
                       )}

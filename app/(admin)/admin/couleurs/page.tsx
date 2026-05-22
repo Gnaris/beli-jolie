@@ -3,11 +3,12 @@ import type { Metadata } from "next";
 import EntityCreateButton from "@/components/admin/EntityCreateButton";
 import ColorsManager from "@/components/admin/couleurs/ColorsManager";
 import { getCachedPfsEnabled, getCachedAnkorstoreEnabled } from "@/lib/cached-data";
+import { getEfashionLabelMaps, resolveColorLabel } from "@/lib/efashion-labels";
 
 export const metadata: Metadata = { title: "Bibliothèque de couleurs" };
 
 export default async function CouleursPage() {
-  const [colors, pfsEnabled, ankorstoreEnabled] = await Promise.all([
+  const [colors, pfsEnabled, ankorstoreEnabled, efashionLabels] = await Promise.all([
     prisma.color.findMany({
       orderBy: { name: "asc" },
       include: {
@@ -17,6 +18,7 @@ export default async function CouleursPage() {
     }),
     getCachedPfsEnabled(),
     getCachedAnkorstoreEnabled(),
+    getEfashionLabelMaps(),
   ]);
 
   // Compte de partage par pfsColorRef : combien d'autres couleurs pointent
@@ -38,6 +40,7 @@ export default async function CouleursPage() {
     pfsColorRef: c.pfsColorRef,
     pfsSharedCount: c.pfsColorRef ? Math.max(0, (pfsRefCount.get(c.pfsColorRef) ?? 1) - 1) : 0,
     efashionColorId: c.efashionColorId,
+    efashionColorLabel: resolveColorLabel(efashionLabels, c.efashionColorId),
     productCount: c._count.productColors,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));

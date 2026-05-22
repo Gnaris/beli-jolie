@@ -106,6 +106,44 @@ const PLACEHOLDERS: Record<QuickCreateType, string> = {
   season:      "Ex: Printemps/Été 2026…",
 };
 
+const SUBTITLES: Record<QuickCreateType, string> = {
+  category:    "Le nom, ses traductions et la correspondance avec les marketplaces.",
+  subcategory: "Le nom et ses traductions dans les langues du site.",
+  composition: "Le matériau, ses traductions et la correspondance marketplaces.",
+  color:       "L'apparence visuelle, les traductions et la correspondance marketplaces.",
+  tag:         "Un mot-clé réutilisable sur vos produits.",
+  country:     "Le pays, son code ISO et la correspondance marketplaces.",
+  season:      "La saison/collection et la correspondance marketplaces.",
+};
+
+/** Icône stylisée affichée dans l'en-tête, propre à chaque type d'entité. */
+function TypeIcon({ type }: { type: QuickCreateType }) {
+  const path = (() => {
+    switch (type) {
+      case "category":
+      case "subcategory":
+        return "M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z";
+      case "color":
+        return "M4.098 19.902a3.75 3.75 0 005.304 0l6.401-6.402M6.75 21A3.75 3.75 0 013 17.25V4.125C3 3.504 3.504 3 4.125 3h5.25c.621 0 1.125.504 1.125 1.125v4.072M6.75 21a3.75 3.75 0 003.75-3.75V8.197M6.75 21h13.125c.621 0 1.125-.504 1.125-1.125v-5.25c0-.621-.504-1.125-1.125-1.125h-4.072M10.5 8.197l2.88-2.88c.438-.439 1.15-.439 1.59 0l3.712 3.713c.44.44.44 1.152 0 1.59l-2.879 2.88M6.75 17.25h.008v.008H6.75v-.008z";
+      case "composition":
+        return "M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z";
+      case "country":
+        return "M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418";
+      case "season":
+        return "M3 11.25a6.75 6.75 0 0113.5 0v3.86c.6 1.85 1.5 3.6 1.5 4.39 0 1.105-.895 2-2 2H4c-1.105 0-2-.895-2-2 0-.79.9-2.54 1.5-4.39v-3.86z";
+      case "tag":
+      default:
+        return "M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z";
+    }
+  })();
+
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.7} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d={path} />
+    </svg>
+  );
+}
+
 const MAPPABLE_TYPES: Set<string> = new Set(["category", "color", "composition", "country", "season"]);
 const RTL: string[] = [];
 
@@ -454,39 +492,59 @@ export default function QuickCreateModal({
       onMouseUp={backdrop.onMouseUp}
     >
       <div
-        className={`bg-bg-primary rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.3)] flex flex-col max-h-[90vh] ${hasMappableType ? "w-full max-w-[920px]" : "w-full max-w-lg"}`}
+        className={`bg-bg-primary rounded-2xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.35)] flex flex-col max-h-[92vh] overflow-hidden ${hasMappableType ? "w-full max-w-[1040px]" : "w-full max-w-xl"}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Header ── */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-          <h3 className="font-heading text-base font-semibold text-text-primary">
-            {isEdit ? EDIT_TITLES[type] : TITLES[type]}
-          </h3>
-          <button type="button" onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors rounded-lg p-1">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+        <div className="relative px-7 py-5 border-b border-border shrink-0 bg-gradient-to-br from-bg-primary to-bg-secondary/30">
+          <div className="flex items-start gap-4">
+            <span className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-bg-dark text-text-inverse shrink-0 shadow-sm">
+              <TypeIcon type={type} />
+            </span>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-heading text-lg font-semibold text-text-primary leading-tight">
+                {isEdit ? EDIT_TITLES[type] : TITLES[type]}
+              </h3>
+              <p className="text-xs text-text-muted font-body mt-1 leading-relaxed">
+                {SUBTITLES[type]}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="shrink-0 -mt-1 -mr-2 inline-flex items-center justify-center w-9 h-9 rounded-full text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-colors"
+              title="Fermer"
+              aria-label="Fermer"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* ── Body: two columns if mappable ── */}
         <div className={`flex-1 overflow-y-auto ${hasMappableType ? "flex min-h-0" : ""}`}>
 
           {/* ── LEFT: Création ── */}
-          <div className={`p-6 space-y-5 ${hasMappableType ? "flex-1 min-w-0 overflow-y-auto" : ""}`}>
+          <div className={`p-7 space-y-6 ${hasMappableType ? "flex-1 min-w-0 overflow-y-auto" : ""}`}>
 
-            {/* Traductions */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-[11px] text-text-muted font-body uppercase tracking-wide">
-                  Nom & traductions
-                </p>
+            {/* ── Carte « Identité » ── */}
+            <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
+              <header className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-border bg-bg-secondary/40">
+                <div className="flex items-center gap-2.5">
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-bg-dark text-text-inverse text-[11px] font-bold font-body">1</span>
+                  <div>
+                    <p className="text-sm font-semibold text-text-primary font-heading leading-none">Identité</p>
+                    <p className="text-[11px] text-text-muted font-body mt-1">Nom en français et traductions.</p>
+                  </div>
+                </div>
                 {autoTranslateEnabled && !isEdit ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-medium font-body text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1">
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium font-body text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
-                    Traduction auto activée
+                    Traduction auto
                   </span>
                 ) : (
                   <TranslateButton
@@ -495,110 +553,127 @@ export default function QuickCreateModal({
                     disabled={!frName}
                   />
                 )}
-              </div>
+              </header>
 
-              {/* FR field — prominent */}
-              <div>
-                <label className="block text-xs font-semibold text-text-secondary font-body mb-1">
-                  Français <span className="text-[#EF4444]">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={names["fr"] ?? ""}
-                  onChange={(e) => setName("fr", e.target.value)}
-                  autoFocus
-                  placeholder={PLACEHOLDERS[type]}
-                  className="field-input w-full"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") { e.preventDefault(); handleSubmit(); }
-                  }}
-                />
-              </div>
-
-              {/* Other locales — compact grid */}
-              <div className="grid grid-cols-2 gap-2.5">
-                {VALID_LOCALES.filter((l) => l !== "fr").map((locale) => (
-                  <div key={locale}>
-                    <label className="block text-[10px] font-semibold text-text-muted font-body mb-0.5 uppercase">
-                      {LOCALE_FULL_NAMES[locale]}
-                    </label>
-                    <input
-                      type="text"
-                      value={names[locale] ?? ""}
-                      onChange={(e) => setName(locale, e.target.value)}
-                      dir={RTL.includes(locale) ? "rtl" : "ltr"}
-                      className="field-input w-full text-sm"
-                      placeholder={LOCALE_FULL_NAMES[locale]}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Color-specific: type toggle + picker */}
-            {type === "color" && (
-              <div className="space-y-3">
-                <p className="text-[11px] text-text-muted font-body uppercase tracking-wide">
-                  Apparence
-                </p>
-                <div className="flex rounded-lg border border-border overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setColorMode("hex")}
-                    className={`flex-1 py-2 text-sm font-medium transition-colors font-body ${
-                      colorMode === "hex" ? "bg-bg-dark text-text-inverse" : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
-                    }`}
-                  >
-                    Couleur unie
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setColorMode("pattern")}
-                    className={`flex-1 py-2 text-sm font-medium transition-colors font-body ${
-                      colorMode === "pattern" ? "bg-bg-dark text-text-inverse" : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
-                    }`}
-                  >
-                    Motif / Image
-                  </button>
+              <div className="p-5 space-y-4">
+                {/* FR field — prominent */}
+                <div>
+                  <label className="block text-xs font-semibold text-text-secondary font-body mb-1.5">
+                    Français <span className="text-[#EF4444]">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={names["fr"] ?? ""}
+                    onChange={(e) => setName("fr", e.target.value)}
+                    autoFocus
+                    placeholder={PLACEHOLDERS[type]}
+                    className="field-input w-full text-sm"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); handleSubmit(); }
+                    }}
+                  />
                 </div>
 
-                {colorMode === "hex" ? (
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="color"
-                      value={hex}
-                      onChange={(e) => setHex(e.target.value)}
-                      className="w-10 h-10 rounded-lg border border-border cursor-pointer p-0.5 shrink-0"
-                    />
-                    <input
-                      type="text"
-                      value={hex}
-                      onChange={(e) => setHex(e.target.value)}
-                      placeholder="#9CA3AF"
-                      className="field-input w-28 font-mono text-sm"
-                    />
-                    <div className="flex-1 h-10 rounded-lg border border-border" style={{ backgroundColor: hex }} />
-                  </div>
-                ) : (
-                  <label className="flex flex-col items-center justify-center h-28 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-bg-dark transition-colors overflow-hidden relative">
-                    {patternPreview ? (
-                      <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${patternPreview})` }}>
-                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                          <span className="text-text-inverse text-xs font-medium font-body">Changer</span>
-                        </div>
+                {/* Other locales — compact grid */}
+                <div>
+                  <p className="text-[10px] font-semibold text-text-muted font-body uppercase tracking-wider mb-2">
+                    Autres langues
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                    {VALID_LOCALES.filter((l) => l !== "fr").map((locale) => (
+                      <div key={locale}>
+                        <label className="block text-[10px] font-semibold text-text-muted font-body mb-0.5 uppercase">
+                          {LOCALE_FULL_NAMES[locale]}
+                        </label>
+                        <input
+                          type="text"
+                          value={names[locale] ?? ""}
+                          onChange={(e) => setName(locale, e.target.value)}
+                          dir={RTL.includes(locale) ? "rtl" : "ltr"}
+                          className="field-input w-full text-sm"
+                          placeholder={LOCALE_FULL_NAMES[locale]}
+                        />
                       </div>
-                    ) : (
-                      <>
-                        <svg className="w-7 h-7 text-text-muted mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
-                        </svg>
-                        <span className="text-xs text-text-muted font-body">PNG, JPG, WebP · max 500 KB</span>
-                      </>
-                    )}
-                    <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handlePatternFileChange} className="sr-only" />
-                  </label>
-                )}
+                    ))}
+                  </div>
+                </div>
               </div>
+            </section>
+
+            {/* ── Carte « Apparence » (couleur uniquement) ── */}
+            {type === "color" && (
+              <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
+                <header className="flex items-center gap-2.5 px-5 py-3.5 border-b border-border bg-bg-secondary/40">
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-bg-dark text-text-inverse text-[11px] font-bold font-body">2</span>
+                  <div>
+                    <p className="text-sm font-semibold text-text-primary font-heading leading-none">Apparence</p>
+                    <p className="text-[11px] text-text-muted font-body mt-1">Couleur unie ou motif personnalisé.</p>
+                  </div>
+                </header>
+
+                <div className="p-5 space-y-4">
+                  <div className="inline-flex rounded-lg border border-border overflow-hidden p-0.5 bg-bg-secondary/40">
+                    <button
+                      type="button"
+                      onClick={() => setColorMode("hex")}
+                      className={`px-4 py-1.5 text-xs font-medium font-body rounded-md transition-colors ${
+                        colorMode === "hex" ? "bg-bg-primary text-text-primary shadow-sm" : "text-text-secondary hover:text-text-primary"
+                      }`}
+                    >
+                      Couleur unie
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setColorMode("pattern")}
+                      className={`px-4 py-1.5 text-xs font-medium font-body rounded-md transition-colors ${
+                        colorMode === "pattern" ? "bg-bg-primary text-text-primary shadow-sm" : "text-text-secondary hover:text-text-primary"
+                      }`}
+                    >
+                      Motif / Image
+                    </button>
+                  </div>
+
+                  {colorMode === "hex" ? (
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <input
+                          type="color"
+                          value={hex}
+                          onChange={(e) => setHex(e.target.value)}
+                          className="w-12 h-12 rounded-xl border border-border cursor-pointer p-0.5 shrink-0"
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        value={hex}
+                        onChange={(e) => setHex(e.target.value)}
+                        placeholder="#9CA3AF"
+                        className="field-input w-32 font-mono text-sm uppercase"
+                      />
+                      <div className="flex-1 h-12 rounded-xl border border-border shadow-inner" style={{ backgroundColor: hex }} />
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-text-secondary transition-colors overflow-hidden relative bg-bg-secondary/30">
+                      {patternPreview ? (
+                        <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${patternPreview})` }}>
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                            <span className="text-text-inverse text-xs font-medium font-body">Changer l'image</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <svg className="w-7 h-7 text-text-muted mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+                          </svg>
+                          <span className="text-xs font-medium text-text-secondary font-body">Glissez une image ou cliquez ici</span>
+                          <span className="text-[11px] text-text-muted font-body mt-0.5">PNG, JPG, WebP · max 500 KB</span>
+                        </>
+                      )}
+                      <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handlePatternFileChange} className="sr-only" />
+                    </label>
+                  )}
+                </div>
+              </section>
             )}
           </div>
 
@@ -607,159 +682,213 @@ export default function QuickCreateModal({
             <>
               <div className="w-px bg-border shrink-0" />
 
-              <div className="w-[360px] shrink-0 p-6 overflow-y-auto bg-bg-secondary/30">
-                <p className="text-[11px] text-text-muted font-body uppercase tracking-wide mb-4">
-                  {lockPfs ? "Correspondance Paris Fashion Shop" : "Correspondances Marketplaces"}
-                </p>
+              <aside className="w-[400px] shrink-0 p-7 overflow-y-auto bg-bg-secondary/30 space-y-5">
+                <header>
+                  <p className="text-[10px] uppercase tracking-wider font-body font-semibold text-text-muted">
+                    Étape {type === "color" ? 3 : 2}
+                  </p>
+                  <h4 className="font-heading text-sm font-semibold text-text-primary mt-0.5">
+                    {lockPfs ? "Correspondance Paris Fashion Shop" : "Correspondances marketplaces"}
+                  </h4>
+                  <p className="text-[11px] text-text-muted font-body mt-1 leading-relaxed">
+                    {lockPfs
+                      ? "Valeur reprise du produit Paris Fashion Shop importé."
+                      : "Reliez cet élément aux marketplaces pour pouvoir le publier."}
+                  </p>
+                </header>
 
-                {/* ── Bloc PFS ─────────────────────────────────────────── */}
-                <div className="space-y-3 mb-6">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex w-1.5 h-1.5 rounded-full bg-purple-500" />
-                    <p className="text-xs font-semibold text-text-primary font-body uppercase tracking-wider">
-                      Paris Fashion Shop
-                    </p>
-                  </div>
-                  {lockPfs ? (
-                    <LockedPfsMapping
-                      type={type}
-                      pfsRef={pfsRef}
-                      pfsGender={pfsGender}
-                      pfsFamilyName={pfsFamilyName}
-                      pfsCategoryName={pfsCategoryName}
-                    />
-                  ) : type === "category" ? (
-                    <MarketplaceMappingSection
-                      entityType="category"
-                      pfsGender={pfsGender}
-                      pfsFamilyName={pfsFamilyName}
-                      pfsCategoryName={pfsCategoryName}
-                      onPfsGenderChange={setPfsGender}
-                      onPfsFamilyNameChange={setPfsFamilyName}
-                      onPfsCategoryNameChange={setPfsCategoryName}
-                    />
-                  ) : (
-                    <MarketplaceMappingSection
-                      entityType={type as "color" | "composition" | "country" | "season"}
-                      pfsRef={pfsRef}
-                      onPfsRefChange={setPfsRef}
-                    />
-                  )}
-                </div>
-
-                {/* ── Bloc eFashion Paris (création OU édition, types supportés) ── */}
-                {(type === "category" || type === "country" || type === "season" || type === "composition" || type === "color") && !lockPfs && (
-                  <div className="space-y-3 pt-4 border-t border-border">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      <p className="text-xs font-semibold text-text-primary font-body uppercase tracking-wider">
-                        eFashion Paris
-                      </p>
+                {/* ── Carte PFS ───────────────────────────────────────── */}
+                <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
+                  <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-purple-50/70 to-transparent">
+                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700">
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 2L3 6v7l7 4 7-4V6l-7-4zm0 2.18L15.82 7 10 10.18 4.18 7 10 4.18zM4 9l5 2.86v5L4 14V9zm12 0v5l-5 2.86v-5L16 9z" />
+                      </svg>
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-semibold text-text-primary font-heading leading-none">Paris Fashion Shop</p>
+                      <p className="text-[10px] text-text-muted font-body mt-1">Marketplace officielle PFS</p>
                     </div>
-                    {isEdit && editMode ? (
-                      <EfashionMappingPicker
-                        entityId={editMode.id}
-                        kind={type as EmbeddedPickerKind}
-                        initialValue={editMode.efashionCurrentId ?? null}
-                        entityName={names["fr"] ?? editMode.name}
+                  </header>
+                  <div className="p-4">
+                    {lockPfs ? (
+                      <LockedPfsMapping
+                        type={type}
+                        pfsRef={pfsRef}
+                        pfsGender={pfsGender}
+                        pfsFamilyName={pfsFamilyName}
+                        pfsCategoryName={pfsCategoryName}
+                      />
+                    ) : type === "category" ? (
+                      <MarketplaceMappingSection
+                        entityType="category"
+                        pfsGender={pfsGender}
+                        pfsFamilyName={pfsFamilyName}
+                        pfsCategoryName={pfsCategoryName}
+                        onPfsGenderChange={setPfsGender}
+                        onPfsFamilyNameChange={setPfsFamilyName}
+                        onPfsCategoryNameChange={setPfsCategoryName}
                       />
                     ) : (
-                      <EfashionMappingPicker
-                        kind={type as EmbeddedPickerKind}
-                        initialValue={efashionCreateId}
-                        entityName={names["fr"]}
-                        onChange={setEfashionCreateId}
+                      <MarketplaceMappingSection
+                        entityType={type as "color" | "composition" | "country" | "season"}
+                        pfsRef={pfsRef}
+                        onPfsRefChange={setPfsRef}
                       />
                     )}
-                    <p className="text-[11px] text-text-muted font-body leading-relaxed">
-                      {isEdit
-                        ? "Enregistré automatiquement à chaque changement."
-                        : "Sera enregistré à la création — vous pouvez aussi le laisser vide et le compléter plus tard."}
-                    </p>
+
+                    {/* PFS suggestions */}
+                    {!lockPfs && type !== "category" && suggestionOptions.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-border">
+                        <PfsSuggestions
+                          mode="ref"
+                          query={names["fr"] ?? ""}
+                          options={suggestionOptions}
+                          currentValue={pfsRef}
+                          onPick={applySuggestedRef}
+                          label="Détecté d'après le nom"
+                        />
+                      </div>
+                    )}
+                    {!lockPfs && type === "category" && (
+                      <div className="mt-3 pt-3 border-t border-border">
+                        <PfsSuggestions
+                          mode="category"
+                          query={names["fr"] ?? ""}
+                          triples={pfsCategoryTriples}
+                          currentValue={currentCategoryTriple}
+                          onPickCategory={applyCategoryTriple}
+                          label="Détecté d'après le nom"
+                        />
+                      </div>
+                    )}
                   </div>
+                </section>
+
+                {/* ── Carte eFashion ──────────────────────────────────── */}
+                {(type === "category" || type === "country" || type === "season" || type === "composition" || type === "color") && !lockPfs && (
+                  <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
+                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-emerald-50/70 to-transparent">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700">
+                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M10 2a8 8 0 100 16 8 8 0 000-16zm3.7 6.3l-4.5 4.5a1 1 0 01-1.4 0L6 11a1 1 0 011.4-1.4l1.8 1.8 3.8-3.8a1 1 0 011.4 1.4z" />
+                        </svg>
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-text-primary font-heading leading-none">eFashion Paris</p>
+                        <p className="text-[10px] text-text-muted font-body mt-1">{isEdit ? "Enregistré automatiquement" : "Optionnel — peut être complété plus tard"}</p>
+                      </div>
+                    </header>
+                    <div className="p-4">
+                      {isEdit && editMode ? (
+                        <EfashionMappingPicker
+                          entityId={editMode.id}
+                          kind={type as EmbeddedPickerKind}
+                          initialValue={editMode.efashionCurrentId ?? null}
+                          entityName={names["fr"] ?? editMode.name}
+                        />
+                      ) : (
+                        <EfashionMappingPicker
+                          kind={type as EmbeddedPickerKind}
+                          initialValue={efashionCreateId}
+                          entityName={names["fr"]}
+                          onChange={setEfashionCreateId}
+                        />
+                      )}
+                    </div>
+                  </section>
                 )}
 
+                {/* ── Carte ISO (pays uniquement) ─────────────────────── */}
                 {type === "country" && (
-                  <div className="mt-5 pt-5 border-t border-border space-y-2">
-                    <label className="block text-xs font-medium text-text-secondary font-body">
-                      Code pays (ISO 2 lettres) <span className="text-[#EF4444]">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={isoCode}
-                      onChange={(e) => {
-                        setIsoTouched(true);
-                        setIsoCode(e.target.value.toUpperCase().slice(0, 2));
-                      }}
-                      placeholder="Ex: FR, CN, TR"
-                      maxLength={2}
-                      className="field-input w-full font-mono uppercase tracking-widest text-center text-sm"
-                    />
-                    {isoInvalid && (
-                      <p className="text-[11px] text-[#EF4444] font-body">Le code doit faire exactement 2 lettres.</p>
-                    )}
-                    {!isoTouched && suggestedIsoForName && isoCode === suggestedIsoForName && (
-                      <p className="text-[11px] text-emerald-600 font-body">
-                        Code détecté automatiquement d'après le nom.
-                      </p>
-                    )}
-                    {isoTouched && suggestedIsoForName && suggestedIsoForName !== normalizedIsoPreview && (
-                      <button
-                        type="button"
-                        onClick={() => { setIsoCode(suggestedIsoForName); }}
-                        className="text-[11px] text-text-muted hover:text-text-primary underline font-body"
-                      >
-                        Utiliser la suggestion « {suggestedIsoForName} »
-                      </button>
-                    )}
-                    <p className="text-[11px] text-text-muted font-body">
-                      Code ISO 2 lettres du pays de fabrication.
-                    </p>
-                  </div>
+                  <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
+                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-bg-secondary/40">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-bg-secondary text-text-secondary">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                        </svg>
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-text-primary font-heading leading-none">Code ISO</p>
+                        <p className="text-[10px] text-text-muted font-body mt-1">Code 2 lettres du pays</p>
+                      </div>
+                      <span className="text-[#EF4444] text-xs font-body">obligatoire</span>
+                    </header>
+                    <div className="p-4 space-y-2">
+                      <input
+                        type="text"
+                        value={isoCode}
+                        onChange={(e) => {
+                          setIsoTouched(true);
+                          setIsoCode(e.target.value.toUpperCase().slice(0, 2));
+                        }}
+                        placeholder="FR"
+                        maxLength={2}
+                        className="field-input w-full font-mono uppercase tracking-[0.5em] text-center text-base font-semibold"
+                      />
+                      {isoInvalid && (
+                        <p className="text-[11px] text-[#EF4444] font-body">Le code doit faire exactement 2 lettres.</p>
+                      )}
+                      {!isoTouched && suggestedIsoForName && isoCode === suggestedIsoForName && (
+                        <p className="text-[11px] text-emerald-600 font-body flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                          Détecté automatiquement
+                        </p>
+                      )}
+                      {isoTouched && suggestedIsoForName && suggestedIsoForName !== normalizedIsoPreview && (
+                        <button
+                          type="button"
+                          onClick={() => { setIsoCode(suggestedIsoForName); }}
+                          className="text-[11px] text-text-muted hover:text-text-primary underline font-body"
+                        >
+                          Utiliser « {suggestedIsoForName} »
+                        </button>
+                      )}
+                    </div>
+                  </section>
                 )}
-
-                {/* PFS suggestions — cachées quand la correspondance est verrouillée. */}
-                {!lockPfs && type !== "category" && suggestionOptions.length > 0 && (
-                  <div className="mt-4">
-                    <PfsSuggestions
-                      mode="ref"
-                      query={names["fr"] ?? ""}
-                      options={suggestionOptions}
-                      currentValue={pfsRef}
-                      onPick={applySuggestedRef}
-                      label="Correspondance détectée d'après le nom"
-                    />
-                  </div>
-                )}
-                {!lockPfs && type === "category" && (
-                  <div className="mt-4">
-                    <PfsSuggestions
-                      mode="category"
-                      query={names["fr"] ?? ""}
-                      triples={pfsCategoryTriples}
-                      currentValue={currentCategoryTriple}
-                      onPickCategory={applyCategoryTriple}
-                      label="Cascade détectée d'après le nom"
-                    />
-                  </div>
-                )}
-              </div>
+              </aside>
             </>
           )}
         </div>
 
         {/* ── Footer ── */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-border shrink-0">
-          {error ? (
-            <p className="text-xs text-[#DC2626] font-body flex-1 mr-4">{error}</p>
-          ) : (
-            <div />
-          )}
-          <div className="flex gap-3 shrink-0">
+        <div className="flex items-center justify-between gap-4 px-7 py-4 border-t border-border shrink-0 bg-bg-secondary/30">
+          <div className="flex-1 min-w-0">
+            {error ? (
+              <p className="inline-flex items-center gap-1.5 text-xs text-[#DC2626] font-body font-medium">
+                <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                {error}
+              </p>
+            ) : !frName ? (
+              <p className="text-[11px] text-text-muted font-body">Saisissez d'abord le nom en français.</p>
+            ) : mappingMissing ? (
+              <p className="inline-flex items-center gap-1.5 text-[11px] text-amber-700 font-body">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                {isoMissing
+                  ? "Code ISO obligatoire."
+                  : isoInvalid
+                    ? "Code ISO invalide (2 lettres)."
+                    : "Complétez la correspondance Paris Fashion Shop."}
+              </p>
+            ) : (
+              <p className="inline-flex items-center gap-1.5 text-[11px] text-emerald-700 font-body">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Prêt à {isEdit ? "enregistrer" : "créer"}.
+              </p>
+            )}
+          </div>
+          <div className="flex gap-2 shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2 border border-border text-text-secondary hover:border-bg-dark hover:text-text-primary text-sm font-medium rounded-lg transition-colors font-body"
+              className="px-4 py-2 border border-border text-text-secondary hover:border-bg-dark hover:text-text-primary text-sm font-medium rounded-lg transition-colors font-body"
             >
               Annuler
             </button>
@@ -776,9 +905,24 @@ export default function QuickCreateModal({
                       ? "Complétez la correspondance Paris Fashion Shop."
                       : undefined
               }
-              className="px-5 py-2 bg-bg-dark hover:bg-black text-text-inverse text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-body"
+              className="inline-flex items-center gap-2 px-5 py-2 bg-bg-dark hover:bg-black text-text-inverse text-sm font-semibold rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-body"
             >
-              {loading ? (isEdit ? "Enregistrement…" : "Création…") : (isEdit ? "Enregistrer" : "Créer")}
+              {loading ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
+                    <path d="M22 12a10 10 0 00-10-10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                  {isEdit ? "Enregistrement…" : "Création…"}
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                  {isEdit ? "Enregistrer" : "Créer"}
+                </>
+              )}
             </button>
           </div>
         </div>

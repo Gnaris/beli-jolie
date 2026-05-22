@@ -3,23 +3,28 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import EntityCreateButton from "@/components/admin/EntityCreateButton";
 import CompositionsManager from "@/components/admin/compositions/CompositionsManager";
+import { getEfashionLabelMaps, resolveCompositionLabel } from "@/lib/efashion-labels";
 
 export const metadata: Metadata = { title: "Compositions" };
 
 export default async function CompositionsPage() {
-  const compositions = await prisma.composition.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      _count: { select: { products: true } },
-      translations: true,
-    },
-  });
+  const [compositions, efashionLabels] = await Promise.all([
+    prisma.composition.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        _count: { select: { products: true } },
+        translations: true,
+      },
+    }),
+    getEfashionLabelMaps(),
+  ]);
 
   const compositionItems = compositions.map((c) => ({
     id: c.id,
     name: c.name,
     pfsCompositionRef: c.pfsCompositionRef,
     efashionId: c.efashionId,
+    efashionLabel: resolveCompositionLabel(efashionLabels, c.efashionId),
     productCount: c._count.products,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));

@@ -3,17 +3,21 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import EntityCreateButton from "@/components/admin/EntityCreateButton";
 import ManufacturingCountriesManager from "@/components/admin/manufacturing-countries/ManufacturingCountriesManager";
+import { getEfashionLabelMaps, resolveProvenanceLabel } from "@/lib/efashion-labels";
 
 export const metadata: Metadata = { title: "Pays de fabrication" };
 
 export default async function PaysPage() {
-  const countries = await prisma.manufacturingCountry.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      _count: { select: { products: true } },
-      translations: true,
-    },
-  });
+  const [countries, efashionLabels] = await Promise.all([
+    prisma.manufacturingCountry.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        _count: { select: { products: true } },
+        translations: true,
+      },
+    }),
+    getEfashionLabelMaps(),
+  ]);
 
   const countryItems = countries.map((c) => ({
     id: c.id,
@@ -21,6 +25,7 @@ export default async function PaysPage() {
     isoCode: c.isoCode,
     pfsCountryRef: c.pfsCountryRef,
     efashionProvenanceId: c.efashionProvenanceId,
+    efashionProvenanceLabel: resolveProvenanceLabel(efashionLabels, c.efashionProvenanceId),
     productCount: c._count.products,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));
