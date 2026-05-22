@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
+import { stripLocalePrefix } from "@/lib/locale-path";
 
 interface AnnouncementBannerProps {
   messages: string[];
@@ -14,7 +15,8 @@ interface AnnouncementBannerProps {
 export default function AnnouncementBanner({ messages, bgColor, textColor, speed = 8, preview }: AnnouncementBannerProps) {
   const pathname = usePathname();
   const ref = useRef<HTMLDivElement>(null);
-  const isHidden = messages.length === 0 || (!preview && pathname !== "/");
+  const isHome = stripLocalePrefix(pathname) === "/";
+  const isHidden = messages.length === 0 || (!preview && !isHome);
 
   // Set CSS variable so the fixed header can offset itself.
   // When the banner scrolls out of view, reset to 0 so the header slides up.

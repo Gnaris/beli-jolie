@@ -96,15 +96,15 @@ async function GeneralTab() {
 
   // Parse announcement config
   let announcementMessages: string[] = [];
-  let announcementBgColor = "#1a1a1a";
-  let announcementTextColor = "#ffffff";
+  let announcementBgColor = "#0F0F0F";
+  let announcementTextColor = "#F5F1EA";
   let announcementSpeed = 8;
   if (announcementConfig?.value) {
     try {
       const parsed = JSON.parse(announcementConfig.value);
       announcementMessages = parsed.messages || [];
-      announcementBgColor = parsed.bgColor || "#1a1a1a";
-      announcementTextColor = parsed.textColor || "#ffffff";
+      announcementBgColor = parsed.bgColor || "#0F0F0F";
+      announcementTextColor = parsed.textColor || "#F5F1EA";
       announcementSpeed = parsed.speed || 8;
     } catch { /* ignore */ }
   }
