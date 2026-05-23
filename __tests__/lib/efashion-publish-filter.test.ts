@@ -5,6 +5,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     product: { findUnique: vi.fn() },
     productColor: { update: vi.fn() },
+    productColorImage: { findMany: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(),
   },
 }));

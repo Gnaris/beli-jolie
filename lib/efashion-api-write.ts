@@ -30,6 +30,19 @@ interface UpdateProduitInput {
   id_declinaison?: number;
   id_categorie?: number;
   id_pack?: number | null;
+  /**
+   * Bascule de la couleur principale du groupe. `main: true` promeut cette
+   * variante comme couleur principale ; `main: false` la rétrograde.
+   * eFashion attend les 2 appels successifs (cf. HAR de mai 2026),
+   * pas une seule mutation.
+   */
+  main?: boolean;
+  /**
+   * Identifiant eFashion de la couleur de liaison (groupe). En pratique =
+   * efashionProductId du **nouveau main**. Requis dans le payload des appels
+   * de bascule de couleur principale, sinon eFashion ignore le `main`.
+   */
+  id_couleur_liee?: number;
 }
 
 interface UpdateProduitResult {

@@ -9,6 +9,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import sharp from "sharp";
+
 import { ensureEfashionSession } from "@/lib/efashion-auth";
 import { efashionFetch } from "@/lib/efashion-client";
 import { logger } from "@/lib/logger";
@@ -113,19 +115,26 @@ export async function efashionUploadProductPhotos(
   const form = new FormData();
   for (const photo of photos) {
     const diskPath = dbPathToDiskPath(photo.dbPath);
-    let buffer: Buffer;
+    let sourceBuffer: Buffer;
     try {
-      buffer = await readFile(diskPath);
+      sourceBuffer = await readFile(diskPath);
     } catch (err) {
       throw new Error(
         `Impossible de lire l'image ${photo.dbPath} : ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    // eFashion attend du JPEG d'après la capture. Si le fichier source est en
-    // .webp, on l'envoie tel quel — eFashion convertit côté serveur (la capture
-    // montre des .JPG en sortie). Si ça pose problème, on convertira via sharp.
-    const blob = new Blob([new Uint8Array(buffer)]);
-    form.append("photos", blob, photo.filename);
+    // eFashion attend strictement du JPEG (cf. docs/efashion-api.md §18.3 et
+    // scripts/efashion-test-upload-photos.ts qui convertit aussi avec sharp).
+    // Envoyer un WebP avec extension `.jpg` est rejeté ou produit des images
+    // illisibles côté eFashion. On convertit ici, peu importe la source.
+    const jpegBuffer = await sharp(sourceBuffer).jpeg({ quality: 90 }).toBuffer();
+    // Force l'extension `.jpg` côté eFashion même si l'appelant a passé un
+    // autre nom — protection en plus.
+    const filename = photo.filename.toLowerCase().endsWith(".jpg")
+      ? photo.filename
+      : photo.filename.replace(/\.[a-z0-9]+$/i, "") + ".jpg";
+    const blob = new Blob([new Uint8Array(jpegBuffer)], { type: "image/jpeg" });
+    form.append("photos", blob, filename);
   }
   form.append("productId", String(efashionProductId));
 

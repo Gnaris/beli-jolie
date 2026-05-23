@@ -12,6 +12,13 @@ export interface EfashionVariantSnapshot {
   prix: number;
   poids: number;
   stockByTaille: Record<string, number>; // taille string ("TU", "S", ...) → quantité
+  /**
+   * Images BJ de cette variante, triées par `order` croissant. `order=0` =
+   * photo principale eFashion (`c.jpg`), `order=N` = `z-N.jpg`. Absent sur
+   * les snapshots antérieurs à mai 2026 — la fonction `diffEfashionSnapshots`
+   * traite ce cas comme « changement » pour forcer une resync.
+   */
+  images?: Array<{ dbPath: string; order: number }>;
 }
 
 /**
@@ -70,6 +77,12 @@ export interface EfashionDiff {
     efashionProductId: number;
     fieldsChanged: Array<"visible" | "prix" | "poids">;
     stockChanges: Array<{ taille: string; before: number | null; after: number }>;
+    /**
+     * True si la liste d'images (paths ou ordre) a changé par rapport au
+     * snapshot précédent. Quand vrai, l'updater doit purger les photos
+     * eFashion de cette variante et ré-uploader la nouvelle liste.
+     */
+    imagesChanged: boolean;
     after: EfashionVariantSnapshot;
   }>;
   /** Variants présents avant mais absents après (couleurs déliées). */
@@ -135,11 +148,29 @@ export function diffEfashionSnapshots(
       if (b !== a) stockChanges.push({ taille, before: b ?? null, after: a });
     }
 
-    if (fieldsChanged.length > 0 || stockChanges.length > 0) {
+    // Détection de changement d'images : par défaut, considérer le snapshot
+    // legacy (sans `images`) comme « inchangé » côté images — sinon chaque
+    // sync existante repousserait toutes les photos sans raison. La 1ʳᵉ sync
+    // après l'ajout d'images dans le snapshot écrit `images` côté `after`,
+    // donc le diff devient calculable normalement aux runs suivants.
+    let imagesChanged = false;
+    if (v.images !== undefined) {
+      if (prev.images === undefined) {
+        // Snapshot legacy : pas de référence côté avant. On ne repousse PAS
+        // les photos automatiquement (cf. raisonnement ci-dessus). L'utilisatrice
+        // peut forcer via `forceFullSync` si elle veut le rattrapage.
+        imagesChanged = false;
+      } else {
+        imagesChanged = !sameImagesList(prev.images, v.images);
+      }
+    }
+
+    if (fieldsChanged.length > 0 || stockChanges.length > 0 || imagesChanged) {
       result.changed.push({
         efashionProductId: v.efashionProductId,
         fieldsChanged,
         stockChanges,
+        imagesChanged,
         after: v,
       });
     }
@@ -183,6 +214,27 @@ export function diffEfashionSnapshots(
   }
 
   return result;
+}
+
+/**
+ * Compare deux listes d'images (paths + order). Stable au tri : on compare
+ * dans l'ordre `order` croissant. Tout changement de path ou de position
+ * dans la séquence est considéré comme un diff.
+ */
+function sameImagesList(
+  a: Array<{ dbPath: string; order: number }>,
+  b: Array<{ dbPath: string; order: number }>,
+): boolean {
+  if (a.length !== b.length) return false;
+  const sortFn = (x: { order: number }, y: { order: number }) => x.order - y.order;
+  const sortedA = [...a].sort(sortFn);
+  const sortedB = [...b].sort(sortFn);
+  for (let i = 0; i < sortedA.length; i++) {
+    if (sortedA[i].dbPath !== sortedB[i].dbPath || sortedA[i].order !== sortedB[i].order) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function sameCompositionsList(

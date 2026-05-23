@@ -32,6 +32,11 @@ import {
   efashionToggleMainProduct,
 } from "@/lib/efashion-api-write";
 import {
+  efashionGetProductPhotos,
+  efashionDeleteProductPhoto,
+  efashionUploadProductPhotos,
+} from "@/lib/efashion-photos";
+import {
   diffEfashionSnapshots,
   hasAnyChanges,
   type EfashionCompositionSnapshot,
@@ -46,6 +51,29 @@ interface UpdateOpts {
   forceFullSync?: boolean;
 }
 
+/**
+ * Construit le suffixe « Dimensions : Longueur : 12mm / Largeur : 8mm / ... »
+ * ajouté à la description française envoyée à eFashion. Format identique à
+ * PFS (cf. lib/pfs-publish.ts::buildDimensionsSuffix) pour que les 2
+ * marketplaces voient la même chose en bas de la fiche.
+ */
+function buildEfashionDimensionsSuffix(product: {
+  dimensionLength: number | null;
+  dimensionWidth: number | null;
+  dimensionHeight: number | null;
+  dimensionDiameter: number | null;
+  dimensionCircumference: number | null;
+}): string {
+  const parts: string[] = [];
+  if (product.dimensionLength != null) parts.push(`Longueur : ${product.dimensionLength}mm`);
+  if (product.dimensionWidth != null) parts.push(`Largeur : ${product.dimensionWidth}mm`);
+  if (product.dimensionHeight != null) parts.push(`Hauteur : ${product.dimensionHeight}mm`);
+  if (product.dimensionDiameter != null) parts.push(`Diamètre : ${product.dimensionDiameter}mm`);
+  if (product.dimensionCircumference != null) parts.push(`Circonférence : ${product.dimensionCircumference}mm`);
+  if (parts.length === 0) return "";
+  return `\n\nDimensions : ${parts.join(" / ")}`;
+}
+
 export interface EfashionUpdateOutcome {
   success: boolean;
   error?: string;
@@ -58,6 +86,8 @@ export interface EfashionUpdateOutcome {
   descriptionsUpdatedCount?: number;
   /** Nombre d'appels `saveProduitCompositions` réussis (1 par variante liée). */
   compositionsUpdatedCount?: number;
+  /** Nombre de variantes dont les photos eFashion ont été resynchronisées. */
+  imagesUpdatedCount?: number;
   noChanges?: boolean;
 }
 
@@ -72,8 +102,20 @@ export async function efashionUpdateProductInPlace(
       reference: true,
       status: true,
       description: true,
+      // Dimensions — copiées dans la description envoyée à eFashion (même
+      // format que PFS, cf. lib/pfs-publish.ts::buildDimensionsSuffix).
+      dimensionLength: true,
+      dimensionWidth: true,
+      dimensionHeight: true,
+      dimensionDiameter: true,
+      dimensionCircumference: true,
       efashionReferenceBase: true,
       efashionLastSyncSnapshot: true,
+      // Couleur principale BJ — source de vérité pour la sync eFashion.
+      // ⚠️ Ne pas se fier à `ProductColor.isPrimary` qui peut être
+      // désynchronisé de `Product.primaryColorId` (cas observé : l'admin
+      // change la principale mais seul le champ produit est mis à jour).
+      primaryColorId: true,
       compositions: {
         select: {
           percentage: true,
@@ -98,6 +140,10 @@ export async function efashionUpdateProductInPlace(
               size: { select: { name: true } },
             },
           },
+          // ⚠️ Pas via la relation `images` : les `ProductColorImage` créées
+          // depuis l'admin moderne ont `productColorId = NULL` (cf. commentaire
+          // dans app/actions/admin/products.ts), donc la relation ne les voit
+          // pas. On charge les images séparément via (productId, colorId).
         },
       },
     },
@@ -105,6 +151,22 @@ export async function efashionUpdateProductInPlace(
   if (!product) return { success: false, error: "Produit introuvable" };
   if (!product.efashionReferenceBase) {
     return { success: false, error: "Produit non lié à eFashion (référence manquante)" };
+  }
+
+  // Images du produit, indexées par colorId — on lit toutes les
+  // `ProductColorImage` du produit (avec ou sans `productColorId`) parce que
+  // les images créées via l'admin moderne ont `productColorId = NULL` et
+  // seraient invisibles via la relation `ProductColor.images`.
+  const allImages = await prisma.productColorImage.findMany({
+    where: { productId: product.id },
+    select: { colorId: true, path: true, order: true },
+    orderBy: { order: "asc" },
+  });
+  const imagesByColorId = new Map<string, Array<{ path: string; order: number }>>();
+  for (const img of allImages) {
+    const arr = imagesByColorId.get(img.colorId);
+    if (arr) arr.push({ path: img.path, order: img.order });
+    else imagesByColorId.set(img.colorId, [{ path: img.path, order: img.order }]);
   }
 
   const markup = await loadEfashionMarkup();
@@ -147,12 +209,14 @@ export async function efashionUpdateProductInPlace(
     const tailleLabel = c.variantSizes[0]?.size.name ?? "TU";
     stockByTaille[tailleLabel] = c.stock;
 
+    const colorImages = c.colorId ? (imagesByColorId.get(c.colorId) ?? []) : [];
     return {
       efashionProductId: c.efashionProductId as number,
       visible,
       prix: efashionPrice,
       poids: c.weight,
       stockByTaille,
+      images: colorImages.map((img) => ({ dbPath: img.path, order: img.order })),
     };
   });
 
@@ -160,7 +224,11 @@ export async function efashionUpdateProductInPlace(
   // snapshot précédent (si on en a). Comme ça, si le FR n'a pas changé, le
   // snapshot final repart avec les mêmes traductions et on évite d'appeler
   // /translate inutilement.
-  const descriptionFr = product.description ?? "";
+  //
+  // ⚠️ La description FR envoyée à eFashion inclut le suffix dimensions (même
+  // format que PFS) si le produit a au moins une dimension renseignée. Comme
+  // ça la fiche eFashion affiche les dimensions en bas de la description.
+  const descriptionFr = (product.description ?? "") + buildEfashionDimensionsSuffix(product);
   const previousSnapshot = opts.forceFullSync
     ? null
     : (product.efashionLastSyncSnapshot as EfashionSnapshot | null);
@@ -186,7 +254,13 @@ export async function efashionUpdateProductInPlace(
       percentage: pc.percentage,
     }));
 
-  const bjPrimaryColor = linkedColors.find((c) => c.isPrimary);
+  // Couleur primaire BJ déterminée par `Product.primaryColorId` (source de
+  // vérité) et NON par `ProductColor.isPrimary` qui peut être désynchronisé
+  // côté BDD si l'admin a un bug de saisie.
+  const bjPrimaryColor =
+    (product.primaryColorId
+      ? linkedColors.find((c) => c.colorId === product.primaryColorId)
+      : undefined) ?? linkedColors.find((c) => c.isPrimary);
   const bjPrimaryEfashionId = bjPrimaryColor?.efashionProductId ?? null;
 
   const target: EfashionSnapshot = {
@@ -209,6 +283,7 @@ export async function efashionUpdateProductInPlace(
   let stockMutations = 0;
   let descriptionsUpdatedCount = 0;
   let compositionsUpdatedCount = 0;
+  let imagesUpdatedCount = 0;
   const errors: string[] = [];
 
   // Champs basiques (visible / prix / poids) — 1 call par variant modifié.
@@ -275,14 +350,18 @@ export async function efashionUpdateProductInPlace(
     }
   }
 
-  // Aligne la couleur principale eFashion (`main = true`) sur la primaire BJ
-  // (`isPrimary = true`). Si elles diffèrent, on bascule via `toggleMainProduct`.
-  // Important : on fait ça **avant** la sortie des updateProduit, parce que la
+  // Aligne la couleur principale eFashion (`main = true`) sur la primaire BJ.
+  // ⚠️ Pas d'endpoint `toggleMainProduct` (la mutation GraphQL qu'on avait
+  // n'existe pas vraiment sur le serveur eFashion). Le HAR de leur UI montre
+  // qu'ils font 2 appels `updateProduit` séquentiels :
+  //   1. ancien main → main:false (avec id_couleur_liee = nouveau main)
+  //   2. nouveau main → main:true (avec id_couleur_liee = nouveau main)
+  // Le payload contient juste : { id_produit, id_couleur_liee, id_vendeur_marque, prix, prixReduit:null, main }.
+  // Important : on fait ça **avant** les updateProduit standards, parce que la
   // couleur `main` propage ses valeurs aux autres couleurs liées — il faut donc
   // d'abord savoir qui est la main pour ordonnancer les updates correctement.
   if (liveById.size > 0) {
-    const bjPrimary = linkedColors.find((c) => c.isPrimary);
-    const bjPrimaryEfId = bjPrimary?.efashionProductId ?? null;
+    const bjPrimaryEfId = bjPrimaryEfashionId;
     let currentMainEfId: number | null = null;
     for (const [efId, live] of liveById) {
       if (live.main) {
@@ -292,13 +371,31 @@ export async function efashionUpdateProductInPlace(
     }
     if (bjPrimaryEfId !== null && currentMainEfId !== null && bjPrimaryEfId !== currentMainEfId) {
       try {
-        await efashionToggleMainProduct(bjPrimaryEfId);
-        // Met à jour notre vue locale : la nouvelle main est bjPrimaryEfId,
-        // l'ancienne (currentMainEfId) devient non-main.
-        const oldMain = liveById.get(currentMainEfId);
-        if (oldMain) liveById.set(currentMainEfId, { ...oldMain, main: false });
-        const newMain = liveById.get(bjPrimaryEfId);
-        if (newMain) liveById.set(bjPrimaryEfId, { ...newMain, main: true });
+        // 1. Désactiver le main actuel.
+        const oldLive = liveById.get(currentMainEfId);
+        const oldTarget = targetVariants.find((v) => v.efashionProductId === currentMainEfId);
+        await efashionUpdateProduit({
+          id_produit: currentMainEfId,
+          id_couleur_liee: bjPrimaryEfId,
+          id_vendeur_marque: oldLive?.id_vendeur_marque ?? 3228,
+          prix: oldTarget?.prix ?? 0,
+          prixReduit: null,
+          main: false,
+        });
+        // 2. Activer le nouveau main.
+        const newLive = liveById.get(bjPrimaryEfId);
+        const newTarget = targetVariants.find((v) => v.efashionProductId === bjPrimaryEfId);
+        await efashionUpdateProduit({
+          id_produit: bjPrimaryEfId,
+          id_couleur_liee: bjPrimaryEfId,
+          id_vendeur_marque: newLive?.id_vendeur_marque ?? 3228,
+          prix: newTarget?.prix ?? 0,
+          prixReduit: null,
+          main: true,
+        });
+        // Met à jour notre vue locale.
+        if (oldLive) liveById.set(currentMainEfId, { ...oldLive, main: false });
+        if (newLive) liveById.set(bjPrimaryEfId, { ...newLive, main: true });
         logger.info("[eFashion update] Couleur principale basculée", {
           productId,
           from: currentMainEfId,
@@ -318,7 +415,7 @@ export async function efashionUpdateProductInPlace(
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`toggleMainProduct(${bjPrimaryEfId}): ${msg}`);
+        errors.push(`mainSwitch(${currentMainEfId}→${bjPrimaryEfId}): ${msg}`);
       }
     }
   }
@@ -507,6 +604,106 @@ export async function efashionUpdateProductInPlace(
     logger.info("[eFashion] Compositions inchangées, skip", { productId });
   }
 
+  // Photos — eFashion stocke les images par `id_produit` (= par couleur),
+  // pareil que la description et les compositions. Stratégie : pour chaque
+  // variante avec un changement d'images détecté par le diff, on purge la
+  // liste eFashion actuelle (GET + DELETE filename par filename) et on
+  // ré-upload les images BJ dans l'ordre. C'est moins fin qu'un patch ciblé
+  // mais ça garantit la cohérence et le réordonnancement (eFashion renomme
+  // automatiquement après chaque DELETE, donc on ne peut pas se reposer
+  // sur les positions intermédiaires).
+  //
+  // Cas couverts :
+  //   - `forceFullSync` : on resync les photos de toutes les variantes liées,
+  //     que les images aient changé ou non dans le snapshot.
+  //   - Variantes ajoutées (`diff.added`) : on upload directement leurs photos
+  //     (eFashion vient de leur être lié, pas de photos préalables à purger).
+  //   - Variantes modifiées (`diff.changed`) avec `imagesChanged=true` : purge + ré-upload.
+  const variantsNeedingImageSync: EfashionVariantSnapshot[] = [];
+  if (opts.forceFullSync) {
+    variantsNeedingImageSync.push(...targetVariants.filter((v) => v.images && v.images.length > 0));
+  } else {
+    for (const a of diff.added) {
+      if (a.images && a.images.length > 0) variantsNeedingImageSync.push(a);
+    }
+    for (const c of diff.changed) {
+      if (c.imagesChanged && c.after.images && c.after.images.length > 0) {
+        variantsNeedingImageSync.push(c.after);
+      }
+    }
+  }
+
+  if (variantsNeedingImageSync.length > 0) {
+    logger.info("[eFashion] Photos à resynchroniser", {
+      productId,
+      variantsCount: variantsNeedingImageSync.length,
+      force: !!opts.forceFullSync,
+    });
+
+    const productRefBase = product.efashionReferenceBase;
+    for (const variant of variantsNeedingImageSync) {
+      const efId = variant.efashionProductId;
+      const images = variant.images ?? [];
+      try {
+        // 1. Purge des photos existantes côté eFashion.
+        // ⚠️ eFashion renumérote automatiquement les filenames après chaque
+        // DELETE (cf. docs/efashion-api.md §18.3) : supprimer `c.jpg` fait que
+        // `z-1.jpg` devient le nouveau `c.jpg`. On ne peut donc PAS itérer
+        // sur la liste initiale — il faut re-fetcher la liste après chaque
+        // suppression et toujours supprimer la 1ʳᵉ entrée. Une garde anti
+        // boucle infinie est en place au cas où eFashion renvoie toujours
+        // la même photo (bug serveur improbable mais on veut couper court).
+        let safety = 50;
+        // Boucle tant qu'eFashion expose encore des photos pour ce produit.
+        while (safety-- > 0) {
+          const current = await efashionGetProductPhotos(efId);
+          if (current.photos.length === 0) break;
+          const photoPath = current.photos[0];
+          const filename = photoPath.split("/").pop();
+          if (!filename) break;
+          try {
+            await efashionDeleteProductPhoto({ efashionProductId: efId, filename });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            logger.warn("[eFashion] deletePhoto échoué (abandon purge)", { efId, filename, error: msg });
+            break; // on arrête la purge pour éviter une boucle infinie sur la même photo
+          }
+        }
+
+        // 2. Ré-upload dans l'ordre `order` croissant. La 1ʳᵉ photo uploadée
+        // devient `c.jpg` (principale), les suivantes `z-1.jpg`, `z-2.jpg`, etc.
+        //
+        // ⚠️ Upload **séquentiel** (1 photo = 1 requête HTTP) et PAS en batch :
+        // un upload multipart avec plusieurs `photos` peut être traité dans un
+        // ordre indéterminé côté eFashion → une photo censée être 2ᵉ peut
+        // finir en principale. En sérialisant, eFashion les enregistre dans
+        // l'ordre exact où on les pousse.
+        const sorted = [...images].sort((a, b) => a.order - b.order);
+        const localColor = linkedColors.find((c) => c.efashionProductId === efId);
+        const colorName = localColor?.colorId ? `color-${localColor.colorId}` : "color";
+        for (let idx = 0; idx < sorted.length; idx++) {
+          const img = sorted[idx];
+          await efashionUploadProductPhotos(efId, [
+            {
+              dbPath: img.dbPath,
+              filename: `${productRefBase}-${colorName}-${idx + 1}.jpg`,
+            },
+          ]);
+        }
+        imagesUpdatedCount++;
+        logger.info("[eFashion] Photos resynchronisées", {
+          efId,
+          count: sorted.length,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`syncPhotos(${efId}): ${msg}`);
+      }
+    }
+  } else {
+    logger.info("[eFashion] Photos inchangées, skip", { productId });
+  }
+
   // Sauve le nouveau snapshot uniquement si on n'a pas d'erreur (sinon on
   // garderait un état faux dans la BDD et on rate les retries).
   if (errors.length === 0) {
@@ -531,6 +728,7 @@ export async function efashionUpdateProductInPlace(
     stockMutationsCount: stockMutations,
     descriptionsUpdatedCount,
     compositionsUpdatedCount,
+    imagesUpdatedCount,
     unlinkedVariants: unlinkedCount,
   };
 }

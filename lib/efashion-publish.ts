@@ -30,6 +30,28 @@ import { efashionUploadProductPhotos } from "@/lib/efashion-photos";
 import { loadEfashionMarkup, computeEfashionPrice } from "@/lib/efashion-pricing";
 import { resolveEfashionDeclinaison } from "@/lib/efashion-declinaison-matcher";
 
+/**
+ * Construit le suffixe « Dimensions : ... » ajouté à la description envoyée
+ * à eFashion. Format identique à PFS (cf. lib/pfs-publish.ts) pour cohérence
+ * entre les 2 marketplaces.
+ */
+function buildEfashionDimensionsSuffix(product: {
+  dimensionLength: number | null;
+  dimensionWidth: number | null;
+  dimensionHeight: number | null;
+  dimensionDiameter: number | null;
+  dimensionCircumference: number | null;
+}): string {
+  const parts: string[] = [];
+  if (product.dimensionLength != null) parts.push(`Longueur : ${product.dimensionLength}mm`);
+  if (product.dimensionWidth != null) parts.push(`Largeur : ${product.dimensionWidth}mm`);
+  if (product.dimensionHeight != null) parts.push(`Hauteur : ${product.dimensionHeight}mm`);
+  if (product.dimensionDiameter != null) parts.push(`Diamètre : ${product.dimensionDiameter}mm`);
+  if (product.dimensionCircumference != null) parts.push(`Circonférence : ${product.dimensionCircumference}mm`);
+  if (parts.length === 0) return "";
+  return `\n\nDimensions : ${parts.join(" / ")}`;
+}
+
 export interface EfashionPublishOutcome {
   success: boolean;
   error?: string;
@@ -47,6 +69,13 @@ export async function efashionPublishProduct(
       reference: true,
       name: true,
       description: true,
+      // Dimensions — copiées dans la description envoyée à eFashion (même
+      // format que PFS, cf. lib/pfs-publish.ts::buildDimensionsSuffix).
+      dimensionLength: true,
+      dimensionWidth: true,
+      dimensionHeight: true,
+      dimensionDiameter: true,
+      dimensionCircumference: true,
       status: true,
       efashionReferenceBase: true,
       category: { select: { id: true, name: true, efashionCategorieId: true } },
@@ -81,10 +110,9 @@ export async function efashionPublishProduct(
             },
             orderBy: { size: { position: "asc" } },
           },
-          images: {
-            select: { path: true, order: true },
-            orderBy: { order: "asc" },
-          },
+          // ⚠️ Pas via la relation `images` : les `ProductColorImage` créées
+          // depuis l'admin moderne ont `productColorId = NULL`, donc la relation
+          // les rate. On charge séparément via (productId, colorId) plus bas.
         },
       },
       translations: {
@@ -97,6 +125,21 @@ export async function efashionPublishProduct(
   if (!product) return { success: false, error: "Produit introuvable." };
   if (product.colors.length === 0)
     return { success: false, error: "Le produit n'a aucune couleur." };
+
+  // Images du produit — chargées séparément via (productId, colorId) parce
+  // que la relation `ProductColor.images` rate les images créées par l'admin
+  // moderne (où `productColorId = NULL`).
+  const allImages = await prisma.productColorImage.findMany({
+    where: { productId: product.id },
+    select: { colorId: true, path: true, order: true },
+    orderBy: { order: "asc" },
+  });
+  const imagesByColorId = new Map<string, Array<{ path: string; order: number }>>();
+  for (const img of allImages) {
+    const arr = imagesByColorId.get(img.colorId);
+    if (arr) arr.push({ path: img.path, order: img.order });
+    else imagesByColorId.set(img.colorId, [{ path: img.path, order: img.order }]);
+  }
 
   // eFashion ne gère qu'1 ligne par couleur (pas de notion UNIT/PACK).
   // On reproduit la règle Ankorstore : seules les variantes UNIT sont
@@ -184,12 +227,19 @@ export async function efashionPublishProduct(
   }
 
   // Descriptions multilingues
+  // ⚠️ La description FR envoyée à eFashion inclut le suffix dimensions
+  // (même format que PFS) si le produit a au moins une dimension renseignée.
+  // Les traductions multilingues passent telles quelles — eFashion les
+  // retraduira au prochain `saveProduitDescription` (cf. efashion-update.ts).
   const transByLocale = new Map(product.translations.map((t) => [t.locale, t.description]));
-  const descriptionFr = product.description ?? "";
-  const descriptionEn = transByLocale.get("en") ?? descriptionFr;
-  const descriptionIt = transByLocale.get("it") ?? descriptionFr;
-  const descriptionEs = transByLocale.get("es") ?? descriptionFr;
-  const descriptionZh = transByLocale.get("zh") ?? null;
+  const dimensionsSuffix = buildEfashionDimensionsSuffix(product);
+  const descriptionFr = (product.description ?? "") + dimensionsSuffix;
+  const descriptionEn = (transByLocale.get("en") ?? product.description ?? "") + dimensionsSuffix;
+  const descriptionIt = (transByLocale.get("it") ?? product.description ?? "") + dimensionsSuffix;
+  const descriptionEs = (transByLocale.get("es") ?? product.description ?? "") + dimensionsSuffix;
+  const descriptionZh = transByLocale.get("zh") != null
+    ? transByLocale.get("zh")! + dimensionsSuffix
+    : null;
 
   const couleurs = product.colors.map((c, i) => ({
     id: c.color!.efashionColorId as number,
@@ -271,11 +321,12 @@ export async function efashionPublishProduct(
   for (let i = 0; i < product.colors.length && i < productIds.length; i++) {
     const local = product.colors[i];
     const efId = productIds[i];
-    if (local.images.length === 0) continue;
+    const localImages = local.color?.id ? (imagesByColorId.get(local.color.id) ?? []) : [];
+    if (localImages.length === 0) continue;
     try {
       await efashionUploadProductPhotos(
         efId,
-        local.images.map((img, idx) => ({
+        localImages.map((img, idx) => ({
           dbPath: img.path,
           filename: `${product.reference}-${local.color?.name ?? "color"}-${idx + 1}.jpg`,
         })),
