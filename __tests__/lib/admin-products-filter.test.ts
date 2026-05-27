@@ -259,6 +259,53 @@ describe("buildAdminProductsWhere", () => {
       },
     ]);
   });
+
+  it("requires reference base set and all UNIT colors linked when efashionLink=linked", () => {
+    const where = buildAdminProductsWhere({ efashionLink: "linked" });
+    expect(where.efashionReferenceBase).toEqual({ not: null });
+    expect(where.AND).toEqual([
+      { NOT: { colors: { some: { saleType: "UNIT", efashionProductId: null } } } },
+    ]);
+  });
+
+  it("matches products without reference base OR with at least one unlinked UNIT color when efashionLink=unlinked", () => {
+    const where = buildAdminProductsWhere({ efashionLink: "unlinked" });
+    expect(where.efashionReferenceBase).toBeUndefined();
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { efashionReferenceBase: null },
+          { colors: { some: { saleType: "UNIT", efashionProductId: null } } },
+        ],
+      },
+    ]);
+  });
+
+  it("ignores efashionLink when value is empty or unknown", () => {
+    expect(buildAdminProductsWhere({ efashionLink: "" }).efashionReferenceBase).toBeUndefined();
+    expect(buildAdminProductsWhere({ efashionLink: "nope" }).efashionReferenceBase).toBeUndefined();
+  });
+
+  it("combines all three marketplace filters without clobbering each other", () => {
+    const where = buildAdminProductsWhere({
+      pfsLink: "linked",
+      ankorsLink: "linked",
+      efashionLink: "unlinked",
+    });
+    expect(where.pfsProductId).toEqual({ not: null });
+    expect(where.ankorsProductId).toEqual({ not: null });
+    expect(where.efashionReferenceBase).toBeUndefined();
+    expect(where.AND).toEqual([
+      { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
+      { NOT: { colors: { some: { saleType: "UNIT", ankorsVariantId: null } } } },
+      {
+        OR: [
+          { efashionReferenceBase: null },
+          { colors: { some: { saleType: "UNIT", efashionProductId: null } } },
+        ],
+      },
+    ]);
+  });
 });
 
 describe("findProductIdsWithMissingVariantImages", () => {

@@ -152,6 +152,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     missingImages = "",
     pfsLink = "",
     ankorsLink = "",
+    efashionLink = "",
     hsCodeId = "",
   } = params;
 
@@ -185,6 +186,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     stockBelow,
     pfsLink,
     ankorsLink,
+    efashionLink,
     hsCodeId,
     productIdsIn,
   });
@@ -388,6 +390,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
             hsCodes={hsCodes}
             hasPfsConfig={hasPfsConfig}
             hasAnkorstoreConfig={hasAnkorstoreConfig}
+            hasEfashionConfig={hasEfashionConfig}
           />
         </Suspense>
       </div>

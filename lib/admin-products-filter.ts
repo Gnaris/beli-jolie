@@ -40,6 +40,15 @@ export interface AdminProductsFilterParams {
    */
   ankorsLink?: string;
   /**
+   * Filtre sur le lien eFashion Paris — eFashion ne synchronise que les variantes
+   * UNIT (1 ligne eFashion par couleur). Un produit est considéré « lié » seulement
+   * s'il a sa `efashionReferenceBase` ET que toutes ses couleurs UNIT portent leur
+   * `efashionProductId`.
+   *   - "linked"   = `efashionReferenceBase` renseigné ET aucune couleur UNIT sans `efashionProductId`
+   *   - "unlinked" = `efashionReferenceBase` vide OU au moins une couleur UNIT sans `efashionProductId`
+   */
+  efashionLink?: string;
+  /**
    * Filtre sur le code SH (douanier) du produit, désormais en relation
    * avec la bibliothèque HsCode :
    *   - `""`         = pas de filtre (tous)
@@ -194,6 +203,24 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
         OR: [
           { ankorsProductId: null },
           { colors: { some: { saleType: "UNIT", ankorsVariantId: null } } },
+        ],
+      },
+    ];
+  }
+
+  if (params.efashionLink === "linked") {
+    where.efashionReferenceBase = { not: null };
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      { NOT: { colors: { some: { saleType: "UNIT", efashionProductId: null } } } },
+    ];
+  } else if (params.efashionLink === "unlinked") {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      {
+        OR: [
+          { efashionReferenceBase: null },
+          { colors: { some: { saleType: "UNIT", efashionProductId: null } } },
         ],
       },
     ];

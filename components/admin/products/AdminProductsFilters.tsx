@@ -25,9 +25,10 @@ interface Props {
   hsCodes?: { id: string; code: string; label: string }[];
   hasPfsConfig?: boolean;
   hasAnkorstoreConfig?: boolean;
+  hasEfashionConfig?: boolean;
 }
 
-export default function AdminProductsFilters({ totalCount, categories, tags = [], compositions = [], hsCodes = [], hasPfsConfig = false, hasAnkorstoreConfig = false }: Props) {
+export default function AdminProductsFilters({ totalCount, categories, tags = [], compositions = [], hsCodes = [], hasPfsConfig = false, hasAnkorstoreConfig = false, hasEfashionConfig = false }: Props) {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -50,6 +51,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlMissingImages = searchParams.get("missingImages") ?? "";
   const urlPfsLink = searchParams.get("pfsLink") ?? "";
   const urlAnkorsLink = searchParams.get("ankorsLink") ?? "";
+  const urlEfashionLink = searchParams.get("efashionLink") ?? "";
   const urlHsCodeId  = searchParams.get("hsCodeId")   ?? "";
   const perPage      = searchParams.get("perPage")    ?? "20";
 
@@ -545,7 +547,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
             </FilterColumn>
 
             {/* Colonne : Marketplaces (visible uniquement si au moins une est configurée) */}
-            {(hasPfsConfig || hasAnkorstoreConfig) && (
+            {(hasPfsConfig || hasAnkorstoreConfig || hasEfashionConfig) && (
               <FilterColumn title="Marketplaces">
                 {hasPfsConfig && (
                   <FilterField label="Lien Paris Fashion Shop">
@@ -570,6 +572,20 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                         { value: "", label: "Tous" },
                         { value: "linked", label: "Lié à Ankorstore" },
                         { value: "unlinked", label: "Non lié à Ankorstore" },
+                      ]}
+                      size="sm"
+                    />
+                  </FilterField>
+                )}
+                {hasEfashionConfig && (
+                  <FilterField label="Lien eFashion Paris">
+                    <CustomSelect
+                      value={urlEfashionLink}
+                      onChange={(v) => navigate({ efashionLink: v || null })}
+                      options={[
+                        { value: "", label: "Tous" },
+                        { value: "linked", label: "Lié à eFashion" },
+                        { value: "unlinked", label: "Non lié à eFashion" },
                       ]}
                       size="sm"
                     />
