@@ -948,43 +948,26 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     // ── Assign/update SKUs for all variants ──────────
     await assignVariantSkus(id, input.reference, tx);
 
-    // ── Nettoyage disque des images orphelines ──────────────────────────
-    // Si une variante est supprimée et qu'aucune autre variante (existante
-    // OU nouvellement ajoutée dans le même save) ne réutilise sa couleur,
-    // les fichiers image de cette couleur deviennent orphelins sur le
-    // disque. On capture leurs chemins ICI (avant la purge BDD ci-dessous)
-    // pour pouvoir les supprimer après le commit de la transaction.
-    const beforeColorIds = new Set<string>();
-    for (const v of existingVariants) {
-      if (v.colorId) beforeColorIds.add(v.colorId);
-      for (const pl of v.packLines) {
-        if (pl.colorId) beforeColorIds.add(pl.colorId);
-      }
-    }
-    const afterColorIds = new Set<string>();
-    for (const c of input.colors) {
-      if (isMultiColorPackInput(c) && c.packLines) {
-        if (c.colorId) afterColorIds.add(c.colorId);
-        for (const pl of c.packLines) {
-          if (pl.colorId) afterColorIds.add(pl.colorId);
-        }
-      } else if (c.colorId) {
-        afterColorIds.add(c.colorId);
-      }
-    }
-    const removedColorIds = [...beforeColorIds].filter((cid) => !afterColorIds.has(cid));
+    // ── Images : full replace + cleanup disque ─────────────────────────
+    // Quand l'admin envoie `imagePaths` (défini, même vide), c'est l'état
+    // complet souhaité après save : on compare avec ce qui est en BDD pour
+    // capturer les orphelins disque (ancienne photo retirée d'un slot,
+    // couleur entière supprimée, etc.) avant de reconstruire les entrées.
+    // Suppression effective du disque après commit.
     let orphanImagePaths: string[] = [];
-    if (removedColorIds.length > 0) {
-      const orphanRecords = await tx.productColorImage.findMany({
-        where: { productId: id, colorId: { in: removedColorIds } },
+    if (input.imagePaths !== undefined) {
+      const previousImageRecords = await tx.productColorImage.findMany({
+        where: { productId: id },
         select: { path: true },
       });
-      orphanImagePaths = orphanRecords.map((r) => r.path);
-    }
+      const previousPaths = new Set(previousImageRecords.map((r) => r.path));
+      const keptPaths = new Set<string>();
+      for (const group of input.imagePaths) {
+        for (const p of group.paths) keptPaths.add(p);
+      }
+      orphanImagePaths = [...previousPaths].filter((p) => !keptPaths.has(p));
 
-    // ── Images : full replace, 1 entrée par (productId, colorId, order) ──
-    // Couleur attachée au produit (productColorId = NULL). Plus de matching variante.
-    if (input.imagePaths && input.imagePaths.length > 0) {
+      // Reconstruire les entrées BDD (1 par (productId, colorId, order)).
       await tx.productColorImage.deleteMany({ where: { productId: id } });
 
       const imageData: { productId: string; colorId: string; productColorId: null; path: string; order: number }[] = [];
@@ -1077,9 +1060,9 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   const { oldStockMap, oldVariantMap, variantIdMap, orphanImagePaths } = txResult;
 
   // ── Suppression effective des fichiers image orphelins (post-transaction) ──
-  // Couleurs disparues sans remplacement → on supprime les 3 tailles
-  // (large/md/thumb) de chaque image associée. Best-effort : on logge en
-  // cas d'échec mais on ne fait pas échouer le save.
+  // Toute image présente en BDD avant le save mais absente de l'état envoyé
+  // par l'admin → on supprime les 3 tailles (large/md/thumb) du disque.
+  // Best-effort : on logge en cas d'échec mais on ne fait pas échouer le save.
   if (orphanImagePaths.length > 0) {
     const keys = orphanImagePaths.flatMap((path) => {
       const paths = getImagePaths(path);
@@ -1087,7 +1070,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     });
     try {
       await deleteFiles(keys);
-      logger.info(`[Storage] Deleted ${keys.length} orphan image files for product ${id} (colors removed)`);
+      logger.info(`[Storage] Deleted ${keys.length} orphan image files for product ${id}`);
     } catch (err) {
       logger.error(`[Storage] Failed to delete orphan image files for product ${id}`, {
         error: err,

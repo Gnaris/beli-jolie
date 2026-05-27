@@ -30,6 +30,9 @@ import {
   efashionSaveProduitCompositions,
   efashionTranslateText,
   efashionToggleMainProduct,
+  efashionDuplicateWithNewColor,
+  efashionPublishBrouillon,
+  efashionSoftDeleteProduits,
 } from "@/lib/efashion-api-write";
 import {
   efashionGetProductPhotos,
@@ -88,6 +91,21 @@ export interface EfashionUpdateOutcome {
   compositionsUpdatedCount?: number;
   /** Nombre de variantes dont les photos eFashion ont été resynchronisées. */
   imagesUpdatedCount?: number;
+  /** Nombre de couleurs supprimées côté eFashion (correspond à `diff.removed`). */
+  colorsDeletedCount?: number;
+  /**
+   * Nombre de couleurs créées côté eFashion via `duplicateWithNewColor` +
+   * `publishBrouillon` (couleurs locales sans `efashionProductId` qu'on a
+   * propagées vers eFashion pendant ce cycle de sync).
+   */
+  colorsCreatedCount?: number;
+  /**
+   * Nombre de couleurs ajoutées localement qu'on a été incapable de créer côté
+   * eFashion via une simple mise à jour (eFashion n'a pas d'endpoint « ajouter
+   * une couleur » propre — il faut un Rafraîchir complet). L'erreur remontée
+   * dans `error` invite l'utilisatrice à relancer un Rafraîchir.
+   */
+  colorsSkippedCount?: number;
   noChanges?: boolean;
 }
 
@@ -140,6 +158,12 @@ export async function efashionUpdateProductInPlace(
               size: { select: { name: true } },
             },
           },
+          // Nom et id eFashion de la couleur — nécessaires pour
+          // `duplicateWithNewColor` quand on crée une nouvelle couleur côté
+          // eFashion (cf. section « auto-création » plus bas).
+          color: {
+            select: { name: true, efashionColorId: true },
+          },
           // ⚠️ Pas via la relation `images` : les `ProductColorImage` créées
           // depuis l'admin moderne ont `productColorId = NULL` (cf. commentaire
           // dans app/actions/admin/products.ts), donc la relation ne les voit
@@ -171,18 +195,247 @@ export async function efashionUpdateProductInPlace(
 
   const markup = await loadEfashionMarkup();
 
+  // Snapshot précédent — utilisé en plusieurs endroits (auto-création des
+  // couleurs, fallback main, diff). Déclaré tôt pour partager.
+  const previousSnapshot = opts.forceFullSync
+    ? null
+    : (product.efashionLastSyncSnapshot as EfashionSnapshot | null);
+
   // eFashion ne synchronise que les variantes UNIT. Une variante PACK qui
   // posséderait un efashionProductId (cas legacy avant le script de migration)
   // est explicitement ignorée ici.
   const unitColors = product.colors.filter((c) => c.saleType === "UNIT");
+
+  // ─────────────────────────────────────────────────────────────────────
+  // État live eFashion — partagé entre auto-création des couleurs et le
+  // reste du flow. Fetch unique en lazy (premier appel à ensureLiveById).
+  // ─────────────────────────────────────────────────────────────────────
+  type LiveItem = {
+    reference: string;
+    reference_base: string | null;
+    id_collection: number | null;
+    id_categorie: number | null;
+    id_provenance: number | null;
+    id_declinaison: number | null;
+    id_pack: number | null;
+    vendu_par: string | null;
+    id_vendeur_marque: number | null;
+    main: boolean;
+  };
+  let liveById = new Map<number, LiveItem>();
+  let efashionVendorId: number | null = null;
+  let liveFetched = false;
+  async function ensureLiveById(): Promise<void> {
+    if (liveFetched) return;
+    liveFetched = true;
+    try {
+      const { efashionGetMe, efashionListProducts } = await import("@/lib/efashion-api");
+      const me = await efashionGetMe();
+      efashionVendorId = me.id_vendeur;
+      const list = await efashionListProducts({
+        idVendeur: me.id_vendeur,
+        take: 100,
+        reference: product!.efashionReferenceBase!,
+        premelFilter: "en_ligne",
+      });
+      for (const it of list.items) {
+        if (
+          (it.reference_base ?? "").toLowerCase().trim() !==
+          product!.efashionReferenceBase!.toLowerCase().trim()
+        ) {
+          continue;
+        }
+        liveById.set(it.id_produit, {
+          reference: it.reference,
+          reference_base: it.reference_base ?? null,
+          id_collection: it.id_collection ?? null,
+          id_categorie: it.id_categorie ?? null,
+          id_provenance: it.id_provenance ?? null,
+          id_declinaison: it.id_declinaison ?? null,
+          id_pack: it.id_pack ?? null,
+          vendu_par: it.vendu_par ?? null,
+          id_vendeur_marque: it.id_vendeur_marque ?? null,
+          main: it.main === true,
+        });
+      }
+      logger.info("[eFashion update] État eFashion lu pour completion du payload", {
+        productId,
+        liveVariants: liveById.size,
+      });
+    } catch (err) {
+      logger.warn("[eFashion update] Lecture live eFashion KO, payload réduit", {
+        productId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      liveById = new Map();
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Auto-création des couleurs locales pas encore connues d'eFashion
+  // ─────────────────────────────────────────────────────────────────────
+  // Si l'utilisatrice a ajouté une nouvelle couleur depuis l'admin, sa
+  // `ProductColor.efashionProductId` est null. On utilise la mutation
+  // `duplicateWithNewColor` (vue dans le HAR de leur UI — mai 2026) qui
+  // clone la couleur main du groupe en gardant la même reference_base et
+  // crée un nouvel id_produit dédié. Ensuite : upload photos +
+  // `publishBrouillon` pour rendre la nouvelle couleur visible côté
+  // catalogue acheteurs.
+  //
+  // Pré-requis pour qu'une couleur soit créée :
+  //   - `efashionColorId` renseigné (mapping de bibliothèque)
+  //   - couleur non `disabled`
+  //   - une couleur source côté eFashion (main + référence) connue
+  let colorsCreatedCount = 0;
+  const createErrors: string[] = [];
+  const colorsToCreate = unitColors.filter(
+    (c) =>
+      c.efashionProductId === null &&
+      !c.disabled &&
+      c.color?.efashionColorId != null,
+  );
+
+  if (colorsToCreate.length > 0) {
+    await ensureLiveById();
+    if (efashionVendorId === null) {
+      createErrors.push(
+        "Impossible de lire l'état eFashion (vendeur) — création de nouvelles couleurs ignorée.",
+      );
+    } else {
+      // Choix de la couleur source pour le duplicate : ordre de priorité
+      //   1. La main actuelle vue côté eFashion (la plus à jour)
+      //   2. La `primaryEfashionProductId` du snapshot précédent
+      //   3. La première couleur déjà liée localement (fallback ultime)
+      let sourceEfId: number | null = null;
+      for (const [efId, live] of liveById) {
+        if (live.main) {
+          sourceEfId = efId;
+          break;
+        }
+      }
+      if (sourceEfId === null && previousSnapshot?.primaryEfashionProductId) {
+        sourceEfId = previousSnapshot.primaryEfashionProductId;
+      }
+      if (sourceEfId === null) {
+        const anyLinked = unitColors.find((c) => c.efashionProductId !== null);
+        sourceEfId = anyLinked?.efashionProductId ?? null;
+      }
+
+      if (sourceEfId === null) {
+        createErrors.push(
+          "Aucune couleur source connue côté eFashion pour dupliquer — créez d'abord au moins une couleur via publish.",
+        );
+      } else {
+        // Anti-doublon : eFashion refuse 2 couleurs avec le même id_couleur
+        // sur le même groupe-produit. On demande la liste existante.
+        let usedColorIds = new Set<number>();
+        try {
+          const { efashionGetAllUsedColorIdsByMainProduct } = await import(
+            "@/lib/efashion-api-write"
+          );
+          const used = await efashionGetAllUsedColorIdsByMainProduct(sourceEfId);
+          usedColorIds = new Set(used);
+        } catch (err) {
+          logger.warn("[eFashion update] allUsedColorIdsByMainProduct KO (anti-doublon désactivé)", {
+            productId,
+            sourceEfId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        for (const newColor of colorsToCreate) {
+          const couleurId = newColor.color!.efashionColorId!;
+          const couleurName = newColor.color!.name;
+          if (usedColorIds.has(couleurId)) {
+            createErrors.push(
+              `Couleur « ${couleurName} » déjà utilisée chez eFashion sur ce groupe (id_couleur ${couleurId}) — liaison manuelle requise.`,
+            );
+            continue;
+          }
+          try {
+            const dup = await efashionDuplicateWithNewColor({
+              idProduit: sourceEfId,
+              couleurId,
+              couleurName,
+            });
+            const newEfId = dup.id_produit;
+            await prisma.productColor.update({
+              where: { id: newColor.id },
+              data: { efashionProductId: newEfId },
+            });
+            // Mute la copie en mémoire pour que le filtre `linkedColors` plus bas
+            // l'inclue et que le diff la voie comme une variante valide.
+            (newColor as { efashionProductId: number | null }).efashionProductId = newEfId;
+
+            // Upload des photos de la nouvelle couleur — 1 photo par appel HTTP
+            // pour préserver l'ordre (cf. raisonnement dans la section images
+            // plus bas).
+            const imgs = newColor.colorId ? (imagesByColorId.get(newColor.colorId) ?? []) : [];
+            const sorted = [...imgs].sort((a, b) => a.order - b.order);
+            for (let idx = 0; idx < sorted.length; idx++) {
+              const img = sorted[idx];
+              await efashionUploadProductPhotos(newEfId, [
+                {
+                  dbPath: img.path,
+                  filename: `${product.efashionReferenceBase}-${couleurName}-${idx + 1}.jpg`,
+                },
+              ]);
+            }
+
+            // Publie le brouillon pour que la couleur devienne visible côté
+            // catalogue acheteurs (sinon elle reste en `premel='0'` et ne sort
+            // jamais en ligne).
+            await efashionPublishBrouillon({
+              idProduit: newEfId,
+              idVendeur: efashionVendorId,
+            });
+
+            // Ajoute au liveById pour que le reste du flow le voit comme un
+            // variant connu. Les champs `id_collection/id_categorie/...` sont
+            // hérités de la source côté eFashion mais on ne les a pas dans la
+            // réponse de duplicate — on les remplit avec ceux de la source pour
+            // que le payload PUT suivant soit valide.
+            const srcLive = liveById.get(sourceEfId);
+            liveById.set(newEfId, {
+              reference: dup.reference,
+              reference_base: product.efashionReferenceBase,
+              id_collection: srcLive?.id_collection ?? null,
+              id_categorie: srcLive?.id_categorie ?? null,
+              id_provenance: srcLive?.id_provenance ?? null,
+              id_declinaison: srcLive?.id_declinaison ?? null,
+              id_pack: srcLive?.id_pack ?? null,
+              vendu_par: srcLive?.vendu_par ?? "couleurs",
+              id_vendeur_marque: srcLive?.id_vendeur_marque ?? null,
+              main: dup.main,
+            });
+
+            colorsCreatedCount++;
+            usedColorIds.add(couleurId);
+            logger.info("[eFashion update] Nouvelle couleur créée + photos + publish", {
+              productId,
+              newEfId,
+              couleurName,
+              photosCount: sorted.length,
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            createErrors.push(`createColor(${couleurName}): ${msg}`);
+          }
+        }
+      }
+    }
+  }
+
+  // Recalcule les colors liées AVEC les nouvelles couleurs qu'on vient de créer.
   const linkedColors = unitColors.filter((c) => c.efashionProductId !== null);
   const unlinkedCount = unitColors.length - linkedColors.length;
 
   if (linkedColors.length === 0) {
     return {
       success: false,
-      error:
-        "Aucune variante à l'unité de ce produit n'est liée à eFashion (les packs ne sont pas synchronisés).",
+      error: createErrors.length > 0
+        ? createErrors.join(" | ")
+        : "Aucune variante à l'unité de ce produit n'est liée à eFashion (les packs ne sont pas synchronisés).",
     };
   }
 
@@ -229,9 +482,6 @@ export async function efashionUpdateProductInPlace(
   // format que PFS) si le produit a au moins une dimension renseignée. Comme
   // ça la fiche eFashion affiche les dimensions en bas de la description.
   const descriptionFr = (product.description ?? "") + buildEfashionDimensionsSuffix(product);
-  const previousSnapshot = opts.forceFullSync
-    ? null
-    : (product.efashionLastSyncSnapshot as EfashionSnapshot | null);
   const prevDescriptions = previousSnapshot?.descriptions;
   const targetDescriptions: EfashionDescriptions = {
     fr: descriptionFr,
@@ -284,6 +534,7 @@ export async function efashionUpdateProductInPlace(
   let descriptionsUpdatedCount = 0;
   let compositionsUpdatedCount = 0;
   let imagesUpdatedCount = 0;
+  let colorsDeletedCount = 0;
   const errors: string[] = [];
 
   // Champs basiques (visible / prix / poids) — 1 call par variant modifié.
@@ -294,60 +545,35 @@ export async function efashionUpdateProductInPlace(
   // de toutes les autres couleurs. On lit donc les valeurs actuelles côté
   // eFashion via listProducts pour récupérer reference, id_declinaison,
   // id_pack et les autres champs « stables », et on les renvoie tels quels.
-  const variantsToUpdate = [
-    ...diff.added.map((v) => ({ variant: v, fields: ["visible", "prix", "poids"] as const })),
+  //
+  // ⚠️ Les variantes dans `diff.added` ne sont traitées comme des updates QUE
+  // si elles existent déjà côté eFashion (= apparaissent dans `liveById`). Le
+  // filtre est appliqué APRÈS le fetch — voir plus bas. Si une couleur a été
+  // ajoutée localement mais qu'eFashion ne la connaît pas (snapshot précédent
+  // non null), on skip et on remonte une erreur explicite : eFashion n'a pas
+  // d'endpoint propre « ajouter une couleur » (cf.
+  // scripts/efashion-test-add-color-via-put.ts pour le diagnostic) — la seule
+  // voie sûre est un Rafraîchir complet.
+  let variantsToUpdate: Array<{
+    variant: EfashionVariantSnapshot;
+    fields: ReadonlyArray<"visible" | "prix" | "poids">;
+  }> = [
+    ...diff.added.map((v) => ({
+      variant: v,
+      fields: ["visible", "prix", "poids"] as ReadonlyArray<"visible" | "prix" | "poids">,
+    })),
     ...diff.changed
       .filter((c) => c.fieldsChanged.length > 0)
-      .map((c) => ({ variant: c.after, fields: c.fieldsChanged })),
+      .map((c) => ({
+        variant: c.after,
+        fields: c.fieldsChanged as ReadonlyArray<"visible" | "prix" | "poids">,
+      })),
   ];
 
-  let liveById = new Map<number, { reference: string; reference_base: string | null; id_collection: number | null; id_categorie: number | null; id_provenance: number | null; id_declinaison: number | null; id_pack: number | null; vendu_par: string | null; id_vendeur_marque: number | null; main: boolean }>();
-  if (variantsToUpdate.length > 0 || diff.primaryChanged) {
-    try {
-      const { efashionGetMe, efashionListProducts } = await import("@/lib/efashion-api");
-      const me = await efashionGetMe();
-      const list = await efashionListProducts({
-        idVendeur: me.id_vendeur,
-        take: 100,
-        reference: product.efashionReferenceBase,
-        premelFilter: "en_ligne",
-      });
-      for (const it of list.items) {
-        // On garde uniquement ceux qui correspondent strictement à notre
-        // reference_base (le filtre eFashion étant partiel).
-        if (
-          (it.reference_base ?? "").toLowerCase().trim() !==
-          product.efashionReferenceBase.toLowerCase().trim()
-        ) {
-          continue;
-        }
-        liveById.set(it.id_produit, {
-          reference: it.reference,
-          reference_base: it.reference_base ?? null,
-          id_collection: it.id_collection ?? null,
-          id_categorie: it.id_categorie ?? null,
-          id_provenance: it.id_provenance ?? null,
-          id_declinaison: it.id_declinaison ?? null,
-          id_pack: it.id_pack ?? null,
-          vendu_par: it.vendu_par ?? null,
-          id_vendeur_marque: it.id_vendeur_marque ?? null,
-          main: it.main === true,
-        });
-      }
-      logger.info("[eFashion update] État eFashion lu pour completion du payload", {
-        productId,
-        liveVariants: liveById.size,
-      });
-    } catch (err) {
-      // Si le listProducts plante, on continue avec un payload minimal.
-      // Risque : le prix sera propagé sur toutes les couleurs. Mais on préfère
-      // tenter quelque chose plutôt que d'abandonner toute la sync.
-      logger.warn("[eFashion update] Lecture live eFashion KO, payload réduit", {
-        productId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      liveById = new Map();
-    }
+  // Fetch live (déjà fait au plus tôt si on a auto-créé des couleurs ; sinon
+  // déclenché ici si le diff a besoin du contexte serveur).
+  if (variantsToUpdate.length > 0 || diff.primaryChanged || diff.removed.length > 0) {
+    await ensureLiveById();
   }
 
   // Aligne la couleur principale eFashion (`main = true`) sur la primaire BJ.
@@ -418,6 +644,135 @@ export async function efashionUpdateProductInPlace(
         errors.push(`mainSwitch(${currentMainEfId}→${bjPrimaryEfId}): ${msg}`);
       }
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Suppression des couleurs retirées localement (diff.removed)
+  // ─────────────────────────────────────────────────────────────────────
+  // Si une couleur a été supprimée du produit côté BJ, il faut la retirer
+  // aussi côté eFashion sinon elle reste publiée avec ses anciennes photos
+  // et son stock. Endpoint : POST /shootings/product/{id}/delete (cf.
+  // lib/efashion-shootings.ts:193).
+  //
+  // Cas piégeux : si la couleur supprimée était la `main` côté eFashion ET
+  // que la bascule main plus haut ne l'a pas couverte (typiquement parce
+  // que `primaryColorId` BJ pointe encore vers une couleur déjà supprimée
+  // ou n'a pas été mis à jour), on force ici une bascule vers la première
+  // couleur survivante avant de supprimer — sinon eFashion peut refuser le
+  // delete ou se retrouver sans couleur main du groupe.
+  let colorsSkippedCount = 0;
+  if (diff.removed.length > 0) {
+    const removedSet = new Set(diff.removed);
+    const currentMainEfId = liveById.size > 0
+      ? (Array.from(liveById.entries()).find(([, v]) => v.main)?.[0] ?? null)
+      : null;
+    const survivor = targetVariants.find((v) => !removedSet.has(v.efashionProductId));
+
+    if (
+      currentMainEfId !== null &&
+      removedSet.has(currentMainEfId) &&
+      survivor &&
+      // Si le bloc « bascule main » plus haut a déjà retiré la main de l'ancienne
+      // couleur, `liveById.get(currentMainEfId).main` est désormais false → on saute.
+      liveById.get(currentMainEfId)?.main === true
+    ) {
+      try {
+        const oldLive = liveById.get(currentMainEfId);
+        const survivorLive = liveById.get(survivor.efashionProductId);
+        const oldTarget = targetVariants.find((v) => v.efashionProductId === currentMainEfId);
+        await efashionUpdateProduit({
+          id_produit: currentMainEfId,
+          id_couleur_liee: survivor.efashionProductId,
+          id_vendeur_marque: oldLive?.id_vendeur_marque ?? 3228,
+          prix: oldTarget?.prix ?? survivor.prix,
+          prixReduit: null,
+          main: false,
+        });
+        await efashionUpdateProduit({
+          id_produit: survivor.efashionProductId,
+          id_couleur_liee: survivor.efashionProductId,
+          id_vendeur_marque: survivorLive?.id_vendeur_marque ?? 3228,
+          prix: survivor.prix,
+          prixReduit: null,
+          main: true,
+        });
+        if (oldLive) liveById.set(currentMainEfId, { ...oldLive, main: false });
+        if (survivorLive) liveById.set(survivor.efashionProductId, { ...survivorLive, main: true });
+        logger.info("[eFashion update] Bascule main forcée avant suppression de l'ancienne main", {
+          productId,
+          from: currentMainEfId,
+          to: survivor.efashionProductId,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`mainSwitchBeforeDelete(${currentMainEfId}→${survivor.efashionProductId}): ${msg}`);
+      }
+    } else if (currentMainEfId !== null && removedSet.has(currentMainEfId) && !survivor) {
+      // Aucune couleur survivante : on supprime la main quand même mais on
+      // logue un warning — l'utilisatrice est en train de vider le produit.
+      logger.warn("[eFashion update] Suppression de la main eFashion sans couleur survivante (groupe vidé)", {
+        productId,
+        currentMainEfId,
+      });
+    }
+
+    // Suppression batch via la mutation GraphQL `softDeleteProduits` (vue dans
+    // le HAR de leur UI — mai 2026). Plus fiable que
+    // `POST /shootings/product/{id}/delete` qui est pensé pour le workflow
+    // shooting et peut refuser les produits déjà en ligne.
+    try {
+      await efashionSoftDeleteProduits(diff.removed);
+      colorsDeletedCount = diff.removed.length;
+      for (const efId of diff.removed) liveById.delete(efId);
+      logger.info("[eFashion update] Couleurs supprimées côté eFashion (softDelete)", {
+        productId,
+        efIds: diff.removed,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`softDeleteProduits(${diff.removed.join(",")}): ${msg}`);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Filtrage des couleurs ajoutées localement mais inconnues d'eFashion
+  // ─────────────────────────────────────────────────────────────────────
+  // Si l'utilisatrice ajoute une nouvelle couleur à un produit déjà publié,
+  // le diff la place dans `diff.added` avec un `efashionProductId` qu'on a
+  // potentiellement renseigné via la modale « Lier ». Mais si elle a juste
+  // créé la couleur localement SANS la lier, ou si elle vient juste de la
+  // créer et qu'eFashion ne la connaît pas, les updateProduit / stock /
+  // photos vont planter (id_produit inconnu).
+  //
+  // eFashion n'a pas d'endpoint propre « ajouter une couleur à un produit
+  // existant » : le seul moyen sûr est un Rafraîchir complet. On filtre donc
+  // ici les variantes ajoutées qui n'apparaissent pas dans `liveById` et on
+  // remonte une erreur claire qui pointe vers ce Rafraîchir.
+  //
+  // Exception : pendant l'alignement post-publish (`previousSnapshot === null`,
+  // chemin appelé en fin de `efashionPublishProduct` avec forceFullSync),
+  // toutes les variantes sont nouvellement créées par `saveMelDraft` et sont
+  // dans `liveById` — pas de skip à faire. On reconnaît ce cas au fait que
+  // `previousSnapshot` est null (le bloc plus haut a déjà capturé cette
+  // valeur dans `previousSnapshot`).
+  const skippedAddedEfIds = new Set<number>();
+  if (previousSnapshot !== null && liveById.size > 0) {
+    for (const added of diff.added) {
+      if (!liveById.has(added.efashionProductId)) {
+        skippedAddedEfIds.add(added.efashionProductId);
+      }
+    }
+  }
+  if (skippedAddedEfIds.size > 0) {
+    colorsSkippedCount = skippedAddedEfIds.size;
+    errors.push(
+      `${skippedAddedEfIds.size} couleur(s) ajoutée(s) localement mais inconnue(s) d'eFashion ` +
+        `(id_produit: ${[...skippedAddedEfIds].join(", ")}). ` +
+        "Lancez un « Rafraîchir » complet du produit pour les publier proprement.",
+    );
+    variantsToUpdate = variantsToUpdate.filter(
+      (v) => !skippedAddedEfIds.has(v.variant.efashionProductId),
+    );
   }
 
   // ⚠️ Ordre crucial : la couleur eFashion `main=true` propage ses valeurs aux
@@ -494,6 +849,10 @@ export async function efashionUpdateProductInPlace(
     Array<{ id_couleur: number; value: number; taille: string | null }>
   >();
   for (const v of [...diff.added, ...diff.changed.map((c) => c.after)]) {
+    // Skip les couleurs ajoutées qu'eFashion ne connaît pas (voir bloc de
+    // filtrage plus haut) — on ne peut pas pousser de stock vers un produit
+    // qui n'existe pas côté eFashion.
+    if (skippedAddedEfIds.has(v.efashionProductId)) continue;
     const idCouleur = efIdToColorId.get(v.efashionProductId);
     if (!idCouleur) continue; // on ne peut pas pousser le stock sans id_couleur eFashion
     const arr: Array<{ id_couleur: number; value: number; taille: string | null }> = [];
@@ -624,6 +983,10 @@ export async function efashionUpdateProductInPlace(
     variantsNeedingImageSync.push(...targetVariants.filter((v) => v.images && v.images.length > 0));
   } else {
     for (const a of diff.added) {
+      // Skip les couleurs ajoutées inconnues d'eFashion (cf. bloc de filtrage
+      // plus haut) — pas la peine d'uploader des photos sur un id_produit
+      // inexistant : l'API renverrait une erreur.
+      if (skippedAddedEfIds.has(a.efashionProductId)) continue;
       if (a.images && a.images.length > 0) variantsNeedingImageSync.push(a);
     }
     for (const c of diff.changed) {
@@ -704,6 +1067,9 @@ export async function efashionUpdateProductInPlace(
     logger.info("[eFashion] Photos inchangées, skip", { productId });
   }
 
+  // Cumule les erreurs de la phase auto-création avec le reste.
+  if (createErrors.length > 0) errors.push(...createErrors);
+
   // Sauve le nouveau snapshot uniquement si on n'a pas d'erreur (sinon on
   // garderait un état faux dans la BDD et on rate les retries).
   if (errors.length === 0) {
@@ -729,6 +1095,9 @@ export async function efashionUpdateProductInPlace(
     descriptionsUpdatedCount,
     compositionsUpdatedCount,
     imagesUpdatedCount,
+    colorsDeletedCount,
+    colorsCreatedCount,
+    colorsSkippedCount,
     unlinkedVariants: unlinkedCount,
   };
 }

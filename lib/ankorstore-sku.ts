@@ -1,23 +1,21 @@
 /**
  * Génération des SKU envoyés à Ankorstore.
  *
- * Règle (mise à jour 2026-05-19) : **toujours auto-générer**.
+ * Règle (mise à jour 2026-05-27) : **toujours auto-générer**, format simplifié.
+ *
+ *   {reference}_{couleur-slug}_{idSuffix}
+ *
+ * - `idSuffix` = 8 derniers caractères de l'UUID de la variante. Effectivement
+ *   « aléatoire » pour un œil humain mais déterministe : la même variante
+ *   produit toujours le même SKU.
+ * - Plafond strict de `MAX_SKU_LENGTH` caractères pour éviter l'erreur
+ *   « validation_error: Sku maximum » d'Ankorstore. En cas de dépassement,
+ *   on rogne d'abord la couleur, puis la référence. Le suffixe d'ID reste
+ *   **toujours intact** : c'est lui qui garantit l'unicité.
  *
  * On ignore systématiquement le champ `ProductColor.sku` stocké en BDD —
- * il a pu être rempli par une ancienne version du code (sans taille ni
- * suffixe) ou rester d'un import historique. Pour garantir qu'aucun SKU
- * envoyé à AS ne puisse rentrer en conflit, on régénère TOUT à chaque
- * envoi avec le format complet :
- *
- *   {reference}_{couleur-slug}_{taille-slug}_{UNIT|PACK}_{index+1}_{idSuffix}
- *
- * **Limite de taille (2026-05-23)** : Ankorstore rejette les SKU au-delà
- * d'une certaine longueur avec « validation_error: Sku maximum ». On
- * applique un plafond strict de `MAX_SKU_LENGTH` caractères. Quand le SKU
- * complet dépasse, on raccourcit progressivement les morceaux dans cet
- * ordre : taille → couleur → référence. Le bloc final
- * `_{type}_{index}_{idSuffix}` reste **toujours intact** : c'est lui qui
- * garantit l'unicité (idSuffix = 8 derniers caractères de l'UUID variante).
+ * il a pu être rempli par une ancienne version du code (ancien format
+ * avec taille/type/index) ou rester d'un import historique.
  *
  * Note importante : les variantes **déjà liées à AS** (`ankorsVariantId`
  * connu) sont protégées en amont par les appelants (publish/update) qui
@@ -45,18 +43,6 @@ function slugifyPart(s: string): string {
     .toLowerCase();
 }
 
-function sizeSlugForVariant(v: Variant): string {
-  if (v.saleType === "PACK") {
-    if (v.packLines.length > 0 && v.packLines[0].sizes.length > 0) {
-      return slugifyPart(v.packLines[0].sizes[0].size.name);
-    }
-  }
-  if (v.variantSizes.length > 0) {
-    return slugifyPart(v.variantSizes[0].size.name);
-  }
-  return "tu"; // Taille Unique
-}
-
 function colorSlugForVariant(v: Variant, fallbackIndex: number): string {
   const name = v.color?.name;
   if (!name) return `v${fallbackIndex}`;
@@ -65,33 +51,27 @@ function colorSlugForVariant(v: Variant, fallbackIndex: number): string {
 
 /**
  * Assemble le SKU final en garantissant que sa longueur ne dépasse pas
- * `MAX_SKU_LENGTH`. Le suffixe `_{type}_{indexN}_{idSuffix}` est sacré
- * (garantit l'unicité). On rogne en priorité la taille, puis la couleur,
- * puis la référence — caractère par caractère — jusqu'à passer sous la
- * limite. Chaque morceau garde un minimum lisible (4 / 3 / 2 caractères).
+ * `MAX_SKU_LENGTH`. Le suffixe `_{idSuffix}` est sacré (garantit l'unicité).
+ * On rogne en priorité la couleur, puis la référence — caractère par
+ * caractère — jusqu'à passer sous la limite. Chaque morceau garde un
+ * minimum lisible (3 / 2 caractères).
  */
 function assembleSku(
   reference: string,
   colorSlug: string,
-  sizeSlug: string,
-  saleType: "UNIT" | "PACK",
-  indexLabel: string,
   idSuffix: string,
 ): string {
   let ref = reference;
   let color = colorSlug;
-  let size = sizeSlug;
 
-  const fixedTail = `_${saleType}_${indexLabel}_${idSuffix}`;
+  const fixedTail = `_${idSuffix}`;
 
-  const build = () => `${ref}_${color}_${size}${fixedTail}`;
+  const build = () => `${ref}_${color}${fixedTail}`;
 
   while (build().length > MAX_SKU_LENGTH) {
-    if (size.length > 2) {
-      size = size.slice(0, -1);
-    } else if (color.length > 3) {
+    if (color.length > 3) {
       color = color.slice(0, -1);
-    } else if (ref.length > 4) {
+    } else if (ref.length > 2) {
       ref = ref.slice(0, -1);
     } else {
       break;
@@ -107,16 +87,8 @@ function generatedSku(
   index: number,
 ): string {
   const colorSlug = colorSlugForVariant(v, index);
-  const sizeSlug = sizeSlugForVariant(v);
   const idSuffix = v.id.slice(-8);
-  return assembleSku(
-    reference,
-    colorSlug,
-    sizeSlug,
-    v.saleType,
-    String(index + 1),
-    idSuffix,
-  );
+  return assembleSku(reference, colorSlug, idSuffix);
 }
 
 /**
@@ -139,7 +111,7 @@ export function buildVariantSkus(
 /**
  * Helper unitaire pour un seul SKU. À utiliser uniquement quand on n'a pas
  * accès à la liste complète des variantes. Préfère `buildVariantSkus` quand
- * possible (qui garantit l'unicité d'index).
+ * possible (qui garantit l'unicité d'index pour le fallback de couleur).
  */
 export function buildSingleVariantSku(
   reference: string,

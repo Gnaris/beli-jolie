@@ -151,14 +151,14 @@ function computeChecklist(input: ChecklistInput): CheckItem[] {
           if (!line.colorId || checkedGroupKeys.has(line.colorId)) continue;
           checkedGroupKeys.add(line.colorId);
           const ci = input.colorImages.find((c) => c.groupKey === line.colorId);
-          if (!ci || ci.uploadedPaths.length === 0) missingImageCount++;
+          if (!ci || ci.imagePreviews.length === 0) missingImageCount++;
         }
       } else {
         const gk = imageGroupKeyFromVariant(v);
         if (checkedGroupKeys.has(gk)) continue;
         checkedGroupKeys.add(gk);
         const ci = input.colorImages.find((c) => c.groupKey === gk);
-        if (!ci || ci.uploadedPaths.length === 0) missingImageCount++;
+        if (!ci || ci.imagePreviews.length === 0) missingImageCount++;
       }
     }
     items.push({

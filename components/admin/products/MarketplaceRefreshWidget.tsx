@@ -254,6 +254,9 @@ export function MarketplaceRefreshWidget() {
                       {item.options.ankorstore && (
                         <TargetBadge label="Ankorstore" outcome={item.ankorsOutcome} />
                       )}
+                      {item.options.efashion && (
+                        <TargetBadge label="eFashion" outcome={item.efashionOutcome} />
+                      )}
                     </div>
                   )}
                   {item.status === "done" && item.pfsOutcome?.ok && item.pfsOutcome.archived && (
@@ -261,21 +264,49 @@ export function MarketplaceRefreshWidget() {
                       PFS archivé (rupture de stock)
                     </p>
                   )}
-                  {item.status === "done" && item.pfsOutcome && !item.pfsOutcome.ok && (
-                    <p className="text-[10px] font-body text-red-600 mt-0.5 truncate" title={item.pfsOutcome.message}>
-                      PFS · {item.pfsOutcome.message}
-                    </p>
-                  )}
                   {item.status === "done" && item.ankorsOutcome?.ok && item.ankorsOutcome.archived && (
                     <p className="text-[10px] font-body text-[#B45309] mt-0.5">
                       Ankorstore archivé (rupture de stock)
                     </p>
                   )}
-                  {item.status === "done" && item.ankorsOutcome && !item.ankorsOutcome.ok && (
-                    <p className="text-[10px] font-body text-red-600 mt-0.5 truncate" title={item.ankorsOutcome.message}>
-                      Ankorstore · {item.ankorsOutcome.message}
-                    </p>
-                  )}
+                  {/* ─── Bloc d'erreurs détaillé ─────────────────────────
+                      Liste toutes les erreurs par marketplace, sans troncature
+                      (l'utilisatrice doit pouvoir lire le détail directement
+                      pour comprendre quoi corriger — ex: "catégorie X sans id
+                      eFashion"). Pas de simple ligne tronquée + tooltip. */}
+                  {item.status === "done" &&
+                    (() => {
+                      const errs: { label: string; message: string }[] = [];
+                      if (item.pfsOutcome && !item.pfsOutcome.ok) {
+                        errs.push({ label: "PFS", message: item.pfsOutcome.message });
+                      }
+                      if (item.ankorsOutcome && !item.ankorsOutcome.ok) {
+                        errs.push({ label: "Ankorstore", message: item.ankorsOutcome.message });
+                      }
+                      if (item.efashionOutcome && !item.efashionOutcome.ok) {
+                        errs.push({ label: "eFashion", message: item.efashionOutcome.message });
+                      }
+                      if (errs.length === 0) return null;
+                      return (
+                        <div className="mt-1.5 rounded-md bg-red-50 border border-red-200 px-2 py-1.5">
+                          {errs.map((e, i) => (
+                            <div key={i} className={i > 0 ? "mt-1.5 pt-1.5 border-t border-red-200" : ""}>
+                              <div className="flex items-start gap-1.5">
+                                <svg className="w-3 h-3 text-red-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 3h.01M4.93 19h14.14a2 2 0 001.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16a2 2 0 001.73 3z" />
+                                </svg>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[10px] font-semibold text-red-700">{e.label}</p>
+                                  <p className="text-[10px] font-body text-red-700 whitespace-pre-line break-words">
+                                    {e.message}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   {item.status === "in_progress" && (
                     <p className="text-[10px] font-body text-[#4F46E5] mt-0.5">
                       {item.mode === "resync"

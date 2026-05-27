@@ -659,6 +659,17 @@ export default function ProductForm({
   const initialSnapshot = useRef<string | null>(null);
   const isDirty = useRef(false);
   const snapshotReady = useRef(false);
+  // ⚠️ Reset post-save : on ne peut pas appeler `initialSnapshot.current =
+  // buildSnapshot()` directement dans le handler de save parce que les
+  // setVariants/setColorImages/setProductStatus qui viennent d'être appelés
+  // ne sont pas encore appliqués au moment où on construit le snapshot —
+  // buildSnapshot reste sur ses anciennes closures et capture l'ancien état.
+  // Résultat : au prochain render, le snapshot stocké est l'ancien, l'état
+  // réel est le nouveau, la détection « modifications non enregistrées »
+  // se trompe et le bouton Enregistrer reste actif. Le fix : poser ce ref à
+  // true à la fin du save, et laisser un useEffect dédié re-prendre le
+  // snapshot une fois React re-rendu avec les nouvelles valeurs.
+  const pendingSnapshotResetRef = useRef(false);
 
   const buildSnapshot = useCallback(() => JSON.stringify({
     reference, name, description, categoryId, subCategoryIds,
@@ -693,16 +704,37 @@ export default function ProductForm({
     );
   }, [variants]);
 
+  // ⚠️ État réactif pour `hasUnsavedChanges` — il faut un useState (pas une
+  // simple computation) parce que le reset post-save mute `initialSnapshot.current`
+  // dans un useEffect, sans déclencher de re-render. Sans cet état, le bouton
+  // « Enregistrer les modifications » restait actif après save jusqu'à la
+  // prochaine frappe au clavier.
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
   // Capture snapshot after first effects have settled (colorImages sync etc.)
   useEffect(() => {
     if (!snapshotReady.current) {
       const timer = setTimeout(() => {
         initialSnapshot.current = buildSnapshot();
         snapshotReady.current = true;
+        setHasUnsavedChanges(false);
       }, 500);
       return () => clearTimeout(timer);
     }
-    isDirty.current = buildSnapshot() !== initialSnapshot.current;
+    // Reset post-save : on a marqué le besoin de reset à la fin du handler
+    // de save. C'est ici, au render qui suit, qu'on peut prendre le snapshot
+    // avec les nouvelles closures (variantes avec leur dbId, paths d'images
+    // résolus, status final).
+    if (pendingSnapshotResetRef.current) {
+      pendingSnapshotResetRef.current = false;
+      initialSnapshot.current = buildSnapshot();
+      isDirty.current = false;
+      setHasUnsavedChanges(false);
+      return;
+    }
+    const dirty = buildSnapshot() !== initialSnapshot.current;
+    isDirty.current = dirty;
+    setHasUnsavedChanges(dirty);
   }, [buildSnapshot]);
 
   // Browser close / refresh / hard navigation
@@ -780,8 +812,9 @@ export default function ProductForm({
     return () => document.removeEventListener("click", onClick, true);
   }, [navigateWithGuard]);
 
-  // Reactive dirty state for conditional UI (e.g. cancel button visibility)
-  const hasUnsavedChanges = snapshotReady.current && initialSnapshot.current !== null && buildSnapshot() !== initialSnapshot.current;
+  // `hasUnsavedChanges` est désormais un useState alimenté par le useEffect
+  // au-dessus, plus une simple computation. Voir le commentaire dans la
+  // déclaration de `pendingSnapshotResetRef`.
 
   // ── Sync colorImages when variant colors change ───────────────────────
   // One ColorImageState per color group (colorId + sub-colors) — UNIT and PACK share the same scheme
@@ -838,6 +871,7 @@ export default function ProductForm({
             imagePreviews: [],
             uploadedPaths: [],
             orders: [],
+            pendingFiles: [],
             uploading: false,
           });
         }
@@ -1172,7 +1206,7 @@ export default function ProductForm({
         if (checkedGroupKeys.has(gk)) continue;
         checkedGroupKeys.add(gk);
         const ci = colorImages.find((c) => c.groupKey === gk);
-        if (!ci || ci.uploadedPaths.length === 0) {
+        if (!ci || ci.imagePreviews.length === 0) {
           const label = v.colorName || "variante pack";
           errors.push(`Variante "${label}" : aucune image`);
         }
@@ -1278,6 +1312,57 @@ export default function ProductForm({
     });
   }
 
+  // ── Upload différé des photos en attente ─────────────────────────────
+  // Les photos joinies au formulaire restent dans le navigateur (mémoire)
+  // tant que l'admin ne clique pas « Enregistrer ». Cette fonction est
+  // appelée au moment du save : elle uploade les fichiers pending via
+  // l'API existante, met à jour `uploadedPaths` dans le state, et retourne
+  // le nouveau ColorImageState[] à utiliser pour bâtir le payload.
+  // Lève en cas d'erreur ; le caller affiche le message et bloque le save.
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+
+  async function flushPendingUploads(refForUpload: string): Promise<ColorImageState[]> {
+    const totalPending = colorImages.reduce(
+      (s, ci) => s + ci.pendingFiles.filter((f) => f !== null).length,
+      0,
+    );
+    if (totalPending === 0) return colorImages;
+
+    setUploadProgress({ current: 0, total: totalPending });
+    let done = 0;
+    const next: ColorImageState[] = [];
+    try {
+      for (const ci of colorImages) {
+        const newUploadedPaths = [...ci.uploadedPaths];
+        const newPendingFiles: (File | null)[] = [...ci.pendingFiles];
+        for (let i = 0; i < ci.pendingFiles.length; i++) {
+          const file = ci.pendingFiles[i];
+          if (!file) continue;
+          const fd = new FormData();
+          fd.append("image", file);
+          if (refForUpload) fd.append("reference", refForUpload);
+          if (ci.colorName) fd.append("color", ci.colorName);
+          fd.append("position", String((ci.orders[i] ?? i) + 1));
+          const res = await fetch("/api/admin/products/images", { method: "POST", body: fd });
+          if (!res.ok) {
+            const errJson = await res.json().catch(() => ({}));
+            throw new Error(errJson.error || `Erreur lors du téléversement d'une photo de la couleur ${ci.colorName}.`);
+          }
+          const json = await res.json();
+          newUploadedPaths[i] = json.path;
+          newPendingFiles[i] = null;
+          done++;
+          setUploadProgress({ current: done, total: totalPending });
+        }
+        next.push({ ...ci, uploadedPaths: newUploadedPaths, pendingFiles: newPendingFiles });
+      }
+      setColorImages(next);
+      return next;
+    } finally {
+      setUploadProgress(null);
+    }
+  }
+
   // ── Save as draft (minimal validation) ───────────────────────────────
   async function handleSaveDraft(navigateTo?: string) {
     if (isSyncLocked) return;
@@ -1288,10 +1373,6 @@ export default function ProductForm({
     const blocking = getBlockingErrors();
     if (blocking.length > 0) return setError(blocking.join(" · "));
 
-    // Images still uploading — block
-    if (colorImages.some((ci) => ci.uploading))
-      return setError("Des images sont encore en cours d'upload. Veuillez patienter.");
-
     // Auto-generate reference if empty
     const draftRef = reference.trim()
       ? reference.trim().toUpperCase()
@@ -1301,6 +1382,18 @@ export default function ProductForm({
     // Category is required by DB — if not set, ask user
     if (!categoryId) {
       return setError("Veuillez sélectionner une catégorie avant d'enregistrer en brouillon.");
+    }
+
+    // ── Téléversement des photos en attente (avant le save) ───────────
+    // Les photos joinies au formulaire sont uploadées maintenant, en une
+    // seule passe. En cas d'erreur, on bloque le save (les photos déjà
+    // uploadées sont conservées dans le state pour un éventuel retry).
+    let resolvedColorImages: ColorImageState[];
+    try {
+      resolvedColorImages = await flushPendingUploads(draftRef);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur lors du téléversement des photos.";
+      return setError(msg);
     }
 
     // Build set of known valid color/size IDs to validate FK references
@@ -1352,13 +1445,14 @@ export default function ProductForm({
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
       // Refonte : 1 entrée d'images par couleur du produit (productId × colorId).
       // Fini la duplication par variante.
-      imagePaths: colorImages.flatMap((ci) => {
-        if (ci.uploadedPaths.length === 0) return [];
+      imagePaths: resolvedColorImages.flatMap((ci) => {
+        const realPaths = ci.uploadedPaths.filter((p) => p && p.length > 0);
+        if (realPaths.length === 0) return [];
         if (!ci.colorId || !validColorIds.has(ci.colorId)) return [];
         return [{
           colorId: ci.colorId,
-          paths: ci.uploadedPaths,
-          orders: ci.orders,
+          paths: realPaths,
+          orders: ci.orders.filter((_, i) => ci.uploadedPaths[i] && ci.uploadedPaths[i].length > 0),
         }];
       }),
       primaryColorId,
@@ -1471,10 +1565,6 @@ export default function ProductForm({
       );
     }
 
-    // Images still uploading — always block
-    if (colorImages.some((ci) => ci.uploading))
-      return setError("Des images sont encore en cours d'upload. Veuillez patienter.");
-
     // ── Integrity check (edit mode): detect corrupted state before sending ──
     // Removing all variants is allowed when saving as OFFLINE (product without variants).
     if (productId && initialData) {
@@ -1541,6 +1631,18 @@ export default function ProductForm({
       if (!okSave) return;
     }
 
+    // ── Téléversement des photos en attente (avant le save) ───────────
+    // Les photos joinies au formulaire sont uploadées maintenant, en une
+    // seule passe. En cas d'erreur, on bloque le save (les photos déjà
+    // uploadées sont conservées dans le state pour un éventuel retry).
+    let resolvedColorImages: ColorImageState[];
+    try {
+      resolvedColorImages = await flushPendingUploads(reference.trim().toUpperCase());
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur lors du téléversement des photos.";
+      return setError(msg);
+    }
+
     const payload = {
       reference:     reference.trim().toUpperCase(),
       name:          name.trim(),
@@ -1588,13 +1690,14 @@ export default function ProductForm({
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
       // Refonte : 1 entrée d'images par couleur du produit (productId × colorId).
       // Fini la duplication par variante.
-      imagePaths: colorImages.flatMap((ci) => {
-        if (ci.uploadedPaths.length === 0) return [];
+      imagePaths: resolvedColorImages.flatMap((ci) => {
+        const realPaths = ci.uploadedPaths.filter((p) => p && p.length > 0);
+        if (realPaths.length === 0) return [];
         if (!ci.colorId) return [];
         return [{
           colorId: ci.colorId,
-          paths: ci.uploadedPaths,
-          orders: ci.orders,
+          paths: realPaths,
+          orders: ci.orders.filter((_, i) => ci.uploadedPaths[i] && ci.uploadedPaths[i].length > 0),
         }];
       }),
       primaryColorId,
@@ -1652,7 +1755,12 @@ export default function ProductForm({
         }
         if (!shouldRedirectAfterSave) {
           setProductStatus(finalStatus);
-          initialSnapshot.current = buildSnapshot();
+          // ⚠️ Ne PAS prendre le snapshot ici : les setVariants /
+          // setColorImages / setProductStatus qu'on vient d'appeler ne sont
+          // pas encore appliqués au render, donc buildSnapshot capturerait
+          // l'ancien état. On délègue au useEffect dédié qui voit le render
+          // suivant (cf. pendingSnapshotResetRef).
+          pendingSnapshotResetRef.current = true;
           isDirty.current = false;
         }
       } catch (err: unknown) {
@@ -1825,7 +1933,9 @@ export default function ProductForm({
         });
 
         if (ok === true) {
-          const firstImagePath = colorImages[0]?.uploadedPaths[0] ?? null;
+          // Utilise les paths résolus après upload (le state setColorImages
+          // n'est peut-être pas encore rejoué) et ignore les slots restés vides.
+          const firstImagePath = resolvedColorImages[0]?.uploadedPaths.find((p) => p && p.length > 0) ?? null;
           const inputs: Parameters<typeof enqueuePublish>[0] = [];
           if (pfsRef.current) {
             inputs.push({
@@ -2525,20 +2635,23 @@ export default function ProductForm({
             <div className="flex items-center justify-center flex-wrap gap-3">
               {/* Enregistrer (en edit: uniquement si modifications) */}
               {(mode !== "edit" || hasUnsavedChanges) && (() => {
-                const mainLabel = isPending
-                  ? mode === "edit"
-                    ? "Enregistrement…"
-                    : productId
+                const isUploading = uploadProgress !== null;
+                const mainLabel = isUploading
+                  ? `Téléversement des photos… ${uploadProgress.current}/${uploadProgress.total}`
+                  : isPending
+                    ? mode === "edit"
                       ? "Enregistrement…"
-                      : "Création en cours…"
-                  : mode === "edit"
-                    ? "Enregistrer les modifications"
-                    : productId
-                      ? "Finaliser le produit"
-                      : "Créer le produit";
+                      : productId
+                        ? "Enregistrement…"
+                        : "Création en cours…"
+                    : mode === "edit"
+                      ? "Enregistrer les modifications"
+                      : productId
+                        ? "Finaliser le produit"
+                        : "Créer le produit";
 
                 let hintLabel = "";
-                if (!isPending) {
+                if (!isPending && !isUploading) {
                   if (!isProductComplete) {
                     hintLabel = "Sera enregistré en brouillon";
                   } else if (productStatus === "ONLINE") {
@@ -2553,7 +2666,7 @@ export default function ProductForm({
                 return (
                   <button
                     type="submit"
-                    disabled={isPending || isSyncLocked}
+                    disabled={isPending || isSyncLocked || isUploading}
                     className="btn-primary h-14 min-w-[260px] px-6 py-0 text-base disabled:opacity-60 disabled:cursor-not-allowed flex flex-col items-center justify-center gap-0.5 leading-tight"
                   >
                     <span>{mainLabel}</span>
@@ -2570,14 +2683,16 @@ export default function ProductForm({
               {mode === "create" && (
                 <button
                   type="button"
-                  disabled={isPending || isSyncLocked}
+                  disabled={isPending || isSyncLocked || uploadProgress !== null}
                   onClick={() => handleSaveDraft()}
                   className="flex items-center justify-center gap-2 h-14 min-w-[260px] px-6 py-0 bg-bg-secondary hover:bg-[#F0F0F0] text-text-secondary text-sm font-semibold rounded-xl border border-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
                   </svg>
-                  Enregistrer en brouillon
+                  {uploadProgress !== null
+                    ? `Téléversement… ${uploadProgress.current}/${uploadProgress.total}`
+                    : "Enregistrer en brouillon"}
                 </button>
               )}
 

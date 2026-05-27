@@ -21,6 +21,7 @@ import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/componen
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import LinkAnkorstoreProductModal from "@/components/admin/products/LinkAnkorstoreProductModal";
+import LinkEfashionProductModal from "@/components/admin/products/LinkEfashionProductModal";
 
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
 
@@ -53,6 +54,9 @@ export interface RowActionContext {
   hasPfsConfig: boolean;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
+  /** Optionnels pour rétro-compat des tests : on les traite comme false si absents. */
+  hasEfashionConfig?: boolean;
+  efashionEnabled?: boolean;
 }
 
 export interface RowActionEligibility {
@@ -77,6 +81,13 @@ export interface RowActionEligibility {
    */
   canPublishAnkorstore: boolean;
   publishAnkorstoreReason?: string;
+  /**
+   * `canPublishEfashion` : true si eFashion est configuré + activé, que le
+   * produit n'y est pas encore lié (aucune variante avec efashionProductId)
+   * et que la fiche locale n'est pas incomplète.
+   */
+  canPublishEfashion: boolean;
+  publishEfashionReason?: string;
 }
 
 export function computeRowActionEligibility(
@@ -85,12 +96,15 @@ export function computeRowActionEligibility(
     isIncomplete: boolean;
     pfsProductId: string | null;
     ankorsProductId: string | null;
+    efashionLinked?: boolean;
   },
   ctx: RowActionContext,
 ): RowActionEligibility {
   const showAnkorstore = ctx.hasAnkorstoreConfig && ctx.ankorstoreEnabled;
+  const showEfashion = !!(ctx.hasEfashionConfig && ctx.efashionEnabled);
   const syncPfs = ctx.hasPfsConfig && !!product.pfsProductId;
   const syncAnkors = showAnkorstore && !!product.ankorsProductId;
+  const syncEfashion = showEfashion && !!product.efashionLinked;
 
   let putOnlineReason: string | undefined;
   if (product.status === "ONLINE") putOnlineReason = "Déjà en ligne";
@@ -120,16 +134,30 @@ export function computeRowActionEligibility(
     canPublishAnkorstore = true;
   }
 
+  let publishEfashionReason: string | undefined;
+  let canPublishEfashion = false;
+  if (!showEfashion) {
+    publishEfashionReason = "eFashion Paris n'est pas configuré ou est désactivé";
+  } else if (product.efashionLinked) {
+    publishEfashionReason = "Déjà lié à eFashion Paris";
+  } else if (product.isIncomplete) {
+    publishEfashionReason = "Produit incomplet — complétez la fiche d'abord";
+  } else {
+    canPublishEfashion = true;
+  }
+
   return {
     canPutOnline: product.status !== "ONLINE" && !product.isIncomplete,
     putOnlineReason,
     canPutOffline: product.status !== "OFFLINE",
     canArchive: product.status !== "ARCHIVED",
-    canSync: syncPfs || syncAnkors,
+    canSync: !!(syncPfs || syncAnkors || syncEfashion),
     canPublishPfs,
     publishPfsReason,
     canPublishAnkorstore,
     publishAnkorstoreReason,
+    canPublishEfashion,
+    publishEfashionReason,
   };
 }
 
@@ -297,6 +325,97 @@ function AnkorstoreBadge({
     >
       <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
       Ankorstore
+    </span>
+  );
+}
+
+function EfashionBadge({
+  linked,
+  publishing = false,
+  onPublishClick,
+  onLinkClick,
+}: {
+  linked: boolean;
+  publishing?: boolean;
+  onPublishClick?: () => void;
+  onLinkClick?: () => void;
+}) {
+  if (publishing) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]"
+        title="Publication eFashion Paris en cours…"
+      >
+        <svg
+          className="w-2.5 h-2.5 animate-spin"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={2.5}
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+        </svg>
+        eFashion en cours…
+      </span>
+    );
+  }
+  if (linked) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+        title="Lié à eFashion Paris"
+      >
+        <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
+        eFashion
+      </span>
+    );
+  }
+  if (onPublishClick || onLinkClick) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        {onPublishClick && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPublishClick();
+            }}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
+            title="Cliquer pour publier ce produit sur eFashion Paris"
+          >
+            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            eFashion
+          </button>
+        )}
+        {onLinkClick && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onLinkClick();
+            }}
+            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-muted bg-bg-secondary border border-border hover:border-text-secondary hover:text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
+            title="Lier à un produit eFashion Paris existant"
+            aria-label="Lier à un produit eFashion Paris existant"
+          >
+            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+            </svg>
+          </button>
+        )}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
+      title="Non lié à eFashion Paris"
+    >
+      <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
+      eFashion
     </span>
   );
 }
@@ -917,6 +1036,8 @@ function ProductRow({
   hasPfsConfig,
   hasAnkorstoreConfig,
   ankorstoreEnabled,
+  hasEfashionConfig,
+  efashionEnabled,
   selected,
   onToggle,
   expanded,
@@ -934,6 +1055,8 @@ function ProductRow({
   hasPfsConfig: boolean;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
+  hasEfashionConfig: boolean;
+  efashionEnabled: boolean;
   selected: boolean;
   onToggle: () => void;
   expanded: boolean;
@@ -949,11 +1072,14 @@ function ProductRow({
   const [refreshing, setRefreshing] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [linkAkOpen, setLinkAkOpen] = useState(false);
+  const [linkEfOpen, setLinkEfOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { confirm } = useConfirm();
   const { enqueue, items: queueItems } = useMarketplaceRefreshQueue();
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
+  const showEfashion = hasEfashionConfig && efashionEnabled;
+  const efashionLinked = product.colors.some((c) => c.efashionProductId != null);
   const { refreshSingle } = useRefreshMarketplaceDialog({ showPfs: hasPfsConfig, showAnkorstore });
 
   // État "loading" des badges marketplaces : on regarde la dernière opération
@@ -973,6 +1099,15 @@ function ProductRow({
   );
   const [pendingAnkorstoreEnqueue, setPendingAnkorstoreEnqueue] = useState(false);
   const isAnkorstorePublishing = ankorstoreBadgeState.loading || pendingAnkorstoreEnqueue;
+
+  const efashionOp = findLatestOpForProduct(queueItems, product.id, "efashion");
+  const efashionBadgeState = computeMarketplaceBadgeState(
+    efashionLinked ? "linked" : null,
+    efashionOp,
+    "efashion",
+  );
+  const [pendingEfashionEnqueue, setPendingEfashionEnqueue] = useState(false);
+  const isEfashionPublishing = efashionBadgeState.loading || pendingEfashionEnqueue;
 
   // Demande la création d'une nouvelle fiche sur PFS — même logique que pour
   // Ankorstore mais sans la possibilité de "lier à existant" (pas de modale).
@@ -1028,6 +1163,33 @@ function ProductRow({
     ]);
   }, [confirm, enqueue, product, isAnkorstorePublishing]);
 
+  // Demande la création d'une nouvelle fiche sur eFashion Paris — appelé depuis
+  // le badge "+ eFashion". Même logique qu'Ankorstore (confirmation + enqueue +
+  // widget bas-droite), mais le flow eFashion est synchrone (pas de callback).
+  const handlePublishEfashion = useCallback(async () => {
+    if (isEfashionPublishing) return;
+    const ok = await confirm({
+      type: "warning",
+      title: "Publier sur eFashion Paris ?",
+      message: `"${product.name}" (${product.reference}) n'est pas encore sur eFashion Paris. Une nouvelle fiche y sera créée avec les infos, photos, prix et stock actuels du produit.`,
+      confirmLabel: "Oui, publier",
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+    setPendingEfashionEnqueue(true);
+    enqueue([
+      {
+        productId: product.id,
+        reference: product.reference,
+        productName: product.name,
+        firstImage: product.firstImage,
+        options: { local: false, pfs: false, ankorstore: false, efashion: true },
+        mode: "publish",
+        marketplace: "efashion",
+      },
+    ]);
+  }, [confirm, enqueue, product, isEfashionPublishing]);
+
   // Quand la file remonte enfin l'opération en queue/in_progress, on lâche le
   // verrou local : c'est maintenant l'état serveur qui pilote l'affichage.
   useEffect(() => {
@@ -1040,6 +1202,11 @@ function ProductRow({
       setPendingAnkorstoreEnqueue(false);
     }
   }, [pendingAnkorstoreEnqueue, ankorstoreBadgeState.loading]);
+  useEffect(() => {
+    if (pendingEfashionEnqueue && efashionBadgeState.loading) {
+      setPendingEfashionEnqueue(false);
+    }
+  }, [pendingEfashionEnqueue, efashionBadgeState.loading]);
 
   // Toutes les couleurs uniques attribuées au produit (UNIT + PACK confondus).
   const uniqueColors = [...new Map(product.colors
@@ -1064,11 +1231,16 @@ function ProductRow({
   const variantIds = product.colors.map((c) => c.id);
   const allVariantsSelected = variantIds.length > 0 && variantIds.every((id) => selectedVariantIds.has(id));
 
-  const eligibility = computeRowActionEligibility(product, {
-    hasPfsConfig,
-    hasAnkorstoreConfig,
-    ankorstoreEnabled,
-  });
+  const eligibility = computeRowActionEligibility(
+    { ...product, efashionLinked },
+    {
+      hasPfsConfig,
+      hasAnkorstoreConfig,
+      ankorstoreEnabled,
+      hasEfashionConfig,
+      efashionEnabled,
+    },
+  );
 
   return (
     <>
@@ -1258,6 +1430,22 @@ function ProductRow({
                   : undefined
               }
             />
+            {showEfashion && (
+              <EfashionBadge
+                linked={efashionLinked}
+                publishing={isEfashionPublishing}
+                onPublishClick={
+                  eligibility.canPublishEfashion && !isEfashionPublishing
+                    ? () => { void handlePublishEfashion(); }
+                    : undefined
+                }
+                onLinkClick={
+                  showEfashion && !efashionLinked && !isEfashionPublishing
+                    ? () => setLinkEfOpen(true)
+                    : undefined
+                }
+              />
+            )}
           </div>
         </td>
 
@@ -1421,7 +1609,10 @@ function ProductRow({
         </tr>
       )}
 
-      {linkAkOpen && (
+      {/* ⚠️ Modales rendues via createPortal sur document.body : sinon elles
+          sortent en tant que <div> direct enfant de <tbody>, ce qui est
+          invalide en HTML et déclenche une hydration error côté Next 16. */}
+      {linkAkOpen && createPortal(
         <LinkAnkorstoreProductModal
           productId={product.id}
           productName={product.name}
@@ -1430,7 +1621,21 @@ function ProductRow({
             setLinkAkOpen(false);
             router.refresh();
           }}
-        />
+        />,
+        document.body,
+      )}
+
+      {linkEfOpen && createPortal(
+        <LinkEfashionProductModal
+          productId={product.id}
+          productName={product.name}
+          reference={product.reference}
+          onClose={() => {
+            setLinkEfOpen(false);
+            router.refresh();
+          }}
+        />,
+        document.body,
       )}
     </>
   );
@@ -1738,13 +1943,15 @@ function BulkVariantBar({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, startIndex, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, deletingIds, onRowStatus, onRowDelete, onRowSync,
+  products, startIndex, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, deletingIds, onRowStatus, onRowDelete, onRowSync,
 }: {
   products: AdminProduct[];
   startIndex: number;
   hasPfsConfig: boolean;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
+  hasEfashionConfig: boolean;
+  efashionEnabled: boolean;
   selectedIds: Set<string>;
   allSelected: boolean;
   toggleSelectAll: () => void;
@@ -1854,6 +2061,8 @@ function TableWithTopScroll({
                 hasPfsConfig={hasPfsConfig}
                 hasAnkorstoreConfig={hasAnkorstoreConfig}
                 ankorstoreEnabled={ankorstoreEnabled}
+                hasEfashionConfig={hasEfashionConfig}
+                efashionEnabled={efashionEnabled}
                 selected={selectedIds.has(product.id)}
                 onToggle={() => toggleSelect(product.id)}
                 expanded={expandedIds.has(product.id)}
@@ -2662,7 +2871,7 @@ export default function AdminProductsTable({
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
+      <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (

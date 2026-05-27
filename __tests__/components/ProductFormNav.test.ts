@@ -42,6 +42,7 @@ function makeColorImage(
     imagePreviews: ["/img1.webp"],
     uploadedPaths: ["/img1.webp"],
     orders: [0],
+    pendingFiles: [null],
     uploading: false,
     ...overrides,
   };
@@ -156,7 +157,7 @@ describe("computeSectionsProgress — variantes incompletes", () => {
   it("variants.isFull = false quand les images manquent", () => {
     const progress = computeSectionsProgress(
       makeInput({
-        colorImages: [makeColorImage({ uploadedPaths: [] })],
+        colorImages: [makeColorImage({ imagePreviews: [], uploadedPaths: [], orders: [], pendingFiles: [] })],
       })
     );
     expect(progress.variants.isFull).toBe(false);

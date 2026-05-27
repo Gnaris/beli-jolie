@@ -1,0 +1,458 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Mock complet des dépendances pour isoler la logique d'update.
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    product: { findUnique: vi.fn(), update: vi.fn() },
+    productColor: { update: vi.fn() },
+    productColorImage: { findMany: vi.fn().mockResolvedValue([]) },
+    color: { findMany: vi.fn().mockResolvedValue([]) },
+    $transaction: vi.fn(),
+  },
+}));
+vi.mock("@/lib/logger", () => ({
+  logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+vi.mock("@/lib/efashion-api-write", () => ({
+  efashionUpdateProduit: vi.fn(),
+  efashionSaveProduitStocks: vi.fn(),
+  efashionSaveProduitDescription: vi.fn(),
+  efashionSaveProduitCompositions: vi.fn(),
+  efashionTranslateText: vi.fn(),
+  efashionToggleMainProduct: vi.fn(),
+  efashionDuplicateWithNewColor: vi.fn(),
+  efashionPublishBrouillon: vi.fn(),
+  efashionSoftDeleteProduits: vi.fn(),
+  efashionGetAllUsedColorIdsByMainProduct: vi.fn().mockResolvedValue([]),
+}));
+vi.mock("@/lib/efashion-photos", () => ({
+  efashionGetProductPhotos: vi.fn().mockResolvedValue({ photos: [] }),
+  efashionDeleteProductPhoto: vi.fn(),
+  efashionUploadProductPhotos: vi.fn(),
+}));
+vi.mock("@/lib/efashion-pricing", () => ({
+  loadEfashionMarkup: vi.fn().mockResolvedValue({ type: "percent", value: 0, rounding: "none" }),
+  computeEfashionPrice: vi.fn(({ basePrice }) => basePrice),
+}));
+vi.mock("@/lib/efashion-api", () => ({
+  efashionGetMe: vi.fn().mockResolvedValue({ id_vendeur: 2017, nomBoutique: "BJ" }),
+  efashionListProducts: vi.fn(),
+}));
+
+import { prisma } from "@/lib/prisma";
+import { efashionUpdateProductInPlace } from "@/lib/efashion-update";
+import {
+  efashionUpdateProduit,
+  efashionDuplicateWithNewColor,
+  efashionPublishBrouillon,
+  efashionSoftDeleteProduits,
+} from "@/lib/efashion-api-write";
+import { efashionListProducts } from "@/lib/efashion-api";
+import { efashionUploadProductPhotos } from "@/lib/efashion-photos";
+
+const findUniqueMock = prisma.product.findUnique as unknown as ReturnType<typeof vi.fn>;
+const productUpdateMock = prisma.product.update as unknown as ReturnType<typeof vi.fn>;
+const productColorUpdateMock = prisma.productColor.update as unknown as ReturnType<typeof vi.fn>;
+const softDeleteMock = efashionSoftDeleteProduits as unknown as ReturnType<typeof vi.fn>;
+const duplicateMock = efashionDuplicateWithNewColor as unknown as ReturnType<typeof vi.fn>;
+const publishBrouillonMock = efashionPublishBrouillon as unknown as ReturnType<typeof vi.fn>;
+const updateProduitMock = efashionUpdateProduit as unknown as ReturnType<typeof vi.fn>;
+const listProductsMock = efashionListProducts as unknown as ReturnType<typeof vi.fn>;
+const uploadPhotosMock = efashionUploadProductPhotos as unknown as ReturnType<typeof vi.fn>;
+
+/**
+ * Construit une couleur BJ « linkée » à eFashion. La signature reproduit ce
+ * que `prisma.product.findUnique` retourne dans efashionUpdateProductInPlace.
+ */
+function makeLinkedColor(args: {
+  id: string;
+  colorId: string;
+  efashionProductId: number | null;
+  isPrimary?: boolean;
+  unitPrice?: number;
+  stock?: number;
+  colorName?: string;
+  efashionColorId?: number | null;
+}) {
+  return {
+    id: args.id,
+    colorId: args.colorId,
+    efashionProductId: args.efashionProductId,
+    unitPrice: args.unitPrice ?? 10,
+    weight: 0.05,
+    stock: args.stock ?? 5,
+    saleType: "UNIT" as const,
+    packQuantity: null,
+    disabled: false,
+    isPrimary: args.isPrimary ?? false,
+    variantSizes: [{ quantity: 1, size: { name: "TU" } }],
+    color: {
+      name: args.colorName ?? "X",
+      efashionColorId: args.efashionColorId ?? 1,
+    },
+  };
+}
+
+/**
+ * Construit ce que listProducts renvoie pour une variante eFashion donnée.
+ * Le code update consomme ces champs pour reconstruire un payload PUT complet.
+ */
+function makeLiveItem(args: { id_produit: number; id_couleur: number; main: boolean; reference_base: string }) {
+  return {
+    id_produit: args.id_produit,
+    id_couleur: args.id_couleur,
+    reference: `${args.reference_base}-${args.id_couleur}`,
+    reference_base: args.reference_base,
+    id_collection: 3,
+    id_categorie: 160102,
+    id_provenance: 1,
+    id_declinaison: 11096,
+    id_pack: null,
+    vendu_par: "couleurs",
+    id_vendeur_marque: 3228,
+    main: args.main,
+    couleur: "X",
+    nb_photos: 1,
+    visible: true,
+    poids: 0.05,
+    prix: "10",
+    supprimer: false,
+  };
+}
+
+describe("efashionUpdateProductInPlace — variantes ajoutées/supprimées", () => {
+  beforeEach(() => {
+    findUniqueMock.mockReset();
+    productUpdateMock.mockReset();
+    productUpdateMock.mockResolvedValue({});
+    productColorUpdateMock.mockReset();
+    productColorUpdateMock.mockResolvedValue({});
+    softDeleteMock.mockReset();
+    softDeleteMock.mockResolvedValue(true);
+    duplicateMock.mockReset();
+    publishBrouillonMock.mockReset();
+    publishBrouillonMock.mockResolvedValue(true);
+    uploadPhotosMock.mockReset();
+    uploadPhotosMock.mockResolvedValue(undefined);
+    updateProduitMock.mockReset();
+    updateProduitMock.mockResolvedValue({ id_produit: "0", reference: "", id_collection: null, id_categorie: null, prix: "0", poids: 0, vendu_par: "couleurs", visible: true, id_pack: null });
+    listProductsMock.mockReset();
+  });
+
+  it("appelle efashionSoftDeleteProduits avec tous les IDs retirés localement (batch)", async () => {
+    // Snapshot précédent : 3 couleurs liées (101, 102, 103).
+    // État BDD actuel : seules 101 et 102 restent (103 supprimée localement).
+    findUniqueMock.mockResolvedValue({
+      id: "p1",
+      reference: "TEST",
+      status: "ONLINE",
+      description: null,
+      dimensionLength: null,
+      dimensionWidth: null,
+      dimensionHeight: null,
+      dimensionDiameter: null,
+      dimensionCircumference: null,
+      efashionReferenceBase: "TEST",
+      efashionLastSyncSnapshot: {
+        version: 1,
+        referenceBase: "TEST",
+        variants: [
+          { efashionProductId: 101, visible: true, prix: 10, poids: 0.05, stockByTaille: { TU: 5 } },
+          { efashionProductId: 102, visible: true, prix: 10, poids: 0.05, stockByTaille: { TU: 5 } },
+          { efashionProductId: 103, visible: true, prix: 10, poids: 0.05, stockByTaille: { TU: 5 } },
+        ],
+        descriptions: { fr: "", en: "", it: "", es: "", zh: "" },
+        compositions: [],
+        primaryEfashionProductId: 101,
+      },
+      primaryColorId: "color-101",
+      compositions: [],
+      colors: [
+        makeLinkedColor({ id: "pc-101", colorId: "color-101", efashionProductId: 101, isPrimary: true }),
+        makeLinkedColor({ id: "pc-102", colorId: "color-102", efashionProductId: 102 }),
+        // pas de 103 → diff.removed = [103]
+      ],
+    });
+    // eFashion confirme l'existence de 101 et 102 (l'ancien 103 est resté côté eux).
+    listProductsMock.mockResolvedValue({
+      items: [
+        makeLiveItem({ id_produit: 101, id_couleur: 11, main: true, reference_base: "TEST" }),
+        makeLiveItem({ id_produit: 102, id_couleur: 12, main: false, reference_base: "TEST" }),
+      ],
+    });
+    const res = await efashionUpdateProductInPlace("p1");
+
+    expect(softDeleteMock).toHaveBeenCalledTimes(1);
+    expect(softDeleteMock.mock.calls[0][0]).toEqual([103]);
+    expect(res.colorsDeletedCount).toBe(1);
+    expect(res.success).toBe(true);
+  });
+
+  it("force la bascule de la couleur principale eFashion AVANT de la supprimer", async () => {
+    // Snapshot précédent : 101 (main eFashion) et 102. L'admin supprime 101
+    // localement et désigne 102 comme nouvelle primaire BJ.
+    findUniqueMock.mockResolvedValue({
+      id: "p2",
+      reference: "TEST",
+      status: "ONLINE",
+      description: null,
+      dimensionLength: null,
+      dimensionWidth: null,
+      dimensionHeight: null,
+      dimensionDiameter: null,
+      dimensionCircumference: null,
+      efashionReferenceBase: "TEST",
+      efashionLastSyncSnapshot: {
+        version: 1,
+        referenceBase: "TEST",
+        variants: [
+          { efashionProductId: 101, visible: true, prix: 10, poids: 0.05, stockByTaille: { TU: 5 } },
+          { efashionProductId: 102, visible: true, prix: 10, poids: 0.05, stockByTaille: { TU: 5 } },
+        ],
+        descriptions: { fr: "", en: "", it: "", es: "", zh: "" },
+        compositions: [],
+        primaryEfashionProductId: 101,
+      },
+      primaryColorId: "color-102",
+      compositions: [],
+      colors: [
+        // 102 devient la nouvelle primaire BJ
+        makeLinkedColor({ id: "pc-102", colorId: "color-102", efashionProductId: 102, isPrimary: true }),
+      ],
+    });
+    listProductsMock.mockResolvedValue({
+      items: [
+        makeLiveItem({ id_produit: 101, id_couleur: 11, main: true, reference_base: "TEST" }),
+        makeLiveItem({ id_produit: 102, id_couleur: 12, main: false, reference_base: "TEST" }),
+      ],
+    });
+    await efashionUpdateProductInPlace("p2");
+
+    // La 1ʳᵉ bascule (101 démoté + 102 promu) est faite par le bloc « bascule main »
+    // standard parce que `bjPrimaryEfId(102) !== currentMainEfId(101)`. Vérifie
+    // que ces 2 appels ont bien eu lieu AVANT le delete de 101.
+    const updateCalls = updateProduitMock.mock.calls.map(([c]) => c);
+    const demoteIdx = updateCalls.findIndex((c) => c.id_produit === 101 && c.main === false);
+    const promoteIdx = updateCalls.findIndex((c) => c.id_produit === 102 && c.main === true);
+    expect(demoteIdx).toBeGreaterThanOrEqual(0);
+    expect(promoteIdx).toBeGreaterThanOrEqual(0);
+
+    // Et le delete batch a bien inclus 101.
+    expect(softDeleteMock).toHaveBeenCalledTimes(1);
+    expect(softDeleteMock.mock.calls[0][0]).toContain(101);
+
+    // L'invocation d'updateProduit pour démoter doit précéder l'appel de delete
+    // dans la chronologie globale — sinon eFashion peut refuser un delete sur
+    // la main du groupe.
+    const demoteIndex = updateProduitMock.mock.calls.findIndex(
+      ([c]) => c.id_produit === 101 && c.main === false,
+    );
+    const demoteOrder = updateProduitMock.mock.invocationCallOrder[demoteIndex];
+    const deleteOrder = softDeleteMock.mock.invocationCallOrder[0];
+    expect(demoteOrder).toBeLessThan(deleteOrder);
+  });
+
+  it("skip une couleur ajoutée localement mais absente du live eFashion et remonte une erreur explicite", async () => {
+    // Snapshot précédent : 1 couleur (101). L'admin a ajouté localement une 2ᵉ
+    // couleur (efashionProductId 999 saisi manuellement, mais 999 n'existe pas
+    // côté eFashion).
+    findUniqueMock.mockResolvedValue({
+      id: "p3",
+      reference: "TEST",
+      status: "ONLINE",
+      description: null,
+      dimensionLength: null,
+      dimensionWidth: null,
+      dimensionHeight: null,
+      dimensionDiameter: null,
+      dimensionCircumference: null,
+      efashionReferenceBase: "TEST",
+      efashionLastSyncSnapshot: {
+        version: 1,
+        referenceBase: "TEST",
+        variants: [
+          { efashionProductId: 101, visible: true, prix: 10, poids: 0.05, stockByTaille: { TU: 5 } },
+        ],
+        descriptions: { fr: "", en: "", it: "", es: "", zh: "" },
+        compositions: [],
+        primaryEfashionProductId: 101,
+      },
+      primaryColorId: "color-101",
+      compositions: [],
+      colors: [
+        makeLinkedColor({ id: "pc-101", colorId: "color-101", efashionProductId: 101, isPrimary: true }),
+        makeLinkedColor({ id: "pc-999", colorId: "color-999", efashionProductId: 999 }),
+      ],
+    });
+    // Seul 101 existe côté eFashion.
+    listProductsMock.mockResolvedValue({
+      items: [makeLiveItem({ id_produit: 101, id_couleur: 11, main: true, reference_base: "TEST" })],
+    });
+
+    const res = await efashionUpdateProductInPlace("p3");
+
+    expect(res.success).toBe(false);
+    expect(res.colorsSkippedCount).toBe(1);
+    expect(res.error).toMatch(/inconnue.*eFashion/i);
+    expect(res.error).toMatch(/Rafra/i);
+    // updateProduit ne doit JAMAIS être appelé pour la couleur 999 (sinon eFashion
+    // renverrait une erreur de toute façon).
+    const callsFor999 = updateProduitMock.mock.calls.filter(([c]) => c.id_produit === 999);
+    expect(callsFor999.length).toBe(0);
+  });
+
+  it("auto-crée une nouvelle couleur via duplicateWithNewColor + uploadPhotos + publishBrouillon", async () => {
+    // Snapshot précédent : 1 couleur principale (101 = Doré). L'admin ajoute
+    // une couleur Bordeaux localement SANS la lier manuellement à eFashion.
+    findUniqueMock.mockResolvedValue({
+      id: "p5",
+      reference: "A1852DO",
+      status: "ONLINE",
+      description: null,
+      dimensionLength: null,
+      dimensionWidth: null,
+      dimensionHeight: null,
+      dimensionDiameter: null,
+      dimensionCircumference: null,
+      efashionReferenceBase: "A1852DO",
+      efashionLastSyncSnapshot: {
+        version: 1,
+        referenceBase: "A1852DO",
+        variants: [
+          { efashionProductId: 101, visible: true, prix: 3.2, poids: 0.007, stockByTaille: { TU: 5 } },
+        ],
+        descriptions: { fr: "", en: "", it: "", es: "", zh: "" },
+        compositions: [],
+        primaryEfashionProductId: 101,
+      },
+      primaryColorId: "color-101",
+      compositions: [],
+      colors: [
+        makeLinkedColor({
+          id: "pc-101",
+          colorId: "color-101",
+          efashionProductId: 101,
+          isPrimary: true,
+          colorName: "Doré",
+          efashionColorId: 78,
+        }),
+        makeLinkedColor({
+          id: "pc-bordeaux",
+          colorId: "color-bordeaux",
+          efashionProductId: null,
+          colorName: "Bordeaux",
+          efashionColorId: 66,
+        }),
+      ],
+    });
+    // eFashion confirme l'existence de 101 (la couleur source pour duplicate).
+    listProductsMock.mockResolvedValue({
+      items: [makeLiveItem({ id_produit: 101, id_couleur: 78, main: true, reference_base: "A1852DO" })],
+    });
+    // Le duplicate retourne le nouvel id_produit 3680371 (comme dans le HAR réel).
+    duplicateMock.mockResolvedValue({ id_produit: 3680371, reference: "A1852DO-BORDEAUX", main: false });
+
+    const res = await efashionUpdateProductInPlace("p5");
+
+    // 1. duplicate appelé avec la main 101 + Bordeaux (id=66)
+    expect(duplicateMock).toHaveBeenCalledTimes(1);
+    expect(duplicateMock.mock.calls[0][0]).toEqual({
+      idProduit: 101,
+      couleurId: 66,
+      couleurName: "Bordeaux",
+    });
+
+    // 2. publishBrouillon appelé sur le nouvel id_produit
+    expect(publishBrouillonMock).toHaveBeenCalledTimes(1);
+    expect(publishBrouillonMock.mock.calls[0][0]).toEqual({
+      idProduit: 3680371,
+      idVendeur: 2017,
+    });
+
+    // 3. ProductColor mis à jour en BDD avec le nouvel efashionProductId
+    expect(productColorUpdateMock).toHaveBeenCalledWith({
+      where: { id: "pc-bordeaux" },
+      data: { efashionProductId: 3680371 },
+    });
+
+    // 4. Compteur retourné
+    expect(res.colorsCreatedCount).toBe(1);
+  });
+
+  it("refuse de créer une couleur déjà présente côté eFashion (anti-doublon)", async () => {
+    const usedColorIdsMock = (await import("@/lib/efashion-api-write")).efashionGetAllUsedColorIdsByMainProduct as unknown as ReturnType<typeof vi.fn>;
+    usedColorIdsMock.mockResolvedValueOnce([66]); // 66 = Bordeaux est déjà utilisé
+
+    findUniqueMock.mockResolvedValue({
+      id: "p6",
+      reference: "A1852DO",
+      status: "ONLINE",
+      description: null,
+      dimensionLength: null,
+      dimensionWidth: null,
+      dimensionHeight: null,
+      dimensionDiameter: null,
+      dimensionCircumference: null,
+      efashionReferenceBase: "A1852DO",
+      efashionLastSyncSnapshot: {
+        version: 1,
+        referenceBase: "A1852DO",
+        variants: [
+          { efashionProductId: 101, visible: true, prix: 3.2, poids: 0.007, stockByTaille: { TU: 5 } },
+        ],
+        descriptions: { fr: "", en: "", it: "", es: "", zh: "" },
+        compositions: [],
+        primaryEfashionProductId: 101,
+      },
+      primaryColorId: "color-101",
+      compositions: [],
+      colors: [
+        makeLinkedColor({ id: "pc-101", colorId: "color-101", efashionProductId: 101, isPrimary: true, colorName: "Doré", efashionColorId: 78 }),
+        makeLinkedColor({ id: "pc-bordeaux", colorId: "color-bordeaux", efashionProductId: null, colorName: "Bordeaux", efashionColorId: 66 }),
+      ],
+    });
+    listProductsMock.mockResolvedValue({
+      items: [makeLiveItem({ id_produit: 101, id_couleur: 78, main: true, reference_base: "A1852DO" })],
+    });
+
+    const res = await efashionUpdateProductInPlace("p6");
+
+    // duplicate NE doit PAS avoir été appelé (anti-doublon)
+    expect(duplicateMock).not.toHaveBeenCalled();
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/d[ée]j[àa] utilis/i);
+  });
+
+  it("ne déclenche pas d'erreur de skip quand previousSnapshot est null (cas alignement post-publish)", async () => {
+    // Cas appelé en fin de efashionPublishProduct avec forceFullSync : le
+    // snapshot précédent est null donc TOUS les diff.added sont du « post-création »
+    // et les couleurs existent vraiment côté eFashion (saveMelDraft vient juste
+    // de les créer).
+    findUniqueMock.mockResolvedValue({
+      id: "p4",
+      reference: "TEST",
+      status: "ONLINE",
+      description: null,
+      dimensionLength: null,
+      dimensionWidth: null,
+      dimensionHeight: null,
+      dimensionDiameter: null,
+      dimensionCircumference: null,
+      efashionReferenceBase: "TEST",
+      efashionLastSyncSnapshot: null,
+      primaryColorId: "color-101",
+      compositions: [],
+      colors: [
+        makeLinkedColor({ id: "pc-101", colorId: "color-101", efashionProductId: 101, isPrimary: true }),
+      ],
+    });
+    listProductsMock.mockResolvedValue({
+      items: [makeLiveItem({ id_produit: 101, id_couleur: 11, main: true, reference_base: "TEST" })],
+    });
+
+    const res = await efashionUpdateProductInPlace("p4", { forceFullSync: true });
+
+    expect(res.colorsSkippedCount ?? 0).toBe(0);
+    expect(res.error).toBeUndefined();
+  });
+});

@@ -32,6 +32,7 @@ function makeColorImage(overrides: Partial<ColorImageState> = {}): ColorImageSta
     imagePreviews: ["/img1.webp"],
     uploadedPaths: ["/img1.webp"],
     orders: [0],
+    pendingFiles: [null],
     uploading: false,
     ...overrides,
   };
@@ -241,7 +242,7 @@ describe("computeChecklist", () => {
 
   it("marks images as not done when no images for a variant color", () => {
     const items = computeChecklist(
-      makeInput({ colorImages: [makeColorImage({ uploadedPaths: [] })] })
+      makeInput({ colorImages: [makeColorImage({ imagePreviews: [], uploadedPaths: [], orders: [], pendingFiles: [] })] })
     );
     const img = items.find((i) => i.key === "images");
     expect(img?.done).toBe(false);

@@ -166,6 +166,115 @@ export async function efashionSaveProduitStocks(args: {
 }
 
 /**
+ * Liste les `id_couleur` déjà utilisés sur le groupe-produit d'une `mainId`
+ * (la main eFashion représente le groupe : ses couleurs liées ont le même
+ * `id_couleur_liee`). Sert d'anti-doublon avant `duplicateWithNewColor`.
+ *
+ * Endpoint observé dans le HAR de leur UI (mai 2026) : query
+ * `allUsedColorIdsByMainProduct(mainId: Int!) -> [Int!]`.
+ */
+export async function efashionGetAllUsedColorIdsByMainProduct(
+  mainId: number,
+): Promise<number[]> {
+  await ensureEfashionSession();
+  const data = await efashionGraphql<{ allUsedColorIdsByMainProduct: number[] }>(
+    `query GetAllUsedColorIdsByMainProduct($mainId: Int!) {
+      allUsedColorIdsByMainProduct(mainId: $mainId)
+    }`,
+    { mainId },
+  );
+  return data.allUsedColorIdsByMainProduct ?? [];
+}
+
+/**
+ * Duplique la couleur main d'un produit et crée une nouvelle couleur liée
+ * du même groupe. C'est exactement le bouton « + Ajouter une couleur » de
+ * leur UI (vu dans le HAR de mai 2026). La nouvelle couleur hérite des
+ * attributs (prix, poids, catégorie, descriptions, compositions, …) de la
+ * source — il faut donc ensuite la pousser via `updateProduit` pour
+ * appliquer ses valeurs spécifiques.
+ *
+ * Le produit créé est initialement en mode brouillon : il faut appeler
+ * `publishBrouillon` après avoir uploadé au moins une photo, sinon il ne
+ * sort jamais en ligne côté catalogue acheteurs.
+ *
+ * Retourne le nouvel `id_produit` (string dans la réponse GraphQL, mais
+ * c'est un entier — on cast à number pour l'usage en BDD locale).
+ */
+export async function efashionDuplicateWithNewColor(args: {
+  idProduit: number;
+  couleurId: number;
+  couleurName: string;
+}): Promise<{ id_produit: number; reference: string; main: boolean }> {
+  await ensureEfashionSession();
+  const data = await efashionGraphql<{
+    duplicateWithNewColor: { id_produit: string | number; reference: string; main: boolean };
+  }>(
+    `mutation DuplicateWithNewColor($idProduit: Int!, $couleurId: Int!, $couleurName: String!) {
+      duplicateWithNewColor(idProduit: $idProduit, couleurId: $couleurId, couleurName: $couleurName) {
+        id_produit
+        reference
+        main
+      }
+    }`,
+    {
+      idProduit: args.idProduit,
+      couleurId: args.couleurId,
+      couleurName: args.couleurName,
+    },
+  );
+  if (!data.duplicateWithNewColor) {
+    throw new Error("eFashion: duplicateWithNewColor a renvoyé un résultat vide");
+  }
+  return {
+    id_produit: typeof data.duplicateWithNewColor.id_produit === "string"
+      ? parseInt(data.duplicateWithNewColor.id_produit, 10)
+      : data.duplicateWithNewColor.id_produit,
+    reference: data.duplicateWithNewColor.reference,
+    main: data.duplicateWithNewColor.main,
+  };
+}
+
+/**
+ * Publie un brouillon eFashion (passe la fiche en mode acheteur visible).
+ * Appelé juste après `duplicateWithNewColor` + upload des photos pour que
+ * la nouvelle couleur apparaisse côté catalogue.
+ */
+export async function efashionPublishBrouillon(args: {
+  idProduit: number;
+  idVendeur: number;
+}): Promise<boolean> {
+  await ensureEfashionSession();
+  const data = await efashionGraphql<{ publishBrouillon: boolean }>(
+    `mutation PublishBrouillon($id_produit: Int!, $id_vendeur: Int!) {
+      publishBrouillon(id_produit: $id_produit, id_vendeur: $id_vendeur)
+    }`,
+    { id_produit: args.idProduit, id_vendeur: args.idVendeur },
+  );
+  return data.publishBrouillon ?? true;
+}
+
+/**
+ * Marque un ou plusieurs produits comme supprimés (soft-delete : ils
+ * disparaissent du catalogue mais restent en BDD eFashion avec `supprimer=1`).
+ * Endpoint utilisé par le bouton « Corbeille » de leur UI (vu dans le HAR
+ * de mai 2026) — préférable à `POST /shootings/product/{id}/delete` qui est
+ * pensé pour le workflow shooting et ne marche pas toujours sur les produits
+ * déjà publiés.
+ */
+export async function efashionSoftDeleteProduits(ids: number[]): Promise<boolean> {
+  if (ids.length === 0) return true;
+  await ensureEfashionSession();
+  const data = await efashionGraphql<{ softDeleteProduits: boolean }>(
+    `mutation SoftDeleteProduits($ids: [Int!]!) {
+      softDeleteProduits(ids: $ids)
+    }`,
+    { ids },
+  );
+  return data.softDeleteProduits ?? true;
+}
+
+/**
  * Ajoute une couleur de la bibliothèque officielle eFashion au catalogue du vendeur.
  * Préalable à pouvoir l'utiliser dans une création de produit.
  */

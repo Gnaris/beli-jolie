@@ -222,6 +222,7 @@ export default async function DupliquerProduitPage({
         imagePreviews: [],
         uploadedPaths: [],
         orders: [],
+        pendingFiles: [],
         uploading: false,
       });
     }
@@ -230,6 +231,7 @@ export default async function DupliquerProduitPage({
       entry.imagePreviews.push(img.path);
       entry.uploadedPaths.push(img.path);
       entry.orders.push(img.order);
+      entry.pendingFiles.push(null);
     }
   }
   const initialColorImages: ColorImageState[] = [...colorImageMap.values()];

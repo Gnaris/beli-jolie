@@ -62,9 +62,15 @@ export interface ColorImageState {
   colorId: string;
   colorName: string;
   colorHex: string;
+  /** URL d'aperçu pour chaque slot : blob: pour photos en attente, /uploads/... pour déjà sauvegardées. */
   imagePreviews: string[];
+  /** Path serveur pour chaque slot. Chaîne vide tant que la photo n'a pas été uploadée (slot pending). */
   uploadedPaths: string[];
+  /** Position 0-based du slot (aligné sur les autres tableaux). */
   orders: number[];
+  /** Fichier en attente d'upload pour chaque slot. null si la photo est déjà sauvegardée. */
+  pendingFiles: (File | null)[];
+  /** Conservé pour compat (toujours false maintenant — l'upload est différé jusqu'au save). */
   uploading: boolean;
 }
 
@@ -929,74 +935,28 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
     return { hex: v.colorHex || opt?.hex, patternImage: opt?.patternImage ?? null };
   }
 
-  const [uploadingSlots, setUploadingSlots] = useState<Record<string, number[]>>({});
-  // Suit tous les uploads en cours par couleur (positions des slots).
-  // Un ref permet d'éviter les courses entre uploads parallèles : on lit
-  // toujours la version la plus récente, sans dépendre du re-render React.
-  const inFlightRef = useRef<Map<string, Set<number>>>(new Map());
-
-  async function handleAddImageAtPosition(groupKey: string, file: File, _position: number) {
+  // Upload différé : la photo reste dans le navigateur (mémoire) jusqu'au save.
+  // Aucun appel réseau ici — le ProductForm orchestre l'upload des pendingFiles
+  // au moment où on clique « Enregistrer ».
+  function handleAddImageAtPosition(groupKey: string, file: File, _position: number) {
     const state = colorImagesRef.current.find((c) => c.groupKey === groupKey);
     if (!state) return;
-    // On exclut les positions déjà utilisées ET celles déjà réservées par un
-    // upload en cours, sinon deux uploads parallèles peuvent se voir attribuer
-    // la même position.
-    const reserved = inFlightRef.current.get(groupKey) ?? new Set<number>();
-    const usedPositions = new Set([...state.orders, ...reserved]);
+    const usedPositions = new Set(state.orders);
     let position = 0;
     while (usedPositions.has(position)) position++;
     if (position >= 5) return;
     const blob = URL.createObjectURL(file);
 
-    // Marque cet upload comme en cours.
-    let inFlight = inFlightRef.current.get(groupKey);
-    if (!inFlight) { inFlight = new Set<number>(); inFlightRef.current.set(groupKey, inFlight); }
-    inFlight.add(position);
-
-    setUploadingSlots((prev) => {
-      const existing = prev[groupKey] ?? [];
-      return { ...prev, [groupKey]: [...existing, position] };
-    });
     onChange(colorImagesRef.current.map((c) => c.groupKey === groupKey
-      ? { ...c, imagePreviews: [...c.imagePreviews, blob], orders: [...c.orders, position], uploading: true }
+      ? {
+          ...c,
+          imagePreviews: [...c.imagePreviews, blob],
+          uploadedPaths: [...c.uploadedPaths, ""],
+          orders: [...c.orders, position],
+          pendingFiles: [...c.pendingFiles, file],
+        }
       : c
     ));
-    let path = "";
-    const fd = new FormData();
-    fd.append("image", file);
-    if (productReference) fd.append("reference", productReference);
-    if (state.colorName) fd.append("color", state.colorName);
-    fd.append("position", String(position + 1));
-    try {
-      const res = await fetch("/api/admin/products/images", { method: "POST", body: fd });
-      const json = await res.json();
-      if (res.ok) path = json.path;
-    } catch { console.error("Erreur upload"); }
-
-    // Cet upload est terminé — on le retire de la liste.
-    inFlight.delete(position);
-    const stillUploading = inFlight.size > 0;
-
-    setUploadingSlots((prev) => {
-      const existing = prev[groupKey] ?? [];
-      return { ...prev, [groupKey]: existing.filter((p) => p !== position) };
-    });
-    if (!path) {
-      onChange(colorImagesRef.current.map((c) => {
-        if (c.groupKey !== groupKey) return c;
-        return {
-          ...c,
-          imagePreviews: c.imagePreviews.filter((p) => p !== blob),
-          orders: c.orders.filter((_, j) => c.imagePreviews[j] !== blob),
-          uploading: stillUploading,
-        };
-      }));
-      return;
-    }
-    onChange(colorImagesRef.current.map((c) => {
-      if (c.groupKey !== groupKey) return c;
-      return { ...c, uploadedPaths: [...c.uploadedPaths, path], uploading: stillUploading };
-    }));
   }
 
   async function handleRemoveImageAtPosition(groupKey: string, position: number) {
@@ -1011,11 +971,17 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
       if (c.groupKey !== groupKey) return c;
       const idx = c.orders.indexOf(position);
       if (idx === -1) return c;
+      // Libère l'aperçu blob si c'en était un (évite de retenir le File en mémoire).
+      const removedPreview = c.imagePreviews[idx];
+      if (removedPreview?.startsWith("blob:")) {
+        try { URL.revokeObjectURL(removedPreview); } catch { /* ignore */ }
+      }
       return {
         ...c,
         imagePreviews: c.imagePreviews.filter((_, j) => j !== idx),
         uploadedPaths: c.uploadedPaths.filter((_, j) => j !== idx),
         orders: c.orders.filter((_, j) => j !== idx).map((o) => (o > position ? o - 1 : o)),
+        pendingFiles: c.pendingFiles.filter((_, j) => j !== idx),
       };
     }));
   }
@@ -1036,12 +1002,14 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
     if (srcIdx === -1 || !srcState.imagePreviews[srcIdx]) return;
     const srcPreview = srcState.imagePreviews[srcIdx];
     const srcPath = srcState.uploadedPaths[srcIdx];
+    const srcPendingFile = srcState.pendingFiles[srcIdx] ?? null;
     onChange(colorImagesRef.current.map((c) => {
       if (c.groupKey === sourceGroupKey) {
         const newPreviews = c.imagePreviews.filter((_, i) => i !== srcIdx);
         const newPaths = c.uploadedPaths.filter((_, i) => i !== srcIdx);
         const newOrders = c.orders.filter((_, i) => i !== srcIdx).map((o) => (o > sourcePos ? o - 1 : o));
-        return { ...c, imagePreviews: newPreviews, uploadedPaths: newPaths, orders: newOrders };
+        const newPending = c.pendingFiles.filter((_, i) => i !== srcIdx);
+        return { ...c, imagePreviews: newPreviews, uploadedPaths: newPaths, orders: newOrders, pendingFiles: newPending };
       }
       if (c.groupKey === targetGroupKey) {
         const usedPositions = new Set(c.orders);
@@ -1053,6 +1021,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
           imagePreviews: [...c.imagePreviews, srcPreview],
           uploadedPaths: [...c.uploadedPaths, srcPath],
           orders: [...c.orders, finalPos],
+          pendingFiles: [...c.pendingFiles, srcPendingFile],
         };
       }
       return c;
@@ -1117,7 +1086,9 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
             <p className="text-sm text-text-muted font-body text-center py-8">Aucune couleur dans les variantes. Ajoutez d&apos;abord des variantes.</p>
           ) : colorImages.map((cimg, idx) => {
             const seg = getSwatch(cimg.groupKey);
-            const missingImages = cimg.uploadedPaths.length === 0;
+            // "Manquant" = aucune photo (ni sauvegardée, ni en attente d'upload).
+            // imagePreviews est la source unique de vérité du nombre de slots.
+            const missingImages = cimg.imagePreviews.length === 0;
             return (
               <div key={cimg.groupKey} className={`border rounded-xl p-4 ${missingImages ? "border-[#EF4444] bg-red-50/30" : "border-border"}`}>
                 <div className="flex items-center gap-2 mb-3">
@@ -1134,8 +1105,8 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
                   onRemoveAtPosition={(pos) => handleRemoveImageAtPosition(cimg.groupKey, pos)}
                   onSwapPositions={(from, to) => handleSwapPositions(cimg.groupKey, from, to)}
                   onCrossColorDrop={(srcGroupKey, srcPos, targetPos) => handleCrossColorDrop(srcGroupKey, srcPos, cimg.groupKey, targetPos)}
-                  uploading={cimg.uploading}
-                  uploadingPositions={uploadingSlots[cimg.groupKey] ?? []}
+                  uploading={false}
+                  uploadingPositions={[]}
                   hasError={missingImages}
                 />
                 {missingImages && (
@@ -1740,7 +1711,7 @@ export default function ColorVariantManager({
   }, [bulkActionOpen]);
 
   const totalPhotos = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
-  const hasAnyMissingImages = colorImages.some((c) => c.uploadedPaths.length === 0);
+  const hasAnyMissingImages = colorImages.some((c) => c.imagePreviews.length === 0);
   const showBulkRow = selectedIds.size > 0;
   const duplicateTempIds = findDuplicateVariantTempIds(variants);
 
@@ -2091,7 +2062,7 @@ export default function ColorVariantManager({
               const vErrs = variantErrors?.get(v.tempId);
               const imgGk = imageGroupKeyFromVariant(v);
               const imgEntry = colorImages.find((c) => c.groupKey === imgGk);
-              const imgCount = imgEntry?.uploadedPaths.length ?? 0;
+              const imgCount = imgEntry?.imagePreviews.length ?? 0;
               const locked = isVariantLocked(v);
               return (
                 <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : ""}`}>
@@ -2323,7 +2294,7 @@ export default function ColorVariantManager({
               const vErrs = variantErrors?.get(v.tempId);
               const imgGk = imageGroupKeyFromVariant(v);
               const imgEntry = colorImages.find((c) => c.groupKey === imgGk);
-              const imgCount = imgEntry?.uploadedPaths.length ?? 0;
+              const imgCount = imgEntry?.imagePreviews.length ?? 0;
               const locked = isVariantLocked(v);
               return (
                 <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#EFF6FF]" : ""}`}>
@@ -2639,7 +2610,7 @@ export default function ColorVariantManager({
                   const vErrs = variantErrors?.get(v.tempId);
                   const imgGkD = imageGroupKeyFromVariant(v);
                   const imgEntryD = colorImages.find((c) => c.groupKey === imgGkD);
-                  const imgCountD = imgEntryD?.uploadedPaths.length ?? 0;
+                  const imgCountD = imgEntryD?.imagePreviews.length ?? 0;
                   const dimCls = v.disabled ? " opacity-50" : "";
                   const lockedD = isVariantLocked(v);
                   return (
@@ -2845,7 +2816,7 @@ export default function ColorVariantManager({
                   const vErrs = variantErrors?.get(v.tempId);
                   const imgGkD = imageGroupKeyFromVariant(v);
                   const imgEntryD = colorImages.find((c) => c.groupKey === imgGkD);
-                  const imgCountD = imgEntryD?.uploadedPaths.length ?? 0;
+                  const imgCountD = imgEntryD?.imagePreviews.length ?? 0;
                   const dimCls = v.disabled ? " opacity-50" : "";
                   const lockedD = isVariantLocked(v);
                   return (
