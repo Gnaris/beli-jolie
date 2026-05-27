@@ -47,10 +47,14 @@ async function main() {
   console.log("=== Test 1: /products?page[limit]=1 ===");
   let r = await fetch(`${ANKORSTORE_BASE_URL}/products?filter[archived]=false&page[limit]=1`, { headers });
   let body = await r.json();
-  console.log("FULL RESPONSE (top keys):", Object.keys(body));
-  console.log("DATA[0] FULL:", JSON.stringify(body.data?.[0], null, 2).slice(0, 2000));
+  console.log("STATUS:", r.status);
+  console.log("FULL RESPONSE:", JSON.stringify(body, null, 2).slice(0, 3000));
 
-  const firstId = body.data?.[0]?.id;
+  const firstId = body.data?.[0]?.id ?? null;
+  if (!firstId) {
+    console.log("Aborting subsequent tests (no firstId)");
+    return;
+  }
 
   console.log("\n=== Test 2: /products/{id} ===");
   r = await fetch(`${ANKORSTORE_BASE_URL}/products/${firstId}`, { headers });
