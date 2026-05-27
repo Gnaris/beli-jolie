@@ -119,20 +119,61 @@ async function main() {
   });
   console.log(`✓ ${asProducts.length} produits Ankorstore chargés\n`);
 
-  // 3) Pour chaque produit AS, cherche un équivalent local
+  /**
+   * Préfixe de référence d'un produit AS = segment avant le 1er `_` du SKU.
+   * Source de vérité (selon la cliente) : "deux produits ont des variants SKU
+   * identiques au niveau de la référence" → on regarde TOUS les SKU de
+   * toutes les variantes du produit, on en extrait le préfixe avant `_`, et
+   * on garde le préfixe le plus fréquent (cas normal : tous les variants
+   * partagent le même préfixe ; on est tolérant aux SKU sales).
+   */
+  function skuReferenceKey(p: typeof asProducts[number]): string | null {
+    const counts = new Map<string, number>();
+    for (const v of p.variants ?? []) {
+      const sku = v.sku?.trim();
+      if (!sku) continue;
+      const segment = sku.split("_")[0]?.trim();
+      if (!segment || segment.length < 2) continue;
+      counts.set(segment, (counts.get(segment) ?? 0) + 1);
+    }
+    if (counts.size === 0) return null;
+    let bestKey: string | null = null;
+    let bestCount = 0;
+    for (const [k, c] of counts) {
+      if (c > bestCount) {
+        bestKey = k;
+        bestCount = c;
+      }
+    }
+    return bestKey;
+  }
+
+  // 3) Pour chaque produit AS, cherche un équivalent local + indexe par
+  //    préfixe SKU pour la détection de doublons.
   const extras: ExtraRow[] = [];
   let matchedByLink = 0;
   let matchedByRef = 0;
   let extraNoRef = 0;
   let extraWithRef = 0;
 
+  // Index par préfixe SKU (clé de référence)
+  const asBySku = new Map<string, typeof asProducts>();
+
   for (const as of asProducts) {
+    const skuRef = skuReferenceKey(as);
+    const skuRefLower = skuRef?.toLowerCase() ?? "";
+    if (skuRefLower) {
+      const arr = asBySku.get(skuRefLower) ?? [];
+      arr.push(as);
+      asBySku.set(skuRefLower, arr);
+    }
+
     // a) Lien direct via ankorsProductId
     if (bjByAnkorsId.has(as.id)) {
       matchedByLink++;
       continue;
     }
-    // b) Match par référence extraite
+    // b) Match par référence extraite (cascade SKU → nom → description)
     const ref = extractReference(as);
     const refLower = ref?.toLowerCase().trim() ?? "";
     if (refLower && bjByRef.has(refLower)) {
@@ -156,6 +197,65 @@ async function main() {
     if (ref) extraWithRef++; else extraNoRef++;
   }
 
+  // 3bis) Doublons côté Ankorstore — groupes de 2+ produits AS qui partagent
+  // le même préfixe SKU. Pour chaque groupe, on signale lequel est "officiel"
+  // (= lié à un Product BJ via ankorsProductId) et lequel est en surplus.
+  type DuplicateRow = {
+    referenceCommune: string;
+    nbProduitsAvecCetteRef: number;
+    statut: string; // "officiel (lié)" / "non lié" / "lié à un autre produit"
+    ankorsProductId: string;
+    productName: string;
+    variantSkuFirst: string;
+    variantsCount: number;
+    retailPrice: number;
+    wholesalePrice: number;
+    active: string;
+    externalId: string;
+  };
+  const duplicates: DuplicateRow[] = [];
+  // Précalcul : pour chaque produit BJ lié, quel est son ankorsProductId
+  const bjLinkedAnkorsIds = new Set(
+    bjProducts
+      .map((p) => p.ankorsProductId)
+      .filter((x): x is string => Boolean(x)),
+  );
+
+  // Groupes de 2+
+  const duplicateGroups = Array.from(asBySku.entries()).filter(([_, g]) => g.length >= 2);
+  duplicateGroups.sort((a, b) => a[0].localeCompare(b[0]));
+
+  for (const [skuKey, group] of duplicateGroups) {
+    // Tri interne : produit "officiel" en premier (= lié à un BJ via ankorsProductId)
+    const sorted = [...group].sort((a, b) => {
+      const aOfficial = bjLinkedAnkorsIds.has(a.id) ? 0 : 1;
+      const bOfficial = bjLinkedAnkorsIds.has(b.id) ? 0 : 1;
+      return aOfficial - bOfficial;
+    });
+    for (const as of sorted) {
+      let statut: string;
+      if (bjLinkedAnkorsIds.has(as.id)) {
+        statut = "OFFICIEL (lié au site)";
+      } else {
+        statut = "EN TROP (doublon — pas lié au site)";
+      }
+      duplicates.push({
+        referenceCommune: skuKey.toUpperCase(),
+        nbProduitsAvecCetteRef: group.length,
+        statut,
+        ankorsProductId: as.id,
+        productName: as.name ?? "",
+        variantSkuFirst: as.variants?.[0]?.sku ?? "",
+        variantsCount: as.variants?.length ?? 0,
+        retailPrice: as.retailPrice ?? 0,
+        wholesalePrice: as.wholesalePrice ?? 0,
+        active: as.active ? "oui" : "non",
+        externalId: as.externalId ?? "",
+      });
+    }
+  }
+  const surplusBySku = duplicateGroups.reduce((acc, [, g]) => acc + (g.length - 1), 0);
+
   console.log("=== Résultat du diagnostic ===");
   console.log(`Total produits Ankorstore  : ${asProducts.length}`);
   console.log(`  Liés via ankorsProductId  : ${matchedByLink}`);
@@ -163,6 +263,10 @@ async function main() {
   console.log(`  EN TROP (aucun match)     : ${extras.length}`);
   console.log(`     dont avec une référence détectable mais inconnue : ${extraWithRef}`);
   console.log(`     dont sans référence détectable                   : ${extraNoRef}\n`);
+  console.log("=== Doublons côté Ankorstore (même préfixe SKU) ===");
+  console.log(`Références dupliquées (groupes de 2+ produits) : ${duplicateGroups.length}`);
+  console.log(`  Produits concernés au total                    : ${duplicates.length}`);
+  console.log(`  Produits en surplus (= à supprimer pour ne garder qu'1 par référence) : ${surplusBySku}\n`);
 
   // 4) Excel
   const workbook = new ExcelJS.Workbook();
@@ -183,6 +287,10 @@ async function main() {
     { label: "Produits EN TROP (à examiner)", count: extras.length },
     { label: "  → avec une référence détectable mais inconnue", count: extraWithRef },
     { label: "  → sans référence détectable", count: extraNoRef },
+    { label: "", count: 0 },
+    { label: "Doublons : références dupliquées sur Ankorstore", count: duplicateGroups.length },
+    { label: "  Produits concernés au total (avec officiel)", count: duplicates.length },
+    { label: "  Produits en SURPLUS (à supprimer pour n'en garder qu'1 par réf)", count: surplusBySku },
   ]);
 
   // Feuille 2 : détail des produits en trop
@@ -215,6 +323,33 @@ async function main() {
   detail.autoFilter = {
     from: { row: 1, column: 1 },
     to: { row: 1, column: detail.columns.length },
+  };
+
+  // Feuille 3 : doublons côté Ankorstore
+  const dupSheet = workbook.addWorksheet("Doublons Ankorstore");
+  dupSheet.columns = [
+    { header: "Référence commune", key: "referenceCommune", width: 20 },
+    { header: "Nb produits avec cette réf", key: "nbProduitsAvecCetteRef", width: 26 },
+    { header: "Statut", key: "statut", width: 40 },
+    { header: "Nom produit Ankorstore", key: "productName", width: 50 },
+    { header: "1er SKU variante", key: "variantSkuFirst", width: 22 },
+    { header: "Nb variantes", key: "variantsCount", width: 12 },
+    { header: "Prix détail", key: "retailPrice", width: 12 },
+    { header: "Prix gros", key: "wholesalePrice", width: 12 },
+    { header: "Actif AS", key: "active", width: 10 },
+    { header: "ID Ankorstore", key: "ankorsProductId", width: 38 },
+    { header: "externalId", key: "externalId", width: 22 },
+  ];
+  dupSheet.getRow(1).font = { bold: true };
+  dupSheet.getRow(1).fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFE0E0E0" },
+  };
+  dupSheet.addRows(duplicates);
+  dupSheet.autoFilter = {
+    from: { row: 1, column: 1 },
+    to: { row: 1, column: dupSheet.columns.length },
   };
 
   const stamp = new Date()
