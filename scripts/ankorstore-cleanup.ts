@@ -50,6 +50,12 @@ const ANKORSTORE_TOKEN_URL = "https://www.ankorstore.com/oauth/token";
 const OUTPUT_DIR = "/var/www/beliandjolie";
 const CONCURRENCY = 3;
 
+// Flags CLI
+const ARGS = new Set(process.argv.slice(2));
+const ONLY_EXTRAS = ARGS.has("--only-extras");
+const LIMIT_ARG = process.argv.slice(2).find((a) => a.startsWith("--limit="));
+const LIMIT = LIMIT_ARG ? Math.max(1, parseInt(LIMIT_ARG.split("=")[1], 10)) : Infinity;
+
 async function bootstrapAnkorstoreAuth(): Promise<void> {
   const rows = await prisma.siteConfig.findMany({
     where: { key: { in: ["ankors_client_id", "ankors_client_secret"] } },
@@ -229,6 +235,17 @@ async function main() {
     candidates.push({ as, reason: "EN_TROP", groupRef: null });
   }
 
+  // 3d) Filtres CLI (--only-extras, --limit=N)
+  let filteredCandidates = candidates;
+  if (ONLY_EXTRAS) {
+    filteredCandidates = filteredCandidates.filter((c) => c.reason === "EN_TROP");
+    console.log(`[--only-extras] Filtré aux EN_TROP purs uniquement : ${filteredCandidates.length}`);
+  }
+  if (LIMIT !== Infinity) {
+    filteredCandidates = filteredCandidates.slice(0, LIMIT);
+    console.log(`[--limit=${LIMIT}] Limité aux ${filteredCandidates.length} premiers`);
+  }
+
   // Stats par catégorie
   const stats = {
     EN_TROP: candidates.filter((c) => c.reason === "EN_TROP").length,
@@ -238,14 +255,15 @@ async function main() {
     ).length,
   };
 
-  console.log("=== Plan de suppression ===");
+  console.log("=== Plan de suppression (avant filtres CLI) ===");
   console.log(`En trop (aucun match)                   : ${stats.EN_TROP}`);
   console.log(`Doublons surplus (groupe avec officiel) : ${stats.DOUBLON_SURPLUS}`);
   console.log(`Doublons orphelins surplus              : ${stats.DOUBLON_ORPHELIN_SURPLUS}`);
-  console.log(`TOTAL à supprimer                        : ${candidates.length}\n`);
+  console.log(`Candidats totaux                         : ${candidates.length}`);
+  console.log(`Candidats après filtres                  : ${filteredCandidates.length}\n`);
 
   // 4) Triple-check de sécurité : aucun candidat ne doit être lié
-  const violations = candidates.filter((c) => bjLinkedAnkorsIds.has(c.as.id));
+  const violations = filteredCandidates.filter((c) => bjLinkedAnkorsIds.has(c.as.id));
   if (violations.length > 0) {
     console.error(
       `⚠  ${violations.length} candidats sont liés au site — abandon par sécurité.`,
@@ -259,13 +277,18 @@ async function main() {
   let done = 0;
   const startedAt = Date.now();
 
-  await processWithConcurrency(candidates, CONCURRENCY, async (cand) => {
+  await processWithConcurrency(filteredCandidates, CONCURRENCY, async (cand) => {
     const as = cand.as;
     const ref = extractReference(as) ?? "";
     const firstSku = as.variants?.[0]?.sku ?? "";
 
-    // Vérif finale au moment de la suppression
-    const externalId = as.externalId?.trim() ?? "";
+    // Vérif finale au moment de la suppression.
+    // L'API publique AS ne nous redonne pas external_id. Mais côté publish on
+    // a posé `external_id = product.reference` (voir lib/ankorstore-publish.ts:439)
+    // ET cette même référence est le préfixe SKU (`G23_BLANC_S` → G23). On
+    // reconstruit donc l'external_id depuis le préfixe SKU dominant.
+    const skuPrefix = skuReferenceKey(as);
+    const externalId = (as.externalId?.trim() || skuPrefix || ref)?.trim() ?? "";
     const skus = (as.variants ?? [])
       .map((v) => v.sku?.trim())
       .filter((s): s is string => !!s && s.length > 0);
@@ -309,9 +332,11 @@ async function main() {
       results.push(row);
     }
     done++;
-    if (done % 50 === 0 || done === candidates.length) {
+    if (done % 50 === 0 || done === filteredCandidates.length || filteredCandidates.length <= 10) {
       const elapsed = Math.round((Date.now() - startedAt) / 1000);
-      console.log(`  ${done}/${candidates.length} traités (${elapsed}s)`);
+      console.log(
+        `  ${done}/${filteredCandidates.length} traités (${elapsed}s) — dernier : ref=${ref} | id=${as.id} | outcome=${row.outcome}${row.operationId ? ` | op=${row.operationId}` : ""}${row.errorMessage ? ` | err=${row.errorMessage.slice(0, 80)}` : ""}`,
+      );
     }
   });
 
@@ -338,7 +363,8 @@ async function main() {
   recap.addRows([
     { label: "Produits AS au total", count: asProducts.length },
     { label: "Produits liés (intouchables)", count: bjLinkedAnkorsIds.size },
-    { label: "Candidats à supprimer", count: candidates.length },
+    { label: "Candidats à supprimer (avant filtres)", count: candidates.length },
+    { label: "Candidats traités après filtres CLI", count: filteredCandidates.length },
     { label: "  → En trop (aucun match)", count: stats.EN_TROP },
     { label: "  → Doublons surplus", count: stats.DOUBLON_SURPLUS },
     { label: "  → Doublons orphelins surplus", count: stats.DOUBLON_ORPHELIN_SURPLUS },
