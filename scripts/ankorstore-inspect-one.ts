@@ -47,9 +47,8 @@ async function main() {
   console.log("=== Test 1: /products?page[limit]=1 ===");
   let r = await fetch(`${ANKORSTORE_BASE_URL}/products?filter[archived]=false&page[limit]=1`, { headers });
   let body = await r.json();
-  console.log("Attributes keys:", Object.keys(body.data?.[0]?.attributes ?? {}).join(", "));
-  console.log("external_id?:", body.data?.[0]?.attributes?.external_id);
-  console.log("externalId?:", body.data?.[0]?.attributes?.externalId);
+  console.log("FULL RESPONSE (top keys):", Object.keys(body));
+  console.log("DATA[0] FULL:", JSON.stringify(body.data?.[0], null, 2).slice(0, 2000));
 
   const firstId = body.data?.[0]?.id;
 
