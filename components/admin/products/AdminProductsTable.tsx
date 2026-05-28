@@ -1080,7 +1080,11 @@ function ProductRow({
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const showEfashion = hasEfashionConfig && efashionEnabled;
   const efashionLinked = product.colors.some((c) => c.efashionProductId != null);
-  const { refreshSingle } = useRefreshMarketplaceDialog({ showPfs: hasPfsConfig, showAnkorstore });
+  const { refreshSingle } = useRefreshMarketplaceDialog({
+    showPfs: hasPfsConfig,
+    showAnkorstore,
+    showEfashion,
+  });
 
   // État "loading" des badges marketplaces : on regarde la dernière opération
   // marketplace pour ce produit et on bloque les clics tant qu'elle est en
@@ -2103,7 +2107,12 @@ export default function AdminProductsTable({
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
-  const { refreshBulk } = useRefreshMarketplaceDialog({ showPfs: hasPfsConfig, showAnkorstore });
+  const showEfashion = !!(hasEfashionConfig && efashionEnabled);
+  const { refreshBulk } = useRefreshMarketplaceDialog({
+    showPfs: hasPfsConfig,
+    showAnkorstore,
+    showEfashion,
+  });
   const { enqueue: enqueuePfs } = useMarketplaceRefreshQueue();
   const toast = useToast();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);

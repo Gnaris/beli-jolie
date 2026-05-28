@@ -360,13 +360,46 @@ export async function efashionPublishProduct(
     }
   });
 
-  // Étape 8 : alignement des attributs par couleur (prix, poids, stock,
+  // Étape 8 : sortie automatique du statut "brouillon".
+  // saveMelDraft + saveMelChoice livrent la fiche en `premel='0'` (brouillon
+  // côté catalogue acheteurs) même quand tout est complet. Sans
+  // `publishBrouillon`, le produit n'apparait jamais en ligne et l'admin doit
+  // aller cliquer manuellement sur "Mettre en ligne" dans l'UI eFashion.
+  // ⚠️ Doit être fait AVANT l'étape 9 (alignement) : `publishBrouillonBulk`
+  // remet `visible=true` au moment de sortir du brouillon. Sinon, le
+  // `visible=false` posé par l'alignement (cas produit local OFFLINE/ARCHIVED)
+  // se ferait écraser et la fiche resterait visible côté acheteurs.
+  // Best-effort : si ça plante, le publish reste success — l'admin peut
+  // toujours publier manuellement.
+  try {
+    const me = await efashionGetMe();
+    const publishedCount = await efashionPublishBrouillonBulk({
+      idProduits: productIds,
+      idVendeur: me.id_vendeur,
+    });
+    logger.info("[eFashion publish] Sortie du brouillon", {
+      productId,
+      localStatus: product.status,
+      totalColors: productIds.length,
+      publishedCount,
+      idProduits: productIds,
+    });
+  } catch (err) {
+    logger.warn("[eFashion publish] publishBrouillonBulk a planté (non bloquant)", {
+      productId,
+      error: err as Error,
+    });
+  }
+
+  // Étape 9 : alignement des attributs par couleur (prix, poids, stock,
   // visibilité). `saveMelDraft` n'accepte qu'**un seul prix** pour toutes les
   // couleurs (= celui de la couleur principale), donc à ce stade toutes les
   // lignes eFashion ont le prix de la principale. On enchaîne avec un
   // `efashionUpdateProductInPlace` forceFullSync pour pousser les prix/poids
-  // spécifiques à chaque couleur. Best-effort : si ça plante, le publish reste
-  // success (l'admin peut relancer un sync manuel pour rattraper).
+  // spécifiques à chaque couleur — ET pour reposer `visible=false` après que
+  // `publishBrouillonBulk` (étape 8) ait basculé toutes les variantes à
+  // `visible=true`. Best-effort : si ça plante, le publish reste success
+  // (l'admin peut relancer un sync manuel pour rattraper).
   try {
     const { efashionUpdateProductInPlace } = await import("@/lib/efashion-update");
     const alignRes = await efashionUpdateProductInPlace(productId, { forceFullSync: true });
@@ -386,42 +419,6 @@ export async function efashionPublishProduct(
     logger.warn("[eFashion publish] Alignement par couleur a planté (non bloquant)", {
       productId,
       error: err as Error,
-    });
-  }
-
-  // Étape 9 : sortie automatique du statut "brouillon".
-  // saveMelDraft + saveMelChoice livrent la fiche en `premel='0'` (brouillon
-  // côté catalogue acheteurs) même quand tout est complet. Sans
-  // `publishBrouillon`, le produit n'apparait jamais en ligne et l'admin doit
-  // aller cliquer manuellement sur "Mettre en ligne" dans l'UI eFashion.
-  // Best-effort : si ça plante, le publish reste success — l'admin peut
-  // toujours publier manuellement.
-  // Skip si le produit local n'est pas ONLINE (cohérence avec son statut côté
-  // boutique : pas la peine de mettre en ligne sur eFashion un produit
-  // explicitement OFFLINE).
-  if (product.status === "ONLINE") {
-    try {
-      const me = await efashionGetMe();
-      const publishedCount = await efashionPublishBrouillonBulk({
-        idProduits: productIds,
-        idVendeur: me.id_vendeur,
-      });
-      logger.info("[eFashion publish] Sortie du brouillon", {
-        productId,
-        totalColors: productIds.length,
-        publishedCount,
-        idProduits: productIds,
-      });
-    } catch (err) {
-      logger.warn("[eFashion publish] publishBrouillonBulk a planté (non bloquant)", {
-        productId,
-        error: err as Error,
-      });
-    }
-  } else {
-    logger.info("[eFashion publish] Skip publishBrouillon — produit local pas ONLINE", {
-      productId,
-      localStatus: product.status,
     });
   }
 

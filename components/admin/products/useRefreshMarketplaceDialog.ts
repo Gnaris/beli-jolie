@@ -34,11 +34,14 @@ export interface UseRefreshMarketplaceDialogOptions {
   showPfs?: boolean;
   /** Affiche la case Ankorstore. Défaut false. */
   showAnkorstore?: boolean;
+  /** Affiche la case eFashion Paris. Défaut false. */
+  showEfashion?: boolean;
 }
 
 export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOptions) {
   const showPfs = opts?.showPfs ?? true;
   const showAnkorstore = opts?.showAnkorstore ?? false;
+  const showEfashion = opts?.showEfashion ?? false;
 
   const { confirm } = useConfirm();
   const toast = useToast();
@@ -116,6 +119,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       const localRef = { current: false };
       const pfsRef = { current: false };
       const ankorstoreRef = { current: false };
+      const efashionRef = { current: false };
 
       const title = count === 1 ? "Rafraîchir ce produit ?" : `Rafraîchir ${count} produits ?`;
       const message =
@@ -155,6 +159,16 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
           },
         });
       }
+      if (showEfashion) {
+        checkboxes.push({
+          id: "efashion",
+          label: "Rafraîchir sur eFashion Paris (renvoie infos, photos, prix et stock)",
+          defaultChecked: false,
+          onChange: (v: boolean) => {
+            efashionRef.current = v;
+          },
+        });
+      }
 
       const ok = await confirm({
         type: "warning",
@@ -171,15 +185,16 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         local: localRef.current,
         pfs: pfsRef.current,
         ankorstore: ankorstoreRef.current,
+        efashion: efashionRef.current,
       };
 
-      if (!options.local && !options.pfs && !options.ankorstore) {
+      if (!options.local && !options.pfs && !options.ankorstore && !options.efashion) {
         toast.error("Aucune option sélectionnée.");
         return null;
       }
       return options;
     },
-    [confirm, toast, showPfs, showAnkorstore],
+    [confirm, toast, showPfs, showAnkorstore, showEfashion],
   );
 
   const refreshSingle = useCallback(
@@ -218,7 +233,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       if (!options) return false;
 
       // If only local (no marketplace), run directly — it's instant
-      if (options.local && !options.pfs && !options.ankorstore) {
+      if (options.local && !options.pfs && !options.ankorstore && !options.efashion) {
         try {
           await refreshProductOnMarketplaces(target.productId, options);
           toast.success("Produit remis en Nouveauté");
@@ -255,6 +270,17 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
           firstImage: target.firstImage ?? null,
           options: { local: options.local && !localConsumed, pfs: false, ankorstore: true },
           marketplace: "ankorstore",
+        });
+        localConsumed = options.local;
+      }
+      if (options.efashion) {
+        inputs.push({
+          productId: target.productId,
+          reference: target.reference,
+          productName: target.productName,
+          firstImage: target.firstImage ?? null,
+          options: { local: options.local && !localConsumed, pfs: false, ankorstore: false, efashion: true },
+          marketplace: "efashion",
         });
       }
       enqueue(inputs);
@@ -319,7 +345,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       const options = await askOptions(filtered.length, filtered[0]?.productName);
       if (!options) return false;
 
-      if (options.local && !options.pfs && !options.ankorstore) {
+      if (options.local && !options.pfs && !options.ankorstore && !options.efashion) {
         // Run sequentially for local-only — quick operations
         try {
           for (const p of filtered) {
@@ -356,6 +382,17 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
             firstImage: p.firstImage ?? null,
             options: { local: options.local && !localConsumed, pfs: false, ankorstore: true },
             marketplace: "ankorstore",
+          });
+          localConsumed = options.local;
+        }
+        if (options.efashion) {
+          inputs.push({
+            productId: p.productId,
+            reference: p.reference,
+            productName: p.productName,
+            firstImage: p.firstImage ?? null,
+            options: { local: options.local && !localConsumed, pfs: false, ankorstore: false, efashion: true },
+            marketplace: "efashion",
           });
         }
       }

@@ -585,10 +585,13 @@ async function runEfashionJob(job: JobRow, payload: QueueJobPayload): Promise<vo
         }
       }
     } else if (job.mode === "REFRESH") {
-      // REFRESH = update si lié, sinon publish (même logique que PUBLISH).
+      // REFRESH = renommer + soft-delete + republier (workflow PFS-like)
+      // pour que les nouvelles fiches obtiennent une date de création récente
+      // côté eFashion → elles remontent en premier dans le catalogue vendeur.
+      // Si pas lié, on bascule sur PUBLISH classique.
       if (isLinked) {
-        const { efashionUpdateProductInPlace } = await import("@/lib/efashion-update");
-        const res = await efashionUpdateProductInPlace(job.productId);
+        const { efashionRefreshProduct } = await import("@/lib/efashion-refresh");
+        const res = await efashionRefreshProduct(job.productId);
         if (res.success) await markEfashionSuccess(job.id, false);
         else await markEfashionFailed(job.id, "error", res.error ?? "Erreur inconnue");
       } else {

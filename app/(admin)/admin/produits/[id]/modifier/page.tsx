@@ -471,6 +471,8 @@ export default async function ModifierProduitPage({
                 hasPfsConfig={hasPfsConfig}
                 hasAnkorstoreConfig={hasAnkorstoreConfig}
                 ankorstoreEnabled={ankorstoreEnabled}
+                hasEfashionConfig={hasEfashionConfig}
+                efashionEnabled={efashionEnabled}
               />
               <Link
                 href={`/produits/${product.id}`}
