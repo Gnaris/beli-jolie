@@ -1,0 +1,342 @@
+================================================================================
+AUDIT COMPLET — SECURITE & LOGIQUE METIER
+Site : beliandjolie.com
+Date : 29 mai 2026
+Branche : master
+================================================================================
+
+Audit decoupe en 5 blocs analyses en parallele :
+  1. Acces & comptes (auth, sessions, roles, visibilite prix)
+  2. Donnees sensibles & paiement (Stripe, chiffrement, uploads, webhooks)
+  3. Commandes, stocks, prix (logique metier)
+  4. Marketplaces (PFS, Ankorstore, eFashion)
+  5. Robustesse & coherence UI
+
+Tous les findings ci-dessous sont des PROBLEMES REELS verifies dans le code.
+Les sous-points OK ne sont pas listes (voir rapports detailles plus bas).
+
+================================================================================
+SYNTHESE — A CORRIGER EN PREMIER (7 points rouges)
+================================================================================
+
+[1] SUR-VENTE DES PACKS
+    Description : quand une cliente achete 1 pack de 12 pieces, le systeme
+    retire 1 piece du stock au lieu de 12. Idem a l'annulation : on recupere 1
+    piece au lieu de 12.
+    Fichiers : app/actions/client/order.ts:414-416
+              lib/stock.ts:67-138
+    Correction : multiplier par packQuantity quand saleType === "PACK"
+
+[2] FUITE POSSIBLE DE FICHIERS PRIVES (path traversal)
+    Description : la route /api/marketplace-image accepte n'importe quel chemin
+    en parametre. Une URL du type ?path=/uploads/../private/uploads/factures/...
+    pourrait permettre a un visiteur anonyme de telecharger les factures et
+    KBIS des clients.
+    Fichier : app/api/marketplace-image/route.ts:23-36
+    Correction : valider strictement le pattern de path, rejeter tout ".."
+
+[3] PANIER ACCEPTE PRODUITS HORS-LIGNE
+    Description : la fonction addToCart ne verifie jamais que le produit est
+    encore ONLINE. Un produit archive peut etre ajoute au panier et paye via
+    un onglet deja ouvert ou un appel direct.
+    Fichiers : app/actions/client/cart.ts:156-195
+              app/actions/client/order.ts:144-167
+    Correction : refuser si product.status !== "ONLINE"
+
+[4] MODIFIER UNE COMMANDE EFFACE LA REMISE CLIENT
+    Description : quand l'admin retire un article d'une commande passee par un
+    client avec remise -10%, le recalcul du total HT n'applique plus la remise.
+    PDF, total affiche et montant facture ne correspondent plus a ce que
+    Stripe a encaisse.
+    Fichier : app/actions/admin/orders.ts:173-189, 255-267, 313-323
+    Correction : recalculer subtotalHT = somme(lineTotal) - clientDiscountAmt
+
+[5] ROUTE FACTURE MAL PROTEGEE (doublon)
+    Description : une route /api/orders/[id]/invoice existe en double a cote
+    de la bonne /api/client/commandes/[id]/invoice et est moins bien filtree.
+    Un compte client vole pourrait telecharger les factures d'autres clients.
+    Fichier : app/api/orders/[id]/invoice/route.ts:11-25
+    Correction : supprimer cette route (doublon)
+
+[6] SUPPRESSIONS MARKETPLACE IGNORENT LE KILL SWITCH
+    Description : quand Ankorstore (ou eFashion) est coupe dans Parametres,
+    les suppressions partent quand meme vers les marketplaces. La cliente
+    croit avoir mis en pause mais ses produits y disparaissent.
+    Fichier : app/actions/admin/marketplace-delete.ts:81-192
+    Correction : verifier getCachedAnkorstoreEnabled() / getCachedEfashionEnabled()
+    avant d'envoyer les requetes de suppression
+
+[7] AUCUN GARDE-FOU SUR PRIX, STOCKS, REMISES
+    Description : le formulaire produit accepte un prix de -50EUR, un stock
+    de -10, une remise de 150%, un poids negatif. Si une coquille passe
+    (signe "-" colle), un produit peut s'afficher a perte ou casser
+    l'auto-archivage.
+    Fichiers : lib/product-variant-validation.ts
+              app/actions/admin/products.ts:404, 751
+              app/actions/admin/promotions.ts:74, 119
+    Correction : validation Zod (z.number().nonnegative() etc.)
+
+
+================================================================================
+IMPORTANT (a planifier, pas urgent)
+================================================================================
+
+[A] INSCRIPTION REVELE EXISTENCE EMAIL/SIRET
+    Messages d'erreur differents pour email vs SIRET deja utilises. Permet
+    d'enumerer la clientele.
+    Fichier : app/api/auth/register/route.ts:67-83
+    Correction : message generique unique
+
+[B] REMBOURSEMENT STRIPE NE REMET PAS LE STOCK
+    Le webhook charge.refunded marque paymentStatus=refunded mais ne change
+    pas OrderStatus et ne remet pas le stock. Une commande remboursee reste
+    "a expedier" et le stock vendu reste decremente.
+    Fichier : app/api/payments/webhook/route.ts:88-113
+    Correction : basculer en CANCELLED + appeler reinstateStockForOrder (avec
+    idempotence)
+
+[C] DOUBLE-CLIC SUR "ANNULER" = STOCK x2
+    cancelOrder lit le statut puis update. Si la cliente double-clique, le
+    stock est reinjecte deux fois.
+    Fichier : app/actions/client/order.ts:23-55
+    Correction : updateMany({ where: { id, status: "PENDING" } }) atomique
+
+[D] EDITION SIMULTANEE PRODUIT DANS 2 ONGLETS = PERTE DE TRAVAIL
+    Le dernier "Enregistrer" ecrase silencieusement l'autre. Cas reel vu que
+    le PC de la cliente crashe parfois.
+    Fichier : app/actions/admin/products.ts:711
+    Correction : checker product.updatedAt avant la transaction, message clair
+    si conflit
+
+[E] ANKORSTORE PEUT SE GELER COMPLETEMENT
+    Un seul callback perdu = operation PENDING eternelle = slot consomme. Au
+    bout de plusieurs callbacks perdus, plus aucune publication Ankorstore
+    ne passe.
+    Fichier : lib/marketplace-queue-worker.ts:106-173
+    Correction : timeout cote MarketplaceRefreshJob + AnkorstoreOperation
+    (ex. 30 min)
+
+[F] PRODUIT FANTOME PFS (rollback incomplet)
+    Si la publication PFS plante au mauvais moment (etapes 4-6), un produit
+    reste vivant cote PFS sans aucune trace cote BDD. Impossible a nettoyer
+    depuis l'admin.
+    Fichier : lib/pfs-publish.ts:750-762
+    Correction : sauvegarder pfsProductId en BDD avant les etapes 2-5
+
+[G] TOKEN DE RESET MOT DE PASSE EN CLAIR EN BDD
+    La table PasswordResetToken stocke le token tel quel. Un dump SQL donne
+    acces direct a tous les tokens en cours (1h chacun).
+    Fichier : lib/password-reset.ts:11-21
+    Correction : stocker le hash SHA-256 du token (comme LoginOtp)
+
+[H] COMPTE NON-VALIDE PEUT COMMANDER VIA API DIRECTE
+    placeOrder et server actions panier verifient juste "est connecte", pas
+    "est APPROVED". Un compte PENDING ou REJECTED peut potentiellement
+    commander via POST forge.
+    Fichier : app/actions/client/order.ts:126-127
+              app/actions/client/cart.ts:12-16
+    Correction : verifier status === "APPROVED" || role === "ADMIN"
+
+[I] COOKIE "PREVIEW ADMIN" FORGEABLE
+    httpOnly: false sans raison + non signe. N'importe qui peut poser le
+    cookie via DevTools.
+    Fichier : middleware.ts:203-207
+    Correction : httpOnly: true + valeur HMAC signee
+
+[J] UPLOADS IMAGES CHAT/RECLAMATIONS — VALIDATION FAIBLE
+    On fait confiance au Content-Type declare par le navigateur, pas de
+    verification du vrai contenu (magic bytes). Un client peut potentiellement
+    uploader un fichier non-image etiquete en image.
+    Fichiers : app/api/chat/upload/route.ts:34-46
+              app/api/client/claims/upload/route.ts:40-53
+    Correction : verification magic bytes (cf. register/route.ts:100-115)
+
+[K] BOUTONS TROP PETITS SUR MOBILE
+    Hauteur ~36-40px alors que la spec interne dit 44px mini.
+    Fichier : app/globals.css:91-164
+    Correction : min-height: 2.75rem sur .btn-primary et .btn-secondary
+
+[L] MODALE UPLOAD UTILISE alert() NATIF
+    Cassures visuelles popup natif blanc/bleu au lieu du toast habituel.
+    Fichier : components/admin/products/import/ImportProductsTab.tsx:1110, 1114
+    Correction : remplacer par toast.error()
+
+[M] SECRET WEBHOOK ANKORSTORE COMPARE EN === (timing attack)
+    Risque theorique faible mais incoherent avec le code OTP qui utilise
+    crypto.timingSafeEqual.
+    Fichier : app/api/webhooks/ankorstore/route.ts:53
+    Correction : crypto.timingSafeEqual
+
+[N] SECRET WEBHOOK ANKORSTORE EN QUERY STRING
+    Transit dans l'URL = potentiellement journalise par Nginx, par Ankorstore
+    lui-meme, apparait dans les logs d'erreur.
+    Fichier : app/api/webhooks/ankorstore/route.ts:43-47
+    Correction : passer le secret en header X-Ankors-Token si Ankorstore le
+    supporte
+
+[O] RECHERCHE UTILISATEURS ADMIN SANS RATE LIMIT
+    Un admin compromis (XSS dans l'admin) peut aspirer tout l'annuaire client.
+    Fichier : app/api/admin/users/search/route.ts:6-39
+    Correction : checkRateLimit 60/min
+
+[P] WORKER QUEUE — PAS DE TIMEOUT SUR JOBS IN_PROGRESS
+    Un job qui freeze (Playwright qui plante) reste IN_PROGRESS eternellement
+    et consomme un slot.
+    Fichier : lib/marketplace-queue-worker.ts:81-96
+    Correction : timeout 20 min sur startedAt
+
+[Q] PROXY EMAIL — pieces jointes lues sans bornage
+    buildAttachments() accepte n'importe quel path joint a cwd(). Aujourd'hui
+    seulement appele par notifications.ts (chemins de BDD) donc pas
+    exploitable, mais pas de garde-fou.
+    Fichier : lib/email.ts:111-115
+    Correction : restreindre att.path a private/uploads/
+
+[R] CONNEXION CONTOURNE LA MAINTENANCE
+    /connexion et /inscription sont dans bypassMaintenance. Pendant une
+    maintenance d'urgence, des inscriptions/OTP continuent d'etre traitees.
+    Fichier : middleware.ts:132-133
+    Correction : restreindre /connexion aux admins pendant maintenance
+
+[S] COOLDOWN OTP REVELE EXISTENCE
+    Si compte n'existe pas = pas de cooldown ; si compte existe = cooldown 60s.
+    Permet d'enumerer les emails clients.
+    Fichier : app/api/auth/login-otp/request/route.ts:40-50
+    Correction : cooldown systematique (IP ou hash email)
+
+[T] IMPORT PFS — ALIAS SILENCIEUX DOUBLONS CACHE UNE DESYNC
+    Si PFS expose un doublon (meme nom, autre pfsRef), on alias silencieusement.
+    Au prochain publish, l'ancien pfsRef sera utilise et peut etre obsolete.
+    Fichier : lib/pfs-import.ts:681-755
+    Correction : badge "auto-creee" visible dans /admin/categories
+
+[U] CREDIT-NOTE CLIENT SANS PROTECTION PATH TRAVERSAL
+    Lit le chemin sans verifier qu'on reste dans private/. Si Order.creditNotePath
+    peut etre edite via une autre faille, lecture fichier arbitraire.
+    Fichier : app/api/client/commandes/[id]/credit-note/route.ts:28-34
+    Correction : path.relative comme dans kbis route
+
+
+================================================================================
+MINEUR (confort, peut attendre)
+================================================================================
+
+[a] Inscription envoie l'IP en clair en base (RGPD)
+    Fichier : lib/security.ts:191-197
+
+[b] console.error residuels (devrait etre logger)
+    Fichiers : lib/prisma.ts:34
+              app/(admin)/admin/error.tsx:17
+              app/[locale]/(client)/error.tsx:16
+
+[c] Pas de rate-limit sur generation PDF
+    Fichiers : app/api/client/commandes/[id]/pdf/route.ts
+              app/api/admin/commandes/[id]/pdf/route.ts
+
+[d] Refresh PFS : fenetre 10-60s ou produit invisible cote PFS
+    Fichier : lib/pfs-refresh.ts:714-799
+
+[e] Aucune purge auto des evenements Stripe (table grossit)
+    Fichier : app/api/payments/webhook/route.ts:45-48
+
+[f] Brouillons orphelins eFashion si etape 5 plante
+    Fichier : lib/efashion-publish.ts:309-319
+
+[g] eFashion refresh : soft-delete best-effort sans alerte UI
+    Fichier : lib/efashion-refresh.ts:353-364
+
+[h] ANKORSTORE_WEBHOOK_SECRET optional() en prod
+    Fichier : lib/env.ts:30
+
+[i] NEXTAUTH_SECRET reutilise comme bearer token pour /api/admin/revalidate
+    Fichier : app/api/admin/revalidate/route.ts:15
+
+[j] Validation Zod produit absente — uniquement gardes manuels
+    Fichier : app/actions/admin/products.ts (gardes throw eparpilles)
+
+[k] Migration progressive du chiffrement non auditee
+    decryptValue accepte silencieusement valeurs en clair.
+    Fichier : lib/encryption.ts:55-58
+
+[l] Nom de fichier original garde tel quel dans import images
+    Pas de slugify.
+    Fichier : app/api/admin/products/import/images/route.ts:139-143
+
+[m] formatFrom ne filtre pas \r\n (injection en-tetes email theorique)
+    Fichier : lib/email.ts:127-132
+
+[n] Snapshot PFS — composition ordre instable (pas de bug en l'etat)
+    Fichier : lib/pfs-sync-diff.ts:93
+
+[o] Snapshot PFS — corruption silencieuse si Color.id reutilise
+    Fichier : lib/pfs-update.ts:715-733, 874-889
+
+[p] eFashion / Ankorstore publish/refresh — strategies kickoff asymetriques
+    Update annule les PENDING, Publish/Refresh attendent 30 min.
+    Fichiers : lib/ankorstore-publish.ts:494-508
+              lib/ankorstore-refresh.ts
+
+[q] SSE — pas de timeout cote abonne, reconnexion infinie toutes les 5s
+    Fichier : lib/shared-sse.ts:34-40
+
+[r] discountPercent produit non valide (0-100)
+    Fichier : app/actions/admin/products.ts:404, 751
+
+[s] Pose de cookie de previsualisation httpOnly: false sans usage cote client
+    Fichier : middleware.ts:203-205
+
+
+================================================================================
+ORDRE DE CORRECTION PROPOSE
+================================================================================
+
+Phase 1 — fermer les trous critiques (1-2h chacun) :
+  1. [2] Path traversal images       — fichier prive expose
+  2. [1] Sur-vente packs              — manque a gagner sur chaque commande
+  3. [3] Panier hors-ligne + [6] Kill switch suppression — gardes manquants
+  4. [4] Modif commande efface remise — silencieux et deja en prod
+  5. [5] Route facture doublon        — suppression simple
+  6. [7] Gardes prix/stock/remise     — bornes Zod, peu de risque
+
+Phase 2 — durcissement (a planifier) :
+  - [A] [B] [C] [D] [E] [F] [G] [H]
+
+Phase 3 — confort & coherence :
+  - [I] a [U] + section MINEUR
+
+
+================================================================================
+NOTES METHODOLOGIE
+================================================================================
+
+Tous les findings ont ete verifies dans le code source (lecture seule).
+Aucun fichier modifie pendant l'audit.
+
+Couverture par bloc :
+  - Bloc 1 : 57 routes API admin + ~40 server actions admin verifiees
+  - Bloc 2 : tous les webhooks publics + Stripe + chiffrement BDD
+  - Bloc 3 : panier, commande, stock, prix UNIT/PACK, multi-couleurs
+  - Bloc 4 : PFS publish/update/refresh/diff/import + Ankorstore callback +
+             eFashion + queue worker
+  - Bloc 5 : validation Zod, error boundaries, i18n, SSE, UI components
+
+Points OK (verifies, pas de probleme) :
+  - bcrypt 12 rounds + email lowercased systematiquement
+  - JWT 30j signe NEXTAUTH_SECRET
+  - Lockout progressif securite.ts (1min -> permanent)
+  - OTP hache SHA-256 + timingSafeEqual + max 5 essais + TTL 10 min
+  - canSeePrices applique dans /api/products, /search, /[id]/live
+  - Filtres minPrice/maxPrice ignores pour non-APPROVED (anti-dichotomie)
+  - 100+ revalidateTag(tag, "default") tous avec 2 args (Next 16 OK)
+  - Zod v4 .issues partout, pas de .errors residuel
+  - i18n routing always + localeDetection false + stripLocale middleware
+  - Idempotence webhook Ankorstore et Stripe
+  - Pricing PACK : markup unitaire puis x quantite partout (PFS, Ankorstore,
+    eFashion)
+  - Aucun <select> natif residuel cote admin
+  - SSE : un seul EventSource partage, cleanup propre
+  - Garde-fou navigation ProductForm.tsx (beforeunload + confirm si dirty)
+
+================================================================================
+FIN DU RAPPORT
+================================================================================
