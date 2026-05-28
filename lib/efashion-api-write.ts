@@ -255,6 +255,33 @@ export async function efashionPublishBrouillon(args: {
 }
 
 /**
+ * Publie en lot plusieurs brouillons (mutation utilisée par le bouton "Mettre
+ * en ligne" de l'UI eFashion vendeur, vérifié dans le HAR du 2026-05-28).
+ *
+ * Retourne le nombre de produits effectivement publiés (peut être inférieur
+ * au nombre envoyé si certains étaient déjà en ligne ou inéligibles).
+ *
+ * On préfère cette mutation à `publishBrouillon` (singulier) après un
+ * `saveMelDraft` parce que c'est exactement ce que fait l'UI eFashion dans ce
+ * contexte — la version singulière marche pour les variantes ajoutées via
+ * `duplicateWithNewColor` mais n'a pas été vérifiée sur les fiches saveMelDraft.
+ */
+export async function efashionPublishBrouillonBulk(args: {
+  idProduits: number[];
+  idVendeur: number;
+}): Promise<number> {
+  if (args.idProduits.length === 0) return 0;
+  await ensureEfashionSession();
+  const data = await efashionGraphql<{ publishBrouillonBulk: number }>(
+    `mutation PublishBrouillonBulk($id_produits: [Int!]!, $id_vendeur: Int!) {
+      publishBrouillonBulk(id_produits: $id_produits, id_vendeur: $id_vendeur)
+    }`,
+    { id_produits: args.idProduits, id_vendeur: args.idVendeur },
+  );
+  return data.publishBrouillonBulk ?? 0;
+}
+
+/**
  * Marque un ou plusieurs produits comme supprimés (soft-delete : ils
  * disparaissent du catalogue mais restent en BDD eFashion avec `supprimer=1`).
  * Endpoint utilisé par le bouton « Corbeille » de leur UI (vu dans le HAR

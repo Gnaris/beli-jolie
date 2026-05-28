@@ -912,6 +912,21 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   const colorImagesRef = useRef(colorImages);
   colorImagesRef.current = colorImages;
 
+  // Filtre d'affichage : on n'expose dans la modale que les couleurs actuellement
+  // utilisées par au moins une variante. Les entrées orphelines (couleurs dont
+  // la variante a été supprimée localement) restent en mémoire dans le state
+  // parent pour être restaurées si l'admin remet la couleur avant Save — mais
+  // on ne les montre pas ici pour ne pas troubler l'interface.
+  const activeGroupKeys = new Set<string>();
+  for (const v of variants) {
+    if (isMultiColorPack(v)) {
+      for (const c of packLinesColorList(v.packLines)) activeGroupKeys.add(c.colorId);
+    } else if (v.colorId) {
+      activeGroupKeys.add(variantGroupKeyFromState(v));
+    }
+  }
+  const displayedColorImages = colorImages.filter((c) => activeGroupKeys.has(c.groupKey));
+
   function findVariantByGroupKey(groupKey: string): VariantState | undefined {
     return variants.find((v) => imageGroupKeyFromVariant(v) === groupKey);
   }
@@ -1028,7 +1043,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
     }));
   }
 
-  const totalPhotos = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
+  const totalPhotos = displayedColorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
   if (!open) return null;
 
   const modal = (
@@ -1049,11 +1064,11 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
         </div>
 
         <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
-          {colorImages.length > 0 && (
+          {displayedColorImages.length > 0 && (
             <div className="border border-border rounded-xl p-4">
               <p className="text-xs font-semibold text-text-primary uppercase tracking-wider font-body mb-3">Couleur principale</p>
               <div className="flex flex-wrap gap-2">
-                {colorImages.map((cimg) => {
+                {displayedColorImages.map((cimg) => {
                   // Refonte : la couleur principale est désormais portée par le produit
                   // (Product.primaryColorId), pas par la variante. La sélection est faite
                   // directement par colorId — y compris pour les couleurs qui n'apparaissent
@@ -1082,9 +1097,9 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
             </div>
           )}
 
-          {colorImages.length === 0 ? (
+          {displayedColorImages.length === 0 ? (
             <p className="text-sm text-text-muted font-body text-center py-8">Aucune couleur dans les variantes. Ajoutez d&apos;abord des variantes.</p>
-          ) : colorImages.map((cimg, idx) => {
+          ) : displayedColorImages.map((cimg, idx) => {
             const seg = getSwatch(cimg.groupKey);
             // "Manquant" = aucune photo (ni sauvegardée, ni en attente d'upload).
             // imagePreviews est la source unique de vérité du nombre de slots.

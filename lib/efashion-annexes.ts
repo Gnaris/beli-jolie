@@ -314,6 +314,19 @@ export async function getEfashionAnnexes(): Promise<EfashionAnnexes> {
 }
 
 /**
+ * Bypass complet du cache `unstable_cache` — relit directement chez eFashion.
+ *
+ * Utilisé avant de créer une déclinaison en doublon : si plusieurs produits
+ * avec les mêmes tailles ont été synchronisés dans la même heure, le cache
+ * de `getEfashionAnnexes` peut ignorer la déclinaison que le 1ᵉʳ produit
+ * vient juste de créer. Ce helper garantit qu'on voit l'état frais avant
+ * d'en créer une 2ᵉ identique.
+ */
+export async function getEfashionAnnexesFresh(): Promise<EfashionAnnexes> {
+  return loadAnnexesDirect();
+}
+
+/**
  * Compositions : autocomplete uniquement (pas de liste pré-chargée).
  * Le caller (modal) appelle cette fonction au fil de la saisie.
  */

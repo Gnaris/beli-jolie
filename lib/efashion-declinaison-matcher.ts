@@ -24,7 +24,11 @@
 
 import { revalidateTag } from "next/cache";
 
-import { getEfashionAnnexes, type EfashionDeclinaison } from "@/lib/efashion-annexes";
+import {
+  getEfashionAnnexes,
+  getEfashionAnnexesFresh,
+  type EfashionDeclinaison,
+} from "@/lib/efashion-annexes";
 import { logger } from "@/lib/logger";
 
 export interface DeclinaisonMatch {
@@ -118,14 +122,20 @@ export function findExistingDeclinaisonMatch(
 
 /**
  * Point d'entrée principal : retourne le mapping pour un produit BJ.
- * Charge les annexes, tente le match, et — si rien ne convient — auto-crée
- * une nouvelle déclinaison côté eFashion (mutation `createDeclinaison`).
+ * Charge les annexes, tente le match (cache puis live), et — si rien ne
+ * convient — auto-crée une nouvelle déclinaison côté eFashion.
  *
- * @param suggestedTitre Titre humain à utiliser si on doit créer une nouvelle
- *   déclinaison (ex: nom catégorie ou référence produit BJ). Limite 50 car.
+ * Le titre auto-généré décrit uniquement le set de tailles (« BJ TU, XL »)
+ * pour favoriser la réutilisation entre produits qui partagent les mêmes
+ * tailles — un seul label visible côté eFashion plutôt qu'un par produit.
+ *
+ * @param suggestedTitre **Déprécié** — n'est plus utilisé. Conservé pour
+ *   compatibilité de signature avec les anciens callers. Le titre auto-généré
+ *   est désormais déterminé uniquement par les tailles.
  */
 export async function resolveEfashionDeclinaison(
   bjSizeNames: string[],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   suggestedTitre?: string,
 ): Promise<
   | { success: true; match: DeclinaisonMatch; createdNew?: boolean }
@@ -145,7 +155,7 @@ export async function resolveEfashionDeclinaison(
   const existing = findExistingDeclinaisonMatch(bjSizeNames, annexes.declinaisons);
 
   if (existing) {
-    logger.info("[eFashion declinaison] matched", {
+    logger.info("[eFashion declinaison] matched (cache)", {
       bjSizes: bjSizeNames,
       declinaisonId: existing.declinaisonId,
       titre: existing.declinaisonTitre,
@@ -154,23 +164,60 @@ export async function resolveEfashionDeclinaison(
     return { success: true, match: existing };
   }
 
-  // Aucun match → on crée une nouvelle déclinaison côté eFashion
-  logger.info("[eFashion declinaison] no match, creating", { bjSizes: bjSizeNames });
+  // Filet anti-doublon : on bypass le cache (1h) avant de créer. Cas typique
+  // — l'admin sync 10 produits avec les mêmes tailles d'affilée. Le 1er
+  // crée la déclinaison, mais comme `unstable_cache` peut ne pas avoir
+  // été invalidé entre 2 invocations rapprochées, les 9 suivants ne la
+  // voient pas et la dupliqueraient. Avec ce fetch frais, on retrouve la
+  // déclinaison qu'on vient juste de créer ailleurs et on la réutilise.
+  logger.info("[eFashion declinaison] no cache match, refreshing live before create", {
+    bjSizes: bjSizeNames,
+  });
+  let liveExisting: DeclinaisonMatch | null = null;
+  try {
+    const fresh = await getEfashionAnnexesFresh();
+    liveExisting = findExistingDeclinaisonMatch(bjSizeNames, fresh.declinaisons);
+  } catch (err) {
+    logger.warn("[eFashion declinaison] fresh refresh KO, on tente la création", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (liveExisting) {
+    // Invalide le cache pour que les prochains appels via getEfashionAnnexes
+    // voient eux aussi cette déclinaison sans avoir à re-bypass.
+    try {
+      revalidateTag("efashion-annexes", "default");
+    } catch {
+      // Hors contexte Next.js (script tsx) — pas grave
+    }
+    logger.info("[eFashion declinaison] matched (fresh)", {
+      bjSizes: bjSizeNames,
+      declinaisonId: liveExisting.declinaisonId,
+      titre: liveExisting.declinaisonTitre,
+      exact: liveExisting.exactMatch,
+    });
+    return { success: true, match: liveExisting };
+  }
+
+  // Aucun match (ni cache, ni fresh) → on crée une nouvelle déclinaison
+  logger.info("[eFashion declinaison] no match anywhere, creating", { bjSizes: bjSizeNames });
   try {
     const { efashionCreateDeclinaison } = await import("@/lib/efashion-api-write");
     const { efashionGetMe } = await import("@/lib/efashion-api");
     const me = await efashionGetMe();
 
-    // Titre lisible : suggestion utilisateur (catégorie/réf produit) + range
-    // de tailles. Format : « Bagues (17-21) ».
-    // Limité à 50 caractères pour rester propre côté eFashion.
+    // Titre global qui décrit uniquement le set de tailles — pas la catégorie
+    // ou la référence produit, et pas non plus de préfixe « BJ ». Comme ça
+    // plusieurs produits qui partagent les mêmes tailles auront le même titre
+    // côté eFashion (utile pour la lisibilité dans leur back-office et pour
+    // éviter de polluer la liste de déclinaisons). Limité à 50 caractères
+    // côté eFashion : si la liste détaillée déborde, on bascule sur un
+    // format compact « 1ère-dernière (N tailles) ».
     const sortedForTitle = sortSizesForDisplay(bjSizeNames);
-    const sizeRange =
-      sortedForTitle.length > 3
-        ? `${sortedForTitle[0]}-${sortedForTitle[sortedForTitle.length - 1]}`
-        : sortedForTitle.join(", ");
-    const baseTitre = (suggestedTitre ?? "BJ auto").trim().slice(0, 30);
-    const titre = `${baseTitre} (${sizeRange})`.slice(0, 50);
+    const fullList = sortedForTitle.join(", ");
+    const compact = `${sortedForTitle[0]}-${sortedForTitle[sortedForTitle.length - 1]} (${sortedForTitle.length} tailles)`;
+    const titre = (fullList.length <= 50 ? fullList : compact).slice(0, 50);
 
     const created = await efashionCreateDeclinaison({
       id_vendeur: me.id_vendeur,

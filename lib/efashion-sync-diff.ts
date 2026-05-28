@@ -69,6 +69,15 @@ export interface EfashionSnapshot {
    * sa couleur primaire pour qu'on bascule via `toggleMainProduct`.
    */
   primaryEfashionProductId?: number | null;
+  /**
+   * id_declinaison eFashion du groupe — partagé par toutes les couleurs du
+   * même produit (eFashion impose un seul « moule de tailles » par groupe).
+   * Permet de détecter quand l'utilisatrice ajoute/retire des tailles BJ et
+   * qu'il faut basculer le groupe vers une autre déclinaison côté eFashion
+   * (sinon les stocks sur les nouvelles tailles tombent dans le vide).
+   * Absent sur les snapshots antérieurs au 2026-05-28.
+   */
+  declinaisonId?: number | null;
 }
 
 export interface EfashionDiff {
@@ -95,6 +104,12 @@ export interface EfashionDiff {
   compositionsChanged: boolean;
   /** True si la couleur principale (main eFashion / isPrimary BJ) a changé. */
   primaryChanged: boolean;
+  /**
+   * True si l'id_declinaison cible (= « moule de tailles » eFashion) diffère
+   * de celui du snapshot précédent. Typiquement déclenché quand l'utilisatrice
+   * ajoute/retire une taille au produit BJ.
+   */
+  declinaisonChanged: boolean;
 }
 
 /**
@@ -112,6 +127,7 @@ export function diffEfashionSnapshots(
     descriptionsChanged: false,
     compositionsChanged: false,
     primaryChanged: false,
+    declinaisonChanged: false,
   };
   if (!before) {
     result.added = [...after.variants];
@@ -120,6 +136,7 @@ export function diffEfashionSnapshots(
     // Pas de "before" : le bouton de bascule sera évalué directement contre
     // l'état live d'eFashion par l'updater.
     result.primaryChanged = after.primaryEfashionProductId != null;
+    result.declinaisonChanged = after.declinaisonId != null;
     return result;
   }
 
@@ -213,6 +230,18 @@ export function diffEfashionSnapshots(
     result.primaryChanged = true;
   }
 
+  // Déclinaison eFashion (« moule de tailles » du groupe). On déclenche un
+  // changement si :
+  //   - la cible est définie ET le before n'avait pas d'id (snapshot legacy →
+  //     on remonte la valeur pour qu'elle soit poussée si différente du live),
+  //   - OU les 2 sont définis mais différents (l'utilisatrice a ajouté/retiré
+  //     une taille au produit BJ).
+  if (after.declinaisonId != null) {
+    if (before.declinaisonId == null || before.declinaisonId !== after.declinaisonId) {
+      result.declinaisonChanged = true;
+    }
+  }
+
   return result;
 }
 
@@ -265,6 +294,7 @@ export function hasAnyChanges(diff: EfashionDiff): boolean {
     diff.removed.length > 0 ||
     diff.descriptionsChanged ||
     diff.compositionsChanged ||
-    diff.primaryChanged
+    diff.primaryChanged ||
+    diff.declinaisonChanged
   );
 }

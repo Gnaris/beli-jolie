@@ -804,6 +804,43 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     // Rows to delete = existing rows NOT in submittedDbIds
     const toDeleteIds = existingIds.filter((eid) => !submittedDbIds.includes(eid));
 
+    // ── Fusion « variante supprimée puis ré-ajoutée avant Save » ─────────
+    // Cas concret : l'admin supprime Rouge dans le formulaire, l'ajoute à
+    // nouveau plus tard, puis enregistre. Côté serveur, on recevrait normalement
+    // une suppression (ancienne Rouge → delete) + une création (nouvelle
+    // Rouge → create) → perte des images / liaisons marketplaces (eFashion,
+    // PFS, Ankorstore) attachées à l'ancienne. On préserve la variante
+    // existante en y injectant un dbId rétro-actif, ce qui transforme le
+    // delete+create en un update simple. Les overrides modifiables (prix,
+    // poids, stock, primary, disabled) suivent la nouvelle saisie ; les
+    // champs verrouillés (colorId, saleType, packQuantity, sizes) restent
+    // ceux de la base, comme pour toute variante existante.
+    //
+    // Limité aux variantes UNIT mono-couleur : les packs multi-couleurs ont
+    // une composition (packLines) qui dépend de Color, fusionner deviendrait
+    // ambigu si la nouvelle saisie diffère.
+    for (const c of input.colors) {
+      if (c.dbId) continue;
+      if (isMultiColorPackInput(c)) continue;
+      if (!c.colorId) continue;
+      const match = existingByDbId.get(
+        existingIds.find((eid) => {
+          const ex = existingByDbId.get(eid);
+          return (
+            ex !== undefined &&
+            ex.colorId === c.colorId &&
+            ex.saleType === c.saleType &&
+            toDeleteIds.includes(eid)
+          );
+        }) ?? "",
+      );
+      if (match) {
+        c.dbId = match.id;
+        const idx = toDeleteIds.indexOf(match.id);
+        if (idx >= 0) toDeleteIds.splice(idx, 1);
+      }
+    }
+
     if (toDeleteIds.length > 0) {
       // Delete CartItems that reference these variants first
       await tx.cartItem.deleteMany({

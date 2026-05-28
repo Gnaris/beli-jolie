@@ -29,6 +29,8 @@ import {
 import { efashionUploadProductPhotos } from "@/lib/efashion-photos";
 import { loadEfashionMarkup, computeEfashionPrice } from "@/lib/efashion-pricing";
 import { resolveEfashionDeclinaison } from "@/lib/efashion-declinaison-matcher";
+import { efashionPublishBrouillonBulk } from "@/lib/efashion-api-write";
+import { efashionGetMe } from "@/lib/efashion-api";
 
 /**
  * Construit le suffixe « Dimensions : ... » ajouté à la description envoyée
@@ -384,6 +386,42 @@ export async function efashionPublishProduct(
     logger.warn("[eFashion publish] Alignement par couleur a planté (non bloquant)", {
       productId,
       error: err as Error,
+    });
+  }
+
+  // Étape 9 : sortie automatique du statut "brouillon".
+  // saveMelDraft + saveMelChoice livrent la fiche en `premel='0'` (brouillon
+  // côté catalogue acheteurs) même quand tout est complet. Sans
+  // `publishBrouillon`, le produit n'apparait jamais en ligne et l'admin doit
+  // aller cliquer manuellement sur "Mettre en ligne" dans l'UI eFashion.
+  // Best-effort : si ça plante, le publish reste success — l'admin peut
+  // toujours publier manuellement.
+  // Skip si le produit local n'est pas ONLINE (cohérence avec son statut côté
+  // boutique : pas la peine de mettre en ligne sur eFashion un produit
+  // explicitement OFFLINE).
+  if (product.status === "ONLINE") {
+    try {
+      const me = await efashionGetMe();
+      const publishedCount = await efashionPublishBrouillonBulk({
+        idProduits: productIds,
+        idVendeur: me.id_vendeur,
+      });
+      logger.info("[eFashion publish] Sortie du brouillon", {
+        productId,
+        totalColors: productIds.length,
+        publishedCount,
+        idProduits: productIds,
+      });
+    } catch (err) {
+      logger.warn("[eFashion publish] publishBrouillonBulk a planté (non bloquant)", {
+        productId,
+        error: err as Error,
+      });
+    }
+  } else {
+    logger.info("[eFashion publish] Skip publishBrouillon — produit local pas ONLINE", {
+      productId,
+      localStatus: product.status,
     });
   }
 

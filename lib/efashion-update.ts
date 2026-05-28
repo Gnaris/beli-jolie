@@ -48,6 +48,7 @@ import {
   type EfashionVariantSnapshot,
 } from "@/lib/efashion-sync-diff";
 import { loadEfashionMarkup, computeEfashionPrice } from "@/lib/efashion-pricing";
+import { resolveEfashionDeclinaison } from "@/lib/efashion-declinaison-matcher";
 
 interface UpdateOpts {
   /** Si true, ignore le snapshot existant et renvoie tout — équivalent du « Resync » côté UI. */
@@ -106,6 +107,12 @@ export interface EfashionUpdateOutcome {
    * dans `error` invite l'utilisatrice à relancer un Rafraîchir.
    */
   colorsSkippedCount?: number;
+  /**
+   * Nombre de couleurs dont l'`id_declinaison` (moule de tailles eFashion) a
+   * été basculé pendant ce cycle. > 0 quand l'utilisatrice a ajouté/retiré
+   * une taille au produit BJ.
+   */
+  declinaisonUpdatedCount?: number;
   noChanges?: boolean;
 }
 
@@ -220,6 +227,8 @@ export async function efashionUpdateProductInPlace(
     id_pack: number | null;
     vendu_par: string | null;
     id_vendeur_marque: number | null;
+    /** id_couleur eFashion de cette variante (= mapping de la couleur BJ). */
+    id_couleur: number | null;
     main: boolean;
   };
   let liveById = new Map<number, LiveItem>();
@@ -236,7 +245,10 @@ export async function efashionUpdateProductInPlace(
         idVendeur: me.id_vendeur,
         take: 100,
         reference: product!.efashionReferenceBase!,
-        premelFilter: "en_ligne",
+        // « tous » plutôt que « en_ligne » : on a besoin de voir aussi les
+        // couleurs en brouillon pour pouvoir auto-lier une couleur locale qui
+        // existe déjà côté eFashion mais n'a pas encore été publiée.
+        premelFilter: "tous",
       });
       for (const it of list.items) {
         if (
@@ -255,6 +267,7 @@ export async function efashionUpdateProductInPlace(
           id_pack: it.id_pack ?? null,
           vendu_par: it.vendu_par ?? null,
           id_vendeur_marque: it.id_vendeur_marque ?? null,
+          id_couleur: it.id_couleur ?? null,
           main: it.main === true,
         });
       }
@@ -347,6 +360,37 @@ export async function efashionUpdateProductInPlace(
           const couleurId = newColor.color!.efashionColorId!;
           const couleurName = newColor.color!.name;
           if (usedColorIds.has(couleurId)) {
+            // Cas typique : l'admin a supprimé puis re-ajouté la couleur dans
+            // le formulaire avant d'enregistrer. Côté eFashion, l'ancienne
+            // ligne existe toujours (créée lors d'un publish précédent). On
+            // l'auto-relie au lieu de bloquer la sync — si on retrouve son
+            // id_produit dans `liveById`, on le pose sur la ProductColor.
+            let existingEfId: number | null = null;
+            for (const [efId, live] of liveById) {
+              if (live.id_couleur === couleurId) {
+                existingEfId = efId;
+                break;
+              }
+            }
+            if (existingEfId !== null) {
+              await prisma.productColor.update({
+                where: { id: newColor.id },
+                data: { efashionProductId: existingEfId },
+              });
+              (newColor as { efashionProductId: number | null }).efashionProductId =
+                existingEfId;
+              logger.info("[eFashion update] Auto-liaison d'une couleur déjà connue d'eFashion", {
+                productId,
+                couleurName,
+                couleurId,
+                reusedEfId: existingEfId,
+              });
+              continue;
+            }
+            // Pas trouvé d'id_produit pour cet id_couleur (typiquement la
+            // couleur existe côté eFashion mais hors du périmètre de
+            // listProducts) — on remonte l'erreur pour que l'admin lie à la
+            // main grâce à la modale dédiée.
             createErrors.push(
               `Couleur « ${couleurName} » déjà utilisée chez eFashion sur ce groupe (id_couleur ${couleurId}) — liaison manuelle requise.`,
             );
@@ -406,6 +450,7 @@ export async function efashionUpdateProductInPlace(
               id_pack: srcLive?.id_pack ?? null,
               vendu_par: srcLive?.vendu_par ?? "couleurs",
               id_vendeur_marque: srcLive?.id_vendeur_marque ?? null,
+              id_couleur: couleurId,
               main: dup.main,
             });
 
@@ -513,6 +558,77 @@ export async function efashionUpdateProductInPlace(
       : undefined) ?? linkedColors.find((c) => c.isPrimary);
   const bjPrimaryEfashionId = bjPrimaryColor?.efashionProductId ?? null;
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Déclinaison cible (« moule de tailles » côté eFashion).
+  // ─────────────────────────────────────────────────────────────────────
+  // Si l'utilisatrice a ajouté/retiré une taille au produit BJ (ex : passe de
+  // « Taille unique » à « TU + XL »), il faut basculer le groupe vers une
+  // déclinaison eFashion qui couvre les nouvelles tailles. Sinon les stocks
+  // pour la nouvelle taille tombent dans le vide côté eFashion.
+  //
+  // On compare les SETS de tailles entre le snapshot précédent et l'état
+  // actuel. Si pas de snapshot précédent (premier sync après publish ou
+  // forceFullSync), on tente toujours une résolution pour avoir une valeur
+  // fiable dans le snapshot final.
+  const allBjSizeNames = Array.from(
+    new Set(linkedColors.flatMap((c) => c.variantSizes.map((vs) => vs.size.name))),
+  );
+  const prevSizeSet = new Set(
+    (previousSnapshot?.variants ?? []).flatMap((v) => Object.keys(v.stockByTaille)),
+  );
+  const currentSizeSet = new Set(allBjSizeNames);
+  const sizesChangedVsSnapshot = (() => {
+    if (prevSizeSet.size === 0 && currentSizeSet.size === 0) return false;
+    if (prevSizeSet.size !== currentSizeSet.size) return true;
+    for (const s of currentSizeSet) if (!prevSizeSet.has(s)) return true;
+    return false;
+  })();
+
+  let targetDeclinaisonId: number | null = previousSnapshot?.declinaisonId ?? null;
+  if (
+    allBjSizeNames.length > 0 &&
+    (sizesChangedVsSnapshot || opts.forceFullSync || targetDeclinaisonId == null)
+  ) {
+    try {
+      const declRes = await resolveEfashionDeclinaison(
+        allBjSizeNames,
+        product.reference,
+      );
+      if (declRes.success) {
+        targetDeclinaisonId = declRes.match.declinaisonId;
+        logger.info("[eFashion update] Déclinaison cible résolue", {
+          productId,
+          sizes: allBjSizeNames,
+          declinaisonId: targetDeclinaisonId,
+          createdNew: declRes.createdNew === true,
+        });
+      } else {
+        logger.warn(
+          "[eFashion update] Résolution déclinaison KO — on garde l'ancienne valeur",
+          { productId, error: declRes.error },
+        );
+      }
+    } catch (err) {
+      logger.warn("[eFashion update] resolveEfashionDeclinaison a planté", {
+        productId,
+        error: err as Error,
+      });
+    }
+  }
+
+  // Dernier filet : si toujours rien (premier appel, pas de snapshot, et
+  // resolve KO), on lit la valeur live observée chez eFashion pour figer le
+  // snapshot avec une valeur cohérente plutôt que null.
+  if (targetDeclinaisonId == null) {
+    await ensureLiveById();
+    for (const live of liveById.values()) {
+      if (live.id_declinaison != null) {
+        targetDeclinaisonId = live.id_declinaison;
+        break;
+      }
+    }
+  }
+
   const target: EfashionSnapshot = {
     version: 1,
     referenceBase: product.efashionReferenceBase,
@@ -520,6 +636,7 @@ export async function efashionUpdateProductInPlace(
     descriptions: targetDescriptions,
     compositions: targetCompositions,
     primaryEfashionProductId: bjPrimaryEfashionId,
+    declinaisonId: targetDeclinaisonId,
   };
 
   const diff = diffEfashionSnapshots(previousSnapshot, target);
@@ -572,7 +689,12 @@ export async function efashionUpdateProductInPlace(
 
   // Fetch live (déjà fait au plus tôt si on a auto-créé des couleurs ; sinon
   // déclenché ici si le diff a besoin du contexte serveur).
-  if (variantsToUpdate.length > 0 || diff.primaryChanged || diff.removed.length > 0) {
+  if (
+    variantsToUpdate.length > 0 ||
+    diff.primaryChanged ||
+    diff.removed.length > 0 ||
+    diff.declinaisonChanged
+  ) {
     await ensureLiveById();
   }
 
@@ -643,6 +765,66 @@ export async function efashionUpdateProductInPlace(
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`mainSwitch(${currentMainEfId}→${bjPrimaryEfId}): ${msg}`);
       }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Bascule de la déclinaison eFashion (« moule de tailles » du groupe)
+  // ─────────────────────────────────────────────────────────────────────
+  // Si l'utilisatrice a ajouté/retiré une taille au produit BJ et qu'on a
+  // calculé une nouvelle déclinaison cible plus haut, on la pousse à chaque
+  // couleur liée AVANT le push des stocks — sinon les stocks sur les
+  // nouvelles tailles tombent dans le vide côté eFashion.
+  //
+  // Idempotent : on saute la couleur si elle est déjà sur la bonne
+  // déclinaison côté live (cas typique d'un snapshot legacy sans
+  // declinaisonId : `diff.declinaisonChanged` est true mais la valeur live
+  // est déjà la bonne, donc rien à faire).
+  let declinaisonUpdatedCount = 0;
+  if (diff.declinaisonChanged && targetDeclinaisonId != null && liveById.size > 0) {
+    for (const lc of linkedColors) {
+      const efId = lc.efashionProductId;
+      if (efId == null) continue;
+      const live = liveById.get(efId);
+      if (!live) continue;
+      if (live.id_declinaison === targetDeclinaisonId) continue;
+      try {
+        const input: Parameters<typeof efashionUpdateProduit>[0] = {
+          id_produit: efId,
+          reference: live.reference,
+          id_declinaison: targetDeclinaisonId,
+          prixReduit: null,
+        };
+        if (live.reference_base) input.reference_base = live.reference_base;
+        if (live.id_collection !== null) input.id_collection = live.id_collection;
+        if (live.id_categorie !== null) input.id_categorie = live.id_categorie;
+        if (live.id_provenance !== null) input.id_provenance = live.id_provenance;
+        if (live.id_pack !== null) input.id_pack = live.id_pack;
+        if (live.vendu_par === "couleurs" || live.vendu_par === "tailles") {
+          input.vendu_par = live.vendu_par;
+        }
+        if (live.id_vendeur_marque !== null) input.id_vendeur_marque = live.id_vendeur_marque;
+
+        await efashionUpdateProduit(input);
+        liveById.set(efId, { ...live, id_declinaison: targetDeclinaisonId });
+        declinaisonUpdatedCount++;
+        logger.info("[eFashion update] Déclinaison mise à jour pour couleur", {
+          productId,
+          efId,
+          from: live.id_declinaison,
+          to: targetDeclinaisonId,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`updateProduit(declinaison)(${efId}): ${msg}`);
+      }
+    }
+    if (declinaisonUpdatedCount > 0) {
+      logger.info("[eFashion update] Déclinaison du groupe basculée", {
+        productId,
+        colorsUpdated: declinaisonUpdatedCount,
+        newDeclinaisonId: targetDeclinaisonId,
+      });
     }
   }
 
@@ -1098,6 +1280,7 @@ export async function efashionUpdateProductInPlace(
     colorsDeletedCount,
     colorsCreatedCount,
     colorsSkippedCount,
+    declinaisonUpdatedCount,
     unlinkedVariants: unlinkedCount,
   };
 }

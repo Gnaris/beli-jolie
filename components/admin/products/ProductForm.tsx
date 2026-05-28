@@ -849,10 +849,17 @@ export default function ProductForm({
       }
     }
     setColorImages((prev) => {
-      // Keep only entries whose variant still exists
-      const filtered = prev.filter((ci) => groupMap.has(ci.groupKey));
-      // Update existing entries with latest display name/hex/colorId
-      const updated = filtered.map((ci) => {
+      // ⚠️ On NE supprime PAS les entrées dont la variante a disparu — c'est la
+      // clé du comportement « tant qu'on n'a pas enregistré, la variante est
+      // toujours là » demandé par l'admin. Si elle supprime puis ré-ajoute la
+      // même couleur avant Save, l'entrée colorImages (et ses images) est
+      // toujours en mémoire et se retrouve automatiquement réutilisée par la
+      // recherche `colorImages.find((c) => c.groupKey === imgGk)`.
+      //
+      // Les éventuelles entrées orphelines (couleurs plus dans les variantes)
+      // sont filtrées à l'affichage côté `ImageManagerModal` via la prop
+      // `activeGroupKeys`, et nettoyées par la sérialisation au moment du save.
+      const updated = prev.map((ci) => {
         const info = groupMap.get(ci.groupKey);
         if (info && (ci.colorName !== info.name || ci.colorHex !== info.hex || ci.colorId !== info.colorId)) {
           return { ...ci, colorId: info.colorId, colorName: info.name, colorHex: info.hex };
@@ -1755,6 +1762,22 @@ export default function ProductForm({
         }
         if (!shouldRedirectAfterSave) {
           setProductStatus(finalStatus);
+          // Save réussi : on nettoie les images des couleurs orphelines (couleurs
+          // supprimées avant Save et non ré-ajoutées) — la BDD les a déjà purgées,
+          // on aligne l'état local pour qu'il ne traîne pas ces orphelines en
+          // mémoire (sinon une suppression + ré-ajout d'une couleur dans une
+          // session future pourrait restaurer par erreur ces images).
+          const validColorIdsAfterSave = new Set<string>();
+          for (const v of variants) {
+            if (isMultiColorPack(v)) {
+              for (const c of packLinesColorList(v.packLines)) validColorIdsAfterSave.add(c.colorId);
+            } else if (v.colorId) {
+              validColorIdsAfterSave.add(v.colorId);
+            }
+          }
+          setColorImages((prev) =>
+            prev.filter((ci) => !ci.colorId || validColorIdsAfterSave.has(ci.colorId)),
+          );
           // ⚠️ Ne PAS prendre le snapshot ici : les setVariants /
           // setColorImages / setProductStatus qu'on vient d'appeler ne sont
           // pas encore appliqués au render, donc buildSnapshot capturerait
