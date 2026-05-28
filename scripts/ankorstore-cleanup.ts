@@ -21,6 +21,12 @@
  *
  * Usage (sur le VPS) :
  *   cd /var/www/beliandjolie && npx tsx scripts/ankorstore-cleanup.ts
+ *   Flags : --dry-run (simulation), --only-extras (EN_TROP uniquement),
+ *           --limit=N (N premiers candidats).
+ *
+ * Filtrage AS appliqué côté script : on ne traite que les produits AS
+ * `active === true && archived === false` (= visibles côté boutique AS).
+ * Les produits AS archivés / inactifs / supprimés côté AS sont ignorés.
  *
  * Sortie : /var/www/beliandjolie/ankorstore-cleanup-YYYY-MM-DD-HHMM.xlsx
  * (3 onglets : Récapitulatif, Supprimés OK, Ignorés/Échecs)
@@ -53,6 +59,7 @@ const CONCURRENCY = 3;
 // Flags CLI
 const ARGS = new Set(process.argv.slice(2));
 const ONLY_EXTRAS = ARGS.has("--only-extras");
+const DRY_RUN = ARGS.has("--dry-run");
 const LIMIT_ARG = process.argv.slice(2).find((a) => a.startsWith("--limit="));
 const LIMIT = LIMIT_ARG ? Math.max(1, parseInt(LIMIT_ARG.split("=")[1], 10)) : Infinity;
 
@@ -166,7 +173,7 @@ async function main() {
 
   // 2) Liste TOUS les produits AS non-archivés
   console.log("Récupération du catalogue Ankorstore (10 min env.)...");
-  const asProducts = await ankorstoreListAllProducts({
+  const asProductsRaw = await ankorstoreListAllProducts({
     pageSize: 50,
     onPage: (_page, pageIndex, totalSoFar) => {
       if ((pageIndex + 1) % 10 === 0) {
@@ -174,7 +181,19 @@ async function main() {
       }
     },
   });
-  console.log(`✓ ${asProducts.length} produits Ankorstore chargés\n`);
+  console.log(`✓ ${asProductsRaw.length} produits Ankorstore chargés (brut)`);
+
+  // 2bis) Filtre supplémentaire : exclut archivés (sécurité, l'API devrait
+  // déjà filtrer) ET produits inactifs (= invisibles côté boutique
+  // Ankorstore : retirés du catalogue ou supprimés mais conservés en BDD AS).
+  // Ne pas les compter comme "à supprimer" pour éviter de re-supprimer un
+  // produit déjà sorti par Ankorstore.
+  const archivedExcluded = asProductsRaw.filter((p) => p.archived).length;
+  const inactiveExcluded = asProductsRaw.filter((p) => !p.archived && !p.active).length;
+  const asProducts = asProductsRaw.filter((p) => p.active && !p.archived);
+  console.log(`  → archivés exclus    : ${archivedExcluded}`);
+  console.log(`  → inactifs exclus    : ${inactiveExcluded}`);
+  console.log(`  → produits actifs    : ${asProducts.length}\n`);
 
   // 3) Identifie les candidats à supprimer
   const candidates: Candidate[] = [];
@@ -321,6 +340,14 @@ async function main() {
       return;
     }
 
+    if (DRY_RUN) {
+      row.outcome = "IGNORÉ";
+      row.errorMessage = "dry_run";
+      results.push(row);
+      done++;
+      return;
+    }
+
     try {
       const { operationId } = await ankorstoreKickoffDelete(externalId, skus);
       row.outcome = "SUPPRIMÉ";
@@ -361,7 +388,10 @@ async function main() {
   ];
   recap.getRow(1).font = { bold: true };
   recap.addRows([
-    { label: "Produits AS au total", count: asProducts.length },
+    { label: "Produits AS au total (brut)", count: asProductsRaw.length },
+    { label: "  → archivés exclus", count: archivedExcluded },
+    { label: "  → inactifs exclus", count: inactiveExcluded },
+    { label: "  → produits AS actifs retenus", count: asProducts.length },
     { label: "Produits liés (intouchables)", count: bjLinkedAnkorsIds.size },
     { label: "Candidats à supprimer (avant filtres)", count: candidates.length },
     { label: "Candidats traités après filtres CLI", count: filteredCandidates.length },
@@ -369,8 +399,8 @@ async function main() {
     { label: "  → Doublons surplus", count: stats.DOUBLON_SURPLUS },
     { label: "  → Doublons orphelins surplus", count: stats.DOUBLON_ORPHELIN_SURPLUS },
     { label: "", count: 0 },
-    { label: "Kickoffs envoyés (SUPPRIMÉ)", count: okCount },
-    { label: "Ignorés (données manquantes)", count: ignoredCount },
+    { label: DRY_RUN ? "Mode DRY-RUN (rien supprimé)" : "Kickoffs envoyés (SUPPRIMÉ)", count: okCount },
+    { label: "Ignorés (données manquantes / dry-run)", count: ignoredCount },
     { label: "Échecs (erreur API)", count: failedCount },
   ]);
 
