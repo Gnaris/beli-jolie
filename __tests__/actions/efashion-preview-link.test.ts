@@ -77,10 +77,66 @@ describe("previewEfashionMatchByReference", () => {
     const res = await previewEfashionMatchByReference("p-1", "A11");
 
     expect(res.success).toBe(true);
-    expect(efashionListProductsMock).toHaveBeenCalledTimes(1);
+    expect(efashionListProductsMock).toHaveBeenCalled();
     const callArgs = efashionListProductsMock.mock.calls[0][0];
     expect(callArgs.premelFilter).toBe("tous");
     expect(callArgs.reference).toBe("A11");
+  });
+
+  it("pagine jusqu'à trouver les produits dont reference_base === needle, même au-delà des 100 premiers résultats", async () => {
+    findUniqueMock.mockResolvedValueOnce(baseProductRow);
+
+    // Page 0 : 100 résultats partiels (A1100, A1101...) — aucun ref_base exact.
+    const partials = Array.from({ length: 100 }, (_, i) => ({
+      id_produit: 1000 + i,
+      reference: `A11${i.toString().padStart(2, "0")}-DORÉ`,
+      reference_base: `A11${i.toString().padStart(2, "0")}`,
+      id_couleur: 78,
+      couleur: "Doré",
+      visible: true,
+      supprimer: false,
+      stock_value: 5,
+      nb_photos: 1,
+    }));
+    // Page 1 : contient enfin A11 exact (ce que vise l'utilisatrice).
+    const exact = [
+      {
+        id_produit: 2418489,
+        reference: "A11-ARGENT",
+        reference_base: "A11",
+        id_couleur: 22,
+        couleur: "Argent",
+        visible: true,
+        supprimer: false,
+        stock_value: 50,
+        nb_photos: 1,
+      },
+    ];
+    efashionListProductsMock
+      .mockResolvedValueOnce({ items: partials, total: 200 })
+      .mockResolvedValueOnce({ items: exact, total: 200 })
+      .mockResolvedValueOnce({ items: [], total: 200 });
+
+    const res = await previewEfashionMatchByReference("p-1", "A11");
+
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+    expect(res.data.candidates).toHaveLength(1);
+    expect(res.data.candidates[0].efashionProductId).toBe(2418489);
+    // Au moins 2 appels paginés ont été déclenchés (skip incrémenté).
+    expect(efashionListProductsMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const secondCall = efashionListProductsMock.mock.calls[1][0];
+    expect(secondCall.skip).toBeGreaterThanOrEqual(100);
+  });
+
+  it("arrête la pagination dès qu'une page revient vide", async () => {
+    findUniqueMock.mockResolvedValueOnce(baseProductRow);
+    efashionListProductsMock.mockResolvedValueOnce({ items: [], total: 0 });
+
+    const res = await previewEfashionMatchByReference("p-1", "A11");
+
+    expect(res.success).toBe(true);
+    expect(efashionListProductsMock).toHaveBeenCalledTimes(1);
   });
 
   it("ramène un candidat en brouillon dans les résultats (visible=false)", async () => {

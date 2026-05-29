@@ -233,26 +233,51 @@ export async function previewEfashionMatchByReference(
 
     const vendor = await efashionGetMe();
 
-    // ⚠️ On cherche dans TOUS les statuts (en_ligne + brouillon + supprimés).
-    // Cas typique : A11 vient d'être créé manuellement chez eFashion et est
-    // encore en brouillon → il ne ressortait pas du `premelFilter: "en_ligne"`
-    // et la modale affichait « aucune ligne trouvée », alors que le produit
-    // existait belle et bien. Les badges « En ligne / Hors ligne / Supprimée »
-    // de chaque candidat informent l'utilisatrice sur son statut réel.
-    const list = await efashionListProducts({
-      idVendeur: vendor.id_vendeur,
-      take: 100,
-      reference: referenceBase,
-      premelFilter: "tous",
-    });
-
-    // ⚠️ Le filtre `reference` côté eFashion est PARTIEL ("contient") — quand on
-    // cherche "A21" on récupère A21, A210, A2100, A2101, etc. On fait un 2ᵉ
-    // passe ici pour ne garder QUE les lignes dont le `reference_base`
-    // correspond exactement (insensible à la casse et aux espaces) à ce que
-    // l'utilisatrice cherche, sinon la liste est inutilisable.
+    // ⚠️ Pagination obligatoire :
+    //  1) On cherche dans TOUS les statuts (en_ligne + brouillon + supprimés).
+    //     Cas typique : A11 vient d'être créé manuellement chez eFashion et est
+    //     encore en brouillon → il ne ressortait pas du `premelFilter: "en_ligne"`.
+    //  2) Le filtre `reference` côté eFashion est PARTIEL ("contient") : "A11"
+    //     ramène A11, A110, A1100…A1199, A11A, etc. — souvent >100 lignes.
+    //     L'API étant triée par dateCreation DESC, les produits historiques
+    //     (comme A11) atterrissent loin dans la pagination. Sans paginer
+    //     manuellement, la modale ratait silencieusement la cible.
+    //  3) On stoppe quand une page revient vide ou quand on a déjà collecté
+    //     au moins un match exact (`reference_base === needle`) ET qu'aucun
+    //     nouveau match exact n'est apparu sur la page courante — ça borne le
+    //     coût sur les références très partagées (ex: "A").
     const needle = referenceBase.toLowerCase().trim();
-    const filteredItems = list.items.filter(
+    const PAGE_SIZE = 100;
+    const MAX_PAGES = 20; // borne dure (~2000 items) — empêche la boucle infinie
+    const collectedItems: EfashionProductListItem[] = [];
+    let exactMatchesSoFar = 0;
+    let skip = 0;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const pageRes = await efashionListProducts({
+        idVendeur: vendor.id_vendeur,
+        take: PAGE_SIZE,
+        skip,
+        reference: referenceBase,
+        premelFilter: "tous",
+      });
+      if (pageRes.items.length === 0) break;
+      collectedItems.push(...pageRes.items);
+      const newExact = pageRes.items.filter(
+        (it) => (it.reference_base ?? "").toLowerCase().trim() === needle,
+      ).length;
+      const totalExact = exactMatchesSoFar + newExact;
+      // L'API ne respecte pas strictement `take` (peut renvoyer plus que demandé)
+      // et `total` est imprécis ; on avance d'au moins PAGE_SIZE pour respecter
+      // le contrat skip côté eFashion.
+      skip += Math.max(pageRes.items.length, PAGE_SIZE);
+      // Court-circuit : si on a déjà au moins un match exact ET que cette
+      // page n'en a apporté aucun, on arrête (les pages suivantes ne ramèneront
+      // probablement que des références non-exactes plus anciennes).
+      if (totalExact > 0 && newExact === 0) break;
+      exactMatchesSoFar = totalExact;
+    }
+
+    const filteredItems = collectedItems.filter(
       (it) => (it.reference_base ?? "").toLowerCase().trim() === needle,
     );
 
