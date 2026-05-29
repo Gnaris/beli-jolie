@@ -83,11 +83,12 @@ describe("previewEfashionMatchByReference", () => {
     expect(callArgs.reference).toBe("A11");
   });
 
-  it("pagine jusqu'à trouver les produits dont reference_base === needle, même au-delà des 100 premiers résultats", async () => {
+  it("pagine jusqu'à trouver les produits dont reference_base === needle, même au-delà des premiers chunks", async () => {
     findUniqueMock.mockResolvedValueOnce(baseProductRow);
 
-    // Page 0 : 100 résultats partiels (A1100, A1101...) — aucun ref_base exact.
-    const partials = Array.from({ length: 100 }, (_, i) => ({
+    // Page 0 : 174 résultats partiels (A1100, A1101...) — aucun ref_base exact.
+    // Reproduit le comportement réel d'eFashion (renvoie plus que take=50).
+    const partials = Array.from({ length: 174 }, (_, i) => ({
       id_produit: 1000 + i,
       reference: `A11${i.toString().padStart(2, "0")}-DORÉ`,
       reference_base: `A11${i.toString().padStart(2, "0")}`,
@@ -98,7 +99,18 @@ describe("previewEfashionMatchByReference", () => {
       stock_value: 5,
       nb_photos: 1,
     }));
-    // Page 1 : contient enfin A11 exact (ce que vise l'utilisatrice).
+    const partials2 = Array.from({ length: 127 }, (_, i) => ({
+      id_produit: 2000 + i,
+      reference: `A11${(i + 174).toString().padStart(3, "X")}-DORÉ`,
+      reference_base: `A11${(i + 174).toString().padStart(3, "X")}`,
+      id_couleur: 78,
+      couleur: "Doré",
+      visible: true,
+      supprimer: false,
+      stock_value: 5,
+      nb_photos: 1,
+    }));
+    // Page 2 : contient enfin A11 exact (ce que vise l'utilisatrice).
     const exact = [
       {
         id_produit: 2418489,
@@ -113,9 +125,10 @@ describe("previewEfashionMatchByReference", () => {
       },
     ];
     efashionListProductsMock
-      .mockResolvedValueOnce({ items: partials, total: 200 })
-      .mockResolvedValueOnce({ items: exact, total: 200 })
-      .mockResolvedValueOnce({ items: [], total: 200 });
+      .mockResolvedValueOnce({ items: partials, total: 122 })
+      .mockResolvedValueOnce({ items: partials2, total: 122 })
+      .mockResolvedValueOnce({ items: exact, total: 122 })
+      .mockResolvedValueOnce({ items: [], total: 122 });
 
     const res = await previewEfashionMatchByReference("p-1", "A11");
 
@@ -123,10 +136,11 @@ describe("previewEfashionMatchByReference", () => {
     if (!res.success) return;
     expect(res.data.candidates).toHaveLength(1);
     expect(res.data.candidates[0].efashionProductId).toBe(2418489);
-    // Au moins 2 appels paginés ont été déclenchés (skip incrémenté).
-    expect(efashionListProductsMock.mock.calls.length).toBeGreaterThanOrEqual(2);
-    const secondCall = efashionListProductsMock.mock.calls[1][0];
-    expect(secondCall.skip).toBeGreaterThanOrEqual(100);
+    // Skip doit incrémenter de PAGE_SIZE strict, pas de items.length.
+    const calls = efashionListProductsMock.mock.calls;
+    expect(calls[0][0].skip).toBe(0);
+    expect(calls[1][0].skip).toBe(50);
+    expect(calls[2][0].skip).toBe(100);
   });
 
   it("arrête la pagination dès qu'une page revient vide", async () => {

@@ -235,20 +235,25 @@ export async function previewEfashionMatchByReference(
 
     // ⚠️ Pagination obligatoire :
     //  1) On cherche dans TOUS les statuts (en_ligne + brouillon + supprimés).
-    //     Cas typique : A11 vient d'être créé manuellement chez eFashion et est
-    //     encore en brouillon → il ne ressortait pas du `premelFilter: "en_ligne"`.
+    //     Cas typique : produit créé manuellement chez eFashion et encore en
+    //     brouillon → il ne ressortait pas du `premelFilter: "en_ligne"`.
     //  2) Le filtre `reference` côté eFashion est PARTIEL ("contient") : "A11"
     //     ramène A11, A110, A1100…A1199, A11A, etc. — souvent >100 lignes.
     //     L'API étant triée par dateCreation DESC, les produits historiques
-    //     (comme A11) atterrissent loin dans la pagination. Sans paginer
-    //     manuellement, la modale ratait silencieusement la cible.
-    //  3) On stoppe quand une page revient vide ou quand on a déjà collecté
+    //     (comme A11) atterrissent loin dans la pagination.
+    //  3) ⚠️ Comportement non standard de l'API : `skip` est interprété comme
+    //     un curseur par **chunk** (de taille PAGE_SIZE), pas comme un offset
+    //     par item. L'API renvoie souvent plus d'items que le `take` demandé
+    //     (sans duplication entre chunks). Conséquence : on doit incrémenter
+    //     `skip` strictement de PAGE_SIZE, pas de `items.length`, sinon on
+    //     saute par-dessus les chunks suivants et on rate la cible.
+    //  4) On stoppe quand une page revient vide ou quand on a déjà collecté
     //     au moins un match exact (`reference_base === needle`) ET qu'aucun
     //     nouveau match exact n'est apparu sur la page courante — ça borne le
-    //     coût sur les références très partagées (ex: "A").
+    //     coût sur les références très partagées.
     const needle = referenceBase.toLowerCase().trim();
-    const PAGE_SIZE = 100;
-    const MAX_PAGES = 20; // borne dure (~2000 items) — empêche la boucle infinie
+    const PAGE_SIZE = 50;
+    const MAX_PAGES = 30; // borne dure (~1500 chunks) — empêche la boucle infinie
     const collectedItems: EfashionProductListItem[] = [];
     let exactMatchesSoFar = 0;
     let skip = 0;
@@ -266,10 +271,8 @@ export async function previewEfashionMatchByReference(
         (it) => (it.reference_base ?? "").toLowerCase().trim() === needle,
       ).length;
       const totalExact = exactMatchesSoFar + newExact;
-      // L'API ne respecte pas strictement `take` (peut renvoyer plus que demandé)
-      // et `total` est imprécis ; on avance d'au moins PAGE_SIZE pour respecter
-      // le contrat skip côté eFashion.
-      skip += Math.max(pageRes.items.length, PAGE_SIZE);
+      // ⚠️ Voir commentaire (3) ci-dessus : skip += PAGE_SIZE strict.
+      skip += PAGE_SIZE;
       // Court-circuit : si on a déjà au moins un match exact ET que cette
       // page n'en a apporté aucun, on arrête (les pages suivantes ne ramèneront
       // probablement que des références non-exactes plus anciennes).
