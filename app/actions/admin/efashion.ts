@@ -233,11 +233,17 @@ export async function previewEfashionMatchByReference(
 
     const vendor = await efashionGetMe();
 
+    // ⚠️ On cherche dans TOUS les statuts (en_ligne + brouillon + supprimés).
+    // Cas typique : A11 vient d'être créé manuellement chez eFashion et est
+    // encore en brouillon → il ne ressortait pas du `premelFilter: "en_ligne"`
+    // et la modale affichait « aucune ligne trouvée », alors que le produit
+    // existait belle et bien. Les badges « En ligne / Hors ligne / Supprimée »
+    // de chaque candidat informent l'utilisatrice sur son statut réel.
     const list = await efashionListProducts({
       idVendeur: vendor.id_vendeur,
       take: 100,
       reference: referenceBase,
-      premelFilter: "en_ligne",
+      premelFilter: "tous",
     });
 
     // ⚠️ Le filtre `reference` côté eFashion est PARTIEL ("contient") — quand on
