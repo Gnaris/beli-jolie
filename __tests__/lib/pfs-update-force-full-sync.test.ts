@@ -10,6 +10,7 @@ const {
   pfsGetFamiliesSpy,
   pfsGetColorsSpy,
   pfsGetVariantsSpy,
+  pfsCheckReferenceSpy,
   pfsCreateVariantsSpy,
   pfsPatchVariantsSpy,
   pfsDeleteVariantSpy,
@@ -34,6 +35,7 @@ const {
     pfsGetFamiliesSpy: vi.fn().mockResolvedValue([]),
     pfsGetColorsSpy: vi.fn().mockResolvedValue([]),
     pfsGetVariantsSpy: vi.fn().mockResolvedValue([]),
+    pfsCheckReferenceSpy: vi.fn().mockResolvedValue({ exists: true, product: { images: {} } }),
     pfsCreateVariantsSpy: vi.fn().mockResolvedValue([]),
     pfsPatchVariantsSpy: vi.fn().mockResolvedValue({}),
     pfsDeleteVariantSpy: vi.fn().mockResolvedValue({}),
@@ -74,6 +76,7 @@ vi.mock("@/lib/pfs-api-write", () => ({
 }));
 vi.mock("@/lib/pfs-api", () => ({
   pfsGetVariants: pfsGetVariantsSpy,
+  pfsCheckReference: pfsCheckReferenceSpy,
 }));
 vi.mock("@/lib/marketplace-pricing", () => ({
   loadMarketplaceMarkupConfigs: loadMarkupSpy,
@@ -177,6 +180,42 @@ describe("pfsUpdateProductInPlace forceFullSync", () => {
 
     expect(res.success).toBe(true);
     expect(pfsUpdateProductSpy).toHaveBeenCalled();
+  });
+
+  it("avec forceFullSync=true : efface chaque image existante sur PFS (slot + couleur) avant de ré-uploader", async () => {
+    // PFS renvoie 2 images existantes pour la couleur RED (slot 1 + slot 2).
+    pfsCheckReferenceSpy.mockResolvedValueOnce({
+      exists: true,
+      product: {
+        images: {
+          RED: ["https://pfs.cdn/red-1.jpg", "https://pfs.cdn/red-2.jpg"],
+          DEFAULT: "https://pfs.cdn/default.jpg",
+        },
+      },
+    });
+    mockFindUnique.mockResolvedValueOnce(buildProductRow(null));
+
+    const res = await pfsUpdateProductInPlace("p-1", undefined, { forceFullSync: true });
+
+    expect(res.success).toBe(true);
+    // 2 suppressions sur RED (slot 1 et slot 2). DEFAULT est ignoré.
+    const wipeCalls = pfsDeleteImageSpy.mock.calls.filter(([, , colorRef]) => colorRef === "RED");
+    expect(wipeCalls).toHaveLength(2);
+    expect(wipeCalls).toEqual(
+      expect.arrayContaining([
+        ["PFS-1", 1, "RED"],
+        ["PFS-1", 2, "RED"],
+      ]),
+    );
+    expect(pfsDeleteImageSpy).not.toHaveBeenCalledWith("PFS-1", expect.anything(), "DEFAULT");
+  });
+
+  it("sans forceFullSync : ne fetch pas l'état PFS et n'efface rien (diff seul)", async () => {
+    mockFindUnique.mockResolvedValueOnce(buildProductRow(null));
+
+    await pfsUpdateProductInPlace("p-1");
+
+    expect(pfsCheckReferenceSpy).not.toHaveBeenCalled();
   });
 
   it("avec forceFullSync=true et un crash mi-sync : le snapshot DB préserve l'état connu précédent", async () => {

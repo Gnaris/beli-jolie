@@ -28,7 +28,7 @@ import {
   type PfsVariantCreateData,
   type PfsVariantUpdateData,
 } from "@/lib/pfs-api-write";
-import { pfsGetVariants } from "@/lib/pfs-api";
+import { pfsGetVariants, pfsCheckReference } from "@/lib/pfs-api";
 import { mapLocalToPfsStatus } from "@/lib/pfs-status";
 import {
   applyMarketplaceMarkup,
@@ -997,6 +997,45 @@ export async function pfsUpdateProductInPlace(
     }
 
     // ── Step 3 : Sync images (diff-based) ──
+    // En resync forcé (forceFullSync), on commence par effacer toutes les
+    // images réellement présentes sur PFS pour ce produit, slot par slot et
+    // couleur par couleur. Sinon, PFS conserve l'existant (upload = append,
+    // pas overwrite) et l'on accumule des doublons à chaque resync.
+    if (options?.forceFullSync) {
+      report("Nettoyage des anciennes images sur PFS...");
+      try {
+        const checkRef = await pfsCheckReference(product.reference);
+        const remoteImages = checkRef.product?.images;
+        if (remoteImages) {
+          let totalWiped = 0;
+          for (const [colorRef, imageData] of Object.entries(remoteImages)) {
+            if (colorRef === "DEFAULT") continue;
+            const urls = Array.isArray(imageData) ? imageData : [imageData];
+            for (let slot = 1; slot <= urls.length; slot++) {
+              try {
+                await pfsDeleteImage(pfsProductId, slot, colorRef);
+                totalWiped++;
+              } catch (err) {
+                logger.warn("[PFS Update] Failed to wipe existing image (forceFullSync)", {
+                  pfsProductId, colorRef, slot,
+                  error: err,
+                });
+              }
+            }
+          }
+          // Reset le snapshot d'images committed : tout ce qui était là est parti.
+          committedSnapshot.images = {};
+          logger.info("[PFS Update] Existing PFS images wiped before forceFullSync re-upload", {
+            pfsProductId, wiped: totalWiped,
+          });
+        }
+      } catch (err) {
+        logger.warn("[PFS Update] checkReference failed during forceFullSync wipe — proceeding without wipe", {
+          pfsProductId, reference: product.reference, error: err,
+        });
+      }
+    }
+
     if (diff.imagesToUpload.length > 0 || diff.imagesToDelete.length > 0) {
       report("Synchronisation des images...");
 
