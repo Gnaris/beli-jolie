@@ -25,7 +25,7 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import {
   efashionUpdateProduit,
-  efashionSaveProduitStocks,
+  efashionUpsertProduitStock,
   efashionSaveProduitDescription,
   efashionSaveProduitCompositions,
   efashionTranslateText,
@@ -984,31 +984,107 @@ export async function efashionUpdateProductInPlace(
     }
   }
 
-  const stockItemsByEfId = new Map<
-    number,
-    Array<{ id_couleur: number; value: number; taille: string | null }>
-  >();
+  // Libellés de tailles eFashion pour la déclinaison cible — nécessaires pour
+  // mapper les noms de tailles BJ ("TU", "S", ...) vers les libellés exacts
+  // eFashion ("Taille unique", "S", ...) attendus par `upsertProduitStock`.
+  // Sans ce mapping, eFashion ignore silencieusement le stock (signature
+  // observée dans le HAR de leur UI le 2026-05-30 : `taille: "Taille unique"`
+  // au lieu de `null`).
+  let declSizes: Array<{ field: string; value: string }> = [];
+  if (targetDeclinaisonId != null) {
+    try {
+      const { getEfashionAnnexes } = await import("@/lib/efashion-annexes");
+      const annexes = await getEfashionAnnexes();
+      const decl = annexes.declinaisons.find((d) => d.id === targetDeclinaisonId);
+      declSizes = decl?.sizes ?? [];
+    } catch (err) {
+      logger.warn("[eFashion update] Lecture des libellés de déclinaison KO", {
+        productId,
+        targetDeclinaisonId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const resolveTailleLabel = (bjName: string): string => {
+    const norm = bjName.trim().toLowerCase();
+    // 1. Match exact (insensible à la casse / espaces) avec un des dN_FR.
+    for (const s of declSizes) {
+      if (s.value.trim().toLowerCase() === norm) return s.value;
+    }
+    // 2. Cas "TU" (taille placeholder BJ) → 1ʳᵉ taille de la déclinaison
+    //    (typiquement "Taille unique" pour une déclinaison à 1 taille).
+    if (norm === "tu" && declSizes.length >= 1) return declSizes[0].value;
+    // 3. Fallback : on renvoie le nom BJ tel quel — meilleur effort si la
+    //    déclinaison n'a pas été chargée, eFashion peut accepter quand même
+    //    si les libellés coïncident par chance.
+    return bjName;
+  };
+
+  // Trace ce qu'on va envoyer (utile quand une couleur saute silencieusement) :
+  // si `id_couleur` manque côté Color.efashionColorId, on saute la variante et
+  // la cliente voyait avant des logs muets côté serveur sans rien sur eFashion.
+  logger.info("[eFashion update] Préparation push stock", {
+    productId,
+    declSizes: declSizes.map((s) => s.value),
+    variantsCount: diff.added.length + diff.changed.length,
+    payloadPreview: [...diff.added, ...diff.changed.map((c) => c.after)].map((v) => ({
+      efId: v.efashionProductId,
+      idCouleur: efIdToColorId.get(v.efashionProductId) ?? null,
+      stockByTaille: v.stockByTaille,
+      skipped: skippedAddedEfIds.has(v.efashionProductId),
+    })),
+  });
+
+  // 1 mutation `upsertProduitStock` par (couleur, taille) — c'est ce que fait
+  // l'UI eFashion (cf. HAR). Pas de batch : la mutation `saveProduitStocks`
+  // (au pluriel) a été dépréciée côté eFashion et renvoie `true` sans persister.
   for (const v of [...diff.added, ...diff.changed.map((c) => c.after)]) {
     // Skip les couleurs ajoutées qu'eFashion ne connaît pas (voir bloc de
     // filtrage plus haut) — on ne peut pas pousser de stock vers un produit
     // qui n'existe pas côté eFashion.
     if (skippedAddedEfIds.has(v.efashionProductId)) continue;
     const idCouleur = efIdToColorId.get(v.efashionProductId);
-    if (!idCouleur) continue; // on ne peut pas pousser le stock sans id_couleur eFashion
-    const arr: Array<{ id_couleur: number; value: number; taille: string | null }> = [];
-    for (const [taille, value] of Object.entries(v.stockByTaille)) {
-      arr.push({ id_couleur: idCouleur, value, taille: taille === "TU" ? null : taille });
+    if (!idCouleur) {
+      // Cas pénible mais récurrent : la Color BJ liée à cette variante n'a pas
+      // d'efashionColorId. Sans cet id, eFashion ignore l'upsert. On remonte
+      // une erreur explicite plutôt que de sauter en silence — l'utilisatrice
+      // doit aller mapper la couleur dans Paramètres > Bibliothèques > Couleurs.
+      const msg = `Couleur BJ liée à eFashion product ${v.efashionProductId} sans efashionColorId — stock non envoyé. Mapper la couleur dans Paramètres > Bibliothèques > Couleurs.`;
+      logger.warn("[eFashion update] Stock skip — id_couleur manquant", {
+        productId,
+        efId: v.efashionProductId,
+      });
+      errors.push(msg);
+      continue;
     }
-    if (arr.length > 0) stockItemsByEfId.set(v.efashionProductId, arr);
-  }
-
-  for (const [efId, items] of stockItemsByEfId) {
-    try {
-      await efashionSaveProduitStocks({ id_produit: efId, items });
-      stockMutations++;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`saveProduitStocks(${efId}): ${msg}`);
+    for (const [taille, value] of Object.entries(v.stockByTaille)) {
+      const tailleLabel = resolveTailleLabel(taille);
+      try {
+        await efashionUpsertProduitStock({
+          id_produit: v.efashionProductId,
+          id_couleur: idCouleur,
+          value,
+          taille: tailleLabel,
+        });
+        stockMutations++;
+        logger.info("[eFashion update] upsertProduitStock OK", {
+          efId: v.efashionProductId,
+          idCouleur,
+          value,
+          taille: tailleLabel,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`upsertProduitStock(${v.efashionProductId}/${tailleLabel}): ${msg}`);
+        logger.warn("[eFashion update] upsertProduitStock KO", {
+          efId: v.efashionProductId,
+          idCouleur,
+          value,
+          taille: tailleLabel,
+          error: msg,
+        });
+      }
     }
   }
 

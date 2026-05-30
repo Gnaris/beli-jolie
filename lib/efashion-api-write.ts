@@ -106,6 +106,15 @@ export async function efashionToggleMainProduct(idProduit: number): Promise<bool
  * Met à jour le stock pour 1 couple (couleur, taille). Utilise UpsertProduitStock
  * (création si pas encore renseigné, mise à jour sinon).
  *
+ * Signature confirmée par le HAR de leur UI (2026-05-30) — c'est la mutation
+ * que leur back-office appelle quand un commercial tape une nouvelle quantité
+ * dans une case stock.
+ *
+ * ⚠️ `taille` doit être le **libellé exact de la déclinaison** ("Taille unique",
+ * "S", "M", "39"...) — pas un alias BJ ("TU") ni `null`. eFashion ignore
+ * silencieusement les upserts dont le `taille` ne matche aucun `dN_FR` de la
+ * déclinaison du produit (cas reproduit sur F137 le 2026-05-30).
+ *
  * ⚠️ La mutation retourne en réalité un **boolean** (true = succès), pas la
  * nouvelle valeur de stock. Confirmé par test (mai 2026). Pour lire le stock
  * effectif après, passer par `productsPage.items[].stock_value`.
@@ -140,7 +149,14 @@ export async function efashionUpsertProduitStock(args: {
 
 /**
  * Met à jour plusieurs stocks en un seul appel (batch).
- * Items = [{ id_couleur, value, taille? }, ...].
+ *
+ * ⚠️ Déprécié depuis le 2026-05-30 : eFashion a remplacé cette mutation par
+ * `upsertProduitStock` (singulier, 1 appel par couple couleur/taille — cf. HAR
+ * de leur UI). La mutation batch existe encore côté serveur et renvoie `true`
+ * mais ne persiste plus rien — la sync stock restait silencieusement KO côté
+ * BJ → eFashion. Utiliser `efashionUpsertProduitStock` ci-dessous à la place.
+ * Conservée ici pour les scripts de diagnostic qui veulent encore tester
+ * l'ancien endpoint, mais aucune autre prod ne devrait l'appeler.
  */
 export async function efashionSaveProduitStocks(args: {
   id_produit: number;

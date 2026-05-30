@@ -15,7 +15,7 @@ vi.mock("@/lib/logger", () => ({
 }));
 vi.mock("@/lib/efashion-api-write", () => ({
   efashionUpdateProduit: vi.fn(),
-  efashionSaveProduitStocks: vi.fn(),
+  efashionUpsertProduitStock: vi.fn(),
   efashionSaveProduitDescription: vi.fn(),
   efashionSaveProduitCompositions: vi.fn(),
   efashionTranslateText: vi.fn(),

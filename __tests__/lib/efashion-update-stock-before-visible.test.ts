@@ -35,7 +35,7 @@ vi.mock("@/lib/logger", () => ({
 }));
 vi.mock("@/lib/efashion-api-write", () => ({
   efashionUpdateProduit: vi.fn(),
-  efashionSaveProduitStocks: vi.fn().mockResolvedValue(true),
+  efashionUpsertProduitStock: vi.fn().mockResolvedValue(true),
   efashionSaveProduitDescription: vi.fn().mockResolvedValue(true),
   efashionSaveProduitCompositions: vi.fn().mockResolvedValue(true),
   efashionTranslateText: vi.fn(),
@@ -87,7 +87,7 @@ import { prisma } from "@/lib/prisma";
 import { efashionUpdateProductInPlace } from "@/lib/efashion-update";
 import {
   efashionUpdateProduit,
-  efashionSaveProduitStocks,
+  efashionUpsertProduitStock,
 } from "@/lib/efashion-api-write";
 import { efashionUploadProductPhotos } from "@/lib/efashion-photos";
 import { efashionListProducts } from "@/lib/efashion-api";
@@ -95,7 +95,7 @@ import { efashionListProducts } from "@/lib/efashion-api";
 const findUniqueMock = prisma.product.findUnique as unknown as ReturnType<typeof vi.fn>;
 const colorFindManyMock = prisma.color.findMany as unknown as ReturnType<typeof vi.fn>;
 const updateProduitMock = efashionUpdateProduit as unknown as ReturnType<typeof vi.fn>;
-const saveStocksMock = efashionSaveProduitStocks as unknown as ReturnType<typeof vi.fn>;
+const saveStocksMock = efashionUpsertProduitStock as unknown as ReturnType<typeof vi.fn>;
 const uploadPhotosMock = efashionUploadProductPhotos as unknown as ReturnType<typeof vi.fn>;
 const listProductsMock = efashionListProducts as unknown as ReturnType<typeof vi.fn>;
 
