@@ -34,10 +34,28 @@ vi.mock("@/lib/efashion-pricing", () => ({
   loadEfashionMarkup: vi.fn().mockResolvedValue({ type: "percent", value: 0, rounding: "none" }),
   computeEfashionPrice: vi.fn(({ basePrice }) => basePrice),
 }));
-vi.mock("@/lib/efashion-api", () => ({
-  efashionGetMe: vi.fn().mockResolvedValue({ id_vendeur: 2017, nomBoutique: "BJ" }),
-  efashionListProducts: vi.fn(),
-}));
+vi.mock("@/lib/efashion-api", () => {
+  const listProducts = vi.fn();
+  return {
+    efashionGetMe: vi.fn().mockResolvedValue({ id_vendeur: 2017, nomBoutique: "BJ" }),
+    efashionListProducts: listProducts,
+    // Délègue à listProducts mocké + filtre strict reference_base
+    efashionListByReferenceBaseExact: vi.fn(async (opts: { idVendeur: number; referenceBase: string; premelFilter?: string }) => {
+      const r = await listProducts({
+        idVendeur: opts.idVendeur,
+        take: 50,
+        skip: 0,
+        reference: opts.referenceBase,
+        premelFilter: opts.premelFilter ?? "tous",
+      });
+      const needle = opts.referenceBase.toLowerCase().trim();
+      return (r?.items ?? []).filter(
+        (it: { reference_base?: string | null }) =>
+          (it.reference_base ?? "").toLowerCase().trim() === needle,
+      );
+    }),
+  };
+});
 
 import { prisma } from "@/lib/prisma";
 import { efashionUpdateProductInPlace } from "@/lib/efashion-update";

@@ -25,6 +25,8 @@ import { findMissingImageCoverage } from "@/lib/variant-image-coverage";
 import { resolvePrimaryColorId, listAvailableColorIds } from "@/lib/product-primary-color";
 import {
   validateVariants,
+  validateVariantBounds,
+  validateProductFields,
   isMultiColorPackInput,
   type ColorInput,
   type PackLineInput,
@@ -323,6 +325,11 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   await requireAdmin();
   input = await resolveProtectedSizeId(input);
 
+  // Garde-fous toujours appliqués (AUDIT [7]) : remise produit 0-100 %,
+  // prix/stock/poids/quantités jamais négatifs — y compris en brouillon.
+  validateProductFields(input);
+  validateVariantBounds(input.colors);
+
   // Skip strict variant validation for incomplete products
   if (!input.isIncomplete) {
     validateVariants(input.colors);
@@ -604,6 +611,11 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   if (/\s/.test(input.reference)) throw new Error("La référence ne doit pas contenir d'espaces.");
   if (!input.name?.trim()) throw new Error("Le nom est requis.");
   if (!input.categoryId) throw new Error("La catégorie est requise.");
+
+  // Garde-fous toujours appliqués (AUDIT [7]) : remise produit 0-100 %,
+  // prix/stock/poids/quantités jamais négatifs — y compris en brouillon.
+  validateProductFields(input);
+  validateVariantBounds(input.colors);
 
   // Strict validation only when going ONLINE (not for drafts or OFFLINE saves)
   if (input.status === "ONLINE") {

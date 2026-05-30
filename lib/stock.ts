@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { stockUnitsForOrderItem } from "@/lib/stock-units";
 import type { StockMovementType } from "@prisma/client";
 
 /**
@@ -89,9 +90,11 @@ export async function decrementStockForOrder(orderId: string) {
       continue;
     }
 
+    const units = stockUnitsForOrderItem(item);
+
     await createStockMovement({
       productColorId: variantId,
-      quantity: -item.quantity,
+      quantity: -units,
       type: "ORDER",
       orderId: order.id,
     });
@@ -126,9 +129,11 @@ export async function reinstateStockForOrder(orderId: string) {
 
     if (!variantId) continue;
 
+    const units = stockUnitsForOrderItem(item);
+
     await createStockMovement({
       productColorId: variantId,
-      quantity: item.quantity,
+      quantity: units,
       type: "CANCEL",
       orderId: order.id,
     });

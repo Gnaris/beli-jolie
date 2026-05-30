@@ -37,7 +37,7 @@ import {
   efashionSoftDeleteProduits,
   efashionSaveProduitDescription,
 } from "@/lib/efashion-api-write";
-import { efashionGetMe, efashionListProducts } from "@/lib/efashion-api";
+import { efashionGetMe, efashionListByReferenceBaseExact } from "@/lib/efashion-api";
 import { efashionPublishProduct } from "@/lib/efashion-publish";
 
 // Texte court neutre posé sur la description multilingue de l'ancienne fiche.
@@ -154,13 +154,16 @@ export async function efashionRefreshProduct(
   const live = new Map<number, LiveState>();
   try {
     const me = await efashionGetMe();
-    const list = await efashionListProducts({
+    // ⚠️ Pagination obligatoire — voir lib/efashion-api.ts pour le détail.
+    // Sans ça, les références courtes/anciennes (A11, A21…) sont noyées dans
+    // les matches partiels triés par dateCreation DESC et l'état live revient
+    // vide → bascule en erreur « État live eFashion incomplet ».
+    const items = await efashionListByReferenceBaseExact({
       idVendeur: me.id_vendeur,
-      take: 100,
-      reference: oldReferenceBase,
+      referenceBase: oldReferenceBase,
       premelFilter: "tous",
     });
-    for (const it of list.items) {
+    for (const it of items) {
       if (!oldEfIds.includes(it.id_produit)) continue;
       live.set(it.id_produit, {
         reference: it.reference,

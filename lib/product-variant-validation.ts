@@ -46,7 +46,77 @@ export function isMultiColorPackInput(c: ColorInput): boolean {
   return c.saleType === "PACK" && Array.isArray(c.packLines) && c.packLines.length > 0;
 }
 
+/**
+ * Garde-fous bornes numériques (AUDIT 2026-05-29 — point [7]).
+ *
+ * Sans ces vérifications, le formulaire produit acceptait sans broncher un
+ * prix de -50€, un stock de -10, un poids négatif, une quantité de pack
+ * négative — autant de portes ouvertes à des produits affichés à perte ou
+ * à un auto-archivage cassé si un signe « - » se collait par mégarde.
+ */
+function assertNonNegativeFinite(value: number, label: string): void {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${label} doit être un nombre.`);
+  }
+  if (value < 0) {
+    throw new Error(`${label} ne peut pas être négatif.`);
+  }
+}
+
+function assertNonNegativeInteger(value: number, label: string): void {
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new Error(`${label} doit être un nombre entier.`);
+  }
+  if (value < 0) {
+    throw new Error(`${label} ne peut pas être négatif.`);
+  }
+}
+
+/**
+ * Garde-fous champs produit (remise %, etc.). Appelée en tête de
+ * `createProduct` / `updateProduct`. Cf. AUDIT [7].
+ */
+export function validateProductFields(input: {
+  discountPercent: number | null;
+}): void {
+  const d = input.discountPercent;
+  if (d == null) return;
+  if (typeof d !== "number" || !Number.isFinite(d)) {
+    throw new Error("La remise produit doit être un nombre.");
+  }
+  if (d < 0 || d > 100) {
+    throw new Error("La remise produit doit être comprise entre 0 et 100 %.");
+  }
+}
+
+/**
+ * Bornes numériques sur les variantes — toujours appliquées, y compris en
+ * brouillon. Refuse prix/stock/poids/quantités négatifs avant que les
+ * données ne touchent la BDD.
+ */
+export function validateVariantBounds(colors: ColorInput[]): void {
+  for (const c of colors) {
+    assertNonNegativeFinite(c.unitPrice, "Le prix d'une variante");
+    assertNonNegativeFinite(c.weight, "Le poids d'une variante");
+    assertNonNegativeInteger(c.stock, "Le stock d'une variante");
+    for (const se of c.sizeEntries) {
+      assertNonNegativeInteger(se.quantity, "La quantité d'une taille");
+      if (se.pricePerUnit != null) {
+        assertNonNegativeFinite(se.pricePerUnit, "Le prix par unité");
+      }
+    }
+    for (const pl of c.packLines ?? []) {
+      for (const se of pl.sizeEntries) {
+        assertNonNegativeInteger(se.quantity, "La quantité d'une taille du pack");
+      }
+    }
+  }
+}
+
 export function validateVariants(colors: ColorInput[]): void {
+  // Bornes numériques d'abord (refuse les négatifs avant toute autre vérif).
+  validateVariantBounds(colors);
+
   // Empêche les vrais doublons (composition strictement identique, quantités comprises).
   // Plusieurs paquets avec mêmes couleurs/tailles mais quantités différentes restent autorisés
   // (ex : produit ayant un grand paquet "complet" + un petit paquet "découverte").

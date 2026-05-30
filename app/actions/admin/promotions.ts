@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidateTag } from "next/cache";
+import { validatePromotionInput } from "@/lib/promotion-validation";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -64,6 +65,9 @@ export async function createPromotion(input: PromotionInput) {
   if (!input.name.trim()) return { success: false, error: "Le nom est obligatoire." };
   if (input.type === "CODE" && !input.code?.trim()) return { success: false, error: "Le code est obligatoire." };
 
+  const boundsError = validatePromotionInput(input);
+  if (boundsError) return { success: false, error: boundsError };
+
   try {
     const promo = await prisma.promotion.create({
       data: {
@@ -100,6 +104,9 @@ export async function createPromotion(input: PromotionInput) {
 
 export async function updatePromotion(id: string, input: PromotionInput) {
   await requireAdmin();
+
+  const boundsError = validatePromotionInput(input);
+  if (boundsError) return { success: false, error: boundsError };
 
   try {
     // Delete existing targeting relations

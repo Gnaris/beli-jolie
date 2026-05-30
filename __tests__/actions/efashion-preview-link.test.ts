@@ -19,11 +19,23 @@ vi.mock("@/lib/prisma", () => ({
     product: { findUnique: findUniqueMock },
   },
 }));
-vi.mock("@/lib/efashion-api", () => ({
-  efashionListProducts: efashionListProductsMock,
-  efashionGetMe: efashionGetMeMock,
-  buildEfashionPhotoUrl: buildEfashionPhotoUrlMock,
-}));
+vi.mock("@/lib/efashion-api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/efashion-api")>(
+    "@/lib/efashion-api",
+  );
+  return {
+    ...actual,
+    efashionListProducts: efashionListProductsMock,
+    efashionGetMe: efashionGetMeMock,
+    buildEfashionPhotoUrl: buildEfashionPhotoUrlMock,
+    // On exécute le VRAI helper paginé, mais on lui injecte le mock comme listFn.
+    // Comme ça les tests qui vérifient la pagination (skip += PAGE_SIZE, etc.)
+    // restent valides : ils observent les vrais appels à efashionListProductsMock
+    // produits par la pagination interne du helper.
+    efashionListByReferenceBaseExact: (opts: Parameters<typeof actual.efashionListByReferenceBaseExact>[0]) =>
+      actual.efashionListByReferenceBaseExact({ ...opts, listFn: efashionListProductsMock }),
+  };
+});
 vi.mock("@/lib/auth", () => ({ authOptions: {} }));
 vi.mock("next-auth", () => ({ getServerSession: getServerSessionMock }));
 vi.mock("@/lib/logger", () => ({

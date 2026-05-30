@@ -1,9 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { pfsDeleteProductSpy, ankorstoreKickoffStandaloneDeleteSpy, productFindManySpy } = vi.hoisted(() => ({
+const {
+  pfsDeleteProductSpy,
+  ankorstoreKickoffStandaloneDeleteSpy,
+  efashionDeleteShootingProductSpy,
+  productFindManySpy,
+  ankorstoreEnabledSpy,
+  efashionEnabledSpy,
+} = vi.hoisted(() => ({
   pfsDeleteProductSpy: vi.fn(),
   ankorstoreKickoffStandaloneDeleteSpy: vi.fn(),
+  efashionDeleteShootingProductSpy: vi.fn(),
   productFindManySpy: vi.fn(),
+  ankorstoreEnabledSpy: vi.fn(),
+  efashionEnabledSpy: vi.fn(),
 }));
 
 vi.mock("next-auth", () => ({
@@ -13,6 +23,13 @@ vi.mock("@/lib/auth", () => ({ authOptions: {} }));
 vi.mock("@/lib/pfs-api-write", () => ({ pfsDeleteProduct: pfsDeleteProductSpy }));
 vi.mock("@/lib/ankorstore-delete", () => ({
   ankorstoreKickoffStandaloneDelete: ankorstoreKickoffStandaloneDeleteSpy,
+}));
+vi.mock("@/lib/efashion-shootings", () => ({
+  efashionDeleteShootingProduct: efashionDeleteShootingProductSpy,
+}));
+vi.mock("@/lib/cached-data", () => ({
+  getCachedAnkorstoreEnabled: ankorstoreEnabledSpy,
+  getCachedEfashionEnabled: efashionEnabledSpy,
 }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -28,10 +45,14 @@ vi.mock("@/lib/logger", () => ({
 import {
   deleteProductsOnPfs,
   deleteProductsOnAnkorstore,
+  deleteProductsOnEfashion,
 } from "@/app/actions/admin/marketplace-delete";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Par défaut : marketplaces activées (les tests existants comptent là-dessus).
+  ankorstoreEnabledSpy.mockResolvedValue(true);
+  efashionEnabledSpy.mockResolvedValue(true);
 });
 
 describe("deleteProductsOnPfs", () => {
@@ -156,5 +177,76 @@ describe("authorization", () => {
       ]),
     ).rejects.toThrow("Accès non autorisé");
     expect(ankorstoreKickoffStandaloneDeleteSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─── AUDIT [6] : kill switch — pause = aucune suppression envoyée ──
+describe("deleteProductsOnAnkorstore — kill switch", () => {
+  it("Ankorstore désactivé : aucune suppression envoyée + status error explicite", async () => {
+    ankorstoreEnabledSpy.mockResolvedValue(false);
+
+    const results = await deleteProductsOnAnkorstore([
+      { ankorsProductId: "ank-1", reference: "REF-1" },
+      { ankorsProductId: "ank-2", reference: "REF-2" },
+    ]);
+
+    // Aucun appel à Ankorstore ni à Prisma
+    expect(ankorstoreKickoffStandaloneDeleteSpy).not.toHaveBeenCalled();
+    expect(productFindManySpy).not.toHaveBeenCalled();
+
+    // Chaque item en error avec un message qui mentionne "désactivé"
+    expect(results).toHaveLength(2);
+    for (const r of results) {
+      expect(r.status).toBe("error");
+      expect(r.message).toMatch(/désactivé/i);
+    }
+  });
+
+  it("Ankorstore activé : comportement normal", async () => {
+    ankorstoreEnabledSpy.mockResolvedValue(true);
+    productFindManySpy.mockResolvedValue([
+      { id: "p-1", ankorsProductId: "ank-1" },
+    ]);
+    ankorstoreKickoffStandaloneDeleteSpy.mockResolvedValueOnce({
+      success: true,
+      operationId: "op-1",
+    });
+
+    const results = await deleteProductsOnAnkorstore([
+      { ankorsProductId: "ank-1", reference: "REF-1" },
+    ]);
+
+    expect(ankorstoreKickoffStandaloneDeleteSpy).toHaveBeenCalledOnce();
+    expect(results[0].status).toBe("ok");
+  });
+});
+
+describe("deleteProductsOnEfashion — kill switch", () => {
+  it("eFashion désactivé : aucune suppression envoyée", async () => {
+    efashionEnabledSpy.mockResolvedValue(false);
+
+    const results = await deleteProductsOnEfashion([
+      { efashionProductId: 100, reference: "REF-1" },
+      { efashionProductId: 101, reference: "REF-2" },
+    ]);
+
+    expect(efashionDeleteShootingProductSpy).not.toHaveBeenCalled();
+    expect(results).toHaveLength(2);
+    for (const r of results) {
+      expect(r.status).toBe("error");
+      expect(r.message).toMatch(/désactivé/i);
+    }
+  });
+
+  it("eFashion activé : comportement normal", async () => {
+    efashionEnabledSpy.mockResolvedValue(true);
+    efashionDeleteShootingProductSpy.mockResolvedValue(undefined);
+
+    const results = await deleteProductsOnEfashion([
+      { efashionProductId: 100, reference: "REF-1" },
+    ]);
+
+    expect(efashionDeleteShootingProductSpy).toHaveBeenCalledOnce();
+    expect(results[0].status).toBe("ok");
   });
 });

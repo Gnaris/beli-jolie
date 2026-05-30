@@ -143,6 +143,81 @@ export async function efashionListProducts(opts: {
 }
 
 /**
+ * Liste **toutes les lignes eFashion dont `reference_base` correspond
+ * exactement** à celle demandée, en paginant l'API jusqu'à ce qu'on ait
+ * tout ramassé.
+ *
+ * Pourquoi cette fonction et pas `efashionListProducts` direct :
+ *  1. Le filtre `reference` côté eFashion est PARTIEL ("contient") : une
+ *     requête avec `reference: "A11"` ramène aussi A1100, A1101…A1199, A11A,
+ *     A1134, etc. Sur certains comptes, ça fait plusieurs centaines de
+ *     lignes, et les fiches historiques (comme A11) atterrissent loin dans
+ *     la pagination.
+ *  2. L'API trie par `dateCreation DESC` — donc les vieilles fiches sortent
+ *     en dernier. Un simple `take: 100` les rate systématiquement.
+ *  3. ⚠️ Comportement non standard : `skip` est interprété comme un curseur
+ *     par **chunk** (de taille `take`), pas comme un offset par item. L'API
+ *     renvoie souvent plus d'items que le `take` demandé (sans duplication
+ *     entre chunks). Conséquence : on doit incrémenter `skip` strictement
+ *     de `PAGE_SIZE`, pas de `items.length`, sinon on saute par-dessus les
+ *     chunks suivants.
+ *
+ * Garanties :
+ *  - Retourne uniquement les items dont `reference_base.toLowerCase().trim()`
+ *    correspond exactement à celui demandé (filtre strict).
+ *  - Boucle bornée à `MAX_PAGES` pour empêcher tout enchaînement infini en
+ *    cas d'API qui ne se vide jamais.
+ *  - S'arrête tôt si on a déjà au moins un match exact et que la page
+ *    courante n'en apporte aucun nouveau (court-circuit pour les références
+ *    très partagées).
+ *
+ * Pas d'I/O en dehors de `efashionListProducts` → testable en injectant un
+ * `listFn` mocké.
+ */
+export async function efashionListByReferenceBaseExact(opts: {
+  idVendeur: number;
+  referenceBase: string;
+  premelFilter?: EfashionPremelFilter;
+  pageSize?: number;
+  maxPages?: number;
+  /** Hook test-only : remplace l'appel API par une fonction mock. */
+  listFn?: typeof efashionListProducts;
+}): Promise<EfashionProductListItem[]> {
+  const PAGE_SIZE = opts.pageSize ?? 50;
+  const MAX_PAGES = opts.maxPages ?? 30;
+  const needle = opts.referenceBase.toLowerCase().trim();
+  const premelFilter = opts.premelFilter ?? "tous";
+  const listFn = opts.listFn ?? efashionListProducts;
+
+  const collected: EfashionProductListItem[] = [];
+  let exactMatchesSoFar = 0;
+  let skip = 0;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const res = await listFn({
+      idVendeur: opts.idVendeur,
+      take: PAGE_SIZE,
+      skip,
+      reference: opts.referenceBase,
+      premelFilter,
+    });
+    if (res.items.length === 0) break;
+    collected.push(...res.items);
+    const newExact = res.items.filter(
+      (it) => (it.reference_base ?? "").toLowerCase().trim() === needle,
+    ).length;
+    const totalExact = exactMatchesSoFar + newExact;
+    skip += PAGE_SIZE;
+    if (totalExact > 0 && newExact === 0) break;
+    exactMatchesSoFar = totalExact;
+  }
+
+  return collected.filter(
+    (it) => (it.reference_base ?? "").toLowerCase().trim() === needle,
+  );
+}
+
+/**
  * Récupère { user, total } en une seule passe — utile pour l'écran
  * « Tester la connexion » pour afficher le statut complet.
  */

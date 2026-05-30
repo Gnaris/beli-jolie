@@ -1,0 +1,76 @@
+/**
+ * Recalcul des totaux d'une commande après modification d'articles (admin).
+ *
+ * Centralisé ici parce que les server actions `modifyOrderItems`,
+ * `revertOrderItemModification` et `revertAllOrderItemModifications` faisaient
+ * tous les trois le même calcul, qui oubliait de réappliquer la remise
+ * commerciale du client (cf. AUDIT 2026-05-29 — point [4]).
+ *
+ * Fonction pure pour pouvoir être testée sans Prisma.
+ */
+
+export type ClientDiscountType = "PERCENT" | "AMOUNT" | null;
+
+export interface OrderTotalsInput {
+  /** Lignes de la commande après modification. `lineTotal` = qty × unitPrice. */
+  items: { lineTotal: number | string | { toNumber?: () => number } }[];
+  tvaRate: number; // ex 0.20
+  carrierPrice: number | string | { toNumber?: () => number };
+  clientDiscountType: ClientDiscountType;
+  clientDiscountValue: number | string | { toNumber?: () => number } | null;
+}
+
+export interface OrderTotalsResult {
+  /** Somme des lineTotal AVANT remise commerciale. */
+  preDiscountSubtotal: number;
+  /** Montant de la remise commerciale appliquée (>= 0, plafonné au sous-total). */
+  clientDiscountAmt: number;
+  /** Sous-total HT après remise (ce qui est stocké dans `Order.subtotalHT`). */
+  subtotalHT: number;
+  tvaAmount: number;
+  totalTTC: number;
+}
+
+function toNumber(value: unknown): number {
+  if (value == null) return 0;
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return Number(value);
+  if (typeof value === "object" && "toNumber" in (value as object)) {
+    const fn = (value as { toNumber?: unknown }).toNumber;
+    if (typeof fn === "function") return Number((fn as () => number).call(value));
+  }
+  return Number(value);
+}
+
+export function recomputeOrderTotals(input: OrderTotalsInput): OrderTotalsResult {
+  const preDiscountSubtotal = input.items.reduce(
+    (sum, item) => sum + toNumber(item.lineTotal),
+    0,
+  );
+
+  let clientDiscountAmt = 0;
+  const discountValue = toNumber(input.clientDiscountValue);
+  if (input.clientDiscountType && discountValue > 0) {
+    if (input.clientDiscountType === "PERCENT") {
+      clientDiscountAmt = preDiscountSubtotal * (discountValue / 100);
+    } else {
+      // AMOUNT : remise fixe en euros
+      clientDiscountAmt = discountValue;
+    }
+    // La remise ne peut jamais dépasser le sous-total (commande à 0 max).
+    clientDiscountAmt = Math.min(preDiscountSubtotal, clientDiscountAmt);
+    if (clientDiscountAmt < 0) clientDiscountAmt = 0;
+  }
+
+  const subtotalHT = Math.max(0, preDiscountSubtotal - clientDiscountAmt);
+  const tvaAmount = subtotalHT * input.tvaRate;
+  const totalTTC = subtotalHT + tvaAmount + toNumber(input.carrierPrice);
+
+  return {
+    preDiscountSubtotal,
+    clientDiscountAmt,
+    subtotalHT,
+    tvaAmount,
+    totalTTC,
+  };
+}

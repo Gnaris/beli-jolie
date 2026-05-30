@@ -265,3 +265,171 @@ describe("placeOrder — vérification du montant Stripe (P1-07)", () => {
     expect(res.success).toBe(true);
   });
 });
+
+// ── PACK : décrémentation = qty × packQuantity (anti-sur-vente paquets) ──
+describe("placeOrder — décrémentation stock pour les PACK", () => {
+  const packVariant = {
+    id: "var-pack",
+    productId: "prod-pack",
+    colorId: "color-1",
+    saleType: "PACK" as const,
+    packQuantity: 12,
+    weight: 0.05,
+    unitPrice: 120, // prix total du pack
+    product: {
+      id: "prod-pack",
+      name: "Pack boucles",
+      reference: "BO-PACK",
+      status: "ONLINE",
+      discountPercent: null,
+      category: { name: "Boucles" },
+    },
+    color: { id: "color-1", name: "Or", hex: "#FFD700" },
+    variantSizes: [{ size: { name: "TU" }, quantity: 12 }],
+    packLines: [],
+  };
+
+  it("1 pack de 12 → updateMany décrémente 12 unités (pas 1)", async () => {
+    mockPrisma.cart.findUnique.mockResolvedValue({
+      id: "cart-1",
+      items: [{ quantity: 1, variant: packVariant }],
+    });
+    // 120€ HT × 1 × 1.20 = 144€ TTC = 14400 centimes
+    mockStripe.paymentIntents.retrieve.mockResolvedValue({
+      status: "succeeded",
+      amount: 14400,
+    });
+
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const stockCreateMany = vi.fn().mockResolvedValue({ count: 1 });
+    mockPrisma.$transaction.mockImplementation(async (callback) => {
+      const tx = {
+        productColor: { updateMany, findUnique: vi.fn() },
+        order: {
+          create: vi.fn().mockResolvedValue({
+            id: "order-pack",
+            orderNumber: "ZZZZZZZZ",
+            createdAt: new Date(),
+            promoCode: null,
+            promoDiscount: 0,
+            creditApplied: 0,
+          }),
+        },
+        stockMovement: { createMany: stockCreateMany },
+      };
+      return callback(tx);
+    });
+
+    const res = await placeOrder(baseInput);
+
+    expect(res.success).toBe(true);
+    // Clé : on retire 12 du stock, pas 1
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "var-pack", stock: { gte: 12 } },
+        data: { stock: { decrement: 12 } },
+      }),
+    );
+    // Mouvement de stock cohérent
+    const movementArg = stockCreateMany.mock.calls[0][0];
+    expect(movementArg.data[0]).toMatchObject({
+      productColorId: "var-pack",
+      quantity: -12,
+      type: "ORDER",
+      orderId: "order-pack",
+    });
+  });
+
+  it("3 packs de 12 → décrémente 36 unités", async () => {
+    mockPrisma.cart.findUnique.mockResolvedValue({
+      id: "cart-1",
+      items: [{ quantity: 3, variant: packVariant }],
+    });
+    // 120€ HT × 3 × 1.20 = 432€ TTC = 43200 centimes
+    mockStripe.paymentIntents.retrieve.mockResolvedValue({
+      status: "succeeded",
+      amount: 43200,
+    });
+
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    mockPrisma.$transaction.mockImplementation(async (callback) => {
+      const tx = {
+        productColor: { updateMany, findUnique: vi.fn() },
+        order: {
+          create: vi.fn().mockResolvedValue({
+            id: "order-pack",
+            orderNumber: "YYYYYYYY",
+            createdAt: new Date(),
+            promoCode: null,
+            promoDiscount: 0,
+            creditApplied: 0,
+          }),
+        },
+        stockMovement: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      };
+      return callback(tx);
+    });
+
+    const res = await placeOrder(baseInput);
+    expect(res.success).toBe(true);
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "var-pack", stock: { gte: 36 } },
+        data: { stock: { decrement: 36 } },
+      }),
+    );
+  });
+
+  it("Refuse une commande contenant un produit ARCHIVED (panier vieux)", async () => {
+    const archivedVariant = {
+      ...packVariant,
+      product: { ...packVariant.product, status: "ARCHIVED" },
+    };
+    mockPrisma.cart.findUnique.mockResolvedValue({
+      id: "cart-1",
+      items: [{ quantity: 1, variant: archivedVariant }],
+    });
+
+    const res = await placeOrder(baseInput);
+
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error).toMatch(/n'est plus disponible/i);
+      expect(res.error).toMatch(/Pack boucles/);
+    }
+    // Pas d'appel Stripe ni transaction stock
+    expect(mockStripe.paymentIntents.retrieve).not.toHaveBeenCalled();
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("Stock insuffisant : message exprime le manque en paquets", async () => {
+    mockPrisma.cart.findUnique.mockResolvedValue({
+      id: "cart-1",
+      items: [{ quantity: 1, variant: packVariant }],
+    });
+    mockStripe.paymentIntents.retrieve.mockResolvedValue({
+      status: "succeeded",
+      amount: 14400,
+    });
+
+    mockPrisma.$transaction.mockImplementation(async (callback) => {
+      const tx = {
+        productColor: {
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+          findUnique: vi.fn().mockResolvedValue({ stock: 8 }), // 8 unités < 12
+        },
+        order: { create: vi.fn() },
+        stockMovement: { createMany: vi.fn() },
+      };
+      return callback(tx);
+    });
+
+    const res = await placeOrder(baseInput);
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      // Pour la cliente : "il en reste 0 paquets" (8 unités / 12 = 0 paquet)
+      expect(res.error).toMatch(/0 paquet/);
+      expect(res.error).toMatch(/Pack boucles/);
+    }
+  });
+});

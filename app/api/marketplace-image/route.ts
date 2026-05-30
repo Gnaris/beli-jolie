@@ -3,6 +3,7 @@ import { readFile, keyFromDbPath } from "@/lib/storage";
 import {
   ensureMinWidth,
   guessContentType,
+  isSafeMarketplaceImagePath,
   MIN_MARKETPLACE_WIDTH,
 } from "@/lib/marketplace-image";
 import { logger } from "@/lib/logger";
@@ -20,10 +21,11 @@ import { logger } from "@/lib/logger";
  * `/uploads/...`. Cette route ne fait que les re-servir avec une largeur
  * garantie minimale.
  */
+
 export async function GET(request: NextRequest) {
   const dbPath = new URL(request.url).searchParams.get("path");
 
-  if (!dbPath || !dbPath.startsWith("/uploads/")) {
+  if (!isSafeMarketplaceImagePath(dbPath)) {
     return NextResponse.json({ error: "Chemin invalide." }, { status: 400 });
   }
 

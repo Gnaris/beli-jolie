@@ -79,6 +79,32 @@ export async function ensureMinWidth(
 }
 
 /**
+ * Validation stricte du chemin demandé sur /api/marketplace-image.
+ *
+ * Refuse tout chemin qui pourrait sortir du dossier `public/uploads`
+ * (path traversal vers `private/uploads` : factures, KBIS, etc.).
+ * `resolveKey` côté storage rejette déjà ces chemins en levant une
+ * exception, mais on coupe ici en amont avec une 400 explicite plutôt
+ * que de s'appuyer sur le 404 fallback du try/catch.
+ *
+ * Règles :
+ *  - commence par `/uploads/`
+ *  - extension d'image classique (webp/jpg/jpeg/png/gif/avif)
+ *  - aucun `..`, antislash, null byte ou caractère `%` (anti-encodage trompeur)
+ *  - alphabet limité (lettres ASCII, chiffres, point, tiret, underscore, slash)
+ */
+const SAFE_MARKETPLACE_PATH = /^\/uploads\/[A-Za-z0-9._\-/]+\.(webp|jpe?g|png|gif|avif)$/i;
+
+export function isSafeMarketplaceImagePath(rawPath: string | null): rawPath is string {
+  if (!rawPath) return false;
+  if (rawPath.includes("..")) return false;
+  if (rawPath.includes("\\")) return false;
+  if (rawPath.includes("\0")) return false;
+  if (rawPath.includes("%")) return false;
+  return SAFE_MARKETPLACE_PATH.test(rawPath);
+}
+
+/**
  * Devine le Content-Type à partir de l'extension du chemin.
  * Utilisé pour servir le buffer original sans le re-encoder quand
  * l'image est déjà assez large.

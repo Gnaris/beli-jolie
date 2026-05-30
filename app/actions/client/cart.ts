@@ -156,12 +156,23 @@ export async function getCartCount(): Promise<number> {
 export async function addToCart(variantId: string, quantity: number = 1) {
   const userId = await requireClient();
 
-  // Validate stock before adding
+  // Validate stock before adding + refuse silencieusement les produits qui ne
+  // sont plus en ligne (statut OFFLINE/ARCHIVED/SYNCING). Sans ce garde-fou,
+  // une page produit déjà ouverte dans un onglet permet de continuer à
+  // commander un produit que l'admin vient d'archiver.
   const variant = await prisma.productColor.findUnique({
     where: { id: variantId },
-    select: { stock: true, saleType: true, packQuantity: true },
+    select: {
+      stock: true,
+      saleType: true,
+      packQuantity: true,
+      product: { select: { status: true } },
+    },
   });
   if (!variant) throw new Error("Variante introuvable.");
+  if (variant.product.status !== "ONLINE") {
+    throw new Error("Ce produit n'est plus disponible à la vente.");
+  }
 
   const effectiveStock = variant.saleType === "PACK" && variant.packQuantity
     ? Math.floor(variant.stock / variant.packQuantity)
@@ -204,7 +215,16 @@ export async function updateCartItem(cartItemId: string, quantity: number) {
   // Vérifier que l'item appartient bien à l'utilisateur
   const item = await prisma.cartItem.findFirst({
     where: { id: cartItemId, cart: { userId } },
-    include: { variant: { select: { stock: true, saleType: true, packQuantity: true } } },
+    include: {
+      variant: {
+        select: {
+          stock: true,
+          saleType: true,
+          packQuantity: true,
+          product: { select: { status: true } },
+        },
+      },
+    },
   });
   if (!item) throw new Error("Article introuvable.");
 
@@ -212,6 +232,11 @@ export async function updateCartItem(cartItemId: string, quantity: number) {
     await prisma.cartItem.delete({ where: { id: cartItemId } });
   } else {
     const v = item.variant;
+    // On laisse toujours diminuer/supprimer (`quantity <= 0` couvert plus haut),
+    // mais on refuse d'augmenter une ligne si le produit n'est plus en ligne.
+    if (v.product.status !== "ONLINE") {
+      throw new Error("Ce produit n'est plus disponible à la vente.");
+    }
     const effectiveStock = v.saleType === "PACK" && v.packQuantity
       ? Math.floor(v.stock / v.packQuantity)
       : v.stock;

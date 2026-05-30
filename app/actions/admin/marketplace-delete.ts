@@ -5,6 +5,10 @@ import { authOptions } from "@/lib/auth";
 import { pfsDeleteProduct } from "@/lib/pfs-api-write";
 import { ankorstoreKickoffStandaloneDelete } from "@/lib/ankorstore-delete";
 import { efashionDeleteShootingProduct } from "@/lib/efashion-shootings";
+import {
+  getCachedAnkorstoreEnabled,
+  getCachedEfashionEnabled,
+} from "@/lib/cached-data";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 
@@ -82,6 +86,24 @@ export async function deleteProductsOnAnkorstore(
   items: { ankorsProductId: string; reference: string }[],
 ): Promise<AnkorstoreDeleteOutcome[]> {
   await requireAdmin();
+
+  // Kill switch : si Ankorstore est désactivé dans Paramètres > Marketplaces,
+  // on n'envoie RIEN. Sinon, mettre Ankorstore en pause ne suffit pas à
+  // empêcher la propagation des suppressions locales — la cliente croit
+  // avoir mis en pause mais ses produits disparaissent quand même.
+  const ankorstoreEnabled = await getCachedAnkorstoreEnabled();
+  if (!ankorstoreEnabled) {
+    logger.info("[Marketplace Delete] Ankorstore disabled, skipping all deletes", {
+      itemCount: items.length,
+    });
+    return items.map((item) => ({
+      ankorsProductId: item.ankorsProductId,
+      reference: item.reference,
+      status: "error" as const,
+      message: "Ankorstore désactivé dans les paramètres — aucune suppression envoyée.",
+    }));
+  }
+
   const results: AnkorstoreDeleteOutcome[] = [];
 
   // Resolve productId from ankorsProductId for each item (FK on AnkorstoreOperation)
@@ -164,6 +186,22 @@ export async function deleteProductsOnEfashion(
   items: Array<{ efashionProductId: number; reference: string }>,
 ): Promise<EfashionDeleteOutcome[]> {
   await requireAdmin();
+
+  // Kill switch : si eFashion est désactivé dans Paramètres > Marketplaces,
+  // on n'envoie RIEN (cohérent avec Ankorstore).
+  const efashionEnabled = await getCachedEfashionEnabled();
+  if (!efashionEnabled) {
+    logger.info("[Marketplace Delete] eFashion disabled, skipping all deletes", {
+      itemCount: items.length,
+    });
+    return items.map((item) => ({
+      efashionProductId: item.efashionProductId,
+      reference: item.reference,
+      status: "error" as const,
+      message: "eFashion désactivé dans les paramètres — aucune suppression envoyée.",
+    }));
+  }
+
   const results: EfashionDeleteOutcome[] = [];
   for (const item of items) {
     try {

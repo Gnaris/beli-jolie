@@ -22,7 +22,7 @@ import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
-  efashionListProducts,
+  efashionListByReferenceBaseExact,
   efashionGetMe,
   type EfashionProductListItem,
 } from "@/lib/efashion-api";
@@ -233,56 +233,16 @@ export async function previewEfashionMatchByReference(
 
     const vendor = await efashionGetMe();
 
-    // ⚠️ Pagination obligatoire :
-    //  1) On cherche dans TOUS les statuts (en_ligne + brouillon + supprimés).
-    //     Cas typique : produit créé manuellement chez eFashion et encore en
-    //     brouillon → il ne ressortait pas du `premelFilter: "en_ligne"`.
-    //  2) Le filtre `reference` côté eFashion est PARTIEL ("contient") : "A11"
-    //     ramène A11, A110, A1100…A1199, A11A, etc. — souvent >100 lignes.
-    //     L'API étant triée par dateCreation DESC, les produits historiques
-    //     (comme A11) atterrissent loin dans la pagination.
-    //  3) ⚠️ Comportement non standard de l'API : `skip` est interprété comme
-    //     un curseur par **chunk** (de taille PAGE_SIZE), pas comme un offset
-    //     par item. L'API renvoie souvent plus d'items que le `take` demandé
-    //     (sans duplication entre chunks). Conséquence : on doit incrémenter
-    //     `skip` strictement de PAGE_SIZE, pas de `items.length`, sinon on
-    //     saute par-dessus les chunks suivants et on rate la cible.
-    //  4) On stoppe quand une page revient vide ou quand on a déjà collecté
-    //     au moins un match exact (`reference_base === needle`) ET qu'aucun
-    //     nouveau match exact n'est apparu sur la page courante — ça borne le
-    //     coût sur les références très partagées.
-    const needle = referenceBase.toLowerCase().trim();
-    const PAGE_SIZE = 50;
-    const MAX_PAGES = 30; // borne dure (~1500 chunks) — empêche la boucle infinie
-    const collectedItems: EfashionProductListItem[] = [];
-    let exactMatchesSoFar = 0;
-    let skip = 0;
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const pageRes = await efashionListProducts({
-        idVendeur: vendor.id_vendeur,
-        take: PAGE_SIZE,
-        skip,
-        reference: referenceBase,
-        premelFilter: "tous",
-      });
-      if (pageRes.items.length === 0) break;
-      collectedItems.push(...pageRes.items);
-      const newExact = pageRes.items.filter(
-        (it) => (it.reference_base ?? "").toLowerCase().trim() === needle,
-      ).length;
-      const totalExact = exactMatchesSoFar + newExact;
-      // ⚠️ Voir commentaire (3) ci-dessus : skip += PAGE_SIZE strict.
-      skip += PAGE_SIZE;
-      // Court-circuit : si on a déjà au moins un match exact ET que cette
-      // page n'en a apporté aucun, on arrête (les pages suivantes ne ramèneront
-      // probablement que des références non-exactes plus anciennes).
-      if (totalExact > 0 && newExact === 0) break;
-      exactMatchesSoFar = totalExact;
-    }
-
-    const filteredItems = collectedItems.filter(
-      (it) => (it.reference_base ?? "").toLowerCase().trim() === needle,
-    );
+    // Recherche paginée + filtre strict — délégué à
+    // `efashionListByReferenceBaseExact` (voir lib/efashion-api.ts pour le
+    // détail). « tous » plutôt que « en_ligne » : on couvre aussi les fiches
+    // en brouillon ou soft-deleted, sinon les produits créés manuellement
+    // côté eFashion en brouillon ne ressortent pas.
+    const filteredItems = await efashionListByReferenceBaseExact({
+      idVendeur: vendor.id_vendeur,
+      referenceBase,
+      premelFilter: "tous",
+    });
 
     // Groupage par Color.id : on agrège les variantes UNIT et PACK partageant
     // la même couleur. eFashion ne synchronise QUE les variantes UNIT (cf.
@@ -672,7 +632,9 @@ export async function createLocalVariantFromEfashionLine(
   try {
     await requireAdmin();
 
-    const { efashionGetMe, efashionListProducts } = await import("@/lib/efashion-api");
+    const { efashionGetMe, efashionListByReferenceBaseExact } = await import(
+      "@/lib/efashion-api"
+    );
     const { loadEfashionMarkup } = await import("@/lib/efashion-pricing");
     const { generateSku } = await import("@/lib/sku");
 
@@ -696,15 +658,18 @@ export async function createLocalVariantFromEfashionLine(
       };
     }
 
-    // 1. Récupère la ligne eFashion exacte
+    // 1. Récupère la ligne eFashion exacte — pagination obligatoire
+    // (cf. lib/efashion-api.ts pour le détail). Pour les vieilles fiches
+    // (A11, A21…), `reference` partiel + tri DESC les rejette en fin de
+    // pagination ; sans boucle, on retombe sur l'erreur « plus visible »
+    // alors que la ligne existe.
     const vendor = await efashionGetMe();
-    const list = await efashionListProducts({
+    const items = await efashionListByReferenceBaseExact({
       idVendeur: vendor.id_vendeur,
-      take: 100,
-      reference: product.efashionReferenceBase,
-      premelFilter: "en_ligne",
+      referenceBase: product.efashionReferenceBase,
+      premelFilter: "tous",
     });
-    const efLine = list.items.find((it) => it.id_produit === efashionProductId);
+    const efLine = items.find((it) => it.id_produit === efashionProductId);
     if (!efLine) {
       return {
         success: false,

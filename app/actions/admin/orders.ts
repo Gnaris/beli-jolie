@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { notifyOrderStatusChange, notifyClientOrderModified } from "@/lib/notifications";
 import { reinstateStockForOrder } from "@/lib/stock";
+import { recomputeOrderTotals } from "@/lib/order-totals";
 import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
@@ -170,20 +171,27 @@ export async function modifyOrderItems(
         });
       }
 
-      // Recalculate order totals
+      // Recalculate order totals. On réapplique la remise commerciale
+      // (PERCENT ou AMOUNT) sur le nouveau sous-total — sinon le PDF, le
+      // total affiché et ce que Stripe a encaissé divergent.
       const updatedItems = await tx.orderItem.findMany({
         where: { orderId },
       });
-      const subtotalHT = updatedItems.reduce((sum, i) => sum + Number(i.lineTotal), 0);
-      const tvaAmount = subtotalHT * order.tvaRate;
-      const totalTTC = subtotalHT + tvaAmount + Number(order.carrierPrice);
+      const totals = recomputeOrderTotals({
+        items: updatedItems,
+        tvaRate: order.tvaRate,
+        carrierPrice: order.carrierPrice,
+        clientDiscountType: order.clientDiscountType,
+        clientDiscountValue: order.clientDiscountValue,
+      });
 
       await tx.order.update({
         where: { id: orderId },
         data: {
-          subtotalHT,
-          tvaAmount,
-          totalTTC,
+          subtotalHT: totals.subtotalHT,
+          tvaAmount: totals.tvaAmount,
+          totalTTC: totals.totalTTC,
+          clientDiscountAmt: totals.clientDiscountAmt,
         },
       });
     });
@@ -254,16 +262,25 @@ export async function revertOrderItemModification(
       // Delete modification record
       await tx.orderItemModification.delete({ where: { id: mod.id } });
 
-      // Recalculate order totals
+      // Recalculate order totals (avec la remise commerciale du client)
       const order = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
       const updatedItems = await tx.orderItem.findMany({ where: { orderId } });
-      const subtotalHT = updatedItems.reduce((sum, i) => sum + Number(i.lineTotal), 0);
-      const tvaAmount = subtotalHT * order.tvaRate;
-      const totalTTC = subtotalHT + tvaAmount + Number(order.carrierPrice);
+      const totals = recomputeOrderTotals({
+        items: updatedItems,
+        tvaRate: order.tvaRate,
+        carrierPrice: order.carrierPrice,
+        clientDiscountType: order.clientDiscountType,
+        clientDiscountValue: order.clientDiscountValue,
+      });
 
       await tx.order.update({
         where: { id: orderId },
-        data: { subtotalHT, tvaAmount, totalTTC },
+        data: {
+          subtotalHT: totals.subtotalHT,
+          tvaAmount: totals.tvaAmount,
+          totalTTC: totals.totalTTC,
+          clientDiscountAmt: totals.clientDiscountAmt,
+        },
       });
     });
 
@@ -310,16 +327,25 @@ export async function revertAllOrderItemModifications(
       // Delete all modification records
       await tx.orderItemModification.deleteMany({ where: { orderId } });
 
-      // Recalculate order totals
+      // Recalculate order totals (avec la remise commerciale du client)
       const order = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
       const updatedItems = await tx.orderItem.findMany({ where: { orderId } });
-      const subtotalHT = updatedItems.reduce((sum, i) => sum + Number(i.lineTotal), 0);
-      const tvaAmount = subtotalHT * order.tvaRate;
-      const totalTTC = subtotalHT + tvaAmount + Number(order.carrierPrice);
+      const totals = recomputeOrderTotals({
+        items: updatedItems,
+        tvaRate: order.tvaRate,
+        carrierPrice: order.carrierPrice,
+        clientDiscountType: order.clientDiscountType,
+        clientDiscountValue: order.clientDiscountValue,
+      });
 
       await tx.order.update({
         where: { id: orderId },
-        data: { subtotalHT, tvaAmount, totalTTC },
+        data: {
+          subtotalHT: totals.subtotalHT,
+          tvaAmount: totals.tvaAmount,
+          totalTTC: totals.totalTTC,
+          clientDiscountAmt: totals.clientDiscountAmt,
+        },
       });
     });
 

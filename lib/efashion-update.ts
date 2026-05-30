@@ -238,25 +238,26 @@ export async function efashionUpdateProductInPlace(
     if (liveFetched) return;
     liveFetched = true;
     try {
-      const { efashionGetMe, efashionListProducts } = await import("@/lib/efashion-api");
+      const { efashionGetMe, efashionListByReferenceBaseExact } = await import(
+        "@/lib/efashion-api"
+      );
       const me = await efashionGetMe();
       efashionVendorId = me.id_vendeur;
-      const list = await efashionListProducts({
+      // ⚠️ Pagination obligatoire — voir lib/efashion-api.ts pour le détail.
+      // `reference: "A11"` côté eFashion remonte aussi A1100, A1134, A1161…
+      // et trie par dateCreation DESC, donc les fiches historiques sortent en
+      // dernier. Sans pagination, on ratait les liens existants → liveById vide
+      // → bascule main + payload complet sautés + propagation de visible:false
+      // aux autres couleurs du groupe.
+      const items = await efashionListByReferenceBaseExact({
         idVendeur: me.id_vendeur,
-        take: 100,
-        reference: product!.efashionReferenceBase!,
+        referenceBase: product!.efashionReferenceBase!,
         // « tous » plutôt que « en_ligne » : on a besoin de voir aussi les
         // couleurs en brouillon pour pouvoir auto-lier une couleur locale qui
         // existe déjà côté eFashion mais n'a pas encore été publiée.
         premelFilter: "tous",
       });
-      for (const it of list.items) {
-        if (
-          (it.reference_base ?? "").toLowerCase().trim() !==
-          product!.efashionReferenceBase!.toLowerCase().trim()
-        ) {
-          continue;
-        }
+      for (const it of items) {
         liveById.set(it.id_produit, {
           reference: it.reference,
           reference_base: it.reference_base ?? null,
@@ -957,61 +958,18 @@ export async function efashionUpdateProductInPlace(
     );
   }
 
-  // ⚠️ Ordre crucial : la couleur eFashion `main=true` propage ses valeurs aux
-  // autres couleurs liées. On l'envoie en PREMIER, puis les non-main après
-  // (qui restent isolées et conservent leur prix/poids spécifique). Sans cet
-  // ordre, un update sur la main APRÈS un non-main écrase le non-main qu'on
-  // venait de poser. Découvert via HAR de leur UI (mai 2026).
-  variantsToUpdate.sort((a, b) => {
-    const aMain = liveById.get(a.variant.efashionProductId)?.main ? 1 : 0;
-    const bMain = liveById.get(b.variant.efashionProductId)?.main ? 1 : 0;
-    return bMain - aMain; // main (1) avant non-main (0)
-  });
-
-  for (const { variant, fields } of variantsToUpdate) {
-    try {
-      const live = liveById.get(variant.efashionProductId);
-      const input: Parameters<typeof efashionUpdateProduit>[0] = {
-        id_produit: variant.efashionProductId,
-      };
-      // Recopie des champs « stables » lus chez eFashion — sans ça, eFashion
-      // propage prix/poids/visible à toutes les couleurs.
-      if (live) {
-        input.reference = live.reference;
-        if (live.reference_base) input.reference_base = live.reference_base;
-        if (live.id_collection !== null) input.id_collection = live.id_collection;
-        if (live.id_categorie !== null) input.id_categorie = live.id_categorie;
-        if (live.id_provenance !== null) input.id_provenance = live.id_provenance;
-        if (live.id_declinaison !== null) input.id_declinaison = live.id_declinaison;
-        if (live.id_pack !== null) input.id_pack = live.id_pack;
-        if (live.vendu_par === "couleurs" || live.vendu_par === "tailles") {
-          input.vendu_par = live.vendu_par;
-        }
-        if (live.id_vendeur_marque !== null) input.id_vendeur_marque = live.id_vendeur_marque;
-        input.prixReduit = null;
-      }
-      // Champs qu'on veut effectivement modifier.
-      if (fields.includes("visible")) input.visible = variant.visible;
-      if (fields.includes("prix")) input.prix = variant.prix;
-      if (fields.includes("poids")) input.poids = variant.poids;
-
-      await efashionUpdateProduit(input);
-      variantsUpdated++;
-      logger.info("[eFashion update] updateProduit OK", {
-        efId: variant.efashionProductId,
-        prix: input.prix,
-        poids: input.poids,
-        visible: input.visible,
-        fullPayload: !!live,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`updateProduit(${variant.efashionProductId}): ${msg}`);
-    }
-  }
-
-  // Stock — batch par variant. On utilise `id_couleur` qu'on retrouve via le mapping
-  // local : pour chaque efashionProductId, on retrouve sa Color.efashionColorId.
+  // ─────────────────────────────────────────────────────────────────────
+  // Stock — DOIT être poussé AVANT updateProduit
+  // ─────────────────────────────────────────────────────────────────────
+  // ⚠️ eFashion **refuse silencieusement `visible=true`** quand le
+  // `stock_value` côté eFashion est encore à 0 — la mutation `updateProduit`
+  // renvoie `visible:true` dans la réponse mais l'état persisté reste
+  // `visible:false`. Et comme la main propage visible aux non-main du groupe,
+  // une seule couleur bloquée à false fait basculer tout le groupe en caché.
+  // Reproduit sur F137 (Argent stock=0 côté eFashion, BJ=1000) le 2026-05-30 :
+  // pousser stocks AVANT updateProduit débloque `visible=true` proprement.
+  //
+  // Le mapping `id_couleur` est partagé avec le bloc updateProduit qui suit.
   const efIdToColorId = new Map<number, number | null>();
   const colorRows = await prisma.color.findMany({
     where: {
@@ -1053,6 +1011,11 @@ export async function efashionUpdateProductInPlace(
       errors.push(`saveProduitStocks(${efId}): ${msg}`);
     }
   }
+
+  // (Le bloc updateProduit a été déplacé APRÈS la sync photos — voir plus bas
+  // pour la raison : `efashionDeleteProductPhoto` qui vide la liste des photos
+  // d'une couleur force `visible=false` côté eFashion. Si on pose visible=true
+  // AVANT la purge photos, il est écrasé.)
 
   // Descriptions multilingues — toutes les couleurs d'un même produit BJ
   // partagent la même description, mais côté eFashion chaque couleur est un
@@ -1247,6 +1210,70 @@ export async function efashionUpdateProductInPlace(
     }
   } else {
     logger.info("[eFashion] Photos inchangées, skip", { productId });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // updateProduit (visible / prix / poids) — DOIT venir EN DERNIER
+  // ─────────────────────────────────────────────────────────────────────
+  // ⚠️ Découvert le 2026-05-30 sur F137 : quand `efashionDeleteProductPhoto`
+  // vide la liste des photos d'une couleur (étape de purge avant re-upload),
+  // eFashion force `visible=false` automatiquement sur cette couleur (logique
+  // back « produit sans photo = caché »). L'upload qui suit ne le remet PAS
+  // à `true`. Donc poser `visible=true` AVANT la sync photos est inutile —
+  // il faut le poser APRÈS pour avoir le dernier mot.
+  //
+  // ⚠️ Ordre crucial à l'intérieur de la boucle : la couleur eFashion
+  // `main=true` propage ses valeurs aux autres couleurs liées si on envoie
+  // un payload partiel. On l'envoie en PREMIER, puis les non-main après
+  // (qui restent isolées et conservent leur prix/poids spécifique). Sans
+  // cet ordre, un update sur la main APRÈS un non-main écrase le non-main
+  // qu'on venait de poser. Découvert via HAR de leur UI (mai 2026).
+  variantsToUpdate.sort((a, b) => {
+    const aMain = liveById.get(a.variant.efashionProductId)?.main ? 1 : 0;
+    const bMain = liveById.get(b.variant.efashionProductId)?.main ? 1 : 0;
+    return bMain - aMain; // main (1) avant non-main (0)
+  });
+
+  for (const { variant, fields } of variantsToUpdate) {
+    try {
+      const live = liveById.get(variant.efashionProductId);
+      const input: Parameters<typeof efashionUpdateProduit>[0] = {
+        id_produit: variant.efashionProductId,
+      };
+      // Recopie des champs « stables » lus chez eFashion — sans ça, eFashion
+      // propage prix/poids/visible à toutes les couleurs.
+      if (live) {
+        input.reference = live.reference;
+        if (live.reference_base) input.reference_base = live.reference_base;
+        if (live.id_collection !== null) input.id_collection = live.id_collection;
+        if (live.id_categorie !== null) input.id_categorie = live.id_categorie;
+        if (live.id_provenance !== null) input.id_provenance = live.id_provenance;
+        if (live.id_declinaison !== null) input.id_declinaison = live.id_declinaison;
+        if (live.id_pack !== null) input.id_pack = live.id_pack;
+        if (live.vendu_par === "couleurs" || live.vendu_par === "tailles") {
+          input.vendu_par = live.vendu_par;
+        }
+        if (live.id_vendeur_marque !== null) input.id_vendeur_marque = live.id_vendeur_marque;
+        input.prixReduit = null;
+      }
+      // Champs qu'on veut effectivement modifier.
+      if (fields.includes("visible")) input.visible = variant.visible;
+      if (fields.includes("prix")) input.prix = variant.prix;
+      if (fields.includes("poids")) input.poids = variant.poids;
+
+      await efashionUpdateProduit(input);
+      variantsUpdated++;
+      logger.info("[eFashion update] updateProduit OK", {
+        efId: variant.efashionProductId,
+        prix: input.prix,
+        poids: input.poids,
+        visible: input.visible,
+        fullPayload: !!live,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`updateProduit(${variant.efashionProductId}): ${msg}`);
+    }
   }
 
   // Cumule les erreurs de la phase auto-création avec le reste.

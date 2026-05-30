@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { reinstateStockForOrder } from "@/lib/stock";
+import { stockUnitsForCartLine } from "@/lib/stock-units";
 import { resolveVatRate, EU_COUNTRIES } from "@/lib/vat";
 
 // Erreur typée pour différencier les ruptures de stock des autres erreurs.
@@ -170,6 +171,19 @@ export async function placeOrder(
   if (!user)    return { success: false, error: "Utilisateur introuvable." };
   if (!cart || cart.items.length === 0) return { success: false, error: "Panier vide." };
   if (!address) return { success: false, error: "Adresse de livraison introuvable." };
+
+  // Refuser tout produit qui n'est plus en ligne (archivé / mis hors-ligne par
+  // l'admin entre l'ajout au panier et le paiement). Le panier peut rester
+  // ouvert dans un onglet pendant des jours.
+  const offlineItem = cart.items.find(
+    (item) => item.variant.product.status !== "ONLINE",
+  );
+  if (offlineItem) {
+    return {
+      success: false,
+      error: `Le produit « ${offlineItem.variant.product.name} » n'est plus disponible à la vente. Merci de le retirer du panier pour finaliser votre commande.`,
+    };
+  }
 
   // ── Fetch images for each cart item via ProductColorImage ─────────────────
   const pairs = [
@@ -408,19 +422,31 @@ export async function placeOrder(
   let order;
   try {
     order = await prisma.$transaction(async (tx) => {
-      // 1. Vérifier + décrémenter le stock pour chaque ligne
+      // 1. Vérifier + décrémenter le stock pour chaque ligne.
+      //    PACK : la quantité commandée est en paquets, le stock en pièces
+      //    → on multiplie par packQuantity (helper stockUnitsForCartLine).
       for (const item of cart.items) {
+        const stockUnits = stockUnitsForCartLine(item);
         const updated = await tx.productColor.updateMany({
-          where: { id: item.variant.id, stock: { gte: item.quantity } },
-          data:  { stock: { decrement: item.quantity } },
+          where: { id: item.variant.id, stock: { gte: stockUnits } },
+          data:  { stock: { decrement: stockUnits } },
         });
         if (updated.count === 0) {
           const current = await tx.productColor.findUnique({
             where:  { id: item.variant.id },
             select: { stock: true },
           });
+          const packQty = item.variant.packQuantity ?? 1;
+          const remainingDisplay =
+            item.variant.saleType === "PACK" && packQty > 1
+              ? Math.floor((current?.stock ?? 0) / packQty)
+              : (current?.stock ?? 0);
+          const unitLabel =
+            item.variant.saleType === "PACK" && packQty > 1
+              ? `paquet${remainingDisplay > 1 ? "s" : ""}`
+              : "";
           throw new StockError(
-            `Stock insuffisant pour « ${item.variant.product.name} » : il en reste ${current?.stock ?? 0}, vous en demandez ${item.quantity}.`,
+            `Stock insuffisant pour « ${item.variant.product.name} » : il en reste ${remainingDisplay}${unitLabel ? ` ${unitLabel}` : ""}, vous en demandez ${item.quantity}.`,
           );
         }
       }
@@ -491,11 +517,12 @@ export async function placeOrder(
     },
   });
 
-      // 3. Tracer les mouvements de stock liés à la commande
+      // 3. Tracer les mouvements de stock liés à la commande.
+      //    Cohérent avec la décrémentation : PACK = qty × packQuantity.
       await tx.stockMovement.createMany({
         data: cart.items.map((item) => ({
           productColorId: item.variant.id,
-          quantity: -item.quantity,
+          quantity: -stockUnitsForCartLine(item),
           type: "ORDER" as const,
           orderId: created.id,
           reason: `Commande ${orderNumber}`,
