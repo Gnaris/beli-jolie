@@ -2581,20 +2581,26 @@ export default function AdminProductsTable({
   // Synchroniser un (ou plusieurs) produit(s) avec les marketplaces : renvoie
   // toutes les données (prix, stock, images, statut, etc.) au même `pfsProductId`
   // / `ankorsProductId` (resync forcée — `forceFullSync: true` côté serveur).
+  // eFashion = sync de la visibilité + prix + stock sur chaque couleur liée.
   const handleBulkSync = useCallback(async (idsOverride: string[]) => {
     const ids = idsOverride;
     if (ids.length === 0) return;
+    const showEfashion = hasEfashionConfig && efashionEnabled;
     const targets = allProducts.filter((p) => ids.includes(p.id));
     const pfsTargets = hasPfsConfig ? targets.filter((p) => p.pfsProductId) : [];
     const ankorsTargets = showAnkorstore ? targets.filter((p) => p.ankorsProductId) : [];
+    const efashionTargets = showEfashion
+      ? targets.filter((p) => (p.colors ?? []).some((c) => c.efashionProductId != null))
+      : [];
 
-    if (pfsTargets.length === 0 && ankorsTargets.length === 0) {
+    if (pfsTargets.length === 0 && ankorsTargets.length === 0 && efashionTargets.length === 0) {
       toast.error("Rien à synchroniser", "Ce produit n'est publié sur aucune marketplace.");
       return;
     }
 
     const pfsRef = { current: pfsTargets.length > 0 };
     const ankorsRef = { current: ankorsTargets.length > 0 };
+    const efashionRef = { current: efashionTargets.length > 0 };
     const checkboxes: {
       id: string;
       label: string;
@@ -2615,6 +2621,14 @@ export default function AdminProductsTable({
         label: `Ankorstore (${ankorsTargets.length} produit${ankorsTargets.length > 1 ? "s" : ""})`,
         defaultChecked: true,
         onChange: (v) => { ankorsRef.current = v; },
+      });
+    }
+    if (efashionTargets.length > 0) {
+      checkboxes.push({
+        id: "efashion",
+        label: `eFashion Paris (${efashionTargets.length} produit${efashionTargets.length > 1 ? "s" : ""})`,
+        defaultChecked: true,
+        onChange: (v) => { efashionRef.current = v; },
       });
     }
 
@@ -2657,8 +2671,21 @@ export default function AdminProductsTable({
         });
       }
     }
+    if (efashionRef.current) {
+      for (const p of efashionTargets) {
+        inputs.push({
+          productId: p.id,
+          reference: p.reference,
+          productName: p.name,
+          firstImage: p.firstImage,
+          options: { local: false, pfs: false, ankorstore: false, efashion: true },
+          mode: "resync" as const,
+          marketplace: "efashion" as const,
+        });
+      }
+    }
     if (inputs.length > 0) enqueuePfs(inputs);
-  }, [allProducts, hasPfsConfig, showAnkorstore, confirm, enqueuePfs, toast]);
+  }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, confirm, enqueuePfs, toast]);
 
   // ─── Bulk variant actions ──
   const handleBulkVariantUpdate = useCallback(async (data: Record<string, unknown>) => {

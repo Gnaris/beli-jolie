@@ -26,6 +26,18 @@ describe("isSafeMarketplaceImagePath — chemins valides", () => {
     expect(isSafeMarketplaceImagePath("/uploads/x/y.WEBP")).toBe(true);
     expect(isSafeMarketplaceImagePath("/uploads/x/y.JPG")).toBe(true);
   });
+
+  it("accepte les accents latins (couleurs Doré, Crème, Rosé, etc.)", () => {
+    expect(
+      isSafeMarketplaceImagePath("/uploads/produits/a11/a11-doré-1.webp"),
+    ).toBe(true);
+    expect(
+      isSafeMarketplaceImagePath("/uploads/produits/abc/abc-crème-2.webp"),
+    ).toBe(true);
+    expect(
+      isSafeMarketplaceImagePath("/uploads/produits/xyz/xyz-rosé-thumb.webp"),
+    ).toBe(true);
+  });
 });
 
 describe("isSafeMarketplaceImagePath — path traversal bloqué", () => {

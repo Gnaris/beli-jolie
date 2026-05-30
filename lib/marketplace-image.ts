@@ -91,9 +91,15 @@ export async function ensureMinWidth(
  *  - commence par `/uploads/`
  *  - extension d'image classique (webp/jpg/jpeg/png/gif/avif)
  *  - aucun `..`, antislash, null byte ou caractère `%` (anti-encodage trompeur)
- *  - alphabet limité (lettres ASCII, chiffres, point, tiret, underscore, slash)
+ *  - lettres Unicode (\p{L}), chiffres (\p{N}), point, tiret, underscore, slash
+ *
+ * Pourquoi les lettres Unicode : `slugify()` côté storage conserve les
+ * accents (a11-doré-1.webp). Si on limitait à l'ASCII, le proxy renverrait
+ * une 400 sur toutes les images dont le nom de couleur contient un accent,
+ * et Ankorstore ignorerait silencieusement ces variantes (bug constaté sur
+ * A11 / Doré le 31/05).
  */
-const SAFE_MARKETPLACE_PATH = /^\/uploads\/[A-Za-z0-9._\-/]+\.(webp|jpe?g|png|gif|avif)$/i;
+const SAFE_MARKETPLACE_PATH = /^\/uploads\/[\p{L}\p{N}._\-/]+\.(webp|jpe?g|png|gif|avif)$/iu;
 
 export function isSafeMarketplaceImagePath(rawPath: string | null): rawPath is string {
   if (!rawPath) return false;
