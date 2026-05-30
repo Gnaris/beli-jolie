@@ -137,10 +137,12 @@ export default function LinkEfashionProductModal({
             res.syncWarning + " Relancez « Resync » depuis la fiche.",
           );
         } else {
-          toast.success(
-            "Produit lié à eFashion",
-            `${res.linked} couleur(s) reliée(s). Stock et prix poussés.`,
-          );
+          const created = res.autoCreatedOnEfashion ?? 0;
+          const linkedCount = res.linked ?? 0;
+          const detail = created > 0
+            ? `${linkedCount} couleur(s) reliée(s) + ${created} créée(s) chez eFashion. Stock et prix poussés.`
+            : `${linkedCount} couleur(s) reliée(s). Stock et prix poussés.`;
+          toast.success("Produit lié à eFashion", detail);
         }
         onClose();
         router.refresh();
@@ -209,10 +211,16 @@ export default function LinkEfashionProductModal({
   const orphanEfLines = unusedCandidates;
 
   const hasMissingAttributes = (preview?.missingAttributes.length ?? 0) > 0;
-  const isFullyMapped =
+  // Validation asymétrique :
+  //   - Les couleurs BJ sans correspondance eFashion (orphanLocalColors) SONT
+  //     autorisées : elles seront créées automatiquement chez eFashion lors
+  //     de la sync post-liaison.
+  //   - Les lignes eFashion sans correspondance chez nous (orphanEfLines)
+  //     RESTENT bloquantes : l'admin doit d'abord les créer chez nous ou les
+  //     supprimer chez eFashion (boutons dans EfashionOrphansSection).
+  const canSaveLink =
     preview !== null &&
     preview.localColors.length > 0 &&
-    orphanLocalColors.length === 0 &&
     orphanEfLines.length === 0 &&
     !hasMissingAttributes;
 
@@ -400,9 +408,11 @@ export default function LinkEfashionProductModal({
               ? "—"
               : hasMissingAttributes
                 ? `⛔ ${preview.missingAttributes.length} attribut(s) eFashion à régler`
-                : isFullyMapped
-                  ? `✅ ${Object.keys(mapping).length} couleur(s) prête(s) à lier`
-                  : `⚠️ ${orphanLocalColors.length} chez vous + ${orphanEfLines.length} chez eFashion sans correspondance`}
+                : orphanEfLines.length > 0
+                  ? `⛔ ${orphanEfLines.length} ligne(s) eFashion à régler avant de lier`
+                  : orphanLocalColors.length > 0
+                    ? `✅ ${Object.keys(mapping).length} liée(s) + ✨ ${orphanLocalColors.length} à créer chez eFashion`
+                    : `✅ ${Object.keys(mapping).length} couleur(s) prête(s) à lier`}
           </p>
           <div className="flex gap-2">
             <button
@@ -416,19 +426,21 @@ export default function LinkEfashionProductModal({
             <button
               type="button"
               onClick={handleSave}
-              disabled={isSaving || !isFullyMapped}
+              disabled={isSaving || !canSaveLink}
               title={
-                isFullyMapped
+                canSaveLink
                   ? undefined
                   : hasMissingAttributes
                     ? "Réglez d'abord les attributs eFashion (catégorie, pays, saison, matières, couleurs)."
-                    : "Réglez d'abord les variantes orphelines des deux côtés."
+                    : "Réglez d'abord les lignes eFashion sans équivalent chez vous (créez-les chez nous ou supprimez chez eux)."
               }
               className="h-10 px-5 rounded-lg bg-bg-dark text-text-inverse text-sm font-body font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSaving
                 ? "Liaison + synchro…"
-                : `Lier${preview ? ` (${preview.localColors.length} couleur${preview.localColors.length > 1 ? "s" : ""})` : ""}`}
+                : preview && orphanLocalColors.length > 0
+                  ? `Lier (${Object.keys(mapping).length}) + créer (${orphanLocalColors.length}) chez eFashion`
+                  : `Lier${preview ? ` (${preview.localColors.length} couleur${preview.localColors.length > 1 ? "s" : ""})` : ""}`}
             </button>
           </div>
         </div>
@@ -451,12 +463,18 @@ function RecapBar({
   const mappedCount = Object.keys(mapping).length;
   const totalLocal = preview.localColors.length;
   const totalCandidates = preview.candidates.length;
+  const toCreateCount = totalLocal - mappedCount;
   return (
     <div className="rounded-xl bg-bg-primary border border-border px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-1.5">
       <div className="flex items-center gap-2">
         <span className="text-base">✅</span>
         <span className="font-body text-sm text-text-primary">
           <strong>{mappedCount}</strong> / {totalLocal} couleur(s) BJ liée(s)
+          {toCreateCount > 0 && (
+            <span className="text-[#1E40AF] ml-1">
+              · ✨ <strong>{toCreateCount}</strong> à créer chez eFashion
+            </span>
+          )}
         </span>
       </div>
       <div className="flex items-center gap-2">
@@ -722,17 +740,17 @@ function BjOrphansSection({
   colors: EfashionLinkLocalColor[];
 }) {
   return (
-    <div className="rounded-xl bg-[#FEF2F2] border border-[#FECACA] px-4 py-3">
+    <div className="rounded-xl bg-[#EFF6FF] border border-[#BFDBFE] px-4 py-3">
       <div className="flex items-start gap-3 mb-3">
-        <span className="text-base mt-0.5">⚠️</span>
+        <span className="text-base mt-0.5">✨</span>
         <div className="flex-1">
-          <p className="font-body text-sm font-semibold text-[#991B1B] mb-0.5">
-            {colors.length} variante(s) chez vous sans correspondance eFashion
+          <p className="font-body text-sm font-semibold text-[#1E40AF] mb-0.5">
+            {colors.length} variante(s) chez vous à créer chez eFashion
           </p>
-          <p className="font-body text-xs text-[#991B1B]/80">
-            Pour pouvoir lier, chaque variante doit exister des deux côtés. La création
-            automatique côté eFashion sera disponible dans une prochaine version — pour
-            l&apos;instant, créez la couleur manuellement chez eFashion puis revenez ici.
+          <p className="font-body text-xs text-[#1E40AF]/80">
+            Ces couleurs n&apos;existent pas encore chez eFashion. À la liaison,
+            elles seront créées automatiquement (avec leurs photos) et rattachées
+            au même groupe produit que les couleurs déjà reliées.
           </p>
         </div>
       </div>
@@ -740,7 +758,7 @@ function BjOrphansSection({
         {colors.map((c) => (
           <div
             key={c.id}
-            className="flex items-center gap-3 bg-bg-primary border border-[#FECACA] rounded-lg px-3 py-2"
+            className="flex items-center gap-3 bg-bg-primary border border-[#BFDBFE] rounded-lg px-3 py-2"
           >
             <ColorSwatch hex={c.hex} patternImage={c.patternImage} size={18} />
             <div className="flex-1 min-w-0">
@@ -751,14 +769,7 @@ function BjOrphansSection({
                 Prix unité {formatPrice(c.unitPrice)} · Stock {c.unitStock ?? 0}
               </p>
             </div>
-            <button
-              type="button"
-              disabled
-              title="Fonctionnalité à venir — créez la couleur manuellement chez eFashion pour l'instant."
-              className="h-8 px-3 rounded-lg bg-bg-secondary border border-border text-[11px] font-body font-semibold text-text-muted cursor-not-allowed"
-            >
-              Créer sur eFashion (à venir)
-            </button>
+            <span className="badge badge-info">Sera créée chez eFashion</span>
           </div>
         ))}
       </div>
@@ -889,11 +900,14 @@ function SyncRecap({
   preview: EfashionLinkPreview;
   mapping: Record<string, number>;
 }) {
-  if (Object.keys(mapping).length === 0) return null;
+  // Affiche le récap dès qu'il y a au moins une couleur locale (liée ou non).
+  // Une couleur sans mapping est désormais une « à créer chez eFashion », pas
+  // une « ignorée », donc il faut la lister aussi.
+  if (preview.localColors.length === 0) return null;
   return (
     <div className="rounded-xl bg-[#EFF6FF] border border-[#BFDBFE] px-4 py-3">
       <p className="font-body text-xs font-semibold text-[#1E40AF] uppercase tracking-wider mb-2">
-        À la prochaine synchro, eFashion recevra :
+        À la liaison, eFashion recevra :
       </p>
       <ul className="space-y-1">
         {preview.localColors.map((local) => {
@@ -914,7 +928,10 @@ function SyncRecap({
                     {local.unitStock ?? 0}
                   </>
                 ) : (
-                  <span className="text-text-muted"> (non liée — ignorée)</span>
+                  <span className="font-medium">
+                    {" → "}✨ création automatique chez eFashion (prix{" "}
+                    {formatPrice(local.unitPrice)} · stock {local.unitStock ?? 0})
+                  </span>
                 )}
               </span>
             </li>

@@ -380,6 +380,12 @@ export async function linkEfashionProductManually(
   success: boolean;
   error?: string;
   linked?: number;
+  /**
+   * Nombre de couleurs locales sans correspondance eFashion qui ont été
+   * créées automatiquement côté eFashion par la sync post-liaison (via
+   * duplicateWithNewColor + publishBrouillon). 0 = liaison « plate ».
+   */
+  autoCreatedOnEfashion?: number;
   /** Warning non bloquant : la liaison est posée mais la sync stock/prix
    * post-liaison a échoué. L'admin peut relancer "Resync" depuis la fiche. */
   syncWarning?: string;
@@ -430,29 +436,26 @@ export async function linkEfashionProductManually(
       };
     }
 
-    const linkedLocal = new Set(links.map((l) => l.localColorId));
+    // Validation asymétrique :
+    //   - BJ orphans (couleurs chez nous sans correspondance eFashion) : AUTORISÉES.
+    //     Elles seront créées automatiquement côté eFashion par la sync
+    //     post-liaison (cf. lib/efashion-update.ts > auto-création via
+    //     duplicateWithNewColor + publishBrouillon).
+    //   - eFashion orphans (lignes chez eux sans correspondance chez nous) :
+    //     BLOQUANTES. L'admin doit d'abord les assigner à une couleur locale,
+    //     les créer chez nous (bouton « Créer chez nous »), ou les supprimer
+    //     côté eFashion. Sans ça, eFashion garderait des couleurs "fantômes"
+    //     non synchronisées par BJ.
     const linkedEf = new Set(links.map((l) => l.efashionProductId));
-    const orphanLocal = preview.localColors.filter((c) => !linkedLocal.has(c.id));
     const orphanEf = preview.candidates.filter((c) => !linkedEf.has(c.efashionProductId));
-    if (orphanLocal.length > 0 || orphanEf.length > 0) {
-      const parts: string[] = [];
-      if (orphanLocal.length > 0) {
-        parts.push(
-          `${orphanLocal.length} variante(s) chez vous sans correspondance : ` +
-            orphanLocal.map((c) => c.name).join(", "),
-        );
-      }
-      if (orphanEf.length > 0) {
-        parts.push(
-          `${orphanEf.length} ligne(s) eFashion non assignée(s) : ` +
-            orphanEf.map((c) => c.efashionColorName).join(", "),
-        );
-      }
+    if (orphanEf.length > 0) {
       return {
         success: false,
         error:
-          "Liaison impossible — toutes les variantes doivent être mappées des deux côtés :\n• " +
-          parts.join("\n• "),
+          `Liaison impossible — ${orphanEf.length} couleur(s) chez eFashion sans équivalent chez vous :\n• ` +
+          orphanEf.map((c) => c.efashionColorName).join("\n• ") +
+          "\nDans la modale : pour chaque ligne, choisissez « Créer chez nous » " +
+          "ou « Supprimer chez eFashion » avant de lier.",
       };
     }
 
@@ -511,20 +514,30 @@ export async function linkEfashionProductManually(
     });
 
     // Sync auto post-liaison : on pousse immédiatement stock + prix + visibilité
-    // vers eFashion pour aligner les 2 côtés sans étape manuelle. Best-effort —
-    // si la sync échoue, la liaison reste posée et on remonte un warning non
-    // bloquant à l'UI (l'admin peut relancer "Resync" depuis la fiche).
+    // vers eFashion pour aligner les 2 côtés sans étape manuelle. C'est aussi
+    // cette sync qui crée automatiquement côté eFashion les couleurs locales
+    // sans correspondance (BJ orphans) via duplicateWithNewColor — d'où le
+    // suivi de `colorsCreatedCount` pour remonter le décompte à l'UI.
+    // Best-effort — si la sync échoue, la liaison reste posée et on remonte un
+    // warning non bloquant (l'admin peut relancer "Resync" depuis la fiche).
     let syncWarning: string | undefined;
+    let autoCreatedOnEfashion = 0;
     try {
       const { efashionUpdateProductInPlace } = await import("@/lib/efashion-update");
       const res = await efashionUpdateProductInPlace(productId, { forceFullSync: true });
+      autoCreatedOnEfashion = res.colorsCreatedCount ?? 0;
       if (!res.success) syncWarning = res.error;
     } catch (err) {
       syncWarning = err instanceof Error ? err.message : String(err);
       logger.warn("[eFashion] Post-link sync failed", { productId, error: err });
     }
 
-    return { success: true, linked: links.length, syncWarning };
+    return {
+      success: true,
+      linked: links.length,
+      autoCreatedOnEfashion,
+      syncWarning,
+    };
   } catch (err) {
     logger.warn("[eFashion] linkEfashionProductManually failed", { error: err });
     return { success: false, error: err instanceof Error ? err.message : "Erreur" };
