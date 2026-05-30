@@ -1076,6 +1076,8 @@ function ProductRow({
   const actionsRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { confirm } = useConfirm();
+  const toast = useToast();
+  const [refCopied, setRefCopied] = useState(false);
   const { enqueue, items: queueItems } = useMarketplaceRefreshQueue();
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const showEfashion = hasEfashionConfig && efashionEnabled;
@@ -1285,9 +1287,37 @@ function ProductRow({
 
         {/* Référence */}
         <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
-          <span className="font-mono text-[11px] bg-bg-tertiary px-2 py-1 rounded-md text-text-secondary whitespace-nowrap border border-border-light">
-            {product.reference}
-          </span>
+          <div className="inline-flex items-center gap-1.5">
+            <span className="font-mono text-[11px] bg-bg-tertiary px-2 py-1 rounded-md text-text-secondary whitespace-nowrap border border-border-light">
+              {product.reference}
+            </span>
+            <button
+              type="button"
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  await navigator.clipboard.writeText(product.reference);
+                  setRefCopied(true);
+                  window.setTimeout(() => setRefCopied(false), 1500);
+                } catch {
+                  toast.error("Impossible de copier la référence");
+                }
+              }}
+              title={refCopied ? "Référence copiée" : "Copier la référence"}
+              aria-label={refCopied ? "Référence copiée" : "Copier la référence"}
+              className="inline-flex items-center justify-center w-6 h-6 rounded-md border border-border-light bg-bg-primary text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+            >
+              {refCopied ? (
+                <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              )}
+            </button>
+          </div>
         </td>
 
         {/* Nom + prix */}
