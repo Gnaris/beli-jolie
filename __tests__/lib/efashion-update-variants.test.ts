@@ -441,6 +441,82 @@ describe("efashionUpdateProductInPlace — variantes ajoutées/supprimées", () 
     expect(res.error).toMatch(/d[ée]j[àa] utilis/i);
   });
 
+  it("rattache TOUTES les couleurs au nouveau main après une bascule (fix BOUCLESOREILLES01)", async () => {
+    // Reproduit le bug du 30/05/2026 : un produit à 3 couleurs déjà publié
+    // côté eFashion, la cliente lie et la primaire BJ diffère de la main
+    // eFashion. La bascule main ne touchait que 2 fiches → la 3ᵉ couleur
+    // restait pointée vers l'ANCIENNE main et apparaissait comme un produit
+    // séparé sur eFashion. On vérifie ici que la boucle finale rééécrit
+    // `id_couleur_liee` sur les 3 variantes.
+    findUniqueMock.mockResolvedValue({
+      id: "p7",
+      reference: "BOUCLESOREILLES01",
+      status: "ONLINE",
+      description: null,
+      dimensionLength: null,
+      dimensionWidth: null,
+      dimensionHeight: null,
+      dimensionDiameter: null,
+      dimensionCircumference: null,
+      efashionReferenceBase: "BOUCLESOREILLES01",
+      efashionLastSyncSnapshot: null, // forceFullSync simulé par snapshot null
+      primaryColorId: "color-200", // BJ veut 200 comme principale
+      compositions: [],
+      colors: [
+        makeLinkedColor({
+          id: "pc-100",
+          colorId: "color-100",
+          efashionProductId: 100,
+          colorName: "Vert",
+          efashionColorId: 1,
+        }),
+        makeLinkedColor({
+          id: "pc-200",
+          colorId: "color-200",
+          efashionProductId: 200,
+          isPrimary: true,
+          colorName: "Rose",
+          efashionColorId: 10,
+        }),
+        makeLinkedColor({
+          id: "pc-300",
+          colorId: "color-300",
+          efashionProductId: 300,
+          colorName: "Blanc",
+          efashionColorId: 16,
+        }),
+      ],
+    });
+    // eFashion : 100 (Vert) est l'ancienne main, 200 et 300 sont non-main.
+    listProductsMock.mockResolvedValue({
+      items: [
+        makeLiveItem({ id_produit: 100, id_couleur: 1, main: true, reference_base: "BOUCLESOREILLES01" }),
+        makeLiveItem({ id_produit: 200, id_couleur: 10, main: false, reference_base: "BOUCLESOREILLES01" }),
+        makeLiveItem({ id_produit: 300, id_couleur: 16, main: false, reference_base: "BOUCLESOREILLES01" }),
+      ],
+    });
+
+    await efashionUpdateProductInPlace("p7", { forceFullSync: true });
+
+    // Récupère tous les appels updateProduit qui transportent visible/prix/poids
+    // (= la boucle finale), en excluant les appels de bascule (qui ont `main`
+    // défini explicitement à true/false).
+    const finalCalls = updateProduitMock.mock.calls
+      .map(([c]) => c)
+      .filter((c) => typeof c.prix !== "undefined" && typeof c.poids !== "undefined");
+
+    // Les 3 variantes doivent avoir été appelées dans la boucle finale.
+    const idsFromFinalCalls = new Set(finalCalls.map((c) => c.id_produit));
+    expect(idsFromFinalCalls).toEqual(new Set([100, 200, 300]));
+
+    // Chaque appel final doit porter id_couleur_liee = 200 (le nouveau main),
+    // et main = (id_produit === 200). C'est le cœur du fix.
+    for (const c of finalCalls) {
+      expect(c.id_couleur_liee).toBe(200);
+      expect(c.main).toBe(c.id_produit === 200);
+    }
+  });
+
   it("ne déclenche pas d'erreur de skip quand previousSnapshot est null (cas alignement post-publish)", async () => {
     // Cas appelé en fin de efashionPublishProduct avec forceFullSync : le
     // snapshot précédent est null donc TOUS les diff.added sont du « post-création »

@@ -1310,6 +1310,25 @@ export async function efashionUpdateProductInPlace(
     return bMain - aMain; // main (1) avant non-main (0)
   });
 
+  // ⚠️ Cheffe de groupe cible (= main eFashion souhaitée). Priorité à la
+  // primaire BJ ; sinon on retombe sur la main actuelle observée côté eFashion.
+  // Utilisé pour réécrire `id_couleur_liee` sur **toutes** les variantes — sans
+  // ça, après une bascule main, les non-main qui n'étaient pas dans la bascule
+  // restent pointées vers l'ANCIENNE main (devenue non-main) et eFashion les
+  // affiche comme un produit séparé. Cf. bug BOUCLESOREILLES01 (30/05/2026) :
+  // la 3ᵉ couleur (Blanc) gardait `id_couleur_liee = ancien main` → orpheline.
+  let targetGroupLeaderEfId: number | null = null;
+  if (bjPrimaryEfashionId !== null && liveById.has(bjPrimaryEfashionId)) {
+    targetGroupLeaderEfId = bjPrimaryEfashionId;
+  } else {
+    for (const [efId, live] of liveById) {
+      if (live.main) {
+        targetGroupLeaderEfId = efId;
+        break;
+      }
+    }
+  }
+
   for (const { variant, fields } of variantsToUpdate) {
     try {
       const live = liveById.get(variant.efashionProductId);
@@ -1331,6 +1350,14 @@ export async function efashionUpdateProductInPlace(
         }
         if (live.id_vendeur_marque !== null) input.id_vendeur_marque = live.id_vendeur_marque;
         input.prixReduit = null;
+      }
+      // Re-rattachement systématique au groupe : on dit à chaque variante qui
+      // est sa cheffe et si elle EST la cheffe. Idempotent quand rien n'a
+      // changé, mais indispensable pour rattraper les non-main qui pointaient
+      // vers l'ancienne main après une bascule.
+      if (targetGroupLeaderEfId !== null) {
+        input.id_couleur_liee = targetGroupLeaderEfId;
+        input.main = variant.efashionProductId === targetGroupLeaderEfId;
       }
       // Champs qu'on veut effectivement modifier.
       if (fields.includes("visible")) input.visible = variant.visible;
