@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
 import {
   computeMarketplaceBadgeState,
   findLatestOpForProduct,
 } from "./marketplaceBadgeState";
-import LinkAnkorstoreProductModal from "./LinkAnkorstoreProductModal";
-import OrphanAnkorstoreVariantsModal from "./OrphanAnkorstoreVariantsModal";
 import SetPfsBrandModal from "./SetPfsBrandModal";
-import LinkEfashionProductModal from "./LinkEfashionProductModal";
+
+// Modales lourdes — chargées uniquement à l'ouverture pour alléger le bundle
+// initial de la page produit (cf. audit perf 2026-05-31).
+const LinkAnkorstoreProductModal = dynamic(() => import("./LinkAnkorstoreProductModal"));
+const OrphanAnkorstoreVariantsModal = dynamic(() => import("./OrphanAnkorstoreVariantsModal"));
+const LinkEfashionProductModal = dynamic(() => import("./LinkEfashionProductModal"));
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { removeAnkorstoreMatch } from "@/app/actions/admin/ankorstore";

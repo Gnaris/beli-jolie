@@ -103,6 +103,7 @@ const POLL_IDLE_MS = 10_000;
 
 export function MarketplaceRefreshProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<MarketplaceRefreshItem[]>([]);
+  const [isVisible, setIsVisible] = useState(true);
   const router = useRouter();
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDoneCountRef = useRef<number>(0);
@@ -129,27 +130,33 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     void pollOnce();
   }, [pollOnce]);
 
-  // Polling adaptatif : 2s si du travail tourne, 10s sinon
+  // Suivi de la visibilité de l'onglet — quand l'admin change d'onglet ou
+  // minimise la fenêtre, on coupe le polling pour ne pas saturer le réseau
+  // ni la batterie.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const update = () => setIsVisible(document.visibilityState === "visible");
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
+  // Re-poll immédiat quand l'onglet redevient visible : capte les changements
+  // survenus pendant que la page était en arrière-plan.
+  useEffect(() => {
+    if (isVisible) void pollOnce();
+  }, [isVisible, pollOnce]);
+
+  // Polling adaptatif : 2s si du travail tourne, 10s sinon. Coupé si caché.
   const hasActive = items.some(isItemActive);
   useEffect(() => {
+    if (!isVisible) return;
     const delay = hasActive ? POLL_ACTIVE_MS : POLL_IDLE_MS;
     const interval = setInterval(() => {
       void pollOnce();
     }, delay);
     return () => clearInterval(interval);
-  }, [hasActive, pollOnce]);
-
-  // Re-poll quand l'onglet redevient visible : capte les changements survenus
-  // pendant que la page était en arrière-plan.
-  useEffect(() => {
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        void pollOnce();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [pollOnce]);
+  }, [hasActive, isVisible, pollOnce]);
 
   // ── Actions : enqueue / clear / stop ──────────────────────────────
   const enqueue = useCallback(

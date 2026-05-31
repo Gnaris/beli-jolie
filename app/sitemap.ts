@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { prisma } from "@/lib/prisma";
-import { VALID_LOCALES } from "@/i18n/locales";
+import { VALID_LOCALES, DEFAULT_LOCALE } from "@/i18n/locales";
 
 const STATIC_PATHS: { path: string; changeFrequency: "daily" | "weekly" | "monthly" | "yearly"; priority: number }[] = [
   { path: "", changeFrequency: "daily", priority: 1 },
@@ -16,7 +16,7 @@ const STATIC_PATHS: { path: string; changeFrequency: "daily" | "weekly" | "month
 ];
 
 function buildLanguageMap(baseUrl: string, path: string): Record<string, string> {
-  const langs: Record<string, string> = { "x-default": `${baseUrl}/fr${path}` };
+  const langs: Record<string, string> = { "x-default": `${baseUrl}/${DEFAULT_LOCALE}${path}` };
   for (const locale of VALID_LOCALES) {
     langs[locale] = `${baseUrl}/${locale}${path}`;
   }
@@ -38,12 +38,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }))
   );
 
-  // ── Produits dynamiques (limite 50k pour rester sous le plafond Google) ──
+  // ── Produits dynamiques ─────────────────────────────────────────────────
+  // Plafond Google = 50 000 URLs par sitemap. On a 2 locales (fr, en), donc
+  // chaque produit compte pour 2 entrées. Limite à ~24 000 produits pour
+  // laisser un peu de marge aux pages statiques et collections.
   const products = await prisma.product.findMany({
     where: { status: "ONLINE" },
     select: { id: true, updatedAt: true },
     orderBy: { updatedAt: "desc" },
-    take: 50000,
+    take: 24000,
   });
 
   const productPages: MetadataRoute.Sitemap = products.flatMap((p) =>

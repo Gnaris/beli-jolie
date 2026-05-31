@@ -124,6 +124,22 @@ export async function assertFileExists(key: string): Promise<void> {
   await fs.stat(resolveKey(key));
 }
 
+/**
+ * Return `{ mtime, size }` for a file, or `null` if it does not exist.
+ * Used by caches that need to compare freshness without throwing on a miss.
+ */
+export async function statFile(
+  key: string,
+): Promise<{ mtime: Date; size: number } | null> {
+  try {
+    const s = await fs.stat(resolveKey(key));
+    return { mtime: s.mtime, size: s.size };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
+  }
+}
+
 // ─────────────────────────────────────────────
 // Copy / move
 // ─────────────────────────────────────────────

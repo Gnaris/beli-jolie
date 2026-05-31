@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useTransition, useCallback, useRef, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -20,8 +21,15 @@ import { useMarketplaceRefreshQueue } from "@/components/admin/products/Marketpl
 import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
-import LinkAnkorstoreProductModal from "@/components/admin/products/LinkAnkorstoreProductModal";
-import LinkEfashionProductModal from "@/components/admin/products/LinkEfashionProductModal";
+
+// Modales lourdes — chargées à l'ouverture seulement pour alléger le bundle
+// initial de la table produits (cf. audit perf 2026-05-31).
+const LinkAnkorstoreProductModal = dynamic(
+  () => import("@/components/admin/products/LinkAnkorstoreProductModal"),
+);
+const LinkEfashionProductModal = dynamic(
+  () => import("@/components/admin/products/LinkEfashionProductModal"),
+);
 
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
 

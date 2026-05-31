@@ -145,8 +145,14 @@ async function ankorstoreFetchJson<T>(
       });
       if (!retryRes.ok) {
         const text = await retryRes.text().catch(() => "");
+        logger.error("[Ankorstore] API error after 401 retry", {
+          status: retryRes.status,
+          path,
+          method: init?.method ?? "GET",
+          body: text.slice(0, 500),
+        });
         throw new AnkorstoreNonRetryableError(
-          `Ankorstore API ${retryRes.status}: ${text.slice(0, 200)}`
+          `Ankorstore API ${retryRes.status}: ${text.slice(0, 500)}`
         );
       }
       if (retryRes.status === 204) return undefined as unknown as T;
@@ -164,6 +170,12 @@ async function ankorstoreFetchJson<T>(
     if (res.status === 429) {
       const maxRetries = 3;
       if (currentAttempt >= maxRetries) {
+        const text = await res.text().catch(() => "");
+        logger.error("[Ankorstore] Rate limit exceeded after retries", {
+          path,
+          method: init?.method ?? "GET",
+          body: text.slice(0, 500),
+        });
         throw new AnkorstoreNonRetryableError(
           `Ankorstore API 429: rate limit exceeded after ${maxRetries} attempts`
         );
@@ -180,8 +192,14 @@ async function ankorstoreFetchJson<T>(
       const maxRetries = 3;
       if (currentAttempt >= maxRetries) {
         const text = await res.text().catch(() => "");
+        logger.error("[Ankorstore] Server error after retries", {
+          status: res.status,
+          path,
+          method: init?.method ?? "GET",
+          body: text.slice(0, 500),
+        });
         throw new Error(
-          `Ankorstore API ${res.status} after ${maxRetries} retries: ${text.slice(0, 200)}`
+          `Ankorstore API ${res.status} after ${maxRetries} retries: ${text.slice(0, 500)}`
         );
       }
       const delayMs = Math.pow(4, currentAttempt) * 1000;
@@ -192,8 +210,14 @@ async function ankorstoreFetchJson<T>(
 
     // Other 4xx — never retry
     const text = await res.text().catch(() => "");
+    logger.error("[Ankorstore] Client error (non-retryable)", {
+      status: res.status,
+      path,
+      method: init?.method ?? "GET",
+      body: text.slice(0, 500),
+    });
     throw new AnkorstoreNonRetryableError(
-      `Ankorstore API ${res.status}: ${text.slice(0, 200)}`
+      `Ankorstore API ${res.status}: ${text.slice(0, 500)}`
     );
   };
 

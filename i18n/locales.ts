@@ -1,6 +1,9 @@
 export const VALID_LOCALES = ["fr", "en"] as const;
 export type Locale = (typeof VALID_LOCALES)[number];
 
+/** Locale par défaut — utilisée pour x-default hreflang et fallback global. */
+export const DEFAULT_LOCALE: Locale = "fr";
+
 /** Locales other than the default `fr`. Used by server actions, batch helpers,
  *  and admin UI to enumerate the languages that need a translation. */
 export const NON_DEFAULT_LOCALES: Locale[] = VALID_LOCALES.filter(

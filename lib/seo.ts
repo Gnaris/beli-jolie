@@ -1,6 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { VALID_LOCALES, type Locale } from "@/i18n/locales";
+import { VALID_LOCALES, DEFAULT_LOCALE, type Locale } from "@/i18n/locales";
 
 export interface OrganizationData {
   name: string;
@@ -37,14 +37,14 @@ export function absoluteUrl(path: string): string {
  * Retourne le canonical = URL avec préfixe de la locale courante,
  * et un set d'alternates languages pointant vers chaque variante par locale.
  */
-export function buildAlternates(path: string, currentLocale: string = "fr"): {
+export function buildAlternates(path: string, currentLocale: string = DEFAULT_LOCALE): {
   canonical: string;
   languages: Record<string, string>;
 } {
   const cleanPath = path === "/" ? "" : path;
   const base = getSiteUrl();
   const languages: Record<string, string> = {
-    "x-default": `${base}/fr${cleanPath}`,
+    "x-default": `${base}/${DEFAULT_LOCALE}${cleanPath}`,
   };
   for (const locale of VALID_LOCALES) {
     languages[locale] = `${base}/${locale}${cleanPath}`;

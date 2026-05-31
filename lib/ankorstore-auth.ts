@@ -31,8 +31,18 @@ let cachedToken: TokenCache | null = null;
 let primedCredentials: { clientId: string; clientSecret: string } | null = null;
 
 /**
+ * Promise singleton pour le re-auth en cours. Quand plusieurs requêtes
+ * tombent en parallèle après expiration du token, elles partagent toutes
+ * cette même promise au lieu de lancer chacune leur propre POST /oauth/token
+ * (race condition : 2 tokens peuvent être émis, le premier obtenu peut être
+ * invalidé par le second). Reset à null dès que la promise se résout.
+ */
+let pendingAuth: Promise<string> | null = null;
+
+/**
  * Get a valid Ankorstore OAuth2 access token.
  * Returns cached token if still valid (with 5-min buffer), otherwise re-authenticates.
+ * Concurrent callers share a single auth round-trip.
  */
 export async function getAnkorstoreToken(): Promise<string> {
   const bufferMs = 5 * 60 * 1000; // 5 minutes
@@ -41,24 +51,34 @@ export async function getAnkorstoreToken(): Promise<string> {
     return cachedToken.accessToken;
   }
 
-  let clientId: string | null = null;
-  let clientSecret: string | null = null;
-  if (primedCredentials) {
-    clientId = primedCredentials.clientId;
-    clientSecret = primedCredentials.clientSecret;
-  } else {
-    const creds = await getCachedAnkorstoreCredentials();
-    clientId = creds.clientId;
-    clientSecret = creds.clientSecret;
-  }
+  if (pendingAuth) return pendingAuth;
 
-  if (!clientId || !clientSecret) {
-    throw new Error(
-      "Identifiants Ankorstore manquants — configurer dans Paramètres > Marketplaces"
-    );
-  }
+  pendingAuth = (async () => {
+    try {
+      let clientId: string | null = null;
+      let clientSecret: string | null = null;
+      if (primedCredentials) {
+        clientId = primedCredentials.clientId;
+        clientSecret = primedCredentials.clientSecret;
+      } else {
+        const creds = await getCachedAnkorstoreCredentials();
+        clientId = creds.clientId;
+        clientSecret = creds.clientSecret;
+      }
 
-  return authenticateAnkorstore(clientId, clientSecret);
+      if (!clientId || !clientSecret) {
+        throw new Error(
+          "Identifiants Ankorstore manquants — configurer dans Paramètres > Marketplaces"
+        );
+      }
+
+      return await authenticateAnkorstore(clientId, clientSecret);
+    } finally {
+      pendingAuth = null;
+    }
+  })();
+
+  return pendingAuth;
 }
 
 /**
