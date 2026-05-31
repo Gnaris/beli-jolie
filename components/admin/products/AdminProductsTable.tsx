@@ -2299,9 +2299,9 @@ export default function AdminProductsTable({
     });
 
     // Propose la mise a jour marketplaces pour les produits deja publies
-    // (PFS et Ankorstore). Une seule modale avec cases a cocher : l'admin
-    // decide pour chaque marketplace ; cochee par defaut quand au moins 1
-    // candidat existe.
+    // (PFS, Ankorstore et eFashion Paris). Une seule modale avec cases a
+    // cocher : l'admin decide pour chaque marketplace ; cochee par defaut
+    // quand au moins 1 candidat existe.
     if (successIds.length > 0) {
       const pfsCandidates = hasPfsConfig
         ? allProducts.filter((p) => successIds.includes(p.id) && p.pfsProductId)
@@ -2310,10 +2310,23 @@ export default function AdminProductsTable({
       const ankorsCandidates = showAnkorstore
         ? allProducts.filter((p) => successIds.includes(p.id) && p.ankorsProductId)
         : [];
+      const showEfashion = hasEfashionConfig && efashionEnabled;
+      const efashionCandidates = showEfashion
+        ? allProducts.filter(
+            (p) =>
+              successIds.includes(p.id) &&
+              (p.colors ?? []).some((c) => c.efashionProductId != null),
+          )
+        : [];
 
-      if (pfsCandidates.length > 0 || ankorsCandidates.length > 0) {
+      if (
+        pfsCandidates.length > 0 ||
+        ankorsCandidates.length > 0 ||
+        efashionCandidates.length > 0
+      ) {
         const pfsRef = { current: pfsCandidates.length > 0 };
         const ankorsRef = { current: ankorsCandidates.length > 0 };
+        const efashionRef = { current: efashionCandidates.length > 0 };
         const checkboxes: {
           id: string;
           label: string;
@@ -2337,6 +2350,16 @@ export default function AdminProductsTable({
             defaultChecked: true,
             onChange: (v) => {
               ankorsRef.current = v;
+            },
+          });
+        }
+        if (efashionCandidates.length > 0) {
+          checkboxes.push({
+            id: "efashion",
+            label: `Mettre à jour sur eFashion Paris (${efashionCandidates.length} sur ${successIds.length})`,
+            defaultChecked: true,
+            onChange: (v) => {
+              efashionRef.current = v;
             },
           });
         }
@@ -2378,11 +2401,24 @@ export default function AdminProductsTable({
               });
             }
           }
+          if (efashionRef.current) {
+            for (const p of efashionCandidates) {
+              inputs.push({
+                productId: p.id,
+                reference: p.reference,
+                productName: p.name,
+                firstImage: p.firstImage,
+                options: { local: false, pfs: false, ankorstore: false, efashion: true },
+                mode: "publish" as const,
+                marketplace: "efashion" as const,
+              });
+            }
+          }
           if (inputs.length > 0) enqueuePfs(inputs);
         }
       }
     }
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, router]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, router]);
 
   const handleBulkDelete = useCallback(async (idsOverride?: string[]) => {
     const ids = idsOverride ?? [...selectedIds];
