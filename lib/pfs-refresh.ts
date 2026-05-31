@@ -701,14 +701,24 @@ export async function pfsRefreshProduct(
     const primaryColorRef = primaryColorIdResolved
       ? colorIdToPfsRef.get(primaryColorIdResolved) ?? null
       : null;
+    if (primaryColorIdResolved && !primaryColorRef) {
+      logger.error("[PFS Refresh] Cannot set default_color — no PFS ref resolved for primary color", {
+        pfsProductId: newPfsProductId,
+        reference: product.reference,
+        primaryColorIdResolved,
+        hint: "La couleur principale n'a pas de mapping PFS (pfsColorRef). Vérifie la couleur dans la bibliothèque ou pose un mapping secondaire sur la variante.",
+      });
+      throw new Error(
+        "Impossible de définir la couleur principale sur PFS : la couleur sélectionnée n'a pas de correspondance Paris Fashion Shop. Ouvrez la bibliothèque de couleurs et renseignez la « Référence Paris Fashion Shop » pour cette couleur.",
+      );
+    }
     if (primaryColorRef) {
-      try {
-        await pfsUpdateProduct(newPfsProductId, { default_color: primaryColorRef });
-      } catch (err) {
-        logger.warn("[PFS Refresh] Failed to set default_color", {
-          error: err,
-        });
-      }
+      logger.info("[PFS Refresh] Setting default_color", {
+        pfsProductId: newPfsProductId,
+        reference: product.reference,
+        defaultColor: primaryColorRef,
+      });
+      await pfsUpdateProduct(newPfsProductId, { default_color: primaryColorRef });
     }
 
     // ── Step 5: Swap references (soft-delete old, promote new) ──

@@ -481,6 +481,8 @@ function VariantRow({
   hasPfsConfig,
   hasAnkorstoreConfig,
   ankorstoreEnabled,
+  hasEfashionConfig,
+  efashionEnabled,
   checked,
   onCheck,
   onSaved,
@@ -490,6 +492,8 @@ function VariantRow({
   hasPfsConfig: boolean;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
+  hasEfashionConfig: boolean;
+  efashionEnabled: boolean;
   checked: boolean;
   onCheck: () => void;
   onSaved: () => void;
@@ -517,13 +521,17 @@ function VariantRow({
       setEditing(false);
       onSaved();
 
-      // Propose la mise a jour marketplaces avec cases a cocher (PFS + AS).
+      // Propose la mise a jour marketplaces avec cases a cocher (PFS + AS + eFashion).
       const pfsAvailable = hasPfsConfig && !!product.pfsProductId;
       const ankorsAvailable =
         hasAnkorstoreConfig && ankorstoreEnabled && !!product.ankorsProductId;
-      if (pfsAvailable || ankorsAvailable) {
+      const efashionAvailable =
+        hasEfashionConfig && efashionEnabled &&
+        product.colors.some((c) => c.efashionProductId != null);
+      if (pfsAvailable || ankorsAvailable || efashionAvailable) {
         const pfsRef = { current: pfsAvailable };
         const ankorsRef = { current: ankorsAvailable };
+        const efashionRef = { current: efashionAvailable };
         const checkboxes: {
           id: string;
           label: string;
@@ -547,6 +555,16 @@ function VariantRow({
             defaultChecked: true,
             onChange: (v) => {
               ankorsRef.current = v;
+            },
+          });
+        }
+        if (efashionAvailable) {
+          checkboxes.push({
+            id: "efashion",
+            label: "Mettre à jour sur eFashion Paris",
+            defaultChecked: true,
+            onChange: (v) => {
+              efashionRef.current = v;
             },
           });
         }
@@ -581,6 +599,17 @@ function VariantRow({
               options: { local: false, pfs: false, ankorstore: true },
               mode: "publish",
               marketplace: "ankorstore",
+            });
+          }
+          if (efashionRef.current) {
+            inputs.push({
+              productId: product.id,
+              reference: product.reference,
+              productName: product.name,
+              firstImage: product.firstImage,
+              options: { local: false, pfs: false, ankorstore: false, efashion: true },
+              mode: "publish",
+              marketplace: "efashion",
             });
           }
           if (inputs.length > 0) enqueue(inputs);
@@ -1631,6 +1660,8 @@ function ProductRow({
                       hasPfsConfig={hasPfsConfig}
                       hasAnkorstoreConfig={hasAnkorstoreConfig}
                       ankorstoreEnabled={ankorstoreEnabled}
+                      hasEfashionConfig={hasEfashionConfig}
+                      efashionEnabled={efashionEnabled}
                       checked={selectedVariantIds.has(variant.id)}
                       onCheck={() => onToggleVariant(variant.id)}
                       onSaved={() => {}}

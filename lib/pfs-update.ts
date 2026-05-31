@@ -1093,15 +1093,27 @@ export async function pfsUpdateProductInPlace(
     }
 
     // ── Step 4 : Set default color (skippé si inchangé) ──
-    if (diff.defaultColorChanged && primaryColorRef) {
-      try {
-        await pfsUpdateProduct(pfsProductId, { default_color: primaryColorRef });
-        committedSnapshot.defaultColor = primaryColorRef;
-      } catch (err) {
-        logger.warn("[PFS Update] Failed to set default_color", {
-          error: err,
+    if (diff.defaultColorChanged) {
+      if (!primaryColorRef) {
+        logger.error("[PFS Update] Cannot set default_color — no PFS ref resolved for primary color", {
+          pfsProductId,
+          reference: product.reference,
+          primaryColorIdResolved,
+          hint: "La couleur principale n'a pas de mapping PFS (pfsColorRef). Vérifie la couleur dans la bibliothèque ou pose un mapping secondaire sur la variante.",
         });
+        throw new Error(
+          "Impossible de mettre à jour la couleur principale sur PFS : la couleur sélectionnée n'a pas de correspondance Paris Fashion Shop. Ouvrez la bibliothèque de couleurs et renseignez la « Référence Paris Fashion Shop » pour cette couleur.",
+        );
       }
+      report("Mise à jour de la couleur principale sur PFS...");
+      logger.info("[PFS Update] Setting default_color", {
+        pfsProductId,
+        reference: product.reference,
+        previousDefaultColor: prevSnapshot?.defaultColor ?? null,
+        nextDefaultColor: primaryColorRef,
+      });
+      await pfsUpdateProduct(pfsProductId, { default_color: primaryColorRef });
+      committedSnapshot.defaultColor = primaryColorRef;
     }
 
     // ── Step 5 : Update status (skippé si inchangé) ──
