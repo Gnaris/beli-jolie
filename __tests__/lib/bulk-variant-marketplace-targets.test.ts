@@ -6,11 +6,15 @@ const product = (
   pfsProductId: string | null,
   ankorsProductId: string | null,
   variantIds: string[],
+  efashionVariantIds: string[] = [],
 ) => ({
   id,
   pfsProductId,
   ankorsProductId,
-  colors: variantIds.map((vId) => ({ id: vId })),
+  colors: variantIds.map((vId) => ({
+    id: vId,
+    efashionProductId: efashionVariantIds.includes(vId) ? 1 : null,
+  })),
 });
 
 describe("computeBulkVariantMarketplaceTargets", () => {
@@ -99,5 +103,36 @@ describe("computeBulkVariantMarketplaceTargets", () => {
       { hasPfsConfig: true, showAnkorstore: true },
     );
     expect(result.affectedProducts.map((p) => p.id)).toEqual(["p1"]);
+  });
+
+  it("ne retient pour eFashion que les produits liés (une couleur avec efashionProductId)", () => {
+    const products = [
+      product("p1", "pfs-1", null, ["v1", "v2"], ["v1"]),       // lié à eFashion
+      product("p2", "pfs-2", null, ["v3"]),                     // pas lié
+      product("p3", null, null, ["v4"], ["v4"]),                // lié à eFashion seul
+    ];
+    const result = computeBulkVariantMarketplaceTargets(
+      products,
+      ["v1", "v3", "v4"],
+      { hasPfsConfig: true, showAnkorstore: false, showEfashion: true },
+    );
+    expect(result.affectedProducts.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+    expect(result.efashionProducts.map((p) => p.id)).toEqual(["p1", "p3"]);
+  });
+
+  it("ignore eFashion quand la marketplace n'est pas activée (kill switch off ou non configurée)", () => {
+    const products = [product("p1", null, null, ["v1"], ["v1"])];
+    const resultDisabled = computeBulkVariantMarketplaceTargets(
+      products,
+      ["v1"],
+      { hasPfsConfig: false, showAnkorstore: false, showEfashion: false },
+    );
+    expect(resultDisabled.efashionProducts).toEqual([]);
+    const resultMissing = computeBulkVariantMarketplaceTargets(
+      products,
+      ["v1"],
+      { hasPfsConfig: false, showAnkorstore: false },
+    );
+    expect(resultMissing.efashionProducts).toEqual([]);
   });
 });

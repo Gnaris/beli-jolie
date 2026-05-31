@@ -2765,18 +2765,21 @@ export default function AdminProductsTable({
         hideLoading();
       }
 
-      // Propose la mise à jour marketplaces (PFS + Ankorstore) sur les produits
-      // dont au moins une variante a été modifiée.
+      // Propose la mise à jour marketplaces (PFS + Ankorstore + eFashion) sur
+      // les produits dont au moins une variante a été modifiée.
       if (!bulkSucceeded) return;
-      const { affectedProducts, pfsProducts, ankorsProducts } =
+      const showEfashion = hasEfashionConfig && efashionEnabled;
+      const { affectedProducts, pfsProducts, ankorsProducts, efashionProducts } =
         computeBulkVariantMarketplaceTargets(allProducts, ids, {
           hasPfsConfig,
           showAnkorstore,
+          showEfashion,
         });
-      if (pfsProducts.length === 0 && ankorsProducts.length === 0) return;
+      if (pfsProducts.length === 0 && ankorsProducts.length === 0 && efashionProducts.length === 0) return;
 
       const pfsRef = { current: pfsProducts.length > 0 };
       const ankorsRef = { current: ankorsProducts.length > 0 };
+      const efashionRef = { current: efashionProducts.length > 0 };
       const checkboxes: {
         id: string;
         label: string;
@@ -2800,6 +2803,16 @@ export default function AdminProductsTable({
           defaultChecked: true,
           onChange: (v) => {
             ankorsRef.current = v;
+          },
+        });
+      }
+      if (efashionProducts.length > 0) {
+        checkboxes.push({
+          id: "efashion",
+          label: `Mettre à jour sur eFashion Paris (${efashionProducts.length} produit${efashionProducts.length > 1 ? "s" : ""})`,
+          defaultChecked: true,
+          onChange: (v) => {
+            efashionRef.current = v;
           },
         });
       }
@@ -2841,9 +2854,22 @@ export default function AdminProductsTable({
           });
         }
       }
+      if (efashionRef.current) {
+        for (const p of efashionProducts) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: false, ankorstore: false, efashion: true },
+            mode: "publish",
+            marketplace: "efashion",
+          });
+        }
+      }
       if (inputs.length > 0) enqueuePfs(inputs);
     });
-  }, [selectedVariantIds, allProducts, startTransition, showLoading, hideLoading, hasPfsConfig, showAnkorstore, confirm, enqueuePfs]);
+  }, [selectedVariantIds, allProducts, startTransition, showLoading, hideLoading, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, confirm, enqueuePfs]);
 
   if (allProducts.length === 0) {
     return (
