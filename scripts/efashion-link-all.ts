@@ -13,7 +13,9 @@
  * Sortie : récap dans le terminal (X liés / Y à revoir / Z impossibles) +
  * détail par produit pour les non-liés. Aucun fichier généré.
  *
- * Usage VPS : `npx tsx scripts/efashion-link-all.ts`
+ * Usage VPS :
+ *   npx tsx scripts/efashion-link-all.ts                # ecriture reelle en BDD
+ *   npx tsx scripts/efashion-link-all.ts --simulation   # lecture seule, aucun lien pose
  */
 
 import { Prisma } from "@prisma/client";
@@ -28,6 +30,8 @@ import {
 } from "@/lib/efashion-link-match";
 
 const PAUSE_BETWEEN_PRODUCTS_MS = 250;
+
+const DRY_RUN = process.argv.includes("--simulation") || process.argv.includes("--dry-run");
 
 type LinkOutcome =
   | { status: "linked"; productId: string; reference: string; linkedColors: number }
@@ -139,6 +143,15 @@ async function processProduct(productId: string, vendorId: number): Promise<Link
         reason: decision.reason,
       };
     case "linked": {
+      // Mode simulation : on n'écrit rien, on retourne juste la décision.
+      if (DRY_RUN) {
+        return {
+          status: "linked",
+          productId,
+          reference: ref,
+          linkedColors: decision.links.length,
+        };
+      }
       // Écriture en BDD (Niveau A — pas d'appel à efashionUpdateProductInPlace)
       try {
         await prisma.$transaction(async (tx) => {
@@ -186,6 +199,9 @@ async function processProduct(productId: string, vendorId: number): Promise<Link
 }
 
 async function main() {
+  if (DRY_RUN) {
+    console.log("🧪 MODE SIMULATION — aucune écriture en BDD.\n");
+  }
   // 1) Vérifier que eFashion est configuré
   const vendor = await efashionGetMe();
   console.log(
