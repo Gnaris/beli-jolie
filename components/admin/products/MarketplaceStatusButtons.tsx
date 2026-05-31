@@ -63,6 +63,7 @@ export function MarketplaceStatusButtons({
   const [linkEfOpen, setLinkEfOpen] = useState(false);
   const [unlinkEfBusy, setUnlinkEfBusy] = useState(false);
   const [resyncEfOpen, setResyncEfOpen] = useState(false);
+  const [confirmEfOpen, setConfirmEfOpen] = useState(false);
 
   const pfsOp = useMemo(
     () => findLatestOpForProduct(items, productId, "pfs"),
@@ -115,6 +116,12 @@ export function MarketplaceStatusButtons({
       router.refresh();
     }
   }, [ankorstoreState.justPublishedOk, ankorsProductId, router]);
+
+  useEffect(() => {
+    if (efashionState.justPublishedOk && !efashionLinked) {
+      router.refresh();
+    }
+  }, [efashionState.justPublishedOk, efashionLinked, router]);
 
   const handlePublishPfs = () => {
     enqueue([
@@ -220,6 +227,21 @@ export function MarketplaceStatusButtons({
       },
     ]);
     setResyncEfOpen(false);
+  };
+
+  const handlePublishEfashion = () => {
+    enqueue([
+      {
+        productId,
+        reference,
+        productName,
+        firstImage,
+        options: { local: false, pfs: false, ankorstore: false, efashion: true },
+        mode: "publish",
+        marketplace: "efashion",
+      },
+    ]);
+    setConfirmEfOpen(false);
   };
 
   const handleUnlinkEfashion = async () => {
@@ -504,20 +526,26 @@ export function MarketplaceStatusButtons({
 
         {showEfashion && (
           <div className="inline-flex items-center gap-1.5">
-            <span
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border ${
+            <button
+              type="button"
+              onClick={() => {
+                if (efashionLinked || isEfashionLoading) return;
+                setConfirmEfOpen(true);
+              }}
+              disabled={isEfashionLoading}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border transition-all ${
                 isEfashionLoading
-                  ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE]"
+                  ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
                   : efashionLinked
-                    ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
-                    : "bg-bg-secondary text-text-muted border-border"
+                    ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
+                    : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
               }`}
               title={
                 isEfashionLoading
                   ? "Synchronisation eFashion en cours…"
                   : efashionLinked
                     ? "Produit lié à eFashion Paris"
-                    : "Pas encore lié à eFashion Paris — cliquez sur l'icône lien"
+                    : "Non disponible — cliquez pour publier sur eFashion Paris"
               }
             >
               {isEfashionLoading ? (
@@ -527,12 +555,23 @@ export function MarketplaceStatusButtons({
               ) : (
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
-                    efashionLinked ? "bg-[#22C55E]" : "bg-text-muted"
+                    efashionLinked ? "bg-[#22C55E]" : "bg-[#DC2626]"
                   }`}
                 />
               )}
-              {isEfashionLoading ? "Sync eFashion…" : efashionLinked ? "eFashion Paris" : "Non lié eFashion"}
-            </span>
+              {isEfashionLoading ? (
+                "Sync eFashion…"
+              ) : efashionLinked ? (
+                "eFashion Paris"
+              ) : (
+                <>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  Non publié eFashion
+                </>
+              )}
+            </button>
 
             {efashionLinked && (
               <button
@@ -802,6 +841,49 @@ export function MarketplaceStatusButtons({
           reference={reference}
           onClose={() => setLinkEfOpen(false)}
         />
+      )}
+
+      {confirmEfOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-none shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-[#FEF2F2] flex items-center justify-center">
+                <svg className="w-5 h-5 text-[#DC2626]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-heading font-bold text-text-primary">
+                  Publier sur eFashion Paris ?
+                </h3>
+                <p className="text-sm text-text-secondary font-body">
+                  {productName} ({reference})
+                </p>
+              </div>
+            </div>
+            <p className="text-sm text-text-secondary font-body">
+              Ce produit n&apos;est pas encore lié à eFashion Paris. Une nouvelle
+              fiche y sera créée pour chaque couleur (workflow shooting) avec les
+              infos, photos, prix et stock actuels.
+            </p>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmEfOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-text-secondary bg-bg-secondary border border-border rounded-none hover:bg-bg-tertiary transition-colors font-body"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handlePublishEfashion}
+                className="px-4 py-2 text-sm font-medium text-white bg-[#DC2626] rounded-none hover:bg-[#B91C1C] transition-colors font-body"
+              >
+                Oui, publier
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {resyncEfOpen && (
