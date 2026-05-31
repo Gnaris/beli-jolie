@@ -9,8 +9,10 @@ import {
   parseMode,
   pickRowsForUnSeul,
   splitAmbiguousAkSide,
+  splitStrictRows,
   type MatchedRow,
 } from "@/scripts/link-ankorstore-bulk";
+import type { BjProductForMatch } from "@/lib/ankorstore-match";
 
 // ─── Helpers de fixtures ──────────────────────────────────────────────
 
@@ -51,12 +53,22 @@ function makeAnkorstoreProduct(
 function makeVariantMatch(
   variant: AnkorstoreVariant,
   bjColorId: string | null,
+  confidence: "exact" | "fuzzy" | "none" = bjColorId ? "exact" : "none",
 ): VariantMatchPair {
   return {
     ankorstoreVariant: variant,
     bjColorId,
     bjColorName: bjColorId ? "Couleur" : null,
-    confidence: bjColorId ? "exact" : "none",
+    confidence,
+  };
+}
+
+function bj(id: string, ref: string, unitColorIds: string[]): BjProductForMatch {
+  return {
+    id,
+    name: `BJ ${id}`,
+    reference: ref,
+    colors: unitColorIds.map((c) => ({ id: c, name: c })),
   };
 }
 
@@ -122,11 +134,16 @@ describe("buildMatchedRows", () => {
       variantMatches: [],
     };
 
-    const rows = buildMatchedRows([matched, ambiguous, unmatched]);
+    const rows = buildMatchedRows(
+      [matched, ambiguous, unmatched],
+      [bj("bj1", "RBA1", ["color_noir"])],
+    );
 
     expect(rows).toHaveLength(1);
     expect(rows[0].bjReference).toBe("RBA1");
     expect(rows[0].akName).toBe("Robe AS");
+    expect(rows[0].bjUnitColorCount).toBe(1);
+    expect(rows[0].hasFuzzyMatch).toBe(false);
   });
 
   it("extrait les paires de variantes en ignorant les bjColorId null", () => {
@@ -139,13 +156,17 @@ describe("buildMatchedRows", () => {
       { variant: v3, bjColorId: "color_bleu" },
     ]);
 
-    const rows = buildMatchedRows([result]);
+    const rows = buildMatchedRows(
+      [result],
+      [bj("bj1", "RBA1", ["color_noir", "color_bleu"])],
+    );
 
     expect(rows[0].variantPairs).toEqual([
       { localColorId: "color_noir", ankorstoreVariantId: "v1" },
       { localColorId: "color_bleu", ankorstoreVariantId: "v3" },
     ]);
     expect(rows[0].totalAkVariants).toBe(3);
+    expect(rows[0].bjUnitColorCount).toBe(2);
   });
 
   it("retourne extractedRef='?' quand la reference est null", () => {
@@ -158,10 +179,121 @@ describe("buildMatchedRows", () => {
       variantMatches: [],
     };
 
-    const rows = buildMatchedRows([result]);
+    const rows = buildMatchedRows([result], [bj("bj_x", "?", ["c1"])]);
 
     expect(rows[0].bjReference).toBe("?");
     expect(rows[0].extractedRef).toBe("?");
+  });
+
+  it("detecte hasFuzzyMatch quand au moins une variante est fuzzy", () => {
+    const v1 = makeVariant("v1", "RBA1_NOIR");
+    const v2 = makeVariant("v2", "RBA1_BLEU");
+    const result: MatchResult = {
+      ankorstoreProduct: makeAnkorstoreProduct("ak1", "Robe AS", [v1, v2]),
+      status: "matched",
+      extractedRef: "RBA1",
+      bjProductIds: ["bj1"],
+      bjProductNames: ["Robe"],
+      variantMatches: [
+        makeVariantMatch(v1, "color_noir", "exact"),
+        makeVariantMatch(v2, "color_bleu", "fuzzy"),
+      ],
+    };
+    const rows = buildMatchedRows([result], [bj("bj1", "RBA1", ["color_noir", "color_bleu"])]);
+    expect(rows[0].hasFuzzyMatch).toBe(true);
+  });
+});
+
+// ─── splitStrictRows ───────────────────────────────────────────────────
+
+describe("splitStrictRows", () => {
+  function row(opts: Partial<MatchedRow> & { variantPairs?: { localColorId: string; ankorstoreVariantId: string }[] }): MatchedRow {
+    return {
+      bjId: "bj1",
+      bjName: "Robe",
+      bjReference: "RBA1",
+      akId: "ak1",
+      akName: "Robe AS",
+      extractedRef: "RBA1",
+      variantPairs: [],
+      totalAkVariants: 0,
+      bjUnitColorCount: 0,
+      hasFuzzyMatch: false,
+      ...opts,
+    };
+  }
+
+  it("garde safe quand AS=BJ=appariees, pas de fuzzy, pas de doublon", () => {
+    const r = row({
+      variantPairs: [
+        { localColorId: "c1", ankorstoreVariantId: "v1" },
+        { localColorId: "c2", ankorstoreVariantId: "v2" },
+      ],
+      totalAkVariants: 2,
+      bjUnitColorCount: 2,
+    });
+    const { safe, rejected } = splitStrictRows([r]);
+    expect(safe).toHaveLength(1);
+    expect(rejected).toHaveLength(0);
+  });
+
+  it("rejette si AS a une variante en plus", () => {
+    const r = row({
+      variantPairs: [{ localColorId: "c1", ankorstoreVariantId: "v1" }],
+      totalAkVariants: 2,
+      bjUnitColorCount: 1,
+    });
+    const { safe, rejected } = splitStrictRows([r]);
+    expect(safe).toHaveLength(0);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reasons.join(" ")).toMatch(/Ankorstore sans equivalent/);
+  });
+
+  it("rejette si BJ a une variante en plus", () => {
+    const r = row({
+      variantPairs: [{ localColorId: "c1", ankorstoreVariantId: "v1" }],
+      totalAkVariants: 1,
+      bjUnitColorCount: 2,
+    });
+    const { rejected } = splitStrictRows([r]);
+    expect(rejected[0].reasons.join(" ")).toMatch(/chez vous sans equivalent/);
+  });
+
+  it("rejette si fuzzy match", () => {
+    const r = row({
+      variantPairs: [
+        { localColorId: "c1", ankorstoreVariantId: "v1" },
+        { localColorId: "c2", ankorstoreVariantId: "v2" },
+      ],
+      totalAkVariants: 2,
+      bjUnitColorCount: 2,
+      hasFuzzyMatch: true,
+    });
+    const { rejected } = splitStrictRows([r]);
+    expect(rejected[0].reasons.join(" ")).toMatch(/approximatif/);
+  });
+
+  it("rejette si 2 variantes AS pointent sur la meme couleur BJ", () => {
+    const r = row({
+      variantPairs: [
+        { localColorId: "c1", ankorstoreVariantId: "v1" },
+        { localColorId: "c1", ankorstoreVariantId: "v2" }, // doublon
+      ],
+      totalAkVariants: 2,
+      bjUnitColorCount: 1,
+    });
+    const { rejected } = splitStrictRows([r]);
+    expect(rejected[0].reasons.join(" ")).toMatch(/meme couleur chez vous/);
+  });
+
+  it("rejette si le produit BJ n'a aucune variante UNIT", () => {
+    const r = row({
+      variantPairs: [],
+      totalAkVariants: 0,
+      bjUnitColorCount: 0,
+    });
+    const { rejected } = splitStrictRows([r]);
+    expect(rejected[0].reasons.join(" ")).toMatch(/sans variante UNIT/);
   });
 });
 

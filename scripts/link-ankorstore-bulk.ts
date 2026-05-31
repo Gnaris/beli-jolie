@@ -1,11 +1,17 @@
 /**
  * Liaison en masse des produits locaux aux produits Ankorstore correspondants.
  *
+ * **Mode strict 100 % ou rien** : on ne pose un lien que si la fiche
+ * Ankorstore et la fiche BJ ont exactement le meme nombre de variantes ET
+ * que chaque variante trouve son equivalent exact (pas de fuzzy, pas de
+ * doublon, pas de variante orpheline d'un cote ou de l'autre).
+ *
  * Comportement par mode :
- *   - simulation       Aucune écriture. Affiche le compte-rendu du matching.
+ *   - simulation       Aucune écriture. Affiche le compte-rendu du matching
+ *                      + le détail des produits refusés par le filtre strict.
  *   - un-seul [<ref>]  Pose le lien pour UN seul produit (par défaut le premier
  *                      match trouvé). Si <ref> est fournie, cible cette référence.
- *   - tout             Pose le lien pour TOUS les matchs non ambigus.
+ *   - tout             Pose le lien pour TOUS les matchs strictement surs.
  *
  * Le matching se fait via runAutoMatch (lib/ankorstore-match.ts) sur la
  * référence produit. Pour chaque match unique :
@@ -163,26 +169,96 @@ export interface MatchedRow {
   extractedRef: string;
   variantPairs: { localColorId: string; ankorstoreVariantId: string }[];
   totalAkVariants: number;
+  bjUnitColorCount: number;
+  hasFuzzyMatch: boolean;
 }
 
-export function buildMatchedRows(results: MatchResult[]): MatchedRow[] {
+export function buildMatchedRows(
+  results: MatchResult[],
+  bjProducts: BjProductForMatch[] = [],
+): MatchedRow[] {
+  const bjById = new Map(bjProducts.map((p) => [p.id, p]));
   return results
     .filter((r) => r.status === "matched")
-    .map((r) => ({
-      bjId: r.bjProductIds[0],
-      bjName: r.bjProductNames[0],
-      bjReference: r.extractedRef ?? "?",
-      akId: r.ankorstoreProduct.id,
-      akName: r.ankorstoreProduct.name,
-      extractedRef: r.extractedRef ?? "?",
-      variantPairs: (r.variantMatches ?? [])
-        .filter((vm) => vm.bjColorId !== null)
-        .map((vm) => ({
-          localColorId: vm.bjColorId as string,
-          ankorstoreVariantId: vm.ankorstoreVariant.id,
-        })),
-      totalAkVariants: r.ankorstoreProduct.variants.length,
-    }));
+    .map((r) => {
+      const bjId = r.bjProductIds[0];
+      const bjUnitColorCount = bjById.get(bjId)?.colors.length ?? 0;
+      return {
+        bjId,
+        bjName: r.bjProductNames[0],
+        bjReference: r.extractedRef ?? "?",
+        akId: r.ankorstoreProduct.id,
+        akName: r.ankorstoreProduct.name,
+        extractedRef: r.extractedRef ?? "?",
+        variantPairs: (r.variantMatches ?? [])
+          .filter((vm) => vm.bjColorId !== null)
+          .map((vm) => ({
+            localColorId: vm.bjColorId as string,
+            ankorstoreVariantId: vm.ankorstoreVariant.id,
+          })),
+        totalAkVariants: r.ankorstoreProduct.variants.length,
+        bjUnitColorCount,
+        hasFuzzyMatch: (r.variantMatches ?? []).some(
+          (vm) => vm.confidence === "fuzzy",
+        ),
+      };
+    });
+}
+
+/**
+ * Filtre strict « 100 % ou rien ». Refuse de lier des que :
+ *   - le nombre de variantes Ankorstore != nombre de variantes BJ UNIT
+ *     (variante en plus ou en moins)
+ *   - une variante Ankorstore n'a pas trouve son equivalent BJ exact
+ *   - 2 variantes Ankorstore pointent sur la meme couleur BJ
+ *   - un matching couleur est approximatif (fuzzy "contient")
+ */
+export interface StrictRejection {
+  row: MatchedRow;
+  reasons: string[];
+}
+
+export function splitStrictRows(rows: MatchedRow[]): {
+  safe: MatchedRow[];
+  rejected: StrictRejection[];
+} {
+  const safe: MatchedRow[] = [];
+  const rejected: StrictRejection[] = [];
+  for (const r of rows) {
+    const reasons: string[] = [];
+    const akOrphans = r.totalAkVariants - r.variantPairs.length;
+    if (akOrphans > 0) {
+      reasons.push(
+        `${akOrphans} variante(s) Ankorstore sans equivalent couleur chez vous`,
+      );
+    }
+    const bjOrphans = r.bjUnitColorCount - r.variantPairs.length;
+    if (bjOrphans > 0) {
+      reasons.push(
+        `${bjOrphans} couleur(s) chez vous sans equivalent Ankorstore`,
+      );
+    }
+    const uniqueTargets = new Set(r.variantPairs.map((p) => p.localColorId));
+    if (uniqueTargets.size !== r.variantPairs.length) {
+      reasons.push(
+        "Plusieurs variantes Ankorstore pointent sur la meme couleur chez vous",
+      );
+    }
+    if (r.hasFuzzyMatch) {
+      reasons.push(
+        "Matching couleur approximatif (nom similaire mais pas identique)",
+      );
+    }
+    if (r.bjUnitColorCount === 0) {
+      reasons.push("Produit BJ sans variante UNIT");
+    }
+    if (reasons.length === 0) {
+      safe.push(r);
+    } else {
+      rejected.push({ row: r, reasons });
+    }
+  }
+  return { safe, rejected };
 }
 
 export function pickRowsForUnSeul(
@@ -329,13 +405,15 @@ async function main() {
   const matchedBjIds = new Set(matchedResults.flatMap((r) => r.bjProductIds));
   const orphanBj = bjProducts.filter((p) => !matchedBjIds.has(p.id));
 
-  const allMatchedRows = buildMatchedRows(report.results);
+  const allMatchedRows = buildMatchedRows(report.results, bjProducts);
   const split = splitAmbiguousAkSide(allMatchedRows);
-  const matchedRows = split.safe;
+  const strict = splitStrictRows(split.safe);
+  const matchedRows = strict.safe;
 
   console.log("");
   console.log("=== Recapitulatif du matching ===");
-  console.log(`Matchs uniques (a lier)              : ${matchedRows.length}`);
+  console.log(`Matchs surs a 100% (a lier)          : ${matchedRows.length}`);
+  console.log(`Refuses (variantes != ou ambigu)     : ${strict.rejected.length}`);
   console.log(`Ambigus cote local (mm ref BJ x N)   : ${ambiguousResults.length}`);
   console.log(`Ambigus cote AS (mm ref AS x N)      : ${split.ambiguousAk.length}`);
   console.log(`Vos produits sans equivalent AS      : ${orphanBj.length}`);
@@ -355,6 +433,7 @@ async function main() {
       bjProductsToLink: bjProducts.length,
       akProductsActive: akProducts.length,
       safeMatches: matchedRows.length,
+      strictRejected: strict.rejected.length,
       partialVariantMatches: partialMatches.length,
       ambiguousLocal: ambiguousResults.length,
       ambiguousAk: split.ambiguousAk.length,
@@ -362,6 +441,15 @@ async function main() {
       unmatchedAk: unmatchedAk.length,
     },
     safe: safeStats,
+    strictRejected: strict.rejected.map((rj) => ({
+      reference: rj.row.bjReference,
+      bjName: rj.row.bjName,
+      akName: rj.row.akName,
+      variantsBj: rj.row.bjUnitColorCount,
+      variantsAk: rj.row.totalAkVariants,
+      variantsAppariees: rj.row.variantPairs.length,
+      reasons: rj.reasons,
+    })),
     ambiguousLocalDetails: ambiguousResults.map((r) => ({
       akName: r.ankorstoreProduct.name, extractedRef: r.extractedRef,
       candidates: r.bjProductIds.map((id, i) => ({ id, name: r.bjProductNames[i] })),
@@ -383,10 +471,24 @@ async function main() {
     console.log("");
     console.log("--- Liaisons qui seraient posees ---");
     for (const r of matchedRows) {
-      const partial = r.variantPairs.length < r.totalAkVariants
-        ? ` (${r.variantPairs.length}/${r.totalAkVariants} variantes appariees auto)`
-        : "";
-      console.log(`  ${r.bjReference}  |  ${r.bjName}  →  "${r.akName}"${partial}`);
+      console.log(
+        `  ${r.bjReference}  |  ${r.bjName}  →  "${r.akName}"  (${r.variantPairs.length}/${r.totalAkVariants} variantes, ok)`,
+      );
+    }
+
+    if (strict.rejected.length > 0) {
+      console.log("");
+      console.log("--- Refuses par le mode strict (variantes != ou ambigu) ---");
+      const shownRejected = strict.rejected.slice(0, 60);
+      for (const rj of shownRejected) {
+        const r = rj.row;
+        console.log(
+          `  ${r.bjReference}  |  ${r.bjName} (BJ ${r.bjUnitColorCount} vs AS ${r.totalAkVariants}) : ${rj.reasons.join(" ; ")}`,
+        );
+      }
+      if (strict.rejected.length > shownRejected.length) {
+        console.log(`  ... et ${strict.rejected.length - shownRejected.length} autres`);
+      }
     }
 
     if (ambiguousResults.length > 0) {
