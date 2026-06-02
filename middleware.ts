@@ -116,9 +116,12 @@ export async function middleware(request: NextRequest) {
     secret: process.env.NEXTAUTH_SECRET,
   });
 
-  const isAuthenticated = !!token;
-  const isAdmin = token?.role === "ADMIN";
-  const isPending = token?.status === "PENDING";
+  // Un token marqué `deleted` correspond à un utilisateur supprimé en BDD :
+  // on le traite comme une session inexistante, sinon le cookie JWT (valide 30j)
+  // permettrait à un compte supprimé de continuer à naviguer.
+  const isAuthenticated = !!token && !token.deleted;
+  const isAdmin = isAuthenticated && token?.role === "ADMIN";
+  const isPending = isAuthenticated && token?.status === "PENDING";
   const previewMode = request.cookies.get("bj_admin_preview")?.value === "1";
 
   // Path "sans locale" pour matcher la logique métier (vide = "/")

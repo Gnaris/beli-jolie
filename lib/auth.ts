@@ -189,16 +189,41 @@ export const authOptions: NextAuthOptions = {
         token.role = (user as { role: Role }).role;
         token.status = (user as { status: UserStatus }).status;
         token.company = (user as { company: string }).company;
+        token.lastCheckedAt = Date.now();
+        token.deleted = false;
+        return token;
       }
-      if (trigger === "update" && token.id) {
-        const fresh = await prisma.user.findUnique({
-          where: { id: token.id as string },
-          select: { status: true, role: true, company: true },
-        });
-        if (fresh) {
-          token.status = fresh.status;
-          token.role = fresh.role;
-          token.company = fresh.company;
+
+      // Si la session a déjà été marquée supprimée, on ne la ressuscite pas.
+      if (token.deleted) return token;
+
+      // Re-vérification périodique de l'existence de l'utilisateur en BDD.
+      // Sans ça, un client supprimé garde une session JWT valide jusqu'à 30 jours
+      // car le cookie est auto-suffisant (pas de session DB-backed).
+      const now = Date.now();
+      const lastCheck = token.lastCheckedAt ?? 0;
+      const VERIFY_INTERVAL_MS = 30_000;
+      const shouldVerify =
+        trigger === "update" || now - lastCheck > VERIFY_INTERVAL_MS;
+
+      if (token.id && shouldVerify) {
+        try {
+          const fresh = await prisma.user.findUnique({
+            where: { id: token.id as string },
+            select: { status: true, role: true, company: true },
+          });
+          if (fresh === null) {
+            // Utilisateur supprimé : on invalide la session.
+            token.deleted = true;
+          } else {
+            token.status = fresh.status;
+            token.role = fresh.role;
+            token.company = fresh.company;
+            token.lastCheckedAt = now;
+          }
+        } catch {
+          // Erreur BDD (réseau, lock…) : on ne déconnecte PAS l'utilisateur.
+          // On retentera au prochain tick — le compteur lastCheckedAt n'est pas avancé.
         }
       }
       return token;
@@ -209,6 +234,23 @@ export const authOptions: NextAuthOptions = {
      * Appelé à chaque accès à useSession() ou getServerSession()
      */
     async session({ session, token }) {
+      // Token marqué supprimé en BDD : on renvoie une session "sentinelle"
+      // qui échoue tous les checks (rôle CLIENT + statut REJECTED).
+      // Garde session.user défini pour ne pas casser les `session.user.role`
+      // déjà disséminés partout dans le code.
+      if (token?.deleted) {
+        return {
+          ...session,
+          user: {
+            id: "",
+            email: "",
+            name: "",
+            role: "CLIENT" as Role,
+            status: "REJECTED" as UserStatus,
+            company: "",
+          },
+        };
+      }
       if (token && session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as Role;

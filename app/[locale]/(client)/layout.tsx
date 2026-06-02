@@ -60,6 +60,7 @@ export default async function ClientLayout({ children, params }: ClientLayoutPro
         {children}
       </main>
       <Footer shopName={shopName} />
+      <AccountStatusWatcher initialStatus={session.user.status} />
     </div>
   );
 }
