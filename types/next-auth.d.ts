@@ -32,5 +32,9 @@ declare module "next-auth/jwt" {
     role: Role;
     status: UserStatus;
     company: string;
+    /** Horodatage du dernier check d'existence en BDD (ms epoch) */
+    lastCheckedAt?: number;
+    /** true si l'utilisateur a été supprimé en BDD — session à révoquer */
+    deleted?: boolean;
   }
 }
