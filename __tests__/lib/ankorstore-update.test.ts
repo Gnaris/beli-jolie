@@ -18,8 +18,9 @@ vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+const mockRevalidateTag = vi.fn();
 vi.mock("next/cache", () => ({
-  revalidateTag: vi.fn(),
+  revalidateTag: (...args: unknown[]) => mockRevalidateTag(...args),
   unstable_cache: <T extends (...args: never[]) => unknown>(fn: T) => fn,
 }));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
@@ -508,6 +509,81 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
     // Pas d'AnkorstoreOperation row (synchrone)
     expect(mockAnkorstoreOperationCreate).not.toHaveBeenCalled();
+  });
+
+  it("skipRevalidation: true → ne déclenche pas revalidateTag sur la branche synchrone", async () => {
+    // Bug : le worker en arrière-plan (setInterval) appelait kickoffUpdate sans
+    // skipRevalidation. Quand seules les PATCH stock/prix étaient nécessaires,
+    // revalidateTag était appelé hors contexte de requête → Invariant: static
+    // generation store missing in revalidateTag products.
+    const prevSnapshot = makeSnapshot();
+    const product = makeProduct({
+      ankorsLastSyncSnapshot: prevSnapshot,
+      colors: [
+        {
+          id: "variant-1",
+          ankorsVariantId: "ank-variant-1",
+          unitPrice: 10,
+          weight: 0.5,
+          stock: 5,
+          isPrimary: true,
+          saleType: "UNIT",
+          packQuantity: null,
+          sku: "REF001_red_UNIT_1",
+          variantSizes: [],
+          colorId: "color-1",
+          color: { id: "color-1", name: "Rouge" },
+          packLines: [],
+          images: [],
+        },
+      ],
+    });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1", { skipRevalidation: true });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.operationId).toBe(null);
+    // La PATCH stock a bien été envoyée (preuve qu'on est passé par la branche sync)
+    expect(mockPatchVariantStock).toHaveBeenCalled();
+    // Mais revalidateTag NE DOIT PAS avoir été appelé
+    expect(mockRevalidateTag).not.toHaveBeenCalled();
+  });
+
+  it("skipRevalidation par défaut (false) → déclenche revalidateTag sur la branche synchrone", async () => {
+    // Garde-fou : un appel depuis une server action (contexte de requête) doit
+    // continuer à rafraîchir le cache produits.
+    const prevSnapshot = makeSnapshot();
+    const product = makeProduct({
+      ankorsLastSyncSnapshot: prevSnapshot,
+      colors: [
+        {
+          id: "variant-1",
+          ankorsVariantId: "ank-variant-1",
+          unitPrice: 10,
+          weight: 0.5,
+          stock: 5,
+          isPrimary: true,
+          saleType: "UNIT",
+          packQuantity: null,
+          sku: "REF001_red_UNIT_1",
+          variantSizes: [],
+          colorId: "color-1",
+          color: { id: "color-1", name: "Rouge" },
+          packLines: [],
+          images: [],
+        },
+      ],
+    });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result.success).toBe(true);
+    expect(mockRevalidateTag).toHaveBeenCalledWith("products", "default");
   });
 
   it("Bonus: produit introuvable en base → retourne error", async () => {

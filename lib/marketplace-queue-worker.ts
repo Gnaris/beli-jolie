@@ -432,7 +432,7 @@ async function runAnkorstoreJob(job: JobRow, payload: QueueJobPayload): Promise<
       });
       if (product?.ankorsProductId) {
         const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
-        const res = await ankorstoreKickoffUpdate(job.productId);
+        const res = await ankorstoreKickoffUpdate(job.productId, { skipRevalidation: true });
         if (!res.success) {
           await markAnkorstoreFailed(job.id, "error", res.error);
         } else if (res.operationId === null) {
@@ -459,7 +459,10 @@ async function runAnkorstoreJob(job: JobRow, payload: QueueJobPayload): Promise<
         await markAnkorstoreFailed(job.id, "error", "Produit non publié sur Ankorstore.");
       } else {
         const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
-        const res = await ankorstoreKickoffUpdate(job.productId, { forceFullSync: true });
+        const res = await ankorstoreKickoffUpdate(job.productId, {
+          forceFullSync: true,
+          skipRevalidation: true,
+        });
         if (!res.success) {
           await markAnkorstoreFailed(job.id, "error", res.error);
         } else if (res.operationId === null) {
