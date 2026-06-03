@@ -12,6 +12,7 @@ import { updateBillingInfo } from "@/app/actions/client/billing";
 import { uploadBordereau } from "@/app/actions/client/upload-bordereau";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import CustomSelect from "@/components/ui/CustomSelect";
+import { isBillingComplete, findAddressMatchingBilling } from "@/lib/shipping-billing-match";
 
 const COUNTRY_CODES = [
   "FR", "BE", "LU", "CH", "DE", "ES", "IT", "NL", "PT", "AT",
@@ -655,20 +656,38 @@ export default function CheckoutClient({
     country:   user.addressCountry    ?? "FR",
   });
   const [editingInfo, setEditingInfo] = useState(false);
-  const [sameAsBilling, setSameAsBilling] = useState(false);
+
+  // Par défaut, on propose la livraison à l'adresse de facturation (case cochée)
+  // dès que la facturation est complète. Si une adresse de livraison existante
+  // correspond déjà mot pour mot à la facturation, on la sélectionne directement
+  // pour éviter une création inutile en BDD.
+  const billingComplete = isBillingComplete(user);
+  const initialMatchingBillingAddrId = findAddressMatchingBilling(user, initialAddresses)?.id ?? null;
+
+  // Pré-cochée si une adresse de livraison existante correspond déjà à la
+  // facturation (cas zéro friction). Sinon la case reste visible mais décochée,
+  // pour ne pas créer une adresse miroir dans le dos de l'utilisatrice.
+  const [sameAsBilling, setSameAsBilling] = useState(!!initialMatchingBillingAddrId);
   const [billingError, setBillingError] = useState("");
   // Mémorise l'id de l'adresse "miroir" de la facturation (créée ou trouvée),
   // pour ne PAS la recréer à chaque coche/décoche.
-  const [billingMirrorAddrId, setBillingMirrorAddrId] = useState<string | null>(null);
+  const [billingMirrorAddrId, setBillingMirrorAddrId] = useState<string | null>(initialMatchingBillingAddrId);
   // Adresse sélectionnée AVANT la coche, pour pouvoir y revenir à la décoche.
   const [previousAddrId, setPreviousAddrId] = useState<string | null>(null);
 
   // Adresses
   const [addresses, setAddresses]   = useState<Address[]>(initialAddresses);
   const [selectedAddrId, setSelectedAddrId] = useState<string | null>(
-    initialAddresses.find((a) => a.isDefault)?.id ?? initialAddresses[0]?.id ?? null
+    initialMatchingBillingAddrId
+      ?? initialAddresses.find((a) => a.isDefault)?.id
+      ?? initialAddresses[0]?.id
+      ?? null
   );
-  const [showAddressForm, setShowAddressForm] = useState(initialAddresses.length === 0);
+  // Le formulaire de création d'adresse ne s'ouvre PAS automatiquement quand
+  // la facturation est complète : on laisse la case « même adresse » visible.
+  const [showAddressForm, setShowAddressForm] = useState(
+    initialAddresses.length === 0 && !billingComplete
+  );
   // null = création nouvelle adresse, sinon = édition de l'adresse avec cet id
   const [editingAddrId, setEditingAddrId] = useState<string | null>(null);
   const selectedAddr = addresses.find((a) => a.id === selectedAddrId) ?? null;
@@ -1234,29 +1253,45 @@ export default function CheckoutClient({
               )}
             </SectionHeader>
             <div className="p-5 space-y-3">
-              {/* Option: meme adresse que facturation — mise en avant */}
-              {billingInfo.address1 && billingInfo.zipCode && billingInfo.city && !showAddressForm && (
-                <label className={`flex items-start gap-3 p-4 border-2 rounded-xl text-sm font-body cursor-pointer transition-all ${
-                  sameAsBilling
-                    ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.08)]"
-                    : "border-dashed border-border-dark bg-bg-primary hover:bg-bg-secondary hover:border-text-muted"
-                }`}>
-                  <input
-                    type="checkbox"
-                    checked={sameAsBilling}
-                    onChange={(e) => handleSameAsBilling(e.target.checked)}
-                    className="accent-text-primary w-4 h-4 mt-0.5 shrink-0"
-                  />
-                  <div className="min-w-0">
-                    <p className="font-semibold text-text-primary">
-                      {t("billToBilling")}
-                    </p>
-                    <p className="text-xs text-text-secondary mt-0.5">
-                      {billingInfo.address1}{billingInfo.address2 ? `, ${billingInfo.address2}` : ""} — {billingInfo.zipCode} {billingInfo.city}
-                    </p>
-                  </div>
-                </label>
-              )}
+              {/* Option: meme adresse que facturation — TOUJOURS visible en haut
+                  du bloc, même si la facturation n'est pas encore renseignée
+                  (case désactivée + message d'explication dans ce cas).
+                  Cocher la case ferme automatiquement le formulaire d'ajout
+                  d'adresse de livraison (handleSameAsBilling). */}
+              {(() => {
+                const billingReady = !!(billingInfo.address1 && billingInfo.zipCode && billingInfo.city);
+                return (
+                  <label className={`flex items-start gap-3 p-4 border-2 rounded-xl text-sm font-body transition-all ${
+                    !billingReady
+                      ? "border-dashed border-border bg-bg-secondary/50 cursor-not-allowed opacity-70"
+                      : sameAsBilling
+                        ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.08)] cursor-pointer"
+                        : "border-dashed border-border-dark bg-bg-primary hover:bg-bg-secondary hover:border-text-muted cursor-pointer"
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={sameAsBilling}
+                      disabled={!billingReady}
+                      onChange={(e) => handleSameAsBilling(e.target.checked)}
+                      className="accent-text-primary w-4 h-4 mt-0.5 shrink-0 disabled:cursor-not-allowed"
+                    />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-text-primary">
+                        {t("billToBilling")}
+                      </p>
+                      {billingReady ? (
+                        <p className="text-xs text-text-secondary mt-0.5">
+                          {billingInfo.address1}{billingInfo.address2 ? `, ${billingInfo.address2}` : ""} — {billingInfo.zipCode} {billingInfo.city}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-text-muted mt-0.5 italic">
+                          {t("billToBillingNeedsBilling")}
+                        </p>
+                      )}
+                    </div>
+                  </label>
+                );
+              })()}
 
               {/* Liste adresses existantes */}
               {!showAddressForm && addresses.map((addr) => (

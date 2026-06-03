@@ -31,6 +31,7 @@ interface Props {
     ankorstoreRetail: MarkupState;
     ankorstoreVatRate: number;
     efashion: MarkupState;
+    microstore: MarkupState;
   };
 }
 
@@ -305,6 +306,9 @@ export default function MarketplaceConfig({
   const [efashionMarkup, setEfashionMarkup] = useState<MarkupState>(markupSettings.efashion);
   const [efashionVendor, setEfashionVendor] = useState<{ id: number; name: string } | null>(null);
 
+  // ── Microstore state (export Excel uniquement — pas de credentials) ──────────
+  const [microstoreMarkup, setMicrostoreMarkup] = useState<MarkupState>(markupSettings.microstore);
+
   // ── Shared ──────────────────────────────────────────────────────────────────
   const [isSavingMarkup, startSavingMarkup] = useTransition();
   const toast = useToast();
@@ -504,6 +508,7 @@ export default function MarketplaceConfig({
           ankorstoreRetail: ankorstoreRetail,
           ankorstoreVatRate: ankorstoreVatRate,
           efashion: efashionMarkup,
+          microstore: microstoreMarkup,
         });
         if (result.success) {
           toast.success("Enregistré", "Majorations marketplace sauvegardées.");
@@ -1017,6 +1022,39 @@ export default function MarketplaceConfig({
               </p>
             </div>
             <MarkupRow label="Prix de gros" state={efashionMarkup} onChange={setEfashionMarkup} />
+          </div>
+        </div>
+
+        {/* ── Microstore card (export Excel uniquement) ─────────────────── */}
+        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
+                <IconShop className="w-[18px] h-[18px] text-text-primary" />
+              </div>
+              <div>
+                <h3 className="font-display text-base font-semibold text-text-primary">Microstore</h3>
+                <p className="font-body text-[11px] text-text-muted">Export Excel uniquement</p>
+              </div>
+            </div>
+            <span className="badge badge-neutral">Export</span>
+          </div>
+
+          <div className="p-5 flex-1 flex flex-col gap-4">
+            <p className="font-body text-xs text-text-muted leading-relaxed">
+              Microstore n'a pas de publication automatique : utilisez le bouton « Exporter » de la liste des produits
+              pour générer le fichier Excel à uploader manuellement.
+            </p>
+          </div>
+
+          <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto">
+            <div className="flex items-center gap-2 mb-4">
+              <IconTag className="w-4 h-4 text-text-muted" />
+              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                Majoration des prix
+              </p>
+            </div>
+            <MarkupRow label="Prix de gros" state={microstoreMarkup} onChange={setMicrostoreMarkup} />
           </div>
         </div>
       </div>

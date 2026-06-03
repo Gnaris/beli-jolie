@@ -11,6 +11,11 @@ export interface MarkupConfig {
 
 export interface AllMarkupConfigs {
   pfs: MarkupConfig;
+  efashion: MarkupConfig;
+  microstore: MarkupConfig;
+  ankorstoreWholesale: MarkupConfig;
+  ankorstoreRetail: MarkupConfig;
+  ankorstoreVatRate: number;
 }
 
 /**
@@ -57,31 +62,64 @@ export function applyMarketplaceMarkup(
   return price;
 }
 
+const MARKUP_KEYS = [
+  "pfs_price_markup_type",
+  "pfs_price_markup_value",
+  "pfs_price_markup_rounding",
+  "efashion_price_markup_type",
+  "efashion_price_markup_value",
+  "efashion_price_markup_rounding",
+  "microstore_price_markup_type",
+  "microstore_price_markup_value",
+  "microstore_price_markup_rounding",
+  "ankorstore_wholesale_markup_type",
+  "ankorstore_wholesale_markup_value",
+  "ankorstore_wholesale_markup_rounding",
+  "ankorstore_retail_markup_type",
+  "ankorstore_retail_markup_value",
+  "ankorstore_retail_markup_rounding",
+  "ankorstore_default_vat_rate",
+];
+
 /**
  * Load all marketplace markup configs from SiteConfig.
  * Returns defaults (0 markup) for any missing keys.
+ *
+ * Defaults rationale :
+ * - pfs / efashion / microstore : 0% (admin configure manuellement)
+ * - ankorstoreWholesale : 0% (prix de gros = catalogue)
+ * - ankorstoreRetail : ×2.5 arrondi sup (prix conseillé recommandé Ankorstore)
+ * - ankorstoreVatRate : 20% (taux standard France)
  */
 export async function loadMarketplaceMarkupConfigs(): Promise<AllMarkupConfigs> {
-  const keys = [
-    "pfs_price_markup_type",
-    "pfs_price_markup_value",
-    "pfs_price_markup_rounding",
-  ];
-
   const rows = await prisma.siteConfig.findMany({
-    where: { key: { in: keys } },
+    where: { key: { in: MARKUP_KEYS } },
   });
 
   const map = new Map(rows.map((r) => [r.key, r.value]));
 
-  function parseConfig(prefix: string): MarkupConfig {
-    const type = (map.get(`${prefix}_type`) as MarkupType) || "percent";
-    const value = Number(map.get(`${prefix}_value`)) || 0;
-    const rounding = (map.get(`${prefix}_rounding`) as RoundingMode) || "none";
-    return { type, value, rounding };
+  function parseConfig(
+    prefix: string,
+    defaults: MarkupConfig = { type: "percent", value: 0, rounding: "none" }
+  ): MarkupConfig {
+    const type = (map.get(`${prefix}_type`) as MarkupType) || defaults.type;
+    const rawValue = map.get(`${prefix}_value`);
+    const value = rawValue !== undefined ? Number(rawValue) : defaults.value;
+    const rounding =
+      (map.get(`${prefix}_rounding`) as RoundingMode) || defaults.rounding;
+    return { type, value: Number.isFinite(value) ? value : defaults.value, rounding };
   }
 
   return {
     pfs: parseConfig("pfs_price_markup"),
+    efashion: parseConfig("efashion_price_markup"),
+    microstore: parseConfig("microstore_price_markup"),
+    ankorstoreWholesale: parseConfig("ankorstore_wholesale_markup"),
+    ankorstoreRetail: parseConfig("ankorstore_retail_markup", {
+      type: "multiplier",
+      value: 2.5,
+      rounding: "up",
+    }),
+    ankorstoreVatRate: Number(map.get("ankorstore_default_vat_rate")) || 20,
   };
 }

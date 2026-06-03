@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
+import { useEfashionShootingBatch } from "@/components/admin/products/EfashionShootingBatchContext";
 import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
@@ -29,6 +30,9 @@ const LinkAnkorstoreProductModal = dynamic(
 );
 const LinkEfashionProductModal = dynamic(
   () => import("@/components/admin/products/LinkEfashionProductModal"),
+);
+const MarketplaceExportButton = dynamic(
+  () => import("@/components/admin/products/MarketplaceExportButton"),
 );
 
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
@@ -1116,6 +1120,7 @@ function ProductRow({
   const toast = useToast();
   const [refCopied, setRefCopied] = useState(false);
   const { enqueue, items: queueItems } = useMarketplaceRefreshQueue();
+  const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const showEfashion = hasEfashionConfig && efashionEnabled;
   const efashionLinked = product.colors.some((c) => c.efashionProductId != null);
@@ -1219,19 +1224,13 @@ function ProductRow({
       cancelLabel: "Annuler",
     });
     if (ok !== true) return;
-    setPendingEfashionEnqueue(true);
-    enqueue([
-      {
-        productId: product.id,
-        reference: product.reference,
-        productName: product.name,
-        firstImage: product.firstImage,
-        options: { local: false, pfs: false, ankorstore: false, efashion: true },
-        mode: "publish",
-        marketplace: "efashion",
-      },
-    ]);
-  }, [confirm, enqueue, product, isEfashionPublishing]);
+    // Première publication eFashion = ticket de shooting nécessaire → file
+    // batch (validation manuelle de l'utilisatrice avant envoi groupé).
+    // Pas besoin du lock pendingEfashionEnqueue : l'opération est synchrone
+    // côté serveur (un simple upsert en BDD) et la widget eFashion en bas à
+    // droite reflètera l'ajout au prochain poll.
+    void addToEfashionShootingBatch(product.id, "PUBLISH");
+  }, [confirm, addToEfashionShootingBatch, product, isEfashionPublishing]);
 
   // Quand la file remonte enfin l'opération en queue/in_progress, on lâche le
   // verrou local : c'est maintenant l'état serveur qui pilote l'affichage.
@@ -2998,6 +2997,11 @@ export default function AdminProductsTable({
             Rafraîchir
           </button>
           <div className="h-4 w-px bg-bg-primary/20" />
+          <MarketplaceExportButton
+            productIds={Array.from(selectedIds)}
+            disabled={isPending}
+            onExported={() => setSelectedIds(new Set())}
+          />
           <button
             type="button"
             onClick={() => handleBulkDelete()}

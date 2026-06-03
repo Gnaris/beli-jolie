@@ -12,7 +12,12 @@ import VatExemptionToggle from "@/components/admin/users/VatExemptionToggle";
 import { getCountry } from "@/lib/vat";
 import CartModal from "@/components/admin/users/CartModal";
 import OrdersModal from "@/components/admin/users/OrdersModal";
+import AutoRefresh from "@/components/admin/users/AutoRefresh";
+import { isOnline } from "@/lib/online-status";
 import type { UserStatus } from "@prisma/client";
+
+// Le badge « En ligne » doit refléter le `lastSeenAt` à la seconde
+export const dynamic = "force-dynamic";
 
 const STATUS_CONFIG: Record<UserStatus, { label: string; className: string }> = {
   PENDING:  { label: "En attente",  className: "badge badge-warning" },
@@ -125,6 +130,7 @@ export default async function ClientDetailPage({
     .join(" — ");
 
   const statusCfg = STATUS_CONFIG[user.status];
+  const userIsOnline = isOnline(user.lastSeenAt);
 
   const kbisFilename = user.kbisPath?.split("/").pop() ?? "";
   const kbisApiUrl  = `/api/admin/kbis/${kbisFilename}`;
@@ -208,6 +214,7 @@ export default async function ClientDetailPage({
 
   return (
     <div className="space-y-6">
+      <AutoRefresh intervalMs={10_000} />
 
       {/* ── Fil d'Ariane ── */}
       <nav className="flex items-center gap-2 text-sm font-body text-text-muted" aria-label="Fil d'Ariane">
@@ -228,11 +235,20 @@ export default async function ClientDetailPage({
               </span>
             </div>
             <div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-xl font-heading font-bold text-text-primary">
                   {user.firstName} {user.lastName}
                 </h1>
                 <span className={statusCfg.className}>{statusCfg.label}</span>
+                {userIsOnline && (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-body font-semibold"
+                    title="Ce client est actuellement sur le site"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+                    En ligne en ce moment
+                  </span>
+                )}
               </div>
               <p className="text-sm font-body text-text-secondary mt-0.5">
                 {user.company} — Inscrit le {formattedDate}

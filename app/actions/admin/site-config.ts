@@ -835,6 +835,7 @@ export interface MarketplaceMarkupSettings {
   ankorstoreRetail?: MarkupState;
   ankorstoreVatRate?: number;
   efashion?: MarkupState;
+  microstore?: MarkupState;
 }
 
 export async function updateMarketplaceMarkup(
@@ -878,6 +879,14 @@ export async function updateMarketplaceMarkup(
         { key: "efashion_price_markup_type", value: settings.efashion.type },
         { key: "efashion_price_markup_value", value: String(settings.efashion.value) },
         { key: "efashion_price_markup_rounding", value: settings.efashion.rounding }
+      );
+    }
+
+    if (settings.microstore) {
+      pairs.push(
+        { key: "microstore_price_markup_type", value: settings.microstore.type },
+        { key: "microstore_price_markup_value", value: String(settings.microstore.value) },
+        { key: "microstore_price_markup_rounding", value: settings.microstore.rounding }
       );
     }
 

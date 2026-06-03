@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
+import { useEfashionShootingBatch } from "./EfashionShootingBatchContext";
 import {
   computeMarketplaceBadgeState,
   findLatestOpForProduct,
@@ -54,6 +55,7 @@ export function MarketplaceStatusButtons({
 }: MarketplaceStatusButtonsProps) {
   const router = useRouter();
   const { enqueue, items } = useMarketplaceRefreshQueue();
+  const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
   const { confirm } = useConfirm();
   const toast = useToast();
   const [confirmPfsOpen, setConfirmPfsOpen] = useState(false);
@@ -234,17 +236,24 @@ export function MarketplaceStatusButtons({
   };
 
   const handlePublishEfashion = () => {
-    enqueue([
-      {
-        productId,
-        reference,
-        productName,
-        firstImage,
-        options: { local: false, pfs: false, ankorstore: false, efashion: true },
-        mode: "publish",
-        marketplace: "efashion",
-      },
-    ]);
+    // Si produit déjà lié → update (PUT direct, pas de shooting créé) via la
+    // file marketplace standard. Sinon → batch shooting (création = 1 ticket
+    // de shooting partagé après validation manuelle).
+    if (efashionLinked) {
+      enqueue([
+        {
+          productId,
+          reference,
+          productName,
+          firstImage,
+          options: { local: false, pfs: false, ankorstore: false, efashion: true },
+          mode: "publish",
+          marketplace: "efashion",
+        },
+      ]);
+    } else {
+      void addToEfashionShootingBatch(productId, "PUBLISH");
+    }
     setConfirmEfOpen(false);
   };
 

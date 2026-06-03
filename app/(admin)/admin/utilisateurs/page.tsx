@@ -4,7 +4,12 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { isOnline, getOnlineThreshold } from "@/lib/online-status";
+import AutoRefresh from "@/components/admin/users/AutoRefresh";
 import type { UserStatus } from "@prisma/client";
+
+// Bypass cache : on veut le lastSeenAt frais à chaque rafraîchissement
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Gestion des clients — Admin",
@@ -56,8 +61,11 @@ export default async function UtilisateursPage({
     ? { role: "CLIENT" as const }
     : { role: "CLIENT" as const, status: filterStatus as UserStatus };
 
+  // Seuil « en ligne maintenant » utilisé pour le compteur dédié
+  const onlineThreshold = getOnlineThreshold();
+
   // Récupération des clients + comptages par statut
-  const [clients, pendingCount, approvedCount, rejectedCount, totalCount] =
+  const [clients, pendingCount, approvedCount, rejectedCount, totalCount, onlineCount] =
     await Promise.all([
       prisma.user.findMany({
         where: whereClause,
@@ -72,6 +80,7 @@ export default async function UtilisateursPage({
           siret: true,
           status: true,
           lastLoginAt: true,
+          lastSeenAt: true,
           createdAt: true,
         },
       }),
@@ -79,6 +88,9 @@ export default async function UtilisateursPage({
       prisma.user.count({ where: { role: "CLIENT", status: "APPROVED" } }),
       prisma.user.count({ where: { role: "CLIENT", status: "REJECTED" } }),
       prisma.user.count({ where: { role: "CLIENT" } }),
+      prisma.user.count({
+        where: { role: "CLIENT", lastSeenAt: { gte: onlineThreshold } },
+      }),
     ]);
 
   const counts: Record<string, number> = {
@@ -90,6 +102,7 @@ export default async function UtilisateursPage({
 
   return (
     <div className="space-y-6">
+      <AutoRefresh intervalMs={10_000} />
 
       {/* En-tete + stats */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
@@ -103,6 +116,13 @@ export default async function UtilisateursPage({
           <div className="stat-card px-4 py-2 text-center">
             <p className="text-lg font-bold text-text-primary font-heading">{totalCount}</p>
             <p className="text-[10px] text-text-muted font-body uppercase tracking-wider">Total</p>
+          </div>
+          <div className="stat-card px-4 py-2 text-center border-success/40">
+            <div className="flex items-center justify-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${onlineCount > 0 ? "bg-success animate-pulse" : "bg-text-muted/40"}`} />
+              <p className="text-lg font-bold text-success font-heading">{onlineCount}</p>
+            </div>
+            <p className="text-[10px] text-text-muted font-body uppercase tracking-wider">En ligne</p>
           </div>
           {pendingCount > 0 && (
             <div className="stat-card px-4 py-2 text-center border-warning/40">
@@ -157,6 +177,7 @@ export default async function UtilisateursPage({
                 <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">Email</th>
                 <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">SIRET</th>
                 <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">Statut</th>
+                <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap">En ligne</th>
                 <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap">Dernière connexion</th>
                 <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap">Inscription</th>
                 <th className="px-5 py-3" />
@@ -165,7 +186,7 @@ export default async function UtilisateursPage({
             <tbody>
               {clients.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-8 text-center text-text-secondary font-body text-sm">
+                  <td colSpan={9} className="px-5 py-8 text-center text-text-secondary font-body text-sm">
                     Aucun client trouvé.
                   </td>
                 </tr>
@@ -196,6 +217,19 @@ export default async function UtilisateursPage({
                          c.status === "PENDING" ? "En attente" :
                          "Rejeté"}
                       </span>
+                    </td>
+                    <td className="px-5 py-4 whitespace-nowrap">
+                      {isOnline(c.lastSeenAt) ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-body font-medium text-success">
+                          <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+                          En ligne
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-body text-text-muted">
+                          <span className="w-2 h-2 rounded-full bg-text-muted/40" />
+                          Hors ligne
+                        </span>
+                      )}
                     </td>
                     <td className="px-5 py-4 whitespace-nowrap">
                       <p className={`font-body text-xs ${c.lastLoginAt ? "text-text-secondary" : "text-text-muted"}`}>

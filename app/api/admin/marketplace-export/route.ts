@@ -1,0 +1,84 @@
+/**
+ * POST /api/admin/marketplace-export
+ *
+ * Body : { marketplace: "pfs" | "efashion" | "microstore" | "ankorstore",
+ *          productIds: string[] }
+ *
+ * Returns : `application/zip` binary with `Content-Disposition: attachment`.
+ * The ZIP contains all generated Excel files and (for PFS/Efashion/Microstore)
+ * a folder of images converted to JPG.
+ *
+ * The validator runs again here for safety even though the UI already showed
+ * the preview — products that became invalid between preview and download
+ * are silently skipped (Excel rows simply don't include them).
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { z } from "zod";
+import { runMarketplaceExport } from "@/lib/marketplace-excel/export-orchestrator";
+import { logger } from "@/lib/logger";
+
+export const runtime = "nodejs";
+
+const BodySchema = z.object({
+  marketplace: z.enum(["pfs", "efashion", "microstore", "ankorstore"]),
+  productIds: z.array(z.string().min(1)).min(1),
+});
+
+export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Accès non autorisé" }, { status: 401 });
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Corps JSON invalide" }, { status: 400 });
+  }
+
+  const parsed = BodySchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Paramètres invalides", details: parsed.error.issues },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const result = await runMarketplaceExport(
+      parsed.data.marketplace,
+      parsed.data.productIds,
+    );
+
+    const ignoredCount = result.ignored.length;
+    const eligibleCount = result.eligible.length;
+    logger.info(
+      `[marketplace-export] ${result.marketplace} : ${eligibleCount} OK, ${ignoredCount} ignorés (ZIP ${result.zip.length} bytes)`,
+    );
+
+    return new NextResponse(new Uint8Array(result.zip), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="${result.zipFilename}"`,
+        "Content-Length": String(result.zip.length),
+        // Custom headers so the client can show "X exportés, Y ignorés" in a toast.
+        "X-Export-Eligible": String(eligibleCount),
+        "X-Export-Ignored": String(ignoredCount),
+      },
+    });
+  } catch (err) {
+    logger.error("[marketplace-export] échec", { error: err });
+    return NextResponse.json(
+      {
+        error: "Échec de la génération de l'export",
+        details: err instanceof Error ? err.message : String(err),
+      },
+      { status: 500 },
+    );
+  }
+}

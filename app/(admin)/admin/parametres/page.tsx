@@ -362,6 +362,9 @@ async function MarketplacesTab() {
     efashionMarkupType,
     efashionMarkupValue,
     efashionMarkupRounding,
+    microstoreMarkupType,
+    microstoreMarkupValue,
+    microstoreMarkupRounding,
   ] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
     prisma.siteConfig.findMany({
@@ -388,6 +391,9 @@ async function MarketplacesTab() {
     getCachedSiteConfig("efashion_price_markup_type"),
     getCachedSiteConfig("efashion_price_markup_value"),
     getCachedSiteConfig("efashion_price_markup_rounding"),
+    getCachedSiteConfig("microstore_price_markup_type"),
+    getCachedSiteConfig("microstore_price_markup_value"),
+    getCachedSiteConfig("microstore_price_markup_rounding"),
   ]);
 
   const markupMap = new Map(markupRows.map((r) => [r.key, r.value]));
@@ -422,6 +428,11 @@ async function MarketplacesTab() {
             type: (efashionMarkupType?.value as "percent" | "fixed" | "multiplier") || "percent",
             value: Number(efashionMarkupValue?.value) || 0,
             rounding: (efashionMarkupRounding?.value as "none" | "down" | "up") || "none",
+          },
+          microstore: {
+            type: (microstoreMarkupType?.value as "percent" | "fixed" | "multiplier") || "percent",
+            value: Number(microstoreMarkupValue?.value) || 0,
+            rounding: (microstoreMarkupRounding?.value as "none" | "down" | "up") || "none",
           },
         }}
       />

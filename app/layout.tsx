@@ -12,8 +12,9 @@ import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
 import { LoadingOverlayProvider } from "@/components/ui/LoadingOverlay";
 import { getCachedShopName, getCachedBusinessHours, getCachedSiteConfig } from "@/lib/cached-data";
 import { getCachedSeoConfig, buildOrganizationSchema, getSiteUrl } from "@/lib/seo";
-import AnnouncementBanner from "@/components/layout/AnnouncementBanner";
+import AnnouncementBanner, { ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX } from "@/components/layout/AnnouncementBanner";
 import ChatWidgetLoader from "@/components/client/ChatWidgetLoader";
+import HeartbeatLoader from "@/components/client/HeartbeatLoader";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
 import "./globals.css";
 
@@ -118,6 +119,7 @@ export default async function RootLayout({
       lang={locale}
       dir={isRTL ? "rtl" : "ltr"}
       className={`${poppins.variable} ${roboto.variable}`}
+      style={announcement ? ({ "--announcement-height": `${ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX}px` } as React.CSSProperties) : undefined}
       suppressHydrationWarning
     >
       <head />
@@ -143,6 +145,7 @@ export default async function RootLayout({
                 <LoadingOverlayProvider>
                   {children}
                   <ChatWidgetLoader businessHours={businessHours} />
+                  <HeartbeatLoader />
                   <AdminChatWidgetLoader />
                 </LoadingOverlayProvider>
               </ConfirmProvider>

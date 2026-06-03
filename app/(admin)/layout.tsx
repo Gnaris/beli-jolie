@@ -11,6 +11,8 @@ import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
 import { MarketplaceRefreshProvider } from "@/components/admin/products/MarketplaceRefreshContext";
 import { MarketplaceRefreshWidget } from "@/components/admin/products/MarketplaceRefreshWidget";
+import { EfashionShootingBatchProvider } from "@/components/admin/products/EfashionShootingBatchContext";
+import { EfashionShootingBatchWidget } from "@/components/admin/products/EfashionShootingBatchWidget";
 import { RefreshWarningProvider } from "@/components/admin/products/RecentlyRefreshedWarningModal";
 import { IneligibleRefreshProvider } from "@/components/admin/products/IneligibleRefreshModal";
 import { getCachedSiteConfig } from "@/lib/cached-data";
@@ -61,6 +63,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <DeeplConfigProvider enabled={deeplEnabled} autoTranslateEnabled={autoTranslateEnabled}>
     <MarketplaceRefreshProvider>
+    <EfashionShootingBatchProvider>
     <RefreshWarningProvider>
     <IneligibleRefreshProvider>
     <div id="admin-theme-wrapper" className="min-h-screen bg-bg-secondary flex">
@@ -89,9 +92,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
       <AdminChatWidgetLoader />
       <MarketplaceRefreshWidget />
+      <EfashionShootingBatchWidget />
     </div>
     </IneligibleRefreshProvider>
     </RefreshWarningProvider>
+    </EfashionShootingBatchProvider>
     </MarketplaceRefreshProvider>
     </DeeplConfigProvider>
   );

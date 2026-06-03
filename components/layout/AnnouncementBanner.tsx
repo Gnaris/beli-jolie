@@ -12,6 +12,11 @@ interface AnnouncementBannerProps {
   preview?: boolean;
 }
 
+// Hauteur attendue du bandeau avant mesure JS : py-2 (16px) + text-sm leading-5 (20px).
+// Utilisée par app/layout.tsx pour pré-réserver la place du bandeau côté SSR et éviter
+// que le header fixed ne saute vers le bas après hydratation.
+export const ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX = 36;
+
 export default function AnnouncementBanner({ messages, bgColor, textColor, speed = 8, preview }: AnnouncementBannerProps) {
   const pathname = usePathname();
   const ref = useRef<HTMLDivElement>(null);

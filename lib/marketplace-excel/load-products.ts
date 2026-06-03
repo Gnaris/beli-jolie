@@ -1,60 +1,142 @@
 /**
  * Load products from DB and shape them into ExportProduct[] for marketplace Excel export.
+ *
+ * Used for the 4 marketplaces (PFS, Efashion, Microstore, Ankorstore).
+ * For Efashion specifically, the 3-level category path is resolved by joining
+ * `Category.efashionCategorieId` against the eFashion categories annexes
+ * (`EfashionCategoryNode.path` = "Top > Sub > Leaf").
  */
 
 import { prisma } from "@/lib/prisma";
 import { loadMarketplaceMarkupConfigs } from "@/lib/marketplace-pricing";
-import type { ExportProduct, ExportContext, ExportVariant, SaleTypeKey } from "./types";
+import { getEfashionAnnexes } from "@/lib/efashion-annexes";
+import { getCachedShopName } from "@/lib/cached-data";
+import type {
+  ExportProduct,
+  ExportContext,
+  ExportVariant,
+  SaleTypeKey,
+} from "./types";
 
 export async function loadExportContext(): Promise<ExportContext> {
-  const [markups, company] = await Promise.all([
+  const [markups, shopName] = await Promise.all([
     loadMarketplaceMarkupConfigs(),
-    prisma.companyInfo.findFirst({ select: { shopName: true } }),
+    getCachedShopName(),
   ]);
 
-  const shopName = company?.shopName?.trim() || "";
   const publicBaseUrl = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
 
-  return { shopName, markups, publicBaseUrl };
+  return { shopName: shopName.trim(), markups, publicBaseUrl };
+}
+
+/**
+ * Parse an eFashion category path ("Top > Sub > Leaf") into 3 levels.
+ * If less than 3 segments, leaf takes the last, sub the middle, top the first.
+ * Missing levels are filled with empty strings.
+ */
+function parseEfashionPath(
+  path: string | undefined,
+): { top: string; sub: string; leaf: string } | null {
+  if (!path) return null;
+  const parts = path
+    .split(">")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (parts.length === 0) return null;
+  // Prendre les 3 derniers (au cas où le chemin a plus de 3 niveaux)
+  const last3 = parts.slice(-3);
+  while (last3.length < 3) last3.unshift("");
+  return { top: last3[0]!, sub: last3[1]!, leaf: last3[2]! };
 }
 
 export async function loadExportProducts(productIds: string[]): Promise<ExportProduct[]> {
   if (productIds.length === 0) return [];
 
-  const products = await prisma.product.findMany({
-    where: { id: { in: productIds } },
-    include: {
-      category: { select: { name: true, pfsGender: true, pfsFamilyName: true, pfsCategoryName: true } },
-      season: { select: { pfsRef: true } },
-      manufacturingCountry: { select: { name: true, isoCode: true, pfsCountryRef: true } },
-      compositions: {
-        include: { composition: { select: { name: true, pfsCompositionRef: true } } },
-      },
-      translations: { select: { locale: true, name: true, description: true } },
-      colors: {
-        include: {
-          color: { select: { name: true } },
-          variantSizes: {
-            include: { size: { select: { name: true, pfsSizeRef: true } } },
+  // Charge en parallèle : produits + annexes eFashion (pour résoudre les paths catégorie).
+  // Si l'API eFashion plante (kill switch off, identifiants manquants), on continue sans
+  // les paths (les produits seront marqués non-éligibles par le validateur Efashion).
+  const [products, efashionAnnexes] = await Promise.all([
+    prisma.product.findMany({
+      where: { id: { in: productIds } },
+      include: {
+        category: {
+          select: {
+            name: true,
+            pfsGender: true,
+            pfsFamilyName: true,
+            pfsCategoryName: true,
+            efashionCategorieId: true,
           },
-          packLines: {
-            orderBy: { position: "asc" },
-            include: {
-              color: { select: { name: true } },
-              sizes: {
-                include: { size: { select: { name: true, pfsSizeRef: true } } },
+        },
+        hsCode: { select: { code: true } },
+        season: {
+          select: { name: true, pfsRef: true, efashionCollectionId: true },
+        },
+        manufacturingCountry: {
+          select: {
+            name: true,
+            isoCode: true,
+            pfsCountryRef: true,
+            efashionProvenanceId: true,
+          },
+        },
+        compositions: {
+          include: {
+            composition: {
+              select: { name: true, pfsCompositionRef: true, efashionId: true },
+            },
+          },
+        },
+        translations: { select: { locale: true, name: true, description: true } },
+        // Toutes les images du produit, indexées plus bas par colorId.
+        // Important : les images sont liées à la **couleur** (productId + colorId)
+        // et non à une `ProductColor` en particulier. La relation
+        // `ProductColor.images` filtre via `productColorId` qui peut être null
+        // ou absent — on ne s'en sert donc PAS pour ne rater aucune image.
+        colorImages: {
+          select: { path: true, order: true, colorId: true },
+          orderBy: { order: "asc" },
+        },
+        colors: {
+          include: {
+            color: { select: { name: true } },
+            variantSizes: {
+              include: { size: { select: { name: true, pfsSizeRef: true } } },
+            },
+            packLines: {
+              orderBy: { position: "asc" },
+              include: {
+                color: { select: { name: true } },
+                sizes: {
+                  include: { size: { select: { name: true, pfsSizeRef: true } } },
+                },
               },
             },
           },
-          images: {
-            select: { path: true, order: true },
-            orderBy: { order: "asc" },
-          },
+          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
         },
-        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
       },
-    },
-  });
+    }),
+    getEfashionAnnexes().catch(() => null),
+  ]);
+
+  // Index id catégorie eFashion → path (sera utilisé pour résoudre top/sub/leaf).
+  const efashionPathById = new Map<number, string>();
+  for (const node of efashionAnnexes?.categories ?? []) {
+    efashionPathById.set(node.id, node.path);
+  }
+
+  // Index id collection eFashion → label.
+  const efashionCollectionLabelById = new Map<number, string>();
+  for (const c of efashionAnnexes?.collections ?? []) {
+    efashionCollectionLabelById.set(c.id, c.label);
+  }
+
+  // Index id composition eFashion → label.
+  const efashionCompositionLabelById = new Map<number, string>();
+  for (const c of efashionAnnexes?.compositions ?? []) {
+    efashionCompositionLabelById.set(c.id, c.label);
+  }
 
   const byId = new Map(products.map((p) => [p.id, p]));
   const ordered = productIds.map((id) => byId.get(id)).filter((p): p is NonNullable<typeof p> => !!p);
@@ -63,6 +145,18 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
     const translations: ExportProduct["translations"] = {};
     for (const t of p.translations) {
       translations[t.locale] = { name: t.name, description: t.description };
+    }
+
+    // Index colorId → liste de paths d'images, triés par `order`.
+    // Une variante (ProductColor) récupère ses images via son `colorId` plutôt
+    // que via la relation directe `ProductColor.images` : cela garantit que
+    // l'UNIT Doré et le PACK Doré voient les mêmes photos (elles partagent
+    // la même `Color`), même si l'admin n'a uploadé qu'une fois.
+    const imagesByColorId = new Map<string, string[]>();
+    for (const img of p.colorImages) {
+      const list = imagesByColorId.get(img.colorId) ?? [];
+      list.push(img.path);
+      imagesByColorId.set(img.colorId, list);
     }
 
     const variants: ExportVariant[] = p.colors.map((c) => {
@@ -99,6 +193,26 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
           }))
         : undefined;
 
+      // Images = celles attachées à la couleur (colorId) de la variante.
+      // Pour PACK multi-couleurs : on agrège les images de chaque couleur
+      // composant le pack (rare en pratique).
+      const imagePaths: string[] = [];
+      if (isMultiPack) {
+        const seen = new Set<string>();
+        for (const line of c.packLines) {
+          const lineColorId = line.colorId;
+          if (!lineColorId) continue;
+          for (const path of imagesByColorId.get(lineColorId) ?? []) {
+            if (!seen.has(path)) {
+              seen.add(path);
+              imagePaths.push(path);
+            }
+          }
+        }
+      } else if (c.colorId) {
+        imagePaths.push(...(imagesByColorId.get(c.colorId) ?? []));
+      }
+
       return {
         variantId: c.id,
         saleType: c.saleType as SaleTypeKey,
@@ -110,9 +224,14 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
         weight: c.weight,
         stock: c.stock,
         sku: c.sku,
-        imagePaths: c.images.map((img) => img.path),
+        imagePaths,
       };
     });
+
+    const efashionCategorieId = p.category.efashionCategorieId ?? null;
+    const efashionPath = efashionCategorieId
+      ? efashionPathById.get(efashionCategorieId)
+      : undefined;
 
     return {
       id: p.id,
@@ -128,12 +247,26 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
       pfsFamilyName: p.category.pfsFamilyName,
       pfsCategoryName: p.category.pfsCategoryName ?? null,
       categoryName: p.category.name,
+      hsCode: p.hsCode?.code ?? null,
+      efashionCategorieId,
+      efashionCategoryPath: parseEfashionPath(efashionPath),
       seasonPfsRef: p.season?.pfsRef ?? null,
+      seasonEfashionCollectionId: p.season?.efashionCollectionId ?? null,
+      seasonEfashionLabel: p.season?.efashionCollectionId
+        ? efashionCollectionLabelById.get(p.season.efashionCollectionId) ?? null
+        : null,
+      seasonName: p.season?.name ?? null,
       manufacturingCountryName: (p.manufacturingCountry?.pfsCountryRef || p.manufacturingCountry?.name) ?? null,
       manufacturingCountryIso: p.manufacturingCountry?.isoCode ?? null,
-      compositions: p.compositions.map((c) => ({
-        name: c.composition.pfsCompositionRef || c.composition.name,
-        percentage: c.percentage,
+      manufacturingCountryEfashionProvenanceId: p.manufacturingCountry?.efashionProvenanceId ?? null,
+      compositions: p.compositions.map((cc) => ({
+        name: cc.composition.pfsCompositionRef || cc.composition.name,
+        percentage: cc.percentage,
+        pfsRef: cc.composition.pfsCompositionRef ?? null,
+        efashionId: cc.composition.efashionId ?? null,
+        efashionLabel: cc.composition.efashionId
+          ? efashionCompositionLabelById.get(cc.composition.efashionId) ?? null
+          : null,
       })),
       translations,
       variants,

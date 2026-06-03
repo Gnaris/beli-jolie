@@ -400,26 +400,39 @@ export default function ProductCard({
 
         {/* Prix */}
         <div>
-          {showPrices ? (
-            <div className="flex items-baseline gap-1.5 flex-wrap">
-              {showStrikethrough && (
-                <span className="font-body text-xs text-text-muted line-through">
-                  {strikethroughPrice.toFixed(2)} &euro;
-                </span>
-              )}
-              {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
-                <span className="text-[11px] font-body text-error font-medium">
-                  -{clientDiscount.discountValue}%
-                </span>
-              )}
-              <span className={`font-heading font-semibold text-lg ${showStrikethrough ? "text-error" : "text-bg-dark"}`}>
-                {displayedFinalPrice.toFixed(2)} &euro;
-              </span>
-              <span className="text-xs text-text-muted font-body">
-                {t("htUnit")}{activeVariant?.saleType === "PACK" && activeVariant.packQuantity ? ` / pack x${activeVariant.packQuantity}` : ""}
-              </span>
-            </div>
-          ) : (
+          {showPrices ? (() => {
+            const isPack = activeVariant?.saleType === "PACK" && !!activeVariant.packQuantity && activeVariant.packQuantity > 0;
+            const packQty = activeVariant?.packQuantity ?? 1;
+            const headlinePrice = isPack ? displayedFinalPrice * packQty : displayedFinalPrice;
+            const headlineStrikethrough = isPack ? strikethroughPrice * packQty : strikethroughPrice;
+            return (
+              <div className="space-y-0.5">
+                <div className="flex items-baseline gap-1.5 flex-wrap">
+                  {showStrikethrough && (
+                    <span className="font-body text-xs text-text-muted line-through">
+                      {headlineStrikethrough.toFixed(2)} &euro;
+                    </span>
+                  )}
+                  {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
+                    <span className="text-[11px] font-body text-error font-medium">
+                      -{clientDiscount.discountValue}%
+                    </span>
+                  )}
+                  <span className={`font-heading font-semibold text-lg ${showStrikethrough ? "text-error" : "text-bg-dark"}`}>
+                    {headlinePrice.toFixed(2)} &euro;
+                  </span>
+                  <span className="text-xs text-text-muted font-body">
+                    {isPack ? t("htPack", { qty: packQty }) : t("htUnit")}
+                  </span>
+                </div>
+                {isPack && (
+                  <p className="text-[11px] text-text-muted font-body">
+                    {t("perUnitNote", { price: displayedFinalPrice.toFixed(2) })}
+                  </p>
+                )}
+              </div>
+            );
+          })() : (
             <Link
               href="/connexion"
               className="inline-flex items-center gap-1.5 font-body text-sm text-text-secondary hover:text-text-primary underline-offset-4 hover:underline transition-colors"

@@ -7,6 +7,7 @@ import {
   useMarketplaceRefreshQueue,
   type MarketplaceRefreshEnqueueInput,
 } from "@/components/admin/products/MarketplaceRefreshContext";
+import { useEfashionShootingBatch } from "@/components/admin/products/EfashionShootingBatchContext";
 import {
   refreshProductOnMarketplaces,
   getRecentlyRefreshedProducts,
@@ -46,6 +47,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
   const { confirm } = useConfirm();
   const toast = useToast();
   const { enqueue, inFlightProductIds } = useMarketplaceRefreshQueue();
+  const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
   const { ask: askWarning } = useRefreshWarning();
   const { ask: askIneligible } = useIneligibleRefresh();
 
@@ -274,20 +276,36 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         localConsumed = options.local;
       }
       if (options.efashion) {
-        inputs.push({
-          productId: target.productId,
-          reference: target.reference,
-          productName: target.productName,
-          firstImage: target.firstImage ?? null,
-          options: { local: options.local && !localConsumed, pfs: false, ankorstore: false, efashion: true },
-          marketplace: "efashion",
-        });
+        // eFashion : un refresh crée une nouvelle fiche côté eFashion → 1
+        // ticket de shooting. On ajoute dans la file shooting batch pour
+        // regrouper avec d'autres demandes en un seul ticket.
+        void addToEfashionShootingBatch(target.productId, "REFRESH");
+        // Si options.local a été demandé et pas encore consommé par PFS ou
+        // Ankorstore, on enqueue un job dédié "boutique seule" pour ne pas
+        // perdre le bump local.
+        if (options.local && !localConsumed) {
+          inputs.push({
+            productId: target.productId,
+            reference: target.reference,
+            productName: target.productName,
+            firstImage: target.firstImage ?? null,
+            options: { local: true, pfs: false, ankorstore: false, efashion: false },
+            marketplace: "pfs",
+          });
+        }
       }
       enqueue(inputs);
-      toast.info("Ajouté à la file", `${target.reference} sera rafraîchi en arrière-plan.`);
+      if (options.efashion) {
+        toast.info(
+          "Ajouté au shooting eFashion",
+          `${target.reference} attend votre validation manuelle dans la fenêtre eFashion en bas à droite.`,
+        );
+      } else {
+        toast.info("Ajouté à la file", `${target.reference} sera rafraîchi en arrière-plan.`);
+      }
       return true;
     },
-    [applyRecentWarning, askOptions, enqueue, toast, filterOutInFlight, splitByEligibility],
+    [applyRecentWarning, askOptions, enqueue, addToEfashionShootingBatch, toast, filterOutInFlight, splitByEligibility],
   );
 
   const refreshBulk = useCallback(
@@ -386,24 +404,35 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
           localConsumed = options.local;
         }
         if (options.efashion) {
-          inputs.push({
-            productId: p.productId,
-            reference: p.reference,
-            productName: p.productName,
-            firstImage: p.firstImage ?? null,
-            options: { local: options.local && !localConsumed, pfs: false, ankorstore: false, efashion: true },
-            marketplace: "efashion",
-          });
+          // Refresh = ticket de shooting → file batch (validation manuelle)
+          void addToEfashionShootingBatch(p.productId, "REFRESH");
+          if (options.local && !localConsumed) {
+            inputs.push({
+              productId: p.productId,
+              reference: p.reference,
+              productName: p.productName,
+              firstImage: p.firstImage ?? null,
+              options: { local: true, pfs: false, ankorstore: false, efashion: false },
+              marketplace: "pfs",
+            });
+          }
         }
       }
       enqueue(inputs);
-      toast.info(
-        "Ajoutés à la file",
-        `${filtered.length} produit${filtered.length > 1 ? "s" : ""} seront rafraîchis en arrière-plan.`,
-      );
+      if (options.efashion) {
+        toast.info(
+          "Ajoutés au shooting eFashion",
+          `${filtered.length} produit${filtered.length > 1 ? "s" : ""} attendent votre validation dans la fenêtre eFashion en bas à droite.`,
+        );
+      } else {
+        toast.info(
+          "Ajoutés à la file",
+          `${filtered.length} produit${filtered.length > 1 ? "s" : ""} seront rafraîchis en arrière-plan.`,
+        );
+      }
       return true;
     },
-    [applyRecentWarning, askOptions, enqueue, toast, filterOutInFlight, splitByEligibility, askIneligible],
+    [applyRecentWarning, askOptions, enqueue, addToEfashionShootingBatch, toast, filterOutInFlight, splitByEligibility, askIneligible],
   );
 
   return { refreshSingle, refreshBulk };

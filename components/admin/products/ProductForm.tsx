@@ -16,6 +16,7 @@ import CustomSelect from "@/components/ui/CustomSelect";
 import HsCodeModal from "@/components/admin/codes-sh/HsCodeModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
+import { useEfashionShootingBatch } from "./EfashionShootingBatchContext";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
 import { useProductFormHeader } from "./ProductFormHeaderContext";
 import { getImageSrc } from "@/lib/image-utils";
@@ -656,6 +657,11 @@ export default function ProductForm({
   const router = useRouter();
   const { confirm: confirmDialog } = useConfirm();
   const { enqueue: enqueuePublish } = useMarketplaceRefreshQueue();
+  // eFashion : la création (ou refresh) d'un produit pas encore lié crée un
+  // ticket de shooting côté eFashion. Pour éviter le spam de tickets, ces
+  // opérations partent dans une file d'attente (validation manuelle de
+  // l'utilisatrice) au lieu d'enqueue direct.
+  const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
   const initialSnapshot = useRef<string | null>(null);
   const isDirty = useRef(false);
   const snapshotReady = useRef(false);
@@ -1983,15 +1989,24 @@ export default function ProductForm({
             });
           }
           if (efashionRef.current) {
-            inputs.push({
-              productId: savedProductId,
-              reference: payload.reference,
-              productName: payload.name,
-              firstImage: firstImagePath,
-              options: { local: false, pfs: false, ankorstore: false, efashion: true },
-              mode: "publish",
-              marketplace: "efashion",
-            });
+            // Produit déjà lié à eFashion → update (PUT direct) qui ne crée
+            // pas de ticket de shooting → on passe par la file marketplace
+            // standard (envoi immédiat). Produit pas encore lié → première
+            // publication = ticket de shooting nécessaire → on bascule dans la
+            // file shooting batch (envoi groupé après validation manuelle).
+            if (alreadyOnEfashion) {
+              inputs.push({
+                productId: savedProductId,
+                reference: payload.reference,
+                productName: payload.name,
+                firstImage: firstImagePath,
+                options: { local: false, pfs: false, ankorstore: false, efashion: true },
+                mode: "publish",
+                marketplace: "efashion",
+              });
+            } else {
+              void addToEfashionShootingBatch(savedProductId, "PUBLISH");
+            }
           }
           if (inputs.length > 0) enqueuePublish(inputs);
         }
