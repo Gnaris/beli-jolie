@@ -128,6 +128,40 @@ La détection de doublon par nom local est conservée (alias silencieux si nom e
 
 **Rattrapage produits déjà importés sans attributs** : `npx tsx scripts/enrich-pfs-products.ts` re-passe sur tous les produits PFS qui n'ont pas leur composition/pays/saison et les enrichit (auto-création + liaison BDD).
 
+### Import produits Excel (admin) — récapitulatif éditable + overrides
+
+Workflow `/admin/produits/importer` (tab "Produits") : upload Excel → preview server-side → **récapitulatif éditable côté UI** → confirmation → job background. **Format Excel uniquement** (`.xlsx` / `.xls`) — le format JSON et son template ont été retirés (juin 2026).
+
+**Modèle Excel** (`app/api/admin/products/import/template/route.ts`) — structure à 5 lignes d'en-tête figées :
+1. Bandeau de section fusionné (`🛍️ Fiche produit` / `🎨 Variante`)
+2. Headers (Référence *, Nom *, …)
+3. Statut `Obligatoire` (rouge) / `Facultatif` (gris)
+4. Exemple `(ex : ...)` en italique gris
+5. Données
+
+**Détection ancien vs nouveau format** dans `parseExcel()` (`lib/import-processor.ts` + `app/api/admin/products/import/preview/route.ts`) : regarde la cellule A1 — si elle contient `Fiche produit` ou `Variante`, lit les headers depuis la ligne 2 (`range: 1`), sinon ancien format. Filtre les lignes statut (`Obligatoire`/`Facultatif`) et d'exemples (`(ex `) avant validation.
+
+**Colonnes obligatoires** (validées par `processProductImport` + preview) :
+- Niveau produit : Référence, Nom, Description, Catégorie, Composition, Pays de fabrication, Saison + au moins 1 variante
+- Niveau variante : Couleur, Type de vente (UNIT/PACK), Taille, Prix unitaire, Stock
+
+**Récapitulatif éditable** (`components/admin/products/import/` — composants clés) :
+- **`EditableProductCard.tsx`** — carte produit dépliable avec édition complète de tous les champs (identité, classement, caractéristiques, dimensions, publication, variantes). Affiche les erreurs en direct via `effective-status.ts`.
+- **`EntitySelect.tsx`** — wrapper `CustomSelect` avec bouton « + » qui appelle un `onRequestCreate` (parent ouvre le modal). Fallback mini-formulaire interne si `onRequestCreate` absent.
+- **`CompositionEditor.tsx`** — éditeur multi-ligne `[EntitySelect composition] [input %] [×]` + bouton « + Ajouter une matière » + indicateur total 100%. Sérialise vers `"Coton:85,Polyester:15"`.
+- **`effective-status.ts`** — `effectiveProductErrors(product, override)` filtre les erreurs serveur résolues par les overrides locaux ; `isProductReady(product, override)` indique si le produit est prêt. Patterns de résolution dans `ERROR_RESOLUTIONS`. **Le compteur "Prêts à importer" et le bouton "Confirmer" se basent sur cet effective côté UI** — sinon ils restent figés sur l'analyse initiale du serveur.
+- **`QuickCreateModal`** (réutilisé depuis `components/admin/products/`) — ouvert via `creatorModal` state quand on clique « + ». **Strictement le même modal que `/admin/produits?tab=categories`** avec mapping PFS + eFashion. Utilise `createPortal` + `z-[9999]` → pas de conflit z-index. Après création, déclenche `analyzeFile()` qui ré-appelle l'API preview pour rafraîchir l'aperçu.
+
+**Endpoint options** (`app/api/admin/products/import/options/route.ts`) — `GET` retourne en un seul appel `{ categories, subCategories (avec categoryId/categoryName), colors (avec hex/patternImage), compositions, countries, seasons, hsCodes, tags }`. Chargé au passage à l'étape preview pour alimenter les dropdowns.
+
+**Overrides** (modifs UI envoyées au backend) :
+- Type `ImportOverride` exporté depuis `lib/import-processor.ts` : champs produit + `variants: Record<index, VariantOverridePayload>` (index = position dans le groupe Excel).
+- L'UI sérialise les overrides non-vides en JSON et les envoie via FormData (`overrides`) au `POST /api/admin/import-jobs`.
+- L'endpoint écrit le JSON dans `{filePath}.overrides.json` à côté du fichier Excel sur disque.
+- `processProductImport` lit ce fichier au démarrage et appelle `applyOverrides(preGrouped, overrides)` **après la propagation de référence et avant la validation** — les champs produit vont sur toutes les rows du groupe (résiste à l'héritage), les champs variantes vont sur la row à l'index donné. La référence est uppercasée pour matcher les groupes.
+
+**Quick-create idempotent** (`app/actions/admin/quick-create.ts`) — `createSeasonQuick`, `createCompositionQuick`, `createManufacturingCountryQuick`, `createSubCategoryQuick` sont **idempotents** : si l'entité existe déjà (contrainte unique), on met à jour ses mappings PFS/eFashion + traductions au lieu de planter avec un `P2002`. `createColorQuick` lève toujours une erreur explicite (la couleur a un hex/motif qu'on ne veut pas écraser).
+
 ### Refresh produit (`lib/pfs-refresh.ts` / `lib/ankorstore-refresh.ts` + `app/actions/admin/marketplace-refresh.ts`)
 
 Bouton « Rafraîchir » dans `/admin/produits` (par ligne + bulk) et sur la page `/modifier`. Modale avec cases à cocher : **boutique** (bump `Product.lastRefreshedAt`, jamais `createdAt`) + **PFS** (re-push live via API, remplace `pfsProductId` + `pfsVariantId` après création nouveau) + **Ankorstore** (re-push live + archivage ancien + remplacement `ankorsProductId`/`ankorsVariantId`, visible uniquement si Ankorstore configuré et activé).
