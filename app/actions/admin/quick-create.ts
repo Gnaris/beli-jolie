@@ -112,21 +112,23 @@ export async function createSubCategoryQuick(
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
+  // Idempotent : si la sous-catégorie existe déjà dans cette catégorie
+  // (contrainte unique (name, categoryId)), on la retourne au lieu de planter.
+  const existing = await prisma.subCategory.findFirst({ where: { name, categoryId } });
   const slug = slugify(name);
-  const created = await prisma.subCategory.create({
-    data: { name, slug, categoryId },
-  });
+  const upserted = existing
+    ?? (await prisma.subCategory.create({ data: { name, slug, categoryId } }));
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
     await prisma.subCategoryTranslation.upsert({
-      where: { subCategoryId_locale: { subCategoryId: created.id, locale } },
-      create: { subCategoryId: created.id, locale, name: value.trim() },
+      where: { subCategoryId_locale: { subCategoryId: upserted.id, locale } },
+      create: { subCategoryId: upserted.id, locale, name: value.trim() },
       update: { name: value.trim() },
     });
   }
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
-  return { id: created.id, name: created.name };
+  return { id: upserted.id, name: upserted.name };
 }
 
 export async function createColorQuick(
@@ -205,19 +207,30 @@ export async function createCompositionQuick(
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
-  const created = await prisma.composition.create({
-    data: { name, pfsCompositionRef: pfsCompositionRef ?? null, efashionId: efashionId ?? null },
-  });
+  // Idempotent : la composition peut déjà exister (contrainte unique sur name).
+  // Dans ce cas on met juste à jour ses refs marketplace + traductions.
+  const existing = await prisma.composition.findFirst({ where: { name } });
+  const upserted = existing
+    ? await prisma.composition.update({
+        where: { id: existing.id },
+        data: {
+          ...(pfsCompositionRef !== undefined ? { pfsCompositionRef: pfsCompositionRef ?? null } : {}),
+          ...(efashionId !== undefined ? { efashionId } : {}),
+        },
+      })
+    : await prisma.composition.create({
+        data: { name, pfsCompositionRef: pfsCompositionRef ?? null, efashionId: efashionId ?? null },
+      });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
     await prisma.compositionTranslation.upsert({
-      where: { compositionId_locale: { compositionId: created.id, locale } },
-      create: { compositionId: created.id, locale, name: value.trim() },
+      where: { compositionId_locale: { compositionId: upserted.id, locale } },
+      create: { compositionId: upserted.id, locale, name: value.trim() },
       update: { name: value.trim() },
     });
   }
   revalidateTag("compositions", "default");
-  return { id: created.id, name: created.name };
+  return { id: upserted.id, name: upserted.name };
 }
 
 export async function createManufacturingCountryQuick(
@@ -240,31 +253,46 @@ export async function createManufacturingCountryQuick(
   if (!/^[A-Z]{2}$/.test(normalizedIso)) {
     throw new Error("Le code ISO doit être composé de 2 lettres (ex: FR, CN, TR).");
   }
+  // Si un pays porte déjà ce nom, on met à jour ses refs marketplace +
+  // traductions (idempotent). Le contrôle ISO ci-dessous ignore son propre id.
+  const existing = await prisma.manufacturingCountry.findFirst({ where: { name } });
   const isoConflict = await prisma.manufacturingCountry.findFirst({
-    where: { isoCode: normalizedIso },
+    where: {
+      isoCode: normalizedIso,
+      ...(existing ? { NOT: { id: existing.id } } : {}),
+    },
     select: { name: true },
   });
   if (isoConflict) {
     throw new Error(`Ce code ISO est déjà utilisé par le pays « ${isoConflict.name} ».`);
   }
-  const created = await prisma.manufacturingCountry.create({
-    data: {
-      name,
-      isoCode: normalizedIso,
-      pfsCountryRef: normalizedRef,
-      efashionProvenanceId: efashionProvenanceId ?? null,
-    },
-  });
+  const upserted = existing
+    ? await prisma.manufacturingCountry.update({
+        where: { id: existing.id },
+        data: {
+          isoCode: normalizedIso,
+          pfsCountryRef: normalizedRef,
+          ...(efashionProvenanceId !== undefined ? { efashionProvenanceId } : {}),
+        },
+      })
+    : await prisma.manufacturingCountry.create({
+        data: {
+          name,
+          isoCode: normalizedIso,
+          pfsCountryRef: normalizedRef,
+          efashionProvenanceId: efashionProvenanceId ?? null,
+        },
+      });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
     await prisma.manufacturingCountryTranslation.upsert({
-      where: { manufacturingCountryId_locale: { manufacturingCountryId: created.id, locale } },
-      create: { manufacturingCountryId: created.id, locale, name: value.trim() },
+      where: { manufacturingCountryId_locale: { manufacturingCountryId: upserted.id, locale } },
+      create: { manufacturingCountryId: upserted.id, locale, name: value.trim() },
       update: { name: value.trim() },
     });
   }
   revalidateTag("manufacturing-countries", "default");
-  return { id: created.id, name: created.name };
+  return { id: upserted.id, name: upserted.name };
 }
 
 export async function createSeasonQuick(
@@ -279,19 +307,30 @@ export async function createSeasonQuick(
   if (!normalizedRef) {
     throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
   }
-  const created = await prisma.season.create({
-    data: { name, pfsRef: normalizedRef, efashionCollectionId: efashionCollectionId ?? null },
-  });
+  // Idempotent : si la saison existe déjà (contrainte unique sur name),
+  // on met à jour ses champs marketplace + traductions au lieu de planter.
+  const existing = await prisma.season.findFirst({ where: { name } });
+  const upserted = existing
+    ? await prisma.season.update({
+        where: { id: existing.id },
+        data: {
+          pfsRef: normalizedRef,
+          ...(efashionCollectionId !== undefined ? { efashionCollectionId } : {}),
+        },
+      })
+    : await prisma.season.create({
+        data: { name, pfsRef: normalizedRef, efashionCollectionId: efashionCollectionId ?? null },
+      });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
     await prisma.seasonTranslation.upsert({
-      where: { seasonId_locale: { seasonId: created.id, locale } },
-      create: { seasonId: created.id, locale, name: value.trim() },
+      where: { seasonId_locale: { seasonId: upserted.id, locale } },
+      create: { seasonId: upserted.id, locale, name: value.trim() },
       update: { name: value.trim() },
     });
   }
   revalidateTag("seasons", "default");
-  return { id: created.id, name: created.name };
+  return { id: upserted.id, name: upserted.name };
 }
 
 export async function createTagQuick(

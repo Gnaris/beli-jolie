@@ -29,12 +29,15 @@ export interface PreviewProduct {
   subCategories?: string;
   tags?: string;
   composition?: string;
+  manufacturingCountry?: string;
+  season?: string;
   variants: PreviewVariant[];
   categoryFound: boolean;
   subCategoriesFound: boolean;
   compositionsFound: boolean;
   referenceExists: boolean;
   totalErrors: number;
+  productErrors: string[];  // erreurs au niveau produit (champs manquants, entités introuvables)
   status: "ok" | "warning" | "error";
 }
 
@@ -91,8 +94,8 @@ function normalizeRow(raw: Record<string, unknown>, index: number) {
     _rowIndex: index + 2,
     reference: str(raw["reference"] ?? raw["reference *"] ?? raw["ref"] ?? raw["référence"] ?? raw["Référence *"]),
     name: str(raw["name"] ?? raw["name *"] ?? raw["nom"] ?? raw["name_fr"] ?? raw["Nom *"]),
-    description: str(raw["description"] ?? raw["description_fr"] ?? raw["Description"]) || undefined,
-    category: str(raw["category"] ?? raw["categorie"] ?? raw["catégorie"] ?? raw["Catégorie"]) || undefined,
+    description: str(raw["description"] ?? raw["description *"] ?? raw["description_fr"] ?? raw["Description"] ?? raw["Description *"]) || undefined,
+    category: str(raw["category"] ?? raw["category *"] ?? raw["categorie"] ?? raw["catégorie"] ?? raw["Catégorie"] ?? raw["Catégorie *"]) || undefined,
     subCategories: str(raw["sub_categories"] ?? raw["sous_categories"] ?? raw["subCategories"] ?? raw["Sous-catégories"]) || undefined,
     color: str(raw["color"] ?? raw["color *"] ?? raw["couleur"] ?? raw["Couleur *"]),
     saleType: saleTypeRaw === "PACK" ? "PACK" as const : "UNIT" as const,
@@ -100,15 +103,15 @@ function normalizeRow(raw: Record<string, unknown>, index: number) {
     packQuantity: int(raw["pack_qty"] ?? raw["pack_quantity"] ?? raw["quantite_pack"] ?? raw["Qté pack"]),
     stock: int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"] ?? raw["Stock *"]) ?? 0,
     tags: str(raw["tags"] ?? raw["Tags"]) || undefined,
-    composition: str(raw["composition"] ?? raw["Composition"]) || undefined,
+    composition: str(raw["composition"] ?? raw["composition *"] ?? raw["Composition"] ?? raw["Composition *"]) || undefined,
     dimensionLength: num(raw["dimension_length"] ?? raw["longueur"] ?? raw["Longueur (cm)"]),
     dimensionWidth: num(raw["dimension_width"] ?? raw["largeur"] ?? raw["Largeur (cm)"]),
     dimensionHeight: num(raw["dimension_height"] ?? raw["hauteur"] ?? raw["Hauteur (cm)"]),
     dimensionDiameter: num(raw["dimension_diameter"] ?? raw["diametre"] ?? raw["diamètre"] ?? raw["Diamètre (cm)"]),
     dimensionCircumference: num(raw["dimension_circumference"] ?? raw["circonference"] ?? raw["circonférence"] ?? raw["Circonférence (cm)"]),
-    size: str(raw["size"] ?? raw["taille"] ?? raw["Taille"]) || undefined,
-    manufacturingCountry: str(raw["manufacturing_country"] ?? raw["pays_fabrication"] ?? raw["pays"] ?? raw["Pays fabrication"]) || undefined,
-    season: str(raw["season"] ?? raw["saison"] ?? raw["collection"] ?? raw["Saison"]) || undefined,
+    size: str(raw["size"] ?? raw["size *"] ?? raw["taille"] ?? raw["Taille"] ?? raw["Taille *"]) || undefined,
+    manufacturingCountry: str(raw["manufacturing_country"] ?? raw["pays_fabrication"] ?? raw["pays_fabrication *"] ?? raw["pays"] ?? raw["Pays fabrication"] ?? raw["Pays fabrication *"]) || undefined,
+    season: str(raw["season"] ?? raw["season *"] ?? raw["saison"] ?? raw["saison *"] ?? raw["collection"] ?? raw["Saison"] ?? raw["Saison *"]) || undefined,
     hsCode: str(raw["hs_code"] ?? raw["code_sh"] ?? raw["hsCode"] ?? raw["Code SH"]) || undefined,
     primaryColor: str(raw["primary_color"] ?? raw["couleur_principale"] ?? raw["primaryColor"] ?? raw["Couleur principale"]) || undefined,
     sizeDetailsTu: str(raw["taille_unique_details"] ?? raw["detail_taille_unique"] ?? raw["sizeDetailsTu"] ?? raw["Détail taille unique"]) || undefined,
@@ -119,71 +122,40 @@ function normalizeRow(raw: Record<string, unknown>, index: number) {
   };
 }
 
-function parseJSON(text: string) {
-  const data = JSON.parse(text);
-  if (!Array.isArray(data)) throw new Error("Le JSON doit être un tableau.");
-  const rows: ReturnType<typeof normalizeRow>[] = [];
-  let idx = 0;
-  for (const item of data) {
-    const colors = Array.isArray(item.colors) ? item.colors : [item];
-    for (const c of colors) {
-      rows.push({
-        _rowIndex: idx + 1,
-        reference: String(item.reference ?? "").trim().toUpperCase(),
-        name: String(item.name ?? item.name_fr ?? "").trim(),
-        description: item.description ?? item.description_fr ?? undefined,
-        category: item.category ?? undefined,
-        color: String(c.color ?? "").trim(),
-        saleType: c.saleType === "PACK" ? "PACK" as const : "UNIT" as const,
-        unitPrice: Number(c.unitPrice ?? c.unit_price ?? 0),
-        packQuantity: c.packQuantity ?? c.pack_qty ?? undefined,
-        stock: Number(c.stock ?? 0),
-        tags: Array.isArray(item.tags) ? item.tags.join(",") : (item.tags ?? undefined),
-        composition: Array.isArray(item.compositions)
-          ? item.compositions.map((comp: { material: string; percentage: number }) => `${comp.material}:${comp.percentage}`).join(",")
-          : (item.composition ?? undefined),
-        subCategories: Array.isArray(item.subCategories) ? item.subCategories.join(",")
-          : Array.isArray(item.sub_categories) ? item.sub_categories.join(",")
-          : (item.subCategories ?? item.sub_categories ?? undefined),
-        dimensionLength: item.dimensionLength ?? item.dimension_length ?? undefined,
-        dimensionWidth: item.dimensionWidth ?? item.dimension_width ?? undefined,
-        dimensionHeight: item.dimensionHeight ?? item.dimension_height ?? undefined,
-        dimensionDiameter: item.dimensionDiameter ?? item.dimension_diameter ?? undefined,
-        dimensionCircumference: item.dimensionCircumference ?? item.dimension_circumference ?? undefined,
-        size: c.size ?? c.taille ?? undefined,
-        manufacturingCountry: item.manufacturingCountry ?? item.manufacturing_country ?? item.pays_fabrication ?? undefined,
-        season: item.season ?? item.saison ?? item.collection ?? undefined,
-        hsCode: item.hsCode ?? item.hs_code ?? item.code_sh ?? undefined,
-        primaryColor: item.primaryColor ?? item.primary_color ?? item.couleur_principale ?? undefined,
-        sizeDetailsTu: item.sizeDetailsTu ?? item.size_details_tu ?? item.taille_unique_details ?? item.detail_taille_unique ?? undefined,
-        status: readStatus(item.status ?? item.statut),
-        isBestSeller: boolish(item.isBestSeller ?? item.best_seller ?? item.bestseller),
-        nameEn: item.name_en ?? item.nameEn ?? item.nom_en ?? undefined,
-        descriptionEn: item.description_en ?? item.descriptionEn ?? undefined,
-      });
-      idx++;
-    }
-  }
-  return rows;
-}
-
 function parseExcel(buffer: ArrayBuffer) {
   const wb = XLSX.read(buffer, { type: "array" });
-  // Use "Produits" sheet if it exists (template has Instructions + Produits), fallback to first sheet
+  // Use "Produits" sheet if it exists, fallback to first sheet
   const ws = wb.Sheets["Produits"] ?? wb.Sheets[wb.SheetNames[0]];
-  const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
 
-  // Skip the description row (row 2 in template) — detect by checking if "reference" looks like a description
-  // Do NOT skip rows with empty reference — they inherit from the previous row
+  // Structure du template (depuis juin 2026) :
+  //   Ligne 1 : bandeaux de section fusionnés (« Fiche produit », « Variante »)
+  //   Ligne 2 : headers
+  //   Ligne 3 : exemples « (ex : ...) »
+  //   Ligne 4+ : données
+  // Détection : si A1 = bandeau de section → range: 1 (lit headers depuis ligne 2),
+  // sinon ancien format (headers ligne 1).
+  const cellA1 = ws["A1"];
+  const a1Text = cellA1 && typeof cellA1.v === "string" ? cellA1.v : "";
+  const isNewFormat = /fiche produit|variante/i.test(a1Text);
+  const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+    defval: "",
+    range: isNewFormat ? 1 : 0,
+  });
+
+  // Filtrer : ligne « Obligatoire / Facultatif », ligne d'exemples « (ex : ...) »,
+  // anciennes descriptions de header, et lignes complètement vides.
   const filtered = data.filter((row) => {
     const ref = String(row["reference"] ?? row["reference *"] ?? row["ref"] ?? row["référence"] ?? row["Référence *"] ?? "").trim();
-    // Description row has values like "Référence unique du produit" — not a valid product row (old templates)
-    if (ref.toLowerCase().startsWith("référence unique") || ref.toLowerCase().startsWith("reference unique")) return false;
-    // Also skip rows where sale_type contains description text instead of UNIT/PACK
+    const refLow = ref.toLowerCase();
+    if (refLow === "obligatoire" || refLow === "facultatif") return false;
+    if (refLow.startsWith("(ex")) return false;
+    if (refLow.startsWith("référence unique") || refLow.startsWith("reference unique")) return false;
     const saleType = String(row["sale_type"] ?? row["sale_type *"] ?? row["saleType"] ?? row["Type de vente *"] ?? "").trim().toUpperCase();
     if (saleType && saleType !== "UNIT" && saleType !== "PACK" && saleType.length > 10) return false;
-    // Skip completely empty rows (no ref AND no color)
     const color = String(row["color"] ?? row["color *"] ?? row["couleur"] ?? row["Couleur *"] ?? "").trim();
+    const colorLow = color.toLowerCase();
+    if (colorLow === "obligatoire" || colorLow === "facultatif") return false;
+    if (colorLow.startsWith("(ex")) return false;
     if (!ref && !color) return false;
     return true;
   });
@@ -214,16 +186,11 @@ export async function POST(req: NextRequest) {
     }
 
     const filename = file.name.toLowerCase();
-    const buffer = await file.arrayBuffer();
-
-    let rows: ReturnType<typeof normalizeRow>[];
-    if (filename.endsWith(".json")) {
-      rows = parseJSON(new TextDecoder().decode(buffer));
-    } else if (filename.endsWith(".xlsx") || filename.endsWith(".xls")) {
-      rows = parseExcel(buffer);
-    } else {
-      return NextResponse.json({ error: "Format non supporté (.json, .xlsx, .xls)." }, { status: 400 });
+    if (!filename.endsWith(".xlsx") && !filename.endsWith(".xls")) {
+      return NextResponse.json({ error: "Format non supporté (.xlsx ou .xls uniquement)." }, { status: 400 });
     }
+    const buffer = await file.arrayBuffer();
+    const rows = parseExcel(buffer);
 
     if (rows.length === 0) return NextResponse.json({ error: "Fichier vide." }, { status: 400 });
 
@@ -439,8 +406,16 @@ export async function POST(req: NextRequest) {
       });
 
       const productErrors: string[] = [];
+      // Champs obligatoires (au niveau produit)
       if (!firstRow.reference) productErrors.push("Référence manquante.");
       if (!firstRow.name) productErrors.push("Nom manquant.");
+      if (!firstRow.description) productErrors.push("Description manquante.");
+      if (!firstRow.category) productErrors.push("Catégorie manquante.");
+      if (!firstRow.composition) productErrors.push("Composition manquante.");
+      if (!firstRow.manufacturingCountry) productErrors.push("Pays de fabrication manquant.");
+      if (!firstRow.season) productErrors.push("Saison manquante.");
+      if (groupRows.length === 0) productErrors.push("Au moins une variante requise.");
+      // Entités liées (doivent exister en base)
       if (firstRow.category && !categoryFound) productErrors.push(`Catégorie "${firstRow.category}" introuvable.`);
       if (!compositionsFound) productErrors.push("Composition(s) introuvable(s).");
       if (!subCategoriesFound) productErrors.push("Sous-catégorie(s) introuvable(s).");
@@ -467,12 +442,15 @@ export async function POST(req: NextRequest) {
         subCategories: firstRow.subCategories,
         tags: firstRow.tags,
         composition: firstRow.composition,
+        manufacturingCountry: firstRow.manufacturingCountry,
+        season: firstRow.season,
         variants,
         categoryFound,
         subCategoriesFound,
         compositionsFound,
         referenceExists,
         totalErrors,
+        productErrors,
         status,
       });
     }

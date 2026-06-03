@@ -113,6 +113,93 @@ interface DraftProductRow extends ProductImportRow {
   errors: string[];
 }
 
+// ─────────────────────────────────────────────
+// Overrides venant de l'UI éditable du récapitulatif
+// ─────────────────────────────────────────────
+
+export interface VariantOverridePayload {
+  color?: string;
+  saleType?: "UNIT" | "PACK";
+  unitPrice?: number;
+  stock?: number;
+  size?: string;
+  packQuantity?: number | null;
+}
+
+export interface ImportOverride {
+  name?: string;
+  description?: string;
+  nameEn?: string;
+  descriptionEn?: string;
+  category?: string;
+  subCategories?: string;
+  tags?: string;
+  composition?: string;
+  primaryColor?: string;
+  manufacturingCountry?: string;
+  season?: string;
+  hsCode?: string;
+  sizeDetailsTu?: string;
+  similarRefs?: string;
+  status?: "OFFLINE" | "ONLINE" | "ARCHIVED";
+  isBestSeller?: boolean;
+  dimensionLength?: number | null;
+  dimensionWidth?: number | null;
+  dimensionHeight?: number | null;
+  dimensionDiameter?: number | null;
+  dimensionCircumference?: number | null;
+  /** Map index variante → patch (index = position dans le groupe Excel = ordre d'apparition). */
+  variants?: Record<number, VariantOverridePayload>;
+}
+
+const PRODUCT_OVERRIDE_FIELDS = [
+  "name", "description", "nameEn", "descriptionEn", "category", "subCategories",
+  "tags", "composition", "primaryColor", "manufacturingCountry", "season",
+  "hsCode", "sizeDetailsTu", "similarRefs", "status", "isBestSeller",
+  "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter",
+  "dimensionCircumference",
+] as const;
+
+const VARIANT_OVERRIDE_FIELDS = ["color", "saleType", "unitPrice", "stock", "size", "packQuantity"] as const;
+
+/**
+ * Applique les overrides aux rows groupées par référence. Les champs produit-level
+ * sont posés sur toutes les rows du groupe (pour résister à l'héritage), les
+ * champs variant-level sont posés sur la row à l'index donné.
+ */
+export function applyOverrides(
+  preGrouped: Map<string, ProductImportRow[]>,
+  overrides: Record<string, ImportOverride>,
+): void {
+  for (const [ref, override] of Object.entries(overrides)) {
+    const groupRows = preGrouped.get(ref.toUpperCase());
+    if (!groupRows) continue;
+
+    // Champs produit-level : appliquer à toutes les rows
+    for (const field of PRODUCT_OVERRIDE_FIELDS) {
+      const val = override[field];
+      if (val === undefined) continue;
+      for (const row of groupRows) {
+        (row as unknown as Record<string, unknown>)[field] = val;
+      }
+    }
+
+    // Champs variant-level : appliquer à la row à l'index correspondant
+    if (override.variants) {
+      for (const [idxStr, vOv] of Object.entries(override.variants)) {
+        const idx = parseInt(idxStr);
+        const target = groupRows[idx];
+        if (!target) continue;
+        for (const field of VARIANT_OVERRIDE_FIELDS) {
+          const val = vOv[field];
+          if (val === undefined) continue;
+          (target as unknown as Record<string, unknown>)[field] = val;
+        }
+      }
+    }
+  }
+}
+
 interface ImageFileInfo {
   filename: string;
   reference: string;
@@ -180,8 +267,8 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     _rowIndex: index + 2,
     reference: str(raw["reference"] ?? raw["reference *"] ?? raw["ref"] ?? raw["référence"] ?? raw["Référence *"]),
     name: str(raw["name"] ?? raw["name *"] ?? raw["nom"] ?? raw["name_fr"] ?? raw["Nom *"]),
-    description: str(raw["description"] ?? raw["description_fr"] ?? raw["Description"]) || undefined,
-    category: str(raw["category"] ?? raw["categorie"] ?? raw["catégorie"] ?? raw["Catégorie"]) || undefined,
+    description: str(raw["description"] ?? raw["description *"] ?? raw["description_fr"] ?? raw["Description"] ?? raw["Description *"]) || undefined,
+    category: str(raw["category"] ?? raw["category *"] ?? raw["categorie"] ?? raw["catégorie"] ?? raw["Catégorie"] ?? raw["Catégorie *"]) || undefined,
     color: str(raw["color"] ?? raw["color *"] ?? raw["couleur"] ?? raw["Couleur *"]),
     saleType: saleTypeRaw === "PACK" ? "PACK" : "UNIT",
     unitPrice: num(raw["unit_price"] ?? raw["unit_price *"] ?? raw["prix"] ?? raw["price"] ?? raw["Prix unitaire *"]) ?? 0,
@@ -190,9 +277,9 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     weight: num(raw["weight_g"] ?? raw["poids_g"] ?? raw["poids"] ?? raw["Poids (g)"]) ?? undefined,
     isPrimary: String(raw["is_primary"] ?? raw["primaire"] ?? raw["Primaire"] ?? "").toLowerCase() === "true",
     discountPercent: num(raw["discount_percent"] ?? raw["remise_percent"] ?? raw["Remise %"] ?? raw["discount_value"] ?? raw["remise_valeur"] ?? raw["Valeur remise"]),
-    size: str(raw["size"] ?? raw["taille"] ?? raw["Taille"]) || undefined,
+    size: str(raw["size"] ?? raw["size *"] ?? raw["taille"] ?? raw["Taille"] ?? raw["Taille *"]) || undefined,
     tags: str(raw["tags"] ?? raw["Tags"]) || undefined,
-    composition: str(raw["composition"] ?? raw["Composition"]) || undefined,
+    composition: str(raw["composition"] ?? raw["composition *"] ?? raw["Composition"] ?? raw["Composition *"]) || undefined,
     subCategories: str(raw["sub_categories"] ?? raw["sous_categories"] ?? raw["subCategories"] ?? raw["Sous-catégories"]) || undefined,
     similarRefs: str(raw["similar_refs"] ?? raw["produits_similaires"] ?? raw["similarRefs"] ?? raw["Réf. similaires"]) || undefined,
     dimensionLength: num(raw["dimension_length"] ?? raw["longueur"] ?? raw["Longueur (cm)"]),
@@ -200,8 +287,8 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     dimensionHeight: num(raw["dimension_height"] ?? raw["hauteur"] ?? raw["Hauteur (cm)"]),
     dimensionDiameter: num(raw["dimension_diameter"] ?? raw["diametre"] ?? raw["diamètre"] ?? raw["Diamètre (cm)"]),
     dimensionCircumference: num(raw["dimension_circumference"] ?? raw["circonference"] ?? raw["circonférence"] ?? raw["Circonférence (cm)"]),
-    manufacturingCountry: str(raw["manufacturing_country"] ?? raw["pays_fabrication"] ?? raw["pays"] ?? raw["Pays fabrication"]) || undefined,
-    season: str(raw["season"] ?? raw["saison"] ?? raw["collection"] ?? raw["Saison"]) || undefined,
+    manufacturingCountry: str(raw["manufacturing_country"] ?? raw["pays_fabrication"] ?? raw["pays_fabrication *"] ?? raw["pays"] ?? raw["Pays fabrication"] ?? raw["Pays fabrication *"]) || undefined,
+    season: str(raw["season"] ?? raw["season *"] ?? raw["saison"] ?? raw["saison *"] ?? raw["collection"] ?? raw["Saison"] ?? raw["Saison *"]) || undefined,
     hsCode: str(raw["hs_code"] ?? raw["code_sh"] ?? raw["hsCode"] ?? raw["Code SH"]) || undefined,
     primaryColor: str(raw["primary_color"] ?? raw["couleur_principale"] ?? raw["primaryColor"] ?? raw["Couleur principale"]) || undefined,
     sizeDetailsTu: str(raw["taille_unique_details"] ?? raw["detail_taille_unique"] ?? raw["sizeDetailsTu"] ?? raw["Détail taille unique"]) || undefined,
@@ -212,76 +299,45 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
   };
 }
 
-export function parseJSON(text: string): ProductImportRow[] {
-  const data = JSON.parse(text);
-  if (!Array.isArray(data)) throw new Error("Le JSON doit être un tableau.");
-  const rows: ProductImportRow[] = [];
-  let idx = 0;
-  for (const item of data) {
-    const colors = Array.isArray(item.colors) ? item.colors : [item];
-    for (const colorVariant of colors) {
-      rows.push({
-        _rowIndex: idx + 1,
-        reference: String(item.reference ?? "").trim(),
-        name: String(item.name ?? item.name_fr ?? "").trim(),
-        description: item.description ?? item.description_fr ?? undefined,
-        category: item.category ?? undefined,
-        color: String(colorVariant.color ?? "").trim(),
-        saleType: colorVariant.saleType === "PACK" ? "PACK" : "UNIT",
-        unitPrice: Number(colorVariant.unitPrice ?? colorVariant.unit_price ?? 0),
-        packQuantity: colorVariant.packQuantity ?? colorVariant.pack_qty ?? undefined,
-        stock: Number(colorVariant.stock ?? 0),
-        weight: colorVariant.weight ?? colorVariant.weight_g ?? undefined,
-        isPrimary: colorVariant.isPrimary ?? false,
-        discountPercent: colorVariant.discountPercent ?? colorVariant.discountValue ?? undefined,
-        size: colorVariant.size ?? undefined,
-        tags: Array.isArray(item.tags) ? item.tags.join(",") : (item.tags ?? undefined),
-        composition: Array.isArray(item.compositions)
-          ? item.compositions.map((c: { material: string; percentage: number }) => `${c.material}:${c.percentage}`).join(",")
-          : (item.composition ?? undefined),
-        subCategories: Array.isArray(item.subCategories) ? item.subCategories.join(",")
-          : Array.isArray(item.sub_categories) ? item.sub_categories.join(",")
-          : (item.subCategories ?? item.sub_categories ?? undefined),
-        similarRefs: Array.isArray(item.similarRefs) ? item.similarRefs.join(",")
-          : Array.isArray(item.similar_refs) ? item.similar_refs.join(",")
-          : (item.similarRefs ?? item.similar_refs ?? undefined),
-        dimensionLength: item.dimensionLength ?? item.dimension_length ?? undefined,
-        dimensionWidth: item.dimensionWidth ?? item.dimension_width ?? undefined,
-        dimensionHeight: item.dimensionHeight ?? item.dimension_height ?? undefined,
-        dimensionDiameter: item.dimensionDiameter ?? item.dimension_diameter ?? undefined,
-        dimensionCircumference: item.dimensionCircumference ?? item.dimension_circumference ?? undefined,
-        manufacturingCountry: item.manufacturingCountry ?? item.manufacturing_country ?? item.pays_fabrication ?? undefined,
-        season: item.season ?? item.saison ?? item.collection ?? undefined,
-        hsCode: item.hsCode ?? item.hs_code ?? item.code_sh ?? undefined,
-        primaryColor: item.primaryColor ?? item.primary_color ?? item.couleur_principale ?? undefined,
-        sizeDetailsTu: item.sizeDetailsTu ?? item.size_details_tu ?? item.taille_unique_details ?? item.detail_taille_unique ?? undefined,
-        status: readStatus(item.status ?? item.statut),
-        isBestSeller: boolish(item.isBestSeller ?? item.best_seller ?? item.bestseller),
-        nameEn: item.name_en ?? item.nameEn ?? item.nom_en ?? undefined,
-        descriptionEn: item.description_en ?? item.descriptionEn ?? undefined,
-      });
-      idx++;
-    }
-  }
-  return rows;
-}
-
-function parseExcel(buffer: Buffer): ProductImportRow[] {
+export function parseExcel(buffer: Buffer): ProductImportRow[] {
   const wb = XLSX.read(buffer, { type: "buffer" });
-  // Use "Produits" sheet if it exists (template has Instructions + Produits), fallback to first sheet
+  // Use "Produits" sheet if it exists, fallback to first sheet
   const ws = wb.Sheets["Produits"] ?? wb.Sheets[wb.SheetNames[0]];
-  const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
 
-  // Skip the description row (row 2 in template) — detect by checking if "reference" looks like a description
-  // Do NOT skip rows with empty reference — they inherit from the previous row
+  // Structure du template (depuis juin 2026) :
+  //   Ligne 1 : bandeaux de section fusionnés (« Fiche produit », « Variante »)
+  //   Ligne 2 : headers
+  //   Ligne 3 : exemples « (ex : ...) » en italique gris
+  //   Ligne 4+ : données
+  //
+  // Détection nouveau vs ancien format : on regarde A1 — si c'est un bandeau de
+  // section (contient « Fiche produit » ou « Variante »), on utilise `range: 1`
+  // pour lire les headers depuis la ligne 2. Sinon ancien format (headers ligne 1).
+  const cellA1 = ws["A1"];
+  const a1Text = cellA1 && typeof cellA1.v === "string" ? cellA1.v : "";
+  const isNewFormat = /fiche produit|variante/i.test(a1Text);
+  const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+    defval: "",
+    range: isNewFormat ? 1 : 0,
+  });
+
+  // Filtrer : ligne « Obligatoire / Facultatif », ligne d'exemples « (ex : ...) »,
+  // anciennes descriptions de header, et lignes complètement vides.
+  // Les lignes avec référence vide mais couleur remplie héritent de la référence
+  // précédente — on les conserve.
   const filtered = data.filter((row) => {
     const ref = String(row["reference"] ?? row["reference *"] ?? row["ref"] ?? row["référence"] ?? row["Référence *"] ?? "").trim();
-    if (ref.toLowerCase().startsWith("référence unique") || ref.toLowerCase().startsWith("reference unique")) return false;
+    const refLow = ref.toLowerCase();
+    if (refLow === "obligatoire" || refLow === "facultatif") return false; // ligne statut
+    if (refLow.startsWith("(ex")) return false; // ligne d'exemples
+    if (refLow.startsWith("référence unique") || refLow.startsWith("reference unique")) return false;
     const saleType = String(row["sale_type"] ?? row["sale_type *"] ?? row["saleType"] ?? row["Type de vente *"] ?? "").trim().toUpperCase();
     if (saleType && saleType !== "UNIT" && saleType !== "PACK" && saleType.length > 10) return false;
-    // Skip completely empty rows (no ref AND no color)
     const color = String(row["color"] ?? row["color *"] ?? row["couleur"] ?? row["Couleur *"] ?? "").trim();
-    if (!ref && !color) return false;
+    const colorLow = color.toLowerCase();
+    if (colorLow === "obligatoire" || colorLow === "facultatif") return false; // ligne statut (au cas où ref serait vide)
+    if (colorLow.startsWith("(ex")) return false; // ligne d'exemples
+    if (!ref && !color) return false; // ligne complètement vide
     return true;
   });
 
@@ -327,14 +383,22 @@ export async function processProductImport(jobId: string, maxProducts?: number):
     await prisma.importJob.update({ where: { id: jobId }, data: { status: "PROCESSING" } });
 
     // Read & parse file (filePath stored as relative in DB)
-    const buffer = await readFile(path.resolve(process.cwd(), job.filePath));
-    const filename = job.filename?.toLowerCase() ?? "";
-    let rows: ProductImportRow[];
+    const filePathAbsolute = path.resolve(process.cwd(), job.filePath);
+    const buffer = await readFile(filePathAbsolute);
+    const rows: ProductImportRow[] = parseExcel(buffer);
 
-    if (filename.endsWith(".json")) {
-      rows = parseJSON(buffer.toString("utf-8"));
-    } else {
-      rows = parseExcel(buffer);
+    // Lire les overrides éventuels envoyés depuis l'UI éditable du récapitulatif.
+    // Format JSON : Record<reference, ProductOverride> — voir EditableProductCard.tsx.
+    // On les applique APRÈS propagation de référence (juste en dessous), avant
+    // la validation pour que les modifs (catégorie créée à la volée, prix corrigé,
+    // etc.) soient considérées comme la vraie donnée à importer.
+    let overrides: Record<string, ImportOverride> = {};
+    try {
+      const overridesPath = `${filePathAbsolute}.overrides.json`;
+      const overridesText = await readFile(overridesPath, "utf-8");
+      overrides = JSON.parse(overridesText);
+    } catch {
+      // Pas de fichier overrides — c'est OK, on importe le fichier brut
     }
 
     // Update total
@@ -377,18 +441,35 @@ export async function processProductImport(jobId: string, maxProducts?: number):
       }
     }
 
+    // Appliquer les overrides de l'UI éditable AVANT validation. Les valeurs
+    // produit-level vont sur toutes les rows du groupe (sinon perdues à l'héritage),
+    // les valeurs variant-level vont sur la row à l'index correspondant.
+    applyOverrides(preGrouped, overrides);
+
     const grouped = new Map<string, ProductImportRow[]>();
     const errorRows: DraftProductRow[] = [];
 
-    // Now validate each row (variant-level only — name is inherited from first row)
+    // Valider d'abord les champs au niveau produit (sur la 1ʳᵉ ligne, qui porte
+    // les valeurs héritées par tout le groupe). Si un champ obligatoire manque,
+    // toutes les lignes du groupe sont marquées en erreur avec le détail.
     for (const [ref, groupRows] of preGrouped) {
-      // Check product-level: at least the first row must have a name
-      if (!groupRows[0].name) {
+      const first = groupRows[0];
+      const productErrors: string[] = [];
+      if (!first.name) productErrors.push("Nom manquant.");
+      if (!first.description) productErrors.push("Description manquante.");
+      if (!first.category) productErrors.push("Catégorie manquante.");
+      if (!first.composition) productErrors.push("Composition manquante.");
+      if (!first.manufacturingCountry) productErrors.push("Pays de fabrication manquant.");
+      if (!first.season) productErrors.push("Saison manquante.");
+      if (groupRows.length === 0) productErrors.push("Au moins une variante requise.");
+
+      if (productErrors.length > 0) {
         for (const row of groupRows) {
-          errorRows.push({ ...row, errors: ["Nom manquant (première ligne de la référence)."] });
+          errorRows.push({ ...row, errors: productErrors });
         }
         continue;
       }
+
       for (const row of groupRows) {
         const errs = validateVariantRow(row);
         if (errs.length > 0) {

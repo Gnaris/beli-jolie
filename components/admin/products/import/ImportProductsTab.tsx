@@ -1,12 +1,17 @@
-"use client";
+﻿"use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { revalidateAfterImport } from "@/app/actions/admin/products";
 import type { PreviewResult, PreviewProduct, MissingEntity } from "@/app/api/admin/products/import/preview/route";
+import type { ImportOptionsResponse } from "@/app/api/admin/products/import/options/route";
 import { PFS_GENDER_LABELS, PFS_FAMILIES_BY_GENDER } from "@/lib/marketplace-excel/pfs-taxonomy";
+import EditableProductCard, { type ProductOverride } from "./EditableProductCard";
+import type { EntityOption } from "./EntitySelect";
+import QuickCreateModal, { type QuickCreateType } from "@/components/admin/products/QuickCreateModal";
+import { isProductReady } from "./effective-status";
 
 // Flat set of all known PFS family names (for exact matching)
 const ALL_KNOWN_FAMILIES = new Set<string>();
@@ -98,390 +103,6 @@ function findBestPfsMatch(
   return "";
 }
 
-// Catégories = nom spécifique (T-shirt, Collier, Bracelet, Mocassin…)
-// Sous-catégories = descriptif (Manche courte, Sautoir, Jonc, Slim…)
-// Taille obligatoire : UNIT = nom simple, PACK = "taille:qté,taille:qté"
-// Prix PACK = prix à la pièce (le total est auto-calculé)
-const TEMPLATE_JSON = JSON.stringify(
-  [
-    // ─── 1. T-shirt basique : 1 couleur, UNIT ───
-    {
-      reference: "TSH-001",
-      name: "T-shirt Essentiel",
-      description: "T-shirt col rond en coton bio, coupe droite",
-      category: "T-shirt",
-      sub_categories: ["Manche courte", "Basique"],
-      tags: ["basique", "coton", "essentiel"],
-      compositions: [{ material: "Coton", percentage: 100 }],
-      season: "Été 2026",
-      manufacturing_country: "Portugal",
-      similar_refs: ["TSH-002"],
-      colors: [
-        { color: "Blanc", saleType: "UNIT", unitPrice: 14.90, stock: 500, weight: 180, isPrimary: true, size: "M" },
-      ],
-    },
-    // ─── 2. T-shirt premium : 3 couleurs, UNIT + PACK multi-tailles ───
-    {
-      reference: "TSH-002",
-      name: "T-shirt Oversize Urban",
-      description: "T-shirt oversize à épaules tombantes, toucher doux",
-      category: "T-shirt",
-      sub_categories: ["Oversize", "Streetwear"],
-      tags: ["oversize", "streetwear", "urban"],
-      compositions: [
-        { material: "Coton", percentage: 90 },
-        { material: "Élasthanne", percentage: 10 },
-      ],
-      season: "Automne 2026",
-      manufacturing_country: "Turquie",
-      similar_refs: ["TSH-001"],
-      colors: [
-        { color: "Noir", saleType: "UNIT", unitPrice: 24.90, stock: 300, weight: 220, isPrimary: true, size: "L" },
-        { color: "Noir", saleType: "PACK", unitPrice: 3.30, stock: 50, weight: 220, size: "S:1,M:2,L:2,XL:1" },
-        { color: "Kaki", saleType: "UNIT", unitPrice: 24.90, stock: 200, weight: 220, size: "M" },
-        { color: "Beige", saleType: "UNIT", unitPrice: 24.90, stock: 250, weight: 220, size: "S", discountPercent: 10 },
-      ],
-    },
-    // ─── 3. Collier pendentif : UNIT, remise PERCENT ───
-    {
-      reference: "COL-001",
-      name: "Collier Lune Dorée",
-      description: "Collier fin avec pendentif croissant de lune, plaqué or 18k",
-      category: "Collier",
-      sub_categories: ["Sautoir", "Pendentif"],
-      tags: ["lune", "pendentif", "plaqué or", "élégant"],
-      compositions: [
-        { material: "Laiton", percentage: 85 },
-        { material: "Or", percentage: 15 },
-      ],
-      manufacturing_country: "France",
-      similar_refs: ["COL-002", "BRC-001"],
-      colors: [
-        { color: "Doré", saleType: "UNIT", unitPrice: 29.90, stock: 150, weight: 12, isPrimary: true, size: "45cm", discountPercent: 15 },
-      ],
-    },
-    // ─── 4. Collier multi-rang : multi-couleurs, UNIT + PACK ───
-    {
-      reference: "COL-002",
-      name: "Collier Triple Chaîne",
-      description: "Collier trois rangs superposables, maille fine",
-      category: "Collier",
-      sub_categories: ["Multi-rang"],
-      tags: ["multi-rang", "superposable", "chaîne"],
-      compositions: [{ material: "Acier inoxydable", percentage: 100 }],
-      season: "Printemps 2026",
-      manufacturing_country: "Italie",
-      similar_refs: ["COL-001"],
-      colors: [
-        { color: "Doré/Argenté/Or Rose", saleType: "UNIT", unitPrice: 34.50, stock: 80, weight: 18, isPrimary: true, size: "42cm" },
-        { color: "Doré/Argenté/Or Rose", saleType: "PACK", unitPrice: 4.70, stock: 20, weight: 18, size: "40cm:2,45cm:3,50cm:1", discountPercent: 20 },
-      ],
-    },
-    // ─── 5. Bracelet jonc : 2 couleurs, remise AMOUNT ───
-    {
-      reference: "BRC-001",
-      name: "Bracelet Jonc Torsadé",
-      description: "Bracelet jonc fin torsadé, ajustable",
-      category: "Bracelet",
-      sub_categories: ["Jonc"],
-      tags: ["jonc", "torsadé", "ajustable"],
-      compositions: [
-        { material: "Laiton", percentage: 90 },
-        { material: "Or", percentage: 10 },
-      ],
-      manufacturing_country: "France",
-      similar_refs: ["COL-001", "COL-002"],
-      colors: [
-        { color: "Doré", saleType: "UNIT", unitPrice: 18.90, stock: 300, weight: 25, isPrimary: true, size: "Unique", discountPercent: 3 },
-        { color: "Argenté", saleType: "UNIT", unitPrice: 18.90, stock: 200, weight: 25, size: "Unique", discountPercent: 3 },
-      ],
-    },
-    // ─── 6. Pantalon chino : 2 couleurs, UNIT ───
-    {
-      reference: "PNT-001",
-      name: "Chino Classique Slim",
-      description: "Pantalon chino coupe slim, taille mi-haute",
-      category: "Pantalon",
-      sub_categories: ["Chino", "Slim"],
-      tags: ["chino", "slim", "classique"],
-      compositions: [
-        { material: "Coton", percentage: 98 },
-        { material: "Élasthanne", percentage: 2 },
-      ],
-      season: "Printemps 2026",
-      manufacturing_country: "Turquie",
-      similar_refs: ["PNT-002", "JNS-001"],
-      colors: [
-        { color: "Beige", saleType: "UNIT", unitPrice: 39.90, stock: 180, weight: 450, isPrimary: true, size: "42" },
-        { color: "Marine", saleType: "UNIT", unitPrice: 39.90, stock: 150, weight: 450, size: "40" },
-      ],
-    },
-    // ─── 7. Pantalon cargo : UNIT + PACK multi-tailles ───
-    {
-      reference: "PNT-002",
-      name: "Cargo Wide Leg",
-      description: "Pantalon cargo coupe large avec poches latérales",
-      category: "Pantalon",
-      sub_categories: ["Cargo", "Wide"],
-      tags: ["cargo", "wide", "streetwear", "poches"],
-      compositions: [{ material: "Coton", percentage: 100 }],
-      season: "Automne 2026",
-      manufacturing_country: "Inde",
-      similar_refs: ["PNT-001"],
-      colors: [
-        { color: "Kaki", saleType: "UNIT", unitPrice: 49.90, stock: 120, weight: 520, isPrimary: true, size: "44" },
-        { color: "Kaki", saleType: "PACK", unitPrice: 10.50, stock: 30, weight: 520, size: "40:1,42:1,44:1,46:1", discountPercent: 10 },
-        { color: "Noir", saleType: "UNIT", unitPrice: 49.90, stock: 100, weight: 520, size: "42" },
-      ],
-    },
-    // ─── 8. Jean slim : UNIT, remise AMOUNT ───
-    {
-      reference: "JNS-001",
-      name: "Jean Slim Stretch",
-      description: "Jean slim confortable avec stretch, délavage moyen",
-      category: "Jean",
-      sub_categories: ["Slim", "Stretch"],
-      tags: ["slim", "stretch", "délavé"],
-      compositions: [
-        { material: "Coton", percentage: 92 },
-        { material: "Polyester", percentage: 6 },
-        { material: "Élasthanne", percentage: 2 },
-      ],
-      manufacturing_country: "Tunisie",
-      similar_refs: ["JNS-002", "PNT-001"],
-      colors: [
-        { color: "Bleu Moyen", saleType: "UNIT", unitPrice: 44.90, stock: 250, weight: 600, isPrimary: true, size: "40", discountPercent: 5 },
-      ],
-    },
-    // ─── 9. Jean large : 2 couleurs, UNIT ───
-    {
-      reference: "JNS-002",
-      name: "Jean Wide Vintage",
-      description: "Jean coupe large inspiration 90s, taille haute",
-      category: "Jean",
-      sub_categories: ["Wide", "Vintage"],
-      tags: ["wide", "vintage", "90s", "taille haute"],
-      compositions: [{ material: "Coton", percentage: 100 }],
-      season: "Printemps 2026",
-      manufacturing_country: "Italie",
-      similar_refs: ["JNS-001"],
-      colors: [
-        { color: "Bleu Clair", saleType: "UNIT", unitPrice: 52.00, stock: 130, weight: 650, isPrimary: true, size: "38" },
-        { color: "Noir Brut", saleType: "UNIT", unitPrice: 52.00, stock: 100, weight: 650, size: "42" },
-      ],
-    },
-    // ─── 10. Mocassin cuir : 2 couleurs, UNIT ───
-    {
-      reference: "MOC-001",
-      name: "Mocassin Cambridge",
-      description: "Mocassin en cuir pleine fleur, semelle cousue Blake",
-      category: "Mocassin",
-      sub_categories: ["Cuir", "Classique"],
-      tags: ["cuir", "élégant", "blake", "classique"],
-      compositions: [{ material: "Cuir", percentage: 100 }],
-      manufacturing_country: "Italie",
-      similar_refs: ["MOC-002"],
-      colors: [
-        { color: "Marron", saleType: "UNIT", unitPrice: 89.90, stock: 80, weight: 380, isPrimary: true, size: "43" },
-        { color: "Noir", saleType: "UNIT", unitPrice: 89.90, stock: 60, weight: 380, size: "42" },
-      ],
-    },
-    // ─── 11. Mocassin daim : UNIT + PACK multi-tailles ───
-    {
-      reference: "MOC-002",
-      name: "Mocassin Souple Daim",
-      description: "Mocassin en daim souple, intérieur cuir, semelle gomme",
-      category: "Mocassin",
-      sub_categories: ["Daim", "Décontracté"],
-      tags: ["daim", "souple", "décontracté"],
-      compositions: [
-        { material: "Daim", percentage: 80 },
-        { material: "Cuir", percentage: 20 },
-      ],
-      season: "Été 2026",
-      manufacturing_country: "Portugal",
-      similar_refs: ["MOC-001"],
-      colors: [
-        { color: "Taupe", saleType: "UNIT", unitPrice: 69.90, stock: 100, weight: 320, isPrimary: true, size: "41", discountPercent: 20 },
-        { color: "Taupe", saleType: "PACK", unitPrice: 14.90, stock: 15, weight: 320, size: "40:1,41:1,42:1,43:1", discountPercent: 25 },
-      ],
-    },
-    // ─── 12. Basket running : multi-couleurs, UNIT ───
-    {
-      reference: "CHS-001",
-      name: "Sneaker Runner Pro",
-      description: "Basket de running légère, semelle amorti mousse",
-      category: "Basket",
-      sub_categories: ["Running", "Sport"],
-      tags: ["running", "léger", "amorti", "sport"],
-      compositions: [
-        { material: "Synthétique", percentage: 70 },
-        { material: "Mousse", percentage: 30 },
-      ],
-      manufacturing_country: "Vietnam",
-      similar_refs: ["CHS-002"],
-      colors: [
-        { color: "Blanc/Noir", saleType: "UNIT", unitPrice: 79.90, stock: 200, weight: 290, isPrimary: true, size: "43" },
-        { color: "Noir/Rouge", saleType: "UNIT", unitPrice: 79.90, stock: 150, weight: 290, size: "42" },
-      ],
-    },
-    // ─── 13. Bottine chelsea : UNIT ───
-    {
-      reference: "CHS-002",
-      name: "Bottine Chelsea Cuir",
-      description: "Bottine chelsea en cuir lisse, élastique latéral, bout arrondi",
-      category: "Bottine",
-      sub_categories: ["Chelsea", "Cuir"],
-      tags: ["chelsea", "bottine", "cuir", "classique"],
-      compositions: [
-        { material: "Cuir", percentage: 90 },
-        { material: "Caoutchouc", percentage: 10 },
-      ],
-      season: "Hiver 2026",
-      manufacturing_country: "Espagne",
-      similar_refs: ["MOC-001", "CHS-001"],
-      colors: [
-        { color: "Noir", saleType: "UNIT", unitPrice: 109.00, stock: 70, weight: 480, isPrimary: true, size: "42" },
-      ],
-    },
-    // ─── 14. Sac cabas : 2 couleurs, UNIT + PACK ───
-    {
-      reference: "SAC-001",
-      name: "Sac Cabas Parisien",
-      description: "Sac cabas structuré en cuir grainé, double anse, poche intérieure zippée",
-      category: "Sac",
-      sub_categories: ["Cabas", "Cuir"],
-      tags: ["cabas", "cuir", "parisien", "élégant"],
-      compositions: [
-        { material: "Cuir", percentage: 85 },
-        { material: "Coton", percentage: 15 },
-      ],
-      season: "Automne 2026",
-      manufacturing_country: "France",
-      similar_refs: ["SAC-002", "SAC-003"],
-      colors: [
-        { color: "Noir", saleType: "UNIT", unitPrice: 64.90, stock: 90, weight: 650, isPrimary: true, size: "Unique" },
-        { color: "Camel", saleType: "UNIT", unitPrice: 64.90, stock: 70, weight: 650, size: "Unique" },
-        { color: "Noir", saleType: "PACK", unitPrice: 18.30, stock: 20, weight: 650, size: "Unique:3" },
-      ],
-    },
-    // ─── 15. Pochette bandoulière : UNIT, remise PERCENT ───
-    {
-      reference: "SAC-002",
-      name: "Pochette Bandoulière Mini",
-      description: "Mini sac bandoulière en cuir souple, bandoulière amovible chaîne dorée",
-      category: "Pochette",
-      sub_categories: ["Bandoulière", "Mini"],
-      tags: ["pochette", "mini", "bandoulière", "chaîne"],
-      compositions: [
-        { material: "Cuir", percentage: 90 },
-        { material: "Métal", percentage: 10 },
-      ],
-      season: "Printemps 2026",
-      manufacturing_country: "Italie",
-      similar_refs: ["SAC-001"],
-      colors: [
-        { color: "Rose Poudré", saleType: "UNIT", unitPrice: 42.50, stock: 120, weight: 280, isPrimary: true, size: "Unique", discountPercent: 15 },
-      ],
-    },
-    // ─── 16. Sac à dos : multi-couleurs, UNIT ───
-    {
-      reference: "SAC-003",
-      name: "Sac à Dos Canvas",
-      description: "Sac à dos en toile épaisse avec empiècements cuir, compartiment laptop 15 pouces",
-      category: "Sac à dos",
-      sub_categories: ["Toile", "Laptop"],
-      tags: ["sac à dos", "canvas", "laptop", "voyage"],
-      compositions: [
-        { material: "Toile", percentage: 75 },
-        { material: "Cuir", percentage: 25 },
-      ],
-      manufacturing_country: "Inde",
-      similar_refs: ["SAC-001"],
-      colors: [
-        { color: "Gris/Marron", saleType: "UNIT", unitPrice: 54.90, stock: 90, weight: 750, isPrimary: true, size: "Unique" },
-        { color: "Marine/Camel", saleType: "UNIT", unitPrice: 54.90, stock: 60, weight: 750, size: "Unique" },
-      ],
-    },
-    // ─── 17. Chapeau fedora : UNIT + PACK multi-tailles ───
-    {
-      reference: "CHP-001",
-      name: "Fedora Laine Premium",
-      description: "Chapeau fedora en feutre de laine, ruban gros-grain contrasté",
-      category: "Chapeau",
-      sub_categories: ["Fedora", "Laine"],
-      tags: ["fedora", "laine", "élégant", "ruban"],
-      compositions: [{ material: "Laine", percentage: 100 }],
-      season: "Automne 2026",
-      manufacturing_country: "France",
-      similar_refs: ["CHP-002"],
-      colors: [
-        { color: "Camel", saleType: "UNIT", unitPrice: 35.00, stock: 80, weight: 150, isPrimary: true, size: "58" },
-        { color: "Noir", saleType: "UNIT", unitPrice: 35.00, stock: 60, weight: 150, size: "56" },
-        { color: "Camel", saleType: "PACK", unitPrice: 4.70, stock: 15, weight: 150, size: "56:2,58:3,60:1", discountPercent: 15 },
-      ],
-    },
-    // ─── 18. Bonnet : UNIT, remise PERCENT ───
-    {
-      reference: "CHP-002",
-      name: "Bonnet Côtelé Chaud",
-      description: "Bonnet en maille côtelée, doublure polaire, revers ajustable",
-      category: "Bonnet",
-      sub_categories: ["Côtelé", "Polaire"],
-      tags: ["bonnet", "chaud", "côtelé", "polaire"],
-      compositions: [
-        { material: "Laine", percentage: 50 },
-        { material: "Acrylique", percentage: 50 },
-      ],
-      season: "Hiver 2026",
-      manufacturing_country: "Écosse",
-      similar_refs: ["CHP-001", "GNT-001"],
-      colors: [
-        { color: "Gris Chiné", saleType: "UNIT", unitPrice: 19.90, stock: 350, weight: 90, isPrimary: true, size: "Unique", discountPercent: 25 },
-      ],
-    },
-    // ─── 19. Gant cuir : multi-couleurs, UNIT + PACK multi-tailles ───
-    {
-      reference: "GNT-001",
-      name: "Gants Cuir Doublés",
-      description: "Gants en cuir d'agneau doublés cachemire, coutures sellier",
-      category: "Gant",
-      sub_categories: ["Cuir", "Cachemire"],
-      tags: ["gants", "cuir", "cachemire", "hiver"],
-      compositions: [
-        { material: "Cuir", percentage: 70 },
-        { material: "Cachemire", percentage: 30 },
-      ],
-      season: "Hiver 2026",
-      manufacturing_country: "Italie",
-      similar_refs: ["CHP-002"],
-      colors: [
-        { color: "Noir", saleType: "UNIT", unitPrice: 49.90, stock: 100, weight: 120, isPrimary: true, size: "M" },
-        { color: "Marron/Beige", saleType: "UNIT", unitPrice: 52.90, stock: 70, weight: 120, size: "L" },
-        { color: "Noir", saleType: "PACK", unitPrice: 7.00, stock: 20, weight: 120, size: "S:1,M:2,L:2,XL:1", discountPercent: 5 },
-      ],
-    },
-    // ─── 20. T-shirt lot pro : PACK only, multi-tailles ───
-    {
-      reference: "TSH-003",
-      name: "T-shirt Uni Lot Pro",
-      description: "T-shirt uni basique vendu en lot, idéal revendeurs et événements",
-      category: "T-shirt",
-      sub_categories: ["Basique", "Lot"],
-      tags: ["lot", "pro", "revendeur", "basique"],
-      compositions: [{ material: "Coton", percentage: 100 }],
-      manufacturing_country: "Bangladesh",
-      similar_refs: ["TSH-001", "TSH-002"],
-      colors: [
-        { color: "Blanc", saleType: "PACK", unitPrice: 0.75, stock: 100, weight: 170, isPrimary: true, size: "S:2,M:3,L:4,XL:3", discountPercent: 1 },
-        { color: "Noir", saleType: "PACK", unitPrice: 0.75, stock: 80, weight: 170, size: "S:2,M:3,L:4,XL:3", discountPercent: 1 },
-        { color: "Gris Chiné", saleType: "PACK", unitPrice: 0.80, stock: 60, weight: 170, size: "S:2,M:4,L:4,XL:2" },
-      ],
-    },
-  ],
-  null,
-  2
-);
 
 type Step = "upload" | "preview" | "done";
 
@@ -500,6 +121,74 @@ export default function ImportProductsTab() {
   // Job polling state
   const [jobStatus, setJobStatus] = useState<"PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | null>(null);
   const [jobProgress, setJobProgress] = useState({ processed: 0, total: 0, success: 0, errors: 0, errorDraftId: null as string | null, errorMessage: null as string | null });
+
+  // Options & overrides pour le récapitulatif éditable
+  const [options, setOptions] = useState<ImportOptionsResponse | null>(null);
+  const [overrides, setOverrides] = useState<Record<string, ProductOverride>>({});
+
+  // Modal de création d'entité (catégorie, couleur, etc.) avec mapping PFS.
+  // Déclenché par le bouton « + » d'un EntitySelect dans une carte produit.
+  // Une fois l'entité créée et le modal fermé, on ré-analyse le fichier pour
+  // que les erreurs liées à cette entité disparaissent.
+  const [creatorModal, setCreatorModal] = useState<{
+    kind: "category" | "subcategory" | "color" | "composition" | "country" | "season";
+    initialName: string;
+    parentCategoryName?: string;
+  } | null>(null);
+
+  // Charger la liste des entités (catégories, couleurs, pays, etc.) à l'arrivée
+  // sur l'écran d'aperçu — alimente les dropdowns d'EditableProductCard.
+  useEffect(() => {
+    if (step !== "preview") return;
+    if (options) return;
+    fetch("/api/admin/products/import/options")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (data) setOptions(data); })
+      .catch(() => { /* silencieux — les dropdowns afficheront vide */ });
+  }, [step, options]);
+
+  // Ajoute une entité fraîchement créée (via EntitySelect) aux options locales
+  const handleEntityCreated = useCallback(
+    (kind: "category" | "subcategory" | "color" | "composition" | "country" | "season", entity: EntityOption) => {
+      setOptions((prev) => {
+        if (!prev) return prev;
+        const key = kind === "subcategory" ? "subCategories"
+          : kind === "country" ? "countries"
+          : `${kind}s` as keyof ImportOptionsResponse;
+        const list = (prev[key as keyof ImportOptionsResponse] as EntityOption[]) ?? [];
+        if (list.some((e) => e.id === entity.id)) return prev;
+        return { ...prev, [key]: [...list, entity] };
+      });
+    },
+    [],
+  );
+
+  const updateOverride = useCallback((ref: string, next: ProductOverride) => {
+    setOverrides((prev) => ({ ...prev, [ref]: next }));
+  }, []);
+
+  // Compteur effectif des produits prêts à importer, en tenant compte des
+  // corrections faites en ligne dans les cartes éditables. Le serveur peut
+  // dire « 3 prêts » à l'upload — si la cliente corrige les 2 produits en
+  // erreur, l'effectif devient 5.
+  const effectiveReady = useMemo(() => {
+    if (!preview) return 0;
+    return preview.products.filter((p) =>
+      isProductReady(p, overrides[p.reference] ?? { reference: p.reference }),
+    ).length;
+  }, [preview, overrides]);
+  const effectiveBlocked = (preview?.totalProducts ?? 0) - effectiveReady;
+
+  const openCreatorModal = useCallback(
+    (kind: "category" | "subcategory" | "color" | "composition" | "country" | "season", suggestedName?: string) => {
+      setCreatorModal({ kind, initialName: suggestedName ?? "" });
+    },
+    [],
+  );
+
+  const closeCreatorModal = useCallback(() => {
+    setCreatorModal(null);
+  }, []);
 
   // Poll job status when in "done" step
   useEffect(() => {
@@ -581,6 +270,18 @@ export default function ImportProductsTab() {
     fd.append("type", "PRODUCTS");
     const limit = parseInt(maxProducts);
     if (limit > 0) fd.append("maxProducts", String(limit));
+    // Envoyer les modifications saisies dans le récapitulatif éditable.
+    // Le backend les applique sur les rows parsées avant validation.
+    const nonEmptyOverrides = Object.entries(overrides).reduce<Record<string, ProductOverride>>((acc, [ref, ov]) => {
+      // On ne garde que les overrides non-vides (au moins une clé patchée)
+      if (Object.keys(ov).filter((k) => k !== "reference").length > 0) {
+        acc[ref] = ov;
+      }
+      return acc;
+    }, {});
+    if (Object.keys(nonEmptyOverrides).length > 0) {
+      fd.append("overrides", JSON.stringify(nonEmptyOverrides));
+    }
     try {
       const res = await fetch("/api/admin/import-jobs", { method: "POST", body: fd });
       const data = await res.json();
@@ -598,54 +299,15 @@ export default function ImportProductsTab() {
   const reset = () => {
     setFile(null); setStep("upload"); setPreview(null); setImportResult(null); setError(null);
     setJobStatus(null); setJobProgress({ processed: 0, total: 0, success: 0, errors: 0, errorDraftId: null, errorMessage: null });
+    setOverrides({});
   };
 
-  const downloadTemplate = (type: "json" | "xlsx") => {
-    if (type === "json") {
-      const blob = new Blob([TEMPLATE_JSON], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = "template-produits.json"; a.click();
-      URL.revokeObjectURL(url);
-    } else {
-      window.open("/api/admin/products/import/template", "_blank");
-    }
+  const downloadTemplate = () => {
+    window.open("/api/admin/products/import/template", "_blank");
   };
 
   return (
     <div className="space-y-6">
-      {/* ── Format guide ── */}
-      <div className="bg-bg-secondary border border-border rounded-2xl p-6">
-        <h3 className="font-semibold text-text-primary mb-3 font-heading">Format d'importation</h3>
-        <div className="grid md:grid-cols-2 gap-4 text-sm text-[#666]">
-          <ul className="space-y-1 font-body">
-            <li><span className="text-red-500">*</span> <code className="bg-bg-primary px-1 rounded text-xs">reference</code> — Référence unique</li>
-            <li><span className="text-red-500">*</span> <code className="bg-bg-primary px-1 rounded text-xs">name</code> — Nom (FR)</li>
-            <li><span className="text-red-500">*</span> <code className="bg-bg-primary px-1 rounded text-xs">color</code> — Couleur (ex: Doré, Doré/Rouge/Noir pour multi-couleur)</li>
-            <li><span className="text-red-500">*</span> <code className="bg-bg-primary px-1 rounded text-xs">sale_type</code> — UNIT ou PACK</li>
-            <li><span className="text-red-500">*</span> <code className="bg-bg-primary px-1 rounded text-xs">unit_price</code> — Prix HT (€)</li>
-            <li><span className="text-red-500">*</span> <code className="bg-bg-primary px-1 rounded text-xs">stock</code> — Stock</li>
-            <li><code className="bg-bg-primary px-1 rounded text-xs">pack_qty</code> · <code className="bg-bg-primary px-1 rounded text-xs">category</code> · <code className="bg-bg-primary px-1 rounded text-xs">tags</code></li>
-            <li><code className="bg-bg-primary px-1 rounded text-xs">sub_categories</code> · <code className="bg-bg-primary px-1 rounded text-xs">composition</code></li>
-            <li><code className="bg-bg-primary px-1 rounded text-xs">similar_refs</code> — Réf. produits similaires (ex: BJ-002,BJ-003)</li>
-          </ul>
-          <div>
-            <p className="font-medium text-text-primary mb-2">Règles</p>
-            <ul className="space-y-1 font-body">
-              <li>• Excel : <strong>une ligne = une variante couleur</strong> — même référence = même produit</li>
-              <li>• Les couleurs et catégories doivent exister en base</li>
-              <li>• Produits créés en statut <strong>Hors ligne</strong></li>
-              <li>• <strong>Produits similaires</strong> : si la référence n'existe pas encore, le lien sera créé automatiquement quand le produit sera importé plus tard</li>
-              <li>• <strong>Traitement en arrière-plan</strong> : vous pouvez fermer la page après confirmation</li>
-            </ul>
-            <div className="mt-3 flex gap-2">
-              <button onClick={() => downloadTemplate("json")} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-bg-primary transition-colors">↓ Template JSON</button>
-              <button onClick={() => downloadTemplate("xlsx")} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-bg-primary transition-colors">↓ Template Excel</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* ── Step indicator ── */}
       <div className="flex items-center gap-3 text-sm">
         {(["upload", "preview", "done"] as Step[]).map((s, i) => (
@@ -670,7 +332,7 @@ export default function ImportProductsTab() {
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
           >
-            <input ref={fileRef} type="file" accept=".json,.xlsx,.xls" className="hidden" onChange={handleFileChange} />
+            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileChange} />
             <div className="text-4xl mb-3">📄</div>
             {file ? (
               <div>
@@ -681,27 +343,32 @@ export default function ImportProductsTab() {
               <div>
                 <p className="text-text-primary font-medium">Glissez votre fichier ici</p>
                 <p className="text-sm text-[#666] mt-1">ou cliquez pour sélectionner</p>
-                <p className="text-xs text-[#999] mt-2">Formats : .json, .xlsx, .xls</p>
+                <p className="text-xs text-[#999] mt-2">Format : .xlsx (Excel)</p>
               </div>
             )}
           </div>
           {error && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
-          <div className="mt-4 flex items-center justify-end gap-3">
-            <div className="flex items-center gap-2">
-              <label htmlFor="maxProducts" className="text-sm text-[#666] whitespace-nowrap">Nb produits max</label>
-              <input
-                id="maxProducts"
-                type="number"
-                min="1"
-                placeholder="Tous"
-                value={maxProducts}
-                onChange={(e) => setMaxProducts(e.target.value)}
-                className="w-24 px-3 py-2 border border-border rounded-lg text-sm text-text-primary bg-bg-primary focus:outline-none focus:ring-2 focus:ring-bg-dark/20"
-              />
-            </div>
-            <button onClick={() => analyzeFile()} disabled={!file || loadingPreview} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
-              {loadingPreview ? "Analyse en cours…" : "Analyser le fichier →"}
+          <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
+            <button onClick={downloadTemplate} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-bg-secondary transition-colors text-text-primary">
+              ↓ Télécharger le modèle Excel
             </button>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label htmlFor="maxProducts" className="text-sm text-[#666] whitespace-nowrap">Nb produits max</label>
+                <input
+                  id="maxProducts"
+                  type="number"
+                  min="1"
+                  placeholder="Tous"
+                  value={maxProducts}
+                  onChange={(e) => setMaxProducts(e.target.value)}
+                  className="w-24 px-3 py-2 border border-border rounded-lg text-sm text-text-primary bg-bg-primary focus:outline-none focus:ring-2 focus:ring-bg-dark/20"
+                />
+              </div>
+              <button onClick={() => analyzeFile()} disabled={!file || loadingPreview} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
+                {loadingPreview ? "Analyse en cours…" : "Analyser le fichier →"}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -724,56 +391,60 @@ export default function ImportProductsTab() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatCard label="Produits détectés" value={preview.totalProducts} color="neutral" />
             <StatCard label="Variantes totales" value={preview.totalVariants} color="neutral" />
-            <StatCard label="Prêts à importer" value={preview.readyToImport} color="green" />
-            <StatCard label="Avec erreurs" value={preview.withErrors + preview.alreadyExist} color={preview.withErrors + preview.alreadyExist > 0 ? "red" : "green"} />
+            <StatCard label="Prêts à importer" value={effectiveReady} color="green" />
+            <StatCard label="Avec erreurs" value={effectiveBlocked} color={effectiveBlocked > 0 ? "red" : "green"} />
           </div>
 
           {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
 
-          {/* Missing entities — quick create */}
-          {preview.missingEntities && preview.missingEntities.length > 0 && (
-            <MissingEntitiesPanel
-              entities={preview.missingEntities}
-              onEntitiesCreated={() => analyzeFile()}
-            />
-          )}
+          {/* Le bandeau « X éléments manquants » a été retiré : la création des
+              catégories/couleurs/pays/saisons/compositions manquantes se fait
+              désormais directement depuis chaque champ de carte (bouton +),
+              qui ouvre le modal MissingEntitiesPanel ci-dessous. */}
 
-          {/* Product table — grouped */}
-          <div className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-            <div className="grid grid-cols-[auto_1fr_1fr_2fr_auto] gap-4 px-6 py-3 bg-bg-secondary border-b border-border text-xs font-medium text-[#666] uppercase tracking-wide">
-              <div>Statut</div>
-              <div>Référence</div>
-              <div>Nom / Catégorie</div>
-              <div>Variantes couleurs</div>
-              <div>Erreurs</div>
-            </div>
-            <div className="divide-y divide-[#F0F0F0] max-h-[500px] overflow-y-auto">
-              {preview.products.map((p, i) => (
-                <ProductPreviewRow key={i} product={p} />
-              ))}
-            </div>
+          {/* Liste des produits — cartes éditables.
+              Chaque carte peut être dépliée pour modifier tous les champs (fiche
+              produit + variantes). Les changements sont stockés dans `overrides`
+              et envoyés au backend au moment de l'import. */}
+          <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+            {preview.products.map((p, i) => (
+              <EditableProductCard
+                key={`${p.reference}-${i}`}
+                product={p}
+                override={overrides[p.reference] ?? { reference: p.reference }}
+                onChange={(next) => updateOverride(p.reference, next)}
+                categories={options?.categories ?? []}
+                subCategoriesAll={options?.subCategories ?? []}
+                colors={options?.colors ?? []}
+                compositions={options?.compositions ?? []}
+                countries={options?.countries ?? []}
+                seasons={options?.seasons ?? []}
+                onEntityCreated={handleEntityCreated}
+                onRequestCreate={openCreatorModal}
+              />
+            ))}
           </div>
 
           {/* Actions */}
           <div className="flex items-center justify-between">
             <button onClick={reset} className="btn-secondary">← Changer de fichier</button>
             <div className="flex items-center gap-3">
-              {preview.readyToImport === 0 && (
+              {effectiveReady === 0 && (
                 <p className="text-sm text-[#666]">Aucun produit ne peut être importé.</p>
               )}
-              {preview.readyToImport > 0 && (
+              {effectiveReady > 0 && (
                 <p className="text-sm text-[#666]">
-                  {preview.withErrors + preview.alreadyExist > 0
-                    ? `${preview.readyToImport} produit(s) seront importés, ${preview.withErrors + preview.alreadyExist} ignorés.`
-                    : `${preview.readyToImport} produit(s) prêts.`}
+                  {effectiveBlocked > 0
+                    ? `${effectiveReady} produit(s) seront importés, ${effectiveBlocked} ignorés.`
+                    : `${effectiveReady} produit(s) prêts.`}
                 </p>
               )}
               <button
                 onClick={confirmImport}
-                disabled={loadingImport || preview.readyToImport === 0}
+                disabled={loadingImport || effectiveReady === 0}
                 className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loadingImport ? "Importation…" : `Confirmer l'importation (${preview.readyToImport})`}
+                {loadingImport ? "Importation…" : `Confirmer l'importation (${effectiveReady})`}
               </button>
             </div>
           </div>
@@ -891,6 +562,42 @@ export default function ImportProductsTab() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ─── Modal de création d'entité (catégorie/couleur/pays/saison/composition)
+            avec mapping PFS + eFashion. Réutilise le QuickCreateModal de la
+            page /admin/produits — strictement la même UI que les autres pages
+            d'attributs. Le z-index est géré par createPortal (z-9999) donc
+            aucun conflit possible avec l'arrière-plan de l'import.
+            Au callback onCreated : on rafraîchit les listes d'options ET on
+            relance l'analyse du fichier pour faire disparaître les erreurs
+            liées à l'entité fraîchement créée. ─── */}
+      {creatorModal && (
+        <QuickCreateModal
+          type={creatorModal.kind as QuickCreateType}
+          open={true}
+          onClose={closeCreatorModal}
+          defaultName={creatorModal.initialName}
+          categoryId={
+            // Pour les sous-catégories : résoudre l'id parent depuis le nom
+            creatorModal.kind === "subcategory" && creatorModal.parentCategoryName
+              ? options?.categories.find((c) => c.name === creatorModal.parentCategoryName)?.id
+              : undefined
+          }
+          onCreated={(item) => {
+            // Ajoute la nouvelle entité aux options locales (mise à jour immédiate
+            // des dropdowns)
+            handleEntityCreated(creatorModal.kind, {
+              id: item.id,
+              name: item.name,
+              categoryName: creatorModal.parentCategoryName,
+            });
+            closeCreatorModal();
+            // Re-vérifie : ré-analyse le fichier pour que les erreurs liées
+            // à l'entité créée disparaissent immédiatement.
+            analyzeFile();
+          }}
+        />
       )}
     </div>
   );
@@ -1679,6 +1386,15 @@ function ProductPreviewRow({ product: p }: { product: PreviewProduct }) {
       {expanded && (
         <div className="px-6 pb-4 bg-[#FAFAFA] border-t border-border-light">
           <div className="grid gap-2 pt-3">
+            {/* Erreurs au niveau produit — liste claire pour permettre la correction */}
+            {p.productErrors && p.productErrors.length > 0 && (
+              <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+                <div className="text-xs font-semibold text-red-700 mb-1.5">À corriger sur ce produit :</div>
+                <ul className="space-y-0.5 text-xs text-red-700 list-disc list-inside">
+                  {p.productErrors.map((err, i) => <li key={i}>{err}</li>)}
+                </ul>
+              </div>
+            )}
             {p.variants.map((v, i) => (
               <div key={i} className={`flex items-start gap-3 p-2 rounded-lg text-sm ${v.errors.length > 0 ? "bg-red-50" : "bg-bg-primary"}`}>
                 <div className="w-1/4 font-medium text-text-primary">{v.color || "—"}</div>

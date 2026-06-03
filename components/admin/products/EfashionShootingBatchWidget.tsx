@@ -21,9 +21,12 @@ export function EfashionShootingBatchWidget() {
 
   if (items.length === 0) return null;
 
-  // Position : au-dessus du MarketplaceRefreshWidget (bottom-4) pour ne pas
-  // se superposer (bottom-24 = ~96px + ~16px d'air). Même alignement right-24.
-  const containerPos = "fixed bottom-24 right-24 z-[9000]";
+  // Position : juste à gauche du MarketplaceRefreshWidget (qui vit à
+  // bottom-4 right-24 et fait 420px de large). On l'aligne sur la même
+  // ligne (bottom-4) en décalant son right de 420px + 7rem + ~1rem d'air
+  // pour qu'il colle à 16px du bord gauche du widget marketplace.
+  const containerPos = "fixed bottom-4 right-[calc(420px+8rem)] z-[9000]";
+  const containerMaxWidth = "calc(100vw - 420px - 10rem)";
 
   const total = items.length;
   const issueCount = items.filter(
@@ -46,7 +49,7 @@ export function EfashionShootingBatchWidget() {
 
   if (minimized) {
     return (
-      <div className={`${containerPos} animate-fadeIn`} style={{ maxWidth: "calc(100vw - 7rem)" }}>
+      <div className={`${containerPos} animate-fadeIn`} style={{ maxWidth: containerMaxWidth }}>
         <button
           type="button"
           onClick={() => setMinimized(false)}
@@ -78,7 +81,7 @@ export function EfashionShootingBatchWidget() {
   return (
     <div
       className={`${containerPos} animate-fadeIn`}
-      style={{ maxWidth: "calc(100vw - 7rem)" }}
+      style={{ maxWidth: containerMaxWidth }}
       role="region"
       aria-label="File du shooting eFashion"
     >

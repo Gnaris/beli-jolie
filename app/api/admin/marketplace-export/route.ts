@@ -57,18 +57,24 @@ export async function POST(req: NextRequest) {
     const ignoredCount = result.ignored.length;
     const eligibleCount = result.eligible.length;
     logger.info(
-      `[marketplace-export] ${result.marketplace} : ${eligibleCount} OK, ${ignoredCount} ignorés (ZIP ${result.zip.length} bytes)`,
+      `[marketplace-export] ${result.marketplace} : ${eligibleCount} OK, ${ignoredCount} ignorés (${result.outputType.toUpperCase()} ${result.fileBuffer.length} bytes)`,
     );
 
-    return new NextResponse(new Uint8Array(result.zip), {
+    const contentType =
+      result.outputType === "xlsx"
+        ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        : "application/zip";
+
+    return new NextResponse(new Uint8Array(result.fileBuffer), {
       status: 200,
       headers: {
-        "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="${result.zipFilename}"`,
-        "Content-Length": String(result.zip.length),
+        "Content-Type": contentType,
+        "Content-Disposition": `attachment; filename="${result.filename}"`,
+        "Content-Length": String(result.fileBuffer.length),
         // Custom headers so the client can show "X exportés, Y ignorés" in a toast.
         "X-Export-Eligible": String(eligibleCount),
         "X-Export-Ignored": String(ignoredCount),
+        "X-Export-Type": result.outputType,
       },
     });
   } catch (err) {

@@ -55,8 +55,8 @@ export async function POST(req: NextRequest) {
 
     // PRODUCTS flow — save file to disk, start processing
     const filename = file.name.toLowerCase();
-    if (!filename.endsWith(".json") && !filename.endsWith(".xlsx") && !filename.endsWith(".xls")) {
-      return NextResponse.json({ error: "Format non supporté (.json, .xlsx, .xls)." }, { status: 400 });
+    if (!filename.endsWith(".xlsx") && !filename.endsWith(".xls")) {
+      return NextResponse.json({ error: "Format non supporté (.xlsx ou .xls uniquement)." }, { status: 400 });
     }
 
     // Save file to private directory (store relative path in DB)
@@ -66,6 +66,21 @@ export async function POST(req: NextRequest) {
     await mkdir(path.dirname(filePathAbsolute), { recursive: true });
     const buffer = Buffer.from(await file.arrayBuffer());
     await writeFile(filePathAbsolute, buffer);
+
+    // Overrides venant de l'UI éditable du récapitulatif. Le client envoie un
+    // JSON Record<reference, ProductOverride> via le champ FormData "overrides".
+    // On l'écrit à côté du fichier Excel — le processor le lira et l'appliquera
+    // après parsing, avant validation.
+    const overridesRaw = formData.get("overrides") as string | null;
+    if (overridesRaw && overridesRaw.trim()) {
+      try {
+        JSON.parse(overridesRaw); // valide
+        const overridesPath = `${filePathAbsolute}.overrides.json`;
+        await writeFile(overridesPath, overridesRaw, "utf-8");
+      } catch {
+        // JSON invalide — on ignore silencieusement, le job tournera sans overrides
+      }
+    }
 
     // Create job
     const job = await prisma.importJob.create({

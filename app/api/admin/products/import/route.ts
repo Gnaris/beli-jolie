@@ -78,42 +78,6 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
   };
 }
 
-function parseJSON(text: string): ProductImportRow[] {
-  const data = JSON.parse(text);
-  if (!Array.isArray(data)) throw new Error("Le JSON doit être un tableau.");
-
-  const rows: ProductImportRow[] = [];
-  let idx = 0;
-
-  for (const item of data) {
-    const colors = Array.isArray(item.colors) ? item.colors : [item];
-    for (const colorVariant of colors) {
-      rows.push({
-        _rowIndex: idx + 1,
-        reference: String(item.reference ?? "").trim(),
-        name: String(item.name ?? item.name_fr ?? "").trim(),
-        description: item.description ?? item.description_fr ?? undefined,
-        category: item.category ?? undefined,
-        color: String(colorVariant.color ?? "").trim(),
-        saleType: colorVariant.saleType === "PACK" ? "PACK" : "UNIT",
-        unitPrice: Number(colorVariant.unitPrice ?? colorVariant.unit_price ?? 0),
-        packQuantity: colorVariant.packQuantity ?? colorVariant.pack_qty ?? undefined,
-        stock: Number(colorVariant.stock ?? 0),
-        weight: colorVariant.weight ?? colorVariant.weight_g ?? undefined,
-        isPrimary: colorVariant.isPrimary ?? false,
-        discountPercent: colorVariant.discountPercent ?? undefined,
-        size: colorVariant.size ?? undefined,
-        tags: Array.isArray(item.tags) ? item.tags.join(",") : (item.tags ?? undefined),
-        composition: Array.isArray(item.compositions)
-          ? item.compositions.map((c: { material: string; percentage: number }) => `${c.material}:${c.percentage}`).join(",")
-          : (item.composition ?? undefined),
-      });
-      idx++;
-    }
-  }
-  return rows;
-}
-
 function parseExcel(buffer: ArrayBuffer): ProductImportRow[] {
   const wb = XLSX.read(buffer, { type: "array" });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -497,17 +461,11 @@ export async function POST(req: NextRequest) {
     }
 
     const filename = file.name.toLowerCase();
-    const buffer = await file.arrayBuffer();
-
-    let rows: ProductImportRow[];
-    if (filename.endsWith(".json")) {
-      const text = new TextDecoder().decode(buffer);
-      rows = parseJSON(text);
-    } else if (filename.endsWith(".xlsx") || filename.endsWith(".xls")) {
-      rows = parseExcel(buffer);
-    } else {
-      return NextResponse.json({ error: "Format non supporté. Utilisez .json ou .xlsx." }, { status: 400 });
+    if (!filename.endsWith(".xlsx") && !filename.endsWith(".xls")) {
+      return NextResponse.json({ error: "Format non supporté. Utilisez .xlsx ou .xls." }, { status: 400 });
     }
+    const buffer = await file.arrayBuffer();
+    const rows = parseExcel(buffer);
 
     if (rows.length === 0) {
       return NextResponse.json({ error: "Fichier vide ou format incorrect." }, { status: 400 });

@@ -1,22 +1,16 @@
 /**
  * Assemble the final ZIP that the admin downloads after a marketplace export.
  *
- * Uses JSZip (already in the project) which loads everything in memory.
- * That's fine for the limits we set : 500 PFS products × ~5 images of ~200 KB
- * = ~500 MB worst case, well under Node's default heap.
+ * ZIP structure (tout à la racine, pas de sous-dossier marketplace) :
+ *   <marketplace>.xlsx
+ *   [<marketplace>_part-2-sur-N.xlsx ...]
+ *   images/
+ *     <file 1>.JPG
+ *     <file 2>.JPG
+ *     ...
  *
- * ZIP structure :
- *   <marketplace-folder>/
- *     <marketplace>.xlsx
- *     [<marketplace>_part-2-sur-N.xlsx ...]
- *     images/
- *       <file 1>.jpg
- *       <file 2>.jpg
- *       ...
- *
- * For Ankorstore (no images folder) :
- *   ankorstore/
- *     ankorstore.xlsx
+ * Pour Ankorstore : pas d'images, donc le ZIP n'est même pas construit (cf.
+ * orchestrator qui retourne le buffer Excel direct).
  */
 
 import JSZip from "jszip";
@@ -28,9 +22,11 @@ export interface ExcelFile {
 }
 
 export interface BuildZipInput {
-  marketplaceFolderName: string; // ex: "paris-fashion-shop"
   excelFiles: ExcelFile[];
   images?: PreparedImage[];
+  /** Niveau de compression DEFLATE (0..9). 0 = aucune compression — utile
+   * quand on emballe d'autres ZIP (compression supplémentaire inutile). */
+  compressionLevel?: number;
 }
 
 /**
@@ -38,17 +34,13 @@ export interface BuildZipInput {
  */
 export async function buildMarketplaceZip(input: BuildZipInput): Promise<Buffer> {
   const zip = new JSZip();
-  const folder = zip.folder(input.marketplaceFolderName);
-  if (!folder) {
-    throw new Error("JSZip folder creation failed");
-  }
 
   for (const f of input.excelFiles) {
-    folder.file(f.filename, f.buffer);
+    zip.file(f.filename, f.buffer);
   }
 
   if (input.images && input.images.length > 0) {
-    const imagesFolder = folder.folder("images");
+    const imagesFolder = zip.folder("images");
     if (!imagesFolder) {
       throw new Error("JSZip images folder creation failed");
     }
@@ -64,6 +56,7 @@ export async function buildMarketplaceZip(input: BuildZipInput): Promise<Buffer>
   return zip.generateAsync({
     type: "nodebuffer",
     compression: "DEFLATE",
-    compressionOptions: { level: 6 },
+    compressionOptions: { level: input.compressionLevel ?? 6 },
   });
 }
+

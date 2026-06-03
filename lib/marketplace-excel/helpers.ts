@@ -1,15 +1,23 @@
 /**
- * Shared label helpers for the PFS ZIP image filenames.
+ * Shared label helpers for the marketplace ZIP image filenames.
  *
  * Kept dependency-free so tests can import it without pulling prisma or storage.
  *
- * PFS-only by design — image folder ships in the ZIP for PFS's manual upload.
+ * Format attendu par chaque marketplace (cf. dossiers d'exemple fournis par la
+ * cliente — `C:/.../Script Compression Photo/{Paris Fashion Shop|efashion|images}`) :
+ *
+ *   PFS         : "<ref> <couleur> <N>.JPG"      → espaces, accents, .JPG majuscule
+ *   Efashion    : "<ref>-<couleur>-<N>.JPG"      → tirets, accents, .JPG majuscule
+ *   Microstore  : "<ref> <couleur> <N+1>.JPG"   + remplace "brun" par "Marron"
+ *
+ * `N` commence à 1 (= `order` BDD + 1). Pour Microstore on incrémente encore d'un
+ * cran, comme le fait le script `getMicrostoreName` officiel.
  */
 
 import type { ExportProduct } from "./types";
 
 /**
- * Label used for a variant in PFS image filenames.
+ * Label used for a variant in image filenames.
  * Single color for UNIT/PACK mono ; concaténation pour PACK multi-couleurs.
  */
 export function variantColorSlug(product: ExportProduct, idx: number): string {
@@ -19,46 +27,80 @@ export function variantColorSlug(product: ExportProduct, idx: number): string {
 }
 
 /**
- * PFS-friendly color token for a filename: collapse all whitespace so
- * "Bleu Irisé" becomes "BleuIrisé". Diacritics and casing are preserved
- * so the PFS team can recognize their own reference labels. Filesystem-
- * unsafe characters and underscores are stripped — PFS expects
- * "reference couleur position" with no underscore anywhere.
+ * Couleur préservée telle quelle, juste nettoyée des caractères interdits
+ * sous Windows. Espaces et accents conservés (« Doré », « Bleu Irisé »…).
  */
-export function formatPfsColorForFilename(input: string): string {
-  const stripped = input
-    .replace(/\s+/g, "")
-    .replace(/[/\\:*?"<>|_]/g, "")
-    .trim();
-  return stripped.slice(0, 80) || "x";
+function cleanColor(input: string): string {
+  return input.replace(/[/\\:*?"<>|]/g, "").trim().slice(0, 80) || "x";
 }
 
 /**
- * PFS reference token for a filename: strip diacritics and any non-alphanumeric
- * character (spaces, underscores, punctuation). PFS expects the reference
- * as a compact alphanumeric token, e.g. "REF-123 A" → "REF123A".
+ * Référence préservée telle quelle (la cliente nomme déjà ses photos avec la
+ * référence brute, ex : « A2270 », « E803E »). Juste un nettoyage Windows.
  */
-export function formatPfsReferenceForFilename(input: string): string {
-  return (
-    input
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .replace(/[^a-zA-Z0-9]+/g, "")
-      .slice(0, 40) || "x"
-  );
+function cleanReference(input: string): string {
+  return input.replace(/[/\\:*?"<>|]/g, "").trim().slice(0, 60) || "x";
 }
 
 /**
- * Build a PFS image filename in the exact format PFS expects:
- * `<reference> <couleur> <position>.jpg` — three tokens separated by spaces,
- * no underscore anywhere.
+ * "Brun" / "brun" → "Marron" (substitution mot-entier Unicode, insensible à la
+ * casse). Utilisé pour la convention de nommage Microstore (cf. script officiel).
+ *
+ * Lookbehind/lookahead Unicode (`\p{L}`) au lieu de `\b` ASCII : évite de
+ * remplacer dans « brunâtre » (le caractère `â` n'est pas un "word boundary"
+ * ASCII donc `\bbrun\b` matche à tort).
+ */
+function brunToMarron(label: string): string {
+  return label.replace(/(?<!\p{L})brun(?!\p{L})/giu, "Marron");
+}
+
+// ─── PFS ────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a PFS image filename : `<reference> <couleur> <position>.JPG` —
+ * trois tokens séparés par des espaces, extension JPG en majuscules.
  */
 export function pfsImageFileName(
   reference: string,
   variantLabel: string,
   imageIdx: number,
 ): string {
-  const refPart = formatPfsReferenceForFilename(reference);
-  const colorPart = formatPfsColorForFilename(variantLabel || "x");
-  return `${refPart} ${colorPart} ${imageIdx + 1}.jpg`;
+  const refPart = cleanReference(reference);
+  const colorPart = cleanColor(variantLabel || "x");
+  return `${refPart} ${colorPart} ${imageIdx + 1}.JPG`;
+}
+
+// ─── Efashion ───────────────────────────────────────────────────────────────
+
+/**
+ * Build an Efashion image filename : `<reference>-<couleur>-<position>.JPG` —
+ * espaces remplacés par des tirets dans les tokens, extension JPG majuscule.
+ */
+export function efashionImageFileName(
+  reference: string,
+  variantLabel: string,
+  imageIdx: number,
+): string {
+  const refPart = cleanReference(reference).replace(/\s+/g, "-");
+  const colorPart = cleanColor(variantLabel || "x").replace(/\s+/g, "-");
+  return `${refPart}-${colorPart}-${imageIdx + 1}.JPG`;
+}
+
+// ─── Microstore ─────────────────────────────────────────────────────────────
+
+/**
+ * Build a Microstore image filename : `<reference> <couleur> <position+1>.JPG`,
+ * avec « brun » → « Marron » (convention Microstore officielle).
+ *
+ * L'incrément +1 supplémentaire reproduit le comportement du script
+ * `getMicrostoreName` de la cliente, qui décale les positions d'un cran.
+ */
+export function microstoreImageFileName(
+  reference: string,
+  variantLabel: string,
+  imageIdx: number,
+): string {
+  const refPart = cleanReference(reference);
+  const colorPart = brunToMarron(cleanColor(variantLabel || "x"));
+  return `${refPart} ${colorPart} ${imageIdx + 2}.JPG`;
 }

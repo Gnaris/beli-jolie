@@ -3,8 +3,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockCategoryCreate = vi.fn();
 const mockColorCreate = vi.fn();
 const mockSeasonCreate = vi.fn();
+const mockSeasonFindFirst = vi.fn();
+const mockSeasonUpdate = vi.fn();
 const mockCountryCreate = vi.fn();
 const mockCountryFindFirst = vi.fn();
+const mockCountryUpdate = vi.fn();
 
 const mockCategoryTranslationUpsert = vi.fn();
 const mockColorTranslationUpsert = vi.fn();
@@ -22,10 +25,15 @@ vi.mock("@/lib/prisma", () => ({
       update: (...a: unknown[]) => mockCategoryUpdate(...a),
     },
     color: { create: (...a: unknown[]) => mockColorCreate(...a) },
-    season: { create: (...a: unknown[]) => mockSeasonCreate(...a) },
+    season: {
+      create: (...a: unknown[]) => mockSeasonCreate(...a),
+      findFirst: (...a: unknown[]) => mockSeasonFindFirst(...a),
+      update: (...a: unknown[]) => mockSeasonUpdate(...a),
+    },
     manufacturingCountry: {
       create: (...a: unknown[]) => mockCountryCreate(...a),
       findFirst: (...a: unknown[]) => mockCountryFindFirst(...a),
+      update: (...a: unknown[]) => mockCountryUpdate(...a),
     },
     categoryTranslation: { upsert: (...a: unknown[]) => mockCategoryTranslationUpsert(...a) },
     colorTranslation: { upsert: (...a: unknown[]) => mockColorTranslationUpsert(...a) },
@@ -75,6 +83,9 @@ describe("attribute creation — PFS mapping is required", () => {
     mockCountryCreate.mockResolvedValue({ id: "co1", name: "Chine" });
     mockCountryFindFirst.mockResolvedValue(null);
     mockCategoryFindFirst.mockResolvedValue(null);
+    mockSeasonFindFirst.mockResolvedValue(null);
+    mockSeasonUpdate.mockResolvedValue({ id: "s1", name: "PE 2026" });
+    mockCountryUpdate.mockResolvedValue({ id: "co1", name: "Chine" });
   });
 
   // ── createCategory (form-based) ──
@@ -164,7 +175,9 @@ describe("attribute creation — PFS mapping is required", () => {
 
     it("createSeasonQuick uppercases the ref", async () => {
       await createSeasonQuick({ fr: "PE 2026" }, "pe2026");
-      expect(mockSeasonCreate).toHaveBeenCalledWith({ data: { name: "PE 2026", pfsRef: "PE2026" } });
+      expect(mockSeasonCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({ name: "PE 2026", pfsRef: "PE2026" }),
+      });
     });
 
     it("createManufacturingCountryQuick throws without pfsCountryRef", async () => {
@@ -187,6 +200,9 @@ describe("attribute creation — PFS mapping is required", () => {
     });
 
     it("createManufacturingCountryQuick throws when ISO is already used", async () => {
+      // 1er findFirst : recherche du pays par nom → null (n'existe pas)
+      // 2e findFirst : recherche du conflit ISO → France
+      mockCountryFindFirst.mockResolvedValueOnce(null);
       mockCountryFindFirst.mockResolvedValueOnce({ name: "France" });
       await expect(createManufacturingCountryQuick({ fr: "Nouveau pays" }, "FR", "NP")).rejects.toThrow(/déjà utilisé/);
       expect(mockCountryCreate).not.toHaveBeenCalled();
