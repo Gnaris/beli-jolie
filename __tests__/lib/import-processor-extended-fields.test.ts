@@ -76,7 +76,6 @@ describe("ProductImportRow — type contract", () => {
       hsCode: "71171900",
       primaryColor: "Doré",
       sizeDetailsTu: "52-56",
-      status: "ONLINE",
       isBestSeller: true,
     };
     expect(r.hsCode).toBe("71171900");

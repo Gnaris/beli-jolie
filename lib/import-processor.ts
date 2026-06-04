@@ -102,7 +102,6 @@ export interface ProductImportRow {
   hsCode?: string;                // code SH (6-10 chiffres)
   primaryColor?: string;          // nom de la couleur principale (doit faire partie des variantes)
   sizeDetailsTu?: string;         // détail texte libre quand une variante utilise « Taille unique »
-  status?: "OFFLINE" | "ONLINE" | "ARCHIVED";
   isBestSeller?: boolean;
 }
 
@@ -136,7 +135,6 @@ export interface ImportOverride {
   hsCode?: string;
   sizeDetailsTu?: string;
   similarRefs?: string;
-  status?: "OFFLINE" | "ONLINE" | "ARCHIVED";
   isBestSeller?: boolean;
   dimensionLength?: number | null;
   dimensionWidth?: number | null;
@@ -150,7 +148,7 @@ export interface ImportOverride {
 const PRODUCT_OVERRIDE_FIELDS = [
   "name", "description", "category", "subCategories",
   "tags", "composition", "primaryColor", "manufacturingCountry", "season",
-  "hsCode", "sizeDetailsTu", "similarRefs", "status", "isBestSeller",
+  "hsCode", "sizeDetailsTu", "similarRefs", "isBestSeller",
   "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter",
   "dimensionCircumference",
 ] as const;
@@ -286,7 +284,6 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     hsCode: str(raw["hs_code"] ?? raw["code_sh"] ?? raw["hsCode"] ?? raw["Code SH"]) || undefined,
     primaryColor: str(raw["primary_color"] ?? raw["couleur_principale"] ?? raw["primaryColor"] ?? raw["Couleur principale"]) || undefined,
     sizeDetailsTu: str(raw["taille_unique_details"] ?? raw["detail_taille_unique"] ?? raw["sizeDetailsTu"] ?? raw["Détail taille unique"]) || undefined,
-    status: readStatus(raw["status"] ?? raw["statut"] ?? raw["Statut"]),
     isBestSeller: boolish(raw["best_seller"] ?? raw["isBestSeller"] ?? raw["bestseller"] ?? raw["Best Seller"]),
   };
 }
@@ -419,7 +416,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
     // Inherit product-level fields from the group: find the first row that has each
     // field and propagate to all rows. This handles cases where product-level fields
     // (name, category, composition, etc.) are on any row, not just the first.
-    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "similarRefs", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference", "hsCode", "primaryColor", "sizeDetailsTu", "status", "isBestSeller"] as const;
+    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "similarRefs", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference", "hsCode", "primaryColor", "sizeDetailsTu", "isBestSeller"] as const;
     for (const [, groupRows] of preGrouped) {
       for (const field of productFields) {
         // Find the first row that has this field
@@ -786,7 +783,9 @@ export async function processProductImport(jobId: string, maxProducts?: number):
               hsCodeId,
               primaryColorId,
               sizeDetailsTu: firstRow.sizeDetailsTu?.trim() || null,
-              status: firstRow.status ?? "OFFLINE",
+              // Tous les imports arrivent en brouillon — la cliente les publie
+              // ensuite manuellement depuis la fiche produit.
+              status: "OFFLINE",
               isBestSeller: firstRow.isBestSeller ?? false,
               discountPercent: firstRow.discountPercent ?? null,
               dimensionLength: firstRow.dimensionLength ?? null,

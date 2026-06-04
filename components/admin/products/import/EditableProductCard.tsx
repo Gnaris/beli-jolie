@@ -47,7 +47,6 @@ export interface ProductOverride {
   hsCode?: string;
   sizeDetailsTu?: string;
   similarRefs?: string;
-  status?: "OFFLINE" | "ONLINE" | "ARCHIVED";
   isBestSeller?: boolean;
   dimensionLength?: number | null;
   dimensionWidth?: number | null;
@@ -231,7 +230,6 @@ export default function EditableProductCard({
     hsCode: getEffective(override.hsCode, product.hsCode) ?? "",
     sizeDetailsTu: getEffective(override.sizeDetailsTu, product.sizeDetailsTu) ?? "",
     similarRefs: getEffective(override.similarRefs, product.similarRefs) ?? "",
-    status: getEffective(override.status, product.status) ?? "OFFLINE",
     isBestSeller: getEffective(override.isBestSeller, product.isBestSeller),
     dimensionLength: getEffective(override.dimensionLength, product.dimensionLength ?? null),
     dimensionWidth: getEffective(override.dimensionWidth, product.dimensionWidth ?? null),
@@ -501,12 +499,14 @@ export default function EditableProductCard({
                     <div>
                       <FieldLabel
                         label="Détail taille unique"
-                        hint="À renseigner uniquement si une variante utilise « Taille unique »"
+                        required
+                        hint="Texte libre décrivant la taille (ex : 52-56, taille unique adulte)"
                       />
                       <TextField
                         value={v.sizeDetailsTu}
                         onChange={(val) => patch({ sizeDetailsTu: val })}
                         placeholder="Ex. : 52-56"
+                        error={!v.sizeDetailsTu}
                       />
                     </div>
                   </div>
@@ -536,21 +536,11 @@ export default function EditableProductCard({
                 </Section>
 
                 {/* ───── Section : Publication ────────────────────────── */}
-                <Section title="Publication">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                    <div>
-                      <FieldLabel label="Statut" />
-                      <CustomSelect
-                        value={v.status}
-                        onChange={(val) => patch({ status: val as "OFFLINE" | "ONLINE" | "ARCHIVED" })}
-                        options={[
-                          { value: "OFFLINE", label: "Hors ligne (brouillon)" },
-                          { value: "ONLINE", label: "En ligne (publié)" },
-                          { value: "ARCHIVED", label: "Archivé" },
-                        ]}
-                        size="md"
-                      />
-                    </div>
+                <Section
+                  title="Publication"
+                  hint="Les produits importés arrivent toujours en brouillon (hors ligne). Vous les publiez ensuite depuis la fiche produit."
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div>
                       <FieldLabel label="Best Seller" />
                       <BooleanField

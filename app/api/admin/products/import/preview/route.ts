@@ -35,7 +35,6 @@ export interface PreviewProduct {
   hsCode?: string;
   sizeDetailsTu?: string;
   similarRefs?: string;
-  status?: "OFFLINE" | "ONLINE" | "ARCHIVED";
   isBestSeller?: boolean;
   dimensionLength?: number;
   dimensionWidth?: number;
@@ -85,17 +84,6 @@ function boolish(raw: unknown): boolean | undefined {
   if (["false", "0", "non", "no", "faux"].includes(s)) return false;
   return undefined;
 }
-function readStatus(raw: unknown): "OFFLINE" | "ONLINE" | "ARCHIVED" | undefined {
-  if (raw === undefined || raw === null) return undefined;
-  const s = String(raw).trim().toUpperCase();
-  if (s === "") return undefined;
-  if (["EN LIGNE", "ONLINE", "PUBLIE", "PUBLIÉ"].includes(s)) return "ONLINE";
-  if (["HORS LIGNE", "OFFLINE", "BROUILLON"].includes(s)) return "OFFLINE";
-  if (["ARCHIVE", "ARCHIVÉ", "ARCHIVED"].includes(s)) return "ARCHIVED";
-  if (s === "OFFLINE" || s === "ONLINE" || s === "ARCHIVED") return s;
-  return undefined;
-}
-
 function normalizeRow(raw: Record<string, unknown>, index: number) {
   const str = (v: unknown) => (v != null ? String(v).trim() : "");
   const num = (v: unknown) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return isNaN(n) ? undefined : n; };
@@ -128,7 +116,6 @@ function normalizeRow(raw: Record<string, unknown>, index: number) {
     hsCode: str(raw["hs_code"] ?? raw["code_sh"] ?? raw["hsCode"] ?? raw["Code SH"]) || undefined,
     primaryColor: str(raw["primary_color"] ?? raw["couleur_principale"] ?? raw["primaryColor"] ?? raw["Couleur principale"]) || undefined,
     sizeDetailsTu: str(raw["taille_unique_details"] ?? raw["detail_taille_unique"] ?? raw["sizeDetailsTu"] ?? raw["Détail taille unique"]) || undefined,
-    status: readStatus(raw["status"] ?? raw["statut"] ?? raw["Statut"]),
     isBestSeller: boolish(raw["best_seller"] ?? raw["isBestSeller"] ?? raw["bestseller"] ?? raw["Best Seller"]),
   };
 }
@@ -286,7 +273,7 @@ export async function POST(req: NextRequest) {
 
     // Inherit product-level fields from the group: find the first row that has each
     // field and propagate to all rows (field can be on any row, not just the first)
-    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference", "hsCode", "primaryColor", "sizeDetailsTu", "status", "isBestSeller"] as const;
+    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference", "hsCode", "primaryColor", "sizeDetailsTu", "isBestSeller"] as const;
     for (const [, groupRows] of grouped) {
       for (const field of productFields) {
         const source = groupRows.find((r) => r[field as keyof typeof r]);
@@ -375,12 +362,9 @@ export async function POST(req: NextRequest) {
         if (!matchInGroup) primaryColorValid = false;
       }
 
-      // Validate « Taille unique » : si une variante l'utilise, sizeDetailsTu obligatoire
-      const groupUsesTailleUnique = groupRows.some((r) => {
-        const sizes = (r.size ?? "").split(",").map((s) => s.split(":")[0].trim().toLowerCase());
-        return sizes.includes("taille unique");
-      });
-      const tailleUniqueDetailsMissing = groupUsesTailleUnique && !firstRow.sizeDetailsTu?.trim();
+      // Le détail taille unique est désormais obligatoire pour tous les produits
+      // (rappel système pour décrire le format/la taille à l'œil nu).
+      const tailleUniqueDetailsMissing = !firstRow.sizeDetailsTu?.trim();
 
       const variants: PreviewVariant[] = groupRows.map((row) => {
         const errors: string[] = [];
@@ -434,7 +418,7 @@ export async function POST(req: NextRequest) {
       if (!seasonFound) productErrors.push(`Saison "${firstRow.season}" introuvable.`);
       if (!hsCodeFound) productErrors.push(`Code SH "${firstRow.hsCode}" introuvable (créez-le dans Administration > Codes SH).`);
       if (!primaryColorValid) productErrors.push(`Couleur principale "${firstRow.primaryColor}" introuvable parmi les variantes.`);
-      if (tailleUniqueDetailsMissing) productErrors.push(`Détail taille unique manquant (obligatoire quand une variante utilise « Taille unique »).`);
+      if (tailleUniqueDetailsMissing) productErrors.push(`Détail taille unique manquant.`);
       if (referenceExists) productErrors.push(`La référence "${ref}" existe déjà.`);
 
       const variantErrors = variants.flatMap((v) => v.errors);
@@ -459,7 +443,6 @@ export async function POST(req: NextRequest) {
         hsCode: firstRow.hsCode,
         sizeDetailsTu: firstRow.sizeDetailsTu,
         similarRefs: firstRow.similarRefs,
-        status: firstRow.status,
         isBestSeller: firstRow.isBestSeller,
         dimensionLength: firstRow.dimensionLength,
         dimensionWidth: firstRow.dimensionWidth,

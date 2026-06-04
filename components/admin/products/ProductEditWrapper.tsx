@@ -121,7 +121,10 @@ export function ProductEditWrapper({
                 <HeaderBadges />
               </div>
             </div>
-            <StatusToggle mode="edit" />
+            {/* Le statut (en ligne / hors ligne) se gère désormais depuis la
+                liste des produits — actions « Mettre en ligne / Hors ligne »
+                dans la colonne Actions. Ce formulaire conserve les changements
+                en brouillon jusqu'à publication explicite. */}
           </div>
         </div>
         {children}

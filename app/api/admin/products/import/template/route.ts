@@ -75,15 +75,16 @@ const PRODUCT_COLUMNS: ColumnDef[] = [
   { key: "saison", header: "Saison *", width: 16, required: true, description: "Doit exister dans la base", example: "Été 2026" },
   { key: "hs_code", header: "Code SH", width: 14, required: false, description: "Code douanier (doit exister dans Administration > Codes SH)", example: "71171900" },
   // — Dimensions —
-  { key: "taille_unique_details", header: "Détail taille unique", width: 22, required: false, description: "Texte libre (ex: 52-56). Obligatoire dès qu'une variante utilise « Taille unique ».", example: "52-56" },
+  { key: "taille_unique_details", header: "Détail taille unique *", width: 22, required: true, description: "Texte libre décrivant la taille du produit (ex : 52-56, taille unique adulte).", example: "52-56" },
   { key: "dimension_length", header: "Longueur (cm)", width: 16, required: false, description: "Longueur en cm", example: "45" },
   { key: "dimension_width", header: "Largeur (cm)", width: 16, required: false, description: "Largeur en cm", example: "2" },
   { key: "dimension_height", header: "Hauteur (cm)", width: 16, required: false, description: "Hauteur en cm", example: "" },
   { key: "dimension_diameter", header: "Diamètre (cm)", width: 16, required: false, description: "Diamètre en cm", example: "6.5" },
   { key: "dimension_circumference", header: "Circonférence (cm)", width: 20, required: false, description: "Circonférence en cm", example: "" },
   // — Publication & liens —
+  // Note : les produits importés arrivent toujours en statut « Hors ligne »
+  // (brouillon). La publication se fait ensuite depuis la fiche produit.
   { key: "similar_refs", header: "Réf. similaires", width: 22, required: false, description: "Références produits similaires (virgules)", example: "PRD-002,PRD-003" },
-  { key: "status", header: "Statut", width: 12, required: false, description: "OFFLINE (défaut), ONLINE ou ARCHIVED", example: "OFFLINE" },
   { key: "best_seller", header: "Best Seller", width: 12, required: false, description: "true = mis en avant dans les filtres", example: "false" },
 ];
 
@@ -121,7 +122,7 @@ const SAMPLE_DATA = [
     category: "T-shirt", sub_categories: "Manche courte,Basique", tags: "basique,coton,essentiel",
     composition: "Coton:100", primary_color: "Blanc", pays_fabrication: "Portugal", saison: "Été 2026", hs_code: "",
     taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
-    similar_refs: "", status: "OFFLINE", best_seller: "false",
+    similar_refs: "", best_seller: "false",
     color: "Blanc", sale_type: "UNIT", size: "M",
     unit_price: 14.90, stock: 500, pack_qty: "", discount_type: "", discount_value: "",
     weight_g: 180,
@@ -132,7 +133,7 @@ const SAMPLE_DATA = [
     category: "T-shirt", sub_categories: "Oversize,Streetwear", tags: "oversize,streetwear",
     composition: "Coton:90,Élasthanne:10", primary_color: "Noir", pays_fabrication: "Turquie", saison: "Automne 2026", hs_code: "",
     taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
-    similar_refs: "TSH-001", status: "OFFLINE", best_seller: "false",
+    similar_refs: "TSH-001", best_seller: "false",
     color: "Noir", sale_type: "UNIT", size: "L",
     unit_price: 24.90, stock: 300, pack_qty: "", discount_type: "", discount_value: "",
     weight_g: 220,
@@ -142,7 +143,7 @@ const SAMPLE_DATA = [
     category: "", sub_categories: "", tags: "",
     composition: "", primary_color: "", pays_fabrication: "", saison: "", hs_code: "",
     taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
-    similar_refs: "", status: "", best_seller: "",
+    similar_refs: "", best_seller: "",
     color: "Kaki", sale_type: "UNIT", size: "M",
     unit_price: 24.90, stock: 200, pack_qty: "", discount_type: "", discount_value: "",
     weight_g: "",
@@ -152,7 +153,7 @@ const SAMPLE_DATA = [
     category: "", sub_categories: "", tags: "",
     composition: "", primary_color: "", pays_fabrication: "", saison: "", hs_code: "",
     taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
-    similar_refs: "", status: "", best_seller: "",
+    similar_refs: "", best_seller: "",
     color: "Beige", sale_type: "UNIT", size: "S",
     unit_price: 24.90, stock: 250, pack_qty: "", discount_type: "PERCENT", discount_value: 10,
     weight_g: "",
@@ -164,7 +165,7 @@ const SAMPLE_DATA = [
     composition: "Cuir:100", primary_color: "Marron", pays_fabrication: "Italie", saison: "Hiver 2026", hs_code: "",
     taille_unique_details: "",
     dimension_length: 28, dimension_width: 10, dimension_height: 8, dimension_diameter: "", dimension_circumference: "",
-    similar_refs: "", status: "OFFLINE", best_seller: "false",
+    similar_refs: "", best_seller: "false",
     color: "Marron", sale_type: "UNIT", size: "43",
     unit_price: 89.90, stock: 80, pack_qty: "", discount_type: "", discount_value: "",
     weight_g: 380,
@@ -174,7 +175,7 @@ const SAMPLE_DATA = [
     category: "", sub_categories: "", tags: "",
     composition: "", primary_color: "", pays_fabrication: "", saison: "", hs_code: "",
     taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
-    similar_refs: "", status: "", best_seller: "",
+    similar_refs: "", best_seller: "",
     color: "Marron", sale_type: "PACK", size: "41:1,42:1,43:1,44:1",
     unit_price: 14.90, stock: 15, pack_qty: "", discount_type: "PERCENT", discount_value: 25,
     weight_g: "",
@@ -338,7 +339,7 @@ export async function GET() {
         wrapText: col.key === "description",
       };
 
-      if (["sale_type", "unit_price", "pack_qty", "stock", "weight_g", "discount_type", "discount_value", "size", "status", "best_seller", "dimension_length", "dimension_width", "dimension_height", "dimension_diameter", "dimension_circumference"].includes(col.key)) {
+      if (["sale_type", "unit_price", "pack_qty", "stock", "weight_g", "discount_type", "discount_value", "size", "best_seller", "dimension_length", "dimension_width", "dimension_height", "dimension_diameter", "dimension_circumference"].includes(col.key)) {
         cell.alignment = { horizontal: "center", vertical: "middle" };
       }
     });
@@ -370,18 +371,6 @@ export async function GET() {
       showErrorMessage: true,
       errorTitle: "Valeur invalide",
       error: "Choisissez PERCENT ou AMOUNT (ou laissez vide)",
-    };
-  }
-
-  const statusCol = findCol("status");
-  for (let r = dataStartRow; r <= dataEndRow; r++) {
-    ws.getCell(r, statusCol).dataValidation = {
-      type: "list",
-      allowBlank: true,
-      formulae: ['"OFFLINE,ONLINE,ARCHIVED"'],
-      showErrorMessage: true,
-      errorTitle: "Valeur invalide",
-      error: "Choisissez OFFLINE, ONLINE ou ARCHIVED (ou laissez vide).",
     };
   }
 
