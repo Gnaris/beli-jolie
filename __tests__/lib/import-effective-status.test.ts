@@ -93,7 +93,7 @@ describe("effectiveProductErrors", () => {
     expect(effectiveProductErrors(product, override)).toEqual([]);
   });
 
-  it("retire l'erreur « Catégorie introuvable » quand on choisit une catégorie existante", () => {
+  it("retire l'erreur « Catégorie introuvable » quand on choisit une catégorie qui EXISTE en base", () => {
     // Reproduit le bug signalé : l'Excel indique « Bracelet » qui n'existe pas en
     // base — le serveur renvoie « Catégorie "Bracelet" introuvable. » — la cliente
     // sélectionne « Bracelets » dans le dropdown → l'erreur doit disparaître.
@@ -101,15 +101,31 @@ describe("effectiveProductErrors", () => {
       productErrors: [`Catégorie "Bracelet" introuvable.`],
     });
     const override: ProductOverride = { reference: "REF-001", category: "Bracelets" };
-    expect(effectiveProductErrors(product, override)).toEqual([]);
+    expect(effectiveProductErrors(product, override, { categories: ["Bracelets", "Bagues"] })).toEqual([]);
   });
 
-  it("retire l'erreur « Couleur principale introuvable » quand on choisit une couleur de variante", () => {
+  it("ne retire PAS l'erreur si la valeur reste introuvable en base (bug avant correctif)", () => {
+    // Cas critique : la cliente n'a pas changé le dropdown — l'erreur DOIT rester
+    // visible. Avant le fix, l'erreur disparaissait dès que value était non vide.
+    const product = makeProduct({
+      category: "Bracelet",
+      productErrors: [`Catégorie "Bracelet" introuvable.`],
+    });
+    const override: ProductOverride = { reference: "REF-001" };
+    expect(
+      effectiveProductErrors(product, override, { categories: ["Bracelets", "Bagues"] }),
+    ).toEqual([`Catégorie "Bracelet" introuvable.`]);
+  });
+
+  it("retire l'erreur « Couleur principale introuvable » quand on choisit une couleur de variante existante", () => {
     const product = makeProduct({
       productErrors: [`Couleur principale "Doré antique" introuvable parmi les variantes.`],
+      variants: [
+        { color: "Doré", saleType: "UNIT", unitPrice: 10, stock: 5, colorFound: true, errors: [] },
+      ],
     });
     const override: ProductOverride = { reference: "REF-001", primaryColor: "Doré" };
-    expect(effectiveProductErrors(product, override)).toEqual([]);
+    expect(effectiveProductErrors(product, override, { variantColors: ["Doré"] })).toEqual([]);
   });
 });
 

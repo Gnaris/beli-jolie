@@ -225,23 +225,10 @@ export default function ImportHistoryClient({
   // ─────────────────────────────────────────────
 
   function ActionsCell({ job }: { job: ImportJobWithDraft }) {
-    if (job.errorDraftId && job.draft) {
-      if (job.draft.status === "PENDING") {
-        return (
-          <Link
-            href={`/admin/produits/importer/brouillon/${job.errorDraftId}`}
-            className="text-sm font-medium text-[#F59E0B] hover:text-[#D97706] transition-colors"
-          >
-            Corriger ({job.draft.errorRows} erreur{job.draft.errorRows > 1 ? "s" : ""})
-          </Link>
-        );
-      }
-      if (job.draft.status === "RESOLVED") {
-        return (
-          <span className="text-sm font-medium text-[#22C55E]">Corrigé</span>
-        );
-      }
-    }
+    // Note (juin 2026) : l'ancienne page « Corriger les erreurs » a été
+    // supprimée — le récap d'import permet désormais de corriger AVANT validation.
+    // Les jobs anciens qui avaient un brouillon d'erreurs sont affichés en lecture
+    // seule via le détail dépliable.
 
     if (job.status === "FAILED" && job.errorMessage) {
       return (
@@ -887,31 +874,9 @@ function JobDetailPanel({ job }: { job: ImportJobWithDraft }) {
         </div>
       )}
 
-      {/* Draft link */}
-      {job.errorDraftId && job.draft && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-amber-800">
-              {job.draft.status === "RESOLVED" ? "Brouillon corrigé" : `${job.draft.errorRows} ligne(s) en erreur dans le brouillon`}
-            </p>
-            {job.draft.successRows > 0 && (
-              <p className="text-xs text-amber-700 mt-0.5">
-                {job.draft.successRows} corrigée(s) manuellement
-              </p>
-            )}
-          </div>
-          <Link
-            href={`/admin/produits/importer/brouillon/${job.errorDraftId}`}
-            className={`text-sm font-medium px-3 py-1.5 rounded-lg transition-colors ${
-              job.draft.status === "RESOLVED"
-                ? "bg-green-100 text-green-700 hover:bg-green-200"
-                : "bg-amber-200 text-amber-900 hover:bg-amber-300"
-            }`}
-          >
-            {job.draft.status === "RESOLVED" ? "Voir le brouillon" : "Corriger les erreurs →"}
-          </Link>
-        </div>
-      )}
+      {/* Note : la page « brouillon d'import » a été supprimée. Les anciens
+          jobs avec errorDraftId sont laissés en lecture seule — utilisez le
+          nouveau récap d'import pour gérer les nouveaux imports. */}
     </div>
   );
 }

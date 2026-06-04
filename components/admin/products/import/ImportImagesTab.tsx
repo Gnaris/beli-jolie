@@ -921,14 +921,10 @@ export default function ImportImagesTab() {
               <div>
                 <p className="text-xl font-semibold font-heading text-text-primary">Import terminé</p>
                 <p className="text-[#666] mt-1 font-body">{jobProgress.success} image(s) importée(s).{jobProgress.errors > 0 && ` ${jobProgress.errors} erreur(s).`}</p>
-                {jobProgress.errors > 0 && jobProgress.errorDraftId && (
-                  <a
-                    href={`/admin/produits/importer/brouillon/${jobProgress.errorDraftId}`}
-                    className="inline-flex items-center gap-1.5 mt-3 px-4 py-2 bg-red-50 border border-red-200 text-red-700 text-sm font-medium rounded-lg hover:bg-red-100 transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
-                    Voir et corriger les {jobProgress.errors} erreur{jobProgress.errors > 1 ? "s" : ""}
-                  </a>
+                {jobProgress.errors > 0 && (
+                  <p className="mt-3 text-sm text-red-700">
+                    {jobProgress.errors} image{jobProgress.errors > 1 ? "s" : ""} n&apos;ont pas pu être importées. Vérifiez le nom de fichier et relancez un envoi.
+                  </p>
                 )}
               </div>
             </>

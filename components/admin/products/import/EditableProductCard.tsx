@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import CustomSelect from "@/components/ui/CustomSelect";
 import EntitySelect, { type EntityOption, type EntityKind } from "./EntitySelect";
 import CompositionEditor from "./CompositionEditor";
-import { effectiveProductErrors as computeEffectiveErrors } from "./effective-status";
+import { effectiveProductErrors as computeEffectiveErrors, type ValidOptions } from "./effective-status";
 import type { PreviewProduct, PreviewVariant } from "@/app/api/admin/products/import/preview/route";
 import type { ImportHsCodeOption } from "@/app/api/admin/products/import/options/route";
 
@@ -204,7 +204,7 @@ export default function EditableProductCard({
   override,
   onChange,
   categories,
-  subCategoriesAll: _subCategoriesAll,
+  subCategoriesAll,
   colors,
   compositions,
   countries,
@@ -238,9 +238,23 @@ export default function EditableProductCard({
     dimensionCircumference: getEffective(override.dimensionCircumference, product.dimensionCircumference ?? null),
   }), [override, product]);
 
+  // Listes d'entités valides → permet à `effectiveProductErrors` de ne retirer
+  // une erreur « introuvable » que si la nouvelle valeur existe vraiment
+  // (sinon, "Bracelet" reste invalide même si non vide).
+  const validOptions = useMemo<ValidOptions>(() => ({
+    categories: categories.map((c) => c.name),
+    subCategories: subCategoriesAll.map((s) => s.name),
+    colors: colors.map((c) => c.name),
+    compositions: compositions.map((c) => c.name),
+    countries: countries.map((c) => c.name),
+    seasons: seasons.map((s) => s.name),
+    hsCodes: hsCodes.map((h) => h.code),
+    variantColors: product.variants.map((va) => va.color),
+  }), [categories, subCategoriesAll, colors, compositions, countries, seasons, hsCodes, product.variants]);
+
   const effectiveProductErrors = useMemo(
-    () => computeEffectiveErrors(product, override),
-    [product, override],
+    () => computeEffectiveErrors(product, override, validOptions),
+    [product, override, validOptions],
   );
   const effectiveVariantErrorsCount = product.variants.reduce((s, va) => s + va.errors.length, 0);
   const totalIssues = effectiveProductErrors.length + effectiveVariantErrorsCount;

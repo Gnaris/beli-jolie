@@ -11,7 +11,7 @@ import { PFS_GENDER_LABELS, PFS_FAMILIES_BY_GENDER } from "@/lib/marketplace-exc
 import EditableProductCard, { type ProductOverride } from "./EditableProductCard";
 import type { EntityOption } from "./EntitySelect";
 import QuickCreateModal, { type QuickCreateType } from "@/components/admin/products/QuickCreateModal";
-import { isProductReady } from "./effective-status";
+import { isProductReady, type ValidOptions } from "./effective-status";
 
 // Flat set of all known PFS family names (for exact matching)
 const ALL_KNOWN_FAMILIES = new Set<string>();
@@ -167,16 +167,33 @@ export default function ImportProductsTab() {
     setOverrides((prev) => ({ ...prev, [ref]: next }));
   }, []);
 
+  // Listes d'entités valides — partagées avec EditableProductCard pour vérifier
+  // qu'une catégorie corrigée existe vraiment (sinon le compteur "Prêts à
+  // importer" surestimait).
+  const globalValidOptions = useMemo<ValidOptions>(() => ({
+    categories: options?.categories?.map((c) => c.name) ?? [],
+    subCategories: options?.subCategories?.map((s) => s.name) ?? [],
+    colors: options?.colors?.map((c) => c.name) ?? [],
+    compositions: options?.compositions?.map((c) => c.name) ?? [],
+    countries: options?.countries?.map((c) => c.name) ?? [],
+    seasons: options?.seasons?.map((s) => s.name) ?? [],
+    hsCodes: options?.hsCodes?.map((h) => h.code) ?? [],
+  }), [options]);
+
   // Compteur effectif des produits prêts à importer, en tenant compte des
-  // corrections faites en ligne dans les cartes éditables. Le serveur peut
-  // dire « 3 prêts » à l'upload — si la cliente corrige les 2 produits en
-  // erreur, l'effectif devient 5.
+  // corrections faites en ligne dans les cartes éditables ET de la validité
+  // des nouvelles valeurs (catégorie choisie qui existe vraiment, etc.).
   const effectiveReady = useMemo(() => {
     if (!preview) return 0;
-    return preview.products.filter((p) =>
-      isProductReady(p, overrides[p.reference] ?? { reference: p.reference }),
-    ).length;
-  }, [preview, overrides]);
+    return preview.products.filter((p) => {
+      const ov = overrides[p.reference] ?? { reference: p.reference };
+      const validOptions: ValidOptions = {
+        ...globalValidOptions,
+        variantColors: p.variants.map((v) => v.color),
+      };
+      return isProductReady(p, ov, validOptions);
+    }).length;
+  }, [preview, overrides, globalValidOptions]);
   const effectiveBlocked = (preview?.totalProducts ?? 0) - effectiveReady;
 
   const openCreatorModal = useCallback(
@@ -526,13 +543,11 @@ export default function ImportProductsTab() {
                 </div>
               </div>
 
-              {jobProgress.errorDraftId && (
+              {jobProgress.errors > 0 && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
-                  {jobProgress.errors} ligne(s) en erreur. Vous pouvez les corriger dans le brouillon.
-                  <br />
-                  <Link href={`/admin/produits/importer/brouillon/${jobProgress.errorDraftId}`} className="font-medium underline hover:text-amber-900 transition-colors">
-                    Corriger les erreurs →
-                  </Link>
+                  {jobProgress.errors} ligne(s) en erreur. Corrigez votre fichier
+                  Excel et relancez l&apos;import — le récapitulatif éditable vous
+                  permettra de tout ajuster avant validation.
                 </div>
               )}
             </div>

@@ -784,8 +784,10 @@ export async function processProductImport(jobId: string, maxProducts?: number):
               primaryColorId,
               sizeDetailsTu: firstRow.sizeDetailsTu?.trim() || null,
               // Tous les imports arrivent en brouillon — la cliente les publie
-              // ensuite manuellement depuis la fiche produit.
+              // ensuite manuellement depuis la liste des produits.
+              // status=OFFLINE + isIncomplete=true → badge « Brouillon » dans l'UI.
               status: "OFFLINE",
+              isIncomplete: true,
               isBestSeller: firstRow.isBestSeller ?? false,
               discountPercent: firstRow.discountPercent ?? null,
               dimensionLength: firstRow.dimensionLength ?? null,
