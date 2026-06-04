@@ -6,6 +6,10 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const nextConfig: NextConfig = {
   serverExternalPackages: ["pdfkit", "sharp", "exceljs", "playwright"],
 
+  // Lots d'images d'import produits (jusqu'à 50 fichiers par requête).
+  // Défaut Next.js = 10 Mo → l'upload plante en « Failed to fetch ».
+  middlewareClientMaxBodySize: "300mb",
+
   // ─── Image optimization ───
   images: {
     minimumCacheTTL: 2592000, // 30 days — product images are hashed/unique
