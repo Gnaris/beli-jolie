@@ -8,7 +8,9 @@ const nextConfig: NextConfig = {
 
   // Lots d'images d'import produits (jusqu'à 50 fichiers par requête).
   // Défaut Next.js = 10 Mo → l'upload plante en « Failed to fetch ».
-  proxyClientMaxBodySize: "300mb",
+  experimental: {
+    proxyClientMaxBodySize: "300mb",
+  },
 
   // ─── Image optimization ───
   images: {
