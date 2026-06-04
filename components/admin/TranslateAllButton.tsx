@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useDeeplEnabled, useDeeplQuota } from "@/components/admin/DeeplConfigContext";
+import { useDeeplEnabled } from "@/components/admin/DeeplConfigContext";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface TranslateAllItem {
@@ -30,8 +30,7 @@ export default function TranslateAllButton({
   label = "Tout traduire",
   onlyMissing = false,
 }: TranslateAllButtonProps) {
-  const deeplEnabled = useDeeplEnabled();
-  const { quotaExhausted, setQuotaExhausted } = useDeeplQuota();
+  const translationEnabled = useDeeplEnabled();
   const [loading, setLoading] = useState(false);
   const { showLoading, hideLoading } = useLoadingOverlay();
 
@@ -48,18 +47,8 @@ export default function TranslateAllButton({
     showLoading(`Traduction de ${toTranslate.length} élément${toTranslate.length > 1 ? "s" : ""}…`);
 
     try {
-      // Pre-check quota
-      const quotaRes = await fetch("/api/admin/translate");
-      const quotaData = await quotaRes.json();
-      const totalChars = toTranslate.reduce((sum, i) => sum + i.text.length, 0) * 6;
-
-      if (quotaData.remaining < totalChars) {
-        setQuotaExhausted(true);
-        return;
-      }
-
-      // Batch in groups of 10 to avoid timeout
-      const BATCH_SIZE = 10;
+      // Batch in groups of 25 — l'API PFS accepte plusieurs phrases en un appel
+      const BATCH_SIZE = 25;
       const allResults: Record<string, Record<string, string>> = {};
       let completed = 0;
 
@@ -72,14 +61,6 @@ export default function TranslateAllButton({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ texts }),
         });
-
-        if (res.status === 429) {
-          setQuotaExhausted(true);
-          if (Object.keys(allResults).length > 0) {
-            onTranslated(allResults);
-          }
-          return;
-        }
 
         if (!res.ok) throw new Error("Erreur traduction");
 
@@ -105,14 +86,13 @@ export default function TranslateAllButton({
     }
   }
 
-  if (!deeplEnabled) return null;
+  if (!translationEnabled) return null;
 
   return (
     <button
       type="button"
       onClick={handleClick}
-      disabled={loading || toTranslate.length === 0 || quotaExhausted}
-      title={quotaExhausted ? "Quota mensuel de traduction épuisé" : undefined}
+      disabled={loading || toTranslate.length === 0}
       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-bg-dark hover:bg-black text-text-inverse text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-body"
     >
       {loading ? (

@@ -1,15 +1,25 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback } from "react";
+/**
+ * Contexte de configuration "traduction" — conservé sous le nom historique
+ * `DeeplConfigContext` pour ne pas casser les imports existants. Désormais
+ * branché sur la disponibilité du compte PFS (qui fournit la traduction).
+ *
+ * - `enabled`              : true si la traduction PFS est utilisable
+ * - `autoTranslateEnabled` : true si l'auto-traduction est activée en réglages
+ * - `quotaExhausted`       : toujours false (l'API PFS n'a pas de quota au caractère)
+ */
 
-interface DeeplConfig {
+import { createContext, useContext } from "react";
+
+interface TranslationConfig {
   enabled: boolean;
   autoTranslateEnabled: boolean;
   quotaExhausted: boolean;
   setQuotaExhausted: (v: boolean) => void;
 }
 
-const DeeplConfigContext = createContext<DeeplConfig>({
+const TranslationConfigContext = createContext<TranslationConfig>({
   enabled: false,
   autoTranslateEnabled: false,
   quotaExhausted: false,
@@ -25,25 +35,29 @@ export function DeeplConfigProvider({
   autoTranslateEnabled?: boolean;
   children: React.ReactNode;
 }) {
-  const [quotaExhausted, setQuotaExhaustedState] = useState(false);
-  const setQuotaExhausted = useCallback((v: boolean) => setQuotaExhaustedState(v), []);
-
   return (
-    <DeeplConfigContext.Provider value={{ enabled, autoTranslateEnabled, quotaExhausted, setQuotaExhausted }}>
+    <TranslationConfigContext.Provider
+      value={{
+        enabled,
+        autoTranslateEnabled,
+        quotaExhausted: false,
+        setQuotaExhausted: () => {},
+      }}
+    >
       {children}
-    </DeeplConfigContext.Provider>
+    </TranslationConfigContext.Provider>
   );
 }
 
 export function useDeeplEnabled() {
-  return useContext(DeeplConfigContext).enabled;
+  return useContext(TranslationConfigContext).enabled;
 }
 
 export function useAutoTranslateEnabled() {
-  return useContext(DeeplConfigContext).autoTranslateEnabled;
+  return useContext(TranslationConfigContext).autoTranslateEnabled;
 }
 
 export function useDeeplQuota() {
-  const { quotaExhausted, setQuotaExhausted } = useContext(DeeplConfigContext);
+  const { quotaExhausted, setQuotaExhausted } = useContext(TranslationConfigContext);
   return { quotaExhausted, setQuotaExhausted };
 }

@@ -146,7 +146,6 @@ describe("lib/encryption", () => {
   it("SENSITIVE_KEYS should contain expected keys", () => {
     const expected = [
       "easy_express_api_key",
-      "deepl_api_key",
       "pfs_email",
       "pfs_password",
     ];

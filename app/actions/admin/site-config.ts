@@ -578,52 +578,19 @@ export async function validateEfashionCredentials(config: {
   }
 }
 
-// ─── DeepL Configuration ────────────────────────────────────────────────────
+// ─── Service de traduction (Paris Fashion Shop) ────────────────────────────
 
-export async function updateDeeplApiKey(
-  apiKey: string
-): Promise<{ success: boolean; error?: string }> {
+/**
+ * Teste que l'API de traduction PFS répond bien avec les identifiants
+ * configurés. Utilisé par le bouton « Tester la traduction » de Paramètres.
+ */
+export async function pingTranslationProvider(): Promise<{ ok: boolean; message: string }> {
   try {
     await requireAdmin();
-    const trimmed = apiKey.trim();
-    if (!trimmed) {
-      await prisma.siteConfig.deleteMany({ where: { key: "deepl_api_key" } });
-    } else {
-      const encrypted = encryptIfSensitive("deepl_api_key", trimmed);
-      await prisma.siteConfig.upsert({
-        where: { key: "deepl_api_key" },
-        update: { value: encrypted },
-        create: { key: "deepl_api_key", value: encrypted },
-      });
-    }
-    revalidatePath("/admin/parametres");
-    revalidateTag("site-config", "default");
-    return { success: true };
+    const { pingPfsTranslation } = await import("@/lib/pfs-translate");
+    return await pingPfsTranslation();
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
-  }
-}
-
-export async function validateDeeplApiKey(
-  apiKey: string
-): Promise<{ valid: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    const key = apiKey.trim();
-    const isFreePlan = key.endsWith(":fx");
-    const baseUrl = isFreePlan
-      ? "https://api-free.deepl.com"
-      : "https://api.deepl.com";
-
-    const res = await fetch(`${baseUrl}/v2/usage`, {
-      headers: { Authorization: `DeepL-Auth-Key ${key}` },
-    });
-    if (!res.ok) return { valid: false, error: `Erreur ${res.status} — clé invalide.` };
-    const data = await res.json();
-    if (typeof data.character_count !== "number") return { valid: false, error: "Réponse inattendue." };
-    return { valid: true };
-  } catch {
-    return { valid: false, error: "Impossible de contacter DeepL." };
+    return { ok: false, message: e instanceof Error ? e.message : "Erreur inconnue" };
   }
 }
 

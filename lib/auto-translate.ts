@@ -1,6 +1,7 @@
 /**
  * Auto-translation service — translates entity names/descriptions automatically
- * when the "auto_translate_enabled" setting is active and a DeepL key is configured.
+ * when the "auto_translate_enabled" setting is active. Sous le capot, la
+ * traduction passe par l'API Paris Fashion Shop (cf. `lib/pfs-translate.ts`).
  *
  * All functions are fire-and-forget safe (catch errors silently) to never block
  * the main entity creation flow.

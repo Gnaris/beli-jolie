@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useDeeplEnabled, useDeeplQuota } from "@/components/admin/DeeplConfigContext";
+import { useDeeplEnabled } from "@/components/admin/DeeplConfigContext";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface TranslateButtonProps {
   /** French text to translate */
   text: string;
-  /** Callback with translations for all 6 non-fr locales */
+  /** Callback with translations for all non-fr locales */
   onTranslated: (translations: Record<string, string>) => void;
   /** Optional: smaller variant */
   size?: "sm" | "md";
@@ -21,42 +21,21 @@ export default function TranslateButton({
   size = "sm",
   disabled = false,
 }: TranslateButtonProps) {
-  const deeplEnabled = useDeeplEnabled();
-  const { quotaExhausted, setQuotaExhausted } = useDeeplQuota();
+  const translationEnabled = useDeeplEnabled();
   const [loading, setLoading] = useState(false);
   const { showLoading, hideLoading } = useLoadingOverlay();
 
   async function handleClick() {
     if (!text.trim()) return;
-
     setLoading(true);
     showLoading("Traduction en cours…");
-
     try {
-      // Pre-check quota
-      const quotaRes = await fetch("/api/admin/translate");
-      const quotaData = await quotaRes.json();
-      const charsNeeded = text.length * 6;
-
-      if (quotaData.remaining < charsNeeded) {
-        setQuotaExhausted(true);
-        return;
-      }
-
-      // Perform translation
       const res = await fetch("/api/admin/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
-
-      if (res.status === 429) {
-        setQuotaExhausted(true);
-        return;
-      }
-
       if (!res.ok) throw new Error("Erreur traduction");
-
       const data = await res.json();
       onTranslated(data.translations);
     } catch {
@@ -67,7 +46,7 @@ export default function TranslateButton({
     }
   }
 
-  if (!deeplEnabled) return null;
+  if (!translationEnabled) return null;
 
   const isSm = size === "sm";
 
@@ -75,8 +54,8 @@ export default function TranslateButton({
     <button
       type="button"
       onClick={handleClick}
-      disabled={disabled || loading || !text.trim() || quotaExhausted}
-      title={quotaExhausted ? "Quota mensuel de traduction épuisé" : "Traduire vers toutes les langues"}
+      disabled={disabled || loading || !text.trim()}
+      title="Traduire vers toutes les langues"
       className={`inline-flex items-center gap-1 font-body font-medium transition-colors rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${
         isSm
           ? "text-xs px-2 py-1 bg-bg-secondary hover:bg-[#E5E5E5] text-text-primary border border-border"

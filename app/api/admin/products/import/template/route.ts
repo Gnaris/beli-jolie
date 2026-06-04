@@ -62,10 +62,8 @@ interface ColumnDef {
 const PRODUCT_COLUMNS: ColumnDef[] = [
   // — Identité —
   { key: "reference", header: "Référence *", width: 14, required: true, description: "Référence unique du produit", example: "PRD-001" },
-  { key: "name", header: "Nom *", width: 28, required: true, description: "Nom du produit (en français)", example: "Produit Étoile" },
-  { key: "description", header: "Description *", width: 38, required: true, description: "Description du produit", example: "Produit fin avec motif étoile" },
-  { key: "name_en", header: "Nom (EN)", width: 28, required: false, description: "Traduction anglaise du nom (sinon DeepL traduit auto)", example: "Star Product" },
-  { key: "description_en", header: "Description (EN)", width: 38, required: false, description: "Traduction anglaise de la description", example: "Fine product with star motif" },
+  { key: "name", header: "Nom *", width: 28, required: true, description: "Nom du produit (en français). La traduction anglaise est générée automatiquement à l'import.", example: "Produit Étoile" },
+  { key: "description", header: "Description *", width: 38, required: true, description: "Description du produit (en français). La traduction anglaise est générée automatiquement à l'import.", example: "Produit fin avec motif étoile" },
   // — Classement —
   { key: "category", header: "Catégorie *", width: 20, required: true, description: "Doit exister dans la base", example: "Accessoires" },
   { key: "sub_categories", header: "Sous-catégories", width: 22, required: false, description: "Séparées par des virgules", example: "Sautoir,Fin" },
@@ -98,10 +96,9 @@ const PRODUCT_COLUMNS: ColumnDef[] = [
 // ════════════════════════════════════════════════════════════════════
 const VARIANT_COLUMNS: ColumnDef[] = [
   // — Identité variante —
-  { key: "color", header: "Couleur *", width: 24, required: true, description: "Multi-couleurs séparées par /", example: "Doré" },
+  { key: "color", header: "Couleur *", width: 24, required: true, description: "Nom de la couleur (doit exister dans la base). Pour désigner laquelle est principale, renseigner « Couleur principale » dans la fiche produit.", example: "Doré" },
   { key: "sale_type", header: "Type de vente *", width: 15, required: true, description: "UNIT ou PACK", example: "UNIT" },
   { key: "size", header: "Taille *", width: 18, required: true, description: "UNIT : M, 42… PACK : taille:qté (ex: S:2,M:3,L:1). Écrivez « Taille unique » pour le bloc PFS TU.", example: "M" },
-  { key: "is_primary", header: "Primaire", width: 12, required: false, description: "true = variante principale (1 seule par produit)", example: "true" },
   // — Prix & stock —
   { key: "unit_price", header: "Prix unitaire *", width: 15, required: true, description: "Prix HT en euros", example: "12.50" },
   { key: "stock", header: "Stock *", width: 10, required: true, description: "Quantité en stock", example: "200" },
@@ -121,24 +118,22 @@ const SAMPLE_DATA = [
   // T-shirt simple, 1 variante UNIT
   {
     reference: "TSH-001", name: "T-shirt Essentiel", description: "T-shirt col rond en coton bio, coupe droite",
-    name_en: "", description_en: "",
     category: "T-shirt", sub_categories: "Manche courte,Basique", tags: "basique,coton,essentiel",
     composition: "Coton:100", primary_color: "Blanc", pays_fabrication: "Portugal", saison: "Été 2026", hs_code: "",
     taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
     similar_refs: "", status: "OFFLINE", best_seller: "false",
-    color: "Blanc", sale_type: "UNIT", size: "M", is_primary: "true",
+    color: "Blanc", sale_type: "UNIT", size: "M",
     unit_price: 14.90, stock: 500, pack_qty: "", discount_type: "", discount_value: "",
     weight_g: 180,
   },
   // T-shirt 3 variantes (fiche produit uniquement sur la 1ʳᵉ ligne)
   {
     reference: "TSH-002", name: "T-shirt Oversize Urban", description: "T-shirt oversize à épaules tombantes",
-    name_en: "", description_en: "",
     category: "T-shirt", sub_categories: "Oversize,Streetwear", tags: "oversize,streetwear",
     composition: "Coton:90,Élasthanne:10", primary_color: "Noir", pays_fabrication: "Turquie", saison: "Automne 2026", hs_code: "",
     taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
     similar_refs: "TSH-001", status: "OFFLINE", best_seller: "false",
-    color: "Noir", sale_type: "UNIT", size: "L", is_primary: "true",
+    color: "Noir", sale_type: "UNIT", size: "L",
     unit_price: 24.90, stock: 300, pack_qty: "", discount_type: "", discount_value: "",
     weight_g: 220,
   },
@@ -148,7 +143,7 @@ const SAMPLE_DATA = [
     composition: "", primary_color: "", pays_fabrication: "", saison: "", hs_code: "",
     taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
     similar_refs: "", status: "", best_seller: "",
-    color: "Kaki", sale_type: "UNIT", size: "M", is_primary: "",
+    color: "Kaki", sale_type: "UNIT", size: "M",
     unit_price: 24.90, stock: 200, pack_qty: "", discount_type: "", discount_value: "",
     weight_g: "",
   },
@@ -158,20 +153,19 @@ const SAMPLE_DATA = [
     composition: "", primary_color: "", pays_fabrication: "", saison: "", hs_code: "",
     taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
     similar_refs: "", status: "", best_seller: "",
-    color: "Beige", sale_type: "UNIT", size: "S", is_primary: "",
+    color: "Beige", sale_type: "UNIT", size: "S",
     unit_price: 24.90, stock: 250, pack_qty: "", discount_type: "PERCENT", discount_value: 10,
     weight_g: "",
   },
   // Mocassin + PACK
   {
     reference: "MOC-001", name: "Mocassin Cambridge", description: "Mocassin en cuir pleine fleur, semelle cousue Blake",
-    name_en: "", description_en: "",
     category: "Mocassin", sub_categories: "Cuir,Classique", tags: "cuir,élégant,classique",
     composition: "Cuir:100", primary_color: "Marron", pays_fabrication: "Italie", saison: "Hiver 2026", hs_code: "",
     taille_unique_details: "",
     dimension_length: 28, dimension_width: 10, dimension_height: 8, dimension_diameter: "", dimension_circumference: "",
     similar_refs: "", status: "OFFLINE", best_seller: "false",
-    color: "Marron", sale_type: "UNIT", size: "43", is_primary: "true",
+    color: "Marron", sale_type: "UNIT", size: "43",
     unit_price: 89.90, stock: 80, pack_qty: "", discount_type: "", discount_value: "",
     weight_g: 380,
   },
@@ -181,7 +175,7 @@ const SAMPLE_DATA = [
     composition: "", primary_color: "", pays_fabrication: "", saison: "", hs_code: "",
     taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
     similar_refs: "", status: "", best_seller: "",
-    color: "Marron", sale_type: "PACK", size: "41:1,42:1,43:1,44:1", is_primary: "",
+    color: "Marron", sale_type: "PACK", size: "41:1,42:1,43:1,44:1",
     unit_price: 14.90, stock: 15, pack_qty: "", discount_type: "PERCENT", discount_value: 25,
     weight_g: "",
   },
@@ -341,10 +335,10 @@ export async function GET() {
       cell.border = BORDER_THIN;
       cell.alignment = {
         vertical: "middle",
-        wrapText: col.key === "description" || col.key === "description_en",
+        wrapText: col.key === "description",
       };
 
-      if (["sale_type", "unit_price", "pack_qty", "stock", "weight_g", "is_primary", "discount_type", "discount_value", "size", "status", "best_seller", "dimension_length", "dimension_width", "dimension_height", "dimension_diameter", "dimension_circumference"].includes(col.key)) {
+      if (["sale_type", "unit_price", "pack_qty", "stock", "weight_g", "discount_type", "discount_value", "size", "status", "best_seller", "dimension_length", "dimension_width", "dimension_height", "dimension_diameter", "dimension_circumference"].includes(col.key)) {
         cell.alignment = { horizontal: "center", vertical: "middle" };
       }
     });
@@ -376,18 +370,6 @@ export async function GET() {
       showErrorMessage: true,
       errorTitle: "Valeur invalide",
       error: "Choisissez PERCENT ou AMOUNT (ou laissez vide)",
-    };
-  }
-
-  const isPrimaryCol = findCol("is_primary");
-  for (let r = dataStartRow; r <= dataEndRow; r++) {
-    ws.getCell(r, isPrimaryCol).dataValidation = {
-      type: "list",
-      allowBlank: true,
-      formulae: ['"true,"'],
-      showErrorMessage: true,
-      errorTitle: "Valeur invalide",
-      error: 'Indiquez "true" ou laissez vide',
     };
   }
 

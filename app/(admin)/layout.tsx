@@ -15,7 +15,7 @@ import { EfashionShootingBatchProvider } from "@/components/admin/products/Efash
 import { EfashionShootingBatchWidget } from "@/components/admin/products/EfashionShootingBatchWidget";
 import { RefreshWarningProvider } from "@/components/admin/products/RecentlyRefreshedWarningModal";
 import { IneligibleRefreshProvider } from "@/components/admin/products/IneligibleRefreshModal";
-import { getCachedSiteConfig } from "@/lib/cached-data";
+import { getCachedSiteConfig, getCachedPfsCredentials } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -33,12 +33,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const [
     shopName,
     warnings,
-    deeplConfig,
+    pfsCreds,
     autoTranslateConfig,
   ] = await Promise.all([
     getCachedShopName(),
     getCachedAdminWarnings(),
-    getCachedSiteConfig("deepl_api_key"),
+    getCachedPfsCredentials(),
     getCachedSiteConfig("auto_translate_enabled"),
   ]);
 
@@ -52,8 +52,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     pendingOrdersCount,
   } = warnings;
 
-  const deeplEnabled = !!deeplConfig?.value;
-  const autoTranslateEnabled = deeplEnabled && autoTranslateConfig?.value === "true";
+  const translationEnabled = !!(pfsCreds.email && pfsCreds.password);
+  const autoTranslateEnabled = translationEnabled && autoTranslateConfig?.value === "true";
   const totalAttributeWarnings = untranslatedCount + unusedColorsCount + unusedCompositionsCount + unusedTagsCount + untranslatedCategoriesCount + untranslatedSubCategoriesCount;
 
   const warningCounts: Record<string, { count: number; tooltip: string } | undefined> = {
@@ -61,7 +61,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   };
 
   return (
-    <DeeplConfigProvider enabled={deeplEnabled} autoTranslateEnabled={autoTranslateEnabled}>
+    <DeeplConfigProvider enabled={translationEnabled} autoTranslateEnabled={autoTranslateEnabled}>
     <MarketplaceRefreshProvider>
     <EfashionShootingBatchProvider>
     <RefreshWarningProvider>

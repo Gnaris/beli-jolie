@@ -16,8 +16,8 @@ import FaviconConfig from "@/components/admin/settings/FaviconConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
 import ShippingMarginConfig from "@/components/admin/settings/ShippingMarginConfig";
 import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
-import DeeplApiKeyConfig from "@/components/admin/settings/DeeplApiKeyConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
+import TranslationProviderStatus from "@/components/admin/settings/TranslationProviderStatus";
 import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig";
 import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBannerConfig";
 import SeoTextsConfig from "@/components/admin/settings/SeoTextsConfig";
@@ -456,29 +456,34 @@ async function HorairesTab() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Traduction — DeepL
+   TAB : Traduction — fournie par le compte Paris Fashion Shop
    ═══════════════════════════════════════════════════════════════════════════ */
 async function TraductionTab() {
-  const [deeplKeyConfig, autoTranslateConfig] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "deepl_api_key" }, select: { key: true } }),
+  const [pfsEmailRow, autoTranslateConfig] = await Promise.all([
+    prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
     prisma.siteConfig.findUnique({ where: { key: "auto_translate_enabled" }, select: { value: true } }),
   ]);
 
-  const hasDeeplKey = !!deeplKeyConfig;
+  const hasPfs = !!pfsEmailRow;
 
   return (
     <div className="space-y-6">
       <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
-        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Traduction DeepL</h3>
-        <p className="text-sm text-text-secondary font-body mb-4">Clé API pour la traduction automatique des fiches produit.</p>
-        <DeeplApiKeyConfig hasKey={hasDeeplKey} />
+        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Service de traduction</h3>
+        <p className="text-sm text-text-secondary font-body mb-4">
+          La traduction passe désormais par votre compte Paris Fashion Shop (français → anglais).
+          Aucune clé séparée à configurer ici : il suffit d&apos;avoir vos identifiants PFS renseignés dans
+          l&apos;onglet « Marketplaces ».
+        </p>
+        <TranslationProviderStatus configured={hasPfs} />
       </div>
 
-      {hasDeeplKey && (
+      {hasPfs && (
         <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
           <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Traduction automatique</h3>
           <p className="text-sm text-text-secondary font-body mb-4">
-            Traduit automatiquement en 6 langues lors de la création de produits, attributs et imports PFS.
+            Traduit automatiquement les noms et descriptions des produits, ainsi que les attributs
+            (catégories, couleurs, compositions, pays, saisons, tags) lors de leur création.
           </p>
           <AutoTranslateConfig enabled={autoTranslateConfig?.value === "true"} />
         </div>

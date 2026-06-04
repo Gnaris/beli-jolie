@@ -31,6 +31,17 @@ export interface PreviewProduct {
   composition?: string;
   manufacturingCountry?: string;
   season?: string;
+  primaryColor?: string;
+  hsCode?: string;
+  sizeDetailsTu?: string;
+  similarRefs?: string;
+  status?: "OFFLINE" | "ONLINE" | "ARCHIVED";
+  isBestSeller?: boolean;
+  dimensionLength?: number;
+  dimensionWidth?: number;
+  dimensionHeight?: number;
+  dimensionDiameter?: number;
+  dimensionCircumference?: number;
   variants: PreviewVariant[];
   categoryFound: boolean;
   subCategoriesFound: boolean;
@@ -38,7 +49,8 @@ export interface PreviewProduct {
   referenceExists: boolean;
   totalErrors: number;
   productErrors: string[];  // erreurs au niveau produit (champs manquants, entités introuvables)
-  status: "ok" | "warning" | "error";
+  /** Statut visuel global du produit dans la preview. */
+  previewStatus: "ok" | "warning" | "error";
 }
 
 export interface MissingEntity {
@@ -103,6 +115,7 @@ function normalizeRow(raw: Record<string, unknown>, index: number) {
     packQuantity: int(raw["pack_qty"] ?? raw["pack_quantity"] ?? raw["quantite_pack"] ?? raw["Qté pack"]),
     stock: int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"] ?? raw["Stock *"]) ?? 0,
     tags: str(raw["tags"] ?? raw["Tags"]) || undefined,
+    similarRefs: str(raw["similar_refs"] ?? raw["produits_similaires"] ?? raw["similarRefs"] ?? raw["Réf. similaires"]) || undefined,
     composition: str(raw["composition"] ?? raw["composition *"] ?? raw["Composition"] ?? raw["Composition *"]) || undefined,
     dimensionLength: num(raw["dimension_length"] ?? raw["longueur"] ?? raw["Longueur (cm)"]),
     dimensionWidth: num(raw["dimension_width"] ?? raw["largeur"] ?? raw["Largeur (cm)"]),
@@ -117,8 +130,6 @@ function normalizeRow(raw: Record<string, unknown>, index: number) {
     sizeDetailsTu: str(raw["taille_unique_details"] ?? raw["detail_taille_unique"] ?? raw["sizeDetailsTu"] ?? raw["Détail taille unique"]) || undefined,
     status: readStatus(raw["status"] ?? raw["statut"] ?? raw["Statut"]),
     isBestSeller: boolish(raw["best_seller"] ?? raw["isBestSeller"] ?? raw["bestseller"] ?? raw["Best Seller"]),
-    nameEn: str(raw["name_en"] ?? raw["nom_en"] ?? raw["Nom (EN)"] ?? raw["nameEn"]) || undefined,
-    descriptionEn: str(raw["description_en"] ?? raw["Description (EN)"] ?? raw["descriptionEn"]) || undefined,
   };
 }
 
@@ -275,7 +286,7 @@ export async function POST(req: NextRequest) {
 
     // Inherit product-level fields from the group: find the first row that has each
     // field and propagate to all rows (field can be on any row, not just the first)
-    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference", "hsCode", "primaryColor", "sizeDetailsTu", "status", "isBestSeller", "nameEn", "descriptionEn"] as const;
+    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference", "hsCode", "primaryColor", "sizeDetailsTu", "status", "isBestSeller"] as const;
     for (const [, groupRows] of grouped) {
       for (const field of productFields) {
         const source = groupRows.find((r) => r[field as keyof typeof r]);
@@ -429,9 +440,9 @@ export async function POST(req: NextRequest) {
       const variantErrors = variants.flatMap((v) => v.errors);
       const totalErrors = productErrors.length + variantErrors.length;
 
-      let status: "ok" | "warning" | "error" = "ok";
-      if (referenceExists) { status = "error"; alreadyExist++; }
-      else if (totalErrors > 0) { status = "warning"; withErrors++; }
+      let previewStatus: "ok" | "warning" | "error" = "ok";
+      if (referenceExists) { previewStatus = "error"; alreadyExist++; }
+      else if (totalErrors > 0) { previewStatus = "warning"; withErrors++; }
       else readyToImport++;
 
       products.push({
@@ -444,6 +455,17 @@ export async function POST(req: NextRequest) {
         composition: firstRow.composition,
         manufacturingCountry: firstRow.manufacturingCountry,
         season: firstRow.season,
+        primaryColor: firstRow.primaryColor,
+        hsCode: firstRow.hsCode,
+        sizeDetailsTu: firstRow.sizeDetailsTu,
+        similarRefs: firstRow.similarRefs,
+        status: firstRow.status,
+        isBestSeller: firstRow.isBestSeller,
+        dimensionLength: firstRow.dimensionLength,
+        dimensionWidth: firstRow.dimensionWidth,
+        dimensionHeight: firstRow.dimensionHeight,
+        dimensionDiameter: firstRow.dimensionDiameter,
+        dimensionCircumference: firstRow.dimensionCircumference,
         variants,
         categoryFound,
         subCategoriesFound,
@@ -451,7 +473,7 @@ export async function POST(req: NextRequest) {
         referenceExists,
         totalErrors,
         productErrors,
-        status,
+        previewStatus,
       });
     }
 

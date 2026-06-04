@@ -2,9 +2,10 @@ import { describe, it, expect } from "vitest";
 import { boolish, readStatus, type ProductImportRow } from "@/lib/import-processor";
 
 /**
- * Couvre l'extension de l'import produit (mai 2026) qui aligne l'Excel/JSON sur
+ * Couvre l'extension de l'import produit (mai 2026) qui aligne l'Excel sur
  * le formulaire manuel : Code SH, couleur principale, taille unique, statut,
- * best seller, traductions EN.
+ * best seller. La traduction anglaise est désormais générée automatiquement
+ * via l'API PFS — plus de colonnes EN à valider ici.
  */
 
 describe("boolish", () => {
@@ -77,8 +78,6 @@ describe("ProductImportRow — type contract", () => {
       sizeDetailsTu: "52-56",
       status: "ONLINE",
       isBestSeller: true,
-      nameEn: "X",
-      descriptionEn: "X",
     };
     expect(r.hsCode).toBe("71171900");
   });

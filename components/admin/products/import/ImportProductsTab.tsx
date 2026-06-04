@@ -419,6 +419,7 @@ export default function ImportProductsTab() {
                 compositions={options?.compositions ?? []}
                 countries={options?.countries ?? []}
                 seasons={options?.seasons ?? []}
+                hsCodes={options?.hsCodes ?? []}
                 onEntityCreated={handleEntityCreated}
                 onRequestCreate={openCreatorModal}
               />
@@ -1322,10 +1323,10 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
 function ProductPreviewRow({ product: p }: { product: PreviewProduct }) {
   const [expanded, setExpanded] = useState(false);
 
-  const statusIcon = p.status === "ok" ? "✓" : p.status === "warning" ? "⚠️" : "✗";
-  const statusCls = p.status === "ok"
+  const statusIcon = p.previewStatus === "ok" ? "✓" : p.previewStatus === "warning" ? "⚠️" : "✗";
+  const statusCls = p.previewStatus === "ok"
     ? "text-green-600 bg-green-50"
-    : p.status === "warning"
+    : p.previewStatus === "warning"
     ? "text-amber-600 bg-amber-50"
     : "text-red-600 bg-red-50";
 

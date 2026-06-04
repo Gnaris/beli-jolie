@@ -1,141 +1,47 @@
 /**
- * Service de traduction automatique via DeepL Free API
+ * Service de traduction automatique — désormais branché sur l'API Paris Fashion Shop.
  *
- * DeepL Free : 500K caractères/mois (gratuit, clé se termine par ":fx")
- * Quota suivi dans la table TranslationQuota
+ * Conserve l'API publique historique (translateText, translateTextStrict,
+ * translateToAllLocales, getProductTranslation, etc.) pour ne pas casser les
+ * appelants existants. Sous le capot, tout passe par `lib/pfs-translate.ts`.
  *
- * Retry inline : chaque appel DeepL est retenté jusqu'à 5 fois avec backoff
- * exponentiel (1s, 2s, 4s, 8s, 16s) en cas d'échec (429, 500, network…).
- * Si toutes les tentatives échouent, on renvoie `null` plutôt que d'écrire
- * la valeur FR par défaut en base (ce qui produirait une fausse traduction).
+ * Différences avec l'ancienne implémentation DeepL :
+ *  - Plus de clé API séparée — réutilise les identifiants PFS configurés
+ *  - Plus de quota mensuel à surveiller (l'API PFS est offerte avec le compte)
+ *  - Plus de comptage caractères (TranslationQuota n'est plus écrit)
+ *  - Langues supportées par PFS : fr/en/de/es/it (le site n'utilise que fr/en aujourd'hui)
  */
 
 import { prisma } from "@/lib/prisma";
-import { decryptIfSensitive } from "@/lib/encryption";
+import { translatePhrases, translateOne } from "@/lib/pfs-translate";
 import { NON_DEFAULT_LOCALES, type Locale } from "@/i18n/locales";
 
 export type { Locale };
 
-/** Récupère la clé API DeepL depuis la DB (déchiffrée), sans fallback env. */
-async function getDeeplApiKey(): Promise<string | null> {
-  const config = await prisma.siteConfig.findUnique({
-    where: { key: "deepl_api_key" },
-  });
-  return config?.value ? decryptIfSensitive("deepl_api_key", config.value) : null;
-}
-
-const DEEPL_MAX_CHARS = 500_000;
 const DEFAULT_MAX_RETRIES = 5;
 
-// ── DeepL language codes ──────────────────────────────────────────────────────
-const DEEPL_LANG: Record<Locale, string> = {
-  fr: "FR",
-  en: "EN-GB",
-};
+// ── Quota (compat — toujours "illimité" côté PFS) ────────────────────────────
 
-// ── Quota management ─────────────────────────────────────────────────────────
-
-function getCurrentMonthYear(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
-/** Get or create quota row for the current month */
-async function getQuota() {
-  const monthYear = getCurrentMonthYear();
-
-  return prisma.translationQuota.upsert({
-    where: { provider_monthYear: { provider: "deepl", monthYear } },
-    update: {},
-    create: { provider: "deepl", monthYear, charsUsed: 0, maxChars: DEEPL_MAX_CHARS },
-  });
-}
-
-/** Get remaining chars */
-export async function getTranslationQuotaStatus() {
-  const monthYear = getCurrentMonthYear();
-  const quota = await prisma.translationQuota.findUnique({
-    where: { provider_monthYear: { provider: "deepl", monthYear } },
-  });
-
-  const used = quota?.charsUsed ?? 0;
-  const totalRemaining = Math.max(0, DEEPL_MAX_CHARS - used);
-
-  // Reset date = 1st of next month
-  const now = new Date();
-  const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-  return {
-    totalRemaining,
-    resetDate: resetDate.toISOString(),
-  };
-}
-
-/** Increment chars used */
-async function addCharsUsed(chars: number) {
-  const monthYear = getCurrentMonthYear();
-
-  await prisma.translationQuota.upsert({
-    where: { provider_monthYear: { provider: "deepl", monthYear } },
-    update: { charsUsed: { increment: chars } },
-    create: { provider: "deepl", monthYear, charsUsed: chars, maxChars: DEEPL_MAX_CHARS },
-  });
-}
-
-// ── Translation engine ──────────────────────────────────────────────────────
-
-async function translateWithDeepl(
-  text: string,
-  from: Locale,
-  to: Locale,
-  apiKey: string
-): Promise<string> {
-  const isFreePlan = apiKey.endsWith(":fx");
-  const baseUrl = isFreePlan
-    ? "https://api-free.deepl.com"
-    : "https://api.deepl.com";
-
-  const res = await fetch(`${baseUrl}/v2/translate`, {
-    method: "POST",
-    headers: {
-      Authorization: `DeepL-Auth-Key ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      text: [text],
-      source_lang: DEEPL_LANG[from],
-      target_lang: DEEPL_LANG[to],
-    }),
-    next: { revalidate: 0 },
-  });
-
-  if (!res.ok) throw new Error(`DeepL error ${res.status}`);
-
-  const data = await res.json();
-  return data.translations?.[0]?.text ?? text;
-}
-
-// ── Retry helper ─────────────────────────────────────────────────────────────
-
-/** Default delay function : `Math.pow(2, attempt) * 1000` (1s, 2s, 4s, 8s, 16s). */
 export function defaultBackoffDelay(attempt: number): number {
   return Math.pow(2, attempt) * 1000;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Status "quota" conservé pour compatibilité. PFS ne facture pas au caractère
+ * donc on retourne une valeur très large + une date de reset symbolique.
+ */
+export async function getTranslationQuotaStatus() {
+  return {
+    totalRemaining: Number.MAX_SAFE_INTEGER,
+    resetDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+  };
 }
 
+// ── Single-text translation ──────────────────────────────────────────────────
+
 /**
- * Appelle DeepL avec retry exponentiel.
- *
- * @param text Texte à traduire
- * @param from Locale source
- * @param to Locale cible
- * @param maxRetries Nombre maximum de tentatives (défaut 5)
- * @param delayFn Fonction qui renvoie le délai en ms pour une tentative donnée
- *                (utile pour les tests : `() => 0` désactive l'attente)
- * @returns La traduction, ou `null` si toutes les tentatives ont échoué.
+ * Traduit un texte avec retry, retourne `null` si l'API échoue après retry.
+ * Les options `maxRetries` / `delayFn` sont passées à PFS.
  */
 export async function translateWithRetry(
   text: string,
@@ -145,33 +51,14 @@ export async function translateWithRetry(
   delayFn: (attempt: number) => number = defaultBackoffDelay
 ): Promise<string | null> {
   if (from === to || !text.trim()) return text;
-
-  const apiKey = await getDeeplApiKey();
-  if (!apiKey) return null;
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      const result = await translateWithDeepl(text, from, to, apiKey);
-      // DeepL renvoie une traduction vide ? On considère ça comme un échec à retenter.
-      if (typeof result === "string" && result.length > 0) {
-        return result;
-      }
-      throw new Error("DeepL empty response");
-    } catch {
-      if (attempt < maxRetries - 1) {
-        await sleep(delayFn(attempt));
-      }
-    }
-  }
-  return null;
+  return translateOne(text, to, { from, maxRetries, delayFn });
 }
 
-// ── Strict variant : returns null on failure (no FR fallback) ────────────────
-
 /**
- * Traduction "stricte" : renvoie `null` si DeepL échoue après retry, plutôt
- * que la chaîne d'origine. À utiliser pour le cache de traductions afin de
- * ne PAS stocker de fausses traductions identiques au FR.
+ * Traduction "stricte" : renvoie `null` si la traduction échoue après retry,
+ * plutôt que la chaîne d'origine. À utiliser pour le cache de traductions
+ * (ProductTranslation / CategoryTranslation / etc.) afin de ne PAS stocker
+ * de fausses traductions identiques au FR.
  */
 export async function translateTextStrict(
   text: string,
@@ -181,36 +68,16 @@ export async function translateTextStrict(
 ): Promise<string | null> {
   if (from === to) return text;
   if (!text.trim()) return text;
-
-  const charCount = text.length;
-  const deeplKey = await getDeeplApiKey();
-  if (!deeplKey) return null;
-
-  const quota = await getQuota();
-  if (quota.charsUsed + charCount > quota.maxChars) {
-    return null;
-  }
-
-  const result = await translateWithRetry(
-    text,
+  return translateOne(text, to, {
     from,
-    to,
-    options?.maxRetries ?? DEFAULT_MAX_RETRIES,
-    options?.delayFn ?? defaultBackoffDelay
-  );
-
-  if (result === null) return null;
-  await addCharsUsed(charCount);
-  return result;
+    maxRetries: options?.maxRetries,
+    delayFn: options?.delayFn,
+  });
 }
 
-// ── Main translate function with quota (compat wrapper) ──────────────────────
-
 /**
- * Wrapper de compatibilité : retombe sur le texte d'origine en cas d'échec
- * (utilisé pour les descriptions produit où l'on préfère afficher le FR
- * plutôt qu'une chaîne vide). Pour le cache de traductions stockées en BDD,
- * préférer `translateTextStrict`.
+ * Wrapper de compatibilité : retombe sur le texte d'origine en cas d'échec.
+ * À utiliser pour les rendus à la volée où on préfère afficher le FR que rien.
  */
 export async function translateText(
   text: string,
@@ -222,12 +89,13 @@ export async function translateText(
   return result ?? text;
 }
 
+// ── Bulk translation ─────────────────────────────────────────────────────────
+
 /**
- * Translate a text to ALL non-fr locales at once.
- * Returns a Record<locale, translatedText>.
- * Throws if quota exhausted.
+ * Traduit un texte vers TOUTES les locales non-défaut en un seul appel à PFS.
+ * Bien plus rapide que de boucler langue par langue.
  *
- * Locales pour lesquelles DeepL échoue après retry sont OMISES du résultat
+ * Renvoie un objet `{ en: "...", ... }`. Les locales qui échouent sont OMISES
  * (pas de fallback FR pour ne pas masquer les manquants côté UI).
  */
 export async function translateToAllLocales(
@@ -237,27 +105,25 @@ export async function translateToAllLocales(
 ): Promise<Record<string, string>> {
   if (!text.trim()) return {};
 
-  const targetLocales: Locale[] = NON_DEFAULT_LOCALES;
-  const totalChars = text.length * targetLocales.length;
-
-  // Pre-check quota
-  const status = await getTranslationQuotaStatus();
-  if (status.totalRemaining < totalChars) {
-    throw new Error("QUOTA_EXHAUSTED");
-  }
-
-  const results: Record<string, string> = {};
-  for (const locale of targetLocales) {
-    const value = await translateTextStrict(text, from, locale, options);
-    if (value !== null && value !== "") {
-      results[locale] = value;
+  const result = await translatePhrases(
+    { value: text },
+    {
+      maxRetries: options?.maxRetries,
+      delayFn: options?.delayFn,
+      sourceLanguage: from as "fr",
     }
+  );
+  if (!result?.value) return {};
+
+  const out: Record<string, string> = {};
+  for (const locale of NON_DEFAULT_LOCALES) {
+    const val = result.value[locale as "fr" | "en" | "de" | "es" | "it"];
+    if (val && val.trim()) out[locale] = val;
   }
-  return results;
+  return out;
 }
 
-// ── Translate multiple strings at once ────────────────────────────────────────
-
+/** Traduit plusieurs textes vers UNE locale cible. */
 export async function translateBatch(
   texts: string[],
   from: Locale,
@@ -267,7 +133,7 @@ export async function translateBatch(
   return Promise.all(texts.map((t) => translateText(t, from, to)));
 }
 
-// ── Get (or create) product translation from DB cache ────────────────────────
+// ── Product translation cache helpers (ProductTranslation table) ─────────────
 
 export async function getProductTranslation(
   productId: string,
@@ -299,8 +165,6 @@ export async function getProductTranslation(
     return fallback;
   }
 }
-
-// ── Invalidate cached translations for a product ─────────────────────────────
 
 export async function invalidateProductTranslations(productId: string) {
   await prisma.productTranslation.deleteMany({ where: { productId } });

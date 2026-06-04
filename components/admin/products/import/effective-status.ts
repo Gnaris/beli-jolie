@@ -7,17 +7,40 @@
 import type { PreviewProduct } from "@/app/api/admin/products/import/preview/route";
 import type { ProductOverride } from "./EditableProductCard";
 
-/** Liste des erreurs serveur qui sont automatiquement levées dès que la valeur
- *  correspondante n'est plus vide dans l'override (ou la donnée d'origine). */
-const ERROR_RESOLUTIONS: { pattern: string; field: keyof ProductOverride | "_size_details_tu" }[] = [
-  { pattern: "Nom manquant",                  field: "name" },
-  { pattern: "Description manquante",         field: "description" },
-  { pattern: "Catégorie manquante",           field: "category" },
-  { pattern: "Composition manquante",         field: "composition" },
-  { pattern: "Pays de fabrication manquant",  field: "manufacturingCountry" },
-  { pattern: "Saison manquante",              field: "season" },
-  { pattern: "Détail taille unique manquant", field: "sizeDetailsTu" },
+type OverrideField = keyof ProductOverride | "_size_details_tu";
+
+/**
+ * Règles de résolution : un message d'erreur serveur est considéré comme
+ * « résolu » dès que le `field` correspondant a une valeur non vide dans
+ * l'override (ou dans la donnée d'origine).
+ *
+ * Le matcher utilise une regex pour couvrir les variantes :
+ *  - « Catégorie manquante. »
+ *  - « Catégorie "Bracelet" introuvable. »
+ *  - « Catégorie XYZ inexistante »
+ */
+const ERROR_RESOLUTIONS: { matcher: RegExp; field: OverrideField }[] = [
+  { matcher: /nom\s+(manquant|introuvable|inexistant|inconnu|invalide)/i,                               field: "name" },
+  { matcher: /description\s+(manquante|introuvable|inexistante|invalide)/i,                             field: "description" },
+  { matcher: /cat[ée]gorie\b/i,                                                                         field: "category" },
+  { matcher: /sous[\s-]?cat[ée]gorie/i,                                                                 field: "subCategories" },
+  { matcher: /composition/i,                                                                            field: "composition" },
+  { matcher: /pays(\s+de\s+fabrication)?\b/i,                                                           field: "manufacturingCountry" },
+  { matcher: /saison/i,                                                                                 field: "season" },
+  { matcher: /couleur\s+principale/i,                                                                   field: "primaryColor" },
+  { matcher: /d[ée]tail\s+taille\s+unique/i,                                                            field: "_size_details_tu" },
+  { matcher: /code\s+sh|hs\s*code/i,                                                                    field: "hsCode" },
 ];
+
+function readValue(override: ProductOverride, product: PreviewProduct, field: OverrideField): string {
+  if (field === "_size_details_tu") {
+    return String(override.sizeDetailsTu ?? (product as unknown as { sizeDetailsTu?: string }).sizeDetailsTu ?? "").trim();
+  }
+  const ov = override[field];
+  if (ov !== undefined && ov !== null) return String(ov).trim();
+  const fallback = (product as unknown as Record<string, unknown>)[field as string];
+  return typeof fallback === "string" ? fallback.trim() : "";
+}
 
 /** Retourne les erreurs « produit » effectives — celles qui restent après
  *  application des overrides locaux. */
@@ -25,19 +48,11 @@ export function effectiveProductErrors(
   product: PreviewProduct,
   override: ProductOverride,
 ): string[] {
-  const value = (field: keyof ProductOverride | "_size_details_tu"): string => {
-    if (field === "_size_details_tu") return String(override.sizeDetailsTu ?? "").trim();
-    const ov = override[field];
-    if (ov !== undefined) return String(ov ?? "").trim();
-    // Fallback sur la donnée serveur (uniquement pour les champs qui sont
-    // exposés sur PreviewProduct)
-    const fallback = (product as unknown as Record<string, unknown>)[field as string];
-    return typeof fallback === "string" ? fallback.trim() : "";
-  };
-
   return product.productErrors.filter((err) => {
     for (const r of ERROR_RESOLUTIONS) {
-      if (err.includes(r.pattern) && value(r.field)) return false;
+      if (r.matcher.test(err) && readValue(override, product, r.field)) {
+        return false;
+      }
     }
     return true;
   });

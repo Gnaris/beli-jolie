@@ -86,7 +86,6 @@ export interface ProductImportRow {
   packQuantity?: number;
   stock: number;
   weight?: number;
-  isPrimary?: boolean;
   discountPercent?: number;
   size?: string;
   tags?: string;
@@ -105,8 +104,6 @@ export interface ProductImportRow {
   sizeDetailsTu?: string;         // détail texte libre quand une variante utilise « Taille unique »
   status?: "OFFLINE" | "ONLINE" | "ARCHIVED";
   isBestSeller?: boolean;
-  nameEn?: string;                // traduction anglaise du nom
-  descriptionEn?: string;         // traduction anglaise de la description
 }
 
 interface DraftProductRow extends ProductImportRow {
@@ -129,8 +126,6 @@ export interface VariantOverridePayload {
 export interface ImportOverride {
   name?: string;
   description?: string;
-  nameEn?: string;
-  descriptionEn?: string;
   category?: string;
   subCategories?: string;
   tags?: string;
@@ -153,7 +148,7 @@ export interface ImportOverride {
 }
 
 const PRODUCT_OVERRIDE_FIELDS = [
-  "name", "description", "nameEn", "descriptionEn", "category", "subCategories",
+  "name", "description", "category", "subCategories",
   "tags", "composition", "primaryColor", "manufacturingCountry", "season",
   "hsCode", "sizeDetailsTu", "similarRefs", "status", "isBestSeller",
   "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter",
@@ -275,7 +270,6 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     packQuantity: int(raw["pack_qty"] ?? raw["pack_quantity"] ?? raw["quantite_pack"] ?? raw["Qté pack"]),
     stock: int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"] ?? raw["Stock *"]) ?? 0,
     weight: num(raw["weight_g"] ?? raw["poids_g"] ?? raw["poids"] ?? raw["Poids (g)"]) ?? undefined,
-    isPrimary: String(raw["is_primary"] ?? raw["primaire"] ?? raw["Primaire"] ?? "").toLowerCase() === "true",
     discountPercent: num(raw["discount_percent"] ?? raw["remise_percent"] ?? raw["Remise %"] ?? raw["discount_value"] ?? raw["remise_valeur"] ?? raw["Valeur remise"]),
     size: str(raw["size"] ?? raw["size *"] ?? raw["taille"] ?? raw["Taille"] ?? raw["Taille *"]) || undefined,
     tags: str(raw["tags"] ?? raw["Tags"]) || undefined,
@@ -294,8 +288,6 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     sizeDetailsTu: str(raw["taille_unique_details"] ?? raw["detail_taille_unique"] ?? raw["sizeDetailsTu"] ?? raw["Détail taille unique"]) || undefined,
     status: readStatus(raw["status"] ?? raw["statut"] ?? raw["Statut"]),
     isBestSeller: boolish(raw["best_seller"] ?? raw["isBestSeller"] ?? raw["bestseller"] ?? raw["Best Seller"]),
-    nameEn: str(raw["name_en"] ?? raw["nom_en"] ?? raw["Nom (EN)"] ?? raw["nameEn"]) || undefined,
-    descriptionEn: str(raw["description_en"] ?? raw["Description (EN)"] ?? raw["descriptionEn"]) || undefined,
   };
 }
 
@@ -427,7 +419,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
     // Inherit product-level fields from the group: find the first row that has each
     // field and propagate to all rows. This handles cases where product-level fields
     // (name, category, composition, etc.) are on any row, not just the first.
-    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "similarRefs", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference", "hsCode", "primaryColor", "sizeDetailsTu", "status", "isBestSeller", "nameEn", "descriptionEn"] as const;
+    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "similarRefs", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference", "hsCode", "primaryColor", "sizeDetailsTu", "status", "isBestSeller"] as const;
     for (const [, groupRows] of preGrouped) {
       for (const field of productFields) {
         // Find the first row that has this field
@@ -806,12 +798,19 @@ export async function processProductImport(jobId: string, maxProducts?: number):
               compositions: compPairs.length > 0 ? { create: compPairs } : undefined,
               subCategories: subCatIds.length > 0 ? { connect: subCatIds.map((id) => ({ id })) } : undefined,
               colors: {
-                // Determine which variant is primary: use explicit is_primary from Excel,
-                // or default to the first variant if none is explicitly marked
+                // Determine which variant is primary :
+                //   1. Si firstRow.primaryColor est défini, on prend la variante dont
+                //      le nom de couleur correspond (après normalisation accents/casse)
+                //   2. Sinon, par défaut = première variante du groupe
                 create: (() => {
-                  const hasExplicitPrimary = resolvedColors.some(({ row }) => row.isPrimary);
+                  const primaryColorNorm = firstRow.primaryColor
+                    ? normalizeColorName(firstRow.primaryColor)
+                    : null;
                   return resolvedColors.map(({ row, mainColor }, ci) => {
                     const isPack = row.saleType === "PACK";
+                    const isPrimary = primaryColorNorm
+                      ? normalizeColorName(mainColor.name) === primaryColorNorm
+                      : ci === 0;
                     return {
                       colorId: mainColor.id,
                       unitPrice: (() => {
@@ -822,7 +821,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                       })(),
                       weight: row.weight ? row.weight / 1000 : 0.1,
                       stock: row.stock,
-                      isPrimary: hasExplicitPrimary ? (row.isPrimary === true) : ci === 0,
+                      isPrimary,
                       saleType: row.saleType,
                       packQuantity: isPack
                         ? (() => {
@@ -916,32 +915,10 @@ export async function processProductImport(jobId: string, maxProducts?: number):
             await prisma.pendingSimilar.deleteMany({ where: { similarRef: ref } });
           }
 
-          // Traductions explicites depuis le fichier — créées avant la traduction auto.
-          // Si la cliente fournit la version EN dans son Excel, elle est prioritaire
-          // (l'auto-translate respecte les traductions déjà présentes).
-          const explicitNameEn = firstRow.nameEn?.trim();
-          const explicitDescriptionEn = firstRow.descriptionEn?.trim();
-          if (explicitNameEn || explicitDescriptionEn) {
-            await prisma.productTranslation.upsert({
-              where: { productId_locale: { productId: product.id, locale: "en" } },
-              update: {
-                ...(explicitNameEn ? { name: explicitNameEn } : {}),
-                ...(explicitDescriptionEn ? { description: explicitDescriptionEn } : {}),
-              },
-              create: {
-                productId: product.id,
-                locale: "en",
-                name: explicitNameEn || firstRow.name,
-                description: explicitDescriptionEn || firstRow.description || "",
-              },
-            }).catch((err) => {
-              logger.warn("[import-processor] productTranslation upsert failed", { productId: product.id, error: err });
-            });
-          }
-
           successCount++;
 
-          // Fire-and-forget auto-translation for imported product
+          // Fire-and-forget auto-translation for imported product (via PFS).
+          // L'API PFS retourne fr+en en un seul appel — couvre toutes les locales du site.
           autoTranslateProduct(product.id, firstRow.name, firstRow.description ?? "");
 
           // Emit SSE event for real-time table updates

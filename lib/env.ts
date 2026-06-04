@@ -38,8 +38,9 @@ const envSchema = z.object({
   SMTP_FROM_EMAIL: z.string().optional(),
   SMTP_FROM_NAME: z.string().optional(),
   // Email destinataire des notifs admin : pris depuis Admin > Paramètres > Société.
-  // Clés DeepL, Easy-Express et PFS : uniquement dans Admin > Paramètres,
-  // donc plus de déclaration côté env.
+  // Clé Easy-Express et identifiants PFS / eFashion : uniquement dans
+  // Admin > Paramètres (chiffrés en BDD). La traduction utilise les
+  // identifiants PFS — plus de clé séparée.
 });
 
 type Env = z.infer<typeof envSchema>;

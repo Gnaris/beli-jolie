@@ -25,7 +25,7 @@ function makeProduct(partial: Partial<PreviewProduct>): PreviewProduct {
     referenceExists: false,
     totalErrors: 0,
     productErrors: [],
-    status: "ok",
+    previewStatus: "ok",
     ...partial,
   };
 }
@@ -90,6 +90,25 @@ describe("effectiveProductErrors", () => {
     });
     const override: ProductOverride = { reference: "REF-001" };
     // Override absent → fallback sur product.name = "Déjà saisi"
+    expect(effectiveProductErrors(product, override)).toEqual([]);
+  });
+
+  it("retire l'erreur « Catégorie introuvable » quand on choisit une catégorie existante", () => {
+    // Reproduit le bug signalé : l'Excel indique « Bracelet » qui n'existe pas en
+    // base — le serveur renvoie « Catégorie "Bracelet" introuvable. » — la cliente
+    // sélectionne « Bracelets » dans le dropdown → l'erreur doit disparaître.
+    const product = makeProduct({
+      productErrors: [`Catégorie "Bracelet" introuvable.`],
+    });
+    const override: ProductOverride = { reference: "REF-001", category: "Bracelets" };
+    expect(effectiveProductErrors(product, override)).toEqual([]);
+  });
+
+  it("retire l'erreur « Couleur principale introuvable » quand on choisit une couleur de variante", () => {
+    const product = makeProduct({
+      productErrors: [`Couleur principale "Doré antique" introuvable parmi les variantes.`],
+    });
+    const override: ProductOverride = { reference: "REF-001", primaryColor: "Doré" };
     expect(effectiveProductErrors(product, override)).toEqual([]);
   });
 });

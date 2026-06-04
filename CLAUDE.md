@@ -124,7 +124,7 @@ Pendant l'import individuel (`approveAndImportPfsProduct` dans `lib/pfs-import.t
 - **couleur** : `pfsColorRef = reference PFS` + hex officiel PFS
 - **catégorie** : `pfsCategoryId` + nom FR + `pfsFamilyName` + `pfsGender`. Auto-création visible direct dans le menu public (pas de flag "publié" — l'admin nettoie après si besoin)
 
-La détection de doublon par nom local est conservée (alias silencieux si nom existe avec un `pfsRef` différent). Toutes les entités créées déclenchent une auto-traduction DeepL en arrière-plan.
+La détection de doublon par nom local est conservée (alias silencieux si nom existe avec un `pfsRef` différent). Toutes les entités créées déclenchent une auto-traduction via l'API PFS en arrière-plan.
 
 **Rattrapage produits déjà importés sans attributs** : `npx tsx scripts/enrich-pfs-products.ts` re-passe sur tous les produits PFS qui n'ont pas leur composition/pays/saison et les enrichit (auto-création + liaison BDD).
 
@@ -182,9 +182,9 @@ NextAuth v4, Credentials + JWT (30d). New users = `PENDING` → admin approves. 
 
 ### i18n
 
-**Routing par préfixe d'URL** (next-intl 4.x). Chaque page publique vit sous `app/[locale]/...` et est servie sur `/{locale}/...` (ex : `/fr/produits/123`, `/en/produits/123`). Locales : fr (défaut), en, de, es, it, ar (RTL), zh. Messages : `messages/[locale].json`. Auto-translations : DeepL Free (500K chars/mois). Toggle : `auto_translate_enabled` dans SiteConfig.
+**Routing par préfixe d'URL** (next-intl 4.x). Chaque page publique vit sous `app/[locale]/...` et est servie sur `/{locale}/...` (ex : `/fr/produits/123`, `/en/produits/123`). Locales actives : **fr (défaut) + en** (l'arabe et le chinois ont été retirés en juin 2026). Messages : `messages/[locale].json`. Auto-translations : **API Paris Fashion Shop** (gratuit, lié au compte PFS). Toggle : `auto_translate_enabled` dans SiteConfig.
 
-**DeepL retry** : `lib/translate.ts` expose `translateWithRetry()` (5 essais, backoff exponentiel 1s→16s, `delayFn` injectable pour les tests) et `translateTextStrict()` qui retourne **`null`** quand DeepL plante après retry — au lieu de retourner le texte FR d'origine. `auto-translate.ts` utilise `translateTextStrict` et **ne fait pas d'upsert** quand null : l'icône d'alerte ⚠ existante reste visible côté UI. `translateToAllLocales()` omet les locales qui échouent (pas de fallback FR pour ne pas masquer les manquants). `translateText()` reste comme wrapper compat (retombe sur le texte d'origine) pour les usages product description.
+**Traduction PFS** : `lib/pfs-translate.ts` expose `translatePhrases(phrases)` qui envoie en un seul appel à `POST /api/v1/ai/translations` (Bearer = token PFS standard) et retourne `{ key: { fr, en, de, es, it } }`. `lib/translate.ts` est un **wrapper de compatibilité** qui préserve l'API historique : `translateWithRetry()` (5 essais, backoff exponentiel 1s→16s, `delayFn` injectable pour les tests), `translateTextStrict()` (renvoie `null` après retry — pas de fausse traduction stockée), `translateToAllLocales()` (omet les locales qui échouent), `translateText()` (wrapper compat qui retombe sur le texte FR). Pas de quota au caractère côté PFS, donc `getTranslationQuotaStatus()` retourne une valeur symbolique massive. Plus aucune référence à DeepL ni au modèle TranslationQuota (conservé en BDD pour la compat des données historiques).
 
 **Mapping PFS pays/composition** (depuis nov. 2026) : le scan d'import (`lib/pfs-import.ts`) stocke et recherche les pays/compositions par leur **libellé FR** (ex : `pfsCountryRef = "Chine"`, `pfsCompositionRef = "Polyester"`) — pareil que les saisons. Cohérent avec `pfsAnnexes.countries/compositions` au CustomSelect. Côté publication PFS (`lib/pfs-publish.ts`, `pfs-refresh.ts`, `pfs-update.ts`), `country_of_manufacture` envoyé à PFS suit la priorité **`isoCode → pfsCountryRef → "CN"`** (PFS attend un code ISO).
 
@@ -262,7 +262,7 @@ Vitest + dossier `__tests__/`. Integration tests dans `__tests__/integration/` (
 - **Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ENCRYPTION_KEY`
 - **Stripe (env-only, mode simple)** : `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` — pas d'UI admin, plus de Stripe Connect.
 - **Email (env var uniquement)** : `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`. Le destinataire des notifs admin (inscriptions, nouvelles commandes, demandes de déblocage, messages, réclamations) est lu depuis **Admin > Paramètres > Société > Email** — plus de `NOTIFY_EMAIL`.
-- **Configurables uniquement via paramètres admin** (chiffrés en BDD, plus de var d'env / fallback côté code) : clé Easy-Express, clé DeepL, identifiants PFS (email + mot de passe).
+- **Configurables uniquement via paramètres admin** (chiffrés en BDD, plus de var d'env / fallback côté code) : clé Easy-Express, identifiants PFS (email + mot de passe). La traduction automatique réutilise ces mêmes identifiants PFS — plus de clé séparée à gérer.
 
 ### Stripe (mode simple)
 

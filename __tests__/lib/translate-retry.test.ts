@@ -1,68 +1,64 @@
 /**
- * Tests for the DeepL retry-with-backoff mechanism.
+ * Tests for the PFS translation retry-with-backoff mechanism.
  *
- * Covered:
- *  1. translateWithRetry returns the translation if the 1st attempt fails (429)
- *     and the 2nd succeeds (1 retry).
- *  2. translateWithRetry returns null if 5 consecutive attempts fail.
- *  3. translateToAllLocales with 6 locales : 4 succeed, 2 fail every time
- *     → returns 4-key object (no FR fallback for missing ones).
- *  4. translateTextStrict returns null when DeepL fails repeatedly
- *     (NOT the original text).
- *  5. autoTranslateEntity does NOT call prisma upsert when DeepL returns null.
+ * Couverture :
+ *  1. translateWithRetry réessaie sur 429 puis retourne la traduction au succès suivant
+ *  2. translateWithRetry retourne null après 5 échecs consécutifs
+ *  3. translateTextStrict retourne null sur échec persistant (PAS le texte d'origine)
+ *  4. translateToAllLocales retourne uniquement les locales effectivement reçues
+ *  5. autoTranslateEntity n'upsert PAS quand la traduction échoue
  *
- * All retry delays are stubbed to 0ms via the `delayFn` injection so the suite
- * runs in milliseconds rather than the real 31s exponential backoff.
+ * Les delays sont stubbés à 0ms via `delayFn` pour garder la suite rapide.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// ─── prisma mock (shared) ─────────────────────────────────────────────────────
-
 const prismaMock = {
   siteConfig: {
     findUnique: vi.fn(),
-  },
-  translationQuota: {
-    upsert: vi.fn(),
-    findUnique: vi.fn(),
+    findMany: vi.fn(),
   },
   colorTranslation: {
     upsert: vi.fn(),
   },
 };
 
-vi.mock("@/lib/prisma", () => ({
-  prisma: prismaMock,
-}));
+vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
-// encryption is a no-op in tests
 vi.mock("@/lib/encryption", () => ({
   decryptIfSensitive: (_key: string, value: string) => value,
 }));
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
+vi.mock("@/lib/cached-data", () => ({
+  getCachedPfsCredentials: vi.fn(async () => ({
+    email: "test@beliandjolie.com",
+    password: "fake-pfs-pw",
+  })),
+}));
 
-const FAKE_KEY = "fake-deepl-key:fx";
+vi.mock("@/lib/pfs-auth", () => ({
+  getPfsHeaders: vi.fn(async () => ({ Authorization: "Bearer fake" })),
+  invalidatePfsToken: vi.fn(),
+  PFS_BASE_URL: "https://wholesaler-api.parisfashionshops.com/api/v1",
+}));
 
-function setDeeplKey(key: string | null) {
+vi.mock("@/lib/logger", () => ({
+  logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
+function setAutoTranslate(enabled: boolean) {
   prismaMock.siteConfig.findUnique.mockImplementation(async ({ where }: { where: { key: string } }) => {
-    if (where.key === "deepl_api_key") {
-      return key ? { value: key } : null;
-    }
     if (where.key === "auto_translate_enabled") {
-      return { value: "true" };
+      return { value: enabled ? "true" : "false" };
     }
     return null;
   });
 }
 
-function setQuota(used: number, max: number = 500_000) {
-  prismaMock.translationQuota.upsert.mockResolvedValue({ charsUsed: used, maxChars: max });
-  prismaMock.translationQuota.findUnique.mockResolvedValue({ charsUsed: used, maxChars: max });
-}
-
-function buildFetchSequence(responses: Array<{ ok: boolean; status?: number; translation?: string }>) {
+/** Stub global fetch with the given sequence of responses. */
+function buildFetchSequence(
+  responses: Array<{ ok: boolean; status?: number; body?: Record<string, unknown> }>
+) {
   let i = 0;
   const fetchMock = vi.fn(async () => {
     const r = responses[Math.min(i, responses.length - 1)];
@@ -70,27 +66,25 @@ function buildFetchSequence(responses: Array<{ ok: boolean; status?: number; tra
     return {
       ok: r.ok,
       status: r.status ?? (r.ok ? 200 : 429),
-      json: async () => ({ translations: [{ text: r.translation ?? "" }] }),
+      text: async () => "",
+      json: async () => r.body ?? {},
     } as unknown as Response;
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
 
-// ─── tests ────────────────────────────────────────────────────────────────────
-
 describe("translateWithRetry", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    setDeeplKey(FAKE_KEY);
-    setQuota(0);
+    setAutoTranslate(true);
   });
 
-  it("retries once when first call returns 429, then returns the translated value", async () => {
+  it("retries once on 429 and returns the translation on next success", async () => {
     const fetchMock = buildFetchSequence([
       { ok: false, status: 429 },
-      { ok: true, translation: "Hello" },
+      { ok: true, body: { value: { fr: "Bonjour", en: "Hello" } } },
     ]);
 
     const { translateWithRetry } = await import("@/lib/translate");
@@ -121,11 +115,10 @@ describe("translateTextStrict", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    setDeeplKey(FAKE_KEY);
-    setQuota(0);
+    setAutoTranslate(true);
   });
 
-  it("returns null (NOT the original text) when DeepL fails 5 times", async () => {
+  it("returns null (not the original text) when PFS fails 5 times", async () => {
     buildFetchSequence([
       { ok: false, status: 429 },
       { ok: false, status: 429 },
@@ -135,26 +128,20 @@ describe("translateTextStrict", () => {
     ]);
 
     const { translateTextStrict } = await import("@/lib/translate");
-    const result = await translateTextStrict("Bonjour le monde", "fr", "en", {
-      delayFn: () => 0,
-    });
+    const result = await translateTextStrict("Bonjour le monde", "fr", "en", { delayFn: () => 0 });
 
     expect(result).toBeNull();
-    // No quota incremented when translation failed
-    expect(prismaMock.translationQuota.upsert).toHaveBeenCalledTimes(1); // only the initial getQuota
   });
 
-  it("returns the translated value and increments quota on success", async () => {
-    buildFetchSequence([{ ok: true, translation: "Hallo Welt" }]);
+  it("returns the translated value on success", async () => {
+    buildFetchSequence([
+      { ok: true, body: { value: { fr: "Bonjour le monde", en: "Hello world" } } },
+    ]);
 
     const { translateTextStrict } = await import("@/lib/translate");
-    const result = await translateTextStrict("Bonjour le monde", "fr", "en", {
-      delayFn: () => 0,
-    });
+    const result = await translateTextStrict("Bonjour le monde", "fr", "en", { delayFn: () => 0 });
 
-    expect(result).toBe("Hallo Welt");
-    // 1× getQuota (initial) + 1× addCharsUsed (after success)
-    expect(prismaMock.translationQuota.upsert).toHaveBeenCalledTimes(2);
+    expect(result).toBe("Hello world");
   });
 });
 
@@ -162,14 +149,17 @@ describe("translateToAllLocales", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    setDeeplKey(FAKE_KEY);
-    setQuota(0);
+    setAutoTranslate(true);
   });
 
-  it("returns only the locales that succeeded (no FR fallback)", async () => {
-    // Seul EN est cible. On simule un succès direct.
+  it("returns only the locales that the API actually provided", async () => {
     const fetchMock = vi.fn(async () =>
-      ({ ok: true, status: 200, json: async () => ({ translations: [{ text: "EN" }] }) } as unknown as Response)
+      ({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        json: async () => ({ value: { fr: "Bonjour", en: "Hello" } }),
+      }) as unknown as Response
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -177,12 +167,19 @@ describe("translateToAllLocales", () => {
     const result = await translateToAllLocales("Bonjour", "fr", { delayFn: () => 0 });
 
     expect(Object.keys(result).sort()).toEqual(["en"]);
-    expect(result.en).toBe("EN");
+    expect(result.en).toBe("Hello");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("omits a locale when DeepL fails 5×", async () => {
-    const fetchMock = vi.fn(async () => ({ ok: false, status: 429, json: async () => ({}) } as unknown as Response));
+  it("returns an empty object when PFS fails 5×", async () => {
+    const fetchMock = vi.fn(async () =>
+      ({
+        ok: false,
+        status: 429,
+        text: async () => "",
+        json: async () => ({}),
+      }) as unknown as Response
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const { translateToAllLocales } = await import("@/lib/translate");
@@ -193,26 +190,14 @@ describe("translateToAllLocales", () => {
   });
 });
 
-describe("autoTranslateEntity", () => {
+describe("autoTranslateColor", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    setDeeplKey(FAKE_KEY);
-    setQuota(0);
+    setAutoTranslate(true);
   });
 
-  it("does NOT upsert in prisma when DeepL returns null after retries", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: false,
-      status: 429,
-      json: async () => ({}),
-    } as unknown as Response));
-    vi.stubGlobal("fetch", fetchMock);
-
-    // Use a low maxRetries via translate's exposed API — but autoTranslateEntity
-    // calls translateTextStrict with default maxRetries=5 and delayFn=defaultBackoff.
-    // We can't inject a delayFn, so we mock translateTextStrict directly to keep
-    // the test fast AND prove the upsert is skipped on null.
+  it("does NOT call prisma upsert when PFS returns null after retries", async () => {
     vi.doMock("@/lib/translate", async () => {
       const actual = await vi.importActual<typeof import("@/lib/translate")>("@/lib/translate");
       return {
@@ -227,7 +212,7 @@ describe("autoTranslateEntity", () => {
     expect(prismaMock.colorTranslation.upsert).not.toHaveBeenCalled();
   });
 
-  it("DOES upsert when DeepL returns a valid translation", async () => {
+  it("DOES call prisma upsert when a valid translation is returned", async () => {
     vi.doMock("@/lib/translate", async () => {
       const actual = await vi.importActual<typeof import("@/lib/translate")>("@/lib/translate");
       return {
@@ -242,7 +227,6 @@ describe("autoTranslateEntity", () => {
     const { autoTranslateColor } = await import("@/lib/auto-translate");
     await autoTranslateColor("color-2", "Rouge");
 
-    // Only EN succeeded → exactly 1 upsert call
     expect(prismaMock.colorTranslation.upsert).toHaveBeenCalledTimes(1);
     expect(prismaMock.colorTranslation.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
