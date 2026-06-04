@@ -115,7 +115,7 @@ function normalizeRow(raw: Record<string, unknown>, index: number) {
     season: str(raw["season"] ?? raw["season *"] ?? raw["saison"] ?? raw["saison *"] ?? raw["collection"] ?? raw["Saison"] ?? raw["Saison *"]) || undefined,
     hsCode: str(raw["hs_code"] ?? raw["code_sh"] ?? raw["hsCode"] ?? raw["Code SH"]) || undefined,
     primaryColor: str(raw["primary_color"] ?? raw["couleur_principale"] ?? raw["primaryColor"] ?? raw["Couleur principale"]) || undefined,
-    sizeDetailsTu: str(raw["taille_unique_details"] ?? raw["detail_taille_unique"] ?? raw["sizeDetailsTu"] ?? raw["Détail taille unique"]) || undefined,
+    sizeDetailsTu: str(raw["taille_unique_details"] ?? raw["detail_taille_unique"] ?? raw["sizeDetailsTu"] ?? raw["Détail taille unique *"] ?? raw["Détail taille unique"]) || undefined,
     isBestSeller: boolish(raw["best_seller"] ?? raw["isBestSeller"] ?? raw["bestseller"] ?? raw["Best Seller"]),
   };
 }

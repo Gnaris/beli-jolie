@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { boolish, readStatus, type ProductImportRow } from "@/lib/import-processor";
+import * as XLSX from "xlsx";
+import { boolish, parseExcel, readStatus, type ProductImportRow } from "@/lib/import-processor";
 
 /**
  * Couvre l'extension de l'import produit (mai 2026) qui aligne l'Excel sur
@@ -79,5 +80,63 @@ describe("ProductImportRow — type contract", () => {
       isBestSeller: true,
     };
     expect(r.hsCode).toBe("71171900");
+  });
+});
+
+describe("parseExcel — détection des headers du template (avec étoile)", () => {
+  function buildBuffer(rows: (string | number)[][]): Buffer {
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Produits");
+    return XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  }
+
+  /**
+   * Le template écrit ses colonnes obligatoires avec une étoile finale
+   * (« Détail taille unique * »). Le parseur doit reconnaître la version
+   * avec étoile sinon le champ devient `undefined` et l'erreur
+   * « Détail taille unique manquant » est levée à tort.
+   */
+  it("lit « Détail taille unique * » même quand la valeur saisie est « 0 »", () => {
+    const buffer = buildBuffer([
+      ["🛍️  Fiche produit"], // bandeau ligne 1 → skip via range:1
+      [
+        "Référence *", "Nom *", "Description *", "Catégorie *",
+        "Composition *", "Pays fabrication *", "Saison *",
+        "Détail taille unique *",
+        "Couleur *", "Type de vente *", "Taille *", "Prix unitaire *", "Stock *",
+      ],
+      [
+        "REF-001", "Mon Produit", "Une description",
+        "Bracelets", "Acier inoxydable:100", "Chine", "Toutes saisons",
+        "0",
+        "Doré", "UNIT", "Taille unique", 3.5, 1000,
+      ],
+    ]);
+
+    const rows = parseExcel(buffer);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].sizeDetailsTu).toBe("0");
+  });
+
+  it("lit aussi l'ancien header « Détail taille unique » sans étoile (compat ascendante)", () => {
+    const buffer = buildBuffer([
+      ["🛍️  Fiche produit"],
+      [
+        "Référence *", "Nom *", "Description *", "Catégorie *",
+        "Composition *", "Pays fabrication *", "Saison *",
+        "Détail taille unique",
+        "Couleur *", "Type de vente *", "Taille *", "Prix unitaire *", "Stock *",
+      ],
+      [
+        "REF-002", "Mon Produit", "Une description",
+        "Bracelets", "Acier inoxydable:100", "Chine", "Toutes saisons",
+        "52-56",
+        "Doré", "UNIT", "Taille unique", 3.5, 1000,
+      ],
+    ]);
+
+    const rows = parseExcel(buffer);
+    expect(rows[0].sizeDetailsTu).toBe("52-56");
   });
 });
