@@ -529,7 +529,12 @@ export default function ImportImagesTab() {
       const startRes = await fetch(`/api/admin/import-jobs/${createdJobId}`, { method: "POST", body: startFd });
       if (!startRes.ok) { const data = await startRes.json(); setError(data.error ?? "Erreur."); setStep("preview"); setLoading(false); return; }
       setStep("done");
-    } catch { setError("Erreur réseau."); setStep("preview"); }
+    } catch (err) {
+      console.error("[ImportImagesTab] handleSubmit error", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Erreur réseau : ${msg}`);
+      setStep("preview");
+    }
     finally { setLoading(false); }
   };
 

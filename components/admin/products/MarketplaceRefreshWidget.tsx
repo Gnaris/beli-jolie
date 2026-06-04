@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import { getImageSrc } from "@/lib/image-utils";
 import {
@@ -9,8 +9,19 @@ import {
   type MarketplaceRefreshItem,
   type MarketplaceTarget,
   type TargetOutcome,
-  type QueueItemStatus,
 } from "@/components/admin/products/MarketplaceRefreshContext";
+import {
+  groupItemsByProduct,
+  sortGroups,
+  groupHasActive,
+  groupHasError,
+  groupAllDone,
+  groupMatchesFilter,
+  getMarketplaceOutcome,
+  getLocalOutcomeForGroup,
+  type ProductGroup,
+  type StatusFilter,
+} from "@/components/admin/products/marketplaceRefreshGroup";
 
 // ── Métadonnées par marketplace : couleurs + libellés ─────────────────
 // Pastille colorée affichée sur chaque ligne pour reconnaître la
@@ -53,74 +64,104 @@ const MARKETPLACE_META: Record<
   },
 };
 
-// Priorité d'affichage : actifs d'abord, file ensuite, terminés à la fin.
-// On veut que la cliente voie immédiatement ce qui se passe, pas la pile
-// d'historique.
-const STATUS_PRIORITY: Record<QueueItemStatus, number> = {
-  in_progress: 0,
-  awaiting_callback: 1,
-  queued: 2,
-  done: 3,
-};
-
-function sortItems(items: MarketplaceRefreshItem[]): MarketplaceRefreshItem[] {
-  return [...items].sort((a, b) => {
-    const pa = STATUS_PRIORITY[a.status];
-    const pb = STATUS_PRIORITY[b.status];
-    if (pa !== pb) return pa - pb;
-    // Au sein des "done", on remonte ceux en erreur pour qu'ils sautent aux yeux.
-    if (a.status === "done" && b.status === "done") {
-      const ea = hasError(a) ? 0 : 1;
-      const eb = hasError(b) ? 0 : 1;
-      if (ea !== eb) return ea - eb;
-    }
-    return 0;
-  });
+function getActionVerb(mode: MarketplaceRefreshItem["mode"]): string {
+  if (mode === "publish") return "Publication";
+  if (mode === "resync") return "Resynchronisation";
+  return "Rafraîchissement";
 }
 
-function getActionLabel(item: MarketplaceRefreshItem, mpLabel: string): string {
-  if (item.mode === "publish") return `Publication sur ${mpLabel}`;
-  if (item.mode === "resync") return `Resynchronisation sur ${mpLabel}`;
-  return `Rafraîchissement sur ${mpLabel}`;
-}
+// ── Pastille marketplace avec statut intégré ─────────────────────────
+// Affiche : pastille colorée par marketplace + petit icône de statut
+// (sablier file / spinner en cours / horloge attente callback / ✓ / ✕).
+// En cas d'erreur, un pop-over sur hover montre le message complet.
+function MarketplaceStatusBadge({ item }: { item: MarketplaceRefreshItem }) {
+  const meta = MARKETPLACE_META[item.marketplace];
+  const outcome = getMarketplaceOutcome(item);
 
-function collectOutcomes(item: MarketplaceRefreshItem): {
-  label: string;
-  outcome: TargetOutcome;
-  isMarketplace: boolean;
-}[] {
-  const out: { label: string; outcome: TargetOutcome; isMarketplace: boolean }[] = [];
-  if (item.options.local && item.localOutcome) {
-    out.push({ label: "Boutique", outcome: item.localOutcome, isMarketplace: false });
-  }
-  if (item.pfsOutcome) {
-    out.push({ label: "Paris Fashion Shop", outcome: item.pfsOutcome, isMarketplace: true });
-  }
-  if (item.ankorsOutcome) {
-    out.push({ label: "Ankorstore", outcome: item.ankorsOutcome, isMarketplace: true });
-  }
-  if (item.efashionOutcome) {
-    out.push({ label: "eFashion", outcome: item.efashionOutcome, isMarketplace: true });
-  }
-  return out;
-}
+  let icon: ReactNode = null;
+  let errorMsg: string | null = null;
+  let extraRing = "";
 
-// ── Pastille marketplace ──────────────────────────────────────────────
-function MarketplaceBadge({ marketplace }: { marketplace: MarketplaceTarget }) {
-  const meta = MARKETPLACE_META[marketplace];
+  if (item.status === "queued") {
+    icon = (
+      <svg className="w-3 h-3 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <circle cx="12" cy="12" r="9" strokeWidth={1.5} />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v5l3 2" />
+      </svg>
+    );
+  } else if (item.status === "in_progress") {
+    icon = (
+      <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+      </svg>
+    );
+  } else if (item.status === "awaiting_callback") {
+    icon = (
+      <svg className="w-3 h-3 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+        <circle cx="12" cy="12" r="9" strokeWidth={1.5} />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 2" />
+      </svg>
+    );
+  } else if (outcome?.ok) {
+    icon = (
+      <svg className="w-3 h-3 text-[#15803D]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+      </svg>
+    );
+  } else if (outcome) {
+    extraRing = "ring-2 ring-red-300";
+    errorMsg = outcome.message;
+    icon = (
+      <svg className="w-3 h-3 text-[#B91C1C]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    );
+  }
+
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${meta.badgeBg} ${meta.badgeText} ${meta.badgeBorder}`}
-    >
-      <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} aria-hidden="true" />
-      {meta.label}
+    <span className="relative inline-flex group/badge">
+      <span
+        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${meta.badgeBg} ${meta.badgeText} ${meta.badgeBorder} ${extraRing}`}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} aria-hidden="true" />
+        {meta.label}
+        {icon}
+      </span>
+      {errorMsg && (
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute bottom-full left-0 mb-1.5 hidden group-hover/badge:block z-20 w-72 max-w-[calc(100vw-2rem)] p-2.5 bg-red-700 text-white text-[11px] font-body leading-snug rounded-lg shadow-xl whitespace-pre-line break-words"
+        >
+          <span className="block font-semibold mb-0.5">Échec sur {meta.label}</span>
+          {errorMsg}
+        </span>
+      )}
     </span>
   );
 }
 
 // ── Icône principale de statut (à droite de chaque ligne) ────────────
-function MainStatusIcon({ item }: { item: MarketplaceRefreshItem }) {
-  if (item.status === "queued") {
+// Reflète l'état du groupe entier : spinner si au moins une marketplace
+// est en cours, croix rouge si au moins une est en erreur, sinon ✓.
+function GroupStatusIcon({ group }: { group: ProductGroup }) {
+  const hasActive = groupHasActive(group);
+  const hasQueued = group.items.some((it) => it.status === "queued");
+  const allDone = groupAllDone(group);
+  const hasErr = groupHasError(group);
+
+  if (hasActive) {
+    return (
+      <span
+        className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#EEF2FF] text-[#4F46E5] shrink-0"
+        aria-label="En cours"
+      >
+        <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+        </svg>
+      </span>
+    );
+  }
+  if (hasQueued) {
     return (
       <span
         className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-bg-tertiary text-text-muted shrink-0"
@@ -133,35 +174,7 @@ function MainStatusIcon({ item }: { item: MarketplaceRefreshItem }) {
       </span>
     );
   }
-  if (item.status === "in_progress") {
-    return (
-      <span
-        className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#EEF2FF] text-[#4F46E5] shrink-0"
-        aria-label="En cours"
-      >
-        <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-        </svg>
-      </span>
-    );
-  }
-  if (item.status === "awaiting_callback") {
-    return (
-      <span
-        className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#FEF3C7] text-[#B45309] shrink-0"
-        aria-label="En attente de la confirmation"
-        title="En attente de la confirmation de la marketplace"
-      >
-        <svg className="w-4 h-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-          <circle cx="12" cy="12" r="9" strokeWidth={1.5} />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 2" />
-        </svg>
-      </span>
-    );
-  }
-  // done
-  const err = hasError(item);
-  if (err) {
+  if (allDone && hasErr) {
     return (
       <span
         className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#FEE2E2] text-[#B91C1C] shrink-0"
@@ -186,45 +199,50 @@ function MainStatusIcon({ item }: { item: MarketplaceRefreshItem }) {
 }
 
 // ── Ligne de statut sous le nom du produit ──────────────────────────
-function ItemStatusLine({ item }: { item: MarketplaceRefreshItem }) {
-  const meta = MARKETPLACE_META[item.marketplace];
+// Résume l'état du groupe en une phrase ; le détail par marketplace
+// est porté par les pastilles MarketplaceStatusBadge.
+function GroupStatusLine({ group }: { group: ProductGroup }) {
+  const activeItems = group.items.filter(
+    (it) => it.status === "in_progress" || it.status === "awaiting_callback",
+  );
+  const queuedItems = group.items.filter((it) => it.status === "queued");
 
-  if (item.status === "queued") {
+  if (activeItems.length > 0) {
+    // Mode dominant : on prend celui de l'item le plus en avance
+    const mode = activeItems[0].mode;
+    return (
+      <p className="text-[11px] font-body text-[#4F46E5] mt-1 flex items-center gap-1.5 font-medium">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-[#4F46E5]" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-[#4F46E5]" />
+        </span>
+        {getActionVerb(mode)} en cours…
+      </p>
+    );
+  }
+  if (queuedItems.length > 0) {
     return (
       <p className="text-[11px] font-body text-text-muted mt-1 flex items-center gap-1.5">
         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <circle cx="12" cy="12" r="9" strokeWidth={1.5} />
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v5l3 2" />
         </svg>
-        En file d'attente
+        En file d&apos;attente
       </p>
     );
   }
-  if (item.status === "in_progress") {
+  // tout est done
+  const errCount = group.items.filter(hasError).length;
+  if (errCount > 0) {
     return (
-      <p className={`text-[11px] font-body ${meta.accent} mt-1 flex items-center gap-1.5 font-medium`}>
-        <span className="relative flex h-2 w-2">
-          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${meta.dot}`} />
-          <span className={`relative inline-flex rounded-full h-2 w-2 ${meta.dot}`} />
-        </span>
-        {getActionLabel(item, meta.label)}…
-      </p>
-    );
-  }
-  if (item.status === "awaiting_callback") {
-    return (
-      <p className="text-[11px] font-body text-[#B45309] mt-1 flex items-center gap-1.5">
-        <svg className="w-3 h-3 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-          <circle cx="12" cy="12" r="9" strokeWidth={1.5} />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 2" />
+      <p className="text-[11px] font-body text-[#B91C1C] mt-1 flex items-center gap-1.5">
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 3h.01M4.93 19h14.14a2 2 0 001.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16a2 2 0 001.73 3z" />
         </svg>
-        {meta.label} traite votre demande (1 à 5 min)…
+        {errCount} marketplace{errCount > 1 ? "s" : ""} en erreur — survolez la pastille
       </p>
     );
   }
-  // done
-  const err = hasError(item);
-  if (err) return null; // le bloc d'erreur prend le relais en dessous
   return (
     <p className="text-[11px] font-body text-[#15803D] mt-1 flex items-center gap-1.5">
       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
@@ -266,62 +284,21 @@ function OutcomeChip({ label, outcome }: { label: string; outcome: TargetOutcome
   );
 }
 
-// ── Bloc d'erreur détaillé (sous le statut) ──────────────────────────
-function ErrorBlock({ item }: { item: MarketplaceRefreshItem }) {
-  const errors: { label: string; message: string }[] = [];
-  if (item.pfsOutcome && !item.pfsOutcome.ok) {
-    errors.push({ label: "Paris Fashion Shop", message: item.pfsOutcome.message });
-  }
-  if (item.ankorsOutcome && !item.ankorsOutcome.ok) {
-    errors.push({ label: "Ankorstore", message: item.ankorsOutcome.message });
-  }
-  if (item.efashionOutcome && !item.efashionOutcome.ok) {
-    errors.push({ label: "eFashion", message: item.efashionOutcome.message });
-  }
-  if (errors.length === 0) return null;
-  return (
-    <div className="mt-2 rounded-lg bg-red-50 border border-red-200 overflow-hidden">
-      {errors.map((e, i) => (
-        <div
-          key={i}
-          className={`px-2.5 py-2 ${i > 0 ? "border-t border-red-200" : ""}`}
-        >
-          <div className="flex items-start gap-2">
-            <svg
-              className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 9v4m0 3h.01M4.93 19h14.14a2 2 0 001.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16a2 2 0 001.73 3z"
-              />
-            </svg>
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-semibold text-red-700 leading-tight">
-                Échec sur {e.label}
-              </p>
-              <p className="text-[11px] font-body text-red-700 whitespace-pre-line break-words leading-snug mt-0.5">
-                {e.message}
-              </p>
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────
 // Widget principal
 // ─────────────────────────────────────────────────────────────────────
+const FILTER_OPTIONS: { key: StatusFilter; label: string }[] = [
+  { key: "all", label: "Tous" },
+  { key: "in_progress", label: "En cours" },
+  { key: "success", label: "Succès" },
+  { key: "error", label: "Erreur" },
+];
+
 export function MarketplaceRefreshWidget() {
   const { items, clear, stop, isAllFinished, runningCount, queuedCount } =
     useMarketplaceRefreshQueue();
   const [minimized, setMinimized] = useState(false);
+  const [filter, setFilter] = useState<StatusFilter>("all");
 
   // Déplie automatiquement quand un nouveau cycle démarre (un seul item en file).
   // Intentionnel : on ne réagit qu'aux changements de taille de la file, pas à
@@ -333,16 +310,36 @@ export function MarketplaceRefreshWidget() {
     }
   }, [items.length]);
 
-  const sortedItems = useMemo(() => sortItems(items), [items]);
+  const groups = useMemo(() => groupItemsByProduct(items), [items]);
+  const sortedGroups = useMemo(() => sortGroups(groups), [groups]);
+  const visibleGroups = useMemo(
+    () => sortedGroups.filter((g) => groupMatchesFilter(g, filter)),
+    [sortedGroups, filter],
+  );
+
+  const counts = useMemo(() => {
+    let inProgress = 0;
+    let success = 0;
+    let error = 0;
+    for (const g of groups) {
+      if (groupMatchesFilter(g, "in_progress")) inProgress += 1;
+      if (groupMatchesFilter(g, "success")) success += 1;
+      if (groupMatchesFilter(g, "error")) error += 1;
+    }
+    return { all: groups.length, in_progress: inProgress, success, error };
+  }, [groups]);
 
   if (items.length === 0) return null;
 
-  const total = items.length;
-  const doneItems = items.filter((i) => i.status === "done");
-  const done = doneItems.length;
-  const errorsCount = doneItems.filter(hasError).length;
+  const totalGroups = groups.length;
+  const doneGroups = groups.filter((g) => groupAllDone(g));
+  const doneCount = doneGroups.length;
+  const errorsCount = doneGroups.filter(groupHasError).length;
   const awaitingCount = items.filter((i) => i.status === "awaiting_callback").length;
-  const barPercent = total > 0 ? Math.round((done / total) * 100) : 0;
+  const barPercent = totalGroups > 0 ? Math.round((doneCount / totalGroups) * 100) : 0;
+  // Variables conservées pour l'API publique du widget (header / pill / barre).
+  const total = totalGroups;
+  const done = doneCount;
 
   // Position décalée du bouton chat admin (qui vit à bottom-6 right-4 / 56px)
   // → right-24 (96px) laisse environ 16px d'air entre les deux.
@@ -557,32 +554,76 @@ export function MarketplaceRefreshWidget() {
           />
         </div>
 
-        {/* ─── Liste des items ────────────────────────────────────── */}
+        {/* ─── Barre de filtres par statut ────────────────────────── */}
+        <div className="px-4 py-2 border-b border-border bg-bg-secondary flex items-center gap-1.5 overflow-x-auto">
+          {FILTER_OPTIONS.map((opt) => {
+            const count = counts[opt.key];
+            const active = filter === opt.key;
+            const accent =
+              opt.key === "in_progress"
+                ? "text-[#4F46E5] border-[#C7D2FE] bg-[#EEF2FF]"
+                : opt.key === "success"
+                  ? "text-[#15803D] border-[#BBF7D0] bg-[#DCFCE7]"
+                  : opt.key === "error"
+                    ? "text-[#B91C1C] border-[#FECACA] bg-[#FEE2E2]"
+                    : "text-text-primary border-border bg-bg-primary";
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setFilter(opt.key)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium font-body whitespace-nowrap transition-colors ${
+                  active
+                    ? accent
+                    : "text-text-muted border-border bg-bg-primary hover:bg-bg-tertiary"
+                }`}
+                aria-pressed={active}
+              >
+                {opt.label}
+                <span className={`tabular-nums text-[10px] ${active ? "" : "opacity-70"}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ─── Liste des produits (groupés) ───────────────────────── */}
         <ul className="flex-1 overflow-y-auto max-h-[420px] divide-y divide-border-light">
-          {sortedItems.map((item) => {
-            const isActive =
-              item.status === "in_progress" || item.status === "awaiting_callback";
-            const outcomes = item.status === "done" ? collectOutcomes(item) : [];
-            // Pour éviter le doublon avec le bloc d'erreur juste en dessous,
-            // on n'affiche pas les chips d'outcome marketplace en erreur ici.
-            const outcomeChips = outcomes.filter((o) => o.outcome.ok || !o.isMarketplace);
+          {visibleGroups.length === 0 && (
+            <li className="px-4 py-6 text-center text-[11px] font-body text-text-muted">
+              Aucun produit ne correspond à ce filtre.
+            </li>
+          )}
+          {visibleGroups.map((group) => {
+            const isActive = groupHasActive(group);
+            const localOutcome = getLocalOutcomeForGroup(group);
+            // On trie les pastilles marketplace dans un ordre stable (pfs, ankorstore, efashion).
+            const orderedItems = [...group.items].sort((a, b) => {
+              const order: Record<MarketplaceTarget, number> = {
+                pfs: 0,
+                ankorstore: 1,
+                efashion: 2,
+              };
+              return order[a.marketplace] - order[b.marketplace];
+            });
 
             return (
               <li
-                key={item.id}
+                key={group.productId}
                 className={`flex items-start gap-3 px-4 py-3 transition-colors ${
                   isActive ? "bg-[#FAFAFF]" : "hover:bg-bg-secondary"
                 }`}
               >
                 <Link
-                  href={`/admin/produits/${item.productId}/modifier`}
+                  href={`/admin/produits/${group.productId}/modifier`}
                   className="w-11 h-11 rounded-lg bg-bg-tertiary overflow-hidden shrink-0 flex items-center justify-center hover:ring-2 hover:ring-[#4F46E5]/30 transition-all"
                   title="Ouvrir la fiche produit"
                 >
-                  {item.firstImage ? (
+                  {group.firstImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={getImageSrc(item.firstImage, "thumb")}
+                      src={getImageSrc(group.firstImage, "thumb")}
                       alt=""
                       className="w-full h-full object-cover"
                     />
@@ -604,36 +645,31 @@ export function MarketplaceRefreshWidget() {
                 </Link>
 
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Link
-                      href={`/admin/produits/${item.productId}/modifier`}
-                      className="text-[12px] font-mono font-semibold text-text-primary hover:text-[#4F46E5] transition-colors truncate"
-                      title={item.reference}
-                    >
-                      {item.reference}
-                    </Link>
-                    <MarketplaceBadge marketplace={item.marketplace} />
-                  </div>
+                  <Link
+                    href={`/admin/produits/${group.productId}/modifier`}
+                    className="text-[12px] font-mono font-semibold text-text-primary hover:text-[#4F46E5] transition-colors truncate block"
+                    title={group.reference}
+                  >
+                    {group.reference}
+                  </Link>
                   <p className="text-[11px] font-body text-text-muted truncate mt-0.5">
-                    {item.productName}
+                    {group.productName}
                   </p>
 
-                  <ItemStatusLine item={item} />
+                  {/* Pastilles par marketplace avec leur statut */}
+                  <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                    {orderedItems.map((item) => (
+                      <MarketplaceStatusBadge key={item.id} item={item} />
+                    ))}
+                    {localOutcome && (
+                      <OutcomeChip label="Boutique" outcome={localOutcome} />
+                    )}
+                  </div>
 
-                  {/* Chips d'outcome (ex : Boutique OK) */}
-                  {outcomeChips.length > 0 && (
-                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                      {outcomeChips.map((o, i) => (
-                        <OutcomeChip key={i} label={o.label} outcome={o.outcome} />
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Bloc d'erreur détaillé */}
-                  {item.status === "done" && <ErrorBlock item={item} />}
+                  <GroupStatusLine group={group} />
                 </div>
 
-                <MainStatusIcon item={item} />
+                <GroupStatusIcon group={group} />
               </li>
             );
           })}

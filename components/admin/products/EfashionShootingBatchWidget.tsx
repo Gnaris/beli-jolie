@@ -21,12 +21,17 @@ export function EfashionShootingBatchWidget() {
 
   if (items.length === 0) return null;
 
-  // Position : juste à gauche du MarketplaceRefreshWidget (qui vit à
-  // bottom-4 right-24 et fait 420px de large). On l'aligne sur la même
-  // ligne (bottom-4) en décalant son right de 420px + 7rem + ~1rem d'air
-  // pour qu'il colle à 16px du bord gauche du widget marketplace.
-  const containerPos = "fixed bottom-4 right-[calc(420px+8rem)] z-[9000]";
-  const containerMaxWidth = "calc(100vw - 420px - 10rem)";
+  // Position : juste à gauche du MarketplaceRefreshWidget.
+  // Marketplace vit à bottom-4 right-24 (96px) et fait 420px de large
+  // → son bord gauche est à 96 + 420 = 516px du bord droit.
+  // On laisse 16px d'air → right = 532px. Inline style obligatoire pour
+  // garantir le calcul (Tailwind arbitrary `calc()` n'était pas appliqué).
+  const containerPos = "fixed z-[9000]";
+  const containerStyle = {
+    bottom: "1rem",
+    right: "532px",
+    maxWidth: "calc(100vw - 532px - 1rem)",
+  } as const;
 
   const total = items.length;
   const issueCount = items.filter(
@@ -49,7 +54,7 @@ export function EfashionShootingBatchWidget() {
 
   if (minimized) {
     return (
-      <div className={`${containerPos} animate-fadeIn`} style={{ maxWidth: containerMaxWidth }}>
+      <div className={`${containerPos} animate-fadeIn`} style={containerStyle}>
         <button
           type="button"
           onClick={() => setMinimized(false)}
@@ -81,7 +86,7 @@ export function EfashionShootingBatchWidget() {
   return (
     <div
       className={`${containerPos} animate-fadeIn`}
-      style={{ maxWidth: containerMaxWidth }}
+      style={containerStyle}
       role="region"
       aria-label="File du shooting eFashion"
     >

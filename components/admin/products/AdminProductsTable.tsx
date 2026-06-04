@@ -22,6 +22,10 @@ import { useEfashionShootingBatch } from "@/components/admin/products/EfashionSh
 import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+// Bouton d'export marketplace : import statique (présent dans la barre d'actions
+// qui apparaît à la 1re sélection — un chargement asynchrone créerait un
+// clignotement visible, cf. bug "page qui se refresh" rapporté 2026-06-04).
+import MarketplaceExportButton from "@/components/admin/products/MarketplaceExportButton";
 
 // Modales lourdes — chargées à l'ouverture seulement pour alléger le bundle
 // initial de la table produits (cf. audit perf 2026-05-31).
@@ -30,9 +34,6 @@ const LinkAnkorstoreProductModal = dynamic(
 );
 const LinkEfashionProductModal = dynamic(
   () => import("@/components/admin/products/LinkEfashionProductModal"),
-);
-const MarketplaceExportButton = dynamic(
-  () => import("@/components/admin/products/MarketplaceExportButton"),
 );
 
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
@@ -2929,10 +2930,23 @@ export default function AdminProductsTable({
   }
 
   return (
-    <div className="space-y-3">
-      {/* Barre d'actions en masse (produits) */}
-      {someSelected && (
-        <div className="flex items-center gap-3 bg-bg-dark text-text-inverse rounded-2xl px-5 py-3.5 animate-fadeIn shadow-lg">
+    <div>
+      {/* Barre d'actions en masse (produits)
+          Toujours montée dans le DOM puis animée via le pattern CSS Grid
+          `grid-rows-[0fr] → grid-rows-[1fr]` : la barre s'agrandit en douceur
+          au lieu d'apparaître d'un coup et de pousser le tableau (bug "page qui
+          se refresh" rapporté 2026-06-04). Quand rien n'est sélectionné, le
+          wrapper a 0px de hauteur ET 0px de marge — aucun espace vide. */}
+      <div
+        aria-hidden={!someSelected}
+        className={`grid transition-all duration-300 ease-out ${
+          someSelected
+            ? "grid-rows-[1fr] opacity-100 mb-3"
+            : "grid-rows-[0fr] opacity-0 mb-0 pointer-events-none"
+        }`}
+      >
+        <div className="overflow-hidden">
+        <div className="flex items-center gap-3 bg-bg-dark text-text-inverse rounded-2xl px-5 py-3.5 shadow-lg">
           <span className="text-sm font-body font-semibold tabular-nums">
             {selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}
           </span>
@@ -3021,11 +3035,12 @@ export default function AdminProductsTable({
             Désélectionner
           </button>
         </div>
-      )}
+        </div>
+      </div>
 
       {/* Message résultat bulk */}
       {bulkMessage && (
-        <div className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-body ${
+        <div className={`mb-3 flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-body ${
           bulkMessage.type === "success"
             ? "bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
             : "bg-red-50 text-red-700 border border-red-200"
