@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
-import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
+import type { VariantState } from "@/components/admin/products/ColorVariantManager";
 import { CreatePageWrapper, CreatePageToggle } from "../../nouveau/CreatePageWrapper";
 import {
   getCachedPfsEnabled,
@@ -31,7 +31,6 @@ export default async function DupliquerProduitPage({
   const [
     product,
     existingTranslations,
-    colorImagesDb,
     hasPfsConfig,
     hasAnkorstoreConfig,
     ankorstoreEnabled,
@@ -115,10 +114,6 @@ export default async function DupliquerProduitPage({
       where: { productId: id },
       select: { locale: true, name: true, description: true },
     }),
-    prisma.productColorImage.findMany({
-      where: { productId: id },
-      orderBy: { order: "asc" },
-    }),
     getCachedPfsEnabled(),
     getCachedHasAnkorstoreConfig(),
     getCachedAnkorstoreEnabled(),
@@ -198,45 +193,9 @@ export default async function DupliquerProduitPage({
     };
   });
 
-  // Build color images from existing product
-  const dbIdToGroupKey = new Map<string, string>();
-  for (const pc of product.colors) {
-    dbIdToGroupKey.set(pc.id, pc.colorId ?? "");
-  }
-
-  const colorImageMap = new Map<string, ColorImageState>();
-  for (const img of colorImagesDb) {
-    const pcId = img.productColorId ?? img.colorId;
-    const gk = dbIdToGroupKey.get(pcId) ?? img.colorId;
-    if (!gk) continue;
-    if (!colorImageMap.has(gk)) {
-      const colorMeta = img.productColorId
-        ? product.colors.find((pc) => pc.id === img.productColorId)
-        : product.colors.find((pc) => pc.colorId === img.colorId);
-      const displayName = colorMeta?.color?.name ?? img.colorId;
-      const displayHex = colorMeta?.color?.hex ?? "#9CA3AF";
-      colorImageMap.set(gk, {
-        groupKey: gk,
-        colorId: img.colorId,
-        colorName: displayName,
-        colorHex: displayHex,
-        imagePreviews: [],
-        uploadedPaths: [],
-        orders: [],
-        pendingFiles: [],
-        uploading: false,
-      });
-    }
-    const entry = colorImageMap.get(gk)!;
-    if (!entry.uploadedPaths.includes(img.path)) {
-      entry.imagePreviews.push(img.path);
-      entry.uploadedPaths.push(img.path);
-      entry.orders.push(img.order);
-      entry.pendingFiles.push(null);
-    }
-  }
-  const initialColorImages: ColorImageState[] = [...colorImageMap.values()];
-
+  // Pas de duplication des images : le ProductForm initialisera des onglets
+  // d'image vides à partir des variantes pré-remplies (cf. useEffect de sync
+  // colorImages dans ProductForm). L'admin uploade ses propres photos.
   return (
     <CreatePageWrapper>
     <div className="max-w-[1600px] mx-auto space-y-8">
@@ -274,7 +233,7 @@ export default async function DupliquerProduitPage({
           categoryId: product.categoryId,
           subCategoryIds: product.subCategories.map((sc) => sc.id),
           variants: initialVariants,
-          colorImages: initialColorImages,
+          colorImages: [],
           compositions: product.compositions.map((c) => ({
             compositionId: c.compositionId,
             percentage: String(c.percentage),
@@ -318,6 +277,7 @@ export default async function DupliquerProduitPage({
           seasonId: product.seasonId ?? "",
           discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
           primaryColorId: product.primaryColorId ?? null,
+          sizeDetailsTu: product.sizeDetailsTu ?? "",
         }}
       />
     </div>
