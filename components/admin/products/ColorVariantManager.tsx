@@ -1729,8 +1729,24 @@ export default function ColorVariantManager({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [bulkActionOpen]);
 
-  const totalPhotos = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
-  const hasAnyMissingImages = colorImages.some((c) => c.imagePreviews.length === 0);
+  // Ne compte que les couleurs effectivement utilisées par les variantes actuelles —
+  // sinon le compteur et le badge rouge restent figés sur des entrées orphelines
+  // (couleur supprimée d'une variante mais conservée en mémoire pour pouvoir la restaurer).
+  const activeImageGroupKeys = new Set<string>();
+  for (const v of variants) {
+    if (isMultiColorPack(v)) {
+      for (const c of packLinesColorList(v.packLines)) activeImageGroupKeys.add(c.colorId);
+    } else if (v.colorId) {
+      activeImageGroupKeys.add(variantGroupKeyFromState(v));
+    }
+  }
+  const activeColorImages = colorImages.filter((c) => activeImageGroupKeys.has(c.groupKey));
+  const totalPhotos = activeColorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
+  const hasAnyMissingImages = activeImageGroupKeys.size > 0
+    && Array.from(activeImageGroupKeys).some((gk) => {
+      const entry = colorImages.find((c) => c.groupKey === gk);
+      return !entry || entry.imagePreviews.length === 0;
+    });
   const showBulkRow = selectedIds.size > 0;
   const duplicateTempIds = findDuplicateVariantTempIds(variants);
 
