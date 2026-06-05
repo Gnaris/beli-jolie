@@ -7,13 +7,9 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["pdfkit", "sharp", "exceljs", "playwright"],
 
   // Lots d'images d'import produits (jusqu'à 50 fichiers par requête).
-  // Défaut Next.js 16 = 10 Mo → l'upload plante en « Failed to fetch ».
-  // proxyClientMaxBodySize : requêtes proxy. middlewareClientMaxBodySize :
-  // requêtes qui passent par middleware.ts (toutes les API ici). Les deux
-  // sont nécessaires côté Next 16.
+  // Défaut Next.js = 10 Mo → l'upload plante en « Failed to fetch ».
   experimental: {
     proxyClientMaxBodySize: "300mb",
-    middlewareClientMaxBodySize: "300mb",
   },
 
   // ─── Image optimization ───
