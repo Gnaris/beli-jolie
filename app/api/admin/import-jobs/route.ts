@@ -116,6 +116,22 @@ export async function GET() {
   }
 
   try {
+    // Garbage-collect UPLOADING jobs the browser abandoned (page closed mid-
+    // batch). After 30 min without an updatedAt bump, mark them CANCELLED so
+    // the widget stops nagging the admin forever.
+    const staleCutoff = new Date(Date.now() - 30 * 60 * 1000);
+    await prisma.importJob.updateMany({
+      where: {
+        adminId: session.user.id,
+        status: "UPLOADING",
+        updatedAt: { lt: staleCutoff },
+      },
+      data: {
+        status: "CANCELLED",
+        errorMessage: "Envoi interrompu (page fermée).",
+      },
+    });
+
     // Get active jobs (not completed/failed more than 1 hour ago)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 

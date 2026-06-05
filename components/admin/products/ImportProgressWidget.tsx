@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -22,6 +22,7 @@ const ACTIVE_STATUSES = new Set(["PENDING", "UPLOADING", "PROCESSING"]);
 const DONE_STATUSES = new Set(["COMPLETED", "FAILED"]);
 const STALE_UPLOAD_MS = 90_000;
 const DONE_DISPLAY_MS = 8 * 60 * 1000;
+const DISMISSED_STORAGE_KEY = "bj.importWidget.dismissedIds";
 
 function pickRelevantJob(jobs: JobView[]): JobView | null {
   const active = jobs.find((j) => ACTIVE_STATUSES.has(j.status));
@@ -34,6 +35,27 @@ function pickRelevantJob(jobs: JobView[]): JobView | null {
   return recentDone ?? null;
 }
 
+function readDismissedIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(DISMISSED_STORAGE_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function persistDismissedIds(ids: Set<string>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...ids].slice(-50)));
+  } catch {
+    // storage may be full / disabled
+  }
+}
+
 /**
  * Widget global qui suit les imports en cours côté serveur, même lorsque
  * l'utilisatrice a quitté la page d'import. Affiché en bas à gauche, masqué
@@ -43,37 +65,53 @@ function pickRelevantJob(jobs: JobView[]): JobView | null {
 export default function ImportProgressWidget() {
   const pathname = usePathname();
   const [job, setJob] = useState<JobView | null>(null);
-  const [dismissedId, setDismissedId] = useState<string | null>(null);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => readDismissedIds());
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/import-jobs", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const next = pickRelevantJob(data.jobs ?? []);
+      setJob(next);
+    } catch {
+      // network blip — try again next interval
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function refresh() {
-      try {
-        const res = await fetch("/api/admin/import-jobs", { cache: "no-store" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled) return;
-        const next = pickRelevantJob(data.jobs ?? []);
-        setJob(next);
-      } catch {
-        // network blip — try again next interval
-      }
-    }
-
     refresh();
     const id = setInterval(refresh, 4000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  const dismiss = useCallback((id: string) => {
+    setDismissedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      persistDismissedIds(next);
+      return next;
+    });
   }, []);
+
+  const cancelJob = useCallback(async (id: string) => {
+    try {
+      const fd = new FormData();
+      fd.append("action", "cancel");
+      await fetch(`/api/admin/import-jobs/${id}`, { method: "POST", body: fd });
+    } catch {
+      // best-effort: even on error, dismiss locally so the widget stops
+    } finally {
+      dismiss(id);
+      refresh();
+    }
+  }, [dismiss, refresh]);
 
   // Hide while on the importer page itself (tab UI already shows progress)
   const onImporterPage = pathname?.startsWith("/admin/produits/importer");
   if (onImporterPage) return null;
 
-  if (!job || job.id === dismissedId) return null;
+  if (!job || dismissedIds.has(job.id)) return null;
 
   const isImages = job.type === "IMAGES";
   const isActive = ACTIVE_STATUSES.has(job.status);
@@ -156,22 +194,29 @@ export default function ImportProgressWidget() {
             </div>
           )}
 
-          <div className="flex items-center gap-3 mt-2">
+          <div className="flex items-center gap-3 mt-2 flex-wrap">
             <Link
               href="/admin/produits/importer"
               className={`text-xs font-medium underline-offset-2 hover:underline ${accentText}`}
             >
               Revenir à l&apos;import
             </Link>
-            {(isDone || isFailed) && (
+            {isStaleUpload && (
               <button
                 type="button"
-                onClick={() => setDismissedId(job.id)}
-                className={`text-xs ${accentSub} hover:opacity-80`}
+                onClick={() => cancelJob(job.id)}
+                className={`text-xs font-medium ${accentText} hover:opacity-80 underline-offset-2 hover:underline`}
               >
-                Masquer
+                Annuler cet envoi
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => dismiss(job.id)}
+              className={`text-xs ${accentSub} hover:opacity-80 ml-auto`}
+            >
+              Masquer
+            </button>
           </div>
         </div>
       </div>

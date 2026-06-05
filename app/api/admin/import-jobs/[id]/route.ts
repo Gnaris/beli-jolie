@@ -55,6 +55,21 @@ export async function POST(
   const formData = await req.formData();
   const action = formData.get("action") as string | null;
 
+  // ── Action: cancel a job (manual dismiss from the widget) ──
+  if (action === "cancel") {
+    if (job.status === "COMPLETED" || job.status === "FAILED" || job.status === "CANCELLED") {
+      return NextResponse.json({ ok: true, alreadyClosed: true });
+    }
+    await prisma.importJob.update({
+      where: { id },
+      data: {
+        status: "CANCELLED",
+        errorMessage: "Annulé par l'administrateur.",
+      },
+    });
+    return NextResponse.json({ ok: true });
+  }
+
   // ── Action: start processing ──
   if (action === "start") {
     if (job.type !== "IMAGES" || !job.tempDir) {
