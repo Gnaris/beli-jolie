@@ -10,6 +10,7 @@ import { useBackdropClose } from "@/hooks/useBackdropClose";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import QuickCreateSizeModal, { type QuickCreateSizeModalResult } from "@/components/admin/products/QuickCreateSizeModal";
 import { generateSku } from "@/lib/sku";
+import { swapOrDropImageOrder } from "@/lib/image-positions";
 
 // Modale de composition de pack — chargée à l'ouverture seulement.
 const PackCompositionModal = dynamic(
@@ -1009,9 +1010,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   function handleSwapPositions(groupKey: string, fromPos: number, toPos: number) {
     onChange(colorImages.map((c) => {
       if (c.groupKey !== groupKey) return c;
-      if (!c.orders.includes(fromPos) || !c.orders.includes(toPos)) return c;
-      const newOrders = c.orders.map((o) => (o === fromPos ? toPos : o === toPos ? fromPos : o));
-      return { ...c, orders: newOrders };
+      return { ...c, orders: swapOrDropImageOrder(c.orders, fromPos, toPos) };
     }));
   }
 

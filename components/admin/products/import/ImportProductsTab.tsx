@@ -12,6 +12,7 @@ import EditableProductCard, { type ProductOverride } from "./EditableProductCard
 import type { EntityOption } from "./EntitySelect";
 import QuickCreateModal, { type QuickCreateType } from "@/components/admin/products/QuickCreateModal";
 import { isProductReady, type ValidOptions } from "./effective-status";
+import ErrorPreviewList from "./ErrorPreviewList";
 
 // Flat set of all known PFS family names (for exact matching)
 const ALL_KNOWN_FAMILIES = new Set<string>();
@@ -121,6 +122,7 @@ export default function ImportProductsTab() {
   // Job polling state
   const [jobStatus, setJobStatus] = useState<"PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | null>(null);
   const [jobProgress, setJobProgress] = useState({ processed: 0, total: 0, success: 0, errors: 0, errorDraftId: null as string | null, errorMessage: null as string | null });
+  const [errorPreview, setErrorPreview] = useState<Array<{ label: string; sublabel?: string; errors: string[] }>>([]);
 
   // Options & overrides pour le récapitulatif éditable
   const [options, setOptions] = useState<ImportOptionsResponse | null>(null);
@@ -227,6 +229,9 @@ export default function ImportProductsTab() {
           errorDraftId: job.errorDraftId,
           errorMessage: job.errorMessage,
         });
+        if (job.resultDetails?.errorPreview) {
+          setErrorPreview(job.resultDetails.errorPreview);
+        }
         // Invalidate server-side cache via server action (revalidateTag
         // doesn't work inside fire-and-forget background jobs, so we
         // trigger it from the client in a proper request context)
@@ -316,6 +321,7 @@ export default function ImportProductsTab() {
   const reset = () => {
     setFile(null); setStep("upload"); setPreview(null); setImportResult(null); setError(null);
     setJobStatus(null); setJobProgress({ processed: 0, total: 0, success: 0, errors: 0, errorDraftId: null, errorMessage: null });
+    setErrorPreview([]);
     setOverrides({});
   };
 
@@ -550,7 +556,14 @@ export default function ImportProductsTab() {
                   permettra de tout ajuster avant validation.
                 </div>
               )}
+
+              <ErrorPreviewList preview={errorPreview} totalErrors={jobProgress.errors} />
             </div>
+          )}
+
+          {/* Live error preview during processing */}
+          {jobStatus !== "COMPLETED" && jobStatus !== "FAILED" && errorPreview.length > 0 && (
+            <ErrorPreviewList preview={errorPreview} totalErrors={jobProgress.errors} />
           )}
 
           {/* Error — when failed */}

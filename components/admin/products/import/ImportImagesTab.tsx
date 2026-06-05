@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import Image from "@/components/ui/SmartImage";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
+import ErrorPreviewList from "./ErrorPreviewList";
 
 type Step = "upload" | "preview" | "uploading" | "done";
 type ConflictStrategy = "replace" | "next_available" | "skip";
@@ -108,6 +109,7 @@ export default function ImportImagesTab() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<"PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | null>(null);
   const [jobProgress, setJobProgress] = useState({ processed: 0, total: 0, success: 0, errors: 0, errorDraftId: null as string | null, errorMessage: null as string | null });
+  const [errorPreview, setErrorPreview] = useState<Array<{ label: string; sublabel?: string; errors: string[] }>>([]);
 
   // Conflict state
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
@@ -419,10 +421,26 @@ export default function ImportImagesTab() {
         const job = data.job;
         setJobStatus(job.status);
         setJobProgress({ processed: job.processedItems, total: job.totalItems, success: job.successItems, errors: job.errorItems, errorDraftId: job.errorDraftId, errorMessage: job.errorMessage });
+        if (job.resultDetails?.errorPreview) setErrorPreview(job.resultDetails.errorPreview);
       } catch { /* retry */ }
     }, 3000);
     return () => clearInterval(interval);
   }, [step, jobId, jobStatus]);
+
+  // Warn before navigating/closing during browser-driven upload — if she
+  // leaves now, the upload aborts and the job is left orphaned UPLOADING.
+  // (Server-side PROCESSING is immune to navigation, no warning needed.)
+  useEffect(() => {
+    if (step !== "uploading") return;
+    if (totalBatches === 0 || uploadedBatches >= totalBatches) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "L'envoi des images au serveur est en cours. Si vous quittez, l'import sera interrompu.";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [step, uploadedBatches, totalBatches]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files ?? []);
@@ -542,6 +560,7 @@ export default function ImportImagesTab() {
     setFiles([]); setPreviews([]); setStep("upload"); setError(null);
     setUploadedBatches(0); setTotalBatches(0); setJobId(null); setJobStatus(null);
     setJobProgress({ processed: 0, total: 0, success: 0, errors: 0, errorDraftId: null, errorMessage: null });
+    setErrorPreview([]);
     setConflicts([]); setConflictChecked(false); setPerFileResolutions(new Map());
     setOverrides(new Map()); setEditingPosition(null); closeColorModal();
   };
@@ -594,7 +613,7 @@ export default function ImportImagesTab() {
             <li>• <strong>Position</strong> : dernier chiffre (1-10)</li>
             <li>• Formats : .jpg, .jpeg, .png, .webp, .gif</li>
             <li>• Max 5 000 images par import</li>
-            <li>• La position est préservée exactement (ex : position 2 reste en position 2 même sans image en position 1)</li>
+            <li>• Les images remontent automatiquement vers la position libre la plus basse (ex : position 2 devient 1 si la 1 est vide). Pour figer une position, choisissez-la dans la preview.</li>
           </ul>
         </div>
       </div>
@@ -956,9 +975,14 @@ export default function ImportImagesTab() {
                     </div>
                   </div>
                 )}
-                <p className="text-[#999] text-sm mt-3 font-body">Vous pouvez fermer cette page.</p>
+                <p className="text-[#999] text-sm mt-3 font-body">Vous pouvez fermer cette page — le suivi continue dans le coin de l&apos;écran.</p>
               </div>
             </>
+          )}
+          {errorPreview.length > 0 && (
+            <div className="max-w-2xl mx-auto">
+              <ErrorPreviewList preview={errorPreview} totalErrors={jobProgress.errors} />
+            </div>
           )}
           <div className="flex justify-center gap-3">
             <button onClick={() => router.push("/admin/produits")} className="btn-primary text-sm">Voir les produits</button>

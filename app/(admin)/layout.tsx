@@ -13,6 +13,7 @@ import { MarketplaceRefreshProvider } from "@/components/admin/products/Marketpl
 import { MarketplaceRefreshWidget } from "@/components/admin/products/MarketplaceRefreshWidget";
 import { EfashionShootingBatchProvider } from "@/components/admin/products/EfashionShootingBatchContext";
 import { EfashionShootingBatchWidget } from "@/components/admin/products/EfashionShootingBatchWidget";
+import ImportProgressWidget from "@/components/admin/products/ImportProgressWidget";
 import { RefreshWarningProvider } from "@/components/admin/products/RecentlyRefreshedWarningModal";
 import { IneligibleRefreshProvider } from "@/components/admin/products/IneligibleRefreshModal";
 import { getCachedSiteConfig, getCachedPfsCredentials } from "@/lib/cached-data";
@@ -93,6 +94,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <AdminChatWidgetLoader />
       <MarketplaceRefreshWidget />
       <EfashionShootingBatchWidget />
+      <ImportProgressWidget />
     </div>
     </IneligibleRefreshProvider>
     </RefreshWarningProvider>

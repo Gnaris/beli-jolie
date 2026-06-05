@@ -198,6 +198,8 @@ interface ImageFileInfo {
   reference: string;
   color: string;
   position: number;
+  /** true if the user explicitly chose this position in the preview UI (override). */
+  positionOverridden: boolean;
   filePath: string; // absolute path on disk
 }
 
@@ -482,7 +484,14 @@ export async function processProductImport(jobId: string, maxProducts?: number):
     const totalProducts = grouped.size;
     await prisma.importJob.update({
       where: { id: jobId },
-      data: { totalItems: totalProducts, errorItems: errorRows.length },
+      data: {
+        totalItems: totalProducts,
+        errorItems: errorRows.length,
+        resultDetails: {
+          type: "PRODUCTS",
+          errorPreview: buildProductErrorPreview(errorRows),
+        } as unknown as import("@prisma/client").Prisma.JsonObject,
+      },
     });
 
     // Pre-load reference data
@@ -954,6 +963,10 @@ export async function processProductImport(jobId: string, maxProducts?: number):
           processedItems: processedCount,
           successItems: successCount,
           errorItems: errorRows.length,
+          resultDetails: {
+            type: "PRODUCTS",
+            errorPreview: buildProductErrorPreview(errorRows),
+          } as unknown as import("@prisma/client").Prisma.JsonObject,
         },
       });
 
@@ -1005,7 +1018,11 @@ export async function processProductImport(jobId: string, maxProducts?: number):
         successItems: successCount,
         errorItems: errorRows.length,
         errorDraftId,
-        resultDetails: { type: "PRODUCTS", products: createdProducts } as unknown as import("@prisma/client").Prisma.JsonObject,
+        resultDetails: {
+          type: "PRODUCTS",
+          products: createdProducts,
+          errorPreview: buildProductErrorPreview(errorRows),
+        } as unknown as import("@prisma/client").Prisma.JsonObject,
       },
     });
 
@@ -1103,6 +1120,89 @@ function parseImageFilename(filename: string): { reference: string; color: strin
   return { reference, color, position };
 }
 
+/**
+ * Compacte une position vers la plus basse position libre dans [0, originalOrder].
+ *
+ * Si l'utilisatrice importe une image avec position 2 (orderInput = 1, 0-based)
+ * et que la position 1 (order = 0) est libre côté BDD et job en cours, on glisse
+ * l'image en position 1 — pour toujours remplir les positions les plus basses.
+ *
+ * Si la position est explicitement choisie par l'utilisatrice via la preview
+ * (override), on respecte son choix sans compacter.
+ *
+ * @param originalOrder  position 0-based parsée depuis le filename (ou override).
+ * @param usedOrders     positions 0-based déjà occupées (BDD + job en cours).
+ * @param overridden     true si la position a été explicitement choisie en preview.
+ * @returns              la position 0-based effective à utiliser.
+ */
+export function compactImageOrder(
+  originalOrder: number,
+  usedOrders: ReadonlySet<number>,
+  overridden: boolean,
+): number {
+  if (overridden) return originalOrder;
+  for (let candidate = 0; candidate <= originalOrder; candidate++) {
+    if (!usedOrders.has(candidate)) return candidate;
+  }
+  return originalOrder;
+}
+
+/**
+ * Aperçu d'erreur affiché en temps réel pendant l'import.
+ * Volontairement plat et léger pour être sérialisable en JSON et envoyé via
+ * polling sans charger le navigateur.
+ */
+export interface ImportErrorPreviewEntry {
+  /** Référence du produit (PRODUCTS) ou nom du fichier image (IMAGES). */
+  label: string;
+  /** Sous-label : nom (PRODUCTS) ou couleur + position (IMAGES). */
+  sublabel?: string;
+  /** Messages d'erreur — déjà formatés pour affichage utilisateur. */
+  errors: string[];
+}
+
+/** Nombre maximum d'erreurs conservées pour l'aperçu en temps réel. */
+export const ERROR_PREVIEW_LIMIT = 50;
+
+/**
+ * Construit l'aperçu (max ERROR_PREVIEW_LIMIT entrées) à partir des erreurs
+ * accumulées dans le processeur. On déduplique par référence pour les produits
+ * (multi-rows produisent le même message global).
+ */
+export function buildProductErrorPreview(
+  rows: readonly { reference?: string; name?: string; errors: string[] }[],
+): ImportErrorPreviewEntry[] {
+  const seen = new Set<string>();
+  const out: ImportErrorPreviewEntry[] = [];
+  for (const r of rows) {
+    const ref = (r.reference ?? "").trim() || "(sans référence)";
+    if (seen.has(ref)) continue;
+    seen.add(ref);
+    out.push({
+      label: ref,
+      sublabel: r.name?.trim() || undefined,
+      errors: r.errors.slice(0, 5),
+    });
+    if (out.length >= ERROR_PREVIEW_LIMIT) break;
+  }
+  return out;
+}
+
+export function buildImageErrorPreview(
+  rows: readonly { filename: string; color?: string; position?: number; errors: string[] }[],
+): ImportErrorPreviewEntry[] {
+  const out: ImportErrorPreviewEntry[] = [];
+  for (const r of rows.slice(-ERROR_PREVIEW_LIMIT)) {
+    const sub = [r.color, r.position ? `position ${r.position}` : null].filter(Boolean).join(" · ");
+    out.push({
+      label: r.filename,
+      sublabel: sub || undefined,
+      errors: r.errors.slice(0, 5),
+    });
+  }
+  return out;
+}
+
 // ─────────────────────────────────────────────
 // Conflict resolution types
 // ─────────────────────────────────────────────
@@ -1184,7 +1284,22 @@ export async function processImageImport(jobId: string): Promise<void> {
         reference: parsed.reference,
         color: ov?.color ?? parsed.color,
         position: ov?.position ?? parsed.position,
+        positionOverridden: ov?.position != null,
         filePath: path.join(tempDirFull, filename),
+      });
+    }
+
+    // Expose parse errors immediately so the UI can show them during processing
+    if (errorRows.length > 0) {
+      await prisma.importJob.update({
+        where: { id: jobId },
+        data: {
+          errorItems: errorRows.length,
+          resultDetails: {
+            type: "IMAGES",
+            errorPreview: buildImageErrorPreview(errorRows),
+          } as unknown as import("@prisma/client").Prisma.JsonObject,
+        },
       });
     }
 
@@ -1206,6 +1321,11 @@ export async function processImageImport(jobId: string): Promise<void> {
 
     let successCount = 0;
     let processedCount = 0;
+
+    // Tracks positions (0-based) already assigned during this job, per productColor.
+    // Used to compact positions toward the lowest free slot while preventing two
+    // incoming images from landing on the same slot.
+    const assignedOrdersByVariant = new Map<string, Set<number>>();
 
     // Collect detailed results for history display
     const importedImages: {
@@ -1267,7 +1387,21 @@ export async function processImageImport(jobId: string): Promise<void> {
         }
 
         const matchedVariant = matchingVariants[0];
-        let order = file.position - 1;
+        const originalOrder = file.position - 1;
+
+        // Build the set of positions already taken on this variant: BDD images
+        // plus images already routed earlier in this same job.
+        const dbOrders = await prisma.productColorImage.findMany({
+          where: { productColorId: matchedVariant.id },
+          select: { order: true },
+        });
+        const takenOrders = new Set<number>(dbOrders.map((u) => u.order));
+        const assignedHere = assignedOrdersByVariant.get(matchedVariant.id);
+        if (assignedHere) for (const o of assignedHere) takenOrders.add(o);
+
+        // Compact toward the lowest free slot (unless the user explicitly chose
+        // a position in the preview UI).
+        let order = compactImageOrder(originalOrder, takenOrders, file.positionOverridden);
 
         // Check for existing image at this position
         const existingAtPos = await prisma.productColorImage.findFirst({
@@ -1341,6 +1475,15 @@ export async function processImageImport(jobId: string): Promise<void> {
           },
         });
 
+        // Reserve this position so subsequent images in the same job don't
+        // compact onto it.
+        const existingAssigned = assignedOrdersByVariant.get(matchedVariant.id);
+        if (existingAssigned) {
+          existingAssigned.add(order);
+        } else {
+          assignedOrdersByVariant.set(matchedVariant.id, new Set([order]));
+        }
+
         successCount++;
         processedCount++;
 
@@ -1360,6 +1503,10 @@ export async function processImageImport(jobId: string): Promise<void> {
           processedItems: processedCount + errorRows.length,
           successItems: successCount,
           errorItems: errorRows.length,
+          resultDetails: {
+            type: "IMAGES",
+            errorPreview: buildImageErrorPreview(errorRows),
+          } as unknown as import("@prisma/client").Prisma.JsonObject,
         },
       });
 
@@ -1416,7 +1563,11 @@ export async function processImageImport(jobId: string): Promise<void> {
         successItems: successCount,
         errorItems: errorRows.length,
         errorDraftId,
-        resultDetails: { type: "IMAGES", images: importedImages } as unknown as import("@prisma/client").Prisma.JsonObject,
+        resultDetails: {
+          type: "IMAGES",
+          images: importedImages,
+          errorPreview: buildImageErrorPreview(errorRows),
+        } as unknown as import("@prisma/client").Prisma.JsonObject,
       },
     });
 
