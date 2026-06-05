@@ -1269,16 +1269,40 @@ export default function ProductForm({
   }
 
   // ── Register toggle callbacks for header toggle ──────────────────────
+  // Toute action sur le toggle (header) doit marquer un override manuel pour
+  // que l'auto-passage en ligne (mode "create") cesse de prendre la main.
+  const userManuallyToggledRef = useRef(false);
+  const hasAutoSetOnlineRef = useRef(false);
   useEffect(() => {
     registerStatusToggle({
       getCompletenessErrors,
       isOutOfStock,
-      setProductStatus,
+      setProductStatus: (s) => {
+        userManuallyToggledRef.current = true;
+        setProductStatus(s);
+      },
       setOnlineErrors,
       setError,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerStatusToggle, reference, name, description, categoryId, compositions, variants, colorImages]);
+
+  // ── Auto-passage en ligne en mode création ──────────────────────────
+  // Dès que la fiche devient complète (premier passage incomplet → complet),
+  // on bascule le toggle sur "ONLINE" automatiquement. On ne le fait qu'une
+  // seule fois et on respecte une interaction manuelle de l'utilisatrice
+  // (si elle a cliqué le toggle, on lui laisse la main).
+  useEffect(() => {
+    if (mode !== "create") return;
+    if (userManuallyToggledRef.current) return;
+    if (hasAutoSetOnlineRef.current) return;
+    if (productStatus !== "OFFLINE") return;
+    if (getCompletenessErrors().length > 0) return;
+    if (isOutOfStock()) return;
+    hasAutoSetOnlineRef.current = true;
+    setProductStatus("ONLINE");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, productStatus, reference, name, description, categoryId, compositions, variants, colorImages]);
 
   // Erreurs dures qui doivent bloquer l'enregistrement (même en brouillon)
   function getBlockingErrors(): string[] {

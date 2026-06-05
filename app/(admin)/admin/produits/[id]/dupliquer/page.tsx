@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
+import { CreatePageWrapper, CreatePageToggle } from "../../nouveau/CreatePageWrapper";
 import {
   getCachedPfsEnabled,
   getCachedHasAnkorstoreConfig,
@@ -237,6 +238,7 @@ export default async function DupliquerProduitPage({
   const initialColorImages: ColorImageState[] = [...colorImageMap.values()];
 
   return (
+    <CreatePageWrapper>
     <div className="max-w-[1600px] mx-auto space-y-8">
       <div>
         <nav className="flex items-center gap-1.5 text-[13px] font-body text-text-muted mb-3">
@@ -246,11 +248,14 @@ export default async function DupliquerProduitPage({
           <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
           <span className="text-text-secondary">Dupliquer</span>
         </nav>
-        <div>
-          <h1 className="page-title">Dupliquer le produit</h1>
-          <p className="text-sm text-text-muted font-body mt-1">
-            Copie de <span className="font-semibold text-text-secondary">{product.name}</span> (réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>). Saisissez une nouvelle référence.
-          </p>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="page-title">Dupliquer le produit</h1>
+            <p className="text-sm text-text-muted font-body mt-1">
+              Copie de <span className="font-semibold text-text-secondary">{product.name}</span> (réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>). Saisissez une nouvelle référence.
+            </p>
+          </div>
+          <CreatePageToggle />
         </div>
       </div>
 
@@ -316,5 +321,6 @@ export default async function DupliquerProduitPage({
         }}
       />
     </div>
+    </CreatePageWrapper>
   );
 }

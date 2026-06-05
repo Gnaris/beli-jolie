@@ -1,8 +1,10 @@
 "use client";
 import { ProductFormHeaderProvider, ProductFormHeaderState, useProductFormHeader } from "./ProductFormHeaderContext";
+import { useToast } from "@/components/ui/Toast";
 
 function StatusToggle({ mode }: { mode: "create" | "edit" }) {
   const { productStatus, isIncomplete, statusToggle } = useProductFormHeader();
+  const toast = useToast();
   const isOnline = productStatus === "ONLINE";
   const hasErrors = isIncomplete;
 
@@ -14,16 +16,22 @@ function StatusToggle({ mode }: { mode: "create" | "edit" }) {
       statusToggle.setOnlineErrors([]);
       statusToggle.setError("");
     } else {
-      // Going online — validate
+      // Going online — validate. Erreurs affichées en toast (pas de bandeau).
       const errors = statusToggle.getCompletenessErrors();
       if (errors.length > 0) {
-        statusToggle.setOnlineErrors(errors);
-        statusToggle.setError("Ce produit ne peut pas être mis en ligne. Corrigez les erreurs ci-dessus.");
+        const preview = errors.slice(0, 3).join(" · ");
+        const suffix = errors.length > 3 ? ` (+${errors.length - 3} autre${errors.length - 3 > 1 ? "s" : ""})` : "";
+        toast.error(
+          "Produit incomplet",
+          `Impossible de mettre en ligne : ${preview}${suffix}`,
+        );
         return;
       }
       if (statusToggle.isOutOfStock()) {
-        statusToggle.setOnlineErrors(["Toutes les variantes sont en rupture de stock"]);
-        statusToggle.setError("Ce produit ne peut pas être mis en ligne car aucune variante n'a de stock.");
+        toast.error(
+          "Rupture de stock",
+          "Toutes les variantes sont en rupture — impossible de mettre en ligne.",
+        );
         return;
       }
       statusToggle.setOnlineErrors([]);
@@ -121,10 +129,7 @@ export function ProductEditWrapper({
                 <HeaderBadges />
               </div>
             </div>
-            {/* Le statut (en ligne / hors ligne) se gère désormais depuis la
-                liste des produits — actions « Mettre en ligne / Hors ligne »
-                dans la colonne Actions. Ce formulaire conserve les changements
-                en brouillon jusqu'à publication explicite. */}
+            <StatusToggle mode="edit" />
           </div>
         </div>
         {children}
