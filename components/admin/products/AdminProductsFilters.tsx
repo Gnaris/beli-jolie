@@ -529,17 +529,19 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   className="w-full px-2.5 py-1.5 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
                 />
               </FilterField>
-              <FilterField label="Rafraîchissement">
+              <FilterField label="Tri / Rafraîchissement">
                 <CustomSelect
                   value={urlRefresh}
                   onChange={(v) => navigate({ refresh: v || null })}
                   options={[
-                    { value: "", label: "Tous" },
+                    { value: "", label: "Par défaut (créé récemment d'abord)" },
+                    { value: "modifiedDesc", label: "Modifié récemment d'abord" },
+                    { value: "modifiedAsc", label: "Modifié anciennement d'abord" },
+                    { value: "dateDesc", label: "Rafraîchi récemment d'abord" },
+                    { value: "dateAsc", label: "Rafraîchi anciennement d'abord" },
                     { value: "recent", label: "Rafraîchi récemment (30j)" },
                     { value: "refreshed", label: "Déjà rafraîchi" },
                     { value: "never", label: "Jamais rafraîchi" },
-                    { value: "dateDesc", label: "Date récente → ancienne" },
-                    { value: "dateAsc", label: "Date ancienne → récente" },
                   ]}
                   size="sm"
                 />

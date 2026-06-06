@@ -6,7 +6,9 @@ export type AdminProductsRefreshValue =
   | "recent"
   | "refreshed"
   | "dateDesc"
-  | "dateAsc";
+  | "dateAsc"
+  | "modifiedDesc"
+  | "modifiedAsc";
 
 export interface AdminProductsFilterParams {
   q?: string;
@@ -129,8 +131,8 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     cutoff.setDate(cutoff.getDate() - RECENT_REFRESH_DAYS);
     where.lastRefreshedAt = { gte: cutoff };
   }
-  // `dateDesc` / `dateAsc` are sort options handled by buildAdminProductsOrderBy
-  // and intentionally do not narrow the where clause.
+  // `dateDesc` / `dateAsc` / `modifiedDesc` / `modifiedAsc` are sort options
+  // handled by buildAdminProductsOrderBy and intentionally do not narrow the where clause.
 
   if (params.status === "DRAFT") {
     where.status = "OFFLINE";
@@ -273,6 +275,8 @@ export async function findProductIdsWithMissingVariantImages(
  * Default: most recently created first.
  * `dateDesc` / `dateAsc` sort by `lastRefreshedAt`, with never-refreshed
  * products always at the end (nulls last) and `createdAt` as tie-breaker.
+ * `modifiedDesc` / `modifiedAsc` sort by `updatedAt` (auto-incremented by
+ * Prisma at every `product.update`, including UI "Enregistrer les modifications").
  */
 export function buildAdminProductsOrderBy(
   refresh?: string,
@@ -288,6 +292,12 @@ export function buildAdminProductsOrderBy(
       { lastRefreshedAt: { sort: "asc", nulls: "last" } },
       { createdAt: "asc" },
     ];
+  }
+  if (refresh === "modifiedDesc") {
+    return [{ updatedAt: "desc" }];
+  }
+  if (refresh === "modifiedAsc") {
+    return [{ updatedAt: "asc" }];
   }
   return [{ createdAt: "desc" }];
 }

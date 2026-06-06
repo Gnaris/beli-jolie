@@ -166,6 +166,16 @@ describe("buildAdminProductsWhere", () => {
     expect(where.lastRefreshedAt).toBeUndefined();
   });
 
+  it("does not apply any lastRefreshedAt where clause for refresh=modifiedDesc (it's a sort, not a filter)", () => {
+    const where = buildAdminProductsWhere({ refresh: "modifiedDesc" });
+    expect(where.lastRefreshedAt).toBeUndefined();
+  });
+
+  it("does not apply any lastRefreshedAt where clause for refresh=modifiedAsc (it's a sort, not a filter)", () => {
+    const where = buildAdminProductsWhere({ refresh: "modifiedAsc" });
+    expect(where.lastRefreshedAt).toBeUndefined();
+  });
+
   it("restricts to the given productIdsIn list when provided", () => {
     const where = buildAdminProductsWhere({ productIdsIn: ["p1", "p2"] });
     expect(where.id).toEqual({ in: ["p1", "p2"] });
@@ -349,6 +359,18 @@ describe("buildAdminProductsOrderBy", () => {
     expect(buildAdminProductsOrderBy("dateAsc")).toEqual([
       { lastRefreshedAt: { sort: "asc", nulls: "last" } },
       { createdAt: "asc" },
+    ]);
+  });
+
+  it("sorts by updatedAt desc for refresh=modifiedDesc (most recently edited first)", () => {
+    expect(buildAdminProductsOrderBy("modifiedDesc")).toEqual([
+      { updatedAt: "desc" },
+    ]);
+  });
+
+  it("sorts by updatedAt asc for refresh=modifiedAsc (oldest edited first)", () => {
+    expect(buildAdminProductsOrderBy("modifiedAsc")).toEqual([
+      { updatedAt: "asc" },
     ]);
   });
 });
