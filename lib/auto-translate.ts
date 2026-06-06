@@ -9,10 +9,19 @@
 
 import { prisma } from "@/lib/prisma";
 import { translateTextStrict, type Locale } from "@/lib/translate";
+import { translateToAllLocales as pfsTranslateToAllLocales } from "@/lib/pfs-translate";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 
 const TARGET_LOCALES: Locale[] = NON_DEFAULT_LOCALES;
+
+/**
+ * Langues dans lesquelles on stocke la traduction du **nom et de la description
+ * des produits**, pour alimenter les exports marketplaces (PFS demande EN/ES/DE/IT,
+ * Ankorstore, etc.). Ce sont des « locales d'export » : elles ne s'affichent pas
+ * côté site (qui reste FR + EN), mais elles sont remplies en base au save.
+ */
+const PRODUCT_AUTO_TRANSLATE_LOCALES = ["en", "es", "de", "it"] as const;
 
 /** Check if auto-translate is enabled in SiteConfig */
 export async function isAutoTranslateEnabled(): Promise<boolean> {
@@ -181,31 +190,40 @@ async function _autoTranslateProduct(
     const enabled = await isAutoTranslateEnabled();
     if (!enabled) return;
 
-    const localesToTranslate = TARGET_LOCALES.filter((l) => !existingLocales.includes(l));
+    // On vise EN + ES + DE + IT (export marketplace) plutôt que les seules locales
+    // d'affichage du site (FR + EN), de manière à remplir les colonnes ES/DE/IT
+    // demandées par Paris Fashion Shop / Ankorstore. Les locales déjà fournies
+    // manuellement (existingLocales) ne sont pas écrasées.
+    const localesToTranslate = PRODUCT_AUTO_TRANSLATE_LOCALES.filter(
+      (l) => !existingLocales.includes(l),
+    );
     if (localesToTranslate.length === 0) return;
 
+    // L'API PFS renvoie toutes les locales en un seul appel — beaucoup plus rapide
+    // que de boucler langue par langue. 2 appels au total (nom + description) au
+    // lieu de 8 (4 locales × 2 textes).
+    const [allNames, allDescs] = await Promise.all([
+      name.trim()
+        ? pfsTranslateToAllLocales(name)
+        : Promise.resolve({} as Record<string, string>),
+      description.trim()
+        ? pfsTranslateToAllLocales(description)
+        : Promise.resolve({} as Record<string, string>),
+    ]);
+
     for (const locale of localesToTranslate) {
-      const [translatedName, translatedDesc] = await Promise.all([
-        name.trim() ? translateTextStrict(name, "fr", locale) : Promise.resolve(""),
-        description.trim() ? translateTextStrict(description, "fr", locale) : Promise.resolve(""),
-      ]);
+      const finalName = (allNames[locale] ?? "").trim();
+      const finalDesc = (allDescs[locale] ?? "").trim();
 
-      // null = retry exhausted. Si NAME a échoué, on n'écrit rien (la fiche n'aura
-      // pas de traduction pour cette locale et l'icône ⚠ restera visible).
-      // Si DESC a échoué mais pas NAME, on garde le name et on met "" en desc
-      // pour ne pas créer une desc identique au FR.
-      if (translatedName === null) continue;
+      // Pas de nom traduit pour cette locale → on n'écrit rien. La fiche restera
+      // sans traduction et pourra être rattrapée plus tard.
+      if (!finalName) continue;
 
-      const finalName = translatedName.trim();
-      const finalDesc = translatedDesc === null ? "" : (translatedDesc ?? "");
-
-      if (finalName || finalDesc.trim()) {
-        await prisma.productTranslation.upsert({
-          where: { productId_locale: { productId, locale } },
-          update: { name: finalName, description: finalDesc },
-          create: { productId, locale, name: finalName, description: finalDesc },
-        });
-      }
+      await prisma.productTranslation.upsert({
+        where: { productId_locale: { productId, locale } },
+        update: { name: finalName, description: finalDesc },
+        create: { productId, locale, name: finalName, description: finalDesc },
+      });
     }
   } catch {
     // Silently ignore product translation failures
