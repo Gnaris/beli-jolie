@@ -92,14 +92,21 @@ export async function ensureMinWidth(
  *  - extension d'image classique (webp/jpg/jpeg/png/gif/avif)
  *  - aucun `..`, antislash, null byte ou caractère `%` (anti-encodage trompeur)
  *  - lettres Unicode (\p{L}), chiffres (\p{N}), point, tiret, underscore, slash
+ *  - parenthèses `(` `)` (suffixe de duplication, ex. G212 → G212(2))
  *
  * Pourquoi les lettres Unicode : `slugify()` côté storage conserve les
  * accents (a11-doré-1.webp). Si on limitait à l'ASCII, le proxy renverrait
  * une 400 sur toutes les images dont le nom de couleur contient un accent,
  * et Ankorstore ignorerait silencieusement ces variantes (bug constaté sur
  * A11 / Doré le 31/05).
+ *
+ * Pourquoi les parenthèses : la duplication d'un produit ajoute `(n)` à la
+ * référence. `slugify()` ne les retire pas, donc le dossier devient
+ * `uploads/produits/g212(2)/` et toutes les images d'une fiche dupliquée
+ * étaient rejetées par ce proxy → Ankorstore voyait 0 image et refusait la
+ * publication (bug constaté sur G212(2) le 06/06).
  */
-const SAFE_MARKETPLACE_PATH = /^\/uploads\/[\p{L}\p{N}._\-/]+\.(webp|jpe?g|png|gif|avif)$/iu;
+const SAFE_MARKETPLACE_PATH = /^\/uploads\/[\p{L}\p{N}._()\-/]+\.(webp|jpe?g|png|gif|avif)$/iu;
 
 export function isSafeMarketplaceImagePath(rawPath: string | null): rawPath is string {
   if (!rawPath) return false;

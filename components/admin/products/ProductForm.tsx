@@ -2063,7 +2063,19 @@ export default function ProductForm({
           hasUnsavedChanges={hasUnsavedChanges}
           mode={mode}
         />
-      <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="space-y-8 min-w-0">
+      <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="min-w-0">
+      {/*
+        Verrou pendant l'upload des photos : le `<fieldset disabled>` propage
+        l'état à TOUS les champs internes (HTML natif), pas seulement au
+        bouton « Enregistrer ». Sans ça, l'admin pouvait modifier le stock /
+        prix / etc. pendant que le téléversement tournait — les modifs étaient
+        ensuite écrasées par l'état pris au clic du bouton et donc perdues.
+        `min-w-0` évite la largeur minimale intrinsèque du fieldset.
+      */}
+      <fieldset
+        disabled={uploadProgress !== null}
+        className={`space-y-8 min-w-0 border-0 p-0 m-0 ${uploadProgress !== null ? "opacity-60" : ""}`}
+      >
 
         {/* ── Indicateur de complétude ── */}
         <div id="section-overview" className="scroll-mt-24">
@@ -2783,6 +2795,7 @@ export default function ProductForm({
           </div>
         </div>
         )}
+      </fieldset>
       </form>
       </div>
 

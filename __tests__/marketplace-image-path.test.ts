@@ -38,6 +38,18 @@ describe("isSafeMarketplaceImagePath — chemins valides", () => {
       isSafeMarketplaceImagePath("/uploads/produits/xyz/xyz-rosé-thumb.webp"),
     ).toBe(true);
   });
+
+  it("accepte les parenthèses (suffixe de duplication, ex. G212(2))", () => {
+    expect(
+      isSafeMarketplaceImagePath("/uploads/produits/g212(2)/g212(2)-noir-1.webp"),
+    ).toBe(true);
+    expect(
+      isSafeMarketplaceImagePath("/uploads/produits/g212(2)/g212(2)-doré-1-md.webp"),
+    ).toBe(true);
+    expect(
+      isSafeMarketplaceImagePath("/uploads/produits/abc(10)/abc(10)-bleu-thumb.webp"),
+    ).toBe(true);
+  });
 });
 
 describe("isSafeMarketplaceImagePath — path traversal bloqué", () => {

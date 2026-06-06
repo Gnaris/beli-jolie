@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { getImageSrc } from "@/lib/image-utils";
 import {
@@ -70,6 +71,52 @@ function getActionVerb(mode: MarketplaceRefreshItem["mode"]): string {
   return "Rafraîchissement";
 }
 
+// ── Tooltip d'erreur en portail ──────────────────────────────────────
+// Pourquoi un portail : le panneau du widget a `overflow-hidden` et la
+// liste a `overflow-y-auto`. Un tooltip absolu posé sur la pastille était
+// coupé par ces deux régions, peu importe le z-index. En le rendant
+// directement dans `document.body` via createPortal + position: fixed
+// calculée par rapport au rect du déclencheur, il flotte au-dessus de
+// toute l'interface, même hors des limites du panneau.
+function ErrorTooltipPortal({
+  anchorRect,
+  title,
+  message,
+}: {
+  anchorRect: DOMRect;
+  title: string;
+  message: string;
+}) {
+  if (typeof document === "undefined") return null;
+
+  const margin = 8;
+  const width = 320;
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+
+  // Centre horizontalement sur la pastille, clampe pour rester dans la fenêtre.
+  let left = anchorRect.left + anchorRect.width / 2 - width / 2;
+  left = Math.max(margin, Math.min(left, viewportWidth - width - margin));
+
+  // Préfère au-dessus ; bascule en dessous s'il n'y a pas la place.
+  const preferAbove = anchorRect.top > 180;
+  const style: React.CSSProperties = preferAbove
+    ? { position: "fixed", left, bottom: viewportHeight - anchorRect.top + 6, width, zIndex: 9999 }
+    : { position: "fixed", left, top: anchorRect.bottom + 6, width, zIndex: 9999 };
+
+  return createPortal(
+    <div
+      role="tooltip"
+      style={style}
+      className="pointer-events-none p-2.5 bg-red-700 text-white text-[11px] font-body leading-snug rounded-lg shadow-xl whitespace-pre-line break-words max-h-[60vh] overflow-y-auto"
+    >
+      <span className="block font-semibold mb-0.5">{title}</span>
+      {message}
+    </div>,
+    document.body,
+  );
+}
+
 // ── Pastille marketplace avec statut intégré ─────────────────────────
 // Affiche : pastille colorée par marketplace + petit icône de statut
 // (sablier file / spinner en cours / horloge attente callback / ✓ / ✕).
@@ -77,6 +124,9 @@ function getActionVerb(mode: MarketplaceRefreshItem["mode"]): string {
 function MarketplaceStatusBadge({ item }: { item: MarketplaceRefreshItem }) {
   const meta = MARKETPLACE_META[item.marketplace];
   const outcome = getMarketplaceOutcome(item);
+
+  const badgeRef = useRef<HTMLSpanElement | null>(null);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
 
   let icon: ReactNode = null;
   let errorMsg: string | null = null;
@@ -118,8 +168,25 @@ function MarketplaceStatusBadge({ item }: { item: MarketplaceRefreshItem }) {
     );
   }
 
+  // Mesure la position de la pastille au moment d'afficher le tooltip.
+  // Pas de listener resize/scroll : ouverture courte (hover), recalcul à
+  // chaque nouveau hover suffit pour rester correct.
+  const openTooltip = () => {
+    if (!errorMsg || !badgeRef.current) return;
+    setAnchorRect(badgeRef.current.getBoundingClientRect());
+  };
+  const closeTooltip = () => setAnchorRect(null);
+
   return (
-    <span className="relative inline-flex group/badge">
+    <span
+      ref={badgeRef}
+      className="relative inline-flex"
+      onMouseEnter={openTooltip}
+      onMouseLeave={closeTooltip}
+      onFocus={openTooltip}
+      onBlur={closeTooltip}
+      tabIndex={errorMsg ? 0 : -1}
+    >
       <span
         className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${meta.badgeBg} ${meta.badgeText} ${meta.badgeBorder} ${extraRing}`}
       >
@@ -127,14 +194,12 @@ function MarketplaceStatusBadge({ item }: { item: MarketplaceRefreshItem }) {
         {meta.label}
         {icon}
       </span>
-      {errorMsg && (
-        <span
-          role="tooltip"
-          className="pointer-events-none absolute bottom-full left-0 mb-1.5 hidden group-hover/badge:block z-20 w-72 max-w-[calc(100vw-2rem)] p-2.5 bg-red-700 text-white text-[11px] font-body leading-snug rounded-lg shadow-xl whitespace-pre-line break-words"
-        >
-          <span className="block font-semibold mb-0.5">Échec sur {meta.label}</span>
-          {errorMsg}
-        </span>
+      {errorMsg && anchorRect && (
+        <ErrorTooltipPortal
+          anchorRect={anchorRect}
+          title={`Échec sur ${meta.label}`}
+          message={errorMsg}
+        />
       )}
     </span>
   );
