@@ -94,7 +94,7 @@ describe("ankorstoreSkuForVariant", () => {
 });
 
 describe("productToAnkorstoreRows", () => {
-  it("emits description on first row, empty on subsequent rows", () => {
+  it("emits description on first row, null on subsequent rows (cellule vide en XLSX, pas chaîne vide)", () => {
     const p = makeProduct({
       variants: [
         makeVariant({ variantId: "v1", colorNames: ["Doré"] }),
@@ -103,9 +103,11 @@ describe("productToAnkorstoreRows", () => {
     });
     const rows = productToAnkorstoreRows(p, makeCtx());
     expect(rows).toHaveLength(2);
-    // Col 3 = description (index 2)
+    // Col 3 = description (index 2). null pour la 2ème variante évite l'erreur
+    // Ankorstore "Description should not be blank" : un "" XLSX est interprété
+    // par leur importeur comme un champ rempli mais invalide.
     expect(rows[0]![2]).toContain("Description longue");
-    expect(rows[1]![2]).toBe("");
+    expect(rows[1]![2]).toBe(null);
   });
 
   it("uses ISO code uppercase in column 19", () => {

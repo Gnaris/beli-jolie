@@ -62,7 +62,7 @@ const ANKORSTORE_HEADERS = [
   "Remise sur le prix de gros %",
   "Nombre d'unités par paquet",
   "Stock",
-  "Fabriqué en (code pays)",
+  "Fabriqué en (code pays, par ex. FR)",
   "Code douanier (code SH)",
   "IAN (EAN-13)",
   "Unité de dimension",
@@ -91,7 +91,13 @@ const ANKORSTORE_HEADERS = [
   "Objectif zéro déchet",
 ] as const;
 
-type Row = (string | number)[];
+/**
+ * Cellule de l'export Ankorstore : `null` = cellule véritablement vide en XLSX
+ * (type=0 côté ExcelJS), à ne PAS confondre avec la chaîne vide "" qui crée
+ * une cellule de type string avec une valeur vide — Ankorstore voit ça comme
+ * un champ "rempli mais invalide" et déclenche des erreurs "should not be blank".
+ */
+type Row = (string | number | null)[];
 
 /**
  * Build the SKU for an Ankorstore variant : `<REFERENCE>_<COULEUR EN MAJUSCULES>`.
@@ -163,8 +169,8 @@ export function productToAnkorstoreRows(
     // Fallback sur TOUTES les variantes du produit (UNIT + PACK) : les images
     // sont souvent attachées aux PACK et partagées par les UNIT du même produit.
     const images = variantImageUrls(v, ctx.publicBaseUrl, p.variants);
-    const imageVariant = images[0] ?? "";
-    const [img1 = "", img2 = "", img3 = "", img4 = "", img5 = ""] = images;
+    const imageVariant = images[0] ?? null;
+    const [img1 = null, img2 = null, img3 = null, img4 = null, img5 = null] = images;
 
     // Prix : applique le wholesale et le retail markups séparément sur le prix
     // unitaire (par pièce). Pour PACK, on calcule per-piece.
@@ -183,10 +189,10 @@ export function productToAnkorstoreRows(
     return [
       sku, // 1
       productName, // 2
-      i === 0 ? description : "", // 3 — description seulement sur 1ère ligne
+      i === 0 ? description : null, // 3 — description seulement sur 1ère ligne (null pour les variantes suivantes, pas "" qui passerait pour "champ rempli mais vide")
       tailles, // 4
       couleurs, // 5
-      "", // 6
+      null, // 6 — Autres attributs (non géré)
       imageVariant, // 7
       img1, // 8
       img2, // 9
@@ -196,37 +202,37 @@ export function productToAnkorstoreRows(
       prixGros, // 13
       prixDetail, // 14
       tva, // 15
-      "", // 16
+      null, // 16 — Remise (non gérée)
       unitesParPaquet, // 17
       v.stock, // 18
-      countryIso, // 19
-      hsCode, // 20
-      "", // 21
+      countryIso || null, // 19
+      hsCode || null, // 20
+      null, // 21 — EAN-13
       // Dimensions/poids/volume — on ne renseigne que le poids (en kg).
-      "", // 22 unité dim
-      "", // 23 longueur
-      "", // 24 largeur
-      "", // 25 hauteur
+      null, // 22 unité dim
+      null, // 23 longueur
+      null, // 24 largeur
+      null, // 25 hauteur
       "kg", // 26 unité poids
       v.weight, // 27 poids
-      "", // 28 unité volume
-      "", // 29 volume
-      composition, // 30
-      "", // 31 INCI
-      "", // 32 Matériau
-      "", // 33 Ingrédients
-      "", // 34 DLC
-      "", // 35 DDM
-      "", // 36 Meilleure vente
-      "", // 37 alcool
-      "", // 38 sans cruauté
-      "", // 39 écologique
-      "", // 40 réfrigéré
-      "", // 41 congelé
-      "", // 42 fait main
-      "", // 43 bio
-      "", // 44 végan
-      "", // 45 zéro déchet
+      null, // 28 unité volume
+      null, // 29 volume
+      composition || null, // 30
+      null, // 31 INCI
+      null, // 32 Matériau
+      null, // 33 Ingrédients
+      null, // 34 DLC
+      null, // 35 DDM
+      null, // 36 Meilleure vente
+      null, // 37 alcool
+      null, // 38 sans cruauté
+      null, // 39 écologique
+      null, // 40 réfrigéré
+      null, // 41 congelé
+      null, // 42 fait main
+      null, // 43 bio
+      null, // 44 végan
+      null, // 45 zéro déchet
     ];
   });
 }
