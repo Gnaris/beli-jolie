@@ -3014,7 +3014,6 @@ export default function AdminProductsTable({
           <MarketplaceExportButton
             productIds={Array.from(selectedIds)}
             disabled={isPending}
-            onExported={() => setSelectedIds(new Set())}
           />
           <button
             type="button"
