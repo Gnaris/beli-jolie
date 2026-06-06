@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition, useEffect, useRef } from "react";
+import { useState, useTransition, useEffect, useRef, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { previewMarketplaceExportAction } from "@/app/actions/admin/marketplace-export";
 import { useToast } from "@/components/ui/Toast";
 import type { MarketplaceKey } from "@/lib/marketplace-excel/types";
@@ -33,12 +34,37 @@ export interface PreviewState {
 
 export default function MarketplaceExportButton({ productIds, disabled, onExported }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [isLoadingPreview, startPreview] = useTransition();
   const [isDownloading, setIsDownloading] = useState(false);
   const toast = useToast();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Le menu est rendu dans un portail (document.body) parce que la barre d'actions
+  // parente est dans un wrapper `overflow-hidden` (utilisé pour l'animation
+  // d'apparition fluide) qui clippe sinon le menu déroulant — bug rapporté
+  // 2026-06-06 « on ne voit plus les choix déroulants du bouton Exporter ».
+  const MENU_WIDTH = 224;
+  useLayoutEffect(() => {
+    if (!menuOpen) return;
+    function updatePos() {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setMenuPos({
+        top: rect.bottom + 4,
+        left: rect.right - MENU_WIDTH,
+      });
+    }
+    updatePos();
+    window.addEventListener("scroll", updatePos, true);
+    window.addEventListener("resize", updatePos);
+    return () => {
+      window.removeEventListener("scroll", updatePos, true);
+      window.removeEventListener("resize", updatePos);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -136,10 +162,11 @@ export default function MarketplaceExportButton({ productIds, disabled, onExport
           </svg>
         </button>
 
-        {menuOpen && (
+        {menuOpen && menuPos && typeof document !== "undefined" && createPortal(
           <div
             ref={menuRef}
-            className="absolute right-0 mt-1 z-40 w-56 bg-white border border-border rounded-lg shadow-lg overflow-hidden"
+            style={{ position: "fixed", top: menuPos.top, left: menuPos.left, width: MENU_WIDTH }}
+            className="z-[9999] bg-white border border-border rounded-lg shadow-lg overflow-hidden"
           >
             {MARKETPLACES.map((m) => (
               <button
@@ -151,7 +178,8 @@ export default function MarketplaceExportButton({ productIds, disabled, onExport
                 {m.label}
               </button>
             ))}
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
 

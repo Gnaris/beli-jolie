@@ -131,22 +131,29 @@ export async function createSubCategoryQuick(
   return { id: upserted.id, name: upserted.name };
 }
 
+export type CreateColorQuickResult =
+  | { ok: true; id: string; name: string; hex: string | null; patternImage: string | null }
+  | { ok: false; error: string };
+
 export async function createColorQuick(
   translations: Record<string, string>,
   hex: string | null | undefined,
   patternImage: string | null | undefined,
   pfsColorRef?: string | null,
   efashionColorId?: number | null,
-): Promise<{ id: string; name: string; hex: string | null; patternImage: string | null }> {
+): Promise<CreateColorQuickResult> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
-  if (!name) throw new Error("Le nom (FR) est requis.");
+  if (!name) return { ok: false, error: "Le nom (FR) est requis." };
   const existing = await prisma.color.findFirst({
     where: { name: { equals: name } },
     select: { name: true },
   });
   if (existing) {
-    throw new Error(`La couleur « ${existing.name} » existe déjà dans la bibliothèque.`);
+    // Retourné comme donnée (et non `throw`) pour que le message atteigne le client
+    // en production — un throw serait masqué par Next.js en "An error occurred in
+    // the Server Components render".
+    return { ok: false, error: `La couleur « ${existing.name} » existe déjà dans la bibliothèque.` };
   }
   const created = await prisma.color.create({
     data: {
@@ -196,7 +203,7 @@ export async function createColorQuick(
   }
 
   revalidateTag("colors", "default");
-  return { id: created.id, name: created.name, hex: created.hex, patternImage: created.patternImage };
+  return { ok: true, id: created.id, name: created.name, hex: created.hex, patternImage: created.patternImage };
 }
 
 export async function createCompositionQuick(

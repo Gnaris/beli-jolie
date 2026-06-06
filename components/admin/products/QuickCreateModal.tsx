@@ -460,7 +460,13 @@ export default function QuickCreateModal({
           if (!res.ok) throw new Error(data.error || "Erreur upload motif.");
           patternPath = data.path;
         }
-        result = await createColorQuick(names, colorMode === "hex" ? hex : null, colorMode === "pattern" ? patternPath : null, pfsRef || null, efashionCreateId);
+        const colorRes = await createColorQuick(names, colorMode === "hex" ? hex : null, colorMode === "pattern" ? patternPath : null, pfsRef || null, efashionCreateId);
+        if (!colorRes.ok) {
+          setError(colorRes.error);
+          setLoading(false);
+          return;
+        }
+        result = { id: colorRes.id, name: colorRes.name, hex: colorRes.hex, patternImage: colorRes.patternImage };
       }
       onCreated(result);
       onClose();

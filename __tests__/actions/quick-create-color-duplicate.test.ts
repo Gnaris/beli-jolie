@@ -26,10 +26,10 @@ vi.mock("next/cache", () => ({
 import { createColorQuick } from "@/app/actions/admin/quick-create";
 
 /**
- * Avant ce correctif, la création tombait sur l'erreur Prisma brute
- * `Unique constraint failed on the constraint: Color_name_key` quand l'admin
- * tentait d'ajouter une couleur déjà présente. On vérifie maintenant l'unicité
- * en amont pour renvoyer un message lisible et éviter d'écrire en BDD.
+ * Le doublon de nom est renvoyé comme donnée (`{ ok: false, error }`) plutôt que
+ * via `throw`, car en production Next.js masque le message des erreurs jetées
+ * dans une server action ("An error occurred in the Server Components render").
+ * Retourner l'erreur permet à la modale d'afficher un message lisible.
  */
 describe("createColorQuick — refuse les doublons de nom", () => {
   beforeEach(() => {
@@ -47,15 +47,25 @@ describe("createColorQuick — refuse les doublons de nom", () => {
       select: { name: true },
     });
     expect(mockColorCreate).toHaveBeenCalledTimes(1);
-    expect(res).toEqual({ id: "col-1", name: "Rouge", hex: "#ff0000", patternImage: null });
+    expect(res).toEqual({ ok: true, id: "col-1", name: "Rouge", hex: "#ff0000", patternImage: null });
   });
 
-  it("lève une erreur lisible si une couleur du même nom existe déjà", async () => {
+  it("renvoie un message lisible si une couleur du même nom existe déjà", async () => {
     mockColorFindFirst.mockResolvedValue({ name: "Rouge" });
 
-    await expect(createColorQuick({ fr: "Rouge" }, "#ff0000", null)).rejects.toThrow(
-      /La couleur « Rouge » existe déjà/,
-    );
+    const res = await createColorQuick({ fr: "Rouge" }, "#ff0000", null);
+
+    expect(res).toEqual({
+      ok: false,
+      error: "La couleur « Rouge » existe déjà dans la bibliothèque.",
+    });
+    expect(mockColorCreate).not.toHaveBeenCalled();
+  });
+
+  it("renvoie un message si le nom (FR) est vide", async () => {
+    const res = await createColorQuick({ fr: "   " }, "#ff0000", null);
+    expect(res).toEqual({ ok: false, error: "Le nom (FR) est requis." });
+    expect(mockColorFindFirst).not.toHaveBeenCalled();
     expect(mockColorCreate).not.toHaveBeenCalled();
   });
 });
