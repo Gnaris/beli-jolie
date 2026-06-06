@@ -40,6 +40,16 @@ const nextConfig: NextConfig = {
     "/api/admin/products/import/images/variants": ["./public/**"],
   },
 
+  // Forcer l'inclusion du modèle XLSX officiel d'Ankorstore dans le bundle de
+  // l'API d'export — il sert de base au générateur (`generate-ankorstore.ts`),
+  // sans quoi Next.js ne le copie pas dans `.next/standalone` ou le tracing
+  // serverless. Sans ça, l'export échouerait en prod avec ENOENT.
+  outputFileTracingIncludes: {
+    "/api/admin/marketplace-export": [
+      "./lib/marketplace-excel/templates/ankorstore-template.xlsx",
+    ],
+  },
+
   // ─── Security & performance headers ───
   async headers() {
     const csp = [

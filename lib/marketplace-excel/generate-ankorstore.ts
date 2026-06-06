@@ -35,6 +35,7 @@
  */
 
 import ExcelJS from "exceljs";
+import path from "path";
 import type { ExportProduct, ExportContext, ExportVariant } from "./types";
 import { buildMarketplaceImageUrl } from "@/lib/marketplace-image";
 import {
@@ -43,53 +44,24 @@ import {
   variantUnitPriceWithMarkup,
 } from "./format-helpers";
 
-const ANKORSTORE_HEADERS = [
-  "SKU",
-  "Nom du produit",
-  "Description du produit",
-  "Tailles des variantes",
-  "Couleurs des variants",
-  "Autres attributs de variante",
-  "Image de la variante",
-  "Image 1",
-  "Image 2",
-  "Image 3",
-  "Image 4",
-  "Image 5",
-  "Prix de gros/unité",
-  "Prix de détail/unité",
-  "Taux de TVA %",
-  "Remise sur le prix de gros %",
-  "Nombre d'unités par paquet",
-  "Stock",
-  "Fabriqué en (code pays, par ex. FR)",
-  "Code douanier (code SH)",
-  "IAN (EAN-13)",
-  "Unité de dimension",
-  "Dimension : Longueur",
-  "Dimension : Largeur",
-  "Dimension : Hauteur",
-  "Unité de poids",
-  "Poids",
-  "Unité de volume",
-  "Volume",
-  "Composition",
-  "Liste INCI",
-  "Matériau",
-  "Liste des ingrédients",
-  "Date limite de consommation recommandée",
-  "Date de durabilité minimale",
-  "Meilleure vente",
-  "Contient de l'alcool",
-  "Sans cruauté",
-  "Écologique",
-  "Doit être réfrigéré",
-  "Produit congelé",
-  "Fait main",
-  "Biologique",
-  "Végan",
-  "Objectif zéro déchet",
-] as const;
+/**
+ * Chemin vers le modèle XLSX officiel d'Ankorstore — utilisé comme base pour
+ * conserver TOUT le formatage (en-têtes en texte enrichi avec astérisques
+ * rouges, feuilles d'aide LISEZ-MOI/Exemples/Codes pays, styles cellules,
+ * largeurs de colonnes, validations…). On ne fait qu'injecter les lignes de
+ * données dans la feuille "Vos produits". Tenter de recréer le fichier
+ * à la main produisait des en-têtes en texte simple qui faisaient échouer
+ * l'import Ankorstore avec des erreurs "should not be blank" alors que les
+ * valeurs étaient présentes.
+ */
+const ANKORSTORE_TEMPLATE_PATH = path.join(
+  process.cwd(),
+  "lib/marketplace-excel/templates/ankorstore-template.xlsx",
+);
+
+// Les en-têtes de colonnes (45 colonnes) sont fournis par le modèle XLSX
+// officiel d'Ankorstore chargé au moment de la génération, on n'en garde plus
+// de copie locale ici — cf. ANKORSTORE_TEMPLATE_PATH ci-dessus.
 
 /**
  * Cellule de l'export Ankorstore : `null` = cellule véritablement vide en XLSX
@@ -243,21 +215,45 @@ export async function generateAnkorstoreExcelFiles(
 ): Promise<{ filename: string; buffer: Buffer }[]> {
   if (products.length === 0) return [];
 
+  // On part du modèle officiel d'Ankorstore et on n'ajoute que les lignes de
+  // données — toute la structure du fichier (en-têtes en texte enrichi,
+  // feuilles LISEZ-MOI / Exemples / Codes pays, styles, validations) est
+  // conservée telle quelle pour passer l'import sans accroc.
   const wb = new ExcelJS.Workbook();
-  const sheet = wb.addWorksheet("Vos produits");
+  await wb.xlsx.readFile(ANKORSTORE_TEMPLATE_PATH);
 
-  sheet.addRow([...ANKORSTORE_HEADERS]);
-  sheet.getRow(1).font = { bold: true };
+  const sheet = wb.getWorksheet("Vos produits");
+  if (!sheet) {
+    throw new Error("Modèle Ankorstore : feuille 'Vos produits' introuvable.");
+  }
 
-  for (const p of products) {
-    for (const row of productToAnkorstoreRows(p, ctx)) {
-      sheet.addRow(row);
+  // Le modèle contient des lignes d'exemple/d'historique après l'en-tête. On
+  // les vide cellule par cellule en mettant seulement `cell.value = null` —
+  // l'astuce critique est de conserver le STYLE des cellules (s="6" pour
+  // remplies, s="7" pour vides). Sans ces styles, Ankorstore lit les valeurs
+  // mais signale "should not be blank" / "VAT rate is required" comme si
+  // elles étaient absentes (cf. tests 2026-06-06).
+  // À éviter : `sheet.getRow(r).values = []` qui écrase aussi le style.
+  const oldRowCount = sheet.rowCount;
+  for (let r = 2; r <= oldRowCount; r++) {
+    const row = sheet.getRow(r);
+    for (let c = 1; c <= 45; c++) {
+      row.getCell(c).value = null;
     }
   }
 
-  sheet.columns.forEach((col) => {
-    col.width = 18;
-  });
+  // Écrit nos données cellule par cellule pour préserver les styles hérités
+  // du modèle. `productToAnkorstoreRows` renvoie des tableaux 0-indexés alignés
+  // sur les 45 colonnes du modèle.
+  let currentRow = 2;
+  for (const p of products) {
+    for (const dataRow of productToAnkorstoreRows(p, ctx)) {
+      const row = sheet.getRow(currentRow++);
+      for (let i = 0; i < dataRow.length; i++) {
+        row.getCell(i + 1).value = dataRow[i];
+      }
+    }
+  }
 
   const buf = await wb.xlsx.writeBuffer();
   return [
