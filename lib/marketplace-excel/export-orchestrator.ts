@@ -18,6 +18,7 @@ import { generatePfsExcelFiles } from "./generate-pfs";
 import { generateEfashionExcelFiles } from "./generate-efashion";
 import { generateMicrostoreExcelFiles } from "./generate-microstore";
 import { generateAnkorstoreExcelFiles } from "./generate-ankorstore";
+import { enrichProductsWithPfsTranslations } from "./enrich-translations-pfs";
 import {
   prepareImagesForPfs,
   prepareImagesForEfashion,
@@ -246,9 +247,15 @@ async function bundlePfsImagesIntoParts(
 async function runPfsExport(args: PfsExportArgs): Promise<MarketplaceExportResult> {
   const { products, ctx, baseName, label, today, results } = args;
 
+  // Enrichit les produits avec les traductions EN/ES/DE/IT à la volée — pas
+  // d'écriture en base, c'est uniquement en mémoire pour cet export. Le site
+  // reste FR + EN. L'API PFS renvoie toutes les langues en 1 seul appel par
+  // texte. Cf. lib/marketplace-excel/enrich-translations-pfs.ts.
+  const translatedProducts = await enrichProductsWithPfsTranslations(products);
+
   const [excelFiles, allImages] = await Promise.all([
-    generatePfsExcelFiles(products, ctx),
-    prepareImagesForPfs(products),
+    generatePfsExcelFiles(translatedProducts, ctx),
+    prepareImagesForPfs(translatedProducts),
   ]);
 
   const imageParts = await bundlePfsImagesIntoParts(allImages);
