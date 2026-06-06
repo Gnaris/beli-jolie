@@ -1463,6 +1463,182 @@ export async function bulkUpdateProductStatus(
 }
 
 // ─────────────────────────────────────────────
+// Mise à jour en masse d'attributs produit (catégorie, code SH, composition,
+// pays de fabrication, saison, best-seller). Chaque champ est optionnel ;
+// `undefined` = on ne touche pas. `compositions` quand fourni remplace
+// entièrement la composition existante. La propagation marketplaces est
+// laissée à l'UI (modale avec cases à cocher après).
+// ─────────────────────────────────────────────
+
+export interface BulkProductAttributesInput {
+  categoryId?: string;
+  /** Liste de sous-catégories à appliquer (remplace l'existant). [] = vide la liste. */
+  subCategoryIds?: string[];
+  /** null = retire le code SH du produit. */
+  hsCodeId?: string | null;
+  /** null = retire le pays de fabrication. */
+  manufacturingCountryId?: string | null;
+  /** null = retire la saison. */
+  seasonId?: string | null;
+  isBestSeller?: boolean;
+  /** Remplace toute la composition. Liste vide = on supprime la composition. */
+  compositions?: { compositionId: string; percentage: number }[];
+}
+
+export async function bulkUpdateProductAttributes(
+  productIds: string[],
+  input: BulkProductAttributesInput,
+): Promise<{ updated: number; success: string[]; errors: { id: string; reference: string; reason: string }[] }> {
+  await requireAdmin();
+  if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
+  if (productIds.length > 1000) throw new Error("Maximum 1000 produits à la fois.");
+
+  // Vérifier qu'au moins un champ est fourni
+  const hasAny =
+    input.categoryId !== undefined ||
+    input.subCategoryIds !== undefined ||
+    input.hsCodeId !== undefined ||
+    input.manufacturingCountryId !== undefined ||
+    input.seasonId !== undefined ||
+    input.isBestSeller !== undefined ||
+    input.compositions !== undefined;
+  if (!hasAny) throw new Error("Aucune modification demandée.");
+
+  // Vérif des FK
+  if (input.categoryId) {
+    const c = await prisma.category.findUnique({ where: { id: input.categoryId }, select: { id: true } });
+    if (!c) throw new Error("La catégorie sélectionnée n'existe plus. Rechargez la page.");
+  }
+  if (input.subCategoryIds && input.subCategoryIds.length > 0) {
+    const subs = await prisma.subCategory.findMany({
+      where: { id: { in: input.subCategoryIds } },
+      select: { id: true, categoryId: true },
+    });
+    if (subs.length !== input.subCategoryIds.length) {
+      throw new Error("Une sous-catégorie sélectionnée n'existe plus. Rechargez la page.");
+    }
+    if (input.categoryId) {
+      const wrong = subs.find((s) => s.categoryId !== input.categoryId);
+      if (wrong) throw new Error("Une sous-catégorie sélectionnée n'appartient pas à la catégorie choisie.");
+    }
+  }
+  if (input.hsCodeId) {
+    const h = await prisma.hsCode.findUnique({ where: { id: input.hsCodeId }, select: { id: true } });
+    if (!h) throw new Error("Le code SH sélectionné n'existe plus. Rechargez la page.");
+  }
+  if (input.manufacturingCountryId) {
+    const c = await prisma.manufacturingCountry.findUnique({ where: { id: input.manufacturingCountryId }, select: { id: true } });
+    if (!c) throw new Error("Le pays de fabrication sélectionné n'existe plus. Rechargez la page.");
+  }
+  if (input.seasonId) {
+    const s = await prisma.season.findUnique({ where: { id: input.seasonId }, select: { id: true } });
+    if (!s) throw new Error("La saison sélectionnée n'existe plus. Rechargez la page.");
+  }
+  if (input.compositions && input.compositions.length > 0) {
+    const ids = [...new Set(input.compositions.map((c) => c.compositionId))];
+    const comps = await prisma.composition.findMany({ where: { id: { in: ids } }, select: { id: true } });
+    if (comps.length !== ids.length) {
+      throw new Error("Une composition sélectionnée n'existe plus. Rechargez la page.");
+    }
+    const total = input.compositions.reduce((sum, c) => sum + c.percentage, 0);
+    if (Math.round(total * 100) !== 10000) {
+      throw new Error(`La somme des pourcentages doit faire 100% (actuel : ${total}%).`);
+    }
+    for (const c of input.compositions) {
+      if (c.percentage <= 0 || c.percentage > 100) {
+        throw new Error("Chaque pourcentage doit être entre 0 et 100.");
+      }
+    }
+  }
+
+  // Charger les produits existants
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, reference: true, categoryId: true },
+  });
+  if (products.length === 0) throw new Error("Aucun produit trouvé.");
+
+  const success: string[] = [];
+  const errors: { id: string; reference: string; reason: string }[] = [];
+
+  // Champs scalaires applicables d'un coup via updateMany (sauf relations M2M
+  // et compositions qui nécessitent un par-produit).
+  const scalarData: Record<string, unknown> = {};
+  if (input.categoryId !== undefined) scalarData.categoryId = input.categoryId;
+  if (input.hsCodeId !== undefined) scalarData.hsCodeId = input.hsCodeId;
+  if (input.manufacturingCountryId !== undefined) scalarData.manufacturingCountryId = input.manufacturingCountryId;
+  if (input.seasonId !== undefined) scalarData.seasonId = input.seasonId;
+  if (input.isBestSeller !== undefined) scalarData.isBestSeller = input.isBestSeller;
+
+  // Boucle produit (transactions individuelles pour ne pas tout perdre si un
+  // produit échoue ; les vérifs FK ont déjà été faites en amont).
+  for (const p of products) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Si on change la catégorie sans toucher aux sous-cats, on vide les
+        // sous-cats existantes (elles appartenaient à l'ancienne catégorie).
+        const needsResetSubCats =
+          input.categoryId !== undefined &&
+          input.categoryId !== p.categoryId &&
+          input.subCategoryIds === undefined;
+
+        await tx.product.update({
+          where: { id: p.id },
+          data: {
+            ...scalarData,
+            ...(input.subCategoryIds !== undefined && {
+              subCategories: { set: input.subCategoryIds.map((id) => ({ id })) },
+            }),
+            ...(needsResetSubCats && {
+              subCategories: { set: [] },
+            }),
+          },
+        });
+
+        if (input.compositions !== undefined) {
+          await tx.productComposition.deleteMany({ where: { productId: p.id } });
+          if (input.compositions.length > 0) {
+            await tx.productComposition.createMany({
+              data: input.compositions.map((c) => ({
+                productId: p.id,
+                compositionId: c.compositionId,
+                percentage: c.percentage,
+              })),
+            });
+          }
+        }
+      });
+      success.push(p.id);
+    } catch (e) {
+      logger.error("[bulkUpdateProductAttributes] echec produit", { error: e, productId: p.id });
+      errors.push({
+        id: p.id,
+        reference: p.reference,
+        reason: e instanceof Error ? e.message : "Erreur inconnue",
+      });
+    }
+  }
+
+  // Produits demandés mais introuvables en BDD
+  for (const reqId of productIds) {
+    if (!products.find((p) => p.id === reqId)) {
+      errors.push({ id: reqId, reference: reqId, reason: "Produit introuvable." });
+    }
+  }
+
+  if (success.length > 0) {
+    revalidatePath("/admin/produits");
+    revalidatePath("/produits");
+    revalidateTag("products", "default");
+    for (const pid of success) {
+      emitProductEvent({ type: "PRODUCT_UPDATED", productId: pid });
+    }
+  }
+
+  return { updated: success.length, success, errors };
+}
+
+// ─────────────────────────────────────────────
 // Prévisualisation : indique quels produits seront supprimés définitivement
 // vs archivés (déjà vendus), AVANT de lancer l'action.
 // ─────────────────────────────────────────────

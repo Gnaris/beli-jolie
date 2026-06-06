@@ -198,6 +198,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     tags,
     compositions,
     hsCodeRows,
+    manufacturingCountries,
+    seasons,
     sectionCounts,
     hasPfsConfig,
     hasAnkorstoreConfig,
@@ -247,6 +249,15 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     prisma.hsCode.findMany({
       orderBy: { code: "asc" },
       select: { id: true, code: true, label: true },
+    }),
+    // Bibliothèque pays + saisons (pour la modale d'édition en masse)
+    prisma.manufacturingCountry.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.season.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
     }),
     // Section counts for tabs (lightweight parallel queries)
     Promise.all([
@@ -416,6 +427,17 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         ankorstoreEnabled={ankorstoreEnabled}
         hasEfashionConfig={hasEfashionConfig}
         efashionEnabled={efashionEnabled}
+        bulkEditOptions={{
+          categories: categories.map((c) => ({
+            id: c.id,
+            name: c.name,
+            subCategories: c.subCategories.map((s) => ({ id: s.id, name: s.name })),
+          })),
+          hsCodes: hsCodes.map((h) => ({ id: h.id, code: h.code, label: h.label })),
+          compositions: compositions.map((c) => ({ id: c.id, name: c.name })),
+          manufacturingCountries: manufacturingCountries.map((c) => ({ id: c.id, name: c.name })),
+          seasons: seasons.map((s) => ({ id: s.id, name: s.name })),
+        }}
       />
 
       {/* Pagination */}
@@ -453,19 +475,12 @@ async function CategoriesContent() {
   ]);
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
-      <div>
-        <h1 className="page-title">Catégories &amp; sous-catégories</h1>
-        <p className="page-subtitle font-body">
-          Organisez votre catalogue produits
-        </p>
-      </div>
-
-      <div className="bg-bg-primary border border-border rounded-xl p-5 flex items-center justify-between">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <p className="text-sm font-semibold text-text-primary font-heading">Nouvelle catégorie</p>
-          <p className="text-xs text-text-muted font-body mt-0.5">
-            Saisissez le nom dans toutes les langues souhaitées.
+          <h1 className="page-title">Catégories &amp; sous-catégories</h1>
+          <p className="page-subtitle font-body">
+            Organisez votre catalogue produits
           </p>
         </div>
         <EntityCreateButton type="category" label="+ Créer une catégorie" />

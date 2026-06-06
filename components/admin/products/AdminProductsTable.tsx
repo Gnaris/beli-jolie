@@ -7,12 +7,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   bulkUpdateProductStatus,
+  bulkUpdateProductAttributes,
   bulkDeleteProducts,
   previewProductDeletion,
   updateVariantQuick,
   bulkUpdateVariants,
 } from "@/app/actions/admin/products";
 import { deleteProductsOnPfs, deleteProductsOnAnkorstore, deleteProductsOnEfashion } from "@/app/actions/admin/marketplace-delete";
+import BulkEditAttributesModal, { type BulkEditOptions, type BulkEditPayload } from "@/components/admin/products/BulkEditAttributesModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
@@ -484,6 +486,8 @@ interface Props {
   ankorstoreEnabled: boolean;
   hasEfashionConfig: boolean;
   efashionEnabled: boolean;
+  /** Listes pour la modale d'édition en masse (catégorie, code SH, etc.) */
+  bulkEditOptions: BulkEditOptions;
 }
 
 // ─── Variant Editor Row ────────────────────────────────────────────────────────
@@ -2167,11 +2171,13 @@ export default function AdminProductsTable({
   ankorstoreEnabled,
   hasEfashionConfig,
   efashionEnabled,
+  bulkEditOptions,
 }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const router = useRouter();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
@@ -2427,6 +2433,153 @@ export default function AdminProductsTable({
       }
     }
   }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, router]);
+
+  // ─── Bulk modif d'attributs produit (catégorie, code SH, composition, pays,
+  // saison, best-seller) ──
+  const handleBulkAttributes = useCallback(async (payload: BulkEditPayload) => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) {
+      setBulkEditOpen(false);
+      return;
+    }
+
+    setBulkMessage(null);
+    type BulkAttrResult = Awaited<ReturnType<typeof bulkUpdateProductAttributes>>;
+    const result = await new Promise<BulkAttrResult | null>((resolve) => {
+      startTransition(async () => {
+        try {
+          showLoading(`Modification de ${ids.length} produit${ids.length > 1 ? "s" : ""}…`);
+          const r = await bulkUpdateProductAttributes(ids, payload);
+          const msgs: string[] = [];
+          if (r.updated > 0) {
+            msgs.push(`${r.updated} produit${r.updated > 1 ? "s" : ""} modifié${r.updated > 1 ? "s" : ""}`);
+          }
+          if (r.errors.length > 0) {
+            msgs.push(`${r.errors.length} en erreur (${r.errors.slice(0, 3).map((e) => e.reference).join(", ")}${r.errors.length > 3 ? "…" : ""})`);
+          }
+          setBulkMessage({
+            type: r.errors.length === 0 ? "success" : "error",
+            text: msgs.join(" — ") || "Aucun changement.",
+          });
+          resolve(r);
+        } catch (e) {
+          setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
+          resolve(null);
+        } finally {
+          hideLoading();
+          setBulkEditOpen(false);
+        }
+      });
+    });
+
+    // Propose la propagation aux marketplaces sur les produits modifiés et déjà
+    // publiés (PFS + Ankorstore + eFashion).
+    const successIds = result?.success ?? [];
+    if (successIds.length === 0) return;
+
+    const pfsCandidates = hasPfsConfig
+      ? allProducts.filter((p) => successIds.includes(p.id) && p.pfsProductId)
+      : [];
+    const ankorsCandidates = showAnkorstore
+      ? allProducts.filter((p) => successIds.includes(p.id) && p.ankorsProductId)
+      : [];
+    const efashionCandidates = showEfashion
+      ? allProducts.filter(
+          (p) =>
+            successIds.includes(p.id) &&
+            (p.colors ?? []).some((c) => c.efashionProductId != null),
+        )
+      : [];
+
+    if (pfsCandidates.length === 0 && ankorsCandidates.length === 0 && efashionCandidates.length === 0) return;
+
+    const pfsRef = { current: pfsCandidates.length > 0 };
+    const ankorsRef = { current: ankorsCandidates.length > 0 };
+    const efashionRef = { current: efashionCandidates.length > 0 };
+    const checkboxes: {
+      id: string;
+      label: string;
+      defaultChecked: boolean;
+      onChange: (v: boolean) => void;
+    }[] = [];
+    if (pfsCandidates.length > 0) {
+      checkboxes.push({
+        id: "pfs",
+        label: `Mettre à jour sur Paris Fashion Shop (${pfsCandidates.length} sur ${successIds.length})`,
+        defaultChecked: true,
+        onChange: (v) => { pfsRef.current = v; },
+      });
+    }
+    if (ankorsCandidates.length > 0) {
+      checkboxes.push({
+        id: "ankorstore",
+        label: `Mettre à jour sur Ankorstore (${ankorsCandidates.length} sur ${successIds.length})`,
+        defaultChecked: true,
+        onChange: (v) => { ankorsRef.current = v; },
+      });
+    }
+    if (efashionCandidates.length > 0) {
+      checkboxes.push({
+        id: "efashion",
+        label: `Mettre à jour sur eFashion Paris (${efashionCandidates.length} sur ${successIds.length})`,
+        defaultChecked: true,
+        onChange: (v) => { efashionRef.current = v; },
+      });
+    }
+
+    const ok = await confirm({
+      type: "info",
+      title: "Propager aux marketplaces ?",
+      message: "Les modifications seront envoyées sur les marketplaces cochées pour les produits déjà publiés.",
+      checkboxesLabel: "Marketplaces",
+      checkboxes,
+      confirmLabel: "Mettre à jour",
+      cancelLabel: "Plus tard",
+    });
+    if (ok !== true) return;
+
+    const inputs: Parameters<typeof enqueuePfs>[0] = [];
+    if (pfsRef.current) {
+      for (const p of pfsCandidates) {
+        inputs.push({
+          productId: p.id,
+          reference: p.reference,
+          productName: p.name,
+          firstImage: p.firstImage,
+          options: { local: false, pfs: true },
+          mode: "publish" as const,
+          marketplace: "pfs" as const,
+        });
+      }
+    }
+    if (ankorsRef.current) {
+      for (const p of ankorsCandidates) {
+        inputs.push({
+          productId: p.id,
+          reference: p.reference,
+          productName: p.name,
+          firstImage: p.firstImage,
+          options: { local: false, pfs: false, ankorstore: true },
+          mode: "publish" as const,
+          marketplace: "ankorstore" as const,
+        });
+      }
+    }
+    if (efashionRef.current) {
+      for (const p of efashionCandidates) {
+        inputs.push({
+          productId: p.id,
+          reference: p.reference,
+          productName: p.name,
+          firstImage: p.firstImage,
+          options: { local: false, pfs: false, ankorstore: false, efashion: true },
+          mode: "publish" as const,
+          marketplace: "efashion" as const,
+        });
+      }
+    }
+    if (inputs.length > 0) enqueuePfs(inputs);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, showAnkorstore, showEfashion]);
 
   const handleBulkDelete = useCallback(async (idsOverride?: string[]) => {
     const ids = idsOverride ?? [...selectedIds];
@@ -3010,6 +3163,18 @@ export default function AdminProductsTable({
             </svg>
             Rafraîchir
           </button>
+          <button
+            type="button"
+            onClick={() => setBulkEditOpen(true)}
+            disabled={isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#A855F7] text-white text-xs font-medium rounded-lg hover:bg-[#9333EA] disabled:opacity-50 transition-colors font-body"
+            title="Modifier en masse : catégorie, code SH, composition, pays, saison, best-seller"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+            </svg>
+            Modifier
+          </button>
           <div className="h-4 w-px bg-bg-primary/20" />
           <MarketplaceExportButton
             productIds={Array.from(selectedIds)}
@@ -3067,6 +3232,16 @@ export default function AdminProductsTable({
           isPending={isPending}
         />
       )}
+
+      {/* Modale d'édition en masse d'attributs produit */}
+      <BulkEditAttributesModal
+        open={bulkEditOpen}
+        selectedCount={selectedIds.size}
+        options={bulkEditOptions}
+        onCancel={() => setBulkEditOpen(false)}
+        onApply={handleBulkAttributes}
+        isPending={isPending}
+      />
     </div>
   );
 }
