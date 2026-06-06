@@ -97,7 +97,10 @@ export function productToPfsRows(p: ExportProduct, ctx: ExportContext): Row[] {
     const compositionMatiere = formatCompositionPfs(p);
 
     const prixHT = variantUnitPriceWithMarkup(v, markup);
-    const stockPcs = isPack && v.packQuantity ? v.stock * v.packQuantity : v.stock;
+    // Stock exporté tel qu'affiché dans l'admin — pas de multiplication par
+    // la taille du pack. La cliente gère son stock en "packs" (ou en unités)
+    // et veut voir la même valeur côté marketplace (décision 2026-06-06).
+    const stockPcs = v.stock;
 
     return [
       ctx.shopName, // 1. Marque

@@ -97,6 +97,32 @@ describe("productToPfsRows", () => {
     expect(rows[0]![14]).toBe(3.5); // prix HT (per-piece)
   });
 
+  it("exporte le stock tel quel pour un PACK (pas multiplié par la quantité du pack)", () => {
+    // Décision 2026-06-06 : la cliente veut voir dans l'export le stock
+    // affiché en admin (= nombre de packs), pas le total en pièces.
+    const p = makeProduct({
+      variants: [
+        makeVariant({
+          saleType: "PACK",
+          packQuantity: 12,
+          unitPrice: 42,
+          stock: 1000,
+          sizes: [{ name: "TU", quantity: 12, pfsSizeRef: "TU" }],
+        }),
+      ],
+    });
+    const rows = productToPfsRows(p, makeCtx());
+    expect(rows[0]![16]).toBe(1000); // col 17 "Quantité total stock pcs"
+  });
+
+  it("exporte le stock tel quel pour une UNIT (pas de multiplication)", () => {
+    const p = makeProduct({
+      variants: [makeVariant({ stock: 1000 })],
+    });
+    const rows = productToPfsRows(p, makeCtx());
+    expect(rows[0]![16]).toBe(1000); // col 17
+  });
+
   it("uses Composition Matière in column 19", () => {
     const rows = productToPfsRows(makeProduct(), makeCtx());
     expect(rows[0]![18]).toBe("100% Acier Inoxydable"); // col 19
