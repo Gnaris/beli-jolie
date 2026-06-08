@@ -176,6 +176,22 @@ export function computeRowActionEligibility(
   };
 }
 
+/**
+ * Vrai si la colonne « Marketplaces » doit afficher un message « impossible de
+ * lier » à la place des badges PFS / Ankorstore / eFashion. C'est le cas pour
+ * un produit en brouillon (fiche incomplète) qui n'a encore été publié ou lié
+ * sur aucune marketplace — afficher 3 badges grisés ne dit rien à l'utilisateur,
+ * un message clair est plus utile. Exporté pour les tests unitaires.
+ */
+export function shouldShowDraftMarketplaceNotice(p: {
+  isIncomplete: boolean;
+  pfsProductId: string | null;
+  ankorsProductId: string | null;
+  efashionLinked: boolean;
+}): boolean {
+  return p.isIncomplete && !p.pfsProductId && !p.ankorsProductId && !p.efashionLinked;
+}
+
 // ─── Marketplace publish badge ─────────────────────────────────────────────────
 
 function MarketplaceBadge({
@@ -1481,47 +1497,66 @@ function ProductRow({
 
         {/* Marketplaces */}
         <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
-          <div className="flex flex-col gap-1.5 items-start">
-            <MarketplaceBadge
-              published={!!product.pfsProductId}
-              publishing={isPfsPublishing}
-              onPublishClick={
-                eligibility.canPublishPfs && !isPfsPublishing
-                  ? () => { void handlePublishPfs(); }
-                  : undefined
-              }
-            />
-            <AnkorstoreBadge
-              published={!!product.ankorsProductId}
-              publishing={isAnkorstorePublishing}
-              onPublishClick={
-                eligibility.canPublishAnkorstore && !isAnkorstorePublishing
-                  ? () => { void handlePublishAnkorstore(); }
-                  : undefined
-              }
-              onLinkClick={
-                showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing
-                  ? () => setLinkAkOpen(true)
-                  : undefined
-              }
-            />
-            {showEfashion && (
-              <EfashionBadge
-                linked={efashionLinked}
-                publishing={isEfashionPublishing}
+          {shouldShowDraftMarketplaceNotice({
+            isIncomplete: product.isIncomplete,
+            pfsProductId: product.pfsProductId,
+            ankorsProductId: product.ankorsProductId,
+            efashionLinked,
+          }) ? (
+            <div
+              className="inline-flex items-start gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-[#F3E8FF] text-[#7C3AED] border border-[#DDD6FE] max-w-[200px]"
+              title="Ce produit est en brouillon : finalisez la fiche (image, prix, etc.) pour pouvoir le publier ou le lier à une marketplace."
+            >
+              <svg className="w-3 h-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              <span className="leading-tight">
+                Brouillon — impossible de lier aux marketplaces
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5 items-start">
+              <MarketplaceBadge
+                published={!!product.pfsProductId}
+                publishing={isPfsPublishing}
                 onPublishClick={
-                  eligibility.canPublishEfashion && !isEfashionPublishing
-                    ? () => { void handlePublishEfashion(); }
-                    : undefined
-                }
-                onLinkClick={
-                  showEfashion && !efashionLinked && !isEfashionPublishing
-                    ? () => setLinkEfOpen(true)
+                  eligibility.canPublishPfs && !isPfsPublishing
+                    ? () => { void handlePublishPfs(); }
                     : undefined
                 }
               />
-            )}
-          </div>
+              <AnkorstoreBadge
+                published={!!product.ankorsProductId}
+                publishing={isAnkorstorePublishing}
+                onPublishClick={
+                  eligibility.canPublishAnkorstore && !isAnkorstorePublishing
+                    ? () => { void handlePublishAnkorstore(); }
+                    : undefined
+                }
+                onLinkClick={
+                  showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing
+                    ? () => setLinkAkOpen(true)
+                    : undefined
+                }
+              />
+              {showEfashion && (
+                <EfashionBadge
+                  linked={efashionLinked}
+                  publishing={isEfashionPublishing}
+                  onPublishClick={
+                    eligibility.canPublishEfashion && !isEfashionPublishing
+                      ? () => { void handlePublishEfashion(); }
+                      : undefined
+                  }
+                  onLinkClick={
+                    showEfashion && !efashionLinked && !isEfashionPublishing
+                      ? () => setLinkEfOpen(true)
+                      : undefined
+                  }
+                />
+              )}
+            </div>
+          )}
         </td>
 
         {/* Date de création + dernier rafraîchissement */}
