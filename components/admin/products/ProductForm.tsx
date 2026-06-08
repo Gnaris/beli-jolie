@@ -945,32 +945,12 @@ export default function ProductForm({
     setTranslateError("");
     setTranslateSuccess("");
 
-    // Fetch quota
-    let remaining: number;
-    let resetDate: string;
-    try {
-      const res = await fetch("/api/admin/translate");
-      const data = await res.json();
-      remaining = data.remaining;
-      resetDate = data.resetDate;
-    } catch {
-      setTranslateError("Impossible de vérifier le quota.");
-      return;
-    }
-
     const texts = [name.trim(), description.trim()].filter(Boolean);
-    const totalChars = texts.reduce((sum, t) => sum + t.length, 0) * 6;
-
-    if (remaining < totalChars) {
-      const formatted = new Date(resetDate).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
-      setTranslateError(`Quota insuffisant. Réinitialisation le ${formatted}.`);
-      return;
-    }
 
     const confirmed = await confirm({
       type: "info",
       title: "Tout traduire (nom + description)",
-      message: `Traduire le nom et la description vers ${localeListStr}.\n\nCaractères nécessaires : ${totalChars.toLocaleString("fr-FR")} (× 6 langues)\nCaractères restants : ${remaining.toLocaleString("fr-FR")} / 500 000`,
+      message: `Traduire le nom et la description en ${localeListStr} via l'API Paris Fashion Shop.`,
       confirmLabel: "Traduire",
       cancelLabel: "Annuler",
     });
@@ -2249,6 +2229,7 @@ export default function ProductForm({
                       placeholder="— Sélectionner —"
                       loading={!attributesLoaded}
                       emptyMessage="Aucune catégorie n'est créée"
+                      searchable
                     />
                   </div>
                 </div>
@@ -2314,6 +2295,7 @@ export default function ProductForm({
                     loading={!attributesLoaded}
                     emptyMessage="Aucun pays n'est créé"
                     className={mode === "create" && !manufacturingCountryId ? "field-error" : ""}
+                    searchable
                   />
                 </div>
 
@@ -2339,6 +2321,7 @@ export default function ProductForm({
                     loading={!attributesLoaded}
                     emptyMessage="Aucune saison n'est créée"
                     className={mode === "create" && !seasonId ? "field-error" : ""}
+                    searchable
                   />
                 </div>
               </div>
@@ -2467,6 +2450,7 @@ export default function ProductForm({
                     placeholder="— Choisir un matériau —"
                     loading={!attributesLoaded}
                     emptyMessage="Aucune composition n'est créée"
+                    searchable
                   />
                 </div>
                 <button type="button" onClick={addComposition} disabled={!newCompId}
