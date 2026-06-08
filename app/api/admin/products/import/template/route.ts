@@ -28,9 +28,6 @@ const COLORS = {
   requiredText: "B91C1C", // red-700
   optionalBg: "F1F5F9",   // slate-100
   optionalText: "64748B", // slate-500
-  // Lignes de données
-  dataRowA: "FFFFFF",
-  dataRowB: "FAFAFA",     // neutral-50
 };
 
 const BORDER_THIN: Partial<ExcelJS.Borders> = {
@@ -114,79 +111,6 @@ const COLUMNS: ColumnDef[] = [...PRODUCT_COLUMNS, ...VARIANT_COLUMNS];
 const PRODUCT_COL_COUNT = PRODUCT_COLUMNS.length;
 const VARIANT_COL_COUNT = VARIANT_COLUMNS.length;
 
-// ── Données-exemple (3 produits) ──
-const SAMPLE_DATA = [
-  // T-shirt simple, 1 variante UNIT
-  {
-    reference: "TSH-001", name: "T-shirt Essentiel", description: "T-shirt col rond en coton bio, coupe droite",
-    category: "T-shirt", sub_categories: "Manche courte,Basique", tags: "basique,coton,essentiel",
-    composition: "Coton:100", primary_color: "Blanc", pays_fabrication: "Portugal", saison: "Été 2026", hs_code: "",
-    taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
-    similar_refs: "", best_seller: "false",
-    color: "Blanc", sale_type: "UNIT", size: "M",
-    unit_price: 14.90, stock: 500, pack_qty: "", discount_type: "", discount_value: "",
-    weight_g: 180,
-  },
-  // T-shirt 3 variantes (fiche produit uniquement sur la 1ʳᵉ ligne)
-  {
-    reference: "TSH-002", name: "T-shirt Oversize Urban", description: "T-shirt oversize à épaules tombantes",
-    category: "T-shirt", sub_categories: "Oversize,Streetwear", tags: "oversize,streetwear",
-    composition: "Coton:90,Élasthanne:10", primary_color: "Noir", pays_fabrication: "Turquie", saison: "Automne 2026", hs_code: "",
-    taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
-    similar_refs: "TSH-001", best_seller: "false",
-    color: "Noir", sale_type: "UNIT", size: "L",
-    unit_price: 24.90, stock: 300, pack_qty: "", discount_type: "", discount_value: "",
-    weight_g: 220,
-  },
-  {
-    reference: "TSH-002", name: "", description: "", name_en: "", description_en: "",
-    category: "", sub_categories: "", tags: "",
-    composition: "", primary_color: "", pays_fabrication: "", saison: "", hs_code: "",
-    taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
-    similar_refs: "", best_seller: "",
-    color: "Kaki", sale_type: "UNIT", size: "M",
-    unit_price: 24.90, stock: 200, pack_qty: "", discount_type: "", discount_value: "",
-    weight_g: "",
-  },
-  {
-    reference: "TSH-002", name: "", description: "", name_en: "", description_en: "",
-    category: "", sub_categories: "", tags: "",
-    composition: "", primary_color: "", pays_fabrication: "", saison: "", hs_code: "",
-    taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
-    similar_refs: "", best_seller: "",
-    color: "Beige", sale_type: "UNIT", size: "S",
-    unit_price: 24.90, stock: 250, pack_qty: "", discount_type: "PERCENT", discount_value: 10,
-    weight_g: "",
-  },
-  // Mocassin + PACK
-  {
-    reference: "MOC-001", name: "Mocassin Cambridge", description: "Mocassin en cuir pleine fleur, semelle cousue Blake",
-    category: "Mocassin", sub_categories: "Cuir,Classique", tags: "cuir,élégant,classique",
-    composition: "Cuir:100", primary_color: "Marron", pays_fabrication: "Italie", saison: "Hiver 2026", hs_code: "",
-    taille_unique_details: "",
-    dimension_length: 28, dimension_width: 10, dimension_height: 8, dimension_diameter: "", dimension_circumference: "",
-    similar_refs: "", best_seller: "false",
-    color: "Marron", sale_type: "UNIT", size: "43",
-    unit_price: 89.90, stock: 80, pack_qty: "", discount_type: "", discount_value: "",
-    weight_g: 380,
-  },
-  {
-    reference: "MOC-001", name: "", description: "", name_en: "", description_en: "",
-    category: "", sub_categories: "", tags: "",
-    composition: "", primary_color: "", pays_fabrication: "", saison: "", hs_code: "",
-    taille_unique_details: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "",
-    similar_refs: "", best_seller: "",
-    color: "Marron", sale_type: "PACK", size: "41:1,42:1,43:1,44:1",
-    unit_price: 14.90, stock: 15, pack_qty: "", discount_type: "PERCENT", discount_value: 25,
-    weight_g: "",
-  },
-];
-
-function getProductGroupIndex(reference: string, data: typeof SAMPLE_DATA): number {
-  const refs = Array.from(new Set(data.map((d) => d.reference)));
-  return refs.indexOf(reference);
-}
-
 function colLetter(index: number): string {
   let n = index + 1;
   let result = "";
@@ -216,7 +140,7 @@ export async function GET() {
   //   Ligne 2 : header de colonne (« Référence * », « Nom * », …)
   //   Ligne 3 : indication « Obligatoire » (rouge) / « Facultatif » (gris)
   //   Ligne 4 : exemple « (ex : ...) » en italique gris
-  //   Ligne 5+ : 3 produits-exemple + lignes vides à remplir
+  //   Ligne 5+ : à remplir par la cliente (modèle livré vide)
   //
   // Côté parseur :
   //   - `range: 1` saute la ligne 1 (section) → ligne 2 devient les headers
@@ -309,40 +233,6 @@ export async function GET() {
     };
     cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     cell.border = BORDER_THIN;
-  });
-
-  // ── Lignes 5+ : données-exemple ──
-  const groupColors = [COLORS.dataRowA, COLORS.dataRowB];
-  SAMPLE_DATA.forEach((dataRow, idx) => {
-    const excelRow = ws.getRow(5 + idx);
-    const groupIdx = getProductGroupIndex(dataRow.reference, SAMPLE_DATA);
-    const bgColor = groupColors[groupIdx % 2];
-
-    excelRow.height = 22;
-    COLUMNS.forEach((col, i) => {
-      const cell = excelRow.getCell(i + 1);
-      const raw = (dataRow as Record<string, unknown>)[col.key];
-      const value = raw ?? "";
-      cell.value = value as ExcelJS.CellValue;
-
-      const isEmpty = value === "" || value === null || value === undefined;
-      cell.font = {
-        name: "Calibri",
-        size: 10,
-        color: { argb: isEmpty ? COLORS.inkMuted : COLORS.ink },
-        italic: isEmpty,
-      };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bgColor } };
-      cell.border = BORDER_THIN;
-      cell.alignment = {
-        vertical: "middle",
-        wrapText: col.key === "description",
-      };
-
-      if (["sale_type", "unit_price", "pack_qty", "stock", "weight_g", "discount_type", "discount_value", "size", "best_seller", "dimension_length", "dimension_width", "dimension_height", "dimension_diameter", "dimension_circumference"].includes(col.key)) {
-        cell.alignment = { horizontal: "center", vertical: "middle" };
-      }
-    });
   });
 
   // ── Validations par liste (à partir de la ligne 5) ──
