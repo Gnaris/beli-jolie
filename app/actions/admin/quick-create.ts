@@ -11,6 +11,30 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { sanitizePfsFamilyName } from "@/lib/pfs-family-resolve";
 
+/** Renvoie les locales (hors FR) que l'utilisatrice a déjà saisies manuellement
+ *  dans la modale — à exclure de l'auto-traduction pour ne pas écraser sa saisie. */
+function userProvidedLocales(translations: Record<string, string>): string[] {
+  return Object.entries(translations)
+    .filter(([locale, value]) => locale !== "fr" && value?.trim().length > 0)
+    .map(([locale]) => locale);
+}
+
+/**
+ * Import dynamique pour éviter de tirer toute la chaîne PFS-auth/cached-data
+ * dans les modules qui n'ont besoin que des actions quick-create (tests + RSC
+ * qui veulent un graph d'imports minimal).
+ */
+type AutoTranslateName = keyof typeof import("@/lib/auto-translate");
+async function autoTranslate(fn: AutoTranslateName, id: string, name: string, skip: string[]) {
+  try {
+    const mod = await import("@/lib/auto-translate");
+    const handler = mod[fn] as (id: string, name: string, skip?: string[]) => Promise<void>;
+    await handler(id, name, skip);
+  } catch {
+    // Fire-and-forget : l'absence de traduction ne doit jamais bloquer la création.
+  }
+}
+
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") throw new Error("Non autorisé");
@@ -70,6 +94,7 @@ export async function createCategoryQuick(
         update: { name: value.trim() },
       });
     }
+    await autoTranslate("autoTranslateCategory", existing.id, name, userProvidedLocales(translations));
     revalidatePath("/admin/produits");
     revalidateTag("categories", "default");
     const subs = await prisma.subCategory.findMany({
@@ -100,6 +125,7 @@ export async function createCategoryQuick(
       update: { name: value.trim() },
     });
   }
+  await autoTranslate("autoTranslateCategory", created.id, name, userProvidedLocales(translations));
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
   return { id: created.id, name: created.name, subCategories: [] };
@@ -126,6 +152,7 @@ export async function createSubCategoryQuick(
       update: { name: value.trim() },
     });
   }
+  await autoTranslate("autoTranslateSubCategory", upserted.id, name, userProvidedLocales(translations));
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
   return { id: upserted.id, name: upserted.name };
@@ -172,6 +199,7 @@ export async function createColorQuick(
       update: { name: value.trim() },
     });
   }
+  await autoTranslate("autoTranslateColor", created.id, name, userProvidedLocales(translations));
 
   // Si une liaison eFashion est demandée → on tente systématiquement
   // d'ajouter la couleur au catalogue vendeur eFashion. Si elle y est déjà,
@@ -236,6 +264,7 @@ export async function createCompositionQuick(
       update: { name: value.trim() },
     });
   }
+  await autoTranslate("autoTranslateComposition", upserted.id, name, userProvidedLocales(translations));
   revalidateTag("compositions", "default");
   return { id: upserted.id, name: upserted.name };
 }
@@ -298,6 +327,7 @@ export async function createManufacturingCountryQuick(
       update: { name: value.trim() },
     });
   }
+  await autoTranslate("autoTranslateManufacturingCountry", upserted.id, name, userProvidedLocales(translations));
   revalidateTag("manufacturing-countries", "default");
   return { id: upserted.id, name: upserted.name };
 }
@@ -336,6 +366,7 @@ export async function createSeasonQuick(
       update: { name: value.trim() },
     });
   }
+  await autoTranslate("autoTranslateSeason", upserted.id, name, userProvidedLocales(translations));
   revalidateTag("seasons", "default");
   return { id: upserted.id, name: upserted.name };
 }
@@ -359,6 +390,7 @@ export async function createTagQuick(
       update: { name: value.trim() },
     });
   }
+  await autoTranslate("autoTranslateTag", created.id, name, userProvidedLocales(translations));
   revalidateTag("tags", "default");
   return { id: created.id, name: created.name };
 }
