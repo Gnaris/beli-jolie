@@ -68,6 +68,10 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const [localDateTo, setLocalDateTo]     = useState(urlDateTo);
   const [localStockBelow, setLocalStockBelow] = useState(urlStockBelow);
 
+  // Champ libre « nombre par page » (utilisé si la valeur n'est pas un preset)
+  const isCustomPerPage = !PRESET_PER_PAGE.map(String).includes(perPage);
+  const [customPerPageDraft, setCustomPerPageDraft] = useState(isCustomPerPage ? perPage : "");
+
   // Sync local state when URL params change (e.g. after reset or back navigation)
   useEffect(() => { setLocalTerms(parseQ(urlQ)); }, [urlQ]);
   useEffect(() => { setLocalMinPrice(urlMinPrice); }, [urlMinPrice]);
@@ -75,6 +79,9 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   useEffect(() => { setLocalDateFrom(urlDateFrom); }, [urlDateFrom]);
   useEffect(() => { setLocalDateTo(urlDateTo); }, [urlDateTo]);
   useEffect(() => { setLocalStockBelow(urlStockBelow); }, [urlStockBelow]);
+  useEffect(() => {
+    setCustomPerPageDraft(PRESET_PER_PAGE.map(String).includes(perPage) ? "" : perPage);
+  }, [perPage]);
 
   // Mémorise/restaure les filtres dans sessionStorage : retrouver la même vue
   // quand on revient sur la liste depuis une fiche produit ou un autre écran.
@@ -319,6 +326,46 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 {n}
               </button>
             ))}
+            {/* Champ libre : nombre personnalisé (max 500) */}
+            <div
+              className={`flex items-center gap-1 px-2 py-1 text-xs font-body border rounded-lg transition-colors ${
+                isCustomPerPage
+                  ? "bg-bg-dark text-text-inverse border-bg-dark"
+                  : "bg-bg-primary text-text-secondary border-border"
+              }`}
+            >
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={customPerPageDraft}
+                onChange={(e) => setCustomPerPageDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const n = parseInt(customPerPageDraft, 10);
+                    if (!isNaN(n) && n >= 1 && n <= 500) navigate({ perPage: String(n) });
+                  }
+                }}
+                placeholder="Autre"
+                title="Nombre personnalisé (1 à 500)"
+                className={`w-14 bg-transparent text-center font-medium tabular-nums focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                  isCustomPerPage ? "placeholder:text-text-inverse/60" : "placeholder:text-text-muted"
+                }`}
+              />
+              {customPerPageDraft && customPerPageDraft !== perPage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const n = parseInt(customPerPageDraft, 10);
+                    if (!isNaN(n) && n >= 1 && n <= 500) navigate({ perPage: String(n) });
+                  }}
+                  className="px-1.5 py-0.5 text-[10px] font-semibold bg-bg-primary text-text-primary border border-border rounded hover:border-bg-dark transition-colors"
+                >
+                  OK
+                </button>
+              )}
+            </div>
           </div>
           <span className="text-xs text-text-muted font-body whitespace-nowrap">
             / {totalCount}
