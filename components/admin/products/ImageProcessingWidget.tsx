@@ -43,17 +43,17 @@ export function ImageProcessingWidget() {
     return counts.total > 0;
   }, [hasActiveWork, counts.failed, counts.total, autoCollapseAt]);
 
+  const failedJobs = useMemo(
+    () => jobs.filter((j) => j.status === "FAILED").slice(0, 8),
+    [jobs],
+  );
+
   if (!visible) return null;
 
   const active = counts.pending + counts.processing;
   const processed = counts.done + counts.failed;
   const totalSeen = active + processed;
   const percent = totalSeen === 0 ? 100 : Math.round((processed / totalSeen) * 100);
-
-  const failedJobs = useMemo(
-    () => jobs.filter((j) => j.status === "FAILED").slice(0, 8),
-    [jobs],
-  );
 
   return (
     <div
