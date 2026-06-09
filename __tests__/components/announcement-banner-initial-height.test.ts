@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX } from "@/components/layout/AnnouncementBanner";
+import { ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX } from "@/components/layout/announcement-banner-constants";
 
 // Le header public se positionne en CSS via `top: var(--announcement-height, 0px)`.
 // Avant l'hydratation, la variable n'existe pas → fallback 0 → le header sauterait
