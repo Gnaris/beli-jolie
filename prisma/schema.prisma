@@ -416,6 +416,7 @@ model Product {
   ankorstoreOperations   AnkorstoreOperation[]
   marketplaceRefreshJobs MarketplaceRefreshJob[]
   efashionShootingBatch  EfashionShootingBatchItem?
+  imageProcessingJobs    ImageProcessingJob[]
 
   // eFashion Paris — chaque couleur du produit BJ correspond à 1 "produit-couleur"
   // chez eFashion (cf. docs/efashion-api.md). On stocke ici la référence partagée
@@ -424,6 +425,16 @@ model Product {
   efashionReferenceBase    String?
   efashionLastSyncSnapshot Json?
   efashionLastRefreshedAt  DateTime?
+
+  // Drapeaux "Synchronisation nécessaire" — passés à true quand un changement
+  // local n'a pas été propagé au marketplace correspondant (save sans cocher
+  // la case marketplace dans la modale de save, ou ajout d'image en arrière-plan).
+  // Remis à false par les actions de refresh/update marketplace, ou par le X
+  // d'annulation dans le badge. Toujours false si le produit n'est pas lié au
+  // marketplace en question.
+  pfsSyncRequired      Boolean @default(false)
+  ankorsSyncRequired   Boolean @default(false)
+  efashionSyncRequired Boolean @default(false)
 
   // Performance indexes for 78k+ products
   @@index([status, createdAt]) // catalog listing (default sort)
@@ -571,6 +582,53 @@ model EfashionShootingBatchItem {
   addedAt   DateTime                  @default(now())
 
   @@index([addedAt])
+}
+
+// ─────────────────────────────────────────────
+// Traitement images en arrière-plan
+// ─────────────────────────────────────────────
+// Quand l'utilisatrice upload N images (ex : 92 d'un coup), le client envoie
+// chaque fichier au serveur qui stocke le buffer brut sur disque et insère un
+// job ici, puis retourne IMMÉDIATEMENT. Le worker `lib/image-queue.ts`
+// (singleton globalThis) picore les jobs PENDING et appelle
+// `processProductImage` (sharp → 3 formats WebP) en parallèle limité.
+//
+// Résilience : au boot Node (`instrumentation.ts`), tout job PENDING ou
+// PROCESSING est repris. Les fichiers bruts sur disque restent jusqu'au DONE
+// puis sont supprimés. Jobs FAILED gardent l'erreur pour Retry depuis le widget.
+//
+// Quand le dernier job PENDING d'un produit lié à PFS/Ankorstore/eFashion
+// passe à DONE, on positionne les flags `*SyncRequired = true`.
+enum ImageJobStatus {
+  PENDING // attend dans la file
+  PROCESSING // sharp en cours
+  DONE // traité avec succès, fichier brut supprimé
+  FAILED // erreur — voir `error`
+}
+
+model ImageProcessingJob {
+  id          String         @id @default(cuid())
+  productId   String?
+  product     Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  // Fichier brut sur disque, supprimé à la fin (PROCESSING → DONE).
+  // Path absolu côté serveur, hors public/.
+  rawPath     String
+  // Dossier cible (forme productImageDir, ex "uploads/produits/e310b")
+  destDir     String
+  // Basename sans extension (ex "e310b-doré-1-abc123")
+  filename    String
+  // Chemin BDD final (ex "/uploads/produits/e310b/e310b-doré-1-abc123.webp")
+  // Connu dès l'enqueue pour que la BDD puisse référencer l'image immédiatement.
+  dbPath      String
+  status      ImageJobStatus @default(PENDING)
+  error       String?        @db.Text
+  createdAt   DateTime       @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([status, createdAt]) // worker : pick PENDING par ordre d'arrivée
+  @@index([productId, status]) // UI : compteur de jobs en cours pour un produit
+  @@index([createdAt]) // purge des vieux DONE/FAILED
 }
 
 // Traductions automatiques des produits

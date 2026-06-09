@@ -1390,6 +1390,8 @@ export async function efashionUpdateProductInPlace(
       data: {
         efashionLastSyncSnapshot: target as unknown as Prisma.InputJsonValue,
         efashionLastRefreshedAt: new Date(),
+        // Push OK → on retire le drapeau « Synchro nécessaire »
+        efashionSyncRequired: false,
       },
     });
   } else {

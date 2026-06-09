@@ -197,12 +197,17 @@ export function shouldShowDraftMarketplaceNotice(p: {
 function MarketplaceBadge({
   published,
   publishing = false,
+  syncRequired = false,
   onPublishClick,
+  onSyncClick,
 }: {
   published: boolean;
   /** Une publication / mise à jour PFS est en cours pour ce produit. */
   publishing?: boolean;
+  /** Le produit est lié à PFS mais des modifs locales n'ont pas été propagées. */
+  syncRequired?: boolean;
   onPublishClick?: () => void;
+  onSyncClick?: () => void;
 }) {
   if (publishing) {
     return (
@@ -222,6 +227,25 @@ function MarketplaceBadge({
         </svg>
         PFS en cours…
       </span>
+    );
+  }
+  if (published && syncRequired) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSyncClick?.();
+        }}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+        title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Paris Fashion Shop"
+      >
+        <span className="relative inline-flex">
+          <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
+          <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+        </span>
+        PFS · Synchro
+      </button>
     );
   }
   if (published) {
@@ -267,14 +291,19 @@ function MarketplaceBadge({
 function AnkorstoreBadge({
   published,
   publishing = false,
+  syncRequired = false,
   onPublishClick,
   onLinkClick,
+  onSyncClick,
 }: {
   published: boolean;
   /** Une publication / mise à jour Ankorstore est en cours pour ce produit. */
   publishing?: boolean;
+  /** Le produit est lié à Ankorstore mais des modifs locales n'ont pas été propagées. */
+  syncRequired?: boolean;
   onPublishClick?: () => void;
   onLinkClick?: () => void;
+  onSyncClick?: () => void;
 }) {
   if (publishing) {
     return (
@@ -294,6 +323,25 @@ function AnkorstoreBadge({
         </svg>
         Ankorstore en cours…
       </span>
+    );
+  }
+  if (published && syncRequired) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSyncClick?.();
+        }}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+        title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Ankorstore"
+      >
+        <span className="relative inline-flex">
+          <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
+          <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+        </span>
+        Ankorstore · Synchro
+      </button>
     );
   }
   if (published) {
@@ -363,13 +411,18 @@ function AnkorstoreBadge({
 function EfashionBadge({
   linked,
   publishing = false,
+  syncRequired = false,
   onPublishClick,
   onLinkClick,
+  onSyncClick,
 }: {
   linked: boolean;
   publishing?: boolean;
+  /** Le produit est lié à eFashion mais des modifs locales n'ont pas été propagées. */
+  syncRequired?: boolean;
   onPublishClick?: () => void;
   onLinkClick?: () => void;
+  onSyncClick?: () => void;
 }) {
   if (publishing) {
     return (
@@ -389,6 +442,25 @@ function EfashionBadge({
         </svg>
         eFashion en cours…
       </span>
+    );
+  }
+  if (linked && syncRequired) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSyncClick?.();
+        }}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+        title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à eFashion Paris"
+      >
+        <span className="relative inline-flex">
+          <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
+          <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+        </span>
+        eFashion · Synchro
+      </button>
     );
   }
   if (linked) {
@@ -489,6 +561,11 @@ interface AdminProduct {
   firstImage: string | null;
   pfsProductId: string | null;
   ankorsProductId: string | null;
+  /** Drapeaux « Synchronisation nécessaire » pilotés par le save produit et le
+   *  worker image. Affiche un badge orange cliquable pour pousser la modif. */
+  pfsSyncRequired: boolean;
+  ankorsSyncRequired: boolean;
+  efashionSyncRequired: boolean;
   colors: ColorVariant[];
   translations: ProductTranslation[];
 }
@@ -1232,6 +1309,50 @@ function ProductRow({
     ]);
   }, [confirm, enqueue, product, isAnkorstorePublishing]);
 
+  // Clic 1-clic depuis un badge orange « Synchro nécessaire ». Pas de
+  // confirmation : la cliente a déjà vu le badge et choisi délibérément.
+  const handleSyncPfs = useCallback(() => {
+    if (isPfsPublishing) return;
+    setPendingPfsEnqueue(true);
+    enqueue([{
+      productId: product.id,
+      reference: product.reference,
+      productName: product.name,
+      firstImage: product.firstImage,
+      options: { local: false, pfs: true },
+      mode: "resync",
+      marketplace: "pfs",
+    }]);
+  }, [enqueue, product, isPfsPublishing]);
+
+  const handleSyncAnkorstore = useCallback(() => {
+    if (isAnkorstorePublishing) return;
+    setPendingAnkorstoreEnqueue(true);
+    enqueue([{
+      productId: product.id,
+      reference: product.reference,
+      productName: product.name,
+      firstImage: product.firstImage,
+      options: { local: false, pfs: false, ankorstore: true },
+      mode: "resync",
+      marketplace: "ankorstore",
+    }]);
+  }, [enqueue, product, isAnkorstorePublishing]);
+
+  const handleSyncEfashion = useCallback(() => {
+    if (isEfashionPublishing) return;
+    setPendingEfashionEnqueue(true);
+    enqueue([{
+      productId: product.id,
+      reference: product.reference,
+      productName: product.name,
+      firstImage: product.firstImage,
+      options: { local: false, pfs: false, ankorstore: false, efashion: true },
+      mode: "resync",
+      marketplace: "efashion",
+    }]);
+  }, [enqueue, product, isEfashionPublishing]);
+
   // Demande la création d'une nouvelle fiche sur eFashion Paris — appelé depuis
   // le badge "+ eFashion". Même logique qu'Ankorstore (confirmation + enqueue +
   // widget bas-droite), mais le flow eFashion est synchrone (pas de callback).
@@ -1519,15 +1640,18 @@ function ProductRow({
               <MarketplaceBadge
                 published={!!product.pfsProductId}
                 publishing={isPfsPublishing}
+                syncRequired={product.pfsSyncRequired && !isPfsPublishing}
                 onPublishClick={
                   eligibility.canPublishPfs && !isPfsPublishing
                     ? () => { void handlePublishPfs(); }
                     : undefined
                 }
+                onSyncClick={handleSyncPfs}
               />
               <AnkorstoreBadge
                 published={!!product.ankorsProductId}
                 publishing={isAnkorstorePublishing}
+                syncRequired={product.ankorsSyncRequired && !isAnkorstorePublishing}
                 onPublishClick={
                   eligibility.canPublishAnkorstore && !isAnkorstorePublishing
                     ? () => { void handlePublishAnkorstore(); }
@@ -1538,11 +1662,13 @@ function ProductRow({
                     ? () => setLinkAkOpen(true)
                     : undefined
                 }
+                onSyncClick={handleSyncAnkorstore}
               />
               {showEfashion && (
                 <EfashionBadge
                   linked={efashionLinked}
                   publishing={isEfashionPublishing}
+                  syncRequired={product.efashionSyncRequired && !isEfashionPublishing}
                   onPublishClick={
                     eligibility.canPublishEfashion && !isEfashionPublishing
                       ? () => { void handlePublishEfashion(); }
@@ -1553,6 +1679,7 @@ function ProductRow({
                       ? () => setLinkEfOpen(true)
                       : undefined
                   }
+                  onSyncClick={handleSyncEfashion}
                 />
               )}
             </div>

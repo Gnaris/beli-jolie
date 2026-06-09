@@ -73,6 +73,22 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de la file de traitement images (pilote ImageProcessingJob).
+  // Reprend les jobs PROCESSING orphelins en PENDING au démarrage — la
+  // conversion sharp est idempotente, donc rejouable sans risque.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startImageQueueWorker } = await import("@/lib/image-queue");
+        startImageQueueWorker();
+      } catch (err) {
+        logger.error("[Image Queue] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

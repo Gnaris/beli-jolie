@@ -685,6 +685,8 @@ export async function ankorstoreKickoffUpdate(
         where: { id: productId },
         data: {
           ankorsLastSyncSnapshot: committedSnapshot as unknown as Prisma.InputJsonValue,
+          // Push synchrone OK → on retire le drapeau « Synchro nécessaire »
+          ankorsSyncRequired: false,
           ...(allVariantsOutOfStock && product.status === "ONLINE" ? { status: "OFFLINE" } : {}),
         },
       });
@@ -965,6 +967,8 @@ export async function ankorstoreFinalizeUpdate(
   try {
     const dbUpdate: Record<string, unknown> = {
       ankorsLastSyncSnapshot: payload.committedSnapshot as unknown as Prisma.InputJsonValue,
+      // Callback Ankorstore OK → on retire le drapeau « Synchro nécessaire »
+      ankorsSyncRequired: false,
     };
     // Set OFFLINE if all variants out of stock and currently ONLINE
     const localProduct = await prisma.product.findUnique({

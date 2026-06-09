@@ -1170,7 +1170,13 @@ export async function pfsUpdateProductInPlace(
 
     // ── Step 6 : Local DB update + sauvegarde du snapshot ──
     report("Mise à jour locale...");
-    const dbUpdate: Record<string, unknown> = { pfsLastSyncSnapshot: committedSnapshot };
+    // PFS vient de recevoir l'état courant → le drapeau « Synchronisation
+    // nécessaire » côté admin doit retomber. Si le push n'a pas réussi
+    // (catch plus haut), on n'arrive jamais ici → le drapeau reste à true.
+    const dbUpdate: Record<string, unknown> = {
+      pfsLastSyncSnapshot: committedSnapshot,
+      pfsSyncRequired: false,
+    };
     if (allVariantsOutOfStock && product.status === "ONLINE") {
       dbUpdate.status = "OFFLINE";
     }

@@ -451,6 +451,9 @@ export default async function ModifierProduitPage({
                   ankorsProductId={product.ankorsProductId}
                   hasAnkorstoreConfig={hasAnkorstoreConfig}
                   ankorstoreEnabled={ankorstoreEnabled}
+                  pfsSyncRequired={product.pfsSyncRequired}
+                  ankorsSyncRequired={product.ankorsSyncRequired}
+                  efashionSyncRequired={product.efashionSyncRequired}
                 />
               </div>
             </div>

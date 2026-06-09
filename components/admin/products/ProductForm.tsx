@@ -1345,34 +1345,71 @@ export default function ProductForm({
     );
     if (totalPending === 0) return colorImages;
 
+    // Construit une copie modifiable pour écrire les chemins en place.
+    // Important : chaque task connaît son (colorIndex, fileIndex) — on
+    // restaure l'ordre quoi qu'il arrive même avec exécution parallèle.
+    const next: ColorImageState[] = colorImages.map((ci) => ({
+      ...ci,
+      uploadedPaths: [...ci.uploadedPaths],
+      pendingFiles: [...ci.pendingFiles],
+    }));
+
+    type Task = { colorIndex: number; fileIndex: number };
+    const tasks: Task[] = [];
+    next.forEach((ci, colorIndex) => {
+      ci.pendingFiles.forEach((f, fileIndex) => {
+        if (f !== null) tasks.push({ colorIndex, fileIndex });
+      });
+    });
+
     setUploadProgress({ current: 0, total: totalPending });
     let done = 0;
-    const next: ColorImageState[] = [];
-    try {
-      for (const ci of colorImages) {
-        const newUploadedPaths = [...ci.uploadedPaths];
-        const newPendingFiles: (File | null)[] = [...ci.pendingFiles];
-        for (let i = 0; i < ci.pendingFiles.length; i++) {
-          const file = ci.pendingFiles[i];
-          if (!file) continue;
-          const fd = new FormData();
-          fd.append("image", file);
-          if (refForUpload) fd.append("reference", refForUpload);
-          if (ci.colorName) fd.append("color", ci.colorName);
-          fd.append("position", String((ci.orders[i] ?? i) + 1));
+    const errors: string[] = [];
+
+    // Le serveur ne fait plus la conversion sharp en synchrone : chaque POST
+    // retourne en ~100 ms (juste écriture du brut + insert ImageProcessingJob).
+    // On peut donc paralléliser sans étouffer la machine. 4 simultanés = bon
+    // équilibre : 92 photos en ~3 s côté navigateur, le worker serveur
+    // continue tranquillement en arrière-plan ensuite.
+    const CONCURRENCY = 4;
+    let cursor = 0;
+    async function worker() {
+      while (cursor < tasks.length && errors.length === 0) {
+        const myIndex = cursor++;
+        const t = tasks[myIndex];
+        const ci = next[t.colorIndex];
+        const file = ci.pendingFiles[t.fileIndex];
+        if (!file) continue;
+        const fd = new FormData();
+        fd.append("image", file);
+        if (refForUpload) fd.append("reference", refForUpload);
+        if (ci.colorName) fd.append("color", ci.colorName);
+        if (productId) fd.append("productId", productId);
+        fd.append("position", String((ci.orders[t.fileIndex] ?? t.fileIndex) + 1));
+        try {
           const res = await fetch("/api/admin/products/images", { method: "POST", body: fd });
           if (!res.ok) {
             const errJson = await res.json().catch(() => ({}));
-            throw new Error(errJson.error || `Erreur lors du téléversement d'une photo de la couleur ${ci.colorName}.`);
+            errors.push(errJson.error || `Erreur sur une photo de la couleur ${ci.colorName}.`);
+            return;
           }
           const json = await res.json();
-          newUploadedPaths[i] = json.path;
-          newPendingFiles[i] = null;
+          ci.uploadedPaths[t.fileIndex] = json.path;
+          ci.pendingFiles[t.fileIndex] = null;
           done++;
           setUploadProgress({ current: done, total: totalPending });
+        } catch (err) {
+          errors.push(err instanceof Error ? err.message : String(err));
+          return;
         }
-        next.push({ ...ci, uploadedPaths: newUploadedPaths, pendingFiles: newPendingFiles });
       }
+    }
+
+    try {
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, () => worker()),
+      );
+      if (errors.length > 0) throw new Error(errors[0]);
       setColorImages(next);
       return next;
     } finally {

@@ -2,6 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
@@ -647,6 +648,11 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       dimensionLength: true,
       dimensionWidth: true,
       dimensionHeight: true,
+      // Pour décider si on doit poser les drapeaux « Synchro nécessaire »
+      // sur les marketplaces liées après la mise à jour.
+      pfsProductId: true,
+      ankorsProductId: true,
+      efashionReferenceBase: true,
     },
   });
 
@@ -1197,6 +1203,36 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   }
 
   revalidatePath("/admin/produits");
+  // ── Drapeaux « Synchronisation nécessaire » ────────────────────────
+  // Si le produit est lié à un marketplace et qu'au moins un champ clé a
+  // changé, on lève le drapeau correspondant. Le badge orange dans l'admin
+  // s'allume immédiatement, et l'utilisatrice peut soit pousser la modif
+  // (1 clic sur le badge), soit l'ignorer (X au survol). La modale
+  // marketplace au save (qui enqueue refresh PFS / Ankorstore / eFashion)
+  // déclenche les actions de refresh, et celles-ci remettent le drapeau
+  // à false à la fin — donc cocher la case empêche le badge de rester
+  // orange visible (loading prend le pas, puis vert).
+  if (oldProduct) {
+    const fieldsChanged =
+      oldProduct.name !== input.name.trim() ||
+      oldProduct.description !== (input.description?.trim() ?? "") ||
+      oldProduct.status !== effectiveStatus ||
+      oldProduct.isBestSeller !== input.isBestSeller ||
+      oldProduct.categoryId !== input.categoryId ||
+      oldProduct.manufacturingCountryId !== (input.manufacturingCountryId || null) ||
+      oldProduct.seasonId !== (input.seasonId || null) ||
+      oldProduct.reference !== newRefUpper;
+    if (fieldsChanged) {
+      const flagsData: Prisma.ProductUpdateInput = {};
+      if (oldProduct.pfsProductId) flagsData.pfsSyncRequired = true;
+      if (oldProduct.ankorsProductId) flagsData.ankorsSyncRequired = true;
+      if (oldProduct.efashionReferenceBase) flagsData.efashionSyncRequired = true;
+      if (Object.keys(flagsData).length > 0) {
+        await prisma.product.update({ where: { id }, data: flagsData });
+      }
+    }
+  }
+
   revalidatePath(`/admin/produits/${id}/modifier`);
   revalidatePath(`/produits/${id}`);
   revalidateTag("products", "default");

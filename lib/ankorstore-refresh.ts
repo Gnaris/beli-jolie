@@ -480,6 +480,8 @@ export async function ankorstoreFinalizeRefreshCreateNew(
         data: {
           ankorsProductId,
           ankorsLastSyncSnapshot: Prisma.DbNull,
+          // Refresh complet (delete + recreate) → tout est aligné avec Ankorstore
+          ankorsSyncRequired: false,
           lastRefreshedAt: new Date(),
           ...(payload.allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
         },

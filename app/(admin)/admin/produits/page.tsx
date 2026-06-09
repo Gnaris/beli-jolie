@@ -158,7 +158,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
 
   const exactRef   = exactRefParam === "1";
   const currentPage = Math.max(1, parseInt(pageParam));
-  const perPage     = Math.max(1, parseInt(perPageParam) || 20);
+  const perPage     = Math.min(500, Math.max(1, parseInt(perPageParam) || 20));
   const minPrice    = minPriceParam ? parseFloat(minPriceParam) : null;
   const maxPrice    = maxPriceParam ? parseFloat(maxPriceParam) : null;
   const stockBelow  = stockBelowParam ? parseInt(stockBelowParam) : null;
@@ -311,6 +311,9 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     firstImage:      pickFirstImage({ primaryColorId: p.primaryColorId, colors: p.colors }, colorImagePath),
     pfsProductId:    p.pfsProductId,
     ankorsProductId: p.ankorsProductId,
+    pfsSyncRequired:      p.pfsSyncRequired,
+    ankorsSyncRequired:   p.ankorsSyncRequired,
+    efashionSyncRequired: p.efashionSyncRequired,
     colors:          p.colors.map((c) => ({
       id:                c.id,
       colorId:           c.colorId ?? "",

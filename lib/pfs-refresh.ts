@@ -861,6 +861,8 @@ export async function pfsRefreshProduct(
           pfsBrandName: brandName,
           // L'ancien snapshot devient obsolète puisqu'on a remplacé le produit PFS.
           pfsLastSyncSnapshot: Prisma.DbNull,
+          // Refresh PFS complet → tout est aligné → on retire le drapeau.
+          pfsSyncRequired: false,
           ...(allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
         },
       }),

@@ -20,6 +20,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { removeAnkorstoreMatch } from "@/app/actions/admin/ankorstore";
 import { removeEfashionMatch } from "@/app/actions/admin/efashion";
+import { clearSyncRequiredFlag } from "@/app/actions/admin/marketplace-sync-flags";
 
 interface MarketplaceStatusButtonsProps {
   productId: string;
@@ -36,6 +37,11 @@ interface MarketplaceStatusButtonsProps {
   efashionLinked: boolean;
   hasEfashionConfig: boolean;
   efashionEnabled: boolean;
+  /** Drapeaux « Synchronisation nécessaire » — voir lib/image-queue.ts et
+   *  app/actions/admin/marketplace-sync-flags.ts. */
+  pfsSyncRequired?: boolean;
+  ankorsSyncRequired?: boolean;
+  efashionSyncRequired?: boolean;
 }
 
 export function MarketplaceStatusButtons({
@@ -52,6 +58,9 @@ export function MarketplaceStatusButtons({
   efashionLinked,
   hasEfashionConfig,
   efashionEnabled,
+  pfsSyncRequired = false,
+  ankorsSyncRequired = false,
+  efashionSyncRequired = false,
 }: MarketplaceStatusButtonsProps) {
   const router = useRouter();
   const { enqueue, items } = useMarketplaceRefreshQueue();
@@ -92,24 +101,49 @@ export function MarketplaceStatusButtons({
         efashionLinked ? "linked" : null,
         efashionOp,
         "efashion",
+        efashionSyncRequired,
       ),
-    [efashionLinked, efashionOp],
+    [efashionLinked, efashionOp, efashionSyncRequired],
   );
   const isEfashionLoading = efashionState.loading;
 
   const pfsState = useMemo(
-    () => computeMarketplaceBadgeState(pfsProductId, pfsOp, "pfs"),
-    [pfsProductId, pfsOp],
+    () => computeMarketplaceBadgeState(pfsProductId, pfsOp, "pfs", pfsSyncRequired),
+    [pfsProductId, pfsOp, pfsSyncRequired],
   );
   const ankorstoreState = useMemo(
-    () => computeMarketplaceBadgeState(ankorsProductId, ankorstoreOp, "ankorstore"),
-    [ankorsProductId, ankorstoreOp],
+    () => computeMarketplaceBadgeState(ankorsProductId, ankorstoreOp, "ankorstore", ankorsSyncRequired),
+    [ankorsProductId, ankorstoreOp, ankorsSyncRequired],
   );
 
   const isPfsLoading = pfsState.loading;
   const pfsOnline = pfsState.online;
   const isAnkorstoreLoading = ankorstoreState.loading;
   const ankorstoreOnline = ankorstoreState.online;
+
+  // ── Handler générique « Ignorer cette synchronisation » ────────────
+  const handleCancelSyncRequired = async (
+    marketplace: "pfs" | "ankorstore" | "efashion",
+    marketplaceLabel: string,
+  ) => {
+    const ok = await confirm({
+      type: "warning",
+      title: `Ignorer cette synchronisation ${marketplaceLabel} ?`,
+      message:
+        `Le badge orange disparaîtra et vos dernières modifications NE seront pas envoyées à ${marketplaceLabel}. ` +
+        `La fiche ${marketplaceLabel} restera dans son état précédent. Vous pourrez toujours synchroniser plus tard ` +
+        `en cliquant sur l'icône ↻ du badge.`,
+      confirmLabel: "Oui, ignorer",
+    });
+    if (!ok) return;
+    const res = await clearSyncRequiredFlag(productId, marketplace);
+    if (res.success) {
+      toast.success("Synchronisation ignorée");
+      router.refresh();
+    } else {
+      toast.error("Impossible d'ignorer", res.error ?? "Erreur inconnue.");
+    }
+  };
 
   useEffect(() => {
     if (pfsState.justPublishedOk && !pfsProductId) {
@@ -291,26 +325,36 @@ export function MarketplaceStatusButtons({
       <div className="inline-flex items-center gap-3 flex-wrap">
         {hasPfsConfig && (
           <div className="inline-flex items-center gap-1.5">
+            <span className="group relative inline-flex">
             <button
               type="button"
               onClick={() => {
-                if (pfsOnline || isPfsLoading) return;
+                if (isPfsLoading) return;
+                if (pfsState.syncRequired) {
+                  handleResyncPfs();
+                  return;
+                }
+                if (pfsOnline) return;
                 setConfirmPfsOpen(true);
               }}
               disabled={isPfsLoading}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border transition-all ${
                 isPfsLoading
                   ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
-                  : pfsOnline
-                    ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
-                    : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
+                  : pfsState.syncRequired
+                    ? "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA] hover:bg-[#FFEDD5] cursor-pointer"
+                    : pfsOnline
+                      ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
+                      : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
               }`}
               title={
                 isPfsLoading
                   ? "Publication en cours sur Paris Fashion Shop…"
-                  : pfsOnline
-                    ? "Disponible sur Paris Fashion Shop"
-                    : "Non disponible — cliquez pour publier sur Paris Fashion Shop"
+                  : pfsState.syncRequired
+                    ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à Paris Fashion Shop"
+                    : pfsOnline
+                      ? "Disponible sur Paris Fashion Shop"
+                      : "Non disponible — cliquez pour publier sur Paris Fashion Shop"
               }
             >
               {isPfsLoading ? (
@@ -324,6 +368,11 @@ export function MarketplaceStatusButtons({
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
                 </svg>
+              ) : pfsState.syncRequired ? (
+                <span className="relative inline-flex">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#F97316] animate-pulse" />
+                  <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+                </span>
               ) : (
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
@@ -333,6 +382,11 @@ export function MarketplaceStatusButtons({
               )}
               {isPfsLoading ? (
                 "Publication PFS en cours…"
+              ) : pfsState.syncRequired ? (
+                <span>
+                  Paris Fashion Shop <span className="opacity-60">·</span>{" "}
+                  <span className="font-bold">Synchro nécessaire</span>
+                </span>
               ) : pfsOnline ? (
                 pfsBrandName ? (
                   <span>
@@ -351,6 +405,23 @@ export function MarketplaceStatusButtons({
                 </>
               )}
             </button>
+            {pfsState.syncRequired && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleCancelSyncRequired("pfs", "Paris Fashion Shop");
+                }}
+                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-[#9A3412] border border-[#FED7AA] shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[#FFEDD5] hover:text-[#7C2D12] transition-opacity"
+                title="Ignorer cette synchronisation (le badge orange disparaîtra sans rien envoyer)"
+                aria-label="Ignorer cette synchronisation PFS"
+              >
+                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.8} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+            </span>
 
             {pfsProductId && !pfsBrandName && (
               <button
@@ -401,28 +472,38 @@ export function MarketplaceStatusButtons({
 
         {showAnkorstore && (
           <div className="inline-flex items-center gap-1.5">
+            <span className="group relative inline-flex">
             <button
               type="button"
               onClick={() => {
-                if (ankorstoreOnline || isAnkorstoreLoading) return;
+                if (isAnkorstoreLoading) return;
+                if (ankorstoreState.syncRequired) {
+                  handleResyncAnkorstore();
+                  return;
+                }
+                if (ankorstoreOnline) return;
                 setConfirmAkOpen(true);
               }}
               disabled={isAnkorstoreLoading}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border transition-all ${
                 isAnkorstoreLoading
                   ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
-                  : ankorstoreOnline
-                    ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
-                    : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
+                  : ankorstoreState.syncRequired
+                    ? "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA] hover:bg-[#FFEDD5] cursor-pointer"
+                    : ankorstoreOnline
+                      ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
+                      : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
               }`}
               title={
                 isAnkorstoreLoading
                   ? ankorstoreOp?.status === "awaiting_callback"
                     ? "Ankorstore traite votre demande (1 à 5 min)…"
                     : "Publication en cours sur Ankorstore…"
-                  : ankorstoreOnline
-                    ? "Disponible sur Ankorstore"
-                    : "Non disponible — cliquez pour publier sur Ankorstore"
+                  : ankorstoreState.syncRequired
+                    ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à Ankorstore"
+                    : ankorstoreOnline
+                      ? "Disponible sur Ankorstore"
+                      : "Non disponible — cliquez pour publier sur Ankorstore"
               }
             >
               {isAnkorstoreLoading ? (
@@ -436,6 +517,11 @@ export function MarketplaceStatusButtons({
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
                 </svg>
+              ) : ankorstoreState.syncRequired ? (
+                <span className="relative inline-flex">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#F97316] animate-pulse" />
+                  <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+                </span>
               ) : (
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
@@ -445,6 +531,11 @@ export function MarketplaceStatusButtons({
               )}
               {isAnkorstoreLoading ? (
                 "Publication Ankorstore en cours…"
+              ) : ankorstoreState.syncRequired ? (
+                <span>
+                  Ankorstore <span className="opacity-60">·</span>{" "}
+                  <span className="font-bold">Synchro nécessaire</span>
+                </span>
               ) : ankorstoreOnline ? (
                 "Ankorstore"
               ) : (
@@ -456,6 +547,23 @@ export function MarketplaceStatusButtons({
                 </>
               )}
             </button>
+            {ankorstoreState.syncRequired && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleCancelSyncRequired("ankorstore", "Ankorstore");
+                }}
+                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-[#9A3412] border border-[#FED7AA] shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[#FFEDD5] hover:text-[#7C2D12] transition-opacity"
+                title="Ignorer cette synchronisation (le badge orange disparaîtra sans rien envoyer)"
+                aria-label="Ignorer cette synchronisation Ankorstore"
+              >
+                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.8} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+            </span>
 
             {ankorsProductId && (
               <button
@@ -539,32 +647,47 @@ export function MarketplaceStatusButtons({
 
         {showEfashion && (
           <div className="inline-flex items-center gap-1.5">
+            <span className="group relative inline-flex">
             <button
               type="button"
               onClick={() => {
-                if (efashionLinked || isEfashionLoading) return;
+                if (isEfashionLoading) return;
+                if (efashionState.syncRequired) {
+                  handleResyncEfashion();
+                  return;
+                }
+                if (efashionLinked) return;
                 setConfirmEfOpen(true);
               }}
               disabled={isEfashionLoading}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border transition-all ${
                 isEfashionLoading
                   ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
-                  : efashionLinked
-                    ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
-                    : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
+                  : efashionState.syncRequired
+                    ? "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA] hover:bg-[#FFEDD5] cursor-pointer"
+                    : efashionLinked
+                      ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
+                      : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
               }`}
               title={
                 isEfashionLoading
                   ? "Synchronisation eFashion en cours…"
-                  : efashionLinked
-                    ? "Produit lié à eFashion Paris"
-                    : "Non disponible — cliquez pour publier sur eFashion Paris"
+                  : efashionState.syncRequired
+                    ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à eFashion Paris"
+                    : efashionLinked
+                      ? "Produit lié à eFashion Paris"
+                      : "Non disponible — cliquez pour publier sur eFashion Paris"
               }
             >
               {isEfashionLoading ? (
                 <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
                 </svg>
+              ) : efashionState.syncRequired ? (
+                <span className="relative inline-flex">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#F97316] animate-pulse" />
+                  <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+                </span>
               ) : (
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
@@ -574,6 +697,11 @@ export function MarketplaceStatusButtons({
               )}
               {isEfashionLoading ? (
                 "Sync eFashion…"
+              ) : efashionState.syncRequired ? (
+                <span>
+                  eFashion Paris <span className="opacity-60">·</span>{" "}
+                  <span className="font-bold">Synchro nécessaire</span>
+                </span>
               ) : efashionLinked ? (
                 "eFashion Paris"
               ) : (
@@ -585,6 +713,23 @@ export function MarketplaceStatusButtons({
                 </>
               )}
             </button>
+            {efashionState.syncRequired && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleCancelSyncRequired("efashion", "eFashion Paris");
+                }}
+                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-[#9A3412] border border-[#FED7AA] shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[#FFEDD5] hover:text-[#7C2D12] transition-opacity"
+                title="Ignorer cette synchronisation (le badge orange disparaîtra sans rien envoyer)"
+                aria-label="Ignorer cette synchronisation eFashion"
+              >
+                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.8} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+            </span>
 
             {efashionLinked && (
               <button

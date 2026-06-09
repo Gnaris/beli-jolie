@@ -7,6 +7,12 @@ import type {
 export interface MarketplaceBadgeState {
   loading: boolean;
   online: boolean;
+  /**
+   * True : produit lié au marketplace ET un changement local n'a pas été
+   * propagé. Affiché par un badge orange « Synchronisation nécessaire ».
+   * Priorité d'affichage : loading > syncRequired > online > offline.
+   */
+  syncRequired: boolean;
   justPublishedOk: boolean;
 }
 
@@ -35,11 +41,15 @@ export function computeMarketplaceBadgeState(
   serverProductId: string | null,
   op: MarketplaceRefreshItem | undefined,
   target: MarketplaceTarget,
+  syncRequired: boolean = false,
 ): MarketplaceBadgeState {
   if (!op) {
+    const online = !!serverProductId;
     return {
       loading: false,
-      online: !!serverProductId,
+      online,
+      // syncRequired n'a de sens que si on est effectivement lié au marketplace
+      syncRequired: online && syncRequired,
       justPublishedOk: false,
     };
   }
@@ -53,9 +63,14 @@ export function computeMarketplaceBadgeState(
   const justPublishedOk =
     op.mode === "publish" && op.status === "done" && outcome?.ok === true;
 
+  const online = !!serverProductId || justPublishedOk;
+
   return {
     loading,
-    online: !!serverProductId || justPublishedOk,
+    online,
+    // Pendant qu'un op tourne ou vient de finir OK, on ne montre pas l'alerte
+    // orange — soit la sync est en cours, soit elle vient d'aboutir.
+    syncRequired: online && syncRequired && !loading && !justPublishedOk,
     justPublishedOk,
   };
 }

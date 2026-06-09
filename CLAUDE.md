@@ -74,9 +74,10 @@ Protection : `middleware.ts` (edge) + group `layout.tsx`. Maintenance avec cache
 - **Lib** (`lib/`) — business logic. Modules clés : `pfs-*`, `ankorstore-*`, `marketplace-pricing.ts`, `storage.ts`, `email.ts`, `cached-data.ts`, `security.ts`, `encryption.ts`, `logger.ts`, `seo.ts`.
 - **Components** — `admin/`, `client/`, `ui/`, `home/`.
 
-### Marketplaces (PFS + Ankorstore)
+### Marketplaces (PFS + Ankorstore + eFashion)
 
-- **Identifiants** : `Product.pfsProductId`/`ankorsProductId` + `ProductColor.pfsVariantId`/`ankorsVariantId`. `null` = non publié.
+- **Identifiants** : `Product.pfsProductId`/`ankorsProductId`/`efashionReferenceBase` + `ProductColor.pfsVariantId`/`ankorsVariantId`. `null` = non publié.
+- **Drapeaux « Synchronisation nécessaire »** : `Product.pfsSyncRequired` / `ankorsSyncRequired` / `efashionSyncRequired`. Posés à `true` par `updateProduct` (`app/actions/admin/products.ts`) sur changement d'un champ clé d'un produit lié, ET par le worker images (`lib/image-queue.ts`) quand un produit lié reçoit de nouvelles photos. Reset à `false` automatiquement par les flows de sync réussis (`lib/pfs-update.ts`, `lib/pfs-refresh.ts`, `lib/ankorstore-update.ts`, `lib/ankorstore-refresh.ts`, `lib/efashion-update.ts`) ou par `clearSyncRequiredFlag()` (X au survol du badge). Affichés par un badge orange « Synchro nécessaire » dans `MarketplaceStatusButtons` (fiche) et `AdminProductsTable` (liste). Priorité visuelle : `loading > syncRequired > online > offline`. Si la case de la modale de save est cochée, le badge orange ne s'affiche pas (loading prend le pas, puis flag reset).
 - **Kill switch Ankorstore** : `getCachedAnkorstoreEnabled()` (Paramètres > Marketplaces). PFS toujours actif si configuré.
 - **Modale au save produit** : case à cocher par marketplace si produit complet + marketplace configurée → enqueue dans `MarketplaceRefreshWidget`.
 - **Publish vs Update** : `*UpdateProductInPlace()` si ID connu (PATCH avec diff snapshot), sinon `*PublishProduct()`. Fallback publish si update échoue.
@@ -203,12 +204,13 @@ next-intl 4.x, **routing par préfixe** (`/fr/...`, `/en/...`). Locales : **fr (
 ### Images & fichiers (stockage local)
 - Module unique : `lib/storage.ts`. Helpers : `productImageDir/BaseName`, `collectionImageDir`, `bannerDir`, `kbisDir`, `invoiceDir`, etc. **Ne jamais hardcoder de path.**
 - **Arbo publique** `public/uploads/` : `produits/`, `collections/`, `motifs-couleurs/`, `banniere/`, `catalogues/`, `bordereaux/`, `reclamations/`.
-- **Arbo privée** `private/uploads/` : `kbis/`, `documents/`, `factures/`, `pieces-jointes-email/`, `avoirs/`.
+- **Arbo privée** `private/uploads/` : `kbis/`, `documents/`, `factures/`, `pieces-jointes-email/`, `avoirs/`, `_image_jobs/` (buffers bruts en attente).
 - Images produit : WebP 3 tailles (large/`-md`/`-thumb`), max 5 par couleur. Lecture compat avec ancien `_md`/`_thumb` via `getImagePaths()`.
 - Renommage auto : `renameProductFolder(oldRef, newRef)` dans la transaction Prisma.
 - Brouillon : `uploads/produits/_brouillon/` si pas encore de référence.
 - DB paths déjà au format URL publique.
 - **PFS image sync** : JPEG uniquement (pas WebP), upload multipart. Logs `[PFS Images]`.
+- **Upload arrière-plan** : `POST /api/admin/products/images` ne fait PLUS sharp en synchrone — écrit le buffer brut dans `private/uploads/_image_jobs/{jobId}.{ext}`, insère un `ImageProcessingJob` (PENDING) et retourne immédiatement le `dbPath` futur. Worker singleton `lib/image-queue.ts` (démarré dans `instrumentation-node.ts`, 3 jobs en parallèle, poll 800 ms) traite chaque job via `processProductImage`. Au boot Node, jobs en PROCESSING repassent en PENDING (idempotent). Quand le dernier job d'un produit lié passe à DONE → pose `*SyncRequired = true`. Progression suivie par `GET /api/admin/products/images/progress` (pollé 2 s par `ImageProcessingContext`) et widget flottant `ImageProcessingWidget`.
 - Reset data : `npx tsx scripts/wipe-data.ts` (préserve ADMIN, SiteConfig, CompanyInfo, LegalDocument).
 
 ### SEO

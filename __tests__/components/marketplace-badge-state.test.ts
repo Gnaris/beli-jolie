@@ -52,12 +52,12 @@ describe("findLatestOpForProduct", () => {
 describe("computeMarketplaceBadgeState", () => {
   it("offline when no server id and no op", () => {
     const state = computeMarketplaceBadgeState(null, undefined, "ankorstore");
-    expect(state).toEqual({ loading: false, online: false, justPublishedOk: false });
+    expect(state).toEqual({ loading: false, online: false, syncRequired: false, justPublishedOk: false });
   });
 
   it("online when server id is set and no op (already published before)", () => {
     const state = computeMarketplaceBadgeState("ankors-123", undefined, "ankorstore");
-    expect(state).toEqual({ loading: false, online: true, justPublishedOk: false });
+    expect(state).toEqual({ loading: false, online: true, syncRequired: false, justPublishedOk: false });
   });
 
   it("loading when op is queued", () => {
@@ -140,5 +140,57 @@ describe("computeMarketplaceBadgeState", () => {
     const state = computeMarketplaceBadgeState(null, op, "pfs");
     expect(state.justPublishedOk).toBe(true);
     expect(state.online).toBe(true);
+  });
+});
+
+describe("computeMarketplaceBadgeState — syncRequired", () => {
+  it("syncRequired flag has no effect when product is not linked", () => {
+    // Pas lié → on n'affichera jamais "Synchro nécessaire" même si le drapeau
+    // est par erreur posé en BDD (faux positif neutralisé côté UI).
+    const state = computeMarketplaceBadgeState(null, undefined, "ankorstore", true);
+    expect(state.online).toBe(false);
+    expect(state.syncRequired).toBe(false);
+  });
+
+  it("syncRequired shown when product is linked AND flag is true AND no op in flight", () => {
+    const state = computeMarketplaceBadgeState("ankors-123", undefined, "ankorstore", true);
+    expect(state.online).toBe(true);
+    expect(state.syncRequired).toBe(true);
+  });
+
+  it("syncRequired hidden when a refresh/publish op is currently loading (loading takes precedence)", () => {
+    const op = baseItem({ status: "in_progress" });
+    const state = computeMarketplaceBadgeState("ankors-123", op, "ankorstore", true);
+    expect(state.loading).toBe(true);
+    // Pendant que le push tourne, on n'affiche PAS l'orange — soit en cours,
+    // soit ça vient d'être poussé.
+    expect(state.syncRequired).toBe(false);
+  });
+
+  it("syncRequired hidden right after a successful publish (justPublishedOk takes precedence)", () => {
+    const op = baseItem({
+      status: "done",
+      ankorsOutcome: { ok: true, archived: false },
+    });
+    const state = computeMarketplaceBadgeState("ankors-123", op, "ankorstore", true);
+    expect(state.justPublishedOk).toBe(true);
+    expect(state.syncRequired).toBe(false);
+  });
+
+  it("syncRequired stays visible when latest op failed and produit toujours marqué à synchroniser", () => {
+    const op = baseItem({
+      status: "done",
+      ankorsOutcome: { ok: false, kind: "error", message: "boom" },
+    });
+    const state = computeMarketplaceBadgeState("ankors-123", op, "ankorstore", true);
+    expect(state.online).toBe(true);
+    // L'op a échoué (justPublishedOk=false, loading=false) → le badge orange
+    // reste visible pour inviter à re-essayer la sync.
+    expect(state.syncRequired).toBe(true);
+  });
+
+  it("syncRequired is false by default (no flag passed)", () => {
+    const state = computeMarketplaceBadgeState("ankors-123", undefined, "ankorstore");
+    expect(state.syncRequired).toBe(false);
   });
 });
