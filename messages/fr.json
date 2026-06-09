@@ -323,7 +323,10 @@
     "productCount": "{count} produit",
     "productCount_plural": "{count} produits",
     "allProductsShown": "Tous les produits affichés ({count})",
-    "loadError": "Impossible de charger plus de produits. Vérifiez votre connexion et réessayez."
+    "loadError": "Impossible de charger plus de produits. Vérifiez votre connexion et réessayez.",
+    "unavailableTitle": "Produit indisponible",
+    "unavailableDescription": "Ce produit est temporairement indisponible. Il sera de nouveau accessible prochainement.",
+    "backToProducts": "Retour aux produits"
   },
   "product": {
     "ref": "Réf.",
@@ -388,9 +391,6 @@
     "htUnit": "HT / unité",
     "htPack": "HT · pack de {qty}",
     "perUnitNote": "soit {price} € HT l'unité",
-    "unavailableTitle": "Produit indisponible",
-    "unavailableDescription": "Ce produit est temporairement indisponible. Il sera de nouveau accessible prochainement.",
-    "backToProducts": "Retour aux produits",
     "loginToSeePrices": "Connectez-vous pour voir les prix",
     "createAccountToOrder": "Créer un compte pour commander",
     "decreaseQuantity": "Diminuer la quantité",

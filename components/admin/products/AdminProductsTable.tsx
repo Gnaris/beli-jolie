@@ -1019,7 +1019,7 @@ function ActionsDropdown({
         Voir côté client
       </Link>
       <Link
-        href={`/admin/produits/${productId}/dupliquer`}
+        href={`/admin/produits/nouveau?dupliquerDe=${productId}`}
         className={itemClass}
         onClick={onClose}
       >

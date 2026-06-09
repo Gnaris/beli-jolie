@@ -323,7 +323,10 @@
     "productCount": "{count} product",
     "productCount_plural": "{count} products",
     "allProductsShown": "All products displayed ({count})",
-    "loadError": "Unable to load more products. Check your connection and try again."
+    "loadError": "Unable to load more products. Check your connection and try again.",
+    "unavailableTitle": "Product unavailable",
+    "unavailableDescription": "This product is temporarily unavailable. It will be accessible again soon.",
+    "backToProducts": "Back to products"
   },
   "product": {
     "ref": "Ref.",
@@ -388,9 +391,6 @@
     "htUnit": "excl. tax / unit",
     "htPack": "excl. tax · pack of {qty}",
     "perUnitNote": "= {price} € excl. tax per unit",
-    "unavailableTitle": "Product unavailable",
-    "unavailableDescription": "This product is temporarily unavailable. It will be accessible again soon.",
-    "backToProducts": "Back to products",
     "loginToSeePrices": "Sign in to see prices",
     "createAccountToOrder": "Create an account to order",
     "decreaseQuantity": "Decrease quantity",
