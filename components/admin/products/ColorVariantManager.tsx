@@ -236,6 +236,27 @@ export function imageGroupKeyFromVariant(v: VariantState): string {
   return variantGroupKeyFromState(v);
 }
 
+/**
+ * Tri stable des variantes par couleur (ordre de première apparition).
+ * NE séparait PAS Unité/Pack : changer le saleType ne déplace pas la variante,
+ * ce qui évite le saut visuel dans le tableau.
+ */
+export function sortVariantsByColorFirstSeen<T extends { colorId: string }>(variants: T[]): T[] {
+  const firstSeenByKey = new Map<string, number>();
+  for (let i = 0; i < variants.length; i++) {
+    const gk = variantGroupKeyFromState(variants[i]);
+    if (!firstSeenByKey.has(gk)) firstSeenByKey.set(gk, i);
+  }
+  return variants
+    .map((v, i) => ({ v, i }))
+    .sort((a, b) => {
+      const fsA = firstSeenByKey.get(variantGroupKeyFromState(a.v))!;
+      const fsB = firstSeenByKey.get(variantGroupKeyFromState(b.v))!;
+      return fsA !== fsB ? fsA - fsB : a.i - b.i;
+    })
+    .map(({ v }) => v);
+}
+
 export function variantColorFingerprint(v: VariantState): string {
   return v.colorId ?? "";
 }
@@ -1932,26 +1953,11 @@ export default function ColorVariantManager({
     setBulkEdit(defaultBulkEdit());
   }
 
-  const sortedVariants = useMemo(() => {
-    const firstSeenByKey = new Map<string, number>();
-    for (let i = 0; i < variants.length; i++) {
-      const v = variants[i];
-      if (v.saleType !== "UNIT") continue;
-      const gk = variantGroupKeyFromState(v);
-      if (!firstSeenByKey.has(gk)) firstSeenByKey.set(gk, i);
-    }
-    const unitVars = variants
-      .map((v, i) => ({ v, i }))
-      .filter(({ v }) => v.saleType === "UNIT")
-      .sort((a, b) => {
-        const fsA = firstSeenByKey.get(variantGroupKeyFromState(a.v))!;
-        const fsB = firstSeenByKey.get(variantGroupKeyFromState(b.v))!;
-        return fsA !== fsB ? fsA - fsB : a.i - b.i;
-      })
-      .map(({ v }) => v);
-    const packs = variants.filter((v) => v.saleType === "PACK");
-    return [...unitVars, ...packs];
-  }, [variants]);
+  // Groupe les variantes par couleur (ordre de première apparition) sans séparer
+  // Unité/Pack. Avant, on collait toutes les Unités en haut et tous les Packs
+  // en bas — changer le type d'une variante la faisait sauter d'un bout du
+  // tableau à l'autre, ce qui donnait l'impression que la page remontait.
+  const sortedVariants = useMemo(() => sortVariantsByColorFirstSeen(variants), [variants]);
 
   const savedVariants = useMemo(() => sortedVariants.filter((v) => !!v.dbId), [sortedVariants]);
   const newVariants = useMemo(() => sortedVariants.filter((v) => !v.dbId), [sortedVariants]);

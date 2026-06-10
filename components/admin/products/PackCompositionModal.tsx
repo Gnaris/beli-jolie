@@ -39,37 +39,40 @@ export default function PackCompositionModal({
   const [lines, setLines] = useState<PackLineState[]>([]);
   const [bulkQty, setBulkQty] = useState("");
 
+  // Init des lignes UNIQUEMENT à l'ouverture du modal. initialLines est une
+  // nouvelle référence à chaque render du parent, donc le mettre en dépendance
+  // resetterait l'état dès qu'on touche un champ ailleurs dans le formulaire.
   useEffect(() => {
-    if (open) {
-      // Harmoniser les tailles entre couleurs : on prend l'union des tailles présentes
-      // dans la composition initiale, puis on garantit que chaque couleur a une entrée
-      // pour chacune de ces tailles. Les quantités existantes sont préservées,
-      // les nouvelles tailles ajoutées prennent la valeur 1 par défaut.
-      const unionMap = new Map<string, { sizeId: string; sizeName: string }>();
-      for (const l of initialLines) {
-        for (const s of l.sizeEntries) {
-          if (!unionMap.has(s.sizeId)) unionMap.set(s.sizeId, { sizeId: s.sizeId, sizeName: s.sizeName });
-        }
+    if (!open) return;
+    // Harmoniser les tailles entre couleurs : on prend l'union des tailles présentes
+    // dans la composition initiale, puis on garantit que chaque couleur a une entrée
+    // pour chacune de ces tailles. Les quantités existantes sont préservées,
+    // les nouvelles tailles ajoutées prennent la valeur 1 par défaut.
+    const unionMap = new Map<string, { sizeId: string; sizeName: string }>();
+    for (const l of initialLines) {
+      for (const s of l.sizeEntries) {
+        if (!unionMap.has(s.sizeId)) unionMap.set(s.sizeId, { sizeId: s.sizeId, sizeName: s.sizeName });
       }
-      const union = [...unionMap.values()];
-
-      setLines(
-        initialLines.map((l) => {
-          const byId = new Map(l.sizeEntries.map((s) => [s.sizeId, s]));
-          return {
-            ...l,
-            tempId: l.tempId || uid(),
-            sizeEntries: union.map((u) => {
-              const existing = byId.get(u.sizeId);
-              return existing
-                ? { ...existing, tempId: existing.tempId || uid() }
-                : { tempId: uid(), sizeId: u.sizeId, sizeName: u.sizeName, quantity: "1" };
-            }),
-          };
-        }),
-      );
     }
-  }, [open, initialLines]);
+    const union = [...unionMap.values()];
+
+    setLines(
+      initialLines.map((l) => {
+        const byId = new Map(l.sizeEntries.map((s) => [s.sizeId, s]));
+        return {
+          ...l,
+          tempId: l.tempId || uid(),
+          sizeEntries: union.map((u) => {
+            const existing = byId.get(u.sizeId);
+            return existing
+              ? { ...existing, tempId: existing.tempId || uid() }
+              : { tempId: uid(), sizeId: u.sizeId, sizeName: u.sizeName, quantity: "1" };
+          }),
+        };
+      }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
