@@ -22,7 +22,7 @@ import {
 import { getImagePaths } from "@/lib/image-utils";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { normalizePrimaryFlag } from "@/lib/normalize-primary-flag";
-import { findMissingImageCoverage } from "@/lib/variant-image-coverage";
+import { anyVariantHasImage } from "@/lib/variant-image-coverage";
 import { resolvePrimaryColorId, listAvailableColorIds } from "@/lib/product-primary-color";
 import {
   validateVariants,
@@ -502,9 +502,10 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     }
   }
 
-  // Auto-downgrade to OFFLINE if any *color composition* has no image. UNIT+PACK
-  // d'une même couleur partagent le même jeu d'images côté UI : on autorise donc
-  // qu'une seule des deux porte les images en BDD.
+  // Auto-downgrade to OFFLINE seulement si AUCUNE couleur n'a la moindre
+  // image. Les couleurs sans image sont simplement ignorées côté affichage
+  // public et côté push marketplaces — pas besoin de basculer tout le
+  // produit OFFLINE pour autant.
   let effectiveStatus = input.status;
   if (input.status === "ONLINE" && createdVariants.length > 0) {
     const variantsWithDetails = await prisma.productColor.findMany({
@@ -516,15 +517,13 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       },
     });
     const imageCountByColor = await countImagesByColorForProduct(product.id);
-    const missing = findMissingImageCoverage(
-      variantsWithDetails.map((v) => ({
-        id: v.id,
-        colorId: v.colorId,
-        colorName: v.color?.name ?? null,
-        imageCount: v.colorId ? (imageCountByColor.get(v.colorId) ?? 0) : 0,
-      })),
-    );
-    if (missing.length > 0) {
+    const coverageInput = variantsWithDetails.map((v) => ({
+      id: v.id,
+      colorId: v.colorId,
+      colorName: v.color?.name ?? null,
+      imageCount: v.colorId ? (imageCountByColor.get(v.colorId) ?? 0) : 0,
+    }));
+    if (!anyVariantHasImage(coverageInput)) {
       effectiveStatus = "OFFLINE";
       await prisma.product.update({ where: { id: product.id }, data: { status: "OFFLINE" } });
     }
@@ -1164,9 +1163,10 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     }
   }
 
-  // Auto-downgrade to OFFLINE si une composition de couleurs n'a aucune image.
-  // UNIT et PACK d'une même couleur partagent le jeu d'images côté UI : on
-  // autorise donc qu'une seule des deux porte les images en BDD.
+  // Auto-downgrade to OFFLINE seulement si AUCUNE couleur n'a la moindre
+  // image (ou aucune variante). Les couleurs partiellement sans image ne
+  // bloquent plus le passage en ligne : elles sont masquées côté public et
+  // ignorées côté push marketplaces tant qu'aucune image n'est ajoutée.
   let effectiveStatus = input.status;
   if (input.status === "ONLINE") {
     const allVariants = await prisma.productColor.findMany({
@@ -1178,16 +1178,14 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       },
     });
     const imageCountByColor = await countImagesByColorForProduct(id);
-    const missing = findMissingImageCoverage(
-      allVariants.map((v) => ({
-        id: v.id,
-        colorId: v.colorId,
-        colorName: v.color?.name ?? null,
-        imageCount: v.colorId ? (imageCountByColor.get(v.colorId) ?? 0) : 0,
-      })),
-    );
+    const coverageInput = allVariants.map((v) => ({
+      id: v.id,
+      colorId: v.colorId,
+      colorName: v.color?.name ?? null,
+      imageCount: v.colorId ? (imageCountByColor.get(v.colorId) ?? 0) : 0,
+    }));
     const noVariants = allVariants.length === 0;
-    if (noVariants || missing.length > 0) {
+    if (noVariants || !anyVariantHasImage(coverageInput)) {
       effectiveStatus = "OFFLINE";
       await prisma.product.update({ where: { id }, data: { status: "OFFLINE" } });
     }
@@ -1390,6 +1388,132 @@ export async function unarchiveProduct(id: string) {
 // Actions en masse
 // ─────────────────────────────────────────────
 
+/**
+ * Évalue, pour une liste d'ids de produits brouillons (OFFLINE), lesquels
+ * peuvent être mis en ligne + publiés sur les marketplaces, et pour ceux qui
+ * ne peuvent pas, retourne la liste détaillée des raisons. Sert à la modale
+ * « Publier brouillons » de la liste admin.
+ */
+export interface BulkPublishDraftPreviewItem {
+  id: string;
+  reference: string;
+  name: string;
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
+  eligible: boolean;
+  reasons: string[];
+  pfsAlreadyPublished: boolean;
+  ankorsAlreadyPublished: boolean;
+}
+
+export async function previewBulkPublishDrafts(
+  productIds: string[],
+): Promise<BulkPublishDraftPreviewItem[]> {
+  await requireAdmin();
+  if (productIds.length === 0) return [];
+
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: {
+      id: true,
+      reference: true,
+      name: true,
+      description: true,
+      categoryId: true,
+      status: true,
+      pfsProductId: true,
+      ankorsProductId: true,
+      compositions: { select: { percentage: true } },
+      colors: {
+        select: {
+          id: true,
+          colorId: true,
+          color: { select: { name: true } },
+          unitPrice: true,
+          stock: true,
+          weight: true,
+          saleType: true,
+          packQuantity: true,
+          variantSizes: {
+            select: {
+              sizeId: true,
+              size: { select: { name: true } },
+              quantity: true,
+            },
+          },
+          packLines: {
+            select: { id: true, sizes: { select: { id: true } } },
+          },
+        },
+      },
+    },
+  });
+
+  // Comptage images par (productId, colorId) en une seule requête.
+  const imageRows = await prisma.productColorImage.groupBy({
+    by: ["productId", "colorId"],
+    where: { productId: { in: productIds } },
+    _count: { _all: true },
+  });
+  const imagesByProductColor = new Map<string, number>();
+  for (const r of imageRows) {
+    imagesByProductColor.set(`${r.productId}::${r.colorId}`, r._count._all);
+  }
+
+  const { evaluateProductPublishability } = await import("@/lib/product-publishability");
+
+  return products.map((p): BulkPublishDraftPreviewItem => {
+    const imageCountByColorId: Record<string, number> = {};
+    for (const v of p.colors) {
+      if (v.colorId) {
+        const key = `${p.id}::${v.colorId}`;
+        imageCountByColorId[v.colorId] = imagesByProductColor.get(key) ?? 0;
+      }
+    }
+    const compositionPercentTotal = p.compositions.reduce(
+      (sum, c) => sum + Number(c.percentage ?? 0),
+      0,
+    );
+    const result = evaluateProductPublishability({
+      id: p.id,
+      reference: p.reference,
+      name: p.name,
+      description: p.description ?? "",
+      categoryId: p.categoryId ?? null,
+      compositionCount: p.compositions.length,
+      compositionPercentTotal,
+      imageCountByColorId,
+      variants: p.colors.map((v) => ({
+        id: v.id,
+        colorId: v.colorId,
+        colorName: v.color?.name ?? null,
+        unitPrice: Number(v.unitPrice),
+        stock: v.stock,
+        weight: Number(v.weight),
+        saleType: v.saleType,
+        packQuantity: v.packQuantity,
+        sizes: v.variantSizes.map((s) => ({
+          sizeId: s.sizeId,
+          sizeName: s.size?.name ?? null,
+          quantity: s.quantity,
+        })),
+        packLinesCount: v.packLines.length,
+        packLinesSizesTotal: v.packLines.reduce((sum, l) => sum + l.sizes.length, 0),
+      })),
+    });
+
+    return {
+      id: p.id,
+      reference: p.reference,
+      name: p.name,
+      status: p.status,
+      eligible: result.eligible,
+      reasons: result.reasons,
+      pfsAlreadyPublished: !!p.pfsProductId,
+      ankorsAlreadyPublished: !!p.ankorsProductId,
+    };
+  });
+}
+
 export async function bulkUpdateProductStatus(
   productIds: string[],
   status: "ONLINE" | "OFFLINE" | "ARCHIVED"
@@ -1405,10 +1529,11 @@ export async function bulkUpdateProductStatus(
     },
   });
 
-  // Check images at the *color composition* level: deux variantes partageant la
-  // même composition (ex. Argent UNIT + Argent PACK) partagent le même jeu
-  // d'images dans le formulaire, donc si l'une a une image l'autre est couverte.
-  const missingByProduct = new Map<string, string[]>();
+  // On bloque ONLINE seulement si AUCUNE couleur du produit n'a la moindre
+  // image. Les couleurs partiellement sans image ne sont plus un motif de
+  // refus : elles seront masquées côté public et ignorées côté push
+  // marketplaces tant qu'aucune image n'est ajoutée.
+  const noImageAtAllByProduct = new Set<string>();
   if (status === "ONLINE") {
     const allColors = await prisma.productColor.findMany({
       where: { productId: { in: productIds } },
@@ -1435,18 +1560,16 @@ export async function bulkUpdateProductStatus(
       byProduct.set(c.productId, arr);
     }
     for (const [productId, variants] of byProduct) {
-      const missing = findMissingImageCoverage(
-        variants.map((v) => ({
-          id: v.id,
-          colorId: v.colorId,
-          colorName: v.color?.name ?? null,
-          imageCount: v.colorId
-            ? (imageCountByPidColor.get(`${productId}::${v.colorId}`) ?? 0)
-            : 0,
-        })),
-      );
-      if (missing.length > 0) {
-        missingByProduct.set(productId, missing.map((m) => m.label));
+      const coverageInput = variants.map((v) => ({
+        id: v.id,
+        colorId: v.colorId,
+        colorName: v.color?.name ?? null,
+        imageCount: v.colorId
+          ? (imageCountByPidColor.get(`${productId}::${v.colorId}`) ?? 0)
+          : 0,
+      }));
+      if (!anyVariantHasImage(coverageInput)) {
+        noImageAtAllByProduct.add(productId);
       }
     }
   }
@@ -1460,8 +1583,7 @@ export async function bulkUpdateProductStatus(
       if (product.isIncomplete) reasons.push("produit en brouillon");
       if (product.colors.length === 0) reasons.push("aucune variante");
       if (product.colors.length > 0 && product.colors.every(c => c.stock === 0)) reasons.push("aucun stock");
-      const missingImgLabels = missingByProduct.get(product.id);
-      if (missingImgLabels) reasons.push(`image manquante : ${missingImgLabels.join(", ")}`);
+      if (noImageAtAllByProduct.has(product.id)) reasons.push("aucune image");
       if (!product.categoryId) reasons.push("pas de catégorie");
       if (reasons.length > 0) {
         errors.push({ id: product.id, reference: product.reference, reason: reasons.join(", ") });

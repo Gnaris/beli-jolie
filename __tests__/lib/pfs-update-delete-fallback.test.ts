@@ -142,7 +142,9 @@ function baseProduct() {
         images: [],
       },
     ],
-    colorImages: [],
+    // Une image par couleur — sinon `filterVariantsWithImages` (cf.
+    // lib/pfs-update.ts) exclut toutes les variantes du test.
+    colorImages: [{ path: "/mock/red.jpg", order: 0, colorId: "color-red" }],
     compositions: [{ percentage: 100, composition: { pfsCompositionRef: "COTON" } }],
     manufacturingCountry: { isoCode: "CN", pfsCountryRef: "CN" },
     season: { pfsRef: "PE2026" },

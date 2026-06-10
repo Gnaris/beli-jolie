@@ -155,6 +155,21 @@ export async function efashionPublishProduct(
     };
   }
 
+  // Ignore les couleurs sans image. Le worker images posera
+  // `efashionSyncRequired = true` quand une image arrivera, et l'admin
+  // pourra re-publier à ce moment-là.
+  const colorIdsHavingImages = new Set(imagesByColorId.keys());
+  product.colors = product.colors.filter(
+    (c) => c.color != null && colorIdsHavingImages.has(c.color.id),
+  );
+  if (product.colors.length === 0) {
+    return {
+      success: false,
+      error:
+        "Aucune couleur n'a d'image — ajoutez au moins une image par couleur pour publier sur eFashion.",
+    };
+  }
+
   // Validations centralisées — on liste TOUT ce qui manque pour donner un retour clair.
   // ⚠️ Les tailles ne sont PLUS validées au niveau Size.efashionDeclinaisonId :
   // la déclinaison est résolue dynamiquement (cf. resolveEfashionDeclinaison ci-dessous).

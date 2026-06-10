@@ -86,12 +86,20 @@ export default function ProductCard({
   const [isPending, startTransition] = useTransition();
   const showPrices = canSeePrices(session);
 
-  // If color filters are active, auto-select the first matching color
-  const primaryColor = colors.find((c) => c.isPrimary) ?? colors[0];
+  // On masque les couleurs sans image côté client : elles existent en BDD
+  // (variantes en attente d'image) mais ne doivent pas apparaître sur la
+  // vignette tant qu'aucune photo n'a été ajoutée.
+  const visibleColors = colors.filter((c) => c.firstImage !== null);
+
+  // If color filters are active, auto-select the first matching color.
+  // Le fallback prend la couleur principale si elle a une image, sinon la
+  // première couleur visible.
+  const primaryColor =
+    visibleColors.find((c) => c.isPrimary) ?? visibleColors[0] ?? colors[0];
   const filteredMatch = filteredColorIds.length > 0
-    ? colors.find((c) => filteredColorIds.includes(c.colorId))
+    ? visibleColors.find((c) => filteredColorIds.includes(c.colorId))
     : null;
-  const initialColor = filteredMatch ?? primaryColor ?? colors[0];
+  const initialColor = filteredMatch ?? primaryColor ?? visibleColors[0] ?? colors[0];
   const [selectedColor, setSelectedColor] = useState<ColorData>(initialColor);
   const [quantity, setQuantity] = useState(1);
   const [addedMsg, setAddedMsg] = useState("");
@@ -105,7 +113,7 @@ export default function ProductCard({
   if (prevFilteredKey.current !== filteredKey) {
     prevFilteredKey.current = filteredKey;
     if (filteredColorIds.length > 0) {
-      const match = colors.find((c) => filteredColorIds.includes(c.colorId));
+      const match = visibleColors.find((c) => filteredColorIds.includes(c.colorId));
       if (match) setSelectedColor(match);
     }
   }
@@ -200,7 +208,7 @@ export default function ProductCard({
   // ── Calcul prix affichés (dépend de activeVariant pour suivre UNIT/PACK) ──
   const basePrice = activeVariant
     ? variantPricePerUnit(activeVariant)
-    : (displayed?.unitPrice ?? Math.min(...colors.map((c) => c.unitPrice)));
+    : (displayed?.unitPrice ?? Math.min(...(visibleColors.length > 0 ? visibleColors : colors).map((c) => c.unitPrice)));
   const priceAfterProductDiscount = anyVariantHasDiscount
     ? Math.max(0, basePrice * (1 - (discountPercent ?? 0) / 100))
     : basePrice;
@@ -213,7 +221,7 @@ export default function ProductCard({
   // Stock check: is selected color entirely out of stock?
   const selectedColorOutOfStock = (displayed?.totalStock ?? 0) <= 0;
   // All colors out of stock?
-  const allOutOfStock = colors.every((c) => (c.totalStock ?? 0) <= 0);
+  const allOutOfStock = (visibleColors.length > 0 ? visibleColors : colors).every((c) => (c.totalStock ?? 0) <= 0);
 
   function handleColorSelect(c: ColorData) {
     setSelectedColor(c);
@@ -304,9 +312,9 @@ export default function ProductCard({
 
           {/* Favori + coloris count */}
           <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
-            {colors.length > 1 && (
+            {visibleColors.length > 1 && (
               <span className="bg-bg-primary text-text-muted text-[9px] font-body px-1.5 py-0.5 rounded-full border border-border">
-                {t("colorCount", { count: colors.length })}
+                {t("colorCount", { count: visibleColors.length })}
               </span>
             )}
             <FavoriteToggle productId={id} isFavorite={isFavorite} onChange={onFavoriteChange} />
@@ -329,9 +337,9 @@ export default function ProductCard({
       <div className="px-1.5 pt-3 pb-1.5 flex flex-col gap-3 flex-1">
         {/* Color picker + nom */}
         <div className="space-y-2">
-          {colors.length > 0 && (
+          {visibleColors.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
-              {colors.map((c) => {
+              {visibleColors.map((c) => {
                 const fullName = c.name;
                 const mainHex = c.hex ?? "#9CA3AF";
                 let swatchStyle: React.CSSProperties;

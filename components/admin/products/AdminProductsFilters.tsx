@@ -62,6 +62,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   // Local state for all text/number/date inputs (not applied until button click)
   const [localTerms, setLocalTerms]       = useState<string[]>(parseQ(urlQ));
   const [draft, setDraft]                 = useState("");
+  const [copiedIdx, setCopiedIdx]         = useState<number | null>(null);
   const [localMinPrice, setLocalMinPrice] = useState(urlMinPrice);
   const [localMaxPrice, setLocalMaxPrice] = useState(urlMaxPrice);
   const [localDateFrom, setLocalDateFrom] = useState(urlDateFrom);
@@ -181,6 +182,29 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
     setLocalTerms((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
+  // Copie le texte du badge dans le presse-papier et bascule l'icône en "check" 1.2s.
+  const copyTerm = useCallback(async (term: string, idx: number) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(term);
+      } else {
+        // Fallback ancien navigateur
+        const ta = document.createElement("textarea");
+        ta.value = term;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopiedIdx(idx);
+      setTimeout(() => setCopiedIdx((cur) => (cur === idx ? null : cur)), 1200);
+    } catch {
+      // Silencieux : pas critique
+    }
+  }, []);
+
   // Handle keys in the search input: Enter = add badge then search;
   // Backspace on empty = remove last badge.
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -245,23 +269,45 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
             </svg>
-            {localTerms.map((term, idx) => (
-              <span
-                key={`${term}-${idx}`}
-                className="inline-flex items-center gap-1 bg-bg-dark text-text-inverse text-xs font-body px-2 py-0.5 rounded-md"
-              >
-                <span className="font-mono">{term}</span>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); removeTerm(idx); }}
-                  className="text-text-inverse/70 hover:text-text-inverse leading-none text-base"
-                  title="Retirer"
-                  aria-label={`Retirer ${term}`}
+            {localTerms.map((term, idx) => {
+              const isCopied = copiedIdx === idx;
+              return (
+                <span
+                  key={`${term}-${idx}`}
+                  className="inline-flex items-center gap-1.5 bg-bg-dark text-text-inverse text-sm font-body px-2.5 py-1 rounded-md"
                 >
-                  ×
-                </button>
-              </span>
-            ))}
+                  <span className="font-mono">{term}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); copyTerm(term, idx); }}
+                    className={`leading-none transition-colors ${
+                      isCopied ? "text-[#4ADE80]" : "text-text-inverse/70 hover:text-text-inverse"
+                    }`}
+                    title={isCopied ? "Copié !" : "Copier"}
+                    aria-label={isCopied ? `${term} copié` : `Copier ${term}`}
+                  >
+                    {isCopied ? (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); removeTerm(idx); }}
+                    className="text-text-inverse/70 hover:text-text-inverse leading-none text-lg"
+                    title="Retirer"
+                    aria-label={`Retirer ${term}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
             <input
               ref={inputRef}
               type="text"
@@ -419,6 +465,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                     ...categories.map((c) => ({ value: c.id, label: c.name })),
                   ]}
                   size="sm"
+                  searchable
                 />
               </FilterField>
               <FilterField label="Sous-catégorie">
@@ -435,6 +482,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                     ),
                   ]}
                   size="sm"
+                  searchable
                 />
               </FilterField>
               <FilterField label="Mot-clé">
@@ -446,6 +494,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                     ...tags.map((t) => ({ value: t.id, label: t.name })),
                   ]}
                   size="sm"
+                  searchable
                 />
               </FilterField>
               <FilterField label="Composition">
@@ -457,6 +506,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                     ...compositions.map((c) => ({ value: c.id, label: c.name })),
                   ]}
                   size="sm"
+                  searchable
                 />
               </FilterField>
               <FilterField label="Code SH">
@@ -491,6 +541,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                     { value: "ARCHIVED", label: "Archivé" },
                   ]}
                   size="sm"
+                  searchable
                 />
               </FilterField>
               <FilterField label="Best-sellers">
@@ -502,6 +553,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                     { value: "1", label: "Best-sellers uniquement" },
                   ]}
                   size="sm"
+                  searchable
                 />
               </FilterField>
               <FilterField label="Images">
@@ -513,6 +565,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                     { value: "1", label: "Au moins une variante sans image" },
                   ]}
                   size="sm"
+                  searchable
                 />
               </FilterField>
             </FilterColumn>
@@ -591,6 +644,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                     { value: "never", label: "Jamais rafraîchi" },
                   ]}
                   size="sm"
+                  searchable
                 />
               </FilterField>
             </FilterColumn>
@@ -609,6 +663,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                         { value: "unlinked", label: "Non lié à PFS" },
                       ]}
                       size="sm"
+                      searchable
                     />
                   </FilterField>
                 )}
@@ -623,6 +678,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                         { value: "unlinked", label: "Non lié à Ankorstore" },
                       ]}
                       size="sm"
+                      searchable
                     />
                   </FilterField>
                 )}
@@ -637,6 +693,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                         { value: "unlinked", label: "Non lié à eFashion" },
                       ]}
                       size="sm"
+                      searchable
                     />
                   </FilterField>
                 )}

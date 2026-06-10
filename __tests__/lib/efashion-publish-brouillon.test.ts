@@ -108,11 +108,32 @@ function makeProduct(overrides: Partial<{ status: string; colors: ReturnType<typ
   };
 }
 
+/**
+ * Auto-mock de productColorImage.findMany : génère 1 image par color.id du
+ * dernier findUnique pour que `filterVariantsByColorIdSet` (cf.
+ * lib/efashion-publish.ts) ne rejette pas toutes les variantes.
+ */
+function installAutoColorImagesMock() {
+  (prisma.productColorImage.findMany as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+    const lastCall = findUniqueMock.mock.results.at(-1);
+    if (!lastCall) return [];
+    const product = await lastCall.value;
+    if (!product?.colors) return [];
+    const ids = new Set<string>();
+    for (const c of product.colors) {
+      const cid = c.colorId ?? c.color?.id;
+      if (cid) ids.add(cid);
+    }
+    return [...ids].map((cid, i) => ({ colorId: cid, path: `m-${cid}.jpg`, order: i }));
+  });
+}
+
 describe("efashionPublishProduct — sortie automatique du brouillon", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     publishBulkMock.mockResolvedValue(2);
     getMeMock.mockResolvedValue({ id_vendeur: 2017 });
+    installAutoColorImagesMock();
   });
 
   it("appelle publishBrouillonBulk avec toutes les couleurs en un seul appel (status ONLINE)", async () => {

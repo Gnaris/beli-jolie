@@ -148,7 +148,9 @@ function buildProductRow(snapshot: unknown) {
         images: [],
       },
     ],
-    colorImages: [],
+    // Une image par couleur — sinon `filterVariantsWithImages` (cf.
+    // lib/pfs-update.ts) exclut toutes les variantes du test.
+    colorImages: [{ path: "/mock/v-1.jpg", order: 0, colorId: "col-1" }],
     compositions: [],
     manufacturingCountry: { isoCode: "FR", pfsCountryRef: "FR" },
     season: null,

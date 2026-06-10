@@ -31,11 +31,17 @@ import MarketplaceExportButton from "@/components/admin/products/MarketplaceExpo
 
 // Modales lourdes — chargées à l'ouverture seulement pour alléger le bundle
 // initial de la table produits (cf. audit perf 2026-05-31).
+const LinkPfsProductModal = dynamic(
+  () => import("@/components/admin/products/LinkPfsProductModal"),
+);
 const LinkAnkorstoreProductModal = dynamic(
   () => import("@/components/admin/products/LinkAnkorstoreProductModal"),
 );
 const LinkEfashionProductModal = dynamic(
   () => import("@/components/admin/products/LinkEfashionProductModal"),
+);
+const BulkPublishDraftsModal = dynamic(
+  () => import("@/components/admin/products/BulkPublishDraftsModal"),
 );
 
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
@@ -199,6 +205,7 @@ function MarketplaceBadge({
   publishing = false,
   syncRequired = false,
   onPublishClick,
+  onLinkClick,
   onSyncClick,
 }: {
   published: boolean;
@@ -207,6 +214,8 @@ function MarketplaceBadge({
   /** Le produit est lié à PFS mais des modifs locales n'ont pas été propagées. */
   syncRequired?: boolean;
   onPublishClick?: () => void;
+  /** Ouvre la modale de liaison vers une fiche PFS existante (mappage couleurs). */
+  onLinkClick?: () => void;
   onSyncClick?: () => void;
 }) {
   if (publishing) {
@@ -259,22 +268,46 @@ function MarketplaceBadge({
       </span>
     );
   }
-  if (onPublishClick) {
+  // Non publié : on propose deux actions côte à côte quand elles sont
+  // disponibles — "Publier" (créer une nouvelle fiche PFS) et "Lier"
+  // (rattacher à une fiche existante). Si seule une callback est passée,
+  // on affiche la pastille correspondante.
+  if (onPublishClick || onLinkClick) {
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onPublishClick();
-        }}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
-        title="Cliquer pour publier ce produit sur Paris Fashion Shop"
-      >
-        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-        </svg>
-        PFS
-      </button>
+      <span className="inline-flex items-center gap-1">
+        {onPublishClick && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPublishClick();
+            }}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
+            title="Cliquer pour publier ce produit sur Paris Fashion Shop"
+          >
+            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            PFS
+          </button>
+        )}
+        {onLinkClick && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onLinkClick();
+            }}
+            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-muted bg-bg-secondary border border-border hover:border-text-secondary hover:text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
+            title="Lier à une fiche Paris Fashion Shop existante"
+            aria-label="Lier à une fiche Paris Fashion Shop existante"
+          >
+            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+            </svg>
+          </button>
+        )}
+      </span>
     );
   }
   return (
@@ -1210,6 +1243,7 @@ function ProductRow({
 }) {
   const [refreshing, setRefreshing] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [linkPfsOpen, setLinkPfsOpen] = useState(false);
   const [linkAkOpen, setLinkAkOpen] = useState(false);
   const [linkEfOpen, setLinkEfOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -1446,29 +1480,41 @@ function ProductRow({
           <span className="font-body text-[11px] text-text-muted tabular-nums">{rowNumber}</span>
         </td>
 
-        {/* Photo — clickable for expand */}
+        {/* Photo — click direct vers la page d'édition (sinon le td ouvre le drawer) */}
         <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
-          {product.firstImage ? (
-            <img
-              src={product.firstImage}
-              alt={product.name}
-              className="w-12 h-12 object-cover rounded-xl border border-border shadow-sm"
-            />
-          ) : (
-            <div className="w-12 h-12 bg-bg-tertiary rounded-xl flex items-center justify-center border border-border">
-              <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M13.5 12h.008v.008H13.5V12zm0 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 9V7.5a2.25 2.25 0 012.25-2.25h15A2.25 2.25 0 0121 7.5v9a2.25 2.25 0 01-2.25 2.25H4.5A2.25 2.25 0 012.25 21z" />
-              </svg>
-            </div>
-          )}
+          <Link
+            href={`/admin/produits/${product.id}/modifier`}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-block"
+            aria-label={`Modifier ${product.name}`}
+          >
+            {product.firstImage ? (
+              <img
+                src={product.firstImage}
+                alt={product.name}
+                className="w-12 h-12 object-cover rounded-xl border border-border shadow-sm"
+              />
+            ) : (
+              <div className="w-12 h-12 bg-bg-tertiary rounded-xl flex items-center justify-center border border-border">
+                <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M13.5 12h.008v.008H13.5V12zm0 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 9V7.5a2.25 2.25 0 012.25-2.25h15A2.25 2.25 0 0121 7.5v9a2.25 2.25 0 01-2.25 2.25H4.5A2.25 2.25 0 012.25 21z" />
+                </svg>
+              </div>
+            )}
+          </Link>
         </td>
 
-        {/* Référence */}
+        {/* Référence — la pastille redirige vers l'édition, le reste de la cellule ouvre le drawer */}
         <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
           <div className="inline-flex items-center gap-1.5">
-            <span className="font-mono text-[11px] bg-bg-tertiary px-2 py-1 rounded-md text-text-secondary whitespace-nowrap border border-border-light">
+            <Link
+              href={`/admin/produits/${product.id}/modifier`}
+              onClick={(e) => e.stopPropagation()}
+              className="font-mono text-[11px] bg-bg-tertiary px-2 py-1 rounded-md text-text-secondary whitespace-nowrap border border-border-light hover:bg-bg-secondary hover:text-text-primary transition-colors"
+              aria-label={`Modifier ${product.name}`}
+            >
               {product.reference}
-            </span>
+            </Link>
             <button
               type="button"
               onClick={async (e) => {
@@ -1644,6 +1690,14 @@ function ProductRow({
                 onPublishClick={
                   eligibility.canPublishPfs && !isPfsPublishing
                     ? () => { void handlePublishPfs(); }
+                    : undefined
+                }
+                onLinkClick={
+                  // On expose le bouton "Lier" seulement quand PFS est configuré,
+                  // que le produit n'est pas déjà lié, et qu'aucune publication
+                  // n'est en cours (même grammaire que Ankorstore/eFashion).
+                  hasPfsConfig && !product.pfsProductId && !isPfsPublishing
+                    ? () => setLinkPfsOpen(true)
                     : undefined
                 }
                 onSyncClick={handleSyncPfs}
@@ -1851,6 +1905,19 @@ function ProductRow({
       {/* ⚠️ Modales rendues via createPortal sur document.body : sinon elles
           sortent en tant que <div> direct enfant de <tbody>, ce qui est
           invalide en HTML et déclenche une hydration error côté Next 16. */}
+      {linkPfsOpen && createPortal(
+        <LinkPfsProductModal
+          productId={product.id}
+          productName={product.name}
+          reference={product.reference}
+          onClose={() => {
+            setLinkPfsOpen(false);
+            router.refresh();
+          }}
+        />,
+        document.body,
+      )}
+
       {linkAkOpen && createPortal(
         <LinkAnkorstoreProductModal
           productId={product.id}
@@ -2340,6 +2407,7 @@ export default function AdminProductsTable({
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkPublishDraftsOpen, setBulkPublishDraftsOpen] = useState(false);
   const router = useRouter();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
@@ -2412,6 +2480,97 @@ export default function AdminProductsTable({
   const clearSelectedVariants = useCallback(() => {
     setSelectedVariantIds(new Set());
   }, []);
+
+  // Sélection filtrée sur les brouillons (OFFLINE) — sert au bouton « Publier
+  // brouillons sur marketplaces ». Le bouton n'apparaît que si la sélection
+  // courante contient au moins un produit OFFLINE.
+  const selectedDraftIds = allProducts
+    .filter((p) => selectedIds.has(p.id) && p.status === "OFFLINE")
+    .map((p) => p.id);
+  const hasSelectedDrafts = selectedDraftIds.length > 0;
+
+  const handleBulkPublishDraftsConfirm = useCallback(
+    async (decision: {
+      eligibleIds: string[];
+      publishPfs: boolean;
+      publishAnkorstore: boolean;
+    }) => {
+      setBulkPublishDraftsOpen(false);
+      if (decision.eligibleIds.length === 0) return;
+
+      const eligibleProducts = allProducts.filter((p) => decision.eligibleIds.includes(p.id));
+
+      // 1) Passage en ligne en masse (la server action revérifie le flag
+      //    isIncomplete + images/stock/catégorie côté serveur).
+      showLoading();
+      let onlineResult: Awaited<ReturnType<typeof bulkUpdateProductStatus>> | null = null;
+      try {
+        onlineResult = await bulkUpdateProductStatus(decision.eligibleIds, "ONLINE");
+      } catch (e) {
+        toast.error("Mise en ligne impossible", e instanceof Error ? e.message : "Erreur inconnue.");
+        hideLoading();
+        return;
+      } finally {
+        hideLoading();
+      }
+
+      const onlineIds = new Set(onlineResult.success);
+      if (onlineResult.errors.length > 0) {
+        const refs = onlineResult.errors.map((e) => e.reference).join(", ");
+        toast.error(
+          `${onlineResult.errors.length} produit${onlineResult.errors.length > 1 ? "s" : ""} non mis en ligne`,
+          `Référence${onlineResult.errors.length > 1 ? "s" : ""} : ${refs}`,
+        );
+      }
+      if (onlineResult.success.length > 0) {
+        toast.success(
+          `${onlineResult.success.length} produit${onlineResult.success.length > 1 ? "s" : ""} mis en ligne`,
+        );
+      }
+
+      // 2) Enqueue des publications marketplaces pour les produits effectivement mis en ligne
+      const inputs: Parameters<typeof enqueuePfs>[0] = [];
+      for (const p of eligibleProducts) {
+        if (!onlineIds.has(p.id)) continue;
+        if (decision.publishPfs && hasPfsConfig && !p.pfsProductId) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: true },
+            mode: "publish" as const,
+            marketplace: "pfs" as const,
+          });
+        }
+        if (decision.publishAnkorstore && showAnkorstore && !p.ankorsProductId) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: false, ankorstore: true },
+            mode: "publish" as const,
+            marketplace: "ankorstore" as const,
+          });
+        }
+      }
+      if (inputs.length > 0) enqueuePfs(inputs);
+
+      setSelectedIds(new Set());
+      router.refresh();
+    },
+    [
+      allProducts,
+      enqueuePfs,
+      hasPfsConfig,
+      showAnkorstore,
+      showLoading,
+      hideLoading,
+      toast,
+      router,
+    ],
+  );
 
   // ─── Bulk product actions ──
   // `idsOverride` permet l'appel depuis une ligne unique (menu Actions). Quand
@@ -3301,6 +3460,20 @@ export default function AdminProductsTable({
             Archiver
           </button>
           <div className="h-4 w-px bg-bg-primary/20" />
+          {hasSelectedDrafts && (
+            <button
+              type="button"
+              onClick={() => setBulkPublishDraftsOpen(true)}
+              disabled={isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4F46E5] text-white text-xs font-medium rounded-lg hover:bg-[#4338CA] disabled:opacity-50 transition-colors font-body"
+              title="Mettre en ligne les brouillons éligibles et les publier sur les marketplaces"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              Publier brouillons ({selectedDraftIds.length})
+            </button>
+          )}
           <button
             type="button"
             onClick={async () => {
@@ -3404,6 +3577,19 @@ export default function AdminProductsTable({
         onApply={handleBulkAttributes}
         isPending={isPending}
       />
+
+      {/* Modale de publication en masse des brouillons */}
+      {bulkPublishDraftsOpen && (
+        <BulkPublishDraftsModal
+          open={bulkPublishDraftsOpen}
+          productIds={selectedDraftIds}
+          hasPfsConfig={hasPfsConfig}
+          hasAnkorstoreConfig={hasAnkorstoreConfig}
+          ankorstoreEnabled={ankorstoreEnabled}
+          onCancel={() => setBulkPublishDraftsOpen(false)}
+          onConfirm={handleBulkPublishDraftsConfirm}
+        />
+      )}
     </div>
   );
 }

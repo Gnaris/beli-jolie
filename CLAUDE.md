@@ -210,7 +210,7 @@ next-intl 4.x, **routing par préfixe** (`/fr/...`, `/en/...`). Locales : **fr (
 - Brouillon : `uploads/produits/_brouillon/` si pas encore de référence.
 - DB paths déjà au format URL publique.
 - **PFS image sync** : JPEG uniquement (pas WebP), upload multipart. Logs `[PFS Images]`.
-- **Upload arrière-plan** : `POST /api/admin/products/images` ne fait PLUS sharp en synchrone — écrit le buffer brut dans `private/uploads/_image_jobs/{jobId}.{ext}`, insère un `ImageProcessingJob` (PENDING) et retourne immédiatement le `dbPath` futur. Worker singleton `lib/image-queue.ts` (démarré dans `instrumentation-node.ts`, 3 jobs en parallèle, poll 800 ms) traite chaque job via `processProductImage`. Au boot Node, jobs en PROCESSING repassent en PENDING (idempotent). Quand le dernier job d'un produit lié passe à DONE → pose `*SyncRequired = true`. Progression suivie par `GET /api/admin/products/images/progress` (pollé 2 s par `ImageProcessingContext`) et widget flottant `ImageProcessingWidget`.
+- **Upload arrière-plan** : `POST /api/admin/products/images` ne fait PLUS sharp en synchrone — écrit le buffer brut dans `private/uploads/_image_jobs/{jobId}.{ext}`, insère un `ImageProcessingJob` (PENDING) et retourne immédiatement le `dbPath` futur. Worker singleton `lib/image-queue.ts` (démarré dans `instrumentation-node.ts`, 3 jobs en parallèle, poll 800 ms) traite chaque job via `processProductImage`. Au boot Node, jobs en PROCESSING repassent en PENDING (idempotent). Quand le dernier job d'un produit lié passe à DONE → pose `*SyncRequired = true`. Pas de widget de progression côté UI (silencieux).
 - Reset data : `npx tsx scripts/wipe-data.ts` (préserve ADMIN, SiteConfig, CompanyInfo, LegalDocument).
 
 ### SEO

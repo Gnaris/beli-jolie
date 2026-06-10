@@ -142,9 +142,30 @@ function makeLiveItem(args: {
   };
 }
 
+/**
+ * Auto-mock de productColorImage.findMany : dérive 1 image par colorId du
+ * dernier findUnique. Sans ça, `filterVariantsByColorIdSet` exclut toutes
+ * les variantes des tests (cf. lib/efashion-update.ts).
+ */
+function installAutoColorImagesMock() {
+  (prisma.productColorImage.findMany as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+    const lastCall = findUniqueMock.mock.results.at(-1);
+    if (!lastCall) return [];
+    const product = await lastCall.value;
+    if (!product?.colors) return [];
+    const ids = new Set<string>();
+    for (const c of product.colors) {
+      const cid = c.colorId ?? c.color?.id;
+      if (cid) ids.add(cid);
+    }
+    return [...ids].map((cid, i) => ({ colorId: cid, path: `m-${cid}.jpg`, order: i }));
+  });
+}
+
 describe("efashionUpdateProductInPlace — bascule de la déclinaison eFashion", () => {
   beforeEach(() => {
     findUniqueMock.mockReset();
+    installAutoColorImagesMock();
     updateProduitMock.mockReset();
     updateProduitMock.mockResolvedValue({
       id_produit: "0",

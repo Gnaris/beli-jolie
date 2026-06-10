@@ -389,6 +389,14 @@ export function findLastFilledBasics(
   return null;
 }
 
+/**
+ * Vrai si la variante a un stock saisi à 0 (champ rempli, valeur 0).
+ * Un champ vide n'est pas considéré comme rupture (variante en cours de création).
+ */
+export function isVariantOutOfStock(v: Pick<VariantState, "stock">): boolean {
+  return v.stock.trim() !== "" && Number(v.stock) === 0;
+}
+
 interface BulkEditState { unitPrice: string; weight: string; stock: string; }
 function defaultBulkEdit(): BulkEditState { return { unitPrice: "", weight: "", stock: "" }; }
 
@@ -2106,7 +2114,7 @@ export default function ColorVariantManager({
               const imgCount = imgEntry?.imagePreviews.length ?? 0;
               const locked = isVariantLocked(v);
               return (
-                <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : ""}`}>
+                <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isVariantOutOfStock(v) ? "bg-[#FEE2E2]" : isSelected ? "bg-[#F0FDF4]" : ""}`}>
                   <div className="flex items-center gap-2">
                     <input type="checkbox" checked={isSelected}
                       onChange={(e) => {
@@ -2338,7 +2346,7 @@ export default function ColorVariantManager({
               const imgCount = imgEntry?.imagePreviews.length ?? 0;
               const locked = isVariantLocked(v);
               return (
-                <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#EFF6FF]" : ""}`}>
+                <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isVariantOutOfStock(v) ? "bg-[#FEE2E2]" : isSelected ? "bg-[#EFF6FF]" : ""}`}>
                   <div className="flex items-center gap-2">
                     <input type="checkbox" checked={isSelected}
                       onChange={(e) => {
@@ -2657,7 +2665,7 @@ export default function ColorVariantManager({
                   return (
                     <tr key={v.tempId}
                       className={`border-b border-border-light last:border-b-0 transition-colors ${
-                        isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : "hover:bg-[#FAFAFA]"
+                        isDuplicate ? "bg-[#FEF2F2]" : isVariantOutOfStock(v) ? "bg-[#FEE2E2]" : isSelected ? "bg-[#F0FDF4]" : "hover:bg-[#FAFAFA]"
                       }`}
                     >
                       <td className={`px-2 py-2 text-center${dimCls}`}>
@@ -2863,7 +2871,7 @@ export default function ColorVariantManager({
                   return (
                     <tr key={v.tempId}
                       className={`border-b border-border-light last:border-b-0 transition-colors ${
-                        isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#EFF6FF]" : "bg-[#EFF6FF]/30 hover:bg-[#EFF6FF]/60"
+                        isDuplicate ? "bg-[#FEF2F2]" : isVariantOutOfStock(v) ? "bg-[#FEE2E2]" : isSelected ? "bg-[#EFF6FF]" : "bg-[#EFF6FF]/30 hover:bg-[#EFF6FF]/60"
                       }`}
                     >
                       <td className={`px-2 py-2 text-center${dimCls}`}>

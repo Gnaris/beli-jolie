@@ -40,6 +40,7 @@ import { emitProductEvent } from "@/lib/product-events";
 import { requirePfsBrand } from "@/lib/pfs-brand";
 import { mapLocalToPfsStatus } from "@/lib/pfs-status";
 import { assertNoPfsColorConflicts } from "@/lib/pfs-color-conflicts";
+import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
 
 export interface PfsPublishProgress {
   productId: string;
@@ -338,6 +339,11 @@ export async function pfsPublishProduct(
   if (!product) {
     return { success: false, error: "Produit introuvable en base" };
   }
+
+  // Ignore les variantes dont la couleur n'a aucune image : elles ne sont
+  // pas envoyées à PFS. Le jour où une image arrive, l'image-queue posera le
+  // flag pfsSyncRequired et l'admin pourra synchroniser.
+  product.colors = filterVariantsWithImages(product.colors, product.colorImages);
 
   const progress: PfsPublishProgress = {
     productId,

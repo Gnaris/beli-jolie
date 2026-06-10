@@ -51,6 +51,7 @@ import {
 } from "@/lib/pfs-sync-diff";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { assertNoPfsColorConflicts } from "@/lib/pfs-color-conflicts";
+import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
 
 export type PfsUpdateResult =
   | { success: true; archived: boolean }
@@ -494,6 +495,12 @@ export async function pfsUpdateProductInPlace(
   const product = await loadProductFull(productId);
   if (!product) return { success: false, error: "Produit introuvable en base" };
   if (!product.pfsProductId) return { success: false, error: "Produit non publié sur PFS (pas de pfsProductId)" };
+
+  // Ignore les variantes sans image : pas d'update / pas de création de
+  // nouvelle variante côté PFS tant que la couleur n'a pas reçu d'image.
+  // Les variantes déjà publiées qui ont perdu leurs images restent en l'état
+  // sur PFS (statu quo : on ne diff plus rien pour elles).
+  product.colors = filterVariantsWithImages(product.colors, product.colorImages);
 
   const pfsProductId = product.pfsProductId;
 

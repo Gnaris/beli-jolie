@@ -30,6 +30,7 @@ import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { buildMarketplaceImageUrl } from "@/lib/marketplace-image";
 import { emitProductEvent } from "@/lib/product-events";
+import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
 
 // ─────────────────────────────────────────────
 // Public types
@@ -368,6 +369,19 @@ export async function buildPublishProductInput(productId: string): Promise<
       ok: false,
       error:
         "Aucune variante à l'unité — Ankorstore n'accepte pas les packs. Ajoutez au moins une variante de type Unité pour publier sur Ankorstore.",
+    };
+  }
+
+  // Ignore les variantes dont la couleur n'a aucune image : Ankorstore exige
+  // au moins une photo par variante. Les couleurs sans image seront publiées
+  // plus tard quand une image sera ajoutée (flag ankorsSyncRequired posé par
+  // l'image-queue).
+  product.colors = filterVariantsWithImages(product.colors, product.colorImages);
+  if (product.colors.length === 0) {
+    return {
+      ok: false,
+      error:
+        "Aucune couleur n'a d'image — ajoutez au moins une image par couleur pour publier sur Ankorstore.",
     };
   }
 

@@ -8,18 +8,20 @@ import { useEfashionShootingBatch } from "./EfashionShootingBatchContext";
 import {
   computeMarketplaceBadgeState,
   findLatestOpForProduct,
+  type MarketplaceBadgeState,
 } from "./marketplaceBadgeState";
 import SetPfsBrandModal from "./SetPfsBrandModal";
 
-// Modales lourdes — chargées uniquement à l'ouverture pour alléger le bundle
-// initial de la page produit (cf. audit perf 2026-05-31).
+// Modales lourdes — chargées à l'ouverture pour alléger le bundle initial.
 const LinkAnkorstoreProductModal = dynamic(() => import("./LinkAnkorstoreProductModal"));
 const OrphanAnkorstoreVariantsModal = dynamic(() => import("./OrphanAnkorstoreVariantsModal"));
 const LinkEfashionProductModal = dynamic(() => import("./LinkEfashionProductModal"));
+const LinkPfsProductModal = dynamic(() => import("./LinkPfsProductModal"));
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { removeAnkorstoreMatch } from "@/app/actions/admin/ankorstore";
 import { removeEfashionMatch } from "@/app/actions/admin/efashion";
+import { removePfsMatch } from "@/app/actions/admin/pfs";
 import { clearSyncRequiredFlag } from "@/app/actions/admin/marketplace-sync-flags";
 
 interface MarketplaceStatusButtonsProps {
@@ -33,16 +35,235 @@ interface MarketplaceStatusButtonsProps {
   ankorsProductId: string | null;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
-  /** True dès qu'au moins une couleur du produit a un efashionProductId renseigné. */
   efashionLinked: boolean;
   hasEfashionConfig: boolean;
   efashionEnabled: boolean;
-  /** Drapeaux « Synchronisation nécessaire » — voir lib/image-queue.ts et
-   *  app/actions/admin/marketplace-sync-flags.ts. */
   pfsSyncRequired?: boolean;
   ankorsSyncRequired?: boolean;
   efashionSyncRequired?: boolean;
 }
+
+type MarketplaceKey = "pfs" | "ankorstore" | "efashion";
+
+// ──────────────────────────────────────────────────────────────────────────
+// Icônes
+// ──────────────────────────────────────────────────────────────────────────
+
+const Icon = {
+  Refresh: (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+    </svg>
+  ),
+  Link: (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+    </svg>
+  ),
+  Unlink: (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
+    </svg>
+  ),
+  Plus: (
+    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+    </svg>
+  ),
+  Tag: (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  ),
+  Eye: (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  ),
+  Close: (
+    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  ),
+  Spinner: (
+    <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+    </svg>
+  ),
+};
+
+// ──────────────────────────────────────────────────────────────────────────
+// Petit bouton-icône réutilisable — couleur via prop (success/warning/danger/neutral)
+// ──────────────────────────────────────────────────────────────────────────
+
+type IconBtnTone = "success" | "warning" | "danger" | "neutral";
+
+function IconBtn({
+  tone,
+  icon,
+  onClick,
+  disabled = false,
+  busy = false,
+  title,
+  ariaLabel,
+}: {
+  tone: IconBtnTone;
+  icon: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  busy?: boolean;
+  title: string;
+  ariaLabel: string;
+}) {
+  const toneClasses = {
+    success: "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] hover:bg-[#DCFCE7]",
+    warning: "bg-[#FFFBEB] text-[#92400E] border-[#FDE68A] hover:bg-[#FEF3C7]",
+    danger: "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2]",
+    neutral: "bg-bg-secondary text-text-secondary border-border hover:bg-bg-tertiary",
+  }[tone];
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || busy}
+      className={`inline-flex items-center justify-center w-7 h-7 rounded-full border transition-colors ${toneClasses} ${
+        disabled || busy ? "opacity-50 cursor-wait" : ""
+      }`}
+      title={title}
+      aria-label={ariaLabel}
+    >
+      {busy ? Icon.Spinner : icon}
+    </button>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Badge marketplace (état principal + clic principal)
+// ──────────────────────────────────────────────────────────────────────────
+
+function StatusBadge({
+  state,
+  label,
+  sublabel,
+  onClick,
+  onCancelSyncRequired,
+  title,
+  loadingLabel,
+}: {
+  state: MarketplaceBadgeState;
+  label: string;
+  /** Texte secondaire affiché à droite du nom (ex: "· Belicia"). */
+  sublabel?: string | null;
+  onClick: () => void;
+  onCancelSyncRequired?: () => void;
+  title: string;
+  loadingLabel: string;
+}) {
+  const clickable =
+    !state.loading &&
+    (state.syncRequired || !state.online);
+
+  return (
+    <span className="group relative inline-flex">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={state.loading}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border transition-all ${
+          state.loading
+            ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
+            : state.syncRequired
+              ? "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA] hover:bg-[#FFEDD5] cursor-pointer"
+              : state.online
+                ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
+                : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
+        }`}
+        title={title}
+      >
+        {state.loading ? (
+          Icon.Spinner
+        ) : state.syncRequired ? (
+          <span className="relative inline-flex">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#F97316] animate-pulse" />
+            <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+          </span>
+        ) : (
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${
+              state.online ? "bg-[#22C55E]" : "bg-[#DC2626]"
+            }`}
+          />
+        )}
+        {state.loading ? (
+          loadingLabel
+        ) : state.syncRequired ? (
+          <span>
+            {label} <span className="opacity-60">·</span>{" "}
+            <span className="font-bold">Synchro nécessaire</span>
+          </span>
+        ) : state.online ? (
+          sublabel ? (
+            <span>
+              {label} <span className="opacity-60">·</span>{" "}
+              <span className="font-bold">{sublabel}</span>
+            </span>
+          ) : (
+            label
+          )
+        ) : (
+          <>
+            {Icon.Plus}
+            Non publié {label}
+          </>
+        )}
+      </button>
+      {state.syncRequired && onCancelSyncRequired && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onCancelSyncRequired();
+          }}
+          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-[#9A3412] border border-[#FED7AA] shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[#FFEDD5] hover:text-[#7C2D12] transition-opacity"
+          title="Ignorer cette synchronisation (le badge orange disparaîtra sans rien envoyer)"
+          aria-label="Ignorer cette synchronisation"
+        >
+          {Icon.Close}
+        </button>
+      )}
+      {/* Indicateur visuel "clickable" — bord plus marqué pour bien faire
+          comprendre que le badge est un bouton actionnable dans cet état. */}
+      {clickable && (
+        <span aria-hidden className="hidden" />
+      )}
+    </span>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Marketplace block : badge + actions inline groupés
+// Chaque bloc reste compact, avec un séparateur visuel discret entre blocs.
+// ──────────────────────────────────────────────────────────────────────────
+
+function MarketplaceBlock({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-bg-secondary/40 border border-border/60">
+      {children}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Composant principal
+// ──────────────────────────────────────────────────────────────────────────
 
 export function MarketplaceStatusButtons({
   productId,
@@ -67,6 +288,7 @@ export function MarketplaceStatusButtons({
   const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
   const { confirm } = useConfirm();
   const toast = useToast();
+
   const [confirmPfsOpen, setConfirmPfsOpen] = useState(false);
   const [resyncPfsOpen, setResyncPfsOpen] = useState(false);
   const [confirmAkOpen, setConfirmAkOpen] = useState(false);
@@ -75,15 +297,14 @@ export function MarketplaceStatusButtons({
   const [orphanAkOpen, setOrphanAkOpen] = useState(false);
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
   const [unlinkAkBusy, setUnlinkAkBusy] = useState(false);
+  const [unlinkPfsBusy, setUnlinkPfsBusy] = useState(false);
+  const [linkPfsOpen, setLinkPfsOpen] = useState(false);
   const [linkEfOpen, setLinkEfOpen] = useState(false);
   const [unlinkEfBusy, setUnlinkEfBusy] = useState(false);
   const [resyncEfOpen, setResyncEfOpen] = useState(false);
   const [confirmEfOpen, setConfirmEfOpen] = useState(false);
 
-  const pfsOp = useMemo(
-    () => findLatestOpForProduct(items, productId, "pfs"),
-    [items, productId],
-  );
+  const pfsOp = useMemo(() => findLatestOpForProduct(items, productId, "pfs"), [items, productId]);
   const ankorstoreOp = useMemo(
     () => findLatestOpForProduct(items, productId, "ankorstore"),
     [items, productId],
@@ -96,8 +317,6 @@ export function MarketplaceStatusButtons({
   const efashionState = useMemo(
     () =>
       computeMarketplaceBadgeState(
-        // Pour eFashion on n'a pas d'« id produit unique » côté Product, on utilise
-        // le flag de liaison comme signal "online".
         efashionLinked ? "linked" : null,
         efashionOp,
         "efashion",
@@ -105,8 +324,6 @@ export function MarketplaceStatusButtons({
       ),
     [efashionLinked, efashionOp, efashionSyncRequired],
   );
-  const isEfashionLoading = efashionState.loading;
-
   const pfsState = useMemo(
     () => computeMarketplaceBadgeState(pfsProductId, pfsOp, "pfs", pfsSyncRequired),
     [pfsProductId, pfsOp, pfsSyncRequired],
@@ -116,14 +333,23 @@ export function MarketplaceStatusButtons({
     [ankorsProductId, ankorstoreOp, ankorsSyncRequired],
   );
 
-  const isPfsLoading = pfsState.loading;
-  const pfsOnline = pfsState.online;
-  const isAnkorstoreLoading = ankorstoreState.loading;
-  const ankorstoreOnline = ankorstoreState.online;
+  // ── Refresh routeur après publication réussie ──
+  useEffect(() => {
+    if (pfsState.justPublishedOk && !pfsProductId) router.refresh();
+  }, [pfsState.justPublishedOk, pfsProductId, router]);
+  useEffect(() => {
+    if (ankorstoreState.justPublishedOk && !ankorsProductId) router.refresh();
+  }, [ankorstoreState.justPublishedOk, ankorsProductId, router]);
+  useEffect(() => {
+    if (efashionState.justPublishedOk && !efashionLinked) router.refresh();
+  }, [efashionState.justPublishedOk, efashionLinked, router]);
 
-  // ── Handler générique « Ignorer cette synchronisation » ────────────
+  // ──────────────────────────────────────────────────────────────────────
+  // Handlers
+  // ──────────────────────────────────────────────────────────────────────
+
   const handleCancelSyncRequired = async (
-    marketplace: "pfs" | "ankorstore" | "efashion",
+    marketplace: MarketplaceKey,
     marketplaceLabel: string,
   ) => {
     const ok = await confirm({
@@ -145,24 +371,7 @@ export function MarketplaceStatusButtons({
     }
   };
 
-  useEffect(() => {
-    if (pfsState.justPublishedOk && !pfsProductId) {
-      router.refresh();
-    }
-  }, [pfsState.justPublishedOk, pfsProductId, router]);
-
-  useEffect(() => {
-    if (ankorstoreState.justPublishedOk && !ankorsProductId) {
-      router.refresh();
-    }
-  }, [ankorstoreState.justPublishedOk, ankorsProductId, router]);
-
-  useEffect(() => {
-    if (efashionState.justPublishedOk && !efashionLinked) {
-      router.refresh();
-    }
-  }, [efashionState.justPublishedOk, efashionLinked, router]);
-
+  // PFS
   const handlePublishPfs = () => {
     enqueue([
       {
@@ -177,7 +386,6 @@ export function MarketplaceStatusButtons({
     ]);
     setConfirmPfsOpen(false);
   };
-
   const handleResyncPfs = () => {
     enqueue([
       {
@@ -192,7 +400,34 @@ export function MarketplaceStatusButtons({
     ]);
     setResyncPfsOpen(false);
   };
+  const handleUnlinkPfs = async () => {
+    const ok = await confirm({
+      type: "warning",
+      title: "Délier de Paris Fashion Shop ?",
+      message:
+        "Le lien entre ce produit et sa fiche PFS sera effacé côté site. " +
+        "Aucune action n'est faite sur PFS : la fiche restera telle quelle. " +
+        "Vous pourrez ensuite re-publier ou re-lier ce produit à une autre fiche PFS.",
+      confirmLabel: "Oui, délier",
+    });
+    if (!ok) return;
+    setUnlinkPfsBusy(true);
+    try {
+      const res = await removePfsMatch(productId);
+      if (res.success) {
+        toast.success("Produit délié de Paris Fashion Shop");
+        router.refresh();
+      } else {
+        toast.error("Échec du déliage", res.error ?? "Erreur inconnue.");
+      }
+    } catch (err) {
+      toast.error("Échec du déliage", err instanceof Error ? err.message : String(err));
+    } finally {
+      setUnlinkPfsBusy(false);
+    }
+  };
 
+  // Ankorstore
   const handlePublishAnkorstore = () => {
     enqueue([
       {
@@ -207,7 +442,6 @@ export function MarketplaceStatusButtons({
     ]);
     setConfirmAkOpen(false);
   };
-
   const handleResyncAnkorstore = () => {
     enqueue([
       {
@@ -222,7 +456,6 @@ export function MarketplaceStatusButtons({
     ]);
     setResyncAkOpen(false);
   };
-
   const handleUnlinkAnkorstore = async () => {
     const ok = await confirm({
       type: "warning",
@@ -251,9 +484,7 @@ export function MarketplaceStatusButtons({
     }
   };
 
-  const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
-  const showEfashion = hasEfashionConfig && efashionEnabled;
-
+  // eFashion
   const handleResyncEfashion = () => {
     enqueue([
       {
@@ -268,11 +499,7 @@ export function MarketplaceStatusButtons({
     ]);
     setResyncEfOpen(false);
   };
-
   const handlePublishEfashion = () => {
-    // Si produit déjà lié → update (PUT direct, pas de shooting créé) via la
-    // file marketplace standard. Sinon → batch shooting (création = 1 ticket
-    // de shooting partagé après validation manuelle).
     if (efashionLinked) {
       enqueue([
         {
@@ -290,7 +517,6 @@ export function MarketplaceStatusButtons({
     }
     setConfirmEfOpen(false);
   };
-
   const handleUnlinkEfashion = async () => {
     const ok = await confirm({
       type: "warning",
@@ -318,340 +544,200 @@ export function MarketplaceStatusButtons({
     }
   };
 
+  const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
+  const showEfashion = hasEfashionConfig && efashionEnabled;
   if (!hasPfsConfig && !showAnkorstore && !showEfashion) return null;
 
   return (
     <>
-      <div className="inline-flex items-center gap-3 flex-wrap">
+      <div className="inline-flex items-center gap-2 flex-wrap">
+        {/* ─── Paris Fashion Shop ──────────────────────────────────────── */}
         {hasPfsConfig && (
-          <div className="inline-flex items-center gap-1.5">
-            <span className="group relative inline-flex">
-            <button
-              type="button"
+          <MarketplaceBlock>
+            <StatusBadge
+              state={pfsState}
+              label="Paris Fashion Shop"
+              sublabel={pfsProductId ? pfsBrandName : null}
               onClick={() => {
-                if (isPfsLoading) return;
+                if (pfsState.loading) return;
                 if (pfsState.syncRequired) {
                   handleResyncPfs();
                   return;
                 }
-                if (pfsOnline) return;
+                if (pfsState.online) return;
                 setConfirmPfsOpen(true);
               }}
-              disabled={isPfsLoading}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border transition-all ${
-                isPfsLoading
-                  ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
-                  : pfsState.syncRequired
-                    ? "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA] hover:bg-[#FFEDD5] cursor-pointer"
-                    : pfsOnline
-                      ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
-                      : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
-              }`}
+              onCancelSyncRequired={() =>
+                handleCancelSyncRequired("pfs", "Paris Fashion Shop")
+              }
               title={
-                isPfsLoading
+                pfsState.loading
                   ? "Publication en cours sur Paris Fashion Shop…"
                   : pfsState.syncRequired
                     ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à Paris Fashion Shop"
-                    : pfsOnline
+                    : pfsState.online
                       ? "Disponible sur Paris Fashion Shop"
                       : "Non disponible — cliquez pour publier sur Paris Fashion Shop"
               }
-            >
-              {isPfsLoading ? (
-                <svg
-                  className="w-3 h-3 animate-spin"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2.2}
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                </svg>
-              ) : pfsState.syncRequired ? (
-                <span className="relative inline-flex">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#F97316] animate-pulse" />
-                  <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F97316] opacity-60 animate-ping" />
-                </span>
-              ) : (
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    pfsOnline ? "bg-[#22C55E]" : "bg-[#DC2626]"
-                  }`}
-                />
-              )}
-              {isPfsLoading ? (
-                "Publication PFS en cours…"
-              ) : pfsState.syncRequired ? (
-                <span>
-                  Paris Fashion Shop <span className="opacity-60">·</span>{" "}
-                  <span className="font-bold">Synchro nécessaire</span>
-                </span>
-              ) : pfsOnline ? (
-                pfsBrandName ? (
-                  <span>
-                    Paris Fashion Shop <span className="opacity-60">·</span>{" "}
-                    <span className="font-bold">{pfsBrandName}</span>
-                  </span>
-                ) : (
-                  "Paris Fashion Shop"
-                )
-              ) : (
-                <>
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                  </svg>
-                  Non publié PFS
-                </>
-              )}
-            </button>
-            {pfsState.syncRequired && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleCancelSyncRequired("pfs", "Paris Fashion Shop");
-                }}
-                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-[#9A3412] border border-[#FED7AA] shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[#FFEDD5] hover:text-[#7C2D12] transition-opacity"
-                title="Ignorer cette synchronisation (le badge orange disparaîtra sans rien envoyer)"
-                aria-label="Ignorer cette synchronisation PFS"
-              >
-                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.8} aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-            </span>
-
-            {pfsProductId && !pfsBrandName && (
-              <button
-                type="button"
-                onClick={() => setBrandPickerOpen(true)}
-                className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#FFFBEB] text-[#92400E] border border-[#FDE68A] hover:bg-[#FEF3C7] transition-colors"
-                title="Renseigner la marque PFS de ce produit"
-                aria-label="Renseigner la marque PFS"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                </svg>
-              </button>
-            )}
+              loadingLabel="Publication PFS en cours…"
+            />
 
             {pfsProductId && (
-              <button
-                type="button"
+              <IconBtn
+                tone="success"
+                icon={Icon.Refresh}
                 onClick={() => {
-                  if (isPfsLoading) return;
+                  if (pfsState.loading) return;
                   setResyncPfsOpen(true);
                 }}
-                disabled={isPfsLoading}
-                className={`inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] transition-colors ${
-                  isPfsLoading ? "opacity-50 cursor-wait" : "hover:bg-[#DCFCE7]"
-                }`}
+                disabled={pfsState.loading}
                 title={
-                  isPfsLoading
+                  pfsState.loading
                     ? "Une opération PFS est déjà en cours…"
                     : "Resynchroniser toutes les données sur Paris Fashion Shop"
                 }
-                aria-label="Resynchroniser sur Paris Fashion Shop"
-              >
-                <svg
-                  className={`w-3.5 h-3.5 ${isPfsLoading ? "animate-spin" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2.2}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                </svg>
-              </button>
+                ariaLabel="Resynchroniser sur Paris Fashion Shop"
+              />
             )}
-          </div>
+
+            {pfsProductId && !pfsBrandName && (
+              <IconBtn
+                tone="warning"
+                icon={Icon.Tag}
+                onClick={() => setBrandPickerOpen(true)}
+                title="Renseigner la marque PFS de ce produit"
+                ariaLabel="Renseigner la marque PFS"
+              />
+            )}
+
+            <IconBtn
+              tone="neutral"
+              icon={Icon.Link}
+              onClick={() => setLinkPfsOpen(true)}
+              title={
+                pfsProductId
+                  ? "Re-lier vers une autre fiche Paris Fashion Shop"
+                  : "Lier à une fiche Paris Fashion Shop existante"
+              }
+              ariaLabel={
+                pfsProductId
+                  ? "Re-lier à une autre fiche PFS"
+                  : "Lier à une fiche PFS existante"
+              }
+            />
+
+            {pfsProductId && (
+              <IconBtn
+                tone="danger"
+                icon={Icon.Unlink}
+                onClick={handleUnlinkPfs}
+                busy={unlinkPfsBusy}
+                title="Délier ce produit de sa fiche PFS (efface la liaison côté site sans toucher à PFS)"
+                ariaLabel="Délier ce produit de Paris Fashion Shop"
+              />
+            )}
+          </MarketplaceBlock>
         )}
 
+        {/* ─── Ankorstore ──────────────────────────────────────────────── */}
         {showAnkorstore && (
-          <div className="inline-flex items-center gap-1.5">
-            <span className="group relative inline-flex">
-            <button
-              type="button"
+          <MarketplaceBlock>
+            <StatusBadge
+              state={ankorstoreState}
+              label="Ankorstore"
+              sublabel={null}
               onClick={() => {
-                if (isAnkorstoreLoading) return;
+                if (ankorstoreState.loading) return;
                 if (ankorstoreState.syncRequired) {
                   handleResyncAnkorstore();
                   return;
                 }
-                if (ankorstoreOnline) return;
+                if (ankorstoreState.online) return;
                 setConfirmAkOpen(true);
               }}
-              disabled={isAnkorstoreLoading}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border transition-all ${
-                isAnkorstoreLoading
-                  ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
-                  : ankorstoreState.syncRequired
-                    ? "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA] hover:bg-[#FFEDD5] cursor-pointer"
-                    : ankorstoreOnline
-                      ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
-                      : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
-              }`}
+              onCancelSyncRequired={() =>
+                handleCancelSyncRequired("ankorstore", "Ankorstore")
+              }
               title={
-                isAnkorstoreLoading
+                ankorstoreState.loading
                   ? ankorstoreOp?.status === "awaiting_callback"
                     ? "Ankorstore traite votre demande (1 à 5 min)…"
                     : "Publication en cours sur Ankorstore…"
                   : ankorstoreState.syncRequired
                     ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à Ankorstore"
-                    : ankorstoreOnline
+                    : ankorstoreState.online
                       ? "Disponible sur Ankorstore"
                       : "Non disponible — cliquez pour publier sur Ankorstore"
               }
-            >
-              {isAnkorstoreLoading ? (
-                <svg
-                  className="w-3 h-3 animate-spin"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2.2}
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                </svg>
-              ) : ankorstoreState.syncRequired ? (
-                <span className="relative inline-flex">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#F97316] animate-pulse" />
-                  <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F97316] opacity-60 animate-ping" />
-                </span>
-              ) : (
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    ankorstoreOnline ? "bg-[#22C55E]" : "bg-[#DC2626]"
-                  }`}
-                />
-              )}
-              {isAnkorstoreLoading ? (
-                "Publication Ankorstore en cours…"
-              ) : ankorstoreState.syncRequired ? (
-                <span>
-                  Ankorstore <span className="opacity-60">·</span>{" "}
-                  <span className="font-bold">Synchro nécessaire</span>
-                </span>
-              ) : ankorstoreOnline ? (
-                "Ankorstore"
-              ) : (
-                <>
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                  </svg>
-                  Non publié Ankorstore
-                </>
-              )}
-            </button>
-            {ankorstoreState.syncRequired && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleCancelSyncRequired("ankorstore", "Ankorstore");
-                }}
-                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-[#9A3412] border border-[#FED7AA] shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[#FFEDD5] hover:text-[#7C2D12] transition-opacity"
-                title="Ignorer cette synchronisation (le badge orange disparaîtra sans rien envoyer)"
-                aria-label="Ignorer cette synchronisation Ankorstore"
-              >
-                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.8} aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-            </span>
+              loadingLabel="Publication Ankorstore en cours…"
+            />
 
             {ankorsProductId && (
-              <button
-                type="button"
+              <IconBtn
+                tone="success"
+                icon={Icon.Refresh}
                 onClick={() => {
-                  if (isAnkorstoreLoading) return;
+                  if (ankorstoreState.loading) return;
                   setResyncAkOpen(true);
                 }}
-                disabled={isAnkorstoreLoading}
-                className={`inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] transition-colors ${
-                  isAnkorstoreLoading ? "opacity-50 cursor-wait" : "hover:bg-[#DCFCE7]"
-                }`}
+                disabled={ankorstoreState.loading}
                 title={
-                  isAnkorstoreLoading
+                  ankorstoreState.loading
                     ? "Une opération Ankorstore est déjà en cours…"
                     : "Resynchroniser toutes les données sur Ankorstore"
                 }
-                aria-label="Resynchroniser sur Ankorstore"
-              >
-                <svg
-                  className={`w-3.5 h-3.5 ${isAnkorstoreLoading ? "animate-spin" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2.2}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                </svg>
-              </button>
+                ariaLabel="Resynchroniser sur Ankorstore"
+              />
             )}
 
             {ankorsProductId && (
-              <button
-                type="button"
+              <IconBtn
+                tone="warning"
+                icon={Icon.Eye}
                 onClick={() => setOrphanAkOpen(true)}
-                className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#FFFBEB] text-[#92400E] border border-[#FDE68A] hover:bg-[#FEF3C7] transition-colors"
                 title="Voir et lier manuellement les variantes orphelines (couleurs non encore liées entre votre site et Ankorstore)"
-                aria-label="Variantes non liées entre votre site et Ankorstore"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-              </button>
+                ariaLabel="Variantes non liées entre votre site et Ankorstore"
+              />
             )}
 
-            <button
-              type="button"
+            <IconBtn
+              tone="neutral"
+              icon={Icon.Link}
               onClick={() => setLinkAkOpen(true)}
-              className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-bg-secondary text-text-secondary border border-border hover:bg-bg-tertiary transition-colors"
               title={
                 ankorsProductId
-                  ? "Re-lier vers un autre produit Ankorstore (utile si la liaison actuelle pointe vers un produit archivé/disparu)"
+                  ? "Re-lier vers un autre produit Ankorstore"
                   : "Lier à un produit Ankorstore existant"
               }
-              aria-label={ankorsProductId ? "Re-lier à un autre produit Ankorstore" : "Lier à un produit Ankorstore existant"}
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-              </svg>
-            </button>
+              ariaLabel={
+                ankorsProductId
+                  ? "Re-lier à un autre produit Ankorstore"
+                  : "Lier à un produit Ankorstore existant"
+              }
+            />
 
             {ankorsProductId && (
-              <button
-                type="button"
+              <IconBtn
+                tone="danger"
+                icon={Icon.Unlink}
                 onClick={handleUnlinkAnkorstore}
-                disabled={unlinkAkBusy}
-                className={`inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] transition-colors ${
-                  unlinkAkBusy ? "opacity-50 cursor-wait" : "hover:bg-[#FEE2E2]"
-                }`}
+                busy={unlinkAkBusy}
                 title="Délier ce produit de sa fiche Ankorstore (efface la liaison côté site sans toucher à Ankorstore)"
-                aria-label="Délier ce produit de Ankorstore"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-                </svg>
-              </button>
+                ariaLabel="Délier ce produit de Ankorstore"
+              />
             )}
-          </div>
+          </MarketplaceBlock>
         )}
 
+        {/* ─── eFashion Paris ──────────────────────────────────────────── */}
         {showEfashion && (
-          <div className="inline-flex items-center gap-1.5">
-            <span className="group relative inline-flex">
-            <button
-              type="button"
+          <MarketplaceBlock>
+            <StatusBadge
+              state={efashionState}
+              label="eFashion Paris"
+              sublabel={null}
               onClick={() => {
-                if (isEfashionLoading) return;
+                if (efashionState.loading) return;
                 if (efashionState.syncRequired) {
                   handleResyncEfashion();
                   return;
@@ -659,18 +745,11 @@ export function MarketplaceStatusButtons({
                 if (efashionLinked) return;
                 setConfirmEfOpen(true);
               }}
-              disabled={isEfashionLoading}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border transition-all ${
-                isEfashionLoading
-                  ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
-                  : efashionState.syncRequired
-                    ? "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA] hover:bg-[#FFEDD5] cursor-pointer"
-                    : efashionLinked
-                      ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
-                      : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
-              }`}
+              onCancelSyncRequired={() =>
+                handleCancelSyncRequired("efashion", "eFashion Paris")
+              }
               title={
-                isEfashionLoading
+                efashionState.loading
                   ? "Synchronisation eFashion en cours…"
                   : efashionState.syncRequired
                     ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à eFashion Paris"
@@ -678,292 +757,142 @@ export function MarketplaceStatusButtons({
                       ? "Produit lié à eFashion Paris"
                       : "Non disponible — cliquez pour publier sur eFashion Paris"
               }
-            >
-              {isEfashionLoading ? (
-                <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                </svg>
-              ) : efashionState.syncRequired ? (
-                <span className="relative inline-flex">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#F97316] animate-pulse" />
-                  <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F97316] opacity-60 animate-ping" />
-                </span>
-              ) : (
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    efashionLinked ? "bg-[#22C55E]" : "bg-[#DC2626]"
-                  }`}
-                />
-              )}
-              {isEfashionLoading ? (
-                "Sync eFashion…"
-              ) : efashionState.syncRequired ? (
-                <span>
-                  eFashion Paris <span className="opacity-60">·</span>{" "}
-                  <span className="font-bold">Synchro nécessaire</span>
-                </span>
-              ) : efashionLinked ? (
-                "eFashion Paris"
-              ) : (
-                <>
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                  </svg>
-                  Non publié eFashion
-                </>
-              )}
-            </button>
-            {efashionState.syncRequired && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleCancelSyncRequired("efashion", "eFashion Paris");
-                }}
-                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-[#9A3412] border border-[#FED7AA] shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[#FFEDD5] hover:text-[#7C2D12] transition-opacity"
-                title="Ignorer cette synchronisation (le badge orange disparaîtra sans rien envoyer)"
-                aria-label="Ignorer cette synchronisation eFashion"
-              >
-                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.8} aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-            </span>
+              loadingLabel="Sync eFashion…"
+            />
 
             {efashionLinked && (
-              <button
-                type="button"
+              <IconBtn
+                tone="success"
+                icon={Icon.Refresh}
                 onClick={() => {
-                  if (isEfashionLoading) return;
+                  if (efashionState.loading) return;
                   setResyncEfOpen(true);
                 }}
-                disabled={isEfashionLoading}
-                className={`inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] transition-colors ${
-                  isEfashionLoading ? "opacity-50 cursor-wait" : "hover:bg-[#DCFCE7]"
-                }`}
+                disabled={efashionState.loading}
                 title="Resynchroniser stock + visibilité + prix sur eFashion"
-                aria-label="Resynchroniser sur eFashion"
-              >
-                <svg
-                  className={`w-3.5 h-3.5 ${isEfashionLoading ? "animate-spin" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2.2}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                </svg>
-              </button>
+                ariaLabel="Resynchroniser sur eFashion"
+              />
             )}
 
-            <button
-              type="button"
+            <IconBtn
+              tone="neutral"
+              icon={Icon.Link}
               onClick={() => setLinkEfOpen(true)}
-              className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-bg-secondary text-text-secondary border border-border hover:bg-bg-tertiary transition-colors"
               title={
                 efashionLinked
                   ? "Re-lier vers une autre référence eFashion"
                   : "Lier à un produit eFashion existant"
               }
-              aria-label={efashionLinked ? "Re-lier à un autre produit eFashion" : "Lier à un produit eFashion existant"}
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-              </svg>
-            </button>
+              ariaLabel={
+                efashionLinked
+                  ? "Re-lier à un autre produit eFashion"
+                  : "Lier à un produit eFashion existant"
+              }
+            />
 
             {efashionLinked && (
-              <button
-                type="button"
+              <IconBtn
+                tone="danger"
+                icon={Icon.Unlink}
                 onClick={handleUnlinkEfashion}
-                disabled={unlinkEfBusy}
-                className={`inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] transition-colors ${
-                  unlinkEfBusy ? "opacity-50 cursor-wait" : "hover:bg-[#FEE2E2]"
-                }`}
+                busy={unlinkEfBusy}
                 title="Délier ce produit de ses fiches eFashion (efface la liaison côté site sans toucher à eFashion)"
-                aria-label="Délier ce produit de eFashion Paris"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-                </svg>
-              </button>
+                ariaLabel="Délier ce produit de eFashion Paris"
+              />
             )}
-          </div>
+          </MarketplaceBlock>
         )}
       </div>
 
+      {/* ─────────────────────────────────────────────────────────────── */}
+      {/*  Modales                                                         */}
+      {/* ─────────────────────────────────────────────────────────────── */}
+
       {confirmPfsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-none shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#FEF2F2] flex items-center justify-center">
-                <svg className="w-5 h-5 text-[#DC2626]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="font-heading font-bold text-text-primary">
-                  Publier sur Paris Fashion Shop ?
-                </h3>
-                <p className="text-sm text-text-secondary font-body">
-                  {productName} ({reference})
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-text-secondary font-body">
-              Ce produit n&apos;existe pas encore sur Paris Fashion Shop.
-              Voulez-vous le créer maintenant ?
-            </p>
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setConfirmPfsOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-text-secondary bg-bg-secondary border border-border rounded-none hover:bg-bg-tertiary transition-colors font-body"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handlePublishPfs}
-                className="px-4 py-2 text-sm font-medium text-white bg-[#DC2626] rounded-none hover:bg-[#B91C1C] transition-colors font-body"
-              >
-                Oui, publier
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title="Publier sur Paris Fashion Shop ?"
+          productName={productName}
+          reference={reference}
+          message="Ce produit n'existe pas encore sur Paris Fashion Shop. Voulez-vous le créer maintenant ?"
+          confirmLabel="Oui, publier"
+          tone="danger"
+          onCancel={() => setConfirmPfsOpen(false)}
+          onConfirm={handlePublishPfs}
+        />
       )}
 
       {resyncPfsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-none shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#F0FDF4] flex items-center justify-center">
-                <svg className="w-5 h-5 text-[#15803D]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="font-heading font-bold text-text-primary">
-                  Resynchroniser sur Paris Fashion Shop ?
-                </h3>
-                <p className="text-sm text-text-secondary font-body">
-                  {productName} ({reference})
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-text-secondary font-body">
-              Toutes les données du produit (nom, description, photos, prix, stock,
-              statut, Best Seller, variantes) seront renvoyées à Paris Fashion Shop
-              pour s&apos;assurer que les deux côtés sont identiques. L&apos;identifiant
-              PFS du produit reste inchangé.
-            </p>
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setResyncPfsOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-text-secondary bg-bg-secondary border border-border rounded-none hover:bg-bg-tertiary transition-colors font-body"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handleResyncPfs}
-                className="px-4 py-2 text-sm font-medium text-white bg-[#15803D] rounded-none hover:bg-[#166534] transition-colors font-body"
-              >
-                Oui, resynchroniser
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title="Resynchroniser sur Paris Fashion Shop ?"
+          productName={productName}
+          reference={reference}
+          message="Toutes les données du produit (nom, description, photos, prix, stock, statut, Best Seller, variantes) seront renvoyées à Paris Fashion Shop. L'identifiant PFS du produit reste inchangé."
+          confirmLabel="Oui, resynchroniser"
+          tone="success"
+          onCancel={() => setResyncPfsOpen(false)}
+          onConfirm={handleResyncPfs}
+        />
       )}
 
       {confirmAkOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-none shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#FEF2F2] flex items-center justify-center">
-                <svg className="w-5 h-5 text-[#DC2626]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="font-heading font-bold text-text-primary">
-                  Publier sur Ankorstore ?
-                </h3>
-                <p className="text-sm text-text-secondary font-body">
-                  {productName} ({reference})
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-text-secondary font-body">
-              Ce produit n&apos;existe pas encore sur Ankorstore.
-              Voulez-vous le créer maintenant ?
-            </p>
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setConfirmAkOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-text-secondary bg-bg-secondary border border-border rounded-none hover:bg-bg-tertiary transition-colors font-body"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handlePublishAnkorstore}
-                className="px-4 py-2 text-sm font-medium text-white bg-[#DC2626] rounded-none hover:bg-[#B91C1C] transition-colors font-body"
-              >
-                Oui, publier
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title="Publier sur Ankorstore ?"
+          productName={productName}
+          reference={reference}
+          message="Ce produit n'existe pas encore sur Ankorstore. Voulez-vous le créer maintenant ?"
+          confirmLabel="Oui, publier"
+          tone="danger"
+          onCancel={() => setConfirmAkOpen(false)}
+          onConfirm={handlePublishAnkorstore}
+        />
       )}
 
       {resyncAkOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-none shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#F0FDF4] flex items-center justify-center">
-                <svg className="w-5 h-5 text-[#15803D]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="font-heading font-bold text-text-primary">
-                  Resynchroniser sur Ankorstore ?
-                </h3>
-                <p className="text-sm text-text-secondary font-body">
-                  {productName} ({reference})
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-text-secondary font-body">
-              Toutes les données du produit (nom, description, photos, prix, stock,
-              statut, variantes) seront renvoyées à Ankorstore pour s&apos;assurer que
-              les deux côtés sont identiques. L&apos;identifiant Ankorstore du produit
-              reste inchangé.
-            </p>
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setResyncAkOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-text-secondary bg-bg-secondary border border-border rounded-none hover:bg-bg-tertiary transition-colors font-body"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handleResyncAnkorstore}
-                className="px-4 py-2 text-sm font-medium text-white bg-[#15803D] rounded-none hover:bg-[#166534] transition-colors font-body"
-              >
-                Oui, resynchroniser
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title="Resynchroniser sur Ankorstore ?"
+          productName={productName}
+          reference={reference}
+          message="Toutes les données du produit (nom, description, photos, prix, stock, statut, variantes) seront renvoyées à Ankorstore. L'identifiant Ankorstore du produit reste inchangé."
+          confirmLabel="Oui, resynchroniser"
+          tone="success"
+          onCancel={() => setResyncAkOpen(false)}
+          onConfirm={handleResyncAnkorstore}
+        />
+      )}
+
+      {confirmEfOpen && (
+        <ConfirmModal
+          title="Publier sur eFashion Paris ?"
+          productName={productName}
+          reference={reference}
+          message="Ce produit n'est pas encore lié à eFashion Paris. Une nouvelle fiche y sera créée pour chaque couleur (workflow shooting) avec les infos, photos, prix et stock actuels."
+          confirmLabel="Oui, publier"
+          tone="danger"
+          onCancel={() => setConfirmEfOpen(false)}
+          onConfirm={handlePublishEfashion}
+        />
+      )}
+
+      {resyncEfOpen && (
+        <ConfirmModal
+          title="Resynchroniser sur eFashion Paris ?"
+          productName={productName}
+          reference={reference}
+          message="On va renvoyer à eFashion la visibilité (en ligne / hors ligne), le prix et le stock de toutes les couleurs liées. Les liaisons existantes restent inchangées."
+          confirmLabel="Oui, resynchroniser"
+          tone="success"
+          onCancel={() => setResyncEfOpen(false)}
+          onConfirm={handleResyncEfashion}
+        />
+      )}
+
+      {linkPfsOpen && (
+        <LinkPfsProductModal
+          productId={productId}
+          productName={productName}
+          reference={reference}
+          onClose={() => setLinkPfsOpen(false)}
+        />
       )}
 
       {linkAkOpen && (
@@ -1000,92 +929,92 @@ export function MarketplaceStatusButtons({
           onClose={() => setLinkEfOpen(false)}
         />
       )}
-
-      {confirmEfOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-none shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#FEF2F2] flex items-center justify-center">
-                <svg className="w-5 h-5 text-[#DC2626]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="font-heading font-bold text-text-primary">
-                  Publier sur eFashion Paris ?
-                </h3>
-                <p className="text-sm text-text-secondary font-body">
-                  {productName} ({reference})
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-text-secondary font-body">
-              Ce produit n&apos;est pas encore lié à eFashion Paris. Une nouvelle
-              fiche y sera créée pour chaque couleur (workflow shooting) avec les
-              infos, photos, prix et stock actuels.
-            </p>
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setConfirmEfOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-text-secondary bg-bg-secondary border border-border rounded-none hover:bg-bg-tertiary transition-colors font-body"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handlePublishEfashion}
-                className="px-4 py-2 text-sm font-medium text-white bg-[#DC2626] rounded-none hover:bg-[#B91C1C] transition-colors font-body"
-              >
-                Oui, publier
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {resyncEfOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-none shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#F0FDF4] flex items-center justify-center">
-                <svg className="w-5 h-5 text-[#15803D]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="font-heading font-bold text-text-primary">
-                  Resynchroniser sur eFashion Paris ?
-                </h3>
-                <p className="text-sm text-text-secondary font-body">
-                  {productName} ({reference})
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-text-secondary font-body">
-              On va renvoyer à eFashion la visibilité (en ligne / hors ligne),
-              le prix et le stock de toutes les couleurs liées. Les liaisons existantes
-              restent inchangées.
-            </p>
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setResyncEfOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-text-secondary bg-bg-secondary border border-border rounded-none hover:bg-bg-tertiary transition-colors font-body"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handleResyncEfashion}
-                className="px-4 py-2 text-sm font-medium text-white bg-[#15803D] rounded-none hover:bg-[#166534] transition-colors font-body"
-              >
-                Oui, resynchroniser
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Modale de confirmation générique (publish / resync)
+// ──────────────────────────────────────────────────────────────────────────
+
+function ConfirmModal({
+  title,
+  productName,
+  reference,
+  message,
+  confirmLabel,
+  tone,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  productName: string;
+  reference: string;
+  message: string;
+  confirmLabel: string;
+  tone: "danger" | "success";
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const bgColor = tone === "danger" ? "#FEF2F2" : "#F0FDF4";
+  const fgColor = tone === "danger" ? "#DC2626" : "#15803D";
+  const btnColor = tone === "danger" ? "#DC2626" : "#15803D";
+  const btnHoverColor = tone === "danger" ? "#B91C1C" : "#166534";
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-none shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
+        <div className="flex items-center gap-3">
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ backgroundColor: bgColor }}
+          >
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              style={{ color: fgColor }}
+            >
+              {tone === "danger" ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+              )}
+            </svg>
+          </div>
+          <div>
+            <h3 className="font-heading font-bold text-text-primary">{title}</h3>
+            <p className="text-sm text-text-secondary font-body">
+              {productName} ({reference})
+            </p>
+          </div>
+        </div>
+        <p className="text-sm text-text-secondary font-body">{message}</p>
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 text-sm font-medium text-text-secondary bg-bg-secondary border border-border rounded-none hover:bg-bg-tertiary transition-colors font-body"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="px-4 py-2 text-sm font-medium text-white rounded-none transition-colors font-body"
+            style={{ backgroundColor: btnColor }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = btnHoverColor;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = btnColor;
+            }}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

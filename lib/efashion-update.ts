@@ -49,6 +49,7 @@ import {
 } from "@/lib/efashion-sync-diff";
 import { loadEfashionMarkup, computeEfashionPrice } from "@/lib/efashion-pricing";
 import { resolveEfashionDeclinaison } from "@/lib/efashion-declinaison-matcher";
+import { filterVariantsByColorIdSet } from "@/lib/variant-image-coverage";
 
 interface UpdateOpts {
   /** Si true, ignore le snapshot existant et renvoie tout — équivalent du « Resync » côté UI. */
@@ -211,7 +212,14 @@ export async function efashionUpdateProductInPlace(
   // eFashion ne synchronise que les variantes UNIT. Une variante PACK qui
   // posséderait un efashionProductId (cas legacy avant le script de migration)
   // est explicitement ignorée ici.
-  const unitColors = product.colors.filter((c) => c.saleType === "UNIT");
+  // Ignore aussi les couleurs sans image (cf. variant-image-coverage) — pas
+  // de création de nouvelle couleur eFashion sans photo, pas de propagation
+  // collatérale d'une modif stock sur une variante sans image.
+  const colorIdsHavingImages = new Set(imagesByColorId.keys());
+  const unitColors = filterVariantsByColorIdSet(
+    product.colors.filter((c) => c.saleType === "UNIT"),
+    colorIdsHavingImages,
+  );
 
   // ─────────────────────────────────────────────────────────────────────
   // État live eFashion — partagé entre auto-création des couleurs et le

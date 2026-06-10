@@ -53,6 +53,7 @@ import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
 import { buildMarketplaceImageUrl } from "@/lib/marketplace-image";
+import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
 
 // ─────────────────────────────────────────────
 // Public types
@@ -432,6 +433,21 @@ export async function ankorstoreKickoffUpdate(
     };
   }
 
+  // Ignore les variantes dont la couleur n'a aucune image. Effets :
+  // - une nouvelle couleur sans image n'est pas créée sur Ankorstore ;
+  // - une variante déjà publiée qui a perdu ses images n'est plus diff →
+  //   Ankorstore conserve son dernier état (statu quo).
+  // - changer le stock d'une variante avec image n'entraîne plus le push
+  //   collatéral des variantes sans image (bug constaté 2026-06-10).
+  product.colors = filterVariantsWithImages(product.colors, product.colorImages);
+  if (product.colors.length === 0) {
+    return {
+      success: false,
+      error:
+        "Aucune couleur n'a d'image — rien à synchroniser avec Ankorstore.",
+    };
+  }
+
   const ankorsProductId = product.ankorsProductId;
 
   try {
@@ -445,7 +461,12 @@ export async function ankorstoreKickoffUpdate(
         const result = await autoLinkAnkorstoreVariants(productId);
         if (result.matchedExact + result.matchedColor > 0) {
           const reloaded = await loadProductFull(productId);
-          if (reloaded) product.colors = reloaded.colors;
+          if (reloaded) {
+            product.colors = filterVariantsWithImages(
+              reloaded.colors.filter((v) => v.saleType === "UNIT"),
+              reloaded.colorImages,
+            );
+          }
         }
       } catch (err) {
         logger.error("[Ankorstore Update] Auto-link variants failed", {

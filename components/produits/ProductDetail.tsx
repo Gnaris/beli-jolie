@@ -149,10 +149,17 @@ export default function ProductDetail({
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
 
+  // Couleurs ayant au moins une image — on masque les autres côté client
+  // (la couleur reste utilisable en admin, mais ne s'affiche pas tant que
+  // l'image n'est pas uploadée).
+  const groupKeysWithImages = new Set(
+    colorImages.filter(ci => ci.images.length > 0).map(ci => ci.groupKey),
+  );
+
   // Unique color groups derived from UNIT variants only (PACK have no single color to display)
   const uniqueColors = [...new Map(
     variants
-      .filter(v => v.saleType === "UNIT" && v.colorId)
+      .filter(v => v.saleType === "UNIT" && v.colorId && groupKeysWithImages.has(v.groupKey))
       .map(v => [v.groupKey, {
         groupKey: v.groupKey,
         id: v.colorId,
@@ -162,7 +169,13 @@ export default function ProductDetail({
       }])
   ).values()];
 
-  const primaryGroupKey = variants.find(v => v.isPrimary)?.groupKey ?? uniqueColors[0]?.groupKey ?? "";
+  // Si la couleur principale n'a pas d'image, on retombe sur la première
+  // couleur ayant des images, sinon chaîne vide.
+  const primaryVariant = variants.find(v => v.isPrimary);
+  const primaryGroupKey =
+    (primaryVariant && groupKeysWithImages.has(primaryVariant.groupKey)
+      ? primaryVariant.groupKey
+      : uniqueColors[0]?.groupKey) ?? "";
 
   /** Enrichit le nom de taille avec le détail TU si applicable (ex: "Taille Unique" → "TU 52-56") */
   const formatSizeName = useCallback((sizeName: string) => {

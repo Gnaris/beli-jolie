@@ -46,6 +46,7 @@ import { emitProductEvent } from "@/lib/product-events";
 import { requirePfsBrand } from "@/lib/pfs-brand";
 import { mapLocalToPfsStatus } from "@/lib/pfs-status";
 import { assertNoPfsColorConflicts } from "@/lib/pfs-color-conflicts";
+import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
 
 export interface PfsRefreshProgress {
   productId: string;
@@ -354,6 +355,10 @@ export async function pfsRefreshProduct(
   if (!product) {
     return { success: false, reason: "error", error: "Produit introuvable en base" };
   }
+
+  // Ignore les variantes sans image lors du refresh (re-création complète sur
+  // PFS) : les couleurs sans image ne sont pas re-créées.
+  product.colors = filterVariantsWithImages(product.colors, product.colorImages);
 
   const progress: PfsRefreshProgress = {
     productId,

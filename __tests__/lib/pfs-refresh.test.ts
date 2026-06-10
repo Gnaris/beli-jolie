@@ -222,7 +222,9 @@ describe("pfsRefreshProduct", () => {
           images: [],
         },
       ],
-      colorImages: [],
+      // Une image par couleur — sinon `filterVariantsWithImages` exclut
+      // toutes les variantes (cf. lib/pfs-refresh.ts).
+      colorImages: [{ path: "/mock/noir.jpg", order: 0, colorId: "color-noir" }],
     });
     mockProductFindUnique.mockResolvedValue(product);
     pfsCheckReferenceSpy.mockResolvedValue({
@@ -275,7 +277,9 @@ describe("pfsRefreshProduct", () => {
           images: [],
         },
       ],
-      colorImages: [],
+      // Une image par couleur — sinon `filterVariantsWithImages` (cf.
+      // lib/pfs-refresh.ts) exclut toutes les variantes du test.
+      colorImages: [{ path: "/mock/noir.jpg", order: 0, colorId: "color-noir" }],
     });
     mockProductFindUnique.mockResolvedValue(product);
     pfsCheckReferenceSpy.mockResolvedValue({
