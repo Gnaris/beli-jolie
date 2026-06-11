@@ -1207,12 +1207,11 @@ export function buildImageErrorPreview(
 // Conflict resolution types
 // ─────────────────────────────────────────────
 
-export type ConflictStrategy = "replace" | "next_available" | "shift" | "skip";
+export type ConflictStrategy = "replace" | "next_available" | "shift";
 
 export interface ConflictResolution {
   filename: string;
   strategy: ConflictStrategy;
-  chosenPosition?: number; // 1-based, only when strategy is a specific position override
 }
 
 export interface ConflictResolutions {
@@ -1264,6 +1263,79 @@ export function planShiftCascade(
     moves.push({ from: block[i], to: block[i] + 1 });
   }
   return moves;
+}
+
+/**
+ * Décide où placer la nouvelle image et exécute les mutations nécessaires
+ * pour libérer le slot final (delete ou shift). Le caller fera ensuite
+ * le `prisma.productColorImage.create` avec le `finalOrder` retourné.
+ *
+ * Comportement détaillé (cf. specs cliente) :
+ * - On vise la première position libre dans [0, requestedOrder] (sauf
+ *   override explicite de la cliente dans le preview).
+ * - Si cette position visée est libre → on la prend.
+ * - Si elle est occupée → on applique la stratégie sélectionnée :
+ *     - "replace" : supprime l'image existante.
+ *     - "shift"   : décale en cascade les images suivantes d'un cran.
+ *     - "next_available" : prend la prochaine position libre ≥ requested.
+ *
+ * Garantit qu'à la sortie, `finalOrder` n'est plus occupé en BDD et
+ * n'est pas dans `assignedOrdersInJob`.
+ */
+export async function placeImageInVariant(opts: {
+  prismaClient: typeof prisma;
+  productColorId: string;
+  requestedPosition: number; // 1-based (issu du nom de fichier)
+  positionOverridden: boolean; // true si la cliente a explicitement choisi cette position dans le preview
+  strategy: ConflictStrategy;
+  assignedOrdersInJob?: ReadonlySet<number>;
+}): Promise<{ finalOrder: number; appliedStrategy: ConflictStrategy | "none" }> {
+  const { prismaClient, productColorId, requestedPosition, positionOverridden, strategy, assignedOrdersInJob } = opts;
+
+  const requestedOrder = Math.max(0, requestedPosition - 1);
+
+  // Build the "taken" set : DB orders + in-job reservations
+  const dbRows = await prismaClient.productColorImage.findMany({
+    where: { productColorId },
+    select: { id: true, order: true },
+  });
+  const taken = new Set<number>(dbRows.map((r) => r.order));
+  if (assignedOrdersInJob) for (const o of assignedOrdersInJob) taken.add(o);
+
+  // 1) Try to compact toward the lowest free slot ≤ requested (unless override)
+  let finalOrder = compactImageOrder(requestedOrder, taken, positionOverridden);
+
+  // 2) If compaction landed on a free slot, we're done
+  if (!taken.has(finalOrder)) {
+    return { finalOrder, appliedStrategy: "none" };
+  }
+
+  // 3) Conflict → apply strategy
+  if (strategy === "next_available") {
+    finalOrder = nextAvailableOrder(requestedOrder, taken);
+    return { finalOrder, appliedStrategy: "next_available" };
+  }
+
+  if (strategy === "shift") {
+    const moves = planShiftCascade(finalOrder, taken);
+    // Apply highest → lowest to never violate the unique constraint
+    for (const move of moves) {
+      const row = dbRows.find((r) => r.order === move.from);
+      if (!row) continue;
+      await prismaClient.productColorImage.update({
+        where: { id: row.id },
+        data: { order: move.to },
+      });
+    }
+    return { finalOrder, appliedStrategy: "shift" };
+  }
+
+  // strategy === "replace"
+  const existing = dbRows.find((r) => r.order === finalOrder);
+  if (existing) {
+    await prismaClient.productColorImage.delete({ where: { id: existing.id } });
+  }
+  return { finalOrder, appliedStrategy: "replace" };
 }
 
 const IMAGE_BATCH_SIZE = 20;
@@ -1435,135 +1507,82 @@ export async function processImageImport(jobId: string): Promise<void> {
         }
 
         const matchedVariant = matchingVariants[0];
-        const originalOrder = file.position - 1;
 
-        // Build the set of positions already taken on this variant: BDD images
-        // plus images already routed earlier in this same job.
-        const dbOrders = await prisma.productColorImage.findMany({
-          where: { productColorId: matchedVariant.id },
-          select: { order: true },
-        });
-        const takenOrders = new Set<number>(dbOrders.map((u) => u.order));
-        const assignedHere = assignedOrdersByVariant.get(matchedVariant.id);
-        if (assignedHere) for (const o of assignedHere) takenOrders.add(o);
-
-        // Compact toward the lowest free slot (unless the user explicitly chose
-        // a position in the preview UI).
-        let order = compactImageOrder(originalOrder, takenOrders, file.positionOverridden);
-
-        // Check for existing image at this position
-        const existingAtPos = await prisma.productColorImage.findFirst({
-          where: { productColorId: matchedVariant.id, order },
-        });
-
-        if (existingAtPos) {
-          // Determine conflict resolution strategy
+        // ─── Placement de l'image via le helper centralisé ───
+        // Tous les conflits (compaction + résolution) sont gérés dans
+        // placeImageInVariant. Si une exception est levée, on tombe dans le
+        // catch ci-dessous et on ajoute aux errorRows sans interrompre.
+        try {
           const perFileRes = perFileMap.get(file.filename);
-          const strategy = perFileRes?.strategy ?? resolutions.defaultStrategy;
+          const strategy: ConflictStrategy = perFileRes?.strategy ?? resolutions.defaultStrategy;
+          const assignedHere = assignedOrdersByVariant.get(matchedVariant.id);
 
-          if (strategy === "skip") {
-            processedCount++;
-            continue;
-          } else if (strategy === "next_available" || (perFileRes?.chosenPosition != null)) {
-            if (perFileRes?.chosenPosition != null) {
-              // Specific position chosen by user
-              order = perFileRes.chosenPosition - 1;
-              // Check if chosen position is also occupied
-              const chosenOccupied = await prisma.productColorImage.findFirst({
-                where: { productColorId: matchedVariant.id, order },
-              });
-              if (chosenOccupied) {
-                // Fall back to next available
-                const usedOrders = await prisma.productColorImage.findMany({
-                  where: { productColorId: matchedVariant.id },
-                  select: { order: true },
-                });
-                const used = new Set(usedOrders.map((u) => u.order));
-                let nextOrder = 0;
-                while (used.has(nextOrder)) nextOrder++;
-                order = nextOrder;
-              }
-            } else {
-              // Find next available position
-              const usedOrders = await prisma.productColorImage.findMany({
-                where: { productColorId: matchedVariant.id },
-                select: { order: true },
-              });
-              const used = new Set(usedOrders.map((u) => u.order));
-              let nextOrder = 0;
-              while (used.has(nextOrder)) nextOrder++;
-              order = nextOrder;
-            }
-          } else if (strategy === "shift") {
-            // Cascade shift : déplace l'existante (et les suivantes contiguës)
-            // d'une position vers le haut pour libérer `order`.
-            const usedRows = await prisma.productColorImage.findMany({
-              where: { productColorId: matchedVariant.id },
-              select: { id: true, order: true },
-            });
-            const usedSet = new Set(usedRows.map((r) => r.order));
-            const moves = planShiftCascade(order, usedSet);
-            // Apply moves from highest source to lowest (already ordered that way)
-            // to never violate the (productColorId, order) unique constraint.
-            for (const move of moves) {
-              const row = usedRows.find((r) => r.order === move.from);
-              if (!row) continue;
-              await prisma.productColorImage.update({
-                where: { id: row.id },
-                data: { order: move.to },
-              });
-            }
-            // `order` is now free — proceed to create at the requested slot.
-          } else {
-            // strategy === "replace" — delete existing image at this position
-            await prisma.productColorImage.delete({ where: { id: existingAtPos.id } });
-          }
-        }
-
-        // Nouveau rangement : public/uploads/produits/{ref}/{ref}-{couleur}-{n}-{stamp}.webp
-        const productDir = productImageDir(file.reference);
-        const stamp = Date.now().toString(36);
-        const safeFilename = `${productImageBaseName(file.reference, file.color, file.position)}-${stamp}`;
-        const imageBuffer = await readFile(file.filePath);
-        const result = await processProductImage(imageBuffer, productDir, safeFilename);
-
-        // Clean up temp file
-        const { unlink } = await import("fs/promises");
-        await unlink(file.filePath).catch(() => {});
-
-        const imagePath = result.dbPath;
-
-        await prisma.productColorImage.create({
-          data: {
-            productId: product.id,
-            colorId: matchedVariant.colorId ?? "",
+          const { finalOrder } = await placeImageInVariant({
+            prismaClient: prisma,
             productColorId: matchedVariant.id,
-            path: imagePath,
-            order,
-          },
-        });
+            requestedPosition: file.position,
+            positionOverridden: file.positionOverridden,
+            strategy,
+            assignedOrdersInJob: assignedHere,
+          });
 
-        // Reserve this position so subsequent images in the same job don't
-        // compact onto it.
-        const existingAssigned = assignedOrdersByVariant.get(matchedVariant.id);
-        if (existingAssigned) {
-          existingAssigned.add(order);
-        } else {
-          assignedOrdersByVariant.set(matchedVariant.id, new Set([order]));
+          // Nouveau rangement : public/uploads/produits/{ref}/{ref}-{couleur}-{n}-{stamp}.webp
+          const productDir = productImageDir(file.reference);
+          const stamp = Date.now().toString(36);
+          const safeFilename = `${productImageBaseName(file.reference, file.color, file.position)}-${stamp}`;
+          const imageBuffer = await readFile(file.filePath);
+          const result = await processProductImage(imageBuffer, productDir, safeFilename);
+
+          // Clean up temp file
+          const { unlink } = await import("fs/promises");
+          await unlink(file.filePath).catch(() => {});
+
+          const imagePath = result.dbPath;
+
+          await prisma.productColorImage.create({
+            data: {
+              productId: product.id,
+              colorId: matchedVariant.colorId ?? "",
+              productColorId: matchedVariant.id,
+              path: imagePath,
+              order: finalOrder,
+            },
+          });
+
+          // Reserve this position so subsequent images in the same job don't
+          // compact onto it.
+          const existingAssigned = assignedOrdersByVariant.get(matchedVariant.id);
+          if (existingAssigned) {
+            existingAssigned.add(finalOrder);
+          } else {
+            assignedOrdersByVariant.set(matchedVariant.id, new Set([finalOrder]));
+          }
+
+          successCount++;
+          processedCount++;
+
+          importedImages.push({
+            filename: file.filename,
+            reference: file.reference,
+            color: file.color,
+            position: finalOrder + 1,
+            imagePath,
+            productId: product.id,
+          });
+        } catch (placementErr) {
+          // Ne PAS interrompre : on continue avec les autres fichiers.
+          logger.error("[import-processor] Placement échoué", { error: placementErr, filename: file.filename });
+          errorRows.push({
+            filename: file.filename,
+            reference: file.reference,
+            color: file.color,
+            position: file.position,
+            tempPath: "",
+            errors: [placementErr instanceof Error ? placementErr.message : "Erreur lors du placement de l'image."],
+            productId: product.id,
+          });
+          processedCount++;
         }
-
-        successCount++;
-        processedCount++;
-
-        // Capture detail for history
-        importedImages.push({
-          filename: file.filename,
-          reference: file.reference,
-          color: file.color,
-          position: order + 1,
-          imagePath,
-          productId: product.id,
-        });
       }
 
       // Update progress
@@ -1625,6 +1644,67 @@ export async function processImageImport(jobId: string): Promise<void> {
       errorDraftId = draft.id;
     }
 
+    // ─────────────────────────────────────────────
+    // Post-import : flags marketplace & résumé produits
+    //
+    // Pour chaque produit qui a reçu au moins une image, on relit les IDs
+    // marketplace pour savoir où il est lié. Si lié, on pose le flag
+    // *SyncRequired = true (sera reset automatiquement si la cliente
+    // déclenche un push depuis la modale). Si non lié, on ne fait rien
+    // (cas brouillon = upload seul, conformément à la specs).
+    // ─────────────────────────────────────────────
+    const touchedProductIds = [...new Set(importedImages.map((i) => i.productId))];
+    const productMarketplaces: Array<{
+      productId: string;
+      reference: string;
+      name: string;
+      imageCount: number;
+      coverPath: string;
+      linkedTo: { pfs: boolean; ankorstore: boolean; efashion: boolean };
+    }> = [];
+
+    if (touchedProductIds.length > 0) {
+      const linkedProducts = await prisma.product.findMany({
+        where: { id: { in: touchedProductIds } },
+        select: {
+          id: true,
+          reference: true,
+          name: true,
+          pfsProductId: true,
+          ankorsProductId: true,
+          efashionReferenceBase: true,
+        },
+      });
+
+      for (const p of linkedProducts) {
+        const linkedTo = {
+          pfs: !!p.pfsProductId,
+          ankorstore: !!p.ankorsProductId,
+          efashion: !!p.efashionReferenceBase,
+        };
+        const images = importedImages.filter((i) => i.productId === p.id);
+        productMarketplaces.push({
+          productId: p.id,
+          reference: p.reference,
+          name: p.name,
+          imageCount: images.length,
+          coverPath: images[0]?.imagePath ?? "",
+          linkedTo,
+        });
+
+        // Pose les flags si le produit est lié à au moins une marketplace.
+        const flagPatch: { pfsSyncRequired?: true; ankorsSyncRequired?: true; efashionSyncRequired?: true } = {};
+        if (linkedTo.pfs) flagPatch.pfsSyncRequired = true;
+        if (linkedTo.ankorstore) flagPatch.ankorsSyncRequired = true;
+        if (linkedTo.efashion) flagPatch.efashionSyncRequired = true;
+        if (Object.keys(flagPatch).length > 0) {
+          await prisma.product.update({ where: { id: p.id }, data: flagPatch }).catch((e) => {
+            logger.error("[import-processor] Échec pose du flag SyncRequired", { error: e, productId: p.id });
+          });
+        }
+      }
+    }
+
     await prisma.importJob.update({
       where: { id: jobId },
       data: {
@@ -1637,6 +1717,7 @@ export async function processImageImport(jobId: string): Promise<void> {
           type: "IMAGES",
           images: importedImages,
           errorPreview: buildImageErrorPreview(errorRows),
+          products: productMarketplaces,
         } as unknown as import("@prisma/client").Prisma.JsonObject,
       },
     });
