@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import Image from "@/components/ui/SmartImage";
@@ -9,7 +9,7 @@ import { useBackdropClose } from "@/hooks/useBackdropClose";
 import ErrorPreviewList from "./ErrorPreviewList";
 
 type Step = "upload" | "preview" | "uploading" | "done";
-type ConflictStrategy = "replace" | "next_available" | "skip";
+type ConflictStrategy = "replace" | "next_available" | "shift" | "skip";
 
 interface FileSummaryGroup {
   reference: string;
@@ -91,9 +91,323 @@ function buildPreview(files: File[], previews: string[]): FileSummaryGroup[] {
 const BATCH_SIZE = 50;
 const STRATEGY_LABELS: Record<ConflictStrategy, string> = {
   replace: "Remplacer l\u2019existante",
+  shift: "D\u00e9caler l\u2019existante d\u2019un cran",
   next_available: "Position suivante disponible",
   skip: "Ignorer (ne pas importer)",
 };
+const STRATEGY_DESCRIPTIONS: Record<ConflictStrategy, string> = {
+  replace: "L\u2019image existante \u00e0 cette position est supprim\u00e9e et remplac\u00e9e.",
+  shift: "L\u2019image existante part \u00e0 la position suivante. La nouvelle prend la position demand\u00e9e.",
+  next_available: "La nouvelle image va \u00e0 la premi\u00e8re position libre disponible.",
+  skip: "L\u2019image est ignor\u00e9e (pas import\u00e9e du tout).",
+};
+
+// ─────────────────────────────────────────────
+// DoneScreen — final results: success vs errors
+// ─────────────────────────────────────────────
+
+interface SuccessImage {
+  filename: string;
+  reference: string;
+  color: string;
+  position: number;
+  imagePath: string;
+  productId: string;
+}
+interface ErrorRow {
+  filename: string;
+  reference: string;
+  color: string;
+  position: number;
+  tempPath: string;
+  errors: string[];
+}
+interface DoneScreenProps {
+  jobStatus: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | null;
+  jobProgress: { processed: number; total: number; success: number; errors: number; errorDraftId: string | null; errorMessage: string | null };
+  successImages: SuccessImage[];
+  errorRows: ErrorRow[];
+  errorPreviewFallback: Array<{ label: string; sublabel?: string; errors: string[] }>;
+  onReset: () => void;
+  onSeeProducts: () => void;
+}
+
+function DoneScreen({ jobStatus, jobProgress, successImages, errorRows, errorPreviewFallback, onReset, onSeeProducts }: DoneScreenProps) {
+  // Group successful imports by product reference
+  const productGroups = useMemo(() => {
+    const map = new Map<string, {
+      reference: string;
+      productId: string;
+      coverPath: string;
+      colors: Set<string>;
+      count: number;
+    }>();
+    for (const img of successImages) {
+      const existing = map.get(img.reference);
+      if (existing) {
+        existing.colors.add(img.color);
+        existing.count++;
+      } else {
+        map.set(img.reference, {
+          reference: img.reference,
+          productId: img.productId,
+          coverPath: img.imagePath,
+          colors: new Set([img.color]),
+          count: 1,
+        });
+      }
+    }
+    return [...map.values()].sort((a, b) => a.reference.localeCompare(b.reference));
+  }, [successImages]);
+
+  // Bucket errors by reason category for a quick overview
+  const errorBuckets = useMemo(() => {
+    const counters = { format: 0, ref: 0, color: 0, other: 0 };
+    for (const row of errorRows) {
+      const msg = row.errors[0] ?? "";
+      if (/Nom de fichier invalide/i.test(msg)) counters.format++;
+      else if (/introuvable/i.test(msg) && /Référence/i.test(msg)) counters.ref++;
+      else if (/Couleur/i.test(msg) && /introuvable/i.test(msg)) counters.color++;
+      else counters.other++;
+    }
+    return counters;
+  }, [errorRows]);
+
+  if (jobStatus === "FAILED") {
+    return (
+      <div className="bg-bg-primary border border-border rounded-2xl p-10 text-center shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto">
+          <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+        </div>
+        <p className="text-xl font-semibold font-heading text-red-700 mt-4">L&apos;import a échoué</p>
+        <p className="text-[#666] mt-1 font-body">{jobProgress.errorMessage || "Une erreur est survenue."}</p>
+        <button onClick={onReset} className="btn-secondary text-sm mt-6">Réessayer</button>
+      </div>
+    );
+  }
+
+  // PENDING / PROCESSING
+  if (jobStatus !== "COMPLETED") {
+    const pct = jobProgress.total > 0 ? Math.round((jobProgress.processed / jobProgress.total) * 100) : 0;
+    return (
+      <div className="bg-bg-primary border border-border rounded-2xl p-10 text-center shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto">
+          <svg className="w-8 h-8 text-amber-600 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        </div>
+        <p className="text-xl font-semibold font-heading text-text-primary mt-4">Traitement en cours…</p>
+        <p className="text-[#666] mt-1 font-body">{jobProgress.processed}/{jobProgress.total} images traitées · {jobProgress.success} réussie(s)</p>
+        {jobProgress.total > 0 && (
+          <div className="w-64 mx-auto mt-4">
+            <div className="w-full h-2 bg-[#F0F0F0] rounded-full overflow-hidden">
+              <div className="h-full rounded-full bg-amber-500 transition-all duration-300" style={{ width: `${pct}%` }} />
+            </div>
+            <p className="text-xs text-[#999] mt-2">{pct}%</p>
+          </div>
+        )}
+        <p className="text-[#999] text-sm mt-4 font-body">Vous pouvez fermer cette page — le suivi continue dans le coin de l&apos;écran.</p>
+      </div>
+    );
+  }
+
+  // COMPLETED — full results screen
+  const total = jobProgress.success + jobProgress.errors;
+  const successPct = total > 0 ? Math.round((jobProgress.success / total) * 100) : 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Header banner */}
+      <div className={`rounded-2xl p-6 border ${jobProgress.errors === 0 ? "bg-gradient-to-br from-green-50 to-bg-primary border-green-200" : "bg-gradient-to-br from-bg-secondary to-bg-primary border-border"} shadow-[0_1px_4px_rgba(0,0,0,0.06)]`}>
+        <div className="flex items-center gap-4">
+          <div className={`w-14 h-14 rounded-full flex items-center justify-center shrink-0 ${jobProgress.errors === 0 ? "bg-green-100" : "bg-amber-100"}`}>
+            {jobProgress.errors === 0 ? (
+              <svg className="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+            ) : (
+              <svg className="w-7 h-7 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-xl font-bold font-heading text-text-primary">
+              {jobProgress.errors === 0 ? "Tout est en ligne !" : "Import terminé avec des erreurs"}
+            </h2>
+            <p className="text-sm text-[#666] mt-1 font-body">
+              <strong className="text-green-700">{jobProgress.success}</strong> image{jobProgress.success > 1 ? "s" : ""} importée{jobProgress.success > 1 ? "s" : ""}
+              {jobProgress.errors > 0 && <> · <strong className="text-red-700">{jobProgress.errors}</strong> en erreur</>}
+              {productGroups.length > 0 && <> · <strong className="text-text-primary">{productGroups.length}</strong> produit{productGroups.length > 1 ? "s" : ""} concerné{productGroups.length > 1 ? "s" : ""}</>}
+            </p>
+            {/* Progress bar */}
+            {total > 0 && (
+              <div className="mt-3 flex items-center gap-2">
+                <div className="flex-1 h-1.5 bg-[#F0F0F0] rounded-full overflow-hidden flex">
+                  <div className="h-full bg-green-500 transition-all" style={{ width: `${successPct}%` }} />
+                  {jobProgress.errors > 0 && <div className="h-full bg-red-400 transition-all" style={{ width: `${100 - successPct}%` }} />}
+                </div>
+                <span className="text-xs text-[#666] font-body tabular-nums">{successPct}%</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Two-column layout */}
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* LEFT: Successful imports grouped by product */}
+        <div className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)] flex flex-col">
+          <div className="px-5 py-4 bg-green-50/60 border-b border-green-100 flex items-center gap-3">
+            <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold font-heading text-text-primary">Produits qui ont reçu leurs images</h3>
+              <p className="text-xs text-[#666] font-body">{productGroups.length} produit{productGroups.length > 1 ? "s" : ""} · {jobProgress.success} image{jobProgress.success > 1 ? "s" : ""} au total</p>
+            </div>
+          </div>
+          {productGroups.length === 0 ? (
+            <div className="px-5 py-10 text-center">
+              <p className="text-sm text-text-muted font-body">Aucune image n&apos;a été importée.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border-light max-h-[520px] overflow-y-auto">
+              {productGroups.map((g) => (
+                <a
+                  key={g.reference}
+                  href={`/admin/produits/${g.productId}`}
+                  className="flex items-center gap-3 px-5 py-3 hover:bg-bg-secondary/50 transition-colors group"
+                >
+                  <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-border bg-bg-secondary shrink-0">
+                    <Image src={`/${g.coverPath}`} alt={g.reference} fill className="object-cover" unoptimized />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-mono text-sm font-semibold text-text-primary group-hover:text-text-primary">{g.reference}</p>
+                    <p className="text-xs text-text-muted truncate font-body">
+                      {[...g.colors].slice(0, 3).join(" · ")}
+                      {g.colors.size > 3 && ` +${g.colors.size - 3}`}
+                    </p>
+                  </div>
+                  <span className="text-xs font-semibold bg-green-100 text-green-700 px-2.5 py-1 rounded-full shrink-0 font-body">
+                    +{g.count}
+                  </span>
+                  <svg className="w-4 h-4 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* RIGHT: Failed images */}
+        <div className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)] flex flex-col">
+          <div className={`px-5 py-4 border-b flex items-center gap-3 ${jobProgress.errors > 0 ? "bg-red-50/60 border-red-100" : "bg-bg-secondary/40 border-border"}`}>
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${jobProgress.errors > 0 ? "bg-red-100" : "bg-bg-secondary"}`}>
+              <svg className={`w-4 h-4 ${jobProgress.errors > 0 ? "text-red-600" : "text-text-muted"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold font-heading text-text-primary">Images qui n&apos;ont pas pu être importées</h3>
+              <p className="text-xs text-[#666] font-body">
+                {jobProgress.errors === 0 ? "Aucune erreur — bravo !" : `${jobProgress.errors} image${jobProgress.errors > 1 ? "s" : ""} en échec`}
+              </p>
+            </div>
+          </div>
+
+          {jobProgress.errors === 0 ? (
+            <div className="px-5 py-10 text-center">
+              <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center mx-auto mb-3">
+                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+              </div>
+              <p className="text-sm text-text-muted font-body">Toutes les images ont été importées.</p>
+            </div>
+          ) : (
+            <>
+              {/* Reason summary chips */}
+              {errorRows.length > 0 && (
+                <div className="px-5 py-3 bg-bg-secondary/40 border-b border-border flex flex-wrap gap-2">
+                  {errorBuckets.format > 0 && (
+                    <span className="text-[11px] font-body px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700">
+                      {errorBuckets.format} nom invalide{errorBuckets.format > 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {errorBuckets.ref > 0 && (
+                    <span className="text-[11px] font-body px-2.5 py-1 rounded-full bg-orange-50 border border-orange-200 text-orange-700">
+                      {errorBuckets.ref} référence{errorBuckets.ref > 1 ? "s" : ""} introuvable{errorBuckets.ref > 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {errorBuckets.color > 0 && (
+                    <span className="text-[11px] font-body px-2.5 py-1 rounded-full bg-purple-50 border border-purple-200 text-purple-700">
+                      {errorBuckets.color} couleur{errorBuckets.color > 1 ? "s" : ""} introuvable{errorBuckets.color > 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {errorBuckets.other > 0 && (
+                    <span className="text-[11px] font-body px-2.5 py-1 rounded-full bg-red-50 border border-red-200 text-red-700">
+                      {errorBuckets.other} autre{errorBuckets.other > 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {errorRows.length > 0 ? (
+                <div className="divide-y divide-border-light max-h-[520px] overflow-y-auto">
+                  {errorRows.map((row, idx) => (
+                    <div key={`${row.filename}-${idx}`} className="flex items-start gap-3 px-5 py-3">
+                      <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-border bg-bg-secondary shrink-0">
+                        {row.tempPath ? (
+                          <Image src={`/${row.tempPath}`} alt={row.filename} fill className="object-cover" unoptimized />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-text-primary truncate font-body" title={row.filename}>{row.filename}</p>
+                        {(row.reference || row.color) && (
+                          <p className="text-[10px] text-text-muted font-body mt-0.5">
+                            {row.reference && <span className="font-mono">{row.reference}</span>}
+                            {row.color && <> · {row.color}</>}
+                            {row.position > 0 && <> · position {row.position}</>}
+                          </p>
+                        )}
+                        {row.errors.slice(0, 2).map((err, i) => (
+                          <p key={i} className="text-[11px] text-red-600 mt-1 font-body leading-snug">{err}</p>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : errorPreviewFallback.length > 0 ? (
+                <div className="p-4">
+                  <ErrorPreviewList preview={errorPreviewFallback} totalErrors={jobProgress.errors} />
+                </div>
+              ) : (
+                <div className="px-5 py-6 text-center">
+                  <p className="text-sm text-text-muted font-body">Chargement du détail des erreurs…</p>
+                </div>
+              )}
+
+              {jobProgress.errorDraftId && (
+                <div className="px-5 py-3 border-t border-border bg-bg-secondary/30">
+                  <a
+                    href={`/admin/produits/importer/historique`}
+                    className="text-xs text-text-primary font-medium hover:underline font-body inline-flex items-center gap-1"
+                  >
+                    Corriger ces erreurs depuis l&apos;historique
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  </a>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-col sm:flex-row items-center justify-end gap-3">
+        <button onClick={onReset} className="btn-secondary text-sm w-full sm:w-auto">Nouvel import</button>
+        <button onClick={onSeeProducts} className="btn-primary text-sm w-full sm:w-auto">Voir les produits</button>
+      </div>
+    </div>
+  );
+}
 
 export default function ImportImagesTab() {
   const router = useRouter();
@@ -110,6 +424,23 @@ export default function ImportImagesTab() {
   const [jobStatus, setJobStatus] = useState<"PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | null>(null);
   const [jobProgress, setJobProgress] = useState({ processed: 0, total: 0, success: 0, errors: 0, errorDraftId: null as string | null, errorMessage: null as string | null });
   const [errorPreview, setErrorPreview] = useState<Array<{ label: string; sublabel?: string; errors: string[] }>>([]);
+  // Detailed results for the "done" screen
+  const [successImages, setSuccessImages] = useState<Array<{
+    filename: string;
+    reference: string;
+    color: string;
+    position: number;
+    imagePath: string;
+    productId: string;
+  }>>([]);
+  const [errorRows, setErrorRows] = useState<Array<{
+    filename: string;
+    reference: string;
+    color: string;
+    position: number;
+    tempPath: string;
+    errors: string[];
+  }>>([]);
 
   // Conflict state
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
@@ -422,10 +753,27 @@ export default function ImportImagesTab() {
         setJobStatus(job.status);
         setJobProgress({ processed: job.processedItems, total: job.totalItems, success: job.successItems, errors: job.errorItems, errorDraftId: job.errorDraftId, errorMessage: job.errorMessage });
         if (job.resultDetails?.errorPreview) setErrorPreview(job.resultDetails.errorPreview);
+        if (Array.isArray(job.resultDetails?.images)) setSuccessImages(job.resultDetails.images);
       } catch { /* retry */ }
     }, 3000);
     return () => clearInterval(interval);
   }, [step, jobId, jobStatus]);
+
+  // When the job is COMPLETED with an error draft, fetch full error rows
+  useEffect(() => {
+    if (jobStatus !== "COMPLETED" || !jobProgress.errorDraftId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/products/import/draft/${jobProgress.errorDraftId}`);
+        if (!res.ok) return;
+        const draft = await res.json();
+        if (cancelled) return;
+        if (Array.isArray(draft.rows)) setErrorRows(draft.rows);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [jobStatus, jobProgress.errorDraftId]);
 
   // Warn before navigating/closing during browser-driven upload — if she
   // leaves now, the upload aborts and the job is left orphaned UPLOADING.
@@ -560,7 +908,7 @@ export default function ImportImagesTab() {
     setFiles([]); setPreviews([]); setStep("upload"); setError(null);
     setUploadedBatches(0); setTotalBatches(0); setJobId(null); setJobStatus(null);
     setJobProgress({ processed: 0, total: 0, success: 0, errors: 0, errorDraftId: null, errorMessage: null });
-    setErrorPreview([]);
+    setErrorPreview([]); setSuccessImages([]); setErrorRows([]);
     setConflicts([]); setConflictChecked(false); setPerFileResolutions(new Map());
     setOverrides(new Map()); setEditingPosition(null); closeColorModal();
   };
@@ -618,16 +966,16 @@ export default function ImportImagesTab() {
         </div>
       </div>
 
-      {/* Step indicator */}
-      <div className="flex items-center gap-3 text-sm">
+      {/* Step indicator \u2014 refined */}
+      <div className="flex items-center gap-2 sm:gap-3 text-sm overflow-x-auto pb-1">
         {(["upload", "preview", "done"] as const).map((s, i) => {
           const isCurrent = step === s || (step === "uploading" && s === "preview");
           const isDone = step === "done" || (step === "uploading" && s === "upload") || (step === "preview" && s === "upload");
           return (
-            <div key={s} className="flex items-center gap-2">
-              {i > 0 && <div className="w-8 h-px bg-[#E5E5E5]" />}
-              <div className={`flex items-center gap-2 ${isCurrent ? "text-text-primary font-medium" : isDone ? "text-green-600" : "text-[#999]"}`}>
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isCurrent ? "bg-bg-dark text-text-inverse" : isDone ? "bg-green-100 text-green-600" : "bg-bg-secondary text-[#999]"}`}>{isDone ? "\u2713" : i + 1}</span>
+            <div key={s} className="flex items-center gap-2 sm:gap-3 shrink-0">
+              {i > 0 && <div className={`w-6 sm:w-10 h-px transition-colors ${isDone || isCurrent ? "bg-text-primary/30" : "bg-border"}`} />}
+              <div className={`flex items-center gap-2 transition-colors ${isCurrent ? "text-text-primary font-semibold" : isDone ? "text-green-700" : "text-text-muted"}`}>
+                <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${isCurrent ? "bg-bg-dark text-text-inverse shadow-sm" : isDone ? "bg-green-100 text-green-700 border border-green-200" : "bg-bg-secondary text-text-muted border border-border"}`}>{isDone ? (<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>) : i + 1}</span>
                 {s === "upload" ? "Images" : s === "preview" ? "Résumé" : "Lancé"}
               </div>
             </div>
@@ -719,12 +1067,15 @@ export default function ImportImagesTab() {
                     <p className="text-xs text-amber-600 font-body">Des images existent déjà à ces positions. Choisissez quoi faire.</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-xs text-amber-700 font-body whitespace-nowrap">Par défaut :</label>
-                  <select value={defaultStrategy} onChange={(e) => setDefaultStrategy(e.target.value as ConflictStrategy)}
-                    className="text-xs border border-amber-300 rounded-lg px-2 py-1.5 bg-bg-primary text-text-primary font-body focus:outline-none focus:ring-1 focus:ring-amber-400">
-                    {Object.entries(STRATEGY_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
-                  </select>
+                <div className="flex flex-col items-end gap-1">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-amber-700 font-body whitespace-nowrap">Par défaut :</label>
+                    <select value={defaultStrategy} onChange={(e) => setDefaultStrategy(e.target.value as ConflictStrategy)}
+                      className="text-xs border border-amber-300 rounded-lg px-2 py-1.5 bg-bg-primary text-text-primary font-body focus:outline-none focus:ring-1 focus:ring-amber-400">
+                      {Object.entries(STRATEGY_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+                    </select>
+                  </div>
+                  <p className="text-[10px] text-amber-600 font-body italic max-w-[280px] text-right leading-snug">{STRATEGY_DESCRIPTIONS[defaultStrategy]}</p>
                 </div>
               </div>
               <div className="divide-y divide-amber-100 max-h-[400px] overflow-y-auto">
@@ -931,64 +1282,15 @@ export default function ImportImagesTab() {
 
       {/* Step: Done */}
       {step === "done" && (
-        <div className="bg-bg-primary border border-border rounded-2xl p-8 text-center space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-          {jobStatus === "COMPLETED" ? (
-            <>
-              <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto">
-                <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-              </div>
-              <div>
-                <p className="text-xl font-semibold font-heading text-text-primary">Import terminé</p>
-                <p className="text-[#666] mt-1 font-body">{jobProgress.success} image(s) importée(s).{jobProgress.errors > 0 && ` ${jobProgress.errors} erreur(s).`}</p>
-                {jobProgress.errors > 0 && (
-                  <p className="mt-3 text-sm text-red-700">
-                    {jobProgress.errors} image{jobProgress.errors > 1 ? "s" : ""} n&apos;ont pas pu être importées. Vérifiez le nom de fichier et relancez un envoi.
-                  </p>
-                )}
-              </div>
-            </>
-          ) : jobStatus === "FAILED" ? (
-            <>
-              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto">
-                <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </div>
-              <div>
-                <p className="text-xl font-semibold font-heading text-red-700">Erreur</p>
-                <p className="text-[#666] mt-1 font-body">{jobProgress.errorMessage || "Une erreur est survenue."}</p>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto">
-                <svg className="w-8 h-8 text-amber-600 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-xl font-semibold font-heading text-text-primary">Traitement en cours...</p>
-                <p className="text-[#666] mt-1 font-body">{jobProgress.processed}/{jobProgress.total} traitées. {jobProgress.success} réussie(s).</p>
-                {jobProgress.total > 0 && (
-                  <div className="w-64 mx-auto mt-3">
-                    <div className="w-full h-2 bg-[#F0F0F0] rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-amber-500 transition-all duration-300" style={{ width: `${(jobProgress.processed / jobProgress.total) * 100}%` }} />
-                    </div>
-                  </div>
-                )}
-                <p className="text-[#999] text-sm mt-3 font-body">Vous pouvez fermer cette page — le suivi continue dans le coin de l&apos;écran.</p>
-              </div>
-            </>
-          )}
-          {errorPreview.length > 0 && (
-            <div className="max-w-2xl mx-auto">
-              <ErrorPreviewList preview={errorPreview} totalErrors={jobProgress.errors} />
-            </div>
-          )}
-          <div className="flex justify-center gap-3">
-            <button onClick={() => router.push("/admin/produits")} className="btn-primary text-sm">Voir les produits</button>
-            <button onClick={reset} className="btn-secondary text-sm">Nouvel import</button>
-          </div>
-        </div>
+        <DoneScreen
+          jobStatus={jobStatus}
+          jobProgress={jobProgress}
+          successImages={successImages}
+          errorRows={errorRows}
+          errorPreviewFallback={errorPreview}
+          onReset={reset}
+          onSeeProducts={() => router.push("/admin/produits")}
+        />
       )}
       {/* Color selection modal (portal) */}
       {colorModalOpen && createPortal(

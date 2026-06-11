@@ -1207,7 +1207,7 @@ export function buildImageErrorPreview(
 // Conflict resolution types
 // ─────────────────────────────────────────────
 
-export type ConflictStrategy = "replace" | "next_available" | "skip";
+export type ConflictStrategy = "replace" | "next_available" | "shift" | "skip";
 
 export interface ConflictResolution {
   filename: string;
@@ -1218,6 +1218,41 @@ export interface ConflictResolution {
 export interface ConflictResolutions {
   defaultStrategy: ConflictStrategy;
   perFile: ConflictResolution[];
+}
+
+/**
+ * Compute the cascade of order updates needed to free a target position by shifting
+ * every image at `targetOrder` and above to the next free slot (chain shift).
+ *
+ * Example: usedOrders = {0, 1, 3}, targetOrder = 0
+ *   → image at 0 must move to 2 (the first free slot ≥ 1)
+ *   → image at 1 must move to 4 (the first free slot ≥ 2 after 0→2)
+ *   → 3 stays in place (no contiguous block at 3+1)
+ *
+ * Returns an ordered list of moves (from highest source down to lowest) so the
+ * caller can apply them sequentially without violating the (productColorId, order)
+ * unique constraint.
+ */
+export function planShiftCascade(
+  targetOrder: number,
+  usedOrders: ReadonlySet<number>,
+): { from: number; to: number }[] {
+  if (!usedOrders.has(targetOrder)) return [];
+  // Find the contiguous block of occupied orders starting at targetOrder.
+  const block: number[] = [];
+  let cursor = targetOrder;
+  while (usedOrders.has(cursor)) {
+    block.push(cursor);
+    cursor++;
+  }
+  // The first free slot just after the block becomes the destination of the highest image.
+  // Each image at block[i] is shifted to block[i] + 1; the last one lands on `cursor`.
+  // Apply in reverse order so we never collide with an existing row.
+  const moves: { from: number; to: number }[] = [];
+  for (let i = block.length - 1; i >= 0; i--) {
+    moves.push({ from: block[i], to: block[i] + 1 });
+  }
+  return moves;
 }
 
 const IMAGE_BATCH_SIZE = 20;
@@ -1333,6 +1368,8 @@ export async function processImageImport(jobId: string): Promise<void> {
       reference: string;
       color: string;
       position: number;
+      imagePath: string;
+      productId: string;
     }[] = [];
 
     // Process in batches
@@ -1446,6 +1483,26 @@ export async function processImageImport(jobId: string): Promise<void> {
               while (used.has(nextOrder)) nextOrder++;
               order = nextOrder;
             }
+          } else if (strategy === "shift") {
+            // Cascade shift : déplace l'existante (et les suivantes contiguës)
+            // d'une position vers le haut pour libérer `order`.
+            const usedRows = await prisma.productColorImage.findMany({
+              where: { productColorId: matchedVariant.id },
+              select: { id: true, order: true },
+            });
+            const usedSet = new Set(usedRows.map((r) => r.order));
+            const moves = planShiftCascade(order, usedSet);
+            // Apply moves from highest source to lowest (already ordered that way)
+            // to never violate the (productColorId, order) unique constraint.
+            for (const move of moves) {
+              const row = usedRows.find((r) => r.order === move.from);
+              if (!row) continue;
+              await prisma.productColorImage.update({
+                where: { id: row.id },
+                data: { order: move.to },
+              });
+            }
+            // `order` is now free — proceed to create at the requested slot.
           } else {
             // strategy === "replace" — delete existing image at this position
             await prisma.productColorImage.delete({ where: { id: existingAtPos.id } });
@@ -1493,6 +1550,8 @@ export async function processImageImport(jobId: string): Promise<void> {
           reference: file.reference,
           color: file.color,
           position: order + 1,
+          imagePath,
+          productId: product.id,
         });
       }
 
