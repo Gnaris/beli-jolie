@@ -13,6 +13,17 @@ import {
 import { useToast } from "@/components/ui/Toast";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { getImageSrc } from "@/lib/image-utils";
+import { LinkModalShell } from "./link-modal/LinkModalShell";
+import {
+  Callout,
+  ColorSwatch,
+  EmptyState,
+  LoadingState,
+  MappingProgress,
+  ModalButton,
+  ModalIcons,
+  SearchField,
+} from "./link-modal/LinkModalPrimitives";
 
 interface Props {
   productId: string;
@@ -47,10 +58,7 @@ export default function LinkPfsProductModal({
   const [isLoading, startLoading] = useTransition();
   const [isSaving, startSaving] = useTransition();
 
-  /**
-   * mapping[productColorId] = pfsVariantId
-   * Clé par ProductColor BJ : empêche d'attribuer 2 fois la même variante PFS.
-   */
+  // mapping[productColorId] = pfsVariantId — clé par couleur BJ
   const [mapping, setMapping] = useState<Record<string, string>>({});
 
   function load() {
@@ -59,7 +67,6 @@ export default function LinkPfsProductModal({
       const res = await previewPfsMatchByReference(productId, refInput);
       if (res.success) {
         setPreview(res.data);
-        // Pré-remplit : liens existants en BDD d'abord, puis suggestions auto par nom.
         const initial: Record<string, string> = { ...res.data.existingLinks };
         const usedPfsVids = new Set(Object.values(initial));
         for (const cand of res.data.candidates) {
@@ -92,7 +99,6 @@ export default function LinkPfsProductModal({
         delete next[productColorId];
         return next;
       }
-      // Si cette variante PFS est déjà mappée à une autre couleur, on délie l'autre
       for (const [k, v] of Object.entries(next)) {
         if (v === pfsVariantIdOrEmpty && k !== productColorId) delete next[k];
       }
@@ -119,10 +125,7 @@ export default function LinkPfsProductModal({
       const res = await linkPfsProductManually(
         productId,
         preview.pfsProductId!,
-        {
-          id: preview.pfsBrandId ?? null,
-          name: preview.pfsBrandName ?? null,
-        },
+        { id: preview.pfsBrandId ?? null, name: preview.pfsBrandName ?? null },
         links,
       );
       if (res.success) {
@@ -157,214 +160,134 @@ export default function LinkPfsProductModal({
   }, [preview, mapping]);
 
   const mappedCount = Object.keys(mapping).length;
+  const totalLocal = preview?.localColors.length ?? 0;
   const canSaveLink =
-    preview !== null &&
-    preview.pfsProductId !== null &&
-    mappedCount > 0;
+    preview !== null && preview.pfsProductId !== null && mappedCount > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-bg-primary rounded-2xl shadow-lg max-w-5xl w-full max-h-[92vh] overflow-hidden flex flex-col border border-border">
-        {/* ─── HEADER ─── */}
-        <div className="flex items-start justify-between px-6 py-4 border-b border-border bg-bg-secondary/30">
-          <div className="min-w-0 flex-1 pr-4">
-            <div className="flex items-center gap-2 mb-1">
-              <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
-                style={{ backgroundColor: "#FEE2E2", color: "#991B1B" }}
-              >
-                Paris Fashion Shop
-              </span>
-              <span className="font-body text-[11px] text-text-muted uppercase tracking-wider">
-                Liaison produit
-              </span>
-            </div>
-            <h2 className="font-heading font-bold text-text-primary text-lg truncate">
-              {productName}
-            </h2>
-            <p className="font-body text-xs text-text-secondary truncate">
-              Référence BJ : <span className="font-medium">{reference}</span>
-              {preview?.alreadyLinked && (
-                <span className="ml-2 inline-flex items-center gap-1 text-[#15803D] font-medium">
-                  · ✅ Déjà lié à PFS
-                </span>
-              )}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSaving}
-            className="shrink-0 text-text-muted hover:text-text-primary transition-colors"
-            aria-label="Fermer"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* ─── BARRE DE RECHERCHE ─── */}
-        <div className="px-6 py-4 border-b border-border">
-          <label className="block font-body text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
-            Référence PFS à rechercher
-          </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={refInput}
-              onChange={(e) => setRefInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") load();
-              }}
-              placeholder="ex: A2415"
-              className="flex-1 h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
-              disabled={isLoading || isSaving}
-            />
-            <button
-              type="button"
-              onClick={load}
-              disabled={isLoading || isSaving || !refInput.trim()}
-              className="h-10 px-5 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50"
-            >
-              {isLoading ? "Recherche…" : "Rechercher"}
-            </button>
-          </div>
-          <p className="mt-2 font-body text-[11px] text-text-muted">
-            Tapez la référence exacte côté PFS. On affichera toutes les variantes
-            (couleurs × tailles) trouvées, et vous choisirez laquelle relier à
-            chaque couleur de votre produit.
-          </p>
-        </div>
-
-        {/* ─── CORPS ─── */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 bg-bg-secondary/20">
-          {isLoading && (
-            <div className="flex items-center justify-center py-12">
-              <div className="font-body text-sm text-text-muted">Recherche en cours…</div>
-            </div>
-          )}
-
-          {error && !isLoading && (
-            <div className="rounded-xl bg-[#FEF2F2] border border-[#FECACA] px-4 py-3 text-sm text-[#DC2626] font-body">
-              {error}
-            </div>
-          )}
-
-          {preview && !preview.pfsProductId && !isLoading && (
-            <div className="rounded-xl border border-dashed border-border bg-bg-primary px-6 py-10 text-center">
-              <div className="text-4xl mb-3">🔍</div>
-              <p className="font-body text-sm text-text-secondary mb-1">
-                Aucun produit PFS trouvé pour la référence
-                {" "}<strong>« {preview.pfsReference} »</strong>.
-              </p>
-              <p className="font-body text-xs text-text-muted">
-                Vérifiez la référence ou créez d&apos;abord le produit côté PFS.
-              </p>
-            </div>
-          )}
-
-          {preview && preview.pfsProductId && (
-            <div className="space-y-5">
-              {/* Bandeau produit PFS trouvé */}
-              <PfsProductBanner preview={preview} mappedCount={mappedCount} />
-
-              {/* Aucune variante PFS */}
-              {preview.candidates.length === 0 && (
-                <div className="rounded-xl border border-[#FECACA] bg-[#FEF2F2] px-4 py-4 text-sm text-[#991B1B] font-body">
-                  Le produit PFS existe mais n&apos;a aucune variante — créez-en
-                  d&apos;abord côté PFS avant de pouvoir lier.
-                </div>
-              )}
-
-              {/* Aucune couleur BJ */}
-              {preview.localColors.length === 0 && (
-                <div className="rounded-xl border border-[#FECACA] bg-[#FEF2F2] px-4 py-4 text-sm text-[#991B1B] font-body">
-                  Ce produit n&apos;a aucune variante côté BJ. Ajoutez au moins
-                  une couleur avant de lier.
-                </div>
-              )}
-
-              {/* Cartes 2 colonnes */}
-              {preview.localColors.length > 0 && preview.candidates.length > 0 && (
-                <div className="space-y-3">
-                  {preview.localColors.map((local) => {
-                    const selectedPfsId = mapping[local.productColorId];
-                    const selectedCand =
-                      selectedPfsId
-                        ? preview.candidates.find(
-                            (c) => c.pfsVariantId === selectedPfsId,
-                          ) ?? null
-                        : null;
-                    return (
-                      <PairRow
-                        key={local.productColorId}
-                        local={local}
-                        selectedCandidate={selectedCand}
-                        candidates={preview.candidates}
-                        mapping={mapping}
-                        onChange={(pfsVid) =>
-                          setColorMapping(local.productColorId, pfsVid ?? "")
-                        }
-                        disabled={isSaving}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Orphelins BJ */}
-              {orphanLocalColors.length > 0 && (
-                <BjOrphansSection colors={orphanLocalColors} />
-              )}
-
-              {/* Orphelins PFS */}
-              {orphanCandidates.length > 0 && preview.localColors.length > 0 && (
-                <PfsOrphansSection candidates={orphanCandidates} />
-              )}
-
-              {/* Récap final */}
-              {preview.localColors.length > 0 && preview.candidates.length > 0 && (
-                <SyncRecap preview={preview} mapping={mapping} />
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* ─── FOOTER ─── */}
-        <div className="px-6 py-4 border-t border-border bg-bg-primary flex items-center justify-between gap-3">
+    <LinkModalShell
+      marketplace="pfs"
+      productName={productName}
+      reference={reference}
+      alreadyLinked={preview?.alreadyLinked ?? false}
+      onClose={onClose}
+      closeDisabled={isSaving}
+      searchBar={
+        <SearchField
+          label="Référence PFS à rechercher"
+          value={refInput}
+          onChange={setRefInput}
+          onSubmit={load}
+          placeholder="ex : A2415"
+          loading={isLoading}
+          disabled={isSaving}
+          helper={
+            <>
+              Tapez la référence exacte côté PFS. On affichera toutes les variantes
+              (couleurs × tailles) trouvées, à associer à vos couleurs.
+            </>
+          }
+        />
+      }
+      footer={
+        <>
           <p className="font-body text-xs text-text-muted">
             {!preview || !preview.pfsProductId
               ? "—"
-              : `✅ ${mappedCount} variante(s) prête(s) à lier${
-                  orphanLocalColors.length > 0
-                    ? ` · ⚠️ ${orphanLocalColors.length} non liée(s)`
-                    : ""
-                }`}
+              : (
+                <>
+                  <span className="font-semibold text-text-secondary">{mappedCount}</span>
+                  {" "}/{" "}<span className="text-text-secondary">{totalLocal}</span> variante(s) prête(s)
+                  {orphanLocalColors.length > 0 && (
+                    <span className="ml-2 text-amber-700">
+                      · {orphanLocalColors.length} non liée(s)
+                    </span>
+                  )}
+                </>
+              )}
           </p>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isSaving}
-              className="h-10 px-4 rounded-lg border border-border text-sm font-body font-medium text-text-secondary hover:bg-bg-secondary transition-colors"
-            >
+            <ModalButton onClick={onClose} disabled={isSaving}>
               Annuler
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isSaving || !canSaveLink}
-              className="h-10 px-5 rounded-lg bg-bg-dark text-text-inverse text-sm font-body font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+            </ModalButton>
+            <ModalButton variant="primary" onClick={handleSave} disabled={isSaving || !canSaveLink}>
               {isSaving
                 ? "Liaison + synchro…"
                 : `Lier ${mappedCount} variante${mappedCount > 1 ? "s" : ""}`}
-            </button>
+            </ModalButton>
           </div>
+        </>
+      }
+    >
+      {isLoading && <LoadingState>Recherche en cours…</LoadingState>}
+
+      {error && !isLoading && (
+        <Callout tone="danger" icon={ModalIcons.Block} title="Erreur de recherche">
+          {error}
+        </Callout>
+      )}
+
+      {preview && !preview.pfsProductId && !isLoading && (
+        <EmptyState
+          title={<>Aucun produit PFS trouvé pour « {preview.pfsReference} »</>}
+          description="Vérifiez la référence ou créez d'abord le produit côté PFS."
+        />
+      )}
+
+      {preview && preview.pfsProductId && (
+        <div className="space-y-4">
+          <PfsProductBanner preview={preview} mappedCount={mappedCount} totalLocal={totalLocal} />
+
+          {preview.candidates.length === 0 && (
+            <Callout tone="danger" icon={ModalIcons.Warning} title="Aucune variante chez PFS">
+              Le produit PFS existe mais n&apos;a aucune variante — créez-en d&apos;abord côté
+              PFS avant de pouvoir lier.
+            </Callout>
+          )}
+
+          {preview.localColors.length === 0 && (
+            <Callout tone="danger" icon={ModalIcons.Warning} title="Aucune couleur chez vous">
+              Ce produit n&apos;a aucune variante côté BJ. Ajoutez au moins une couleur avant
+              de lier.
+            </Callout>
+          )}
+
+          {preview.localColors.length > 0 && preview.candidates.length > 0 && (
+            <div className="space-y-2.5">
+              {preview.localColors.map((local) => {
+                const selectedPfsId = mapping[local.productColorId];
+                const selectedCand = selectedPfsId
+                  ? preview.candidates.find((c) => c.pfsVariantId === selectedPfsId) ?? null
+                  : null;
+                return (
+                  <PairRow
+                    key={local.productColorId}
+                    local={local}
+                    selectedCandidate={selectedCand}
+                    candidates={preview.candidates}
+                    mapping={mapping}
+                    onChange={(pfsVid) =>
+                      setColorMapping(local.productColorId, pfsVid ?? "")
+                    }
+                    disabled={isSaving}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {orphanLocalColors.length > 0 && <BjOrphansSection colors={orphanLocalColors} />}
+
+          {orphanCandidates.length > 0 && preview.localColors.length > 0 && (
+            <PfsOrphansSection candidates={orphanCandidates} />
+          )}
+
+          {preview.localColors.length > 0 && preview.candidates.length > 0 && (
+            <SyncRecap preview={preview} mapping={mapping} />
+          )}
         </div>
-      </div>
-    </div>
+      )}
+    </LinkModalShell>
   );
 }
 
@@ -375,14 +298,16 @@ export default function LinkPfsProductModal({
 function PfsProductBanner({
   preview,
   mappedCount,
+  totalLocal,
 }: {
   preview: PfsLinkPreview;
   mappedCount: number;
+  totalLocal: number;
 }) {
   return (
-    <div className="rounded-xl bg-bg-primary border border-border overflow-hidden">
+    <div className="rounded-xl bg-bg-primary border border-border-light overflow-hidden">
       <div className="flex gap-4 p-4">
-        <div className="shrink-0 w-24 h-24 rounded-lg bg-bg-secondary overflow-hidden border border-border relative">
+        <div className="shrink-0 w-24 h-24 rounded-lg bg-bg-secondary overflow-hidden border border-border-light">
           {preview.pfsProductImage ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -395,9 +320,7 @@ function PfsProductBanner({
             />
           ) : (
             <div className="flex items-center justify-center w-full h-full text-text-muted">
-              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
+              {ModalIcons.Image}
             </div>
           )}
         </div>
@@ -408,37 +331,26 @@ function PfsProductBanner({
           <p className="font-heading font-bold text-text-primary text-base truncate mt-0.5">
             {preview.pfsProductName ?? preview.pfsReference}
           </p>
-          <div className="flex flex-wrap items-center gap-2 mt-1">
-            <span className="font-mono text-[11px] bg-bg-secondary px-1.5 py-0.5 rounded">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
+            <span className="font-mono text-[11px] bg-bg-secondary text-text-secondary px-1.5 py-0.5 rounded">
               {preview.pfsReference}
             </span>
             {preview.pfsBrandName && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-body text-text-secondary">
-                · Marque <strong className="text-text-primary">{preview.pfsBrandName}</strong>
+              <span className="text-[11px] font-body text-text-secondary">
+                Marque{" "}
+                <strong className="text-text-primary font-semibold">
+                  {preview.pfsBrandName}
+                </strong>
               </span>
             )}
-            <span className="inline-flex items-center gap-1 text-[11px] font-body text-text-secondary">
-              · {preview.candidates.length} variante{preview.candidates.length > 1 ? "s" : ""}
+            <span className="text-[11px] font-body text-text-secondary">
+              {preview.candidates.length} variante
+              {preview.candidates.length > 1 ? "s" : ""}
             </span>
           </div>
         </div>
         <div className="shrink-0 self-center">
-          <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold font-body ${
-              mappedCount > 0
-                ? "bg-[#DCFCE7] text-[#15803D]"
-                : "bg-[#FEF3C7] text-[#B45309]"
-            }`}
-          >
-            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-              {mappedCount > 0 ? (
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              ) : (
-                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-              )}
-            </svg>
-            {mappedCount}/{preview.localColors.length} liée{mappedCount > 1 ? "s" : ""}
-          </span>
+          <MappingProgress current={mappedCount} total={totalLocal} done={mappedCount === totalLocal && totalLocal > 0} />
         </div>
       </div>
     </div>
@@ -468,21 +380,21 @@ function PairRow({
       const label = `${c.pfsColorName} · ${c.sizeLabel} · ${c.type}${
         usedByOther ? " · déjà lié" : ""
       }`;
-      return {
-        value: c.pfsVariantId,
-        label,
-        disabled: usedByOther,
-      };
+      return { value: c.pfsVariantId, label, disabled: usedByOther };
     });
     return [{ value: "", label: "— Ne pas lier —" }, ...opts];
   }, [candidates, mapping, local.productColorId]);
 
   return (
-    <div className="rounded-xl border border-border bg-bg-primary overflow-hidden shadow-sm">
+    <div
+      className={`rounded-xl border bg-bg-primary overflow-hidden transition-colors ${
+        selectedCandidate ? "border-emerald-200" : "border-border-light"
+      }`}
+    >
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr]">
-        {/* COLONNE GAUCHE : variante BJ */}
+        {/* Gauche : variante BJ */}
         <div className="p-4 flex gap-3 items-start">
-          <div className="shrink-0 w-20 h-20 rounded-lg overflow-hidden bg-bg-secondary border border-border relative">
+          <div className="shrink-0 w-20 h-20 rounded-lg overflow-hidden bg-bg-secondary border border-border-light relative">
             {local.productImage ? (
               <Image
                 src={getImageSrc(local.productImage, "thumb")}
@@ -499,32 +411,30 @@ function PairRow({
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <p className="font-body text-[10px] text-text-muted uppercase tracking-wider mb-1">
+              Votre variante
+            </p>
+            <div className="flex items-center gap-2 flex-wrap mb-1.5">
               <ColorSwatch hex={local.hex} patternImage={local.patternImage} size={14} />
               <p className="font-body text-sm font-semibold text-text-primary truncate">
                 {local.name}
               </p>
-              <span
-                className={`badge ${local.saleType === "PACK" ? "badge-info" : "badge-neutral"}`}
-              >
+              <span className={`badge ${local.saleType === "PACK" ? "badge-info" : "badge-neutral"}`}>
                 {local.saleType}
               </span>
             </div>
-            <p className="font-body text-[11px] text-text-muted uppercase tracking-wider mb-1.5">
-              Votre variante
-            </p>
-            <div className="space-y-0.5">
-              <p className="font-body text-xs text-text-secondary">
+            <div className="text-xs font-body text-text-secondary space-y-0.5">
+              <p>
                 Prix :{" "}
                 <span className="font-semibold text-text-primary">
                   {formatPrice(local.unitPrice)}
                 </span>
               </p>
-              <p className="font-body text-xs text-text-secondary">
+              <p>
                 Stock :{" "}
                 <span
                   className={`font-semibold ${
-                    local.stock > 0 ? "text-text-primary" : "text-[#DC2626]"
+                    local.stock > 0 ? "text-text-primary" : "text-rose-600"
                   }`}
                 >
                   {local.stock}
@@ -534,30 +444,28 @@ function PairRow({
           </div>
         </div>
 
-        {/* SÉPARATEUR */}
+        {/* Séparateur */}
         <div className="hidden md:flex items-center justify-center px-2 bg-bg-secondary/40">
           <div
-            className={`w-8 h-8 rounded-full flex items-center justify-center ${
+            className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
               selectedCandidate
-                ? "bg-[#DCFCE7] text-[#15803D]"
-                : "bg-bg-secondary text-text-muted"
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-bg-tertiary text-text-muted"
             }`}
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-            </svg>
+            {ModalIcons.Arrow}
           </div>
         </div>
 
-        {/* COLONNE DROITE : variante PFS */}
+        {/* Droite : variante PFS */}
         <div
-          className={`p-4 border-t md:border-t-0 md:border-l border-border ${
-            selectedCandidate ? "bg-[#F0FDF4]/40" : "bg-bg-secondary/30"
+          className={`p-4 border-t md:border-t-0 md:border-l border-border-light transition-colors ${
+            selectedCandidate ? "bg-emerald-50/40" : "bg-bg-secondary/40"
           }`}
         >
           {selectedCandidate ? (
             <div className="flex gap-3 items-start">
-              <div className="shrink-0 w-20 h-20 rounded-lg overflow-hidden bg-bg-secondary border border-border relative">
+              <div className="shrink-0 w-20 h-20 rounded-lg overflow-hidden bg-bg-secondary border border-border-light">
                 {selectedCandidate.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -579,7 +487,10 @@ function PairRow({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                <p className="font-body text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  Variante PFS
+                </p>
+                <div className="flex items-center gap-2 flex-wrap mb-0.5">
                   <ColorSwatch
                     hex={selectedCandidate.pfsColorHex}
                     patternImage={selectedCandidate.pfsColorImage}
@@ -593,14 +504,10 @@ function PairRow({
                   {selectedCandidate.sizeLabel} · {selectedCandidate.type}
                 </p>
                 <div className="flex flex-wrap gap-1 mb-2">
-                  {selectedCandidate.isActive ? (
-                    <span className="badge badge-success">Active</span>
-                  ) : (
-                    <span className="badge badge-warning">Inactive</span>
-                  )}
-                  <span className="badge badge-info">
-                    Stock {selectedCandidate.stockQty}
+                  <span className={`badge ${selectedCandidate.isActive ? "badge-success" : "badge-warning"}`}>
+                    {selectedCandidate.isActive ? "Active" : "Inactive"}
                   </span>
+                  <span className="badge badge-info">Stock {selectedCandidate.stockQty}</span>
                   <span className="badge badge-neutral">
                     {formatPrice(selectedCandidate.priceUnit)} HT
                   </span>
@@ -616,7 +523,7 @@ function PairRow({
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full min-h-[88px] gap-2">
+            <div className="flex flex-col items-center justify-center h-full min-h-[96px] gap-2 py-2">
               <p className="font-body text-xs text-text-muted">— Pas encore liée —</p>
               <div className="w-full">
                 <CustomSelect
@@ -639,66 +546,58 @@ function PairRow({
 
 function BjOrphansSection({ colors }: { colors: PfsLinkLocalColor[] }) {
   return (
-    <div className="rounded-xl bg-[#FFF7ED] border border-[#FED7AA] px-4 py-3">
-      <div className="flex items-start gap-3 mb-3">
-        <span className="text-base mt-0.5">⚠️</span>
-        <div className="flex-1">
-          <p className="font-body text-sm font-semibold text-[#9A3412] mb-0.5">
-            {colors.length} variante(s) chez vous sans correspondance PFS
-          </p>
-          <p className="font-body text-xs text-[#9A3412]/80">
-            Ces variantes ne seront pas reliées. Pour les pousser sur PFS,
-            utilisez « Resync » après la liaison (ou re-publiez le produit).
-          </p>
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2">
+    <Callout
+      tone="warning"
+      icon={ModalIcons.Warning}
+      title={`${colors.length} variante(s) chez vous sans correspondance PFS`}
+    >
+      <p className="mb-2">
+        Ces variantes ne seront pas reliées. Pour les pousser sur PFS, utilisez « Resync »
+        après la liaison (ou re-publiez le produit).
+      </p>
+      <div className="flex flex-wrap gap-1.5">
         {colors.map((c) => (
           <span
             key={c.productColorId}
-            className="inline-flex items-center gap-1.5 bg-bg-primary border border-[#FED7AA] rounded-full px-2.5 py-1"
+            className="inline-flex items-center gap-1.5 bg-bg-primary border border-amber-200 rounded-full px-2.5 py-1"
           >
-            <ColorSwatch hex={c.hex} patternImage={c.patternImage} size={14} />
-            <span className="font-body text-[11px] text-[#9A3412] font-medium">
+            <ColorSwatch hex={c.hex} patternImage={c.patternImage} size={12} />
+            <span className="font-body text-[11px] text-amber-900 font-medium">
               {c.name} · {c.saleType}
             </span>
           </span>
         ))}
       </div>
-    </div>
+    </Callout>
   );
 }
 
 function PfsOrphansSection({ candidates }: { candidates: PfsLinkCandidate[] }) {
   return (
-    <div className="rounded-xl bg-[#EFF6FF] border border-[#BFDBFE] px-4 py-3">
-      <div className="flex items-start gap-3 mb-3">
-        <span className="text-base mt-0.5">ℹ️</span>
-        <div className="flex-1">
-          <p className="font-body text-sm font-semibold text-[#1E40AF] mb-0.5">
-            {candidates.length} variante(s) PFS sans équivalent chez vous
-          </p>
-          <p className="font-body text-xs text-[#1E40AF]/80">
-            Ces variantes existent sur PFS mais ne sont pas dans votre fiche BJ.
-            Elles resteront actives côté PFS — vous pouvez les supprimer
-            manuellement depuis l&apos;interface PFS si besoin.
-          </p>
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2">
+    <Callout
+      tone="info"
+      icon={ModalIcons.Info}
+      title={`${candidates.length} variante(s) PFS sans équivalent chez vous`}
+    >
+      <p className="mb-2">
+        Ces variantes existent sur PFS mais ne sont pas dans votre fiche BJ. Elles resteront
+        actives côté PFS — vous pouvez les supprimer manuellement depuis l&apos;interface PFS
+        si besoin.
+      </p>
+      <div className="flex flex-wrap gap-1.5">
         {candidates.map((c) => (
           <span
             key={c.pfsVariantId}
-            className="inline-flex items-center gap-1.5 bg-bg-primary border border-[#BFDBFE] rounded-full px-2.5 py-1"
+            className="inline-flex items-center gap-1.5 bg-bg-primary border border-sky-200 rounded-full px-2.5 py-1"
           >
-            <ColorSwatch hex={c.pfsColorHex} patternImage={c.pfsColorImage} size={14} />
-            <span className="font-body text-[11px] text-[#1E40AF] font-medium">
+            <ColorSwatch hex={c.pfsColorHex} patternImage={c.pfsColorImage} size={12} />
+            <span className="font-body text-[11px] text-sky-900 font-medium">
               {c.pfsColorName} · {c.sizeLabel}
             </span>
           </span>
         ))}
       </div>
-    </div>
+    </Callout>
   );
 }
 
@@ -711,27 +610,26 @@ function SyncRecap({
 }) {
   if (preview.localColors.length === 0) return null;
   return (
-    <div className="rounded-xl bg-[#EFF6FF] border border-[#BFDBFE] px-4 py-3">
-      <p className="font-body text-xs font-semibold text-[#1E40AF] uppercase tracking-wider mb-2">
+    <div className="rounded-xl border border-sky-200 bg-sky-50/60 px-4 py-3">
+      <p className="font-body text-[11px] font-semibold text-sky-900 uppercase tracking-wider mb-2">
         À la liaison, on resynchronisera vers PFS :
       </p>
       <ul className="space-y-1">
         {preview.localColors.map((local) => {
           const pfsVid = mapping[local.productColorId];
-          const cand =
-            pfsVid
-              ? preview.candidates.find((c) => c.pfsVariantId === pfsVid)
-              : null;
+          const cand = pfsVid
+            ? preview.candidates.find((c) => c.pfsVariantId === pfsVid)
+            : null;
           return (
             <li key={local.productColorId} className="flex items-center gap-2">
               <ColorSwatch hex={local.hex} patternImage={local.patternImage} size={12} />
-              <span className="font-body text-xs text-[#1E40AF]">
+              <span className="font-body text-xs text-sky-900">
                 <strong>{local.name}</strong>
                 {cand ? (
                   <>
                     {" → "}
-                    {cand.pfsColorName} · {cand.sizeLabel} · prix{" "}
-                    {formatPrice(local.unitPrice)} · stock {local.stock}
+                    {cand.pfsColorName} · {cand.sizeLabel} · prix {formatPrice(local.unitPrice)} ·
+                    stock {local.stock}
                   </>
                 ) : (
                   <span className="font-medium opacity-70"> → non liée (ignorée)</span>
@@ -742,36 +640,5 @@ function SyncRecap({
         })}
       </ul>
     </div>
-  );
-}
-
-function ColorSwatch({
-  hex,
-  patternImage,
-  size,
-}: {
-  hex: string | null;
-  patternImage: string | null;
-  size: number;
-}) {
-  const style: React.CSSProperties = patternImage
-    ? {
-        width: size,
-        height: size,
-        backgroundImage: `url(${patternImage})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-      }
-    : {
-        width: size,
-        height: size,
-        backgroundColor: hex ?? "#E5E7EB",
-      };
-  return (
-    <span
-      className="inline-block rounded-full border border-border shrink-0"
-      style={style}
-      aria-hidden
-    />
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Image from "@/components/ui/SmartImage";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
@@ -8,6 +8,7 @@ import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
 import { removeFromCart, updateCartItem, clearCart } from "@/app/actions/client/cart";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+import { useToast } from "@/components/ui/Toast";
 
 // ─────────────────────────────────────────────
 // Types
@@ -132,7 +133,7 @@ function CartRow({
 }: {
   item: CartItemData;
   onRemove: (id: string) => void;
-  onQtyChange: (id: string, qty: number) => void;
+  onQtyChange: (id: string, qty: number) => Promise<boolean> | void;
   isPending: boolean;
 }) {
   const t = useTranslations("cart");
@@ -144,6 +145,25 @@ function CartRow({
   const lineTotal = unitPrice * item.quantity;
   const hasDiscount = v.product.discountPercent != null && Number(v.product.discountPercent) > 0;
   const packUnits = v.saleType === "PACK" ? (v.packQuantity ?? 1) * item.quantity : item.quantity;
+  const [qtyDraft, setQtyDraft] = useState(String(item.quantity));
+
+  useEffect(() => {
+    setQtyDraft(String(item.quantity));
+  }, [item.quantity]);
+
+  async function commitQty() {
+    const parsed = parseInt(qtyDraft, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      setQtyDraft(String(item.quantity));
+      return;
+    }
+    if (parsed === item.quantity) return;
+    const result = onQtyChange(item.id, parsed);
+    if (result instanceof Promise) {
+      const ok = await result;
+      if (!ok) setQtyDraft(String(item.quantity));
+    }
+  }
 
   return (
     <div className="group flex gap-4 py-5 border-b border-border-light last:border-0 transition-colors">
@@ -212,7 +232,7 @@ function CartRow({
               {t("packLabel")} ×{v.packQuantity}
             </span>
           )}
-          {(!v.packLines || v.packLines.length === 0) && v.sizes?.length > 0 && (
+          {v.saleType !== "PACK" && (!v.packLines || v.packLines.length === 0) && v.sizes?.length > 0 && (
             <span className="text-xs bg-bg-secondary text-text-muted px-2.5 py-1 rounded-lg border border-border-light font-body">
               {v.sizes.map((s) => `${s.name} ×${s.quantity}`).join(", ")}
             </span>
@@ -231,9 +251,24 @@ function CartRow({
               onClick={() => onQtyChange(item.id, item.quantity - 1)}
               className="w-9 h-9 flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors text-base font-medium disabled:opacity-30"
             >−</button>
-            <span className="w-10 h-9 flex items-center justify-center text-sm font-semibold text-text-primary font-body tabular-nums">
-              {item.quantity}
-            </span>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={qtyDraft}
+              disabled={isPending}
+              onChange={(e) => setQtyDraft(e.target.value.replace(/[^0-9]/g, ""))}
+              onBlur={commitQty}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              onFocus={(e) => e.target.select()}
+              className="w-12 h-9 text-center text-sm font-semibold text-text-primary font-body tabular-nums bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-bg-dark/20 disabled:opacity-50"
+              aria-label={t("quantity")}
+            />
             <button
               type="button"
               disabled={isPending}
@@ -270,6 +305,7 @@ export default function CartPageClient({ cart, minOrderHT, stripeReady = true }:
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
+  const toast = useToast();
   const [showClearModal, setShowClearModal] = useState(false);
   const [showMinError, setShowMinError] = useState(false);
   const backdropClearModal = useBackdropClose(() => setShowClearModal(false));
@@ -318,19 +354,30 @@ export default function CartPageClient({ cart, minOrderHT, stripeReady = true }:
     });
   }
 
-  function handleQtyChange(cartItemId: string, qty: number) {
+  function handleQtyChange(cartItemId: string, qty: number): Promise<boolean> {
     if (qty < 1) {
       handleRemove(cartItemId);
-      return;
+      return Promise.resolve(true);
     }
-    showLoading();
-    startTransition(async () => {
-      try {
-        await updateCartItem(cartItemId, qty);
-        router.refresh();
-      } finally {
-        hideLoading();
-      }
+    return new Promise<boolean>((resolve) => {
+      showLoading();
+      startTransition(async () => {
+        try {
+          const result = await updateCartItem(cartItemId, qty);
+          if (result && result.capped) {
+            toast.warning(t("stockCappedTitle"), t("stockCappedMessage", { qty: result.quantity }));
+          }
+          router.refresh();
+          resolve(true);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : t("updateError");
+          toast.error(t("updateErrorTitle"), message);
+          router.refresh();
+          resolve(false);
+        } finally {
+          hideLoading();
+        }
+      });
     });
   }
 

@@ -230,26 +230,30 @@ export async function updateCartItem(cartItemId: string, quantity: number) {
 
   if (quantity <= 0) {
     await prisma.cartItem.delete({ where: { id: cartItemId } });
-  } else {
-    const v = item.variant;
-    // On laisse toujours diminuer/supprimer (`quantity <= 0` couvert plus haut),
-    // mais on refuse d'augmenter une ligne si le produit n'est plus en ligne.
-    if (v.product.status !== "ONLINE") {
-      throw new Error("Ce produit n'est plus disponible à la vente.");
-    }
-    const effectiveStock = v.saleType === "PACK" && v.packQuantity
-      ? Math.floor(v.stock / v.packQuantity)
-      : v.stock;
-    if (quantity > effectiveStock) {
-      throw new Error(`Stock insuffisant. Disponible : ${effectiveStock}.`);
-    }
-    await prisma.cartItem.update({
-      where: { id: cartItemId },
-      data: { quantity },
-    });
+    revalidatePath("/panier");
+    return undefined;
   }
 
+  const v = item.variant;
+  // On laisse toujours diminuer/supprimer (`quantity <= 0` couvert plus haut),
+  // mais on refuse d'augmenter une ligne si le produit n'est plus en ligne.
+  if (v.product.status !== "ONLINE") {
+    throw new Error("Ce produit n'est plus disponible à la vente.");
+  }
+  const effectiveStock = v.saleType === "PACK" && v.packQuantity
+    ? Math.floor(v.stock / v.packQuantity)
+    : v.stock;
+  if (effectiveStock <= 0) {
+    throw new Error("Ce produit est en rupture de stock.");
+  }
+  const finalQuantity = Math.min(quantity, effectiveStock);
+  await prisma.cartItem.update({
+    where: { id: cartItemId },
+    data: { quantity: finalQuantity },
+  });
+
   revalidatePath("/panier");
+  return { quantity: finalQuantity, capped: finalQuantity < quantity };
 }
 
 // ─────────────────────────────────────────────

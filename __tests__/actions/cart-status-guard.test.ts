@@ -140,7 +140,7 @@ describe("updateCartItem — refus d'augmenter si produit hors-ligne", () => {
       },
     });
 
-    await expect(updateCartItem("ci-1", 3)).resolves.toBeUndefined();
+    await expect(updateCartItem("ci-1", 3)).resolves.toEqual({ quantity: 3, capped: false });
     expect(mockPrisma.cartItem.update).toHaveBeenCalledWith({
       where: { id: "ci-1" },
       data: { quantity: 3 },
