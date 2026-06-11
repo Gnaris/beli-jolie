@@ -1221,6 +1221,17 @@ export interface ConflictResolutions {
 }
 
 /**
+ * Glisse vers la première position libre ≥ targetOrder. Utilisé quand l'UI
+ * n'a pas de mécanisme de résolution de conflit (ex : correction depuis
+ * l'historique) — on évite ainsi toute collision sur la contrainte unique.
+ */
+export function nextAvailableOrder(targetOrder: number, usedOrders: ReadonlySet<number>): number {
+  let candidate = Math.max(0, targetOrder);
+  while (usedOrders.has(candidate)) candidate++;
+  return candidate;
+}
+
+/**
  * Compute the cascade of order updates needed to free a target position by shifting
  * every image at `targetOrder` and above to the next free slot (chain shift).
  *

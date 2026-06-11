@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { normalizeColorName, parseSizeField } from "@/lib/import-processor";
+import { normalizeColorName, parseSizeField, nextAvailableOrder } from "@/lib/import-processor";
 import { processProductImage } from "@/lib/image-processor";
 import { mkdir } from "fs/promises";
 import path from "path";
@@ -382,13 +382,23 @@ async function handleImageRowFix(
     const bytes = await readFile(fullTempPath);
     const result = await processProductImage(bytes, destDir, safeFilename);
 
+    // Avoid (productId, colorId, order) collision : si la position demandée est
+    // déjà prise, glisse vers la 1re position libre. Pas d'UI de conflit ici,
+    // donc on choisit la stratégie la moins destructive.
+    const usedOrders = await prisma.productColorImage.findMany({
+      where: { productColorId: variant.id },
+      select: { order: true },
+    });
+    const used = new Set(usedOrders.map((u) => u.order));
+    const finalOrder = nextAvailableOrder(position - 1, used);
+
     await prisma.productColorImage.create({
       data: {
         productId,
         colorId: variant.colorId ?? "",
         productColorId: variant.id,
         path: result.dbPath,
-        order: position - 1,
+        order: finalOrder,
       },
     });
 
