@@ -59,6 +59,20 @@ export async function POST(req: NextRequest) {
 
     const productMap = new Map(products.map((p) => [p.reference.toUpperCase(), p]));
 
+    // ⚠️ La contrainte unique est sur (productId, colorId, order), pas
+    // (productColorId, order). On agrège les images de toutes les variantes
+    // d'un produit qui partagent la même couleur — c'est la portée réelle
+    // qui peut générer une collision.
+    const imagesByScope = new Map<string, { order: number; path: string }[]>();
+    for (const product of products) {
+      for (const pc of product.colors) {
+        if (!pc.colorId) continue;
+        const scopeKey = `${product.id}::${pc.colorId}`;
+        const existing = imagesByScope.get(scopeKey) ?? [];
+        imagesByScope.set(scopeKey, [...existing, ...pc.images]);
+      }
+    }
+
     const conflicts: Conflict[] = [];
 
     for (const file of files) {
@@ -77,11 +91,12 @@ export async function POST(req: NextRequest) {
       const matchedVariant = matchingVariants[0];
       const targetOrder = file.position - 1; // convert 1-based to 0-based
 
-      // Check if an image already exists at this order
-      const existing = matchedVariant.images.find((img) => img.order === targetOrder);
+      const scopeKey = `${product.id}::${matchedVariant.colorId}`;
+      const scopeImages = imagesByScope.get(scopeKey) ?? [];
+
+      const existing = scopeImages.find((img) => img.order === targetOrder);
       if (existing) {
-        // Compute available positions (1-based) for this variant
-        const usedOrders = new Set(matchedVariant.images.map((img) => img.order));
+        const usedOrders = new Set(scopeImages.map((img) => img.order));
         const available: number[] = [];
         for (let pos = 1; pos <= 10; pos++) {
           if (!usedOrders.has(pos - 1)) available.push(pos);

@@ -382,11 +382,12 @@ async function handleImageRowFix(
     const bytes = await readFile(fullTempPath);
     const result = await processProductImage(bytes, destDir, safeFilename);
 
-    // Avoid (productId, colorId, order) collision : si la position demandée est
-    // déjà prise, glisse vers la 1re position libre. Pas d'UI de conflit ici,
-    // donc on choisit la stratégie la moins destructive.
+    // Avoid (productId, colorId, order) collision : si la position demandée
+    // est déjà prise, glisse vers la 1re position libre. Filtrage sur
+    // (productId, colorId) car c'est la portée réelle de la contrainte
+    // unique (plusieurs variantes peuvent partager la même couleur).
     const usedOrders = await prisma.productColorImage.findMany({
-      where: { productColorId: variant.id },
+      where: { productId, colorId: variant.colorId ?? "" },
       select: { order: true },
     });
     const used = new Set(usedOrders.map((u) => u.order));

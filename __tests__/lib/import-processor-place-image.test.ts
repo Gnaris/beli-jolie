@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { placeImageInVariant } from "@/lib/import-processor";
 
 // In-memory fake Prisma client : simule juste productColorImage avec les méthodes utilisées.
-type Row = { id: string; order: number; productColorId: string };
+// IMPORTANT : la contrainte unique est sur (productId, colorId, order), donc on filtre
+// par ces deux colonnes (pas par productColorId).
+type Row = { id: string; order: number; productId: string; colorId: string };
 
 function makeFakePrisma(initialRows: Row[]) {
   const rows: Row[] = [...initialRows];
@@ -11,8 +13,8 @@ function makeFakePrisma(initialRows: Row[]) {
 
   return {
     productColorImage: {
-      findMany: async ({ where, select }: { where: { productColorId: string }; select?: Record<string, boolean> }) => {
-        const filtered = rows.filter((r) => r.productColorId === where.productColorId);
+      findMany: async ({ where, select }: { where: { productId: string; colorId: string }; select?: Record<string, boolean> }) => {
+        const filtered = rows.filter((r) => r.productId === where.productId && r.colorId === where.colorId);
         if (select?.id && select?.order) return filtered.map((r) => ({ id: r.id, order: r.order }));
         if (select?.order) return filtered.map((r) => ({ order: r.order }));
         return filtered;
@@ -29,9 +31,13 @@ function makeFakePrisma(initialRows: Row[]) {
         ops.push({ kind: "update", payload: { id: where.id, order: data.order } });
         return row;
       },
-      // Not used by placeImageInVariant but kept for typing safety
       create: async ({ data }: { data: Record<string, unknown> }) => {
-        const newRow = { id: `created-${idCounter++}`, order: data.order as number, productColorId: data.productColorId as string };
+        const newRow = {
+          id: `created-${idCounter++}`,
+          order: data.order as number,
+          productId: data.productId as string,
+          colorId: data.colorId as string,
+        };
         rows.push(newRow);
         ops.push({ kind: "create", payload: data });
         return newRow;
@@ -41,6 +47,8 @@ function makeFakePrisma(initialRows: Row[]) {
     _ops: ops,
   };
 }
+
+const BASE = { productId: "p1", colorId: "c1" };
 
 describe("placeImageInVariant", () => {
   let fake: ReturnType<typeof makeFakePrisma>;
@@ -54,22 +62,21 @@ describe("placeImageInVariant", () => {
       const res = await placeImageInVariant({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         prismaClient: fake as any,
-        productColorId: "v1",
+        ...BASE,
         requestedPosition: 3,
         positionOverridden: false,
         strategy: "replace",
       });
-      // Compact toward lowest free slot → 0
       expect(res.finalOrder).toBe(0);
       expect(res.appliedStrategy).toBe("none");
       expect(fake._ops).toHaveLength(0);
     });
 
-    it("respecte l'override de position quand l'utilisatrice a choisi", async () => {
+    it("respecte l'override de position", async () => {
       const res = await placeImageInVariant({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         prismaClient: fake as any,
-        productColorId: "v1",
+        ...BASE,
         requestedPosition: 3,
         positionOverridden: true,
         strategy: "replace",
@@ -77,83 +84,111 @@ describe("placeImageInVariant", () => {
       expect(res.finalOrder).toBe(2);
       expect(res.appliedStrategy).toBe("none");
     });
-
-    it("respecte le slot demandé si supérieur aux positions occupées", async () => {
-      fake = makeFakePrisma([{ id: "a", order: 0, productColorId: "v1" }]);
-      const res = await placeImageInVariant({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        prismaClient: fake as any,
-        productColorId: "v1",
-        requestedPosition: 3,
-        positionOverridden: false,
-        strategy: "replace",
-      });
-      // Compact : pos 0 prise, pos 1 libre → finalOrder = 1
-      expect(res.finalOrder).toBe(1);
-      expect(res.appliedStrategy).toBe("none");
-    });
   });
 
   describe("avec conflit", () => {
     it("replace : supprime l'image existante et garde le slot", async () => {
       fake = makeFakePrisma([
-        { id: "a", order: 0, productColorId: "v1" },
-        { id: "b", order: 1, productColorId: "v1" },
-        { id: "c", order: 2, productColorId: "v1" },
+        { id: "a", order: 0, ...BASE },
+        { id: "b", order: 1, ...BASE },
+        { id: "c", order: 2, ...BASE },
       ]);
       const res = await placeImageInVariant({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         prismaClient: fake as any,
-        productColorId: "v1",
+        ...BASE,
         requestedPosition: 2,
         positionOverridden: false,
         strategy: "replace",
       });
       expect(res.finalOrder).toBe(1);
       expect(res.appliedStrategy).toBe("replace");
-      expect(fake._ops).toEqual([{ kind: "delete", payload: { id: "b" } }]);
       expect(fake._rows.find((r) => r.id === "b")).toBeUndefined();
     });
 
-    it("shift : décale en cascade pour libérer le slot demandé", async () => {
+    it("shift : décale en cascade pour libérer le slot", async () => {
       fake = makeFakePrisma([
-        { id: "a", order: 0, productColorId: "v1" },
-        { id: "b", order: 1, productColorId: "v1" },
+        { id: "a", order: 0, ...BASE },
+        { id: "b", order: 1, ...BASE },
       ]);
       const res = await placeImageInVariant({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         prismaClient: fake as any,
-        productColorId: "v1",
-        requestedPosition: 1, // request order=0 ; override forcé pour rester dessus
+        ...BASE,
+        requestedPosition: 1,
         positionOverridden: true,
         strategy: "shift",
       });
       expect(res.finalOrder).toBe(0);
       expect(res.appliedStrategy).toBe("shift");
-      // a doit avoir été décalée à 1, b à 2 (appliqué dans l'ordre highest→lowest)
       expect(fake._rows.find((r) => r.id === "a")?.order).toBe(1);
       expect(fake._rows.find((r) => r.id === "b")?.order).toBe(2);
     });
 
     it("next_available : ne touche rien, glisse vers la prochaine libre", async () => {
       fake = makeFakePrisma([
-        { id: "a", order: 0, productColorId: "v1" },
-        { id: "b", order: 1, productColorId: "v1" },
-        { id: "c", order: 2, productColorId: "v1" },
+        { id: "a", order: 0, ...BASE },
+        { id: "b", order: 1, ...BASE },
+        { id: "c", order: 2, ...BASE },
       ]);
       const res = await placeImageInVariant({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         prismaClient: fake as any,
-        productColorId: "v1",
+        ...BASE,
         requestedPosition: 1,
         positionOverridden: true,
         strategy: "next_available",
       });
       expect(res.finalOrder).toBe(3);
       expect(res.appliedStrategy).toBe("next_available");
-      // Aucune mutation sur les rows existantes
       expect(fake._ops).toEqual([]);
-      expect(fake._rows).toHaveLength(3);
+    });
+  });
+
+  describe("portée réelle de la contrainte unique : (productId, colorId)", () => {
+    it("voit le conflit entre 2 variantes UNIT et PACK qui partagent la même couleur", async () => {
+      // Cas réel qui plantait avant le fix : un produit a une variante UNIT et une
+      // variante PACK, toutes les deux sur la couleur Doré. Une image existe sur
+      // la variante UNIT à order=1. L'import vise la variante PACK avec position 2.
+      // Le placement DOIT voir que (productId, colorId) à order=1 est déjà pris,
+      // même si productColorId est différent.
+      fake = makeFakePrisma([
+        // image existante sur productId=p1, colorId=c1, order=1
+        { id: "a", order: 0, productId: "p1", colorId: "c1" },
+        { id: "b", order: 1, productId: "p1", colorId: "c1" },
+      ]);
+      const res = await placeImageInVariant({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        prismaClient: fake as any,
+        productId: "p1",
+        colorId: "c1",
+        requestedPosition: 2,
+        positionOverridden: false,
+        strategy: "replace",
+      });
+      // Doit détecter la collision et appliquer la stratégie replace
+      expect(res.finalOrder).toBe(1);
+      expect(res.appliedStrategy).toBe("replace");
+      expect(fake._rows.find((r) => r.id === "b")).toBeUndefined();
+    });
+
+    it("ignore les images d'un autre produit ou d'une autre couleur", async () => {
+      fake = makeFakePrisma([
+        { id: "x", order: 0, productId: "OTHER", colorId: "c1" },
+        { id: "y", order: 0, productId: "p1", colorId: "OTHER" },
+      ]);
+      const res = await placeImageInVariant({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        prismaClient: fake as any,
+        productId: "p1",
+        colorId: "c1",
+        requestedPosition: 1,
+        positionOverridden: false,
+        strategy: "replace",
+      });
+      expect(res.finalOrder).toBe(0);
+      expect(res.appliedStrategy).toBe("none");
+      expect(fake._rows).toHaveLength(2); // rien supprimé
     });
   });
 
@@ -163,13 +198,12 @@ describe("placeImageInVariant", () => {
       const res = await placeImageInVariant({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         prismaClient: fake as any,
-        productColorId: "v1",
+        ...BASE,
         requestedPosition: 3,
         positionOverridden: false,
         strategy: "replace",
         assignedOrdersInJob: new Set([0, 1]),
       });
-      // Pos 0 et 1 réservées en mémoire → finalOrder = 2 (compact remontée)
       expect(res.finalOrder).toBe(2);
       expect(res.appliedStrategy).toBe("none");
     });

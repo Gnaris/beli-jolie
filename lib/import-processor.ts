@@ -1270,6 +1270,11 @@ export function planShiftCascade(
  * pour libérer le slot final (delete ou shift). Le caller fera ensuite
  * le `prisma.productColorImage.create` avec le `finalOrder` retourné.
  *
+ * ⚠️ La contrainte unique en BDD est `@@unique([productId, colorId, order])`
+ * et NON `(productColorId, order)`. Plusieurs variantes (UNIT/PACK/...) du
+ * même produit peuvent partager la même couleur et donc se disputer les
+ * mêmes slots. Le check se fait sur le couple (productId, colorId).
+ *
  * Comportement détaillé (cf. specs cliente) :
  * - On vise la première position libre dans [0, requestedOrder] (sauf
  *   override explicite de la cliente dans le preview).
@@ -1278,25 +1283,25 @@ export function planShiftCascade(
  *     - "replace" : supprime l'image existante.
  *     - "shift"   : décale en cascade les images suivantes d'un cran.
  *     - "next_available" : prend la prochaine position libre ≥ requested.
- *
- * Garantit qu'à la sortie, `finalOrder` n'est plus occupé en BDD et
- * n'est pas dans `assignedOrdersInJob`.
  */
 export async function placeImageInVariant(opts: {
   prismaClient: typeof prisma;
-  productColorId: string;
+  productId: string;
+  colorId: string;
   requestedPosition: number; // 1-based (issu du nom de fichier)
   positionOverridden: boolean; // true si la cliente a explicitement choisi cette position dans le preview
   strategy: ConflictStrategy;
   assignedOrdersInJob?: ReadonlySet<number>;
 }): Promise<{ finalOrder: number; appliedStrategy: ConflictStrategy | "none" }> {
-  const { prismaClient, productColorId, requestedPosition, positionOverridden, strategy, assignedOrdersInJob } = opts;
+  const { prismaClient, productId, colorId, requestedPosition, positionOverridden, strategy, assignedOrdersInJob } = opts;
 
   const requestedOrder = Math.max(0, requestedPosition - 1);
 
   // Build the "taken" set : DB orders + in-job reservations
+  // Filtre sur (productId, colorId) car c'est la portée réelle de la
+  // contrainte unique en BDD (cf. doc fonction).
   const dbRows = await prismaClient.productColorImage.findMany({
-    where: { productColorId },
+    where: { productId, colorId },
     select: { id: true, order: true },
   });
   const taken = new Set<number>(dbRows.map((r) => r.order));
@@ -1440,9 +1445,9 @@ export async function processImageImport(jobId: string): Promise<void> {
     let successCount = 0;
     let processedCount = 0;
 
-    // Tracks positions (0-based) already assigned during this job, per productColor.
-    // Used to compact positions toward the lowest free slot while preventing two
-    // incoming images from landing on the same slot.
+    // Tracks positions (0-based) already assigned during this job, per
+    // (productId, colorId) scope — c'est la portée de la contrainte unique
+    // en BDD, pas le productColorId. Clé = `${productId}::${colorId}`.
     const assignedOrdersByVariant = new Map<string, Set<number>>();
 
     // Collect detailed results for history display
@@ -1515,11 +1520,15 @@ export async function processImageImport(jobId: string): Promise<void> {
         try {
           const perFileRes = perFileMap.get(file.filename);
           const strategy: ConflictStrategy = perFileRes?.strategy ?? resolutions.defaultStrategy;
-          const assignedHere = assignedOrdersByVariant.get(matchedVariant.id);
+          // Scope = couple (productId, colorId), car c'est la portée réelle
+          // de la contrainte unique en BDD.
+          const scopeKey = `${product.id}::${matchedVariant.colorId ?? ""}`;
+          const assignedHere = assignedOrdersByVariant.get(scopeKey);
 
           const { finalOrder } = await placeImageInVariant({
             prismaClient: prisma,
-            productColorId: matchedVariant.id,
+            productId: product.id,
+            colorId: matchedVariant.colorId ?? "",
             requestedPosition: file.position,
             positionOverridden: file.positionOverridden,
             strategy,
@@ -1550,12 +1559,12 @@ export async function processImageImport(jobId: string): Promise<void> {
           });
 
           // Reserve this position so subsequent images in the same job don't
-          // compact onto it.
-          const existingAssigned = assignedOrdersByVariant.get(matchedVariant.id);
+          // compact onto it. Clé = scope (productId, colorId).
+          const existingAssigned = assignedOrdersByVariant.get(scopeKey);
           if (existingAssigned) {
             existingAssigned.add(finalOrder);
           } else {
-            assignedOrdersByVariant.set(matchedVariant.id, new Set([finalOrder]));
+            assignedOrdersByVariant.set(scopeKey, new Set([finalOrder]));
           }
 
           successCount++;
