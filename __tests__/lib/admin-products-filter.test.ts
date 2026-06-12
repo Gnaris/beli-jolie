@@ -296,6 +296,40 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ efashionLink: "nope" }).efashionReferenceBase).toBeUndefined();
   });
 
+  it("syncRequired='1' ajoute un OR sur les trois drapeaux *SyncRequired (AND avec les autres filtres)", () => {
+    const where = buildAdminProductsWhere({ syncRequired: "1" });
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { pfsSyncRequired: true },
+          { ankorsSyncRequired: true },
+          { efashionSyncRequired: true },
+        ],
+      },
+    ]);
+  });
+
+  it("ignore syncRequired pour toute autre valeur que '1'", () => {
+    expect(buildAdminProductsWhere({ syncRequired: "" }).AND).toBeUndefined();
+    expect(buildAdminProductsWhere({ syncRequired: "0" }).AND).toBeUndefined();
+    expect(buildAdminProductsWhere({ syncRequired: "true" }).AND).toBeUndefined();
+  });
+
+  it("syncRequired combiné avec un filtre lien marketplace : les deux contraintes coexistent", () => {
+    const where = buildAdminProductsWhere({ pfsLink: "linked", syncRequired: "1" });
+    expect(where.pfsProductId).toEqual({ not: null });
+    expect(where.AND).toEqual([
+      { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
+      {
+        OR: [
+          { pfsSyncRequired: true },
+          { ankorsSyncRequired: true },
+          { efashionSyncRequired: true },
+        ],
+      },
+    ]);
+  });
+
   it("combines all three marketplace filters without clobbering each other", () => {
     const where = buildAdminProductsWhere({
       pfsLink: "linked",

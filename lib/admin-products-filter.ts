@@ -51,6 +51,15 @@ export interface AdminProductsFilterParams {
    */
   efashionLink?: string;
   /**
+   * Filtre « Synchronisation marketplace nécessaire » : ne retient que les
+   * produits avec au moins un drapeau `*SyncRequired = true` (PFS, Ankorstore
+   * ou eFashion). Sert à retrouver d'un coup les fiches qui attendent un
+   * push depuis le dernier save / upload d'images.
+   *   - "1" = filtre actif
+   *   - "" (ou absent) = pas de filtre
+   */
+  syncRequired?: string;
+  /**
    * Filtre sur le code SH (douanier) du produit, désormais en relation
    * avec la bibliothèque HsCode :
    *   - `""`         = pas de filtre (tous)
@@ -223,6 +232,19 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
         OR: [
           { efashionReferenceBase: null },
           { colors: { some: { saleType: "UNIT", efashionProductId: null } } },
+        ],
+      },
+    ];
+  }
+
+  if (params.syncRequired === "1") {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      {
+        OR: [
+          { pfsSyncRequired: true },
+          { ankorsSyncRequired: true },
+          { efashionSyncRequired: true },
         ],
       },
     ];

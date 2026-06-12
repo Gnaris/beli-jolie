@@ -52,6 +52,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlPfsLink = searchParams.get("pfsLink") ?? "";
   const urlAnkorsLink = searchParams.get("ankorsLink") ?? "";
   const urlEfashionLink = searchParams.get("efashionLink") ?? "";
+  const urlSyncRequired = searchParams.get("syncRequired") ?? "";
   const urlHsCodeId  = searchParams.get("hsCodeId")   ?? "";
   const perPage      = searchParams.get("perPage")    ?? "20";
 
@@ -111,7 +112,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   }, [searchParams, router]);
 
   const localQ = localTerms.join(",");
-  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlHsCodeId);
+  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlSyncRequired || urlHsCodeId);
   const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
   const [filtersOpen, setFiltersOpen] = useState(hasFilters);
@@ -697,6 +698,18 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                     />
                   </FilterField>
                 )}
+                <FilterField label="Synchronisation">
+                  <CustomSelect
+                    value={urlSyncRequired}
+                    onChange={(v) => navigate({ syncRequired: v || null })}
+                    options={[
+                      { value: "", label: "Tous" },
+                      { value: "1", label: "Synchro marketplace nécessaire" },
+                    ]}
+                    size="sm"
+                    searchable
+                  />
+                </FilterField>
               </FilterColumn>
             )}
           </div>

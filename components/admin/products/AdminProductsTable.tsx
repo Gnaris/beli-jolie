@@ -591,6 +591,7 @@ interface AdminProduct {
   categoryName: string;
   subCategoryName: string | null;
   createdAt: string;
+  updatedAt: string;
   lastRefreshedAt: string | null;
   firstImage: string | null;
   pfsProductId: string | null;
@@ -1201,6 +1202,106 @@ function ActionsDropdown({
   );
 }
 
+// ─── Dates Cell ────────────────────────────────────────────────────────────────
+
+/**
+ * Formate une date pour la cellule compacte du tableau produits :
+ *   - aujourd'hui → "auj."
+ *   - hier → "hier"
+ *   - moins de 7 jours → "il y a Nj"
+ *   - même année → "12 juin"
+ *   - sinon → "12 juin 2025"
+ *
+ * Exporté pour les tests unitaires.
+ */
+export function formatRelativeDate(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const msPerDay = 86_400_000;
+  // Comparaison "jour calendaire" pour ne pas dépendre de l'heure.
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOf(now) - startOf(d)) / msPerDay);
+  if (diffDays === 0) return "auj.";
+  if (diffDays === 1) return "hier";
+  if (diffDays > 1 && diffDays < 7) return `il y a ${diffDays}j`;
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleDateString("fr-FR", sameYear
+    ? { day: "2-digit", month: "short" }
+    : { day: "2-digit", month: "short", year: "numeric" });
+}
+
+/**
+ * Considère que `updatedAt` reflète une "vraie" modification ultérieure à la
+ * création — Prisma met `updatedAt = createdAt` à l'insert, donc on tolère
+ * une fenêtre de 60s pour absorber les race-conditions internes (catégorie
+ * créée juste après le produit, par ex.).
+ */
+export function wasMeaningfullyUpdated(createdAt: string, updatedAt: string): boolean {
+  const c = new Date(createdAt).getTime();
+  const u = new Date(updatedAt).getTime();
+  if (Number.isNaN(c) || Number.isNaN(u)) return false;
+  return u - c > 60_000;
+}
+
+function ProductDatesCell({
+  createdAt,
+  updatedAt,
+  lastRefreshedAt,
+}: {
+  createdAt: string;
+  updatedAt: string;
+  lastRefreshedAt: string | null;
+}) {
+  const showUpdated = wasMeaningfullyUpdated(createdAt, updatedAt);
+  const longFmt = (iso: string) =>
+    new Date(iso).toLocaleString("fr-FR", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+  return (
+    <div className="flex flex-col gap-1 min-w-[110px]">
+      {/* Créé */}
+      <span
+        className="inline-flex items-center gap-1.5 text-[11px] font-body text-text-muted whitespace-nowrap"
+        title={`Créé le ${longFmt(createdAt)}`}
+      >
+        <svg className="w-3 h-3 shrink-0 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        <span className="tabular-nums">{formatRelativeDate(createdAt)}</span>
+      </span>
+      {/* Modifié — masqué si jamais modifié (updatedAt ≈ createdAt) */}
+      {showUpdated && (
+        <span
+          className="inline-flex items-center gap-1.5 text-[11px] font-body text-text-secondary whitespace-nowrap"
+          title={`Dernière modification le ${longFmt(updatedAt)}`}
+        >
+          <svg className="w-3 h-3 shrink-0 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.862 4.487zm0 0L19.5 7.125" />
+          </svg>
+          <span className="tabular-nums">{formatRelativeDate(updatedAt)}</span>
+        </span>
+      )}
+      {/* Rafraîchi — accent indigo pour repérer instantanément les produits relancés */}
+      {lastRefreshedAt && (
+        <span
+          className="inline-flex items-center gap-1.5 text-[11px] font-body text-[#4F46E5] font-medium whitespace-nowrap"
+          title={`Dernier rafraîchissement le ${longFmt(lastRefreshedAt)}`}
+        >
+          <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+          </svg>
+          <span className="tabular-nums">{formatRelativeDate(lastRefreshedAt)}</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ─── Product Row (expandable) ──────────────────────────────────────────────────
 
 function ProductRow({
@@ -1545,56 +1646,66 @@ function ProductRow({
           </div>
         </td>
 
-        {/* Nom + prix */}
-        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
-          <div className="flex items-center gap-2">
-            <p className="font-semibold text-text-primary text-sm whitespace-nowrap">{product.name}</p>
-            {hasMissingTranslations && (
-              <span className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[9px] font-bold shrink-0" title={`Traductions manquantes: ${missingLocales.join(", ")}`}>
-                ⓘ
-              </span>
-            )}
-          </div>
-          {!isNaN(minPrice) && (
-            <p className="text-[11px] text-text-muted whitespace-nowrap mt-0.5">
-              à partir de <span className="font-semibold text-text-secondary">{minPrice.toFixed(2)} €</span>
+        {/* Produit — nom, catégorie › sous-cat, couleurs + prix mini (fusion des
+            anciennes colonnes Nom, Catégorie, Couleurs pour économiser de la
+            largeur horizontale). */}
+        <td className="px-3 py-3 cursor-pointer min-w-[260px] max-w-[420px]" onClick={onExpandToggle}>
+          <div className="flex flex-col gap-1">
+            {/* Ligne 1 : nom + badge traductions manquantes */}
+            <div className="flex items-center gap-1.5 min-w-0">
+              <p className="font-semibold text-text-primary text-sm truncate" title={product.name}>{product.name}</p>
+              {hasMissingTranslations && (
+                <span className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[9px] font-bold shrink-0" title={`Traductions manquantes: ${missingLocales.join(", ")}`}>
+                  ⓘ
+                </span>
+              )}
+            </div>
+            {/* Ligne 2 : catégorie › sous-catégorie en breadcrumb */}
+            <p className="text-[11px] text-text-muted font-body leading-tight truncate" title={product.subCategoryName ? `${product.categoryName} › ${product.subCategoryName}` : product.categoryName}>
+              <span className="text-text-secondary font-medium">{product.categoryName}</span>
+              {product.subCategoryName && (
+                <>
+                  <span className="mx-1 text-text-muted">›</span>
+                  <span>{product.subCategoryName}</span>
+                </>
+              )}
             </p>
-          )}
-        </td>
-
-        {/* Catégorie */}
-        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
-          <span className="text-xs font-medium text-text-secondary whitespace-nowrap">{product.categoryName}</span>
-          {product.subCategoryName && (
-            <p className="text-[11px] text-text-muted whitespace-nowrap mt-0.5">{product.subCategoryName}</p>
-          )}
-        </td>
-
-        {/* Couleurs */}
-        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
-          <div className="flex items-center gap-1 flex-nowrap">
-            {uniqueColors.slice(0, 6).map((c) => {
-              const mainHex = c.color.hex ?? "#9CA3AF";
-              const fullName = c.color.name;
-              const swatchStyle: React.CSSProperties = c.color.patternImage
-                ? { backgroundImage: `url(${c.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
-                : { backgroundColor: mainHex };
-              return (
-                <span
-                  key={c.colorId}
-                  title={fullName}
-                  className="inline-block w-5 h-5 rounded-full relative shrink-0"
-                  style={{
-                    ...swatchStyle,
-                    border: '2px solid #fff',
-                    boxShadow: '0 0 0 1px #D1D1D1',
-                  }}
-                />
-              );
-            })}
-            {uniqueColors.length > 6 && (
-              <span className="text-[10px] text-text-muted font-semibold whitespace-nowrap">+{uniqueColors.length - 6}</span>
-            )}
+            {/* Ligne 3 : couleurs (max 5 puis compteur) + prix mini, séparés par un point */}
+            <div className="flex items-center gap-2 flex-nowrap">
+              {uniqueColors.length > 0 && (
+                <div className="flex items-center gap-0.5 flex-nowrap shrink-0">
+                  {uniqueColors.slice(0, 5).map((c) => {
+                    const mainHex = c.color.hex ?? "#9CA3AF";
+                    const swatchStyle: React.CSSProperties = c.color.patternImage
+                      ? { backgroundImage: `url(${c.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
+                      : { backgroundColor: mainHex };
+                    return (
+                      <span
+                        key={c.colorId}
+                        title={c.color.name}
+                        className="inline-block w-4 h-4 rounded-full shrink-0"
+                        style={{
+                          ...swatchStyle,
+                          border: '1.5px solid #fff',
+                          boxShadow: '0 0 0 1px #D1D5DB',
+                        }}
+                      />
+                    );
+                  })}
+                  {uniqueColors.length > 5 && (
+                    <span className="ml-1 text-[10px] text-text-muted font-semibold whitespace-nowrap">+{uniqueColors.length - 5}</span>
+                  )}
+                </div>
+              )}
+              {!isNaN(minPrice) && (
+                <>
+                  {uniqueColors.length > 0 && <span className="text-text-muted text-[10px]">·</span>}
+                  <p className="text-[11px] text-text-muted whitespace-nowrap">
+                    dès <span className="font-semibold text-text-secondary tabular-nums">{minPrice.toFixed(2)} €</span>
+                  </p>
+                </>
+              )}
+            </div>
           </div>
         </td>
 
@@ -1741,24 +1852,14 @@ function ProductRow({
           )}
         </td>
 
-        {/* Date de création + dernier rafraîchissement */}
-        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[11px] text-text-muted font-body whitespace-nowrap">
-              {new Date(product.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
-            </span>
-            {product.lastRefreshedAt && (
-              <span
-                className="inline-flex items-center gap-1 text-[10px] text-[#4F46E5] font-body whitespace-nowrap"
-                title={`Dernier rafraîchissement : ${new Date(product.lastRefreshedAt).toLocaleString("fr-FR")}`}
-              >
-                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                </svg>
-                {new Date(product.lastRefreshedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })}
-              </span>
-            )}
-          </div>
+        {/* Dates — Créé / Modifié / Rafraîchi sur 3 lignes, ligne masquée si
+            l'info est vide ou égale à la création (évite le bruit visuel). */}
+        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
+          <ProductDatesCell
+            createdAt={product.createdAt}
+            updatedAt={product.updatedAt}
+            lastRefreshedAt={product.lastRefreshedAt}
+          />
         </td>
 
         {/* Actions */}
@@ -1820,7 +1921,7 @@ function ProductRow({
       {/* ── Tiroir variantes ── */}
       {expanded && (
         <tr>
-          <td colSpan={11} className="p-0">
+          <td colSpan={9} className="p-0">
             <div className="drawer-variant-container" style={{ position: 'relative' }}>
               {/* En-tête du tiroir */}
               <div
@@ -2335,7 +2436,7 @@ function TableWithTopScroll({
       </div>
       {/* Table */}
       <div ref={tableScrollRef} className="overflow-x-auto">
-        <table className="w-full text-sm font-body" style={{ minWidth: 800 }}>
+        <table className="w-full text-sm font-body" style={{ minWidth: 980 }}>
           <thead>
             <tr className="table-header">
               <th className="px-4 py-3.5 w-10">
@@ -2351,11 +2452,9 @@ function TableWithTopScroll({
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Photo</th>
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Réf.</th>
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Produit</th>
-              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Catégorie</th>
-              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Couleurs</th>
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Statut</th>
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Marketplaces</th>
-              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Date</th>
+              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Dates</th>
               <th className="px-3 py-3.5 text-right text-[10px] w-28"></th>
             </tr>
           </thead>

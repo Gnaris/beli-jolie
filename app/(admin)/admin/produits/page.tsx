@@ -64,6 +64,7 @@ interface PageProps {
     missingImages?: string;
     pfsLink?: string;
     ankorsLink?: string;
+    syncRequired?: string;
     hsCodeId?: string;
   }>;
 }
@@ -153,6 +154,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     pfsLink = "",
     ankorsLink = "",
     efashionLink = "",
+    syncRequired = "",
     hsCodeId = "",
   } = params;
 
@@ -187,6 +189,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     pfsLink,
     ankorsLink,
     efashionLink,
+    syncRequired,
     hsCodeId,
     productIdsIn,
   });
@@ -307,6 +310,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     categoryName:    p.category.name,
     subCategoryName: p.subCategories[0]?.name ?? null,
     createdAt:       p.createdAt.toISOString(),
+    updatedAt:       p.updatedAt.toISOString(),
     lastRefreshedAt: p.lastRefreshedAt ? p.lastRefreshedAt.toISOString() : null,
     firstImage:      pickFirstImage({ primaryColorId: p.primaryColorId, colors: p.colors }, colorImagePath),
     pfsProductId:    p.pfsProductId,

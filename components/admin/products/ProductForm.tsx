@@ -22,6 +22,7 @@ import { useProductFormHeader } from "./ProductFormHeaderContext";
 import { getImageSrc } from "@/lib/image-utils";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { getAnkorstoreReferenceSuffixLength } from "@/lib/ankorstore-description";
+import { buildProductMarketplaceSnapshot } from "@/lib/product-marketplace-snapshot";
 
 const DESCRIPTION_MIN_CHARS = 30;
 import type { MarketplaceId } from "@/lib/product-events";
@@ -663,6 +664,12 @@ export default function ProductForm({
   // l'utilisatrice) au lieu d'enqueue direct.
   const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
   const initialSnapshot = useRef<string | null>(null);
+  // Snapshot parallèle qui ne capture QUE les champs marketplace-pertinents
+  // (exclut mots-clés, sous-catégories, produits similaires, contenu de
+  // l'ensemble). Sert à décider si la modale "Pousser aux marketplaces" doit
+  // s'afficher au save : si seuls des champs locaux ont changé, la modale est
+  // bypassée silencieusement.
+  const initialMarketplaceSnapshot = useRef<string | null>(null);
   const isDirty = useRef(false);
   const snapshotReady = useRef(false);
   // ⚠️ Reset post-save : on ne peut pas appeler `initialSnapshot.current =
@@ -701,6 +708,19 @@ export default function ProductForm({
     manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId,
   }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId]);
 
+  // Mirror de buildSnapshot SANS les 4 champs locaux qui ne sont jamais poussés
+  // aux marketplaces (mots-clés, sous-catégories, produits similaires, contenu
+  // de l'ensemble). Si ce snapshot est identique entre l'ouverture et le save,
+  // on saute la modale "Pousser aux marketplaces" puisque rien de marketplace-
+  // pertinent n'a bougé. Logique extraite dans lib/product-marketplace-snapshot
+  // pour tests unitaires + cohérence cross-fichier.
+  const buildMarketplaceSnapshot = useCallback(() => buildProductMarketplaceSnapshot({
+    reference, name, description, categoryId,
+    variants, colorImages, compositions, isBestSeller, discountPercent,
+    dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus,
+    manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId,
+  }), [reference, name, description, categoryId, variants, colorImages, compositions, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId]);
+
   // Détecte si au moins une variante utilise "Taille Unique" / "TU"
   const hasTailleUnique = useMemo(() => {
     const tuNames = ["tu", "taille unique"];
@@ -722,6 +742,7 @@ export default function ProductForm({
     if (!snapshotReady.current) {
       const timer = setTimeout(() => {
         initialSnapshot.current = buildSnapshot();
+        initialMarketplaceSnapshot.current = buildMarketplaceSnapshot();
         snapshotReady.current = true;
         setHasUnsavedChanges(false);
       }, 500);
@@ -734,6 +755,7 @@ export default function ProductForm({
     if (pendingSnapshotResetRef.current) {
       pendingSnapshotResetRef.current = false;
       initialSnapshot.current = buildSnapshot();
+      initialMarketplaceSnapshot.current = buildMarketplaceSnapshot();
       isDirty.current = false;
       setHasUnsavedChanges(false);
       return;
@@ -741,7 +763,7 @@ export default function ProductForm({
     const dirty = buildSnapshot() !== initialSnapshot.current;
     isDirty.current = dirty;
     setHasUnsavedChanges(dirty);
-  }, [buildSnapshot]);
+  }, [buildSnapshot, buildMarketplaceSnapshot]);
 
   // Browser close / refresh / hard navigation
   useEffect(() => {
@@ -1779,6 +1801,15 @@ export default function ProductForm({
         .map(([locale, t]) => ({ locale, name: t.name, description: t.description })),
     };
 
+    // Snapshot AVANT save : si les seuls champs touchés depuis l'ouverture sont
+    // locaux (mots-clés, sous-catégories, produits similaires, contenu de
+    // l'ensemble), on saute la modale "Pousser aux marketplaces" car aucun
+    // champ pertinent pour PFS/Ankorstore/eFashion n'a bougé. Cf. demande
+    // utilisatrice : on ne dérange plus pour ces 4 champs locaux.
+    const marketplaceFieldsChanged =
+      initialMarketplaceSnapshot.current === null
+      || buildMarketplaceSnapshot() !== initialMarketplaceSnapshot.current;
+
     showLoading();
     startTransition(async () => {
       let savedProductId: string | null = null;
@@ -1857,7 +1888,11 @@ export default function ProductForm({
       const canPublish =
         savedProductId &&
         !isIncomplete &&
-        (hasPfsConfig || showAnkorstore || showEfashion);
+        (hasPfsConfig || showAnkorstore || showEfashion) &&
+        // Garde-fou ergonomique : si seuls des champs locaux ont changé (mots-
+        // clés, sous-catégories, produits similaires, contenu de l'ensemble),
+        // on n'affiche pas la modale — rien à pousser aux marketplaces.
+        marketplaceFieldsChanged;
 
       if (canPublish && savedProductId) {
         const willBeDraftOnPfs = !alreadyOnPfs && finalStatus === "OFFLINE";
