@@ -1525,83 +1525,162 @@ export async function bulkUpdateProductStatus(
   await requireAdmin();
   if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
 
-  const products = await prisma.product.findMany({
-    where: { id: { in: productIds } },
-    include: {
-      colors: { select: { id: true, stock: true } },
-      _count: { select: { colors: true } },
-    },
-  });
+  const success: string[] = [];
+  const errors: { id: string; reference: string; reason: string }[] = [];
+  // Ids dont le drapeau `isIncomplete` est périmé : ils passent l'évaluation
+  // complète, on doit donc le remettre à false en même temps que le statut.
+  // (Bug historique : ancienne version du save laissait le drapeau à true sur
+  // les imports PFS même après complétion — cf. lib/refresh-eligibility.ts.)
+  const staleIncompleteIds: string[] = [];
 
-  // On bloque ONLINE seulement si AUCUNE couleur du produit n'a la moindre
-  // image. Les couleurs partiellement sans image ne sont plus un motif de
-  // refus : elles seront masquées côté public et ignorées côté push
-  // marketplaces tant qu'aucune image n'est ajoutée.
-  const noImageAtAllByProduct = new Set<string>();
   if (status === "ONLINE") {
-    const allColors = await prisma.productColor.findMany({
-      where: { productId: { in: productIds } },
+    // Pour ONLINE on charge le payload complet nécessaire à l'évaluateur
+    // partagé (mêmes règles que la modale "Publier brouillons" via
+    // previewBulkPublishDrafts).
+    const productsFull = await prisma.product.findMany({
+      where: { id: { in: productIds } },
       select: {
         id: true,
-        productId: true,
-        colorId: true,
-        color: { select: { name: true } },
+        reference: true,
+        name: true,
+        description: true,
+        categoryId: true,
+        status: true,
+        isIncomplete: true,
+        compositions: { select: { percentage: true } },
+        colors: {
+          select: {
+            id: true,
+            colorId: true,
+            color: { select: { name: true } },
+            unitPrice: true,
+            stock: true,
+            weight: true,
+            saleType: true,
+            packQuantity: true,
+            variantSizes: {
+              select: {
+                sizeId: true,
+                size: { select: { name: true } },
+                quantity: true,
+              },
+            },
+            packLines: {
+              select: { id: true, sizes: { select: { id: true } } },
+            },
+          },
+        },
       },
     });
+
+    // Comptage images par (productId, colorId) — sert au check "au moins une
+    // variante a une image", déjà fait par evaluateProductPublishability.
     const allImages = await prisma.productColorImage.groupBy({
       by: ["productId", "colorId"],
       where: { productId: { in: productIds } },
       _count: { _all: true },
     });
-    const imageCountByPidColor = new Map<string, number>();
+    const imagesByProductColor = new Map<string, number>();
     for (const row of allImages) {
-      imageCountByPidColor.set(`${row.productId}::${row.colorId}`, row._count._all);
+      imagesByProductColor.set(`${row.productId}::${row.colorId}`, row._count._all);
     }
-    const byProduct = new Map<string, typeof allColors>();
-    for (const c of allColors) {
-      const arr = byProduct.get(c.productId) ?? [];
-      arr.push(c);
-      byProduct.set(c.productId, arr);
-    }
-    for (const [productId, variants] of byProduct) {
-      const coverageInput = variants.map((v) => ({
-        id: v.id,
-        colorId: v.colorId,
-        colorName: v.color?.name ?? null,
-        imageCount: v.colorId
-          ? (imageCountByPidColor.get(`${productId}::${v.colorId}`) ?? 0)
-          : 0,
-      }));
-      if (!anyVariantHasImage(coverageInput)) {
-        noImageAtAllByProduct.add(productId);
+
+    const { evaluateProductPublishability } = await import("@/lib/product-publishability");
+
+    for (const p of productsFull) {
+      const imageCountByColorId: Record<string, number> = {};
+      for (const v of p.colors) {
+        if (v.colorId) {
+          imageCountByColorId[v.colorId] =
+            imagesByProductColor.get(`${p.id}::${v.colorId}`) ?? 0;
+        }
       }
-    }
-  }
+      const compositionPercentTotal = p.compositions.reduce(
+        (sum, c) => sum + Number(c.percentage ?? 0),
+        0,
+      );
+      const result = evaluateProductPublishability({
+        id: p.id,
+        reference: p.reference,
+        name: p.name,
+        description: p.description ?? "",
+        categoryId: p.categoryId ?? null,
+        compositionCount: p.compositions.length,
+        compositionPercentTotal,
+        imageCountByColorId,
+        variants: p.colors.map((v) => ({
+          id: v.id,
+          colorId: v.colorId,
+          colorName: v.color?.name ?? null,
+          unitPrice: Number(v.unitPrice),
+          stock: v.stock,
+          weight: Number(v.weight),
+          saleType: v.saleType,
+          packQuantity: v.packQuantity,
+          sizes: v.variantSizes.map((s) => ({
+            sizeId: s.sizeId,
+            sizeName: s.size?.name ?? null,
+            quantity: s.quantity,
+          })),
+          packLinesCount: v.packLines.length,
+          packLinesSizesTotal: v.packLines.reduce((sum, l) => sum + l.sizes.length, 0),
+        })),
+      });
 
-  const success: string[] = [];
-  const errors: { id: string; reference: string; reason: string }[] = [];
-
-  for (const product of products) {
-    if (status === "ONLINE") {
-      const reasons: string[] = [];
-      if (product.isIncomplete) reasons.push("produit en brouillon");
-      if (product.colors.length === 0) reasons.push("aucune variante");
-      if (product.colors.length > 0 && product.colors.every(c => c.stock === 0)) reasons.push("aucun stock");
-      if (noImageAtAllByProduct.has(product.id)) reasons.push("aucune image");
-      if (!product.categoryId) reasons.push("pas de catégorie");
-      if (reasons.length > 0) {
-        errors.push({ id: product.id, reference: product.reference, reason: reasons.join(", ") });
+      if (!result.eligible) {
+        errors.push({
+          id: p.id,
+          reference: p.reference,
+          reason: result.reasons.join(", "),
+        });
         continue;
       }
+
+      // Garde-fou "aucun stock du tout" : on n'affiche pas un produit
+      // vendable=0 sur la boutique (différent de "stock partiel" qui reste OK).
+      if (p.colors.length > 0 && p.colors.every((c) => c.stock === 0)) {
+        errors.push({
+          id: p.id,
+          reference: p.reference,
+          reason: "aucun stock",
+        });
+        continue;
+      }
+
+      success.push(p.id);
+      if (p.isIncomplete) staleIncompleteIds.push(p.id);
     }
-    success.push(product.id);
+  } else {
+    // OFFLINE / ARCHIVED : pas de pré-validation, on accepte tous les ids existants.
+    const productsBasic = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true },
+    });
+    for (const p of productsBasic) {
+      success.push(p.id);
+    }
   }
 
   if (success.length > 0) {
-    await prisma.product.updateMany({
-      where: { id: { in: success } },
-      data: { status },
-    });
+    if (status === "ONLINE" && staleIncompleteIds.length > 0) {
+      // Reset du drapeau périmé en même temps que la mise en ligne (les autres
+      // produits ONLINE n'ont pas besoin du reset, on évite la sur-écriture).
+      await prisma.$transaction([
+        prisma.product.updateMany({
+          where: { id: { in: success } },
+          data: { status },
+        }),
+        prisma.product.updateMany({
+          where: { id: { in: staleIncompleteIds } },
+          data: { isIncomplete: false },
+        }),
+      ]);
+    } else {
+      await prisma.product.updateMany({
+        where: { id: { in: success } },
+        data: { status },
+      });
+    }
   }
 
   revalidatePath("/admin/produits");
