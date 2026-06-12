@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // On mocke prisma + tous les modules réseau pour isoler la logique métier.
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    product: { findUnique: vi.fn(), update: vi.fn() },
+    product: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn() },
     productColor: { update: vi.fn() },
     productColorImage: { findMany: vi.fn().mockResolvedValue([]) },
     marketplaceRefreshJob: {
@@ -25,13 +25,18 @@ vi.mock("@/lib/prisma", () => ({
       deleteMany: vi.fn(),
       findMany: vi.fn(),
     },
-    $transaction: vi.fn(async (fn: unknown) => {
-      if (typeof fn === "function") {
+    $transaction: vi.fn(async (arg: unknown) => {
+      if (typeof arg === "function") {
         const tx = {
           product: { update: vi.fn() },
           productColor: { update: vi.fn() },
         };
-        return (fn as (tx: unknown) => Promise<unknown>)(tx);
+        return (arg as (tx: unknown) => Promise<unknown>)(tx);
+      }
+      // Forme tableau : Prisma exécute toutes les promesses passées et retourne
+      // un tableau de résultats. Pour la simulation, on les exécute en parallèle.
+      if (Array.isArray(arg)) {
+        return Promise.all(arg);
       }
       return null;
     }),
@@ -57,6 +62,7 @@ vi.mock("@/lib/efashion-validate", () => ({
 import { prisma } from "@/lib/prisma";
 import {
   addToEfashionShootingBatch,
+  bulkAddToEfashionShootingBatch,
   removeFromEfashionShootingBatch,
   listEfashionShootingBatch,
   commitEfashionShootingBatch,
@@ -64,6 +70,7 @@ import {
 import { validateEfashionPublishable } from "@/lib/efashion-validate";
 
 const findProductMock = prisma.product.findUnique as unknown as ReturnType<typeof vi.fn>;
+const findProductManyMock = prisma.product.findMany as unknown as ReturnType<typeof vi.fn>;
 const upsertMock = prisma.efashionShootingBatchItem.upsert as unknown as ReturnType<typeof vi.fn>;
 const deleteManyMock = prisma.efashionShootingBatchItem.deleteMany as unknown as ReturnType<typeof vi.fn>;
 const findBatchMock = prisma.efashionShootingBatchItem.findMany as unknown as ReturnType<typeof vi.fn>;
@@ -97,6 +104,49 @@ describe("addToEfashionShootingBatch", () => {
     findProductMock.mockResolvedValueOnce(null);
     const res = await addToEfashionShootingBatch("ghost", "PUBLISH");
     expect(res.success).toBe(false);
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("bulkAddToEfashionShootingBatch", () => {
+  it("renvoie addedCount=0 et missingIds=[] quand la liste est vide", async () => {
+    const res = await bulkAddToEfashionShootingBatch([], "PUBLISH");
+    expect(res).toEqual({ success: true, addedCount: 0, missingIds: [] });
+    expect(findProductManyMock).not.toHaveBeenCalled();
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  it("upsert un item par produit existant et ignore les ids inconnus", async () => {
+    findProductManyMock.mockResolvedValueOnce([{ id: "p1" }, { id: "p3" }]);
+
+    const res = await bulkAddToEfashionShootingBatch(["p1", "p2", "p3"], "PUBLISH");
+
+    expect(res.success).toBe(true);
+    expect(res.addedCount).toBe(2);
+    expect(res.missingIds).toEqual(["p2"]);
+    expect(upsertMock).toHaveBeenCalledTimes(2);
+    expect(upsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { productId: "p1" },
+        create: { productId: "p1", mode: "PUBLISH" },
+        update: expect.objectContaining({ mode: "PUBLISH" }),
+      }),
+    );
+    expect(upsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { productId: "p3" },
+        create: { productId: "p3", mode: "PUBLISH" },
+      }),
+    );
+  });
+
+  it("ne déclenche aucune écriture si tous les ids sont inconnus", async () => {
+    findProductManyMock.mockResolvedValueOnce([]);
+
+    const res = await bulkAddToEfashionShootingBatch(["ghost1", "ghost2"], "PUBLISH");
+
+    expect(res.addedCount).toBe(0);
+    expect(res.missingIds).toEqual(["ghost1", "ghost2"]);
     expect(upsertMock).not.toHaveBeenCalled();
   });
 });

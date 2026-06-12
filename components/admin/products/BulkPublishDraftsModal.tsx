@@ -11,6 +11,9 @@ export interface BulkPublishDraftsConfirm {
   eligibleIds: string[];
   publishPfs: boolean;
   publishAnkorstore: boolean;
+  publishEfashion: boolean;
+  /** ids des produits éligibles pour eFashion (pas encore liés) — sous-ensemble d'eligibleIds */
+  efashionEligibleIds: string[];
 }
 
 interface Props {
@@ -19,6 +22,8 @@ interface Props {
   hasPfsConfig: boolean;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
+  hasEfashionConfig: boolean;
+  efashionEnabled: boolean;
   onCancel: () => void;
   onConfirm: (decision: BulkPublishDraftsConfirm) => void;
 }
@@ -29,6 +34,8 @@ export default function BulkPublishDraftsModal({
   hasPfsConfig,
   hasAnkorstoreConfig,
   ankorstoreEnabled,
+  hasEfashionConfig,
+  efashionEnabled,
   onCancel,
   onConfirm,
 }: Props) {
@@ -39,6 +46,7 @@ export default function BulkPublishDraftsModal({
   const [error, setError] = useState<string | null>(null);
   const [publishPfs, setPublishPfs] = useState(true);
   const [publishAnkorstore, setPublishAnkorstore] = useState(true);
+  const [publishEfashion, setPublishEfashion] = useState(true);
   const backdropRef = useRef<HTMLDivElement>(null);
   const mouseDownOnBackdrop = useRef(false);
   // Liste des ids capturée à l'ouverture. La prop `productIds` change de
@@ -52,6 +60,9 @@ export default function BulkPublishDraftsModal({
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const showAnkorstoreRef = useRef(showAnkorstore);
   showAnkorstoreRef.current = showAnkorstore;
+  const showEfashion = hasEfashionConfig && efashionEnabled;
+  const showEfashionRef = useRef(showEfashion);
+  showEfashionRef.current = showEfashion;
   const frozenIdsRef = useRef<string[]>([]);
 
   useEffect(() => { setMounted(true); }, []);
@@ -69,6 +80,7 @@ export default function BulkPublishDraftsModal({
     setClosing(false);
     setPublishPfs(hasPfsConfigRef.current);
     setPublishAnkorstore(showAnkorstoreRef.current);
+    setPublishEfashion(showEfashionRef.current);
     (async () => {
       try {
         const res = await previewBulkPublishDrafts(frozenIdsRef.current);
@@ -102,11 +114,16 @@ export default function BulkPublishDraftsModal({
   const ineligible = items.filter((p) => !p.eligible);
   const eligibleCount = eligible.length;
   const ineligibleCount = ineligible.length;
+  // Sous-ensemble eFashion : produits éligibles qui ne sont pas déjà liés à
+  // eFashion (au moins une couleur sans efashionProductId). Les produits déjà
+  // liés ne déclenchent pas de re-publication.
+  const efashionEligible = eligible.filter((p) => !p.efashionAlreadyPublished);
+  const efashionEligibleCount = efashionEligible.length;
   // Compteur du titre : on s'appuie sur les ids figés à l'ouverture pour ne pas
   // laisser le nombre changer si la prop `productIds` bouge entre-temps.
   const totalCount = frozenIdsRef.current.length || productIds.length;
-  const noMarketplaceAvailable = !hasPfsConfig && !showAnkorstore;
-  const noMarketplaceChecked = !publishPfs && !publishAnkorstore;
+  const noMarketplaceAvailable = !hasPfsConfig && !showAnkorstore && !showEfashion;
+  const noMarketplaceChecked = !publishPfs && !publishAnkorstore && !publishEfashion;
   const canContinue =
     !loading &&
     !error &&
@@ -120,6 +137,8 @@ export default function BulkPublishDraftsModal({
         eligibleIds: eligible.map((p) => p.id),
         publishPfs: publishPfs && hasPfsConfig,
         publishAnkorstore: publishAnkorstore && showAnkorstore,
+        publishEfashion: publishEfashion && showEfashion,
+        efashionEligibleIds: efashionEligible.map((p) => p.id),
       });
     }, 200);
   };
@@ -260,6 +279,28 @@ export default function BulkPublishDraftsModal({
                             className="checkbox-custom"
                           />
                           <span className="text-text-primary">Ankorstore ({eligibleCount} produit{eligibleCount > 1 ? "s" : ""})</span>
+                        </label>
+                      )}
+                      {showEfashion && (
+                        <label className={`flex items-start gap-2.5 text-[13px] font-body ${efashionEligibleCount === 0 ? "opacity-60" : "cursor-pointer"}`}>
+                          <input
+                            type="checkbox"
+                            checked={publishEfashion && efashionEligibleCount > 0}
+                            disabled={efashionEligibleCount === 0}
+                            onChange={(e) => setPublishEfashion(e.target.checked)}
+                            className="checkbox-custom mt-0.5"
+                          />
+                          <span className="flex flex-col gap-0.5">
+                            <span className="text-text-primary">
+                              eFashion Paris ({efashionEligibleCount} produit{efashionEligibleCount > 1 ? "s" : ""}
+                              {efashionEligibleCount !== eligibleCount && ` sur ${eligibleCount}`})
+                            </span>
+                            <span className="text-[11px] text-text-muted">
+                              {efashionEligibleCount === 0
+                                ? "Tous les produits éligibles sont déjà liés à eFashion."
+                                : "Ajoutés à la file shooting — à valider depuis la fenêtre eFashion en bas à droite."}
+                            </span>
+                          </span>
                         </label>
                       )}
                     </div>

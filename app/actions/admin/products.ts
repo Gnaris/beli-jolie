@@ -1403,6 +1403,8 @@ export interface BulkPublishDraftPreviewItem {
   reasons: string[];
   pfsAlreadyPublished: boolean;
   ankorsAlreadyPublished: boolean;
+  /** true si au moins une couleur est déjà liée à eFashion (efashionProductId != null) */
+  efashionAlreadyPublished: boolean;
 }
 
 export async function previewBulkPublishDrafts(
@@ -1433,6 +1435,7 @@ export async function previewBulkPublishDrafts(
           weight: true,
           saleType: true,
           packQuantity: true,
+          efashionProductId: true,
           variantSizes: {
             select: {
               sizeId: true,
@@ -1510,6 +1513,7 @@ export async function previewBulkPublishDrafts(
       reasons: result.reasons,
       pfsAlreadyPublished: !!p.pfsProductId,
       ankorsAlreadyPublished: !!p.ankorsProductId,
+      efashionAlreadyPublished: p.colors.some((c) => c.efashionProductId != null),
     };
   });
 }

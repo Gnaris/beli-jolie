@@ -14,6 +14,7 @@ import {
   bulkUpdateVariants,
 } from "@/app/actions/admin/products";
 import { deleteProductsOnPfs, deleteProductsOnAnkorstore, deleteProductsOnEfashion } from "@/app/actions/admin/marketplace-delete";
+import { bulkAddToEfashionShootingBatch } from "@/app/actions/admin/efashion-shooting-batch";
 import BulkEditAttributesModal, { type BulkEditOptions, type BulkEditPayload } from "@/components/admin/products/BulkEditAttributesModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
@@ -2419,6 +2420,7 @@ export default function AdminProductsTable({
     showEfashion,
   });
   const { enqueue: enqueuePfs } = useMarketplaceRefreshQueue();
+  const { refresh: refreshEfashionBatch } = useEfashionShootingBatch();
   const toast = useToast();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
@@ -2494,6 +2496,8 @@ export default function AdminProductsTable({
       eligibleIds: string[];
       publishPfs: boolean;
       publishAnkorstore: boolean;
+      publishEfashion: boolean;
+      efashionEligibleIds: string[];
     }) => {
       setBulkPublishDraftsOpen(false);
       if (decision.eligibleIds.length === 0) return;
@@ -2557,6 +2561,31 @@ export default function AdminProductsTable({
       }
       if (inputs.length > 0) enqueuePfs(inputs);
 
+      // 3) eFashion = workflow shooting (1 ticket regroupé pour N produits).
+      //    On ajoute uniquement les produits effectivement mis en ligne ET
+      //    déclarés éligibles côté modale (pas encore liés à eFashion).
+      if (decision.publishEfashion && showEfashion && decision.efashionEligibleIds.length > 0) {
+        const toAddIds = decision.efashionEligibleIds.filter((id) => onlineIds.has(id));
+        if (toAddIds.length > 0) {
+          try {
+            const res = await bulkAddToEfashionShootingBatch(toAddIds, "PUBLISH");
+            if (res.addedCount > 0) {
+              toast.success(
+                `${res.addedCount} produit${res.addedCount > 1 ? "s" : ""} ajouté${res.addedCount > 1 ? "s" : ""} au shooting eFashion`,
+                "Validez l'envoi depuis la fenêtre eFashion en bas à droite.",
+              );
+            }
+          } catch (e) {
+            toast.error(
+              "Ajout au shooting eFashion impossible",
+              e instanceof Error ? e.message : "Erreur inconnue.",
+            );
+          } finally {
+            void refreshEfashionBatch();
+          }
+        }
+      }
+
       setSelectedIds(new Set());
       router.refresh();
     },
@@ -2565,6 +2594,8 @@ export default function AdminProductsTable({
       enqueuePfs,
       hasPfsConfig,
       showAnkorstore,
+      showEfashion,
+      refreshEfashionBatch,
       showLoading,
       hideLoading,
       toast,
@@ -3586,6 +3617,8 @@ export default function AdminProductsTable({
           hasPfsConfig={hasPfsConfig}
           hasAnkorstoreConfig={hasAnkorstoreConfig}
           ankorstoreEnabled={ankorstoreEnabled}
+          hasEfashionConfig={hasEfashionConfig}
+          efashionEnabled={efashionEnabled}
           onCancel={() => setBulkPublishDraftsOpen(false)}
           onConfirm={handleBulkPublishDraftsConfirm}
         />

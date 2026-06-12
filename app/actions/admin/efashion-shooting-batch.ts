@@ -82,6 +82,43 @@ export async function addToEfashionShootingBatch(
 }
 
 /**
+ * Ajoute plusieurs produits d'un coup à la file. Utilisé par la modale
+ * « Publier brouillons » pour pousser N produits en une seule étape.
+ * Renvoie les produits réellement ajoutés ; les ids inconnus sont ignorés.
+ */
+export async function bulkAddToEfashionShootingBatch(
+  productIds: string[],
+  mode: EfashionShootingBatchMode,
+): Promise<{ success: true; addedCount: number; missingIds: string[] }> {
+  await requireAdmin();
+
+  if (productIds.length === 0) {
+    return { success: true, addedCount: 0, missingIds: [] };
+  }
+
+  const existing = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true },
+  });
+  const existingIds = new Set(existing.map((p) => p.id));
+  const validIds = productIds.filter((id) => existingIds.has(id));
+  const missingIds = productIds.filter((id) => !existingIds.has(id));
+
+  await prisma.$transaction(
+    validIds.map((productId) =>
+      prisma.efashionShootingBatchItem.upsert({
+        where: { productId },
+        create: { productId, mode },
+        update: { mode, addedAt: new Date() },
+      }),
+    ),
+  );
+
+  if (validIds.length > 0) revalidatePath("/admin", "layout");
+  return { success: true, addedCount: validIds.length, missingIds };
+}
+
+/**
  * Retire un produit de la file (au clic croix dans la widget).
  */
 export async function removeFromEfashionShootingBatch(
