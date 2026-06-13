@@ -19,7 +19,6 @@ export interface EfashionLabelMaps {
   compositions: Map<number, string>;
   provenances: Map<number, string>;
   collections: Map<number, string>;
-  declinaisons: Map<number, { titre: string; sizes: Map<string, string> }>;
 }
 
 /** Fabrique des `Map` de résolution depuis les annexes eFashion. */
@@ -51,14 +50,7 @@ function buildLabelMaps(annexes: EfashionAnnexes): EfashionLabelMaps {
     collections.set(c.id, c.label);
   }
 
-  const declinaisons = new Map<number, { titre: string; sizes: Map<string, string> }>();
-  for (const d of annexes.declinaisons) {
-    const sizes = new Map<string, string>();
-    for (const s of d.sizes) sizes.set(s.field, s.value);
-    declinaisons.set(d.id, { titre: d.titre, sizes });
-  }
-
-  return { categories, colors, compositions, provenances, collections, declinaisons };
+  return { categories, colors, compositions, provenances, collections };
 }
 
 /** Maps vides (utilisé en fallback quand eFashion est indisponible). */
@@ -69,7 +61,6 @@ function emptyLabelMaps(): EfashionLabelMaps {
     compositions: new Map(),
     provenances: new Map(),
     collections: new Map(),
-    declinaisons: new Map(),
   };
 }
 
@@ -114,18 +105,4 @@ export function resolveProvenanceLabel(maps: EfashionLabelMaps, id: number | nul
 export function resolveCollectionLabel(maps: EfashionLabelMaps, id: number | null | undefined): string | null {
   if (id == null) return null;
   return maps.collections.get(id) ?? null;
-}
-
-/** Résout une déclinaison + un field en libellé "Bagues / taille_50". */
-export function resolveDeclinaisonLabel(
-  maps: EfashionLabelMaps,
-  declinaisonId: number | null | undefined,
-  field: string | null | undefined,
-): string | null {
-  if (declinaisonId == null) return null;
-  const decl = maps.declinaisons.get(declinaisonId);
-  if (!decl) return null;
-  if (!field) return decl.titre;
-  const sizeValue = decl.sizes.get(field);
-  return sizeValue ? `${decl.titre} / ${sizeValue}` : `${decl.titre} / ${field}`;
 }

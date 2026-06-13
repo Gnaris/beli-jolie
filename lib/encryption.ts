@@ -21,6 +21,7 @@ export const SENSITIVE_KEYS = new Set([
   "ankors_client_secret",
   "efashion_email",
   "efashion_password",
+  "faire_api_key",
 ]);
 
 function getEncryptionKey(): Buffer {

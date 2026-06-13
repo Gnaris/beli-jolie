@@ -16,6 +16,8 @@ import {
   getCachedAnkorstoreEnabled,
   getCachedHasEfashionConfig,
   getCachedEfashionEnabled,
+  getCachedHasFaireConfig,
+  getCachedFaireEnabled,
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
 
@@ -42,6 +44,8 @@ export default async function ModifierProduitPage({
     ankorstoreEnabled,
     hasEfashionConfig,
     efashionEnabled,
+    hasFaireConfig,
+    faireEnabled,
   ] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
@@ -129,6 +133,8 @@ export default async function ModifierProduitPage({
     getCachedAnkorstoreEnabled(),
     getCachedHasEfashionConfig(),
     getCachedEfashionEnabled(),
+    getCachedHasFaireConfig(),
+    getCachedFaireEnabled(),
   ]);
 
   if (!product) notFound();
@@ -325,6 +331,8 @@ export default async function ModifierProduitPage({
           ankorstoreEnabled={ankorstoreEnabled}
           hasEfashionConfig={hasEfashionConfig}
           efashionEnabled={efashionEnabled}
+          hasFaireConfig={hasFaireConfig}
+          faireEnabled={faireEnabled}
           pfsColorOptions={pfsColorOptions}
           initialData={{
             reference:         product.reference,
@@ -381,6 +389,7 @@ export default async function ModifierProduitPage({
             pfsProductId: product.pfsProductId,
             ankorsProductId: product.ankorsProductId,
             efashionReferenceBase: product.efashionReferenceBase,
+            faireProductId: product.faireProductId,
             primaryColorId: product.primaryColorId ?? null,
           }}
         />
@@ -451,9 +460,13 @@ export default async function ModifierProduitPage({
                   ankorsProductId={product.ankorsProductId}
                   hasAnkorstoreConfig={hasAnkorstoreConfig}
                   ankorstoreEnabled={ankorstoreEnabled}
+                  faireProductId={product.faireProductId}
+                  hasFaireConfig={hasFaireConfig}
+                  faireEnabled={faireEnabled}
                   pfsSyncRequired={product.pfsSyncRequired}
                   ankorsSyncRequired={product.ankorsSyncRequired}
                   efashionSyncRequired={product.efashionSyncRequired}
+                  faireSyncRequired={product.faireSyncRequired}
                 />
               </div>
             </div>
@@ -556,7 +569,9 @@ export default async function ModifierProduitPage({
           discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
           sizeDetailsTu: product.sizeDetailsTu ?? "",
           pfsProductId: product.pfsProductId,
+          ankorsProductId: product.ankorsProductId,
           efashionReferenceBase: product.efashionReferenceBase,
+          faireProductId: product.faireProductId,
           primaryColorId: product.primaryColorId ?? null,
         }}
       />

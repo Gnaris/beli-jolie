@@ -22,6 +22,7 @@ import { useToast } from "@/components/ui/Toast";
 import { removeAnkorstoreMatch } from "@/app/actions/admin/ankorstore";
 import { removeEfashionMatch } from "@/app/actions/admin/efashion";
 import { removePfsMatch } from "@/app/actions/admin/pfs";
+import { removeFaireMatch } from "@/app/actions/admin/faire";
 import { clearSyncRequiredFlag } from "@/app/actions/admin/marketplace-sync-flags";
 
 interface MarketplaceStatusButtonsProps {
@@ -38,12 +39,16 @@ interface MarketplaceStatusButtonsProps {
   efashionLinked: boolean;
   hasEfashionConfig: boolean;
   efashionEnabled: boolean;
+  faireProductId: string | null;
+  hasFaireConfig: boolean;
+  faireEnabled: boolean;
   pfsSyncRequired?: boolean;
   ankorsSyncRequired?: boolean;
   efashionSyncRequired?: boolean;
+  faireSyncRequired?: boolean;
 }
 
-type MarketplaceKey = "pfs" | "ankorstore" | "efashion";
+type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Icônes
@@ -279,9 +284,13 @@ export function MarketplaceStatusButtons({
   efashionLinked,
   hasEfashionConfig,
   efashionEnabled,
+  faireProductId,
+  hasFaireConfig,
+  faireEnabled,
   pfsSyncRequired = false,
   ankorsSyncRequired = false,
   efashionSyncRequired = false,
+  faireSyncRequired = false,
 }: MarketplaceStatusButtonsProps) {
   const router = useRouter();
   const { enqueue, items } = useMarketplaceRefreshQueue();
@@ -303,6 +312,9 @@ export function MarketplaceStatusButtons({
   const [unlinkEfBusy, setUnlinkEfBusy] = useState(false);
   const [resyncEfOpen, setResyncEfOpen] = useState(false);
   const [confirmEfOpen, setConfirmEfOpen] = useState(false);
+  const [confirmFaireOpen, setConfirmFaireOpen] = useState(false);
+  const [resyncFaireOpen, setResyncFaireOpen] = useState(false);
+  const [unlinkFaireBusy, setUnlinkFaireBusy] = useState(false);
 
   const pfsOp = useMemo(() => findLatestOpForProduct(items, productId, "pfs"), [items, productId]);
   const ankorstoreOp = useMemo(
@@ -311,6 +323,10 @@ export function MarketplaceStatusButtons({
   );
   const efashionOp = useMemo(
     () => findLatestOpForProduct(items, productId, "efashion"),
+    [items, productId],
+  );
+  const faireOp = useMemo(
+    () => findLatestOpForProduct(items, productId, "faire"),
     [items, productId],
   );
 
@@ -332,6 +348,10 @@ export function MarketplaceStatusButtons({
     () => computeMarketplaceBadgeState(ankorsProductId, ankorstoreOp, "ankorstore", ankorsSyncRequired),
     [ankorsProductId, ankorstoreOp, ankorsSyncRequired],
   );
+  const faireState = useMemo(
+    () => computeMarketplaceBadgeState(faireProductId, faireOp, "faire", faireSyncRequired),
+    [faireProductId, faireOp, faireSyncRequired],
+  );
 
   // ── Refresh routeur après publication réussie ──
   useEffect(() => {
@@ -343,6 +363,9 @@ export function MarketplaceStatusButtons({
   useEffect(() => {
     if (efashionState.justPublishedOk && !efashionLinked) router.refresh();
   }, [efashionState.justPublishedOk, efashionLinked, router]);
+  useEffect(() => {
+    if (faireState.justPublishedOk && !faireProductId) router.refresh();
+  }, [faireState.justPublishedOk, faireProductId, router]);
 
   // ──────────────────────────────────────────────────────────────────────
   // Handlers
@@ -517,6 +540,62 @@ export function MarketplaceStatusButtons({
     }
     setConfirmEfOpen(false);
   };
+  // Faire
+  const handlePublishFaire = () => {
+    enqueue([
+      {
+        productId,
+        reference,
+        productName,
+        firstImage,
+        options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+        mode: "publish",
+        marketplace: "faire",
+      },
+    ]);
+    setConfirmFaireOpen(false);
+  };
+  const handleResyncFaire = () => {
+    enqueue([
+      {
+        productId,
+        reference,
+        productName,
+        firstImage,
+        options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+        mode: "resync",
+        marketplace: "faire",
+      },
+    ]);
+    setResyncFaireOpen(false);
+  };
+  const handleUnlinkFaire = async () => {
+    const ok = await confirm({
+      type: "warning",
+      title: "Délier de Faire ?",
+      message:
+        "Le lien entre ce produit et sa fiche Faire sera effacé côté site. " +
+        "Aucune action n'est faite sur Faire : la fiche existante y restera telle quelle. " +
+        "Vous pourrez ensuite re-publier ce produit.",
+      confirmLabel: "Oui, délier",
+    });
+    if (!ok) return;
+    setUnlinkFaireBusy(true);
+    try {
+      const res = await removeFaireMatch(productId);
+      if (res.success) {
+        toast.success("Produit délié de Faire");
+        router.refresh();
+      } else {
+        toast.error("Échec du déliage", res.error ?? "Erreur inconnue.");
+      }
+    } catch (err) {
+      toast.error("Échec du déliage", err instanceof Error ? err.message : String(err));
+    } finally {
+      setUnlinkFaireBusy(false);
+    }
+  };
+
   const handleUnlinkEfashion = async () => {
     const ok = await confirm({
       type: "warning",
@@ -546,7 +625,8 @@ export function MarketplaceStatusButtons({
 
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const showEfashion = hasEfashionConfig && efashionEnabled;
-  if (!hasPfsConfig && !showAnkorstore && !showEfashion) return null;
+  const showFaire = hasFaireConfig && faireEnabled;
+  if (!hasPfsConfig && !showAnkorstore && !showEfashion && !showFaire) return null;
 
   return (
     <>
@@ -802,6 +882,68 @@ export function MarketplaceStatusButtons({
             )}
           </MarketplaceBlock>
         )}
+
+        {/* ─── Faire ──────────────────────────────────────────────────── */}
+        {showFaire && (
+          <MarketplaceBlock>
+            <StatusBadge
+              state={faireState}
+              label="Faire"
+              sublabel={null}
+              onClick={() => {
+                if (faireState.loading) return;
+                if (faireState.syncRequired) {
+                  handleResyncFaire();
+                  return;
+                }
+                if (faireState.online) return;
+                setConfirmFaireOpen(true);
+              }}
+              onCancelSyncRequired={() =>
+                handleCancelSyncRequired("faire", "Faire")
+              }
+              title={
+                faireState.loading
+                  ? "Synchronisation Faire en cours…"
+                  : faireState.syncRequired
+                    ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à Faire"
+                    : faireProductId
+                      ? "Disponible sur Faire"
+                      : "Non disponible — cliquez pour publier sur Faire"
+              }
+              loadingLabel="Publication Faire en cours…"
+            />
+
+            {faireProductId && (
+              <IconBtn
+                tone="success"
+                icon={Icon.Refresh}
+                onClick={() => {
+                  if (faireState.loading) return;
+                  setResyncFaireOpen(true);
+                }}
+                disabled={faireState.loading}
+                title={
+                  faireState.loading
+                    ? "Une opération Faire est déjà en cours…"
+                    : "Resynchroniser toutes les données sur Faire"
+                }
+                ariaLabel="Resynchroniser sur Faire"
+              />
+            )}
+
+            {faireProductId && (
+              <IconBtn
+                tone="danger"
+                icon={Icon.Unlink}
+                onClick={handleUnlinkFaire}
+                busy={unlinkFaireBusy}
+                title="Délier ce produit de sa fiche Faire (efface la liaison côté site sans toucher à Faire)"
+                ariaLabel="Délier ce produit de Faire"
+              />
+            )}
+          </MarketplaceBlock>
+        )}
       </div>
 
       {/* ─────────────────────────────────────────────────────────────── */}
@@ -883,6 +1025,32 @@ export function MarketplaceStatusButtons({
           tone="success"
           onCancel={() => setResyncEfOpen(false)}
           onConfirm={handleResyncEfashion}
+        />
+      )}
+
+      {confirmFaireOpen && (
+        <ConfirmModal
+          title="Publier sur Faire ?"
+          productName={productName}
+          reference={reference}
+          message="Ce produit n'existe pas encore sur Faire. Voulez-vous le créer maintenant (brouillon) ?"
+          confirmLabel="Oui, publier"
+          tone="danger"
+          onCancel={() => setConfirmFaireOpen(false)}
+          onConfirm={handlePublishFaire}
+        />
+      )}
+
+      {resyncFaireOpen && (
+        <ConfirmModal
+          title="Resynchroniser sur Faire ?"
+          productName={productName}
+          reference={reference}
+          message="Toutes les données du produit (nom, description, photos, prix, stock, statut, variantes) seront renvoyées à Faire. L'identifiant Faire du produit reste inchangé."
+          confirmLabel="Oui, resynchroniser"
+          tone="success"
+          onCancel={() => setResyncFaireOpen(false)}
+          onConfirm={handleResyncFaire}
         />
       )}
 

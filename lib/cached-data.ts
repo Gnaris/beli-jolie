@@ -463,6 +463,60 @@ export const getCachedEfashionEnabled = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
+// ─── Faire — api key, enabled, has-config (même pattern que PFS/Ankorstore) ──
+async function readFaireApiKeyDirect() {
+  const row = await prisma.siteConfig.findUnique({
+    where: { key: "faire_api_key" },
+  });
+  if (!row?.value) return null;
+  return decryptIfSensitive("faire_api_key", row.value)?.trim() || null;
+}
+
+const _cachedFaireApiKey = unstable_cache(
+  readFaireApiKeyDirect,
+  ["faire-api-key"],
+  { revalidate: 300, tags: ["site-config"] },
+);
+
+export async function getCachedFaireApiKey() {
+  try {
+    return await _cachedFaireApiKey();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("incrementalCache") || msg.includes("unstable_cache")) {
+      return await readFaireApiKeyDirect();
+    }
+    throw err;
+  }
+}
+
+export const getCachedHasFaireConfig = unstable_cache(
+  async () => {
+    const row = await prisma.siteConfig.findUnique({
+      where: { key: "faire_api_key" },
+      select: { key: true },
+    });
+    return !!row;
+  },
+  ["has-faire-config"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
+export const getCachedFaireEnabled = unstable_cache(
+  async () => {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: ["faire_api_key", "faire_enabled"] } },
+      select: { key: true, value: true },
+    });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const hasConfig = map.has("faire_api_key");
+    const enabled = map.get("faire_enabled");
+    return hasConfig && enabled !== "false";
+  },
+  ["faire-enabled"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
 // ─── Product count (expensive count on 78k rows, cache 5min) ───────────────────
 export const getCachedProductCount = unstable_cache(
   async () => prisma.product.count({ where: { status: "ONLINE" } }),

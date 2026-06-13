@@ -19,6 +19,7 @@ import TranslateButton from "@/components/admin/TranslateButton";
 import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
 import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import EfashionMappingPicker, { type EmbeddedPickerKind } from "@/components/admin/EfashionMappingPicker";
+import FaireTaxonomySelect from "@/components/admin/FaireTaxonomySelect";
 import PfsSuggestions, { type PfsCategoryTriple, type PfsRefOption } from "@/components/admin/pfs/PfsSuggestions";
 import {
   PFS_COLORS,
@@ -29,6 +30,7 @@ import {
   PFS_GENDER_LABELS,
 } from "@/lib/marketplace-excel/pfs-taxonomy";
 import { suggestIso2FromName } from "@/lib/marketplace-excel/country-iso";
+import { alpha2ToAlpha3 } from "@/lib/faire-country";
 
 export type QuickCreateType = "category" | "subcategory" | "composition" | "color" | "tag" | "country" | "season";
 
@@ -66,12 +68,19 @@ interface QuickCreateModalProps {
     isoCode?: string | null;
     /** ID eFashion actuellement lié (Int ou null). Active la section eFashion dans la sidebar. */
     efashionCurrentId?: number | null;
+    /** taxonomy_type.id Faire actuellement lié — uniquement pour type="category". */
+    faireCurrentTaxonomyId?: string | null;
+    /** Libellé matière Faire — uniquement pour type="composition". */
+    faireCurrentMaterialLabel?: string | null;
+    /** Code pays Faire (alpha-3, ex "CHN") — uniquement pour type="country". */
+    faireCurrentCountryCode?: string | null;
     onSave: (
       name: string,
       translations: Record<string, string>,
       hex?: string,
       patternImage?: string | null,
       pfs?: { ref?: string; pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null; isoCode?: string | null },
+      faire?: { taxonomyId?: string | null; materialLabel?: string | null; countryCode?: string | null },
     ) => Promise<void>;
   };
 }
@@ -169,6 +178,9 @@ export default function QuickCreateModal({
   const [pfsGender, setPfsGender] = useState<string | null>(null);
   const [pfsFamilyName, setPfsFamilyName] = useState<string | null>(null);
   const [pfsCategoryName, setPfsCategoryName] = useState<string | null>(null);
+  const [faireTaxonomyId, setFaireTaxonomyId] = useState<string | null>(null);
+  const [faireMaterialLabel, setFaireMaterialLabel] = useState<string>("");
+  const [faireCountryCode, setFaireCountryCode] = useState<string>("");
   // eFashion mapping state (utilisé uniquement en mode création — en édition,
   // le picker auto-save directement via les server actions update).
   const [efashionCreateId, setEfashionCreateId] = useState<number | null>(null);
@@ -300,6 +312,9 @@ export default function QuickCreateModal({
         setPfsGender(editMode.pfsGender ?? null);
         setPfsFamilyName(editMode.pfsFamilyName ?? null);
         setPfsCategoryName(editMode.pfsCategoryName ?? null);
+        setFaireTaxonomyId(editMode.faireCurrentTaxonomyId ?? null);
+        setFaireMaterialLabel(editMode.faireCurrentMaterialLabel ?? "");
+        setFaireCountryCode(editMode.faireCurrentCountryCode ?? "");
         setIsoCode(editMode.isoCode ?? "");
         setIsoTouched(!!editMode.isoCode);
       } else {
@@ -415,6 +430,13 @@ export default function QuickCreateModal({
             pfsCategoryName,
             isoCode: type === "country" ? normalizedIso : undefined,
           },
+          type === "category"
+            ? { taxonomyId: faireTaxonomyId }
+            : type === "composition"
+              ? { materialLabel: faireMaterialLabel.trim() || null }
+              : type === "country"
+                ? { countryCode: faireCountryCode.trim().toUpperCase() || null }
+                : undefined,
         );
         onClose();
         return;
@@ -490,6 +512,12 @@ export default function QuickCreateModal({
       : !pfsRef
   )) || isoMissing || isoInvalid;
   const suggestedIsoForName = type === "country" ? suggestIso2FromName(frName) : null;
+  // Suggère un code alpha-3 Faire à partir de l'ISO 2-lettres saisi (priorité)
+  // puis à partir du nom (fallback). Null si aucun match dans la table embarquée.
+  const faireSuggestionFromIso =
+    type === "country"
+      ? alpha2ToAlpha3(normalizedIsoPreview || suggestedIsoForName)
+      : null;
 
   return createPortal(
     <div
@@ -498,7 +526,13 @@ export default function QuickCreateModal({
       onMouseUp={backdrop.onMouseUp}
     >
       <div
-        className={`bg-bg-primary rounded-2xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.35)] flex flex-col max-h-[92vh] overflow-hidden ${hasMappableType ? "w-full max-w-[1040px]" : "w-full max-w-xl"}`}
+        className={`bg-bg-primary rounded-2xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.35)] flex flex-col max-h-[92vh] overflow-hidden ${
+          hasMappableType
+            ? (type === "category" || type === "country" || type === "composition"
+                ? "w-full max-w-[1500px]"
+                : "w-full max-w-[1240px]")
+            : "w-full max-w-xl"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Header ── */}
@@ -688,7 +722,11 @@ export default function QuickCreateModal({
             <>
               <div className="w-px bg-border shrink-0" />
 
-              <aside className="w-[400px] shrink-0 p-7 overflow-y-auto bg-bg-secondary/30 space-y-5">
+              <aside className={`${
+                type === "category" || type === "country" || type === "composition"
+                  ? "w-[940px]"
+                  : "w-[640px]"
+              } shrink-0 p-7 overflow-y-auto bg-bg-secondary/30 space-y-5`}>
                 <header>
                   <p className="text-[10px] uppercase tracking-wider font-body font-semibold text-text-muted">
                     Étape {type === "color" ? 3 : 2}
@@ -703,8 +741,18 @@ export default function QuickCreateModal({
                   </p>
                 </header>
 
+                {/* ── Marketplaces : grille horizontale (selon type) ──
+                    - category, composition : 3 cartes côte à côte
+                    - country                : 2x2 (PFS+eFashion / ISO+Faire)
+                    - color, season          : 2 cartes côte à côte */}
+                <div className={`grid grid-cols-1 gap-4 items-stretch ${
+                  type === "category" || type === "composition"
+                    ? "lg:grid-cols-3"
+                    : "lg:grid-cols-2"
+                }`}>
+
                 {/* ── Carte PFS ───────────────────────────────────────── */}
-                <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
+                <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden h-full flex flex-col">
                   <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-purple-50/70 to-transparent">
                     <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700">
                       <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
@@ -716,7 +764,7 @@ export default function QuickCreateModal({
                       <p className="text-[10px] text-text-muted font-body mt-1">Marketplace officielle PFS</p>
                     </div>
                   </header>
-                  <div className="p-4">
+                  <div className="p-4 flex-1">
                     {lockPfs ? (
                       <LockedPfsMapping
                         type={type}
@@ -752,7 +800,7 @@ export default function QuickCreateModal({
                           options={suggestionOptions}
                           currentValue={pfsRef}
                           onPick={applySuggestedRef}
-                          label="Détecté d'après le nom"
+                          label="Correspondance PFS suggérée"
                         />
                       </div>
                     )}
@@ -764,7 +812,7 @@ export default function QuickCreateModal({
                           triples={pfsCategoryTriples}
                           currentValue={currentCategoryTriple}
                           onPickCategory={applyCategoryTriple}
-                          label="Détecté d'après le nom"
+                          label="Correspondance PFS suggérée"
                         />
                       </div>
                     )}
@@ -773,9 +821,9 @@ export default function QuickCreateModal({
 
                 {/* ── Carte eFashion ──────────────────────────────────── */}
                 {(type === "category" || type === "country" || type === "season" || type === "composition" || type === "color") && !lockPfs && (
-                  <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
-                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-emerald-50/70 to-transparent">
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700">
+                  <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden h-full flex flex-col">
+                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-purple-50/70 to-transparent">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700">
                         <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                           <path d="M10 2a8 8 0 100 16 8 8 0 000-16zm3.7 6.3l-4.5 4.5a1 1 0 01-1.4 0L6 11a1 1 0 011.4-1.4l1.8 1.8 3.8-3.8a1 1 0 011.4 1.4z" />
                         </svg>
@@ -785,7 +833,7 @@ export default function QuickCreateModal({
                         <p className="text-[10px] text-text-muted font-body mt-1">{isEdit ? "Enregistré automatiquement" : "Optionnel — peut être complété plus tard"}</p>
                       </div>
                     </header>
-                    <div className="p-4">
+                    <div className="p-4 flex-1">
                       {isEdit && editMode ? (
                         <EfashionMappingPicker
                           entityId={editMode.id}
@@ -805,11 +853,66 @@ export default function QuickCreateModal({
                   </section>
                 )}
 
-                {/* ── Carte ISO (pays uniquement) ─────────────────────── */}
+                {/* ── Carte Faire (composition uniquement — libellé matière) ──── */}
+                {type === "composition" && !lockPfs && (
+                  <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden h-full flex flex-col">
+                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-purple-50/70 to-transparent">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700">
+                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM6 8a2 2 0 114 0 2 2 0 01-4 0zm6 0a2 2 0 114 0 2 2 0 01-4 0zM6.5 13a3.5 3.5 0 007 0H6.5z" />
+                        </svg>
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-text-primary font-heading leading-none">Faire</p>
+                        <p className="text-[10px] text-text-muted font-body mt-1">{isEdit ? "Enregistré automatiquement" : "Optionnel — peut être complété plus tard"}</p>
+                      </div>
+                    </header>
+                    <div className="p-4 flex-1 space-y-2">
+                      <p className="font-body text-[10px] uppercase tracking-wider text-text-muted">Libellé matière Faire</p>
+                      <input
+                        type="text"
+                        value={faireMaterialLabel}
+                        onChange={(e) => setFaireMaterialLabel(e.target.value)}
+                        placeholder="ex: Stainless Steel 316L"
+                        className="w-full h-9 px-3 rounded-md border border-border bg-bg-primary text-text-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
+                      />
+                    </div>
+                  </section>
+                )}
+
+                {/* ── Carte Faire (catégorie uniquement) ──────────────── */}
+                {type === "category" && !lockPfs && (
+                  <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden h-full flex flex-col">
+                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-purple-50/70 to-transparent">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700">
+                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM6 8a2 2 0 114 0 2 2 0 01-4 0zm6 0a2 2 0 114 0 2 2 0 01-4 0zM6.5 13a3.5 3.5 0 007 0H6.5z" />
+                        </svg>
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-text-primary font-heading leading-none">Faire</p>
+                        <p className="text-[10px] text-text-muted font-body mt-1">{isEdit ? "Enregistré automatiquement" : "Optionnel — peut être complété plus tard"}</p>
+                      </div>
+                    </header>
+                    <div className="p-4 flex-1">
+                      <FaireTaxonomySelect
+                        label="Type de produit Faire"
+                        value={faireTaxonomyId}
+                        helpText="Recherchez par nom (« bracelet », « bague »…). Le breadcrumb aide à distinguer les doublons."
+                        suggestionQuery={names["fr"] ?? ""}
+                        onSave={async (next) => {
+                          setFaireTaxonomyId(next);
+                        }}
+                      />
+                    </div>
+                  </section>
+                )}
+
+                {/* ── Carte ISO (pays uniquement — désormais dans la grille) ──── */}
                 {type === "country" && (
-                  <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
-                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-bg-secondary/40">
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-bg-secondary text-text-secondary">
+                  <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden h-full flex flex-col">
+                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-purple-50/70 to-transparent">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
                         </svg>
@@ -820,7 +923,7 @@ export default function QuickCreateModal({
                       </div>
                       <span className="text-[#EF4444] text-xs font-body">obligatoire</span>
                     </header>
-                    <div className="p-4 space-y-2">
+                    <div className="p-4 space-y-2 flex-1">
                       <input
                         type="text"
                         value={isoCode}
@@ -855,6 +958,48 @@ export default function QuickCreateModal({
                     </div>
                   </section>
                 )}
+
+                {/* ── Carte Faire (pays — code alpha-3) ────────────────────── */}
+                {type === "country" && !lockPfs && (
+                  <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden h-full flex flex-col">
+                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-purple-50/70 to-transparent">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700">
+                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM6 8a2 2 0 114 0 2 2 0 01-4 0zm6 0a2 2 0 114 0 2 2 0 01-4 0zM6.5 13a3.5 3.5 0 007 0H6.5z" />
+                        </svg>
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-text-primary font-heading leading-none">Faire</p>
+                        <p className="text-[10px] text-text-muted font-body mt-1">Code à 3 lettres (ex : CHN, FRA, PRT)</p>
+                      </div>
+                    </header>
+                    <div className="p-4 flex-1 space-y-2">
+                      <p className="font-body text-[10px] uppercase tracking-wider text-text-muted">Code pays Faire</p>
+                      <input
+                        type="text"
+                        value={faireCountryCode}
+                        onChange={(e) => setFaireCountryCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3))}
+                        placeholder={faireSuggestionFromIso || "CHN"}
+                        maxLength={3}
+                        className="w-full h-9 px-3 rounded-md border border-border bg-bg-primary text-text-primary text-sm font-body font-mono uppercase tracking-[0.3em] focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
+                      />
+                      {faireCountryCode.length > 0 && faireCountryCode.length < 3 && (
+                        <p className="text-[11px] text-[#EF4444] font-body">Le code doit faire exactement 3 lettres.</p>
+                      )}
+                      {!faireCountryCode && faireSuggestionFromIso && (
+                        <button
+                          type="button"
+                          onClick={() => setFaireCountryCode(faireSuggestionFromIso)}
+                          className="text-[11px] text-text-muted hover:text-text-primary underline font-body"
+                        >
+                          Utiliser « {faireSuggestionFromIso} » (détecté d'après le code ISO)
+                        </button>
+                      )}
+                    </div>
+                  </section>
+                )}
+
+                </div>
               </aside>
             </>
           )}

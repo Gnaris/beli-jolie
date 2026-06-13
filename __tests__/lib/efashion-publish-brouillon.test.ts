@@ -78,7 +78,7 @@ function makeUnitColor(idSuffix = "1") {
     disabled: false,
     color: { id: `color-${idSuffix}`, name: `Couleur ${idSuffix}`, efashionColorId: 78 },
     variantSizes: [
-      { quantity: 1, size: { id: "size-1", name: "TU", efashionDeclinaisonId: 11096 } },
+      { quantity: 1, size: { id: "size-1", name: "TU" } },
     ],
     images: [],
   };

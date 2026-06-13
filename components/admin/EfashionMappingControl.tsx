@@ -2,7 +2,7 @@
 
 /**
  * EfashionMappingControl — bouton + modale pour mapper une entité BJ vers son
- * équivalent eFashion. Réutilisable pour Category, Size, Country, Season,
+ * équivalent eFashion. Réutilisable pour Category, Country, Season,
  * Composition (et Color en bonus).
  *
  * UX :
@@ -11,6 +11,9 @@
  *    filtrable (autocomplete pour Composition)
  *  - 1 clic sur un élément de la liste → save + close
  *  - Bouton « Délier » pour effacer la liaison
+ *
+ * Note : les tailles ne passent pas par ce control. eFashion résout la « série
+ * de tailles » (déclinaison) automatiquement à la publication.
  */
 
 import { useEffect, useMemo, useState, useTransition } from "react";
@@ -19,7 +22,6 @@ import {
   loadEfashionAnnexes,
   searchEfashionCompositionsAction,
   updateCategoryEfashionMapping,
-  updateSizeEfashionMapping,
   updateManufacturingCountryEfashionMapping,
   updateSeasonEfashionMapping,
   updateCompositionEfashionMapping,
@@ -30,7 +32,6 @@ import { useToast } from "@/components/ui/Toast";
 
 export type EfashionMappingKind =
   | "category"
-  | "size"
   | "country"
   | "season"
   | "composition"
@@ -43,18 +44,12 @@ interface BaseProps {
 }
 
 interface SimpleProps extends BaseProps {
-  kind: "category" | "country" | "season" | "composition" | "color";
+  kind: EfashionMappingKind;
   currentId: number | null;
   currentLabel?: string | null;
 }
 
-interface SizeProps extends BaseProps {
-  kind: "size";
-  currentDeclinaisonId: number | null;
-  currentDeclinaisonField: string | null;
-}
-
-export type EfashionMappingControlProps = SimpleProps | SizeProps;
+export type EfashionMappingControlProps = SimpleProps;
 
 // Cache process-level pour les annexes (1 fetch partagé entre tous les sélecteurs)
 let annexesCache: EfashionAnnexes | null = null;
@@ -81,23 +76,16 @@ export default function EfashionMappingControl(props: EfashionMappingControlProp
   // État affiché compact (bouton)
   let currentText = "—";
   let isLinked = false;
-  if (props.kind === "size") {
-    if (props.currentDeclinaisonId !== null && props.currentDeclinaisonField) {
-      currentText = `Décl. ${props.currentDeclinaisonId} / ${props.currentDeclinaisonField}`;
-      isLinked = true;
-    }
-  } else {
-    if (props.currentId !== null) {
-      currentText = props.currentLabel ? `${props.currentLabel} (id ${props.currentId})` : `id ${props.currentId}`;
-      isLinked = true;
-    }
+  if (props.currentId !== null) {
+    currentText = props.currentLabel ? `${props.currentLabel} (id ${props.currentId})` : `id ${props.currentId}`;
+    isLinked = true;
   }
 
   const [isPending, startTransition] = useTransition();
 
   function handleUnlink() {
     startTransition(async () => {
-      const res = await callUpdate(props, null, null);
+      const res = await callUpdate(props, null);
       if (res.success) {
         toast.success("Liaison eFashion effacée");
         setOpen(false);
@@ -108,14 +96,9 @@ export default function EfashionMappingControl(props: EfashionMappingControlProp
     });
   }
 
-  function handlePick(idOrPair: number | { declinaisonId: number; field: string }) {
+  function handlePick(id: number) {
     startTransition(async () => {
-      let res;
-      if (typeof idOrPair === "number") {
-        res = await callUpdate(props, idOrPair, null);
-      } else {
-        res = await callUpdate(props, idOrPair.declinaisonId, idOrPair.field);
-      }
+      const res = await callUpdate(props, id);
       if (res.success) {
         toast.success("Liaison eFashion enregistrée");
         setOpen(false);
@@ -171,7 +154,7 @@ function EfashionMappingModal({
   props: EfashionMappingControlProps;
   isPending: boolean;
   onClose: () => void;
-  onPick: (id: number | { declinaisonId: number; field: string }) => void;
+  onPick: (id: number) => void;
   onUnlink?: () => void;
 }) {
   const [annexes, setAnnexes] = useState<EfashionAnnexes | null>(null);
@@ -196,9 +179,7 @@ function EfashionMappingModal({
       .finally(() => setLoading(false));
   }, [props.kind]);
 
-  const title = props.kind === "size"
-    ? `Lier la taille « ${props.entityName} » à eFashion`
-    : `Lier « ${props.entityName} » à eFashion`;
+  const title = `Lier « ${props.entityName} » à eFashion`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -237,17 +218,15 @@ function EfashionMappingModal({
                     placeholder="Rechercher…"
                     className="w-full h-10 px-3 mb-3 rounded-lg border border-border bg-bg-primary text-sm font-body"
                   />
-                  {props.kind === "size"
-                    ? annexes && <SizeList annexes={annexes} filter={filter} onPick={onPick} disabled={isPending} />
-                    : annexes && (
-                        <FlatList
-                          annexes={annexes}
-                          kind={props.kind}
-                          filter={filter}
-                          onPick={(id) => onPick(id)}
-                          disabled={isPending}
-                        />
-                      )}
+                  {annexes && (
+                    <FlatList
+                      annexes={annexes}
+                      kind={props.kind}
+                      filter={filter}
+                      onPick={(id) => onPick(id)}
+                      disabled={isPending}
+                    />
+                  )}
                 </>
               )}
             </>
@@ -367,65 +346,6 @@ function FlatList({
   );
 }
 
-// ─── Sélecteur taille (déclinaison + champ) ────────────────────────────────
-
-function SizeList({
-  annexes,
-  filter,
-  onPick,
-  disabled,
-}: {
-  annexes: EfashionAnnexes;
-  filter: string;
-  onPick: (pair: { declinaisonId: number; field: string }) => void;
-  disabled: boolean;
-}) {
-  const normFilter = filter.toLowerCase().trim();
-  const declinaisons = annexes.declinaisons;
-
-  if (declinaisons.length === 0) {
-    return (
-      <p className="font-body text-sm text-text-muted">
-        Aucune déclinaison reçue d&apos;eFashion. Vérifiez votre connexion.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-      {declinaisons.map((decl) => {
-        const filteredSizes = normFilter
-          ? decl.sizes.filter((s) =>
-              `${decl.titre} ${s.value}`.toLowerCase().includes(normFilter),
-            )
-          : decl.sizes;
-        if (filteredSizes.length === 0) return null;
-        return (
-          <div key={decl.id}>
-            <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
-              {decl.titre} (déclinaison {decl.id})
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {filteredSizes.map((s) => (
-                <button
-                  key={s.field}
-                  type="button"
-                  onClick={() => onPick({ declinaisonId: decl.id, field: s.field })}
-                  disabled={disabled}
-                  className="text-left px-3 py-2 rounded-md border border-border bg-bg-primary hover:bg-bg-secondary text-sm font-body disabled:opacity-50"
-                >
-                  <span className="font-medium">{s.value}</span>
-                  <span className="block text-[11px] text-text-muted">{s.field}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ─── Composition (autocomplete) ────────────────────────────────────────────
 
 function CompositionAutocomplete({
@@ -533,21 +453,18 @@ function ColorManualInput({
 
 async function callUpdate(
   props: EfashionMappingControlProps,
-  idOrDeclinaisonId: number | null,
-  fieldOrNull: string | null,
+  id: number | null,
 ): Promise<{ success: boolean; error?: string }> {
   switch (props.kind) {
     case "category":
-      return updateCategoryEfashionMapping(props.entityId, idOrDeclinaisonId);
+      return updateCategoryEfashionMapping(props.entityId, id);
     case "country":
-      return updateManufacturingCountryEfashionMapping(props.entityId, idOrDeclinaisonId);
+      return updateManufacturingCountryEfashionMapping(props.entityId, id);
     case "season":
-      return updateSeasonEfashionMapping(props.entityId, idOrDeclinaisonId);
+      return updateSeasonEfashionMapping(props.entityId, id);
     case "composition":
-      return updateCompositionEfashionMapping(props.entityId, idOrDeclinaisonId);
+      return updateCompositionEfashionMapping(props.entityId, id);
     case "color":
-      return updateColorEfashionMapping(props.entityId, idOrDeclinaisonId);
-    case "size":
-      return updateSizeEfashionMapping(props.entityId, idOrDeclinaisonId, fieldOrNull);
+      return updateColorEfashionMapping(props.entityId, id);
   }
 }

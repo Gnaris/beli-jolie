@@ -16,6 +16,8 @@ export interface AllMarkupConfigs {
   ankorstoreWholesale: MarkupConfig;
   ankorstoreRetail: MarkupConfig;
   ankorstoreVatRate: number;
+  faireWholesale: MarkupConfig;
+  faireRetail: MarkupConfig;
 }
 
 /**
@@ -79,6 +81,12 @@ const MARKUP_KEYS = [
   "ankorstore_retail_markup_value",
   "ankorstore_retail_markup_rounding",
   "ankorstore_default_vat_rate",
+  "faire_wholesale_markup_type",
+  "faire_wholesale_markup_value",
+  "faire_wholesale_markup_rounding",
+  "faire_retail_markup_type",
+  "faire_retail_markup_value",
+  "faire_retail_markup_rounding",
 ];
 
 /**
@@ -121,5 +129,34 @@ export async function loadMarketplaceMarkupConfigs(): Promise<AllMarkupConfigs> 
       rounding: "up",
     }),
     ankorstoreVatRate: Number(map.get("ankorstore_default_vat_rate")) || 20,
+    // Faire impose retail >= 2 x wholesale (l'API rejette sinon). Le default
+    // x2.5 sur le retail nous laisse de la marge avant le clamp.
+    faireWholesale: parseConfig("faire_wholesale_markup"),
+    faireRetail: parseConfig("faire_retail_markup", {
+      type: "multiplier",
+      value: 2.5,
+      rounding: "up",
+    }),
   };
+}
+
+/**
+ * Applique le markup wholesale + retail pour Faire et clamp le retail à
+ * au moins 2x le wholesale (contrainte API Faire — rejet sinon).
+ * Retourne les deux prix en euros (pas en centimes).
+ */
+export function applyFaireMarkupWithClamp(
+  basePrice: number,
+  wholesaleConfig: MarkupConfig,
+  retailConfig: MarkupConfig
+): { wholesale: number; retail: number } {
+  const wholesale = applyMarketplaceMarkup(basePrice, wholesaleConfig);
+  let retail = applyMarketplaceMarkup(basePrice, retailConfig);
+  const minRetail = wholesale * 2;
+  if (retail < minRetail) {
+    // Arrondi vers le haut au dixième pour éviter de tomber sous le seuil
+    // après arrondi monétaire.
+    retail = Math.ceil(minRetail * 10) / 10;
+  }
+  return { wholesale, retail };
 }

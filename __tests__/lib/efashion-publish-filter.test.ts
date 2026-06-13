@@ -50,7 +50,7 @@ function makeColor(saleType: "UNIT" | "PACK") {
     disabled: false,
     color: { id: "color-1", name: "Doré", efashionColorId: 78 },
     variantSizes: [
-      { quantity: 1, size: { id: "size-1", name: "TU", efashionDeclinaisonId: 11096 } },
+      { quantity: 1, size: { id: "size-1", name: "TU" } },
     ],
     images: [],
   };

@@ -11,7 +11,7 @@ import type { Prisma } from "@prisma/client";
 
 export type ClientStatus = "queued" | "in_progress" | "awaiting_callback" | "done";
 export type ClientMode = "publish" | "refresh" | "resync";
-export type ClientMarketplace = "pfs" | "ankorstore" | "efashion";
+export type ClientMarketplace = "pfs" | "ankorstore" | "efashion" | "faire";
 
 export interface ClientEnqueueInput {
   productId: string;
@@ -23,6 +23,7 @@ export interface ClientEnqueueInput {
     pfs?: boolean;
     ankorstore?: boolean;
     efashion?: boolean;
+    faire?: boolean;
   };
   mode?: ClientMode;
   marketplace?: ClientMarketplace;
@@ -42,15 +43,17 @@ export interface SerializedJob {
   pfsOutcome?: unknown;
   ankorsOutcome?: unknown;
   efashionOutcome?: unknown;
+  faireOutcome?: unknown;
   ankorsOperationId?: string;
   createdAt: string;
 }
 
 type JobRow = Prisma.MarketplaceRefreshJobGetPayload<Record<string, never>>;
 
-export function mapMarketplaceToDb(value: ClientMarketplace): "PFS" | "ANKORSTORE" | "EFASHION" {
+export function mapMarketplaceToDb(value: ClientMarketplace): "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" {
   if (value === "ankorstore") return "ANKORSTORE";
   if (value === "efashion") return "EFASHION";
+  if (value === "faire") return "FAIRE";
   return "PFS";
 }
 
@@ -63,6 +66,7 @@ export function mapModeToDb(value: ClientMode): "PUBLISH" | "REFRESH" | "RESYNC"
 function mapMarketplaceToClient(value: JobRow["marketplace"]): ClientMarketplace {
   if (value === "ANKORSTORE") return "ankorstore";
   if (value === "EFASHION") return "efashion";
+  if (value === "FAIRE") return "faire";
   return "pfs";
 }
 
@@ -111,6 +115,7 @@ export function serializeJob(job: JobRow): SerializedJob {
     pfsOutcome: (job.pfsOutcome as unknown) ?? undefined,
     ankorsOutcome: (job.ankorsOutcome as unknown) ?? undefined,
     efashionOutcome: (job.efashionOutcome as unknown) ?? undefined,
+    faireOutcome: (job.faireOutcome as unknown) ?? undefined,
     ankorsOperationId: job.ankorsOperationId ?? undefined,
     createdAt: job.createdAt.toISOString(),
   };
@@ -145,7 +150,10 @@ export function validateEnqueueInput(
         ? (it.mode as ClientMode)
         : undefined;
     const marketplace =
-      it.marketplace === "pfs" || it.marketplace === "ankorstore" || it.marketplace === "efashion"
+      it.marketplace === "pfs" ||
+      it.marketplace === "ankorstore" ||
+      it.marketplace === "efashion" ||
+      it.marketplace === "faire"
         ? (it.marketplace as ClientMarketplace)
         : undefined;
     out.push({
@@ -158,6 +166,7 @@ export function validateEnqueueInput(
         pfs: options.pfs === true,
         ankorstore: options.ankorstore === true,
         efashion: options.efashion === true,
+        faire: options.faire === true,
       },
       mode,
       marketplace,

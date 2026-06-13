@@ -92,7 +92,8 @@ export function getMarketplaceOutcome(
 ): TargetOutcome | undefined {
   if (item.marketplace === "pfs") return item.pfsOutcome;
   if (item.marketplace === "ankorstore") return item.ankorsOutcome;
-  return item.efashionOutcome;
+  if (item.marketplace === "efashion") return item.efashionOutcome;
+  return item.faireOutcome;
 }
 
 export function getLocalOutcomeForGroup(

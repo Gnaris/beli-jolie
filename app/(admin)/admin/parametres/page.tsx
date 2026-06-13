@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
-import { getCachedShopName, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedSiteConfig, getCachedPfsBrand, getCachedHasEfashionConfig, getCachedEfashionEnabled } from "@/lib/cached-data";
+import { getCachedShopName, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedSiteConfig, getCachedPfsBrand, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled } from "@/lib/cached-data";
 import { parseDisplayConfig } from "@/lib/product-display";
 import SettingsPageTabs from "@/components/admin/settings/SettingsPageTabs";
 import SettingsMinOrderForm from "@/components/admin/settings/SettingsMinOrderForm";
@@ -365,6 +365,14 @@ async function MarketplacesTab() {
     microstoreMarkupType,
     microstoreMarkupValue,
     microstoreMarkupRounding,
+    hasFaireConfig,
+    faireEnabled,
+    faireWholesaleType,
+    faireWholesaleValue,
+    faireWholesaleRounding,
+    faireRetailType,
+    faireRetailValue,
+    faireRetailRounding,
   ] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
     prisma.siteConfig.findMany({
@@ -394,6 +402,14 @@ async function MarketplacesTab() {
     getCachedSiteConfig("microstore_price_markup_type"),
     getCachedSiteConfig("microstore_price_markup_value"),
     getCachedSiteConfig("microstore_price_markup_rounding"),
+    getCachedHasFaireConfig(),
+    getCachedFaireEnabled(),
+    getCachedSiteConfig("faire_wholesale_markup_type"),
+    getCachedSiteConfig("faire_wholesale_markup_value"),
+    getCachedSiteConfig("faire_wholesale_markup_rounding"),
+    getCachedSiteConfig("faire_retail_markup_type"),
+    getCachedSiteConfig("faire_retail_markup_value"),
+    getCachedSiteConfig("faire_retail_markup_rounding"),
   ]);
 
   const markupMap = new Map(markupRows.map((r) => [r.key, r.value]));
@@ -407,6 +423,8 @@ async function MarketplacesTab() {
         ankorstoreEnabled={ankorstoreEnabled}
         hasEfashionConfig={hasEfashionConfig}
         efashionEnabled={efashionEnabled}
+        hasFaireConfig={hasFaireConfig}
+        faireEnabled={faireEnabled}
         markupSettings={{
           pfs: {
             type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed" | "multiplier") || "percent",
@@ -433,6 +451,16 @@ async function MarketplacesTab() {
             type: (microstoreMarkupType?.value as "percent" | "fixed" | "multiplier") || "percent",
             value: Number(microstoreMarkupValue?.value) || 0,
             rounding: (microstoreMarkupRounding?.value as "none" | "down" | "up") || "none",
+          },
+          faireWholesale: {
+            type: (faireWholesaleType?.value as "percent" | "fixed" | "multiplier") || "percent",
+            value: Number(faireWholesaleValue?.value) || 0,
+            rounding: (faireWholesaleRounding?.value as "none" | "down" | "up") || "none",
+          },
+          faireRetail: {
+            type: (faireRetailType?.value as "percent" | "fixed" | "multiplier") || "multiplier",
+            value: Number(faireRetailValue?.value) || 2.5,
+            rounding: (faireRetailRounding?.value as "none" | "down" | "up") || "up",
           },
         }}
       />

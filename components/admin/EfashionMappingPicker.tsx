@@ -244,17 +244,10 @@ export default function EfashionMappingPicker({
               : annexes.collections.map((c) => ({ id: c.id, label: c.label })),
       )
     : [];
-  const showSuggestions = suggestions.length > 0 && value === null;
+  const showSuggestions = suggestions.length > 0;
 
   return (
     <div className="space-y-2">
-      {showSuggestions && (
-        <SuggestionsBox
-          suggestions={suggestions}
-          onPick={saveValue}
-          disabled={isPending}
-        />
-      )}
       <CustomSelect
         value={value !== null ? String(value) : ""}
         onChange={(v) => saveValue(v ? Number(v) : null)}
@@ -266,6 +259,14 @@ export default function EfashionMappingPicker({
         disabled={!!disabled || isPending}
         aria-label={`Référence eFashion (${kind})`}
       />
+      {showSuggestions && (
+        <SuggestionsBox
+          suggestions={suggestions}
+          currentValue={value}
+          onPick={saveValue}
+          disabled={isPending}
+        />
+      )}
     </div>
   );
 }
@@ -274,31 +275,54 @@ export default function EfashionMappingPicker({
 
 function SuggestionsBox({
   suggestions,
+  currentValue,
   onPick,
   disabled,
 }: {
   suggestions: Array<{ id: number; label: string; score: number }>;
+  currentValue: number | null;
   onPick: (id: number) => void;
   disabled: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-2.5 py-2">
-      <p className="text-[10px] uppercase tracking-wider font-body font-semibold text-emerald-700 mb-1.5">
-        Suggestions détectées
+    <div className="flex flex-col gap-1.5">
+      <p className="text-[10.5px] font-body text-text-muted flex items-center gap-1.5 uppercase tracking-wide">
+        <svg className="w-3 h-3 text-[#8B5CF6]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+        Correspondance eFashion suggérée
       </p>
-      <div className="flex flex-col gap-1">
-        {suggestions.map((s) => (
-          <button
-            key={`${s.id}::${s.label}`}
-            type="button"
-            onClick={() => onPick(s.id)}
-            disabled={disabled}
-            className="text-left flex items-center justify-between gap-2 px-2 py-1 rounded text-xs font-body bg-bg-primary hover:bg-emerald-100 border border-emerald-200 transition-colors disabled:opacity-50"
-          >
-            <span className="truncate text-text-primary">{s.label}</span>
-            <span className="shrink-0 text-[10px] text-emerald-700">id {s.id}</span>
-          </button>
-        ))}
+      <div className="flex flex-wrap gap-1.5">
+        {suggestions.map((s) => {
+          const isSelected = s.id === currentValue;
+          const isExact = s.score >= 100;
+          return (
+            <button
+              key={`${s.id}::${s.label}`}
+              type="button"
+              onClick={() => onPick(s.id)}
+              disabled={disabled}
+              title={s.label}
+              className={`inline-flex items-center gap-1 text-[11px] font-body rounded-full border px-2.5 py-1 transition-all cursor-pointer hover:shadow-sm disabled:opacity-50 text-left ${
+                isSelected
+                  ? "bg-[#DCFCE7] border-[#86EFAC] text-[#14532D]"
+                  : "bg-bg-secondary border-border text-text-secondary hover:border-text-primary hover:text-text-primary"
+              }`}
+            >
+              {isSelected ? (
+                <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+              )}
+              <span className="font-semibold whitespace-normal break-words">{s.label}</span>
+              <span className="shrink-0 text-[10px] opacity-70">id {s.id}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

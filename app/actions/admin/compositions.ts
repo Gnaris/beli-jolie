@@ -95,3 +95,23 @@ export async function deleteComposition(id: string) {
   await prisma.composition.delete({ where: { id } });
   revalidatePath("/admin/produits");
 }
+
+/**
+ * Saisie manuelle du libellé matériau Faire (en anglais ou dans la langue
+ * attendue côté Faire — ex: "Stainless Steel 316L", "100% Cotton",
+ * "Genuine Leather"). Faire accepte un tableau de chaînes libres dans
+ * `materials[]`. Voir docs/faire-api.md §3.
+ */
+export async function updateCompositionFaireMaterial(
+  id: string,
+  faireMaterialLabel: string | null,
+) {
+  await requireAdmin();
+  await prisma.composition.update({
+    where: { id },
+    data: { faireMaterialLabel: faireMaterialLabel?.trim() || null },
+  });
+  revalidatePath("/admin/compositions");
+  revalidatePath("/admin/produits");
+  revalidateTag("compositions", "default");
+}

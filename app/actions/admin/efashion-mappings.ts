@@ -4,7 +4,11 @@
  * Server actions pour gérer le mapping des bibliothèques BJ vers les IDs eFashion.
  *
  * 1 action de lecture (`loadEfashionAnnexes`) + 1 action par entité pour mettre
- * à jour le mapping (Category, Size, ManufacturingCountry, Season, Composition).
+ * à jour le mapping (Category, ManufacturingCountry, Season, Composition).
+ *
+ * Les tailles ne sont pas mappées : eFashion résout la « déclinaison » (série
+ * de tailles) dynamiquement à la publication (cf.
+ * `lib/efashion-declinaison-matcher.ts`).
  *
  * `Color.efashionColorId` n'a pas d'action dédiée : il se remplit automatiquement
  * lors de la liaison manuelle d'un produit (cf. `linkEfashionProductManually`).
@@ -69,38 +73,6 @@ export async function updateCategoryEfashionMapping(
     });
     revalidatePath("/admin/categories");
     revalidateTag("categories", "default");
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
-  }
-}
-
-export async function updateSizeEfashionMapping(
-  sizeId: string,
-  efashionDeclinaisonId: number | null,
-  efashionDeclinaisonField: string | null,
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    // Cohérence : les 2 champs doivent être renseignés ensemble ou null ensemble.
-    if (
-      (efashionDeclinaisonId === null) !==
-      (efashionDeclinaisonField === null || efashionDeclinaisonField === "")
-    ) {
-      return {
-        success: false,
-        error: "La déclinaison ET le champ taille doivent être tous les deux renseignés ou effacés ensemble.",
-      };
-    }
-    await prisma.size.update({
-      where: { id: sizeId },
-      data: {
-        efashionDeclinaisonId,
-        efashionDeclinaisonField: efashionDeclinaisonField || null,
-      },
-    });
-    revalidatePath("/admin/tailles");
-    revalidateTag("sizes", "default");
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };

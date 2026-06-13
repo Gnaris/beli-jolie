@@ -122,6 +122,27 @@ export async function updateManufacturingCountryPfsRef(id: string, pfsCountryRef
   revalidateTag("manufacturing-countries", "default");
 }
 
+/**
+ * Met à jour le code pays Faire (ISO alpha-3, ex: "CHN", "FRA"). null = laisser
+ * la conversion automatique alpha-2 → alpha-3 décider via lib/faire-country.ts.
+ */
+export async function updateManufacturingCountryFaireCode(
+  id: string,
+  faireCountryCode: string | null,
+) {
+  await requireAdmin();
+  const trimmed = faireCountryCode?.trim().toUpperCase() ?? null;
+  if (trimmed !== null && !/^[A-Z]{3}$/.test(trimmed)) {
+    throw new Error("Le code Faire doit faire exactement 3 lettres majuscules (ex: CHN, FRA, PRT).");
+  }
+  await prisma.manufacturingCountry.update({
+    where: { id },
+    data: { faireCountryCode: trimmed },
+  });
+  revalidatePath("/admin/produits");
+  revalidateTag("manufacturing-countries", "default");
+}
+
 export async function deleteManufacturingCountry(id: string) {
   await requireAdmin();
   const used = await prisma.product.count({ where: { manufacturingCountryId: id } });

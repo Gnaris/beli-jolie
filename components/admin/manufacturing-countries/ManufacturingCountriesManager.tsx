@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteManufacturingCountry, updateManufacturingCountryDirect, updateManufacturingCountryPfsRef } from "@/app/actions/admin/manufacturing-countries";
+import { deleteManufacturingCountry, updateManufacturingCountryDirect, updateManufacturingCountryPfsRef, updateManufacturingCountryFaireCode } from "@/app/actions/admin/manufacturing-countries";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
@@ -16,6 +16,7 @@ interface CountryItem {
   pfsCountryRef: string | null;
   efashionProvenanceId?: number | null;
   efashionProvenanceLabel?: string | null;
+  faireCountryCode?: string | null;
   productCount: number;
   translations: Record<string, string>;
 }
@@ -67,6 +68,7 @@ export default function ManufacturingCountriesManager({
     _hex?: string,
     _patternImage?: string | null,
     pfs?: { ref?: string; isoCode?: string | null },
+    faire?: { countryCode?: string | null },
   ) {
     if (!editTarget) return;
     const nextIso = pfs?.isoCode !== undefined ? pfs.isoCode : editTarget.isoCode ?? null;
@@ -74,6 +76,10 @@ export default function ManufacturingCountriesManager({
     const newRef = pfs?.ref || null;
     if (newRef !== (editTarget.pfsCountryRef ?? null)) {
       await updateManufacturingCountryPfsRef(editTarget.id, newRef);
+    }
+    const newFaireCode = faire?.countryCode ?? null;
+    if (newFaireCode !== (editTarget.faireCountryCode ?? null)) {
+      await updateManufacturingCountryFaireCode(editTarget.id, newFaireCode);
     }
     router.refresh();
   }
@@ -228,6 +234,7 @@ export default function ManufacturingCountriesManager({
             pfsRef: editTarget.pfsCountryRef,
             isoCode: editTarget.isoCode,
             efashionCurrentId: editTarget.efashionProvenanceId ?? null,
+            faireCurrentCountryCode: editTarget.faireCountryCode ?? null,
             onSave: handleSave,
           }}
         />

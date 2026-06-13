@@ -39,6 +39,7 @@ interface QueueJobPayload {
     pfs?: boolean;
     ankorstore?: boolean;
     efashion?: boolean;
+    faire?: boolean;
   };
 }
 
@@ -241,6 +242,8 @@ async function processJob(jobId: string): Promise<void> {
       await runPfsJob(job, payload);
     } else if (job.marketplace === "EFASHION") {
       await runEfashionJob(job, payload);
+    } else if (job.marketplace === "FAIRE") {
+      await runFaireJob(job, payload);
     } else {
       await runAnkorstoreJob(job, payload);
     }
@@ -638,6 +641,131 @@ async function markEfashionFailed(
     data: {
       status: "FAILED",
       efashionOutcome: outcome as Prisma.InputJsonValue,
+      errorMessage: message,
+      completedAt: new Date(),
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Faire — sync synchrone (POST /products + PATCH /products/{id} +
+// PATCH inventory). Mode REFRESH = duplication (faire-refresh).
+// ─────────────────────────────────────────────────────────────────────
+async function runFaireJob(job: JobRow, payload: QueueJobPayload): Promise<void> {
+  if (payload.options.faire === false) {
+    await prisma.marketplaceRefreshJob.update({
+      where: { id: job.id },
+      data: { status: "SUCCEEDED", completedAt: new Date() },
+    });
+    return;
+  }
+
+  const { getCachedFaireEnabled } = await import("@/lib/cached-data");
+  const enabled = await getCachedFaireEnabled();
+  if (!enabled) {
+    await markFaireFailed(job.id, "error", "Sync Faire désactivée dans Paramètres.");
+    return;
+  }
+
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id: job.productId },
+      select: { faireProductId: true, status: true },
+    });
+    const isLinked = !!product?.faireProductId;
+    // Faire crée par défaut en DRAFT (invisible sur Faire). Si le produit BJ
+    // est en ligne, on publie directement en PUBLISHED pour qu'il apparaisse
+    // dans le catalogue Faire.
+    const lifecycleState: "DRAFT" | "PUBLISHED" =
+      product?.status === "ONLINE" ? "PUBLISHED" : "DRAFT";
+
+    if (job.mode === "RESYNC") {
+      if (!isLinked) {
+        await markFaireFailed(job.id, "error", "Produit non publié sur Faire.");
+        return;
+      }
+      const { faireUpdateProduct } = await import("@/lib/faire-update");
+      const res = await faireUpdateProduct(job.productId);
+      if (res.success) await markFaireSuccess(job.id);
+      else await markFaireFailed(job.id, "error", res.error);
+    } else if (job.mode === "PUBLISH") {
+      if (isLinked) {
+        const { faireUpdateProduct } = await import("@/lib/faire-update");
+        const res = await faireUpdateProduct(job.productId);
+        if (res.success) {
+          await markFaireSuccess(job.id);
+        } else {
+          // Fallback : reset les IDs et retente en publish (même logique que PFS).
+          logger.warn("[Marketplace Queue] Faire update failed, fallback to publish", {
+            productId: job.productId,
+            error: res.error,
+          });
+          await prisma.product.update({
+            where: { id: job.productId },
+            data: { faireProductId: null, faireLastSyncSnapshot: Prisma.DbNull },
+          });
+          await prisma.productColor.updateMany({
+            where: { productId: job.productId },
+            data: { faireVariantId: null },
+          });
+          const { fairePublishProduct } = await import("@/lib/faire-publish");
+          const pubRes = await fairePublishProduct(job.productId, { lifecycleState });
+          if (pubRes.success) await markFaireSuccess(job.id);
+          else await markFaireFailed(job.id, "error", pubRes.error);
+        }
+      } else {
+        const { fairePublishProduct } = await import("@/lib/faire-publish");
+        const res = await fairePublishProduct(job.productId, { lifecycleState });
+        if (res.success) await markFaireSuccess(job.id);
+        else await markFaireFailed(job.id, "error", res.error);
+      }
+    } else if (job.mode === "REFRESH") {
+      if (isLinked) {
+        const { faireRefreshProduct } = await import("@/lib/faire-refresh");
+        const res = await faireRefreshProduct(job.productId);
+        if (res.success) await markFaireSuccess(job.id);
+        else await markFaireFailed(job.id, "error", res.error);
+      } else {
+        const { fairePublishProduct } = await import("@/lib/faire-publish");
+        const res = await fairePublishProduct(job.productId, { lifecycleState });
+        if (res.success) await markFaireSuccess(job.id);
+        else await markFaireFailed(job.id, "error", res.error);
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Marketplace Queue] Faire unexpected error", {
+      productId: job.productId,
+      jobId: job.id,
+      error: message,
+    });
+    await markFaireFailed(job.id, "error", message);
+  }
+}
+
+async function markFaireSuccess(jobId: string): Promise<void> {
+  const outcome: TargetOutcome = { ok: true };
+  await prisma.marketplaceRefreshJob.update({
+    where: { id: jobId },
+    data: {
+      status: "SUCCEEDED",
+      faireOutcome: outcome as Prisma.InputJsonValue,
+      completedAt: new Date(),
+    },
+  });
+}
+
+async function markFaireFailed(
+  jobId: string,
+  kind: "not_found" | "error",
+  message: string,
+): Promise<void> {
+  const outcome: TargetOutcome = { ok: false, kind, message };
+  await prisma.marketplaceRefreshJob.update({
+    where: { id: jobId },
+    data: {
+      status: "FAILED",
+      faireOutcome: outcome as Prisma.InputJsonValue,
       errorMessage: message,
       completedAt: new Date(),
     },

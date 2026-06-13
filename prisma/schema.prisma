@@ -146,6 +146,14 @@ model Category {
   // eFashion : ID catégorie feuille dans leur arbre 3 niveaux (top > parent > leaf).
   // Ex: 160102 = Femme > Accessoires > Bijoux > Boucles d'oreilles.
   efashionCategorieId Int?
+  // Faire : taxonomy_type.id (ex: "tx_jewelry_bracelets"). Taxonomie figée
+  // côté Faire (pas d'endpoint public exposé) — saisie manuelle depuis le
+  // portail brand Faire. Voir docs/faire-api.md §12.
+  faireTaxonomyId     String?
+  // Faire : code SH douanier (ex: "7117.19.00" pour les bijoux acier,
+  // "6109.10.00" pour t-shirts coton, etc.). Configurable par catégorie
+  // pour rester générique tous types de produits.
+  faireHsCode         String?
   subCategories       SubCategory[]
   products            Product[]
   translations        CategoryTranslation[]
@@ -219,11 +227,14 @@ model ColorTranslation {
 // Bibliothèque des codes SH (Système Harmonisé / code douanier)
 // Numéro à 6-10 chiffres + libellé court FR.
 model HsCode {
-  id        String    @id @default(cuid())
-  code      String    @unique
-  label     String
-  createdAt DateTime  @default(now())
-  products  Product[]
+  id          String    @id @default(cuid())
+  code        String    @unique
+  label       String
+  // Format Faire (avec points, ex: "7117.19.00.00"). Optionnel — si null,
+  // le code numérique brut sert de fallback lors de l'envoi à Faire.
+  faireFormat String?
+  createdAt   DateTime  @default(now())
+  products    Product[]
 }
 
 // Pays de fabrication
@@ -234,6 +245,11 @@ model ManufacturingCountry {
   pfsCountryRef        String?                           @unique // PFS country reference (ISO code)
   // eFashion : ID provenance (ex: 1 = Chine, 11 = ?). Pas un code ISO, juste un ID interne.
   efashionProvenanceId Int?
+  // Faire : code alpha-3 ISO 3166 (ex: "CHN", "FRA", "PRT"). Optionnel — si
+  // null, le site convertit `isoCode` (alpha-2) en alpha-3 via la table
+  // embarquée `lib/faire-country.ts`. Si l'auto-conversion échoue, fallback
+  // global "CHN". Saisi à la main dans la modale pays.
+  faireCountryCode     String?
   createdAt            DateTime                          @default(now())
   products             Product[]
   translations         ManufacturingCountryTranslation[]
@@ -275,14 +291,17 @@ model SeasonTranslation {
 
 // Bibliothèque de compositions (matériaux)
 model Composition {
-  id                String                   @id @default(cuid())
-  name              String                   @unique
-  pfsCompositionRef String? // Référence composition PFS (ex: "ACIERINOXYDABLE") — pour reverse sync
+  id                  String                   @id @default(cuid())
+  name                String                   @unique
+  pfsCompositionRef   String? // Référence composition PFS (ex: "ACIERINOXYDABLE") — pour reverse sync
   // eFashion : ID composition (autocomplete via /shootings/get-composition-autocomplete)
-  efashionId        Int?
-  createdAt         DateTime                 @default(now())
-  products          ProductComposition[]
-  translations      CompositionTranslation[]
+  efashionId          Int?
+  // Faire : libellé matériau en anglais (ex: "Stainless Steel 316L"). Faire
+  // accepte un tableau de chaînes libres dans `materials[]`. Saisi à la main.
+  faireMaterialLabel  String?
+  createdAt           DateTime                 @default(now())
+  products            ProductComposition[]
+  translations        CompositionTranslation[]
 }
 
 model CompositionTranslation {
@@ -426,6 +445,13 @@ model Product {
   efashionLastSyncSnapshot Json?
   efashionLastRefreshedAt  DateTime?
 
+  // Faire — marketplace B2B (cf. docs/faire-api.md). Auth via clé API simple
+  // (X-FAIRE-ACCESS-TOKEN). `faireProductId` = "p_xxx" attribué par Faire à la
+  // création. Snapshot pour le diff incrémental, même pattern que PFS.
+  faireProductId        String?
+  faireLastSyncSnapshot Json?
+  faireLastRefreshedAt  DateTime?
+
   // Drapeaux "Synchronisation nécessaire" — passés à true quand un changement
   // local n'a pas été propagé au marketplace correspondant (save sans cocher
   // la case marketplace dans la modale de save, ou ajout d'image en arrière-plan).
@@ -435,6 +461,7 @@ model Product {
   pfsSyncRequired      Boolean @default(false)
   ankorsSyncRequired   Boolean @default(false)
   efashionSyncRequired Boolean @default(false)
+  faireSyncRequired    Boolean @default(false)
 
   // Performance indexes for 78k+ products
   @@index([status, createdAt]) // catalog listing (default sort)
@@ -450,6 +477,7 @@ model Product {
   @@index([pfsProductId])
   @@index([ankorsProductId])
   @@index([efashionReferenceBase])
+  @@index([faireProductId])
   @@index([primaryColorId])
 }
 
@@ -511,6 +539,7 @@ enum MarketplaceJobTarget {
   PFS
   ANKORSTORE
   EFASHION
+  FAIRE
 }
 
 enum MarketplaceJobMode {
@@ -542,6 +571,7 @@ model MarketplaceRefreshJob {
   pfsOutcome        Json?
   ankorsOutcome     Json?
   efashionOutcome   Json?
+  faireOutcome      Json?
   /// Opération Ankorstore liée quand status == AWAITING_CALLBACK (suit la chaîne 2 phases)
   ankorsOperationId String?
   errorMessage      String?              @db.Text
@@ -716,6 +746,8 @@ model ProductColor {
   // Identifiant "produit-couleur" eFashion (1 ligne par couleur côté eFashion).
   // Renseigné lors de la liaison manuelle ou de la publication via shooting.
   efashionProductId   Int?
+  // Identifiant variante Faire ("po_xxx") — renseigné à la publication
+  faireVariantId      String?
   // Mapping PFS secondaire propre à cette variante (override du pfsColorRef de Color).
   // Sert à différencier 2 variantes dont les couleurs partagent le même mapping principal.
   // Doit être différent du pfsColorRef principal de la couleur sélectionnée (validé applicatif).
@@ -731,6 +763,7 @@ model ProductColor {
   @@index([pfsVariantId])
   @@index([ankorsVariantId])
   @@index([efashionProductId])
+  @@index([faireVariantId])
 }
 
 // ─────────────────────────────────────────────
@@ -741,23 +774,17 @@ model ProductColor {
 // pfsSizeRef: 1 correspondance Paris Fashion Shop par taille, obligatoire au niveau app.
 // Nullable en DB pour permettre la création batch puis mapping différé.
 model Size {
-  id                       String              @id @default(cuid())
-  name                     String              @unique
-  position                 Int                 @default(0)
-  pfsSizeRef               String?
-  // eFashion : une "déclinaison" (id_declinaison) regroupe plusieurs tailles dans
-  // des champs `d1_FR`..`d12_FR`. On stocke l'ID de la déclinaison + le nom du
-  // champ pour cette taille spécifique.
-  efashionDeclinaisonId    Int?
-  efashionDeclinaisonField String? // "d1_FR" | "d2_FR" | ... | "d12_FR"
-  variantSizes             VariantSize[]
-  packLineSizes            PackColorLineSize[] // Tailles utilisées dans une ligne de PACK multi-couleurs
-  stockMovements           StockMovement[]
-  createdAt                DateTime            @default(now())
-  updatedAt                DateTime            @updatedAt
+  id            String              @id @default(cuid())
+  name          String              @unique
+  position      Int                 @default(0)
+  pfsSizeRef    String?
+  variantSizes  VariantSize[]
+  packLineSizes PackColorLineSize[] // Tailles utilisées dans une ligne de PACK multi-couleurs
+  stockMovements StockMovement[]
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
 
   @@index([pfsSizeRef])
-  @@index([efashionDeclinaisonId])
 }
 
 // Taille × quantité dans une variante (UNIT ou PACK)

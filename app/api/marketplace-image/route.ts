@@ -10,6 +10,7 @@ import {
   ensureMinWidth,
   guessContentType,
   isSafeMarketplaceImagePath,
+  convertToJpeg,
   MIN_MARKETPLACE_WIDTH,
 } from "@/lib/marketplace-image";
 import { logger } from "@/lib/logger";
@@ -40,20 +41,23 @@ const LONG_CACHE_HEADERS = {
   "Cache-Control": "public, max-age=31536000, immutable",
 } as const;
 
-function cacheKeyFor(dbPath: string): string {
+function cacheKeyFor(dbPath: string, format: "webp" | "jpeg" = "webp"): string {
   const hash = crypto.createHash("md5").update(dbPath).digest("hex");
-  return `${CACHE_DIR}/${hash}.webp`;
+  return `${CACHE_DIR}/${hash}.${format === "jpeg" ? "jpg" : "webp"}`;
 }
 
 export async function GET(request: NextRequest) {
-  const dbPath = new URL(request.url).searchParams.get("path");
+  const url = new URL(request.url);
+  const dbPath = url.searchParams.get("path");
+  const format = url.searchParams.get("format") === "jpeg" ? "jpeg" : "webp";
 
   if (!isSafeMarketplaceImagePath(dbPath)) {
     return NextResponse.json({ error: "Chemin invalide." }, { status: 400 });
   }
 
   const sourceKey = keyFromDbPath(dbPath);
-  const cacheKey = cacheKeyFor(dbPath);
+  const cacheKey = cacheKeyFor(dbPath, format);
+  const targetContentType = format === "jpeg" ? "image/jpeg" : "image/webp";
 
   // ── 1. Cache hit ? ──────────────────────────────────────────────
   // Si on a déjà une version upscalée et qu'elle est plus récente que la
@@ -68,7 +72,7 @@ export async function GET(request: NextRequest) {
       return new NextResponse(new Uint8Array(cached), {
         status: 200,
         headers: {
-          "Content-Type": "image/webp",
+          "Content-Type": targetContentType,
           "Content-Length": String(cached.length),
           ...LONG_CACHE_HEADERS,
         },
@@ -87,16 +91,26 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Image introuvable." }, { status: 404 });
   }
 
-  // ── 3. Upscale si nécessaire ───────────────────────────────────
+  // ── 3. Upscale si nécessaire + conversion JPEG si demandée ─────
   try {
     const result = await ensureMinWidth(buffer, MIN_MARKETPLACE_WIDTH);
-    const contentType = result.resized ? "image/webp" : guessContentType(dbPath);
 
-    // Écriture du cache uniquement quand on a réellement upscalé — pas la
-    // peine de dupliquer les images déjà assez grandes. Fire-and-forget pour
-    // ne pas retarder la réponse à Ankorstore.
-    if (result.resized) {
-      void uploadFile(cacheKey, result.buffer).catch((err) =>
+    let outBuffer = result.buffer;
+    let contentType: string;
+
+    if (format === "jpeg") {
+      // Force JPEG quel que soit le format source (Faire refuse WebP).
+      outBuffer = await convertToJpeg(result.buffer);
+      contentType = "image/jpeg";
+    } else {
+      contentType = result.resized ? "image/webp" : guessContentType(dbPath);
+    }
+
+    // Écriture du cache : pour le JPEG on cache toujours (la conversion est
+    // coûteuse), pour le WebP on cache uniquement les images effectivement
+    // upscalées (les autres servies depuis le disque sont déjà rapides).
+    if (format === "jpeg" || result.resized) {
+      void uploadFile(cacheKey, outBuffer).catch((err) =>
         logger.warn("[Marketplace Image] Cache write failed", {
           path: dbPath,
           error: err,
@@ -104,11 +118,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return new NextResponse(new Uint8Array(result.buffer), {
+    return new NextResponse(new Uint8Array(outBuffer), {
       status: 200,
       headers: {
         "Content-Type": contentType,
-        "Content-Length": String(result.buffer.length),
+        "Content-Length": String(outBuffer.length),
         ...LONG_CACHE_HEADERS,
       },
     });

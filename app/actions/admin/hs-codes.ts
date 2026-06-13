@@ -25,7 +25,20 @@ const codeSchema = z
 
 const labelSchema = z.string().trim().min(1, "Le libellé est requis.");
 
-const inputSchema = z.object({ code: codeSchema, label: labelSchema });
+// Format Faire : chiffres avec points (ex: "7117.19.00.00"). Optionnel.
+const faireFormatSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{2,4}(\.\d{1,4})*$/, "Format Faire invalide (ex: 7117.19.00.00).")
+  .optional()
+  .or(z.literal(""))
+  .transform((v) => (v && v.length > 0 ? v : null));
+
+const inputSchema = z.object({
+  code: codeSchema,
+  label: labelSchema,
+  faireFormat: faireFormatSchema.optional(),
+});
 
 function invalidate() {
   revalidateTag("hs-codes", "default");
@@ -42,7 +55,11 @@ function isUniqueViolation(e: unknown): boolean {
   );
 }
 
-export async function createHsCode(input: { code: string; label: string }) {
+export async function createHsCode(input: {
+  code: string;
+  label: string;
+  faireFormat?: string;
+}) {
   await requireAdmin();
   const parsed = inputSchema.safeParse(input);
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
@@ -55,6 +72,7 @@ export async function createHsCode(input: { code: string; label: string }) {
       id: row.id,
       code: row.code,
       label: row.label,
+      faireFormat: row.faireFormat ?? null,
     };
   } catch (e: unknown) {
     if (isUniqueViolation(e)) throw new Error("Ce code SH existe déjà.");
@@ -64,7 +82,7 @@ export async function createHsCode(input: { code: string; label: string }) {
 
 export async function updateHsCode(
   id: string,
-  input: { code: string; label: string },
+  input: { code: string; label: string; faireFormat?: string },
 ) {
   await requireAdmin();
   const parsed = inputSchema.safeParse(input);

@@ -36,6 +36,26 @@ export function buildMarketplaceImageUrl(dbPath: string, baseOverride?: string):
 }
 
 /**
+ * Variante Faire : ajoute `?format=jpeg` à l'URL. Le proxy convertira le WebP
+ * en JPEG côté serveur. Faire refuse les WebP.
+ */
+export function buildFaireImageUrl(dbPath: string, baseOverride?: string): string {
+  const url = buildMarketplaceImageUrl(dbPath, baseOverride);
+  return url.includes("?") ? `${url}&format=jpeg` : `${url}?format=jpeg`;
+}
+
+/**
+ * Convertit un buffer image en JPEG (qualité 90, progressive). Utilisé par le
+ * proxy quand `?format=jpeg` est demandé — Faire et certains autres outils
+ * refusent les WebP.
+ */
+export async function convertToJpeg(source: Buffer): Promise<Buffer> {
+  return sharp(source)
+    .jpeg({ quality: 90, progressive: true, mozjpeg: true })
+    .toBuffer();
+}
+
+/**
  * Garantit que le buffer renvoyé a une largeur ≥ `minWidth`.
  *
  * - Si l'image source est déjà assez large → renvoie le buffer d'origine

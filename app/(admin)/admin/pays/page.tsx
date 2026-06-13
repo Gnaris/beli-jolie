@@ -26,6 +26,7 @@ export default async function PaysPage() {
     pfsCountryRef: c.pfsCountryRef,
     efashionProvenanceId: c.efashionProvenanceId,
     efashionProvenanceLabel: resolveProvenanceLabel(efashionLabels, c.efashionProvenanceId),
+    faireCountryCode: c.faireCountryCode ?? null,
     productCount: c._count.products,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));

@@ -88,6 +88,8 @@ interface ProductFormProps {
   ankorstoreEnabled?: boolean;
   hasEfashionConfig?: boolean;
   efashionEnabled?: boolean;
+  hasFaireConfig?: boolean;
+  faireEnabled?: boolean;
   /** Liste des couleurs PFS disponibles (pour le sélecteur de mapping secondaire). */
   pfsColorOptions?: PfsColorOption[];
   /** True when a marketplace sync is already in progress (from DB status on page load) */
@@ -125,6 +127,8 @@ interface ProductFormProps {
     ankorsProductId?: string | null;
     /** eFashion : on a une `referenceBase` plutôt qu'un id unique (1 couleur = 1 ligne) */
     efashionReferenceBase?: string | null;
+    /** Faire : id `p_xxx` du produit créé chez Faire (null = jamais publié) */
+    faireProductId?: string | null;
     /** Couleur principale du produit (refonte : ne dépend plus de la variante isPrimary) */
     primaryColorId?: string | null;
   };
@@ -445,6 +449,8 @@ export default function ProductForm({
   hasEfashionConfig = false,
   efashionEnabled = false,
   ankorstoreEnabled = false,
+  hasFaireConfig = false,
+  faireEnabled = false,
   pfsColorOptions,
   initialSyncing = false,
   initialData,
@@ -1879,8 +1885,10 @@ export default function ProductForm({
       const alreadyOnPfs = !!initialData?.pfsProductId;
       const alreadyOnAnkorstore = !!initialData?.ankorsProductId;
       const alreadyOnEfashion = !!initialData?.efashionReferenceBase;
+      const alreadyOnFaire = !!initialData?.faireProductId;
       const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
       const showEfashion = hasEfashionConfig && efashionEnabled;
+      const showFaire = hasFaireConfig && faireEnabled;
 
       // La popup marketplace s'affiche aussi pour le passage en ARCHIVED
       // (Ankorstore : on envoie stock 0 → produit non commandable, équivalent
@@ -1888,7 +1896,7 @@ export default function ProductForm({
       const canPublish =
         savedProductId &&
         !isIncomplete &&
-        (hasPfsConfig || showAnkorstore || showEfashion) &&
+        (hasPfsConfig || showAnkorstore || showEfashion || showFaire) &&
         // Garde-fou ergonomique : si seuls des champs locaux ont changé (mots-
         // clés, sous-catégories, produits similaires, contenu de l'ensemble),
         // on n'affiche pas la modale — rien à pousser aux marketplaces.
@@ -1930,6 +1938,7 @@ export default function ProductForm({
         const pfsRef = { current: false };
         const ankorstoreRef = { current: false };
         const efashionRef = { current: false };
+        const faireRef = { current: false };
         const checkboxes: {
           id: string;
           label: string;
@@ -2002,6 +2011,24 @@ export default function ProductForm({
             defaultChecked: efDefaultChecked,
             onChange: (v) => {
               efashionRef.current = v;
+            },
+          });
+        }
+
+        if (showFaire) {
+          const faireLabel = isArchivingNow && alreadyOnFaire
+            ? "Archiver aussi sur Faire (lifecycle RETIRED)"
+            : alreadyOnFaire
+              ? "Mettre à jour sur Faire"
+              : "Publier sur Faire (en brouillon)";
+          const faireDefaultChecked = !isArchivingNow || alreadyOnFaire;
+          faireRef.current = faireDefaultChecked;
+          checkboxes.push({
+            id: "faire",
+            label: faireLabel,
+            defaultChecked: faireDefaultChecked,
+            onChange: (v) => {
+              faireRef.current = v;
             },
           });
         }
@@ -2083,6 +2110,17 @@ export default function ProductForm({
             } else {
               void addToEfashionShootingBatch(savedProductId, "PUBLISH");
             }
+          }
+          if (faireRef.current) {
+            inputs.push({
+              productId: savedProductId,
+              reference: payload.reference,
+              productName: payload.name,
+              firstImage: firstImagePath,
+              options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+              mode: "publish",
+              marketplace: "faire",
+            });
           }
           if (inputs.length > 0) enqueuePublish(inputs);
         }

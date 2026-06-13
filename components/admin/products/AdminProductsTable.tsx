@@ -557,6 +557,98 @@ function EfashionBadge({
   );
 }
 
+function FaireBadge({
+  published,
+  publishing = false,
+  syncRequired = false,
+  onPublishClick,
+  onSyncClick,
+}: {
+  published: boolean;
+  publishing?: boolean;
+  syncRequired?: boolean;
+  onPublishClick?: () => void;
+  onSyncClick?: () => void;
+}) {
+  if (publishing) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FCE7F3] text-[#9D174D] border border-[#FBCFE8]"
+        title="Publication Faire en cours…"
+      >
+        <svg
+          className="w-2.5 h-2.5 animate-spin"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={2.5}
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+        </svg>
+        Faire en cours…
+      </span>
+    );
+  }
+  if (published && syncRequired) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSyncClick?.();
+        }}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+        title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Faire"
+      >
+        <span className="relative inline-flex">
+          <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
+          <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+        </span>
+        Faire · Synchro
+      </button>
+    );
+  }
+  if (published) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+        title="Publié sur Faire"
+      >
+        <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
+        Faire
+      </span>
+    );
+  }
+  if (onPublishClick) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onPublishClick();
+        }}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
+        title="Cliquer pour publier ce produit sur Faire"
+      >
+        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        Faire
+      </button>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
+      title="Non publié sur Faire"
+    >
+      <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
+      Faire
+    </span>
+  );
+}
+
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface VariantSizeEntry {
@@ -596,11 +688,13 @@ interface AdminProduct {
   firstImage: string | null;
   pfsProductId: string | null;
   ankorsProductId: string | null;
+  faireProductId: string | null;
   /** Drapeaux « Synchronisation nécessaire » pilotés par le save produit et le
    *  worker image. Affiche un badge orange cliquable pour pousser la modif. */
   pfsSyncRequired: boolean;
   ankorsSyncRequired: boolean;
   efashionSyncRequired: boolean;
+  faireSyncRequired: boolean;
   colors: ColorVariant[];
   translations: ProductTranslation[];
 }
@@ -614,6 +708,8 @@ interface Props {
   ankorstoreEnabled: boolean;
   hasEfashionConfig: boolean;
   efashionEnabled: boolean;
+  hasFaireConfig: boolean;
+  faireEnabled: boolean;
   /** Listes pour la modale d'édition en masse (catégorie, code SH, etc.) */
   bulkEditOptions: BulkEditOptions;
 }
@@ -1312,6 +1408,8 @@ function ProductRow({
   ankorstoreEnabled,
   hasEfashionConfig,
   efashionEnabled,
+  hasFaireConfig,
+  faireEnabled,
   selected,
   onToggle,
   expanded,
@@ -1331,6 +1429,8 @@ function ProductRow({
   ankorstoreEnabled: boolean;
   hasEfashionConfig: boolean;
   efashionEnabled: boolean;
+  hasFaireConfig: boolean;
+  faireEnabled: boolean;
   selected: boolean;
   onToggle: () => void;
   expanded: boolean;
@@ -1357,6 +1457,7 @@ function ProductRow({
   const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const showEfashion = hasEfashionConfig && efashionEnabled;
+  const showFaire = hasFaireConfig && faireEnabled;
   const efashionLinked = product.colors.some((c) => c.efashionProductId != null);
   const { refreshSingle } = useRefreshMarketplaceDialog({
     showPfs: hasPfsConfig,
@@ -1390,6 +1491,15 @@ function ProductRow({
   );
   const [pendingEfashionEnqueue, setPendingEfashionEnqueue] = useState(false);
   const isEfashionPublishing = efashionBadgeState.loading || pendingEfashionEnqueue;
+
+  const faireOp = findLatestOpForProduct(queueItems, product.id, "faire");
+  const faireBadgeState = computeMarketplaceBadgeState(
+    product.faireProductId,
+    faireOp,
+    "faire",
+  );
+  const [pendingFaireEnqueue, setPendingFaireEnqueue] = useState(false);
+  const isFairePublishing = faireBadgeState.loading || pendingFaireEnqueue;
 
   // Demande la création d'une nouvelle fiche sur PFS — même logique que pour
   // Ankorstore mais sans la possibilité de "lier à existant" (pas de modale).
@@ -1527,6 +1637,49 @@ function ProductRow({
       setPendingEfashionEnqueue(false);
     }
   }, [pendingEfashionEnqueue, efashionBadgeState.loading]);
+  useEffect(() => {
+    if (pendingFaireEnqueue && faireBadgeState.loading) {
+      setPendingFaireEnqueue(false);
+    }
+  }, [pendingFaireEnqueue, faireBadgeState.loading]);
+
+  const handlePublishFaire = useCallback(async () => {
+    if (isFairePublishing) return;
+    const ok = await confirm({
+      type: "warning",
+      title: "Publier sur Faire ?",
+      message: `"${product.name}" (${product.reference}) n'est pas encore sur Faire. Une nouvelle fiche brouillon y sera créée avec les infos, photos, prix et stock actuels du produit.`,
+      confirmLabel: "Oui, publier",
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+    setPendingFaireEnqueue(true);
+    enqueue([
+      {
+        productId: product.id,
+        reference: product.reference,
+        productName: product.name,
+        firstImage: product.firstImage,
+        options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+        mode: "publish",
+        marketplace: "faire",
+      },
+    ]);
+  }, [confirm, enqueue, product, isFairePublishing]);
+
+  const handleSyncFaire = useCallback(() => {
+    if (isFairePublishing) return;
+    setPendingFaireEnqueue(true);
+    enqueue([{
+      productId: product.id,
+      reference: product.reference,
+      productName: product.name,
+      firstImage: product.firstImage,
+      options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+      mode: "resync",
+      marketplace: "faire",
+    }]);
+  }, [enqueue, product, isFairePublishing]);
 
   // Toutes les couleurs uniques attribuées au produit (UNIT + PACK confondus).
   const uniqueColors = [...new Map(product.colors
@@ -1846,6 +1999,19 @@ function ProductRow({
                       : undefined
                   }
                   onSyncClick={handleSyncEfashion}
+                />
+              )}
+              {showFaire && (
+                <FaireBadge
+                  published={!!product.faireProductId}
+                  publishing={isFairePublishing}
+                  syncRequired={product.faireSyncRequired && !isFairePublishing}
+                  onPublishClick={
+                    !product.faireProductId && !isFairePublishing
+                      ? () => { void handlePublishFaire(); }
+                      : undefined
+                  }
+                  onSyncClick={handleSyncFaire}
                 />
               )}
             </div>
@@ -2351,7 +2517,7 @@ function BulkVariantBar({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, startIndex, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, deletingIds, onRowStatus, onRowDelete, onRowSync,
+  products, startIndex, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, deletingIds, onRowStatus, onRowDelete, onRowSync,
 }: {
   products: AdminProduct[];
   startIndex: number;
@@ -2360,6 +2526,8 @@ function TableWithTopScroll({
   ankorstoreEnabled: boolean;
   hasEfashionConfig: boolean;
   efashionEnabled: boolean;
+  hasFaireConfig: boolean;
+  faireEnabled: boolean;
   selectedIds: Set<string>;
   allSelected: boolean;
   toggleSelectAll: () => void;
@@ -2469,6 +2637,8 @@ function TableWithTopScroll({
                 ankorstoreEnabled={ankorstoreEnabled}
                 hasEfashionConfig={hasEfashionConfig}
                 efashionEnabled={efashionEnabled}
+                hasFaireConfig={hasFaireConfig}
+                faireEnabled={faireEnabled}
                 selected={selectedIds.has(product.id)}
                 onToggle={() => toggleSelect(product.id)}
                 expanded={expandedIds.has(product.id)}
@@ -2500,6 +2670,8 @@ export default function AdminProductsTable({
   ankorstoreEnabled,
   hasEfashionConfig,
   efashionEnabled,
+  hasFaireConfig,
+  faireEnabled,
   bulkEditOptions,
 }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -3686,7 +3858,7 @@ export default function AdminProductsTable({
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
+      <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (

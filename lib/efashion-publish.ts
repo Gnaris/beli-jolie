@@ -107,7 +107,7 @@ export async function efashionPublishProduct(
             select: {
               quantity: true,
               size: {
-                select: { id: true, name: true, efashionDeclinaisonId: true },
+                select: { id: true, name: true },
               },
             },
             orderBy: { size: { position: "asc" } },
@@ -171,8 +171,9 @@ export async function efashionPublishProduct(
   }
 
   // Validations centralisées — on liste TOUT ce qui manque pour donner un retour clair.
-  // ⚠️ Les tailles ne sont PLUS validées au niveau Size.efashionDeclinaisonId :
-  // la déclinaison est résolue dynamiquement (cf. resolveEfashionDeclinaison ci-dessous).
+  // Les tailles ne sont pas validées ici : la « déclinaison » eFashion (série
+  // de tailles) est résolue dynamiquement (cf. resolveEfashionDeclinaison
+  // ci-dessous) — réutilisée si existante, créée à la volée sinon.
   const missing: string[] = [];
   if (!product.category?.efashionCategorieId)
     missing.push(`catégorie « ${product.category?.name ?? "?"} » sans id eFashion`);

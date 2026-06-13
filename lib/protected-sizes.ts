@@ -37,10 +37,6 @@ export interface SizeManagerItem {
   position: number;
   variantCount: number;
   pfsSizeRef: string | null;
-  efashionDeclinaisonId?: number | null;
-  efashionDeclinaisonField?: string | null;
-  /** Libellé résolu eFashion (ex : "Bagues / taille_50"). Affichage seulement. */
-  efashionLabel?: string | null;
 }
 
 /** Same as withProtectedSize but for the admin SizesManager item shape. */
@@ -53,8 +49,6 @@ export function withProtectedSizeItem(items: SizeManagerItem[]): SizeManagerItem
       position: 0,
       variantCount: 0,
       pfsSizeRef: PROTECTED_SIZE_PFS_REF,
-      efashionDeclinaisonId: null,
-      efashionDeclinaisonField: null,
     },
     ...items,
   ];

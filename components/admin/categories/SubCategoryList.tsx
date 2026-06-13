@@ -9,6 +9,7 @@ import {
   deleteSubCategory,
   updateCategoryDirect,
   updateCategoryPfsTaxonomy,
+  updateCategoryFaireTaxonomy,
   updateSubCategoryDirect,
 } from "@/app/actions/admin/categories";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
@@ -31,6 +32,7 @@ interface Category {
   efashionCategorieId?: number | null;
   /** Libellé résolu de la catégorie eFashion (ex : "Femme > Bijoux > Bracelets"). */
   efashionCategorieLabel?: string | null;
+  faireTaxonomyId?: string | null;
   productCount: number;
   translations: Record<string, string>;
   subCategories: SubCategoryItem[];
@@ -80,6 +82,7 @@ export default function CategoriesManager({ categories }: { categories: Category
     _hex?: string,
     _patternImage?: string | null,
     pfs?: { ref?: string; pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null },
+    faire?: { taxonomyId?: string | null },
   ) {
     if (!editCat) return;
     await updateCategoryDirect(editCat.id, name, translations);
@@ -88,6 +91,10 @@ export default function CategoriesManager({ categories }: { categories: Category
     const newCategory = pfs?.pfsCategoryName ?? null;
     if (newGender !== editCat.pfsGender || newFamily !== editCat.pfsFamilyName || newCategory !== editCat.pfsCategoryName) {
       await updateCategoryPfsTaxonomy(editCat.id, newGender, newFamily, newCategory);
+    }
+    const newFaireTaxonomy = faire?.taxonomyId ?? null;
+    if (newFaireTaxonomy !== (editCat.faireTaxonomyId ?? null)) {
+      await updateCategoryFaireTaxonomy(editCat.id, newFaireTaxonomy);
     }
     router.refresh();
   }
@@ -180,6 +187,7 @@ export default function CategoriesManager({ categories }: { categories: Category
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Traduction</th>
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Paris Fashion Shop</th>
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">eFashion</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden lg:table-cell">Faire</th>
                   <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Actions</th>
                 </tr>
               </thead>
@@ -279,6 +287,13 @@ export default function CategoriesManager({ categories }: { categories: Category
                             title={cat.efashionCategorieId != null ? `id ${cat.efashionCategorieId}` : undefined}
                           />
                         </td>
+                        {/* Faire — taxonomy_type.id (édité depuis la modale catégorie) */}
+                        <td className="px-4 py-3 hidden lg:table-cell" onClick={(e) => e.stopPropagation()}>
+                          <MarketplaceMappingBadge
+                            value={cat.faireTaxonomyId ?? null}
+                            title={cat.faireTaxonomyId ?? undefined}
+                          />
+                        </td>
                         {/* Actions */}
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-0.5">
@@ -312,7 +327,7 @@ export default function CategoriesManager({ categories }: { categories: Category
                       {/* Subcategory drawer */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={8} className="p-0">
+                          <td colSpan={9} className="p-0">
                             <div className="bg-bg-tertiary/50 border-t border-border px-6 py-4">
                               <div className="flex items-center justify-between mb-3">
                                 <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-heading">
@@ -420,6 +435,7 @@ export default function CategoriesManager({ categories }: { categories: Category
             pfsFamilyName: isSalesforceId(editCat.pfsFamilyName) ? null : editCat.pfsFamilyName,
             pfsCategoryName: editCat.pfsCategoryName,
             efashionCurrentId: editCat.efashionCategorieId ?? null,
+            faireCurrentTaxonomyId: editCat.faireTaxonomyId ?? null,
             onSave: handleSaveCat,
           }}
         />

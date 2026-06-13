@@ -33,6 +33,10 @@ export interface MarketplaceRefreshOutcome {
     | { status: "queued"; operationId: string }
     | { status: "not_found"; message: string }
     | { status: "error"; message: string };
+  faire?:
+    | { status: "ok" }
+    | { status: "not_found"; message: string }
+    | { status: "error"; message: string };
 }
 
 export interface MarketplaceRefreshOptions {
@@ -40,6 +44,7 @@ export interface MarketplaceRefreshOptions {
   pfs: boolean; // Re-push to PFS (create new + soft-delete old)
   ankorstore?: boolean; // Re-push to Ankorstore (Phase 4)
   efashion?: boolean; // Re-push to eFashion Paris (Lot 3 = update / Lot 5 = refresh complet)
+  faire?: boolean; // Re-push to Faire (3.B)
 }
 
 async function refreshLocal(productId: string): Promise<void> {
@@ -139,6 +144,31 @@ export async function refreshProductOnMarketplaces(
           error: message,
         });
         outcome.ankorstore = { status: "error", message };
+      }
+    }
+  }
+
+  if (options.faire) {
+    const { getCachedFaireEnabled } = await import("@/lib/cached-data");
+    const faireEnabled = await getCachedFaireEnabled();
+    if (!faireEnabled) {
+      outcome.faire = {
+        status: "error",
+        message: "Sync Faire désactivée dans Paramètres.",
+      };
+    } else {
+      try {
+        const { faireRefreshProduct } = await import("@/lib/faire-refresh");
+        const res = await faireRefreshProduct(productId);
+        if (res.success) {
+          outcome.faire = { status: "ok" };
+        } else {
+          outcome.faire = { status: "error", message: res.error };
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error("[Marketplace Refresh] Faire unexpected error", { productId, error: message });
+        outcome.faire = { status: "error", message };
       }
     }
   }
@@ -250,6 +280,7 @@ export async function refreshProductsOnMarketplaces(
         local: { status: "skipped" },
         pfs: options.pfs ? { status: "error", message } : undefined,
         ankorstore: options.ankorstore ? { status: "error", message } : undefined,
+        faire: options.faire ? { status: "error", message } : undefined,
       });
     }
   }

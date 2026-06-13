@@ -5,6 +5,7 @@ import {
   updatePfsCredentials, validatePfsCredentials,
   updateAnkorstoreCredentials, validateAnkorstoreCredentials, toggleAnkorstoreEnabled,
   updateEfashionCredentials, validateEfashionCredentials, toggleEfashionEnabled,
+  updateFaireCredentials, validateFaireCredentials, toggleFaireEnabled,
   updateMarketplaceMarkup,
   loadPfsBrands, updatePfsBrand,
 } from "@/app/actions/admin/site-config";
@@ -25,6 +26,8 @@ interface Props {
   ankorstoreEnabled: boolean;
   hasEfashionConfig: boolean;
   efashionEnabled: boolean;
+  hasFaireConfig: boolean;
+  faireEnabled: boolean;
   markupSettings: {
     pfs: MarkupState;
     ankorstoreWholesale: MarkupState;
@@ -32,6 +35,8 @@ interface Props {
     ankorstoreVatRate: number;
     efashion: MarkupState;
     microstore: MarkupState;
+    faireWholesale: MarkupState;
+    faireRetail: MarkupState;
   };
 }
 
@@ -224,6 +229,8 @@ export default function MarketplaceConfig({
   ankorstoreEnabled: initialAnkorstoreEnabled,
   hasEfashionConfig,
   efashionEnabled: initialEfashionEnabled,
+  hasFaireConfig,
+  faireEnabled: initialFaireEnabled,
   markupSettings,
 }: Props) {
   // ── PFS state ──────────────────────────────────────────────────────────────
@@ -306,6 +313,19 @@ export default function MarketplaceConfig({
   const [efashionMarkup, setEfashionMarkup] = useState<MarkupState>(markupSettings.efashion);
   const [efashionVendor, setEfashionVendor] = useState<{ id: number; name: string } | null>(null);
 
+  // ── Faire state ─────────────────────────────────────────────────────────────
+  const [faireApiKey, setFaireApiKey] = useState("");
+  const [faireStatus, setFaireStatus] = useState<"none" | "valid" | "invalid" | "checking">(
+    hasFaireConfig ? "valid" : "none"
+  );
+  const [faireEditing, setFaireEditing] = useState(!hasFaireConfig);
+  const [isSavingFaire, startSavingFaire] = useTransition();
+  const [isValidatingFaire, startValidatingFaire] = useTransition();
+  const [isTogglingFaire, startTogglingFaire] = useTransition();
+  const [faireEnabled, setFaireEnabled] = useState(initialFaireEnabled);
+  const [faireWholesale, setFaireWholesale] = useState<MarkupState>(markupSettings.faireWholesale);
+  const [faireRetail, setFaireRetail] = useState<MarkupState>(markupSettings.faireRetail);
+
   // ── Microstore state (export Excel uniquement — pas de credentials) ──────────
   const [microstoreMarkup, setMicrostoreMarkup] = useState<MarkupState>(markupSettings.microstore);
 
@@ -317,6 +337,7 @@ export default function MarketplaceConfig({
   const isPendingPfs = isSavingPfs || isValidatingPfs;
   const isPendingAnkorstore = isSavingAnkorstore || isValidatingAnkorstore;
   const isPendingEfashion = isSavingEfashion || isValidatingEfashion;
+  const isPendingFaire = isSavingFaire || isValidatingFaire;
 
   // ── PFS handlers ────────────────────────────────────────────────────────────
   function handlePfsValidate() {
@@ -497,6 +518,62 @@ export default function MarketplaceConfig({
     });
   }
 
+  // ── Faire handlers ──────────────────────────────────────────────────────────
+  function handleFaireValidate() {
+    if (!faireApiKey.trim()) return;
+    showLoading();
+    startValidatingFaire(async () => {
+      try {
+        setFaireStatus("checking");
+        const result = await validateFaireCredentials({ apiKey: faireApiKey.trim() });
+        if (result.valid) {
+          setFaireStatus("valid");
+          toast.success("Connexion réussie", "Clé API Faire valide.");
+        } else {
+          setFaireStatus("invalid");
+          toast.error("Connexion échouée", result.error ?? "Clé invalide.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handleFaireSave() {
+    showLoading();
+    startSavingFaire(async () => {
+      try {
+        const result = await updateFaireCredentials({ apiKey: faireApiKey.trim() });
+        if (result.success) {
+          toast.success("Enregistré", "Clé API Faire sauvegardée.");
+          setFaireEditing(false);
+          setFaireApiKey("");
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handleToggleFaire(checked: boolean) {
+    startTogglingFaire(async () => {
+      const result = await toggleFaireEnabled(checked);
+      if (result.success) {
+        setFaireEnabled(checked);
+        toast.success(
+          checked ? "Faire activé" : "Faire désactivé",
+          checked
+            ? "La synchronisation Faire est maintenant active."
+            : "La synchronisation Faire est maintenant désactivée."
+        );
+      } else {
+        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      }
+    });
+  }
+
   // ── Markup save ─────────────────────────────────────────────────────────────
   function handleSaveMarkup() {
     showLoading();
@@ -509,6 +586,8 @@ export default function MarketplaceConfig({
           ankorstoreVatRate: ankorstoreVatRate,
           efashion: efashionMarkup,
           microstore: microstoreMarkup,
+          faireWholesale: faireWholesale,
+          faireRetail: faireRetail,
         });
         if (result.success) {
           toast.success("Enregistré", "Majorations marketplace sauvegardées.");
@@ -1022,6 +1101,140 @@ export default function MarketplaceConfig({
               </p>
             </div>
             <MarkupRow label="Prix de gros" state={efashionMarkup} onChange={setEfashionMarkup} />
+          </div>
+        </div>
+
+        {/* ── Faire card ──────────────────────────────────────────────────── */}
+        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
+                <IconShop className="w-[18px] h-[18px] text-text-primary" />
+              </div>
+              <div>
+                <h3 className="font-heading text-sm font-semibold text-text-primary leading-tight">
+                  Faire
+                </h3>
+                <div className="mt-0.5">
+                  <StatusBadge status={faireStatus} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Toggle activation */}
+          <div className="px-5 pt-4 pb-3 border-b border-border/60">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={faireEnabled}
+                  disabled={isTogglingFaire}
+                  onChange={(e) => handleToggleFaire(e.target.checked)}
+                />
+                <div className="w-10 h-6 rounded-full border border-border bg-bg-secondary peer-checked:bg-bg-dark peer-checked:border-bg-dark transition-colors" />
+                <div className="absolute top-1 left-1 w-4 h-4 rounded-full bg-text-muted peer-checked:bg-text-inverse peer-checked:translate-x-4 transition-all" />
+              </div>
+              <span className="font-body text-sm font-medium text-text-primary">
+                Activer la sync Faire
+              </span>
+              {isTogglingFaire && <IconLoader className="w-4 h-4 text-text-muted" />}
+            </label>
+          </div>
+
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-2 mb-3">
+              <IconKey className="w-4 h-4 text-text-muted" />
+              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                Connexion
+              </p>
+            </div>
+
+            {!faireEditing && hasFaireConfig ? (
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-secondary/60">
+                <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
+                  ••••••••••••••••
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFaireEditing(true)}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+                >
+                  <IconPencil className="w-3.5 h-3.5" />
+                  Modifier
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <div>
+                  <label className="font-body text-[11px] text-text-muted mb-1 block">Clé API</label>
+                  <input
+                    type="password"
+                    value={faireApiKey}
+                    onChange={(e) => {
+                      setFaireApiKey(e.target.value);
+                      if (faireStatus === "valid" || faireStatus === "invalid") setFaireStatus("none");
+                    }}
+                    placeholder="••••••••••••••••••••••••••••••••"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+                    disabled={isPendingFaire}
+                    autoComplete="off"
+                  />
+                  <p className="mt-1 font-body text-[11px] text-text-muted">
+                    Disponible dans votre portail Faire : Settings → Integrations → « Generate API key ».
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleFaireValidate}
+                    disabled={isPendingFaire || !faireApiKey.trim()}
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
+                  >
+                    {isValidatingFaire ? (
+                      <><IconLoader className="w-3.5 h-3.5" /> Vérification…</>
+                    ) : (
+                      <><IconCheck className="w-3.5 h-3.5" /> Tester la connexion</>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleFaireSave}
+                    disabled={isPendingFaire || !faireApiKey.trim() || faireStatus !== "valid"}
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+                  >
+                    {isSavingFaire ? "Enregistrement…" : "Sauvegarder"}
+                  </button>
+                  {hasFaireConfig && (
+                    <button
+                      type="button"
+                      onClick={() => { setFaireEditing(false); setFaireApiKey(""); setFaireStatus("valid"); }}
+                      disabled={isPendingFaire}
+                      className="inline-flex items-center gap-1 h-9 px-3 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
+                    >
+                      <IconX className="w-3.5 h-3.5" />
+                      Annuler
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <IconTag className="w-4 h-4 text-text-muted" />
+              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                Majoration des prix
+              </p>
+            </div>
+            <MarkupRow label="Prix de gros" state={faireWholesale} onChange={setFaireWholesale} />
+            <MarkupRow label="Prix public conseillé" state={faireRetail} onChange={setFaireRetail} />
+            <p className="font-body text-[11px] text-text-muted leading-relaxed">
+              Faire impose un prix public ≥ 2× le prix de gros. Le système ajuste
+              automatiquement à la hausse si la majoration retail tombe sous ce seuil.
+            </p>
           </div>
         </div>
 

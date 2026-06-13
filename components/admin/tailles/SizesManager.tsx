@@ -23,9 +23,6 @@ interface SizeItem {
   position: number;
   variantCount: number;
   pfsSizeRef: string | null;
-  efashionDeclinaisonId?: number | null;
-  efashionDeclinaisonField?: string | null;
-  efashionLabel?: string | null;
 }
 
 interface PfsSizeOption {
@@ -107,17 +104,7 @@ export default function SizesManager({
         const created = await createSize(trimmedName, newPfsRef);
         setNewName("");
         setNewPfsRef("");
-        toast.success(`Taille « ${created.name} » créée — ajoutez maintenant le mapping eFashion.`);
-        // Auto-ouvre la modale Marketplaces pour proposer le mapping eFashion à chaud
-        setMappingModal({
-          id: created.id,
-          name: created.name,
-          position: 0,
-          variantCount: 0,
-          pfsSizeRef: created.pfsSizeRef,
-          efashionDeclinaisonId: null,
-          efashionDeclinaisonField: null,
-        });
+        toast.success(`Taille « ${created.name} » créée.`);
         router.refresh();
       } catch (err: unknown) {
         const message = (err as Error).message;
@@ -405,24 +392,20 @@ export default function SizesManager({
                         </div>
                       </div>
 
-                      {/* Badges PFS + eFashion (mapping via modale dédiée) */}
+                      {/* Badge PFS (mapping via modale dédiée) */}
                       {!isProtected && pfsEnabled && (
                         <div className="shrink-0 flex items-center gap-1.5 flex-wrap">
                           <MarketplaceMappingBadge value={size.pfsSizeRef} title="Paris Fashion Shop" />
-                          <MarketplaceMappingBadge
-                            value={size.efashionLabel ?? (size.efashionDeclinaisonId != null ? `décl. ${size.efashionDeclinaisonId} / ${size.efashionDeclinaisonField}` : null)}
-                            title={size.efashionDeclinaisonId != null ? `eFashion · décl. ${size.efashionDeclinaisonId} / ${size.efashionDeclinaisonField}` : "eFashion"}
-                          />
                           <button
                             type="button"
                             onClick={() => setMappingModal(size)}
                             className="inline-flex items-center gap-1 h-7 px-2.5 text-[11px] font-body font-medium rounded-md border border-border bg-bg-secondary text-text-secondary hover:bg-bg-tertiary transition-colors"
-                            title="Modifier la correspondance Marketplaces"
+                            title="Modifier la correspondance Paris Fashion Shop"
                           >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
                             </svg>
-                            Mapping Marketplaces
+                            Mapping PFS
                           </button>
                         </div>
                       )}
@@ -474,8 +457,6 @@ export default function SizesManager({
           sizeId={mappingModal.id}
           sizeName={mappingModal.name}
           pfsRef={mappingModal.pfsSizeRef}
-          efashionDeclinaisonId={mappingModal.efashionDeclinaisonId ?? null}
-          efashionDeclinaisonField={mappingModal.efashionDeclinaisonField ?? null}
           pfsOptions={pfsSizes}
           pfsEnabled={pfsEnabled}
           onSavePfsRef={async (sizeId, ref) => {

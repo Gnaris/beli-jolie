@@ -8,7 +8,7 @@ import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import {
@@ -24,7 +24,6 @@ import {
   resolveCompositionLabel,
   resolveProvenanceLabel,
   resolveCollectionLabel,
-  resolveDeclinaisonLabel,
 } from "@/lib/efashion-labels";
 
 // Attribute managers
@@ -209,6 +208,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     ankorstoreEnabled,
     hasEfashionConfig,
     efashionEnabled,
+    hasFaireConfig,
+    faireEnabled,
   ] = await Promise.all([
     prisma.product.findMany({
       where,
@@ -275,6 +276,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     getCachedAnkorstoreEnabled(),
     getCachedHasEfashionConfig(),
     getCachedEfashionEnabled(),
+    getCachedHasFaireConfig(),
+    getCachedFaireEnabled(),
   ]);
 
   const totalPages = Math.ceil(totalCount / perPage);
@@ -315,9 +318,11 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     firstImage:      pickFirstImage({ primaryColorId: p.primaryColorId, colors: p.colors }, colorImagePath),
     pfsProductId:    p.pfsProductId,
     ankorsProductId: p.ankorsProductId,
+    faireProductId:  p.faireProductId,
     pfsSyncRequired:      p.pfsSyncRequired,
     ankorsSyncRequired:   p.ankorsSyncRequired,
     efashionSyncRequired: p.efashionSyncRequired,
+    faireSyncRequired:    p.faireSyncRequired,
     colors:          p.colors.map((c) => ({
       id:                c.id,
       colorId:           c.colorId ?? "",
@@ -434,6 +439,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         ankorstoreEnabled={ankorstoreEnabled}
         hasEfashionConfig={hasEfashionConfig}
         efashionEnabled={efashionEnabled}
+        hasFaireConfig={hasFaireConfig}
+        faireEnabled={faireEnabled}
         bulkEditOptions={{
           categories: categories.map((c) => ({
             id: c.id,
@@ -710,6 +717,7 @@ async function CodesShContent() {
     id: r.id,
     code: r.code,
     label: r.label,
+    faireFormat: r.faireFormat ?? null,
     productCount: r._count.products,
   }));
 
@@ -733,7 +741,7 @@ async function CodesShContent() {
    TAB: Tailles
    ═══════════════════════════════════════════════════════════════════════════ */
 async function TaillesContent() {
-  const [sizes, annexes, efashionLabels] = await Promise.all([
+  const [sizes, annexes] = await Promise.all([
     prisma.size.findMany({
       orderBy: { position: "asc" },
       include: {
@@ -741,7 +749,6 @@ async function TaillesContent() {
       },
     }),
     getPfsAnnexes().catch(() => null),
-    getEfashionLabelMaps(),
   ]);
 
   const pfsSizes = (annexes?.sizes ?? []).map((ref) => ({ reference: ref, label: ref }));
@@ -753,13 +760,6 @@ async function TaillesContent() {
       position: s.position,
       variantCount: s._count.variantSizes,
       pfsSizeRef: s.pfsSizeRef,
-      efashionDeclinaisonId: s.efashionDeclinaisonId,
-      efashionDeclinaisonField: s.efashionDeclinaisonField,
-      efashionLabel: resolveDeclinaisonLabel(
-        efashionLabels,
-        s.efashionDeclinaisonId,
-        s.efashionDeclinaisonField,
-      ),
     })),
   );
 

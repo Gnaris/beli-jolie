@@ -253,6 +253,7 @@ async function maybeMarkProductSyncRequired(productId: string): Promise<void> {
       pfsProductId: true,
       ankorsProductId: true,
       efashionReferenceBase: true,
+      faireProductId: true,
     },
   });
   if (!product) return;
@@ -261,6 +262,7 @@ async function maybeMarkProductSyncRequired(productId: string): Promise<void> {
   if (product.pfsProductId) data.pfsSyncRequired = true;
   if (product.ankorsProductId) data.ankorsSyncRequired = true;
   if (product.efashionReferenceBase) data.efashionSyncRequired = true;
+  if (product.faireProductId) data.faireSyncRequired = true;
 
   if (Object.keys(data).length === 0) return;
   await prisma.product.update({ where: { id: productId }, data });
@@ -269,6 +271,7 @@ async function maybeMarkProductSyncRequired(productId: string): Promise<void> {
     pfs: !!data.pfsSyncRequired,
     ankorstore: !!data.ankorsSyncRequired,
     efashion: !!data.efashionSyncRequired,
+    faire: !!data.faireSyncRequired,
   });
 }
 

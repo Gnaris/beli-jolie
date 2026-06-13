@@ -63,6 +63,14 @@ const MARKETPLACE_META: Record<
     dot: "bg-[#2563EB]",
     accent: "text-[#2563EB]",
   },
+  faire: {
+    label: "Faire",
+    badgeBg: "bg-[#FCE7F3]",
+    badgeText: "text-[#9D174D]",
+    badgeBorder: "border-[#FBCFE8]",
+    dot: "bg-[#DB2777]",
+    accent: "text-[#DB2777]",
+  },
 };
 
 function getActionVerb(mode: MarketplaceRefreshItem["mode"]): string {
@@ -669,6 +677,7 @@ export function MarketplaceRefreshWidget() {
                 pfs: 0,
                 ankorstore: 1,
                 efashion: 2,
+                faire: 3,
               };
               return order[a.marketplace] - order[b.marketplace];
             });

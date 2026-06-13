@@ -652,6 +652,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       pfsProductId: true,
       ankorsProductId: true,
       efashionReferenceBase: true,
+      faireProductId: true,
     },
   });
 
@@ -1225,6 +1226,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       if (oldProduct.pfsProductId) flagsData.pfsSyncRequired = true;
       if (oldProduct.ankorsProductId) flagsData.ankorsSyncRequired = true;
       if (oldProduct.efashionReferenceBase) flagsData.efashionSyncRequired = true;
+      if (oldProduct.faireProductId) flagsData.faireSyncRequired = true;
       if (Object.keys(flagsData).length > 0) {
         await prisma.product.update({ where: { id }, data: flagsData });
       }

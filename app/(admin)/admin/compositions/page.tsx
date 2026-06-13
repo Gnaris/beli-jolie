@@ -25,6 +25,7 @@ export default async function CompositionsPage() {
     pfsCompositionRef: c.pfsCompositionRef,
     efashionId: c.efashionId,
     efashionLabel: resolveCompositionLabel(efashionLabels, c.efashionId),
+    faireMaterialLabel: c.faireMaterialLabel,
     productCount: c._count.products,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));

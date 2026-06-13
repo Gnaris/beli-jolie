@@ -165,19 +165,13 @@ function SuggestionChip({
   const base = "inline-flex items-center gap-1 text-[11px] font-body rounded-full border px-2.5 py-1 transition-all cursor-pointer hover:shadow-sm";
   const variant = isSelected
     ? "bg-[#DCFCE7] border-[#86EFAC] text-[#14532D]"
-    : isExact
-      ? "bg-[#F3E8FF] border-[#C4B5FD] text-[#5B21B6] hover:bg-[#EDE9FE]"
-      : "bg-bg-secondary border-border text-text-secondary hover:border-text-primary hover:text-text-primary";
+    : "bg-bg-secondary border-border text-text-secondary hover:border-text-primary hover:text-text-primary";
 
   return (
     <button type="button" onClick={onClick} className={`${base} ${variant}`} title="Remplir automatiquement">
       {isSelected ? (
         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-        </svg>
-      ) : isExact ? (
-        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
       ) : (
         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>

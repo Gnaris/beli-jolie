@@ -578,6 +578,60 @@ export async function validateEfashionCredentials(config: {
   }
 }
 
+// ─── Faire Configuration ─────────────────────────────────────────────────────
+
+export async function updateFaireCredentials(config: {
+  apiKey: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const apiKey = config.apiKey.trim();
+    if (!apiKey) {
+      await prisma.siteConfig.deleteMany({ where: { key: "faire_api_key" } });
+    } else {
+      await prisma.siteConfig.upsert({
+        where: { key: "faire_api_key" },
+        update: { value: encryptIfSensitive("faire_api_key", apiKey) },
+        create: { key: "faire_api_key", value: encryptIfSensitive("faire_api_key", apiKey) },
+      });
+    }
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
+  }
+}
+
+export async function toggleFaireEnabled(
+  enabled: boolean
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await prisma.siteConfig.upsert({
+      where: { key: "faire_enabled" },
+      update: { value: enabled ? "true" : "false" },
+      create: { key: "faire_enabled", value: enabled ? "true" : "false" },
+    });
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
+  }
+}
+
+export async function validateFaireCredentials(config: {
+  apiKey: string;
+}): Promise<{ valid: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const { testFaireApiKey } = await import("@/lib/faire-auth");
+    return await testFaireApiKey(config.apiKey.trim());
+  } catch {
+    return { valid: false, error: "Impossible de contacter Faire." };
+  }
+}
+
 // ─── Service de traduction (Paris Fashion Shop) ────────────────────────────
 
 /**
@@ -801,6 +855,8 @@ export interface MarketplaceMarkupSettings {
   ankorstoreWholesale?: MarkupState;
   ankorstoreRetail?: MarkupState;
   ankorstoreVatRate?: number;
+  faireWholesale?: MarkupState;
+  faireRetail?: MarkupState;
   efashion?: MarkupState;
   microstore?: MarkupState;
 }
@@ -854,6 +910,22 @@ export async function updateMarketplaceMarkup(
         { key: "microstore_price_markup_type", value: settings.microstore.type },
         { key: "microstore_price_markup_value", value: String(settings.microstore.value) },
         { key: "microstore_price_markup_rounding", value: settings.microstore.rounding }
+      );
+    }
+
+    if (settings.faireWholesale) {
+      pairs.push(
+        { key: "faire_wholesale_markup_type", value: settings.faireWholesale.type },
+        { key: "faire_wholesale_markup_value", value: String(settings.faireWholesale.value) },
+        { key: "faire_wholesale_markup_rounding", value: settings.faireWholesale.rounding }
+      );
+    }
+
+    if (settings.faireRetail) {
+      pairs.push(
+        { key: "faire_retail_markup_type", value: settings.faireRetail.type },
+        { key: "faire_retail_markup_value", value: String(settings.faireRetail.value) },
+        { key: "faire_retail_markup_rounding", value: settings.faireRetail.rounding }
       );
     }
 

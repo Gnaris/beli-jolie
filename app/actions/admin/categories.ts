@@ -114,6 +114,46 @@ export async function deleteCategory(id: string) {
   revalidateTag("categories", "default");
 }
 
+/**
+ * Saisie manuelle de l'ID taxonomie Faire (taxonomy_type.id, ex:
+ * "tx_jewelry_bracelets") pour une catégorie BJ. La taxonomie Faire est
+ * figée et non exposée via API publique — l'admin va chercher l'ID dans
+ * son portail brand. Voir docs/faire-api.md §12.
+ */
+export async function updateCategoryFaireTaxonomy(
+  id: string,
+  faireTaxonomyId: string | null,
+) {
+  await requireAdmin();
+  await prisma.category.update({
+    where: { id },
+    data: { faireTaxonomyId: faireTaxonomyId?.trim() || null },
+  });
+  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
+}
+
+/**
+ * Saisie manuelle du code SH douanier Faire pour une catégorie BJ. Le code
+ * dépend du type de produit (ex: "7117.19.00" pour bijoux acier,
+ * "6109.10.00" pour t-shirts coton, "9004.10" pour lunettes). Stocké par
+ * catégorie pour rester générique tous types de produits.
+ */
+export async function updateCategoryFaireHsCode(
+  id: string,
+  faireHsCode: string | null,
+) {
+  await requireAdmin();
+  await prisma.category.update({
+    where: { id },
+    data: { faireHsCode: faireHsCode?.trim() || null },
+  });
+  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
+}
+
 // ─────────────────────────────────────────────
 // Sous-catégories
 // ─────────────────────────────────────────────

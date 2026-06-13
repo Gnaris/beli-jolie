@@ -22,6 +22,7 @@ function outcomeForTarget(
 ): TargetOutcome | undefined {
   if (target === "ankorstore") return item.ankorsOutcome;
   if (target === "efashion") return item.efashionOutcome;
+  if (target === "faire") return item.faireOutcome;
   return item.pfsOutcome;
 }
 

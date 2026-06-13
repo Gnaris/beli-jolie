@@ -9,6 +9,8 @@ import {
   getCachedAnkorstoreEnabled,
   getCachedHasEfashionConfig,
   getCachedEfashionEnabled,
+  getCachedHasFaireConfig,
+  getCachedFaireEnabled,
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
 import { CreatePageWrapper, CreatePageToggle } from "./CreatePageWrapper";
@@ -104,12 +106,16 @@ export default async function NouveauProduitPage({
     ankorstoreEnabled,
     hasEfashionConfig,
     efashionEnabled,
+    hasFaireConfig,
+    faireEnabled,
   ] = await Promise.all([
     getCachedPfsEnabled(),
     getCachedHasAnkorstoreConfig(),
     getCachedAnkorstoreEnabled(),
     getCachedHasEfashionConfig(),
     getCachedEfashionEnabled(),
+    getCachedHasFaireConfig(),
+    getCachedFaireEnabled(),
   ]);
 
   const pfsColorOptions = hasPfsConfig ? await getPfsColorOptions() : [];
@@ -278,6 +284,8 @@ export default async function NouveauProduitPage({
           ankorstoreEnabled={ankorstoreEnabled}
           hasEfashionConfig={hasEfashionConfig}
           efashionEnabled={efashionEnabled}
+          hasFaireConfig={hasFaireConfig}
+          faireEnabled={faireEnabled}
           pfsColorOptions={pfsColorOptions}
           initialData={initialData}
         />

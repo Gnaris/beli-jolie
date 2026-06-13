@@ -30,11 +30,15 @@ export interface MarketplacePublishOutcome {
     | { status: "queued"; mode: "create" | "update"; operationId: string }
     | { status: "ok"; mode: "create" | "update"; archived?: boolean }
     | { status: "error"; message: string };
+  faire?:
+    | { status: "ok"; mode: "create" | "update" }
+    | { status: "error"; message: string };
 }
 
 export interface MarketplacePublishOptions {
   pfs: boolean;
   ankorstore?: boolean;
+  faire?: boolean;
 }
 
 export async function publishProductToMarketplaces(
@@ -52,6 +56,7 @@ export async function publishProductToMarketplaces(
       status: true,
       pfsProductId: true,
       ankorsProductId: true,
+      faireProductId: true,
     },
   });
 
@@ -149,6 +154,55 @@ export async function publishProductToMarketplaces(
     }
   }
 
+  if (options.faire) {
+    const { getCachedFaireEnabled } = await import("@/lib/cached-data");
+    const faireEnabled = await getCachedFaireEnabled();
+    if (!faireEnabled) {
+      outcome.faire = {
+        status: "error",
+        message: "Sync Faire désactivée dans Paramètres.",
+      };
+    } else {
+      try {
+        if (product.faireProductId) {
+          const { faireUpdateProduct } = await import("@/lib/faire-update");
+          const res = await faireUpdateProduct(productId);
+          if (res.success) {
+            outcome.faire = { status: "ok", mode: "update" };
+          } else {
+            logger.warn("[Marketplace Publish] Faire update failed, falling back to publish", {
+              productId,
+              error: res.error,
+            });
+            await prisma.product.update({
+              where: { id: productId },
+              data: { faireProductId: null, faireLastSyncSnapshot: Prisma.DbNull },
+            });
+            await prisma.productColor.updateMany({
+              where: { productId },
+              data: { faireVariantId: null },
+            });
+            const { fairePublishProduct } = await import("@/lib/faire-publish");
+            const pubRes = await fairePublishProduct(productId);
+            outcome.faire = pubRes.success
+              ? { status: "ok", mode: "create" }
+              : { status: "error", message: pubRes.error };
+          }
+        } else {
+          const { fairePublishProduct } = await import("@/lib/faire-publish");
+          const res = await fairePublishProduct(productId);
+          outcome.faire = res.success
+            ? { status: "ok", mode: "create" }
+            : { status: "error", message: res.error };
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error("[Marketplace Publish] Faire unexpected error", { productId, error: message });
+        outcome.faire = { status: "error", message };
+      }
+    }
+  }
+
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${productId}/modifier`);
   revalidatePath(`/produits/${productId}`);
@@ -188,6 +242,7 @@ export async function publishProductsToMarketplaces(
         productName: fallback?.name ?? "Produit introuvable",
         pfs: options.pfs ? { status: "error", message } : undefined,
         ankorstore: options.ankorstore ? { status: "error", message } : undefined,
+        faire: options.faire ? { status: "error", message } : undefined,
       });
     }
   }
