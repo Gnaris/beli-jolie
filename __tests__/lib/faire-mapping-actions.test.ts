@@ -2,15 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock prisma + next-auth + next/cache so server actions run in isolation.
 // Use vi.hoisted() so the spies are available when vi.mock() runs at top.
-const { updateCategory, updateComposition } = vi.hoisted(() => ({
+const { updateCategory } = vi.hoisted(() => ({
   updateCategory: vi.fn(),
-  updateComposition: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     category: { update: updateCategory },
-    composition: { update: updateComposition },
   },
 }));
 
@@ -36,7 +34,6 @@ import {
   updateCategoryFaireTaxonomy,
   updateCategoryFaireHsCode,
 } from "@/app/actions/admin/categories";
-import { updateCompositionFaireMaterial } from "@/app/actions/admin/compositions";
 
 describe("updateCategoryFaireTaxonomy", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -94,30 +91,6 @@ describe("updateCategoryFaireHsCode", () => {
   });
 });
 
-describe("updateCompositionFaireMaterial", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("met à jour faireMaterialLabel avec valeur trimée", async () => {
-    await updateCompositionFaireMaterial("comp_1", "  Stainless Steel 316L  ");
-    expect(updateComposition).toHaveBeenCalledWith({
-      where: { id: "comp_1" },
-      data: { faireMaterialLabel: "Stainless Steel 316L" },
-    });
-  });
-
-  it("accepte libellés non-bijoux (cuir, coton, etc. — générique)", async () => {
-    await updateCompositionFaireMaterial("comp_2", "100% Cotton");
-    expect(updateComposition).toHaveBeenCalledWith({
-      where: { id: "comp_2" },
-      data: { faireMaterialLabel: "100% Cotton" },
-    });
-  });
-
-  it("vide → null", async () => {
-    await updateCompositionFaireMaterial("comp_1", "  ");
-    expect(updateComposition).toHaveBeenCalledWith({
-      where: { id: "comp_1" },
-      data: { faireMaterialLabel: null },
-    });
-  });
-});
+// L'ancienne action updateCompositionFaireMaterial a été supprimée :
+// la composition part désormais dans la description envoyée à Faire
+// (cf. lib/faire-description.ts) — plus aucun champ structuré à écrire.

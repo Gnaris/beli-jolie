@@ -10,7 +10,6 @@ interface Item {
   id: string;
   code: string;
   label: string;
-  faireFormat: string | null;
   productCount: number;
 }
 
@@ -113,9 +112,6 @@ export default function HsCodesManager({ initialItems }: { initialItems: Item[] 
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">
                     Libellé
                   </th>
-                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">
-                    Faire
-                  </th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">
                     Produits
                   </th>
@@ -129,13 +125,6 @@ export default function HsCodesManager({ initialItems }: { initialItems: Item[] 
                   <tr key={item.id} className="hover:bg-bg-secondary/50 transition-colors">
                     <td className="px-4 py-3 font-mono text-text-primary">{item.code}</td>
                     <td className="px-4 py-3 text-text-primary">{item.label}</td>
-                    <td className="px-4 py-3 hidden md:table-cell">
-                      {item.faireFormat ? (
-                        <span className="font-mono text-xs text-text-primary">{item.faireFormat}</span>
-                      ) : (
-                        <span className="text-[11px] text-text-muted font-body italic">— non défini —</span>
-                      )}
-                    </td>
                     <td className="px-4 py-3 text-center">
                       <span className="badge badge-neutral text-[10px]">
                         {item.productCount}

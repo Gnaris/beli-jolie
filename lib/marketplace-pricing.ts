@@ -1,13 +1,15 @@
 import { prisma } from "@/lib/prisma";
+import {
+  applyMarketplaceMarkup,
+  applyFaireMarkupWithClamp,
+  type MarkupType,
+  type RoundingMode,
+  type MarkupConfig,
+} from "@/lib/marketplace-pricing-shared";
 
-export type MarkupType = "percent" | "fixed" | "multiplier";
-export type RoundingMode = "none" | "down" | "up";
-
-export interface MarkupConfig {
-  type: MarkupType;
-  value: number;
-  rounding: RoundingMode;
-}
+// Re-exports pour conserver la rétro-compatibilité des imports existants.
+export { applyMarketplaceMarkup, applyFaireMarkupWithClamp };
+export type { MarkupType, RoundingMode, MarkupConfig };
 
 export interface AllMarkupConfigs {
   pfs: MarkupConfig;
@@ -18,50 +20,6 @@ export interface AllMarkupConfigs {
   ankorstoreVatRate: number;
   faireWholesale: MarkupConfig;
   faireRetail: MarkupConfig;
-}
-
-/**
- * Apply a marketplace markup to a base price.
- * - percent: basePrice * (1 + value/100)
- * - fixed: basePrice + value
- * - multiplier: basePrice * value
- * Then apply rounding: up/down arrondit au dixième d'euro (0.10€),
- * none garde 2 décimales.
- */
-export function applyMarketplaceMarkup(
-  basePrice: number,
-  config: MarkupConfig
-): number {
-  if (config.value === 0) return basePrice;
-
-  let price: number;
-  switch (config.type) {
-    case "percent":
-      price = basePrice * (1 + config.value / 100);
-      break;
-    case "multiplier":
-      price = basePrice * config.value;
-      break;
-    case "fixed":
-    default:
-      price = basePrice + config.value;
-      break;
-  }
-
-  switch (config.rounding) {
-    case "down":
-      price = Math.floor(price * 10) / 10;
-      break;
-    case "up":
-      price = Math.ceil(price * 10) / 10;
-      break;
-    case "none":
-    default:
-      price = Math.round(price * 100) / 100;
-      break;
-  }
-
-  return price;
 }
 
 const MARKUP_KEYS = [
@@ -140,23 +98,3 @@ export async function loadMarketplaceMarkupConfigs(): Promise<AllMarkupConfigs> 
   };
 }
 
-/**
- * Applique le markup wholesale + retail pour Faire et clamp le retail à
- * au moins 2x le wholesale (contrainte API Faire — rejet sinon).
- * Retourne les deux prix en euros (pas en centimes).
- */
-export function applyFaireMarkupWithClamp(
-  basePrice: number,
-  wholesaleConfig: MarkupConfig,
-  retailConfig: MarkupConfig
-): { wholesale: number; retail: number } {
-  const wholesale = applyMarketplaceMarkup(basePrice, wholesaleConfig);
-  let retail = applyMarketplaceMarkup(basePrice, retailConfig);
-  const minRetail = wholesale * 2;
-  if (retail < minRetail) {
-    // Arrondi vers le haut au dixième pour éviter de tomber sous le seuil
-    // après arrondi monétaire.
-    retail = Math.ceil(minRetail * 10) / 10;
-  }
-  return { wholesale, retail };
-}

@@ -15,7 +15,6 @@ export default async function CodesShPage() {
     id: r.id,
     code: r.code,
     label: r.label,
-    faireFormat: r.faireFormat ?? null,
     productCount: r._count.products,
   }));
 

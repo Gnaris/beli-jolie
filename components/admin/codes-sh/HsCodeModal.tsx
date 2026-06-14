@@ -6,14 +6,13 @@ import { createHsCode, updateHsCode } from "@/app/actions/admin/hs-codes";
 interface Props {
   open: boolean;
   onClose: () => void;
-  onSaved: (saved: { id: string; code: string; label: string; faireFormat: string | null }) => void;
-  editMode?: { id: string; code: string; label: string; faireFormat: string | null } | null;
+  onSaved: (saved: { id: string; code: string; label: string }) => void;
+  editMode?: { id: string; code: string; label: string } | null;
 }
 
 export default function HsCodeModal({ open, onClose, onSaved, editMode = null }: Props) {
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
-  const [faireFormat, setFaireFormat] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -21,7 +20,6 @@ export default function HsCodeModal({ open, onClose, onSaved, editMode = null }:
     if (open) {
       setCode(editMode?.code ?? "");
       setLabel(editMode?.label ?? "");
-      setFaireFormat(editMode?.faireFormat ?? "");
       setError("");
     }
   }, [open, editMode]);
@@ -33,22 +31,19 @@ export default function HsCodeModal({ open, onClose, onSaved, editMode = null }:
     setError("");
     setSaving(true);
     try {
-      const trimmedFaire = faireFormat.trim() || undefined;
       if (editMode) {
-        await updateHsCode(editMode.id, { code, label, faireFormat: trimmedFaire });
+        await updateHsCode(editMode.id, { code, label });
         onSaved({
           id: editMode.id,
           code: code.trim(),
           label: label.trim(),
-          faireFormat: trimmedFaire ?? null,
         });
       } else {
-        const result = await createHsCode({ code, label, faireFormat: trimmedFaire });
+        const result = await createHsCode({ code, label });
         onSaved({
           id: result.id,
           code: result.code,
           label: result.label,
-          faireFormat: result.faireFormat,
         });
       }
     } catch (e) {
@@ -102,22 +97,6 @@ export default function HsCodeModal({ open, onClose, onSaved, editMode = null }:
               className="field-input w-full"
               maxLength={200}
             />
-          </div>
-          <div>
-            <label className="block text-sm font-body text-text-secondary mb-1">
-              Mapping Faire
-            </label>
-            <input
-              type="text"
-              value={faireFormat}
-              onChange={(e) => setFaireFormat(e.target.value.replace(/[^\d.]/g, ""))}
-              placeholder="ex : 7117.19.00.00"
-              className="field-input w-full font-mono"
-              maxLength={16}
-            />
-            <p className="text-[11px] text-text-muted font-body mt-1">
-              Format pointé envoyé à Faire (laisser vide pour utiliser le code numérique brut).
-            </p>
           </div>
           {error && (
             <p className="text-xs text-[#EF4444] font-body">{error}</p>

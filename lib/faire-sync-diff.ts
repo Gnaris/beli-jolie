@@ -14,16 +14,18 @@
  *     pour notre cas — on suit donc `images` par SKU.
  */
 
-export const FAIRE_SNAPSHOT_VERSION = 1 as const;
+// v2 : bascule sur les vrais noms de champs Faire (made_in_country alpha-2 +
+// tariff_code sur variante + sale_state SALES_PAUSED) après confirmation IA
+// Faire (juin 2026). v1 snapshots sont automatiquement considérés "à réenvoyer".
+export const FAIRE_SNAPSHOT_VERSION = 2 as const;
 
 export interface FaireProductFieldsSnapshot {
   name: string;
   shortDescription: string;
   description: string;
   taxonomyTypeId: string;
-  countryAlpha3: string;
-  materials: string[];
-  hsCode: string;
+  /** Pays alpha-2 envoyé en `made_in_country` (ex : "CN"). */
+  countryAlpha2: string;
   minimumOrderQuantity: number;
   perStyleMinimumOrderQuantity: number;
 }
@@ -40,6 +42,8 @@ export interface FaireVariantSnapshot {
   images: string[];
   /** Mesures envoyées (gardées pour diff). */
   weightGrams: number | null;
+  /** Code SH envoyé sur la variante (`tariff_code`) — null si non rempli. */
+  tariffCode: string | null;
 }
 
 export interface FaireSyncSnapshot {
@@ -47,8 +51,8 @@ export interface FaireSyncSnapshot {
   product: FaireProductFieldsSnapshot;
   /** Variantes indexées par SKU (l'ID Faire `po_xxx` peut ne pas être connu au moment du diff). */
   variants: { [sku: string]: FaireVariantSnapshot };
-  lifecycleState: "DRAFT" | "PUBLISHED" | "RETIRED";
-  saleState: "FOR_SALE" | "NOT_FOR_SALE";
+  lifecycleState: "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
+  // sale_state retiré : Faire le gère seul (read-only via API).
 }
 
 export interface FaireSyncDiff {
@@ -61,7 +65,6 @@ export interface FaireSyncDiff {
   /** Variantes dont seul le prix a changé — utiliser product-prices/by-skus. */
   pricesOnlyChanged: string[];
   lifecycleChanged: boolean;
-  saleStateChanged: boolean;
 }
 
 function stringListEqual(a: string[], b: string[]): boolean {
@@ -81,11 +84,9 @@ export function productFieldsEqual(
     a.shortDescription === b.shortDescription &&
     a.description === b.description &&
     a.taxonomyTypeId === b.taxonomyTypeId &&
-    a.countryAlpha3 === b.countryAlpha3 &&
-    a.hsCode === b.hsCode &&
+    a.countryAlpha2 === b.countryAlpha2 &&
     a.minimumOrderQuantity === b.minimumOrderQuantity &&
-    a.perStyleMinimumOrderQuantity === b.perStyleMinimumOrderQuantity &&
-    stringListEqual([...a.materials].sort(), [...b.materials].sort())
+    a.perStyleMinimumOrderQuantity === b.perStyleMinimumOrderQuantity
   );
 }
 
@@ -107,6 +108,7 @@ export function diffVariantSnapshot(
     prev.colorOption !== next.colorOption ||
     prev.active !== next.active ||
     prev.weightGrams !== next.weightGrams ||
+    prev.tariffCode !== next.tariffCode ||
     !stringListEqual(prev.images, next.images);
   return { inventoryChanged, pricesChanged, otherChanged };
 }
@@ -124,13 +126,11 @@ export function diffSnapshots(
       inventoryOnlyChanged: [],
       pricesOnlyChanged: [],
       lifecycleChanged: true,
-      saleStateChanged: true,
     };
   }
 
   const productChanged = !productFieldsEqual(prev.product, next.product);
   const lifecycleChanged = prev.lifecycleState !== next.lifecycleState;
-  const saleStateChanged = prev.saleState !== next.saleState;
 
   const variantsChanged: string[] = [];
   const variantsAdded: string[] = [];
@@ -169,7 +169,6 @@ export function diffSnapshots(
     inventoryOnlyChanged,
     pricesOnlyChanged,
     lifecycleChanged,
-    saleStateChanged,
   };
 }
 
@@ -177,7 +176,6 @@ export function diffIsEmpty(diff: FaireSyncDiff): boolean {
   return (
     !diff.productChanged &&
     !diff.lifecycleChanged &&
-    !diff.saleStateChanged &&
     diff.variantsChanged.length === 0 &&
     diff.variantsAdded.length === 0 &&
     diff.variantsRemoved.length === 0 &&

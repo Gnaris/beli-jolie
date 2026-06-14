@@ -142,6 +142,21 @@ next-intl 4.x, **routing par préfixe** (`/fr/...`, `/en/...`). Locales : **fr (
 
 **Tailwind CSS v4** — pas de `tailwind.config.js`, theme dans `app/globals.css` `@theme {}`. **Pas de dark mode**. Clean flat design avec ombres subtiles. **No claymorphism** — utilities Tailwind standard (`shadow-sm/md/lg`).
 
+#### Style admin "cockpit / SaaS moderne" (par défaut sur tout `/admin`)
+
+Toute nouvelle page ou refonte dans `/admin/*` suit ce langage visuel (référence : `app/(admin)/admin/page.tsx`, `app/(admin)/admin/parametres` tab marketplaces, `app/(admin)/admin/produits/page.tsx`, sidebars). Inspirations : Stripe, Linear, Vercel, Notion. **Ne pas revenir au look flat blanc/gris générique.**
+
+- **Hero de page** : carte `rounded-3xl` avec fond aurora (`bg-gradient-to-br from-{color}-50 via-bg-primary to-bg-primary` + 2-4 halos radiaux pastel superposés). Eyebrow chip arrondi avec pastille colorée + texte uppercase `tracking-[0.18em]`. Titre `font-heading text-2xl/3xl font-bold tracking-tight`. Actions à droite.
+- **KPI tiles (bento)** : `rounded-2xl`, fond pastel dégradé `from-{accent}-50 via-bg-primary to-bg-primary`, **valeur en couleur d'accent** (`text-{accent}-700`), halo flou dans un coin (`absolute -top-10 -right-10 w-24 h-24 rounded-full blur-3xl bg-{accent}-300/30`), icône dans carré teinté `bg-{accent}-100 ring-1 ring-{accent}-200`.
+- **Cartes graphiques / contenu** : `rounded-2xl`, bande dégradée fine en haut (`absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-{accent}-400 to-{accent}-600`), halo coin, eyebrow coloré avec pastille.
+- **Section headers** : barre verticale fine colorée + label uppercase `tracking-[0.18em]` en couleur d'accent.
+- **Navigation** : sections colorées (Principal=dark, Catalogue=emerald, Ventes=sky, Système=violet). État actif = fond dégradé pastel + **barre verticale gauche** colorée + icône colorée. Badges = gradient + shadow.
+- **Brand chips / avatars** : carrés/ronds avec dégradé (`linear-gradient(135deg, ...)`), halo doré subtil, pastille statut verte qui pulse pour "en ligne".
+- **Palette d'accents** (à mapper sémantiquement) : `emerald` (catalogue, succès, revenu), `sky` (commandes, volume), `violet` (système, premium), `amber` (alertes, matériaux), `rose` (stock bas, visuel), `slate` (neutre).
+- **Responsive mobile-first obligatoire** : grids `grid-cols-2 sm:grid-cols-4`, tables → cartes empilées sous `md`, hero stack vertical sur mobile.
+- **Drawers latéraux** plutôt que modales centrées pour les réglages riches (cf. `MarketplaceConfig.tsx`).
+- **Pas de bande dégradée arc-en-ciel** sur les cartes de filtres / recherche — la cliente n'aime pas.
+
 ### Enums Prisma
 
 `ProductStatus` (OFFLINE|ONLINE|ARCHIVED|SYNCING), `SaleType` (UNIT|PACK), `OrderStatus` (PENDING|SHIPPED|CANCELLED — workflow simplifié, PENDING libellé « Nouveau » admin / « En attente » client, seule transition = PENDING → SHIPPED, annulation depuis PENDING seul), `UserRole` (ADMIN|CLIENT), `UserStatus` (PENDING|APPROVED|REJECTED).

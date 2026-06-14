@@ -64,7 +64,7 @@ export interface FaireProduct {
   description?: string;
   wholesale_price_cents?: number;
   retail_price_cents?: number;
-  sale_state?: "FOR_SALE" | "NOT_FOR_SALE";
+  sale_state?: "FOR_SALE" | "SALES_PAUSED";
   lifecycle_state?: "DRAFT" | "PUBLISHED" | "RETIRED";
   taxonomy_type?: { id: string; name?: string };
   variants?: FaireVariant[];

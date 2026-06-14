@@ -373,6 +373,10 @@ async function MarketplacesTab() {
     faireRetailType,
     faireRetailValue,
     faireRetailRounding,
+    pfsPublished, pfsToSync, pfsLast,
+    ankPublished, ankToSync, ankLast,
+    efaPublished, efaToSync, efaLast,
+    faiPublished, faiToSync, faiLast,
   ] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
     prisma.siteConfig.findMany({
@@ -410,9 +414,29 @@ async function MarketplacesTab() {
     getCachedSiteConfig("faire_retail_markup_type"),
     getCachedSiteConfig("faire_retail_markup_value"),
     getCachedSiteConfig("faire_retail_markup_rounding"),
+    // ── KPIs marketplaces ──
+    prisma.product.count({ where: { pfsProductId: { not: null } } }),
+    prisma.product.count({ where: { pfsSyncRequired: true } }),
+    prisma.product.findFirst({ where: { pfsProductId: { not: null } }, orderBy: { updatedAt: "desc" }, select: { updatedAt: true } }),
+    prisma.product.count({ where: { ankorsProductId: { not: null } } }),
+    prisma.product.count({ where: { ankorsSyncRequired: true } }),
+    prisma.product.findFirst({ where: { ankorsProductId: { not: null } }, orderBy: { ankorsLastRefreshedAt: "desc" }, select: { ankorsLastRefreshedAt: true } }),
+    prisma.product.count({ where: { efashionReferenceBase: { not: null } } }),
+    prisma.product.count({ where: { efashionSyncRequired: true } }),
+    prisma.product.findFirst({ where: { efashionReferenceBase: { not: null } }, orderBy: { efashionLastRefreshedAt: "desc" }, select: { efashionLastRefreshedAt: true } }),
+    prisma.product.count({ where: { faireProductId: { not: null } } }),
+    prisma.product.count({ where: { faireSyncRequired: true } }),
+    prisma.product.findFirst({ where: { faireProductId: { not: null } }, orderBy: { faireLastRefreshedAt: "desc" }, select: { faireLastRefreshedAt: true } }),
   ]);
 
   const markupMap = new Map(markupRows.map((r) => [r.key, r.value]));
+
+  const stats = {
+    pfs: { published: pfsPublished, toSync: pfsToSync, lastSyncAt: pfsLast?.updatedAt?.toISOString() ?? null },
+    ankorstore: { published: ankPublished, toSync: ankToSync, lastSyncAt: ankLast?.ankorsLastRefreshedAt?.toISOString() ?? null },
+    efashion: { published: efaPublished, toSync: efaToSync, lastSyncAt: efaLast?.efashionLastRefreshedAt?.toISOString() ?? null },
+    faire: { published: faiPublished, toSync: faiToSync, lastSyncAt: faiLast?.faireLastRefreshedAt?.toISOString() ?? null },
+  };
 
   return (
     <div>
@@ -425,6 +449,7 @@ async function MarketplacesTab() {
         efashionEnabled={efashionEnabled}
         hasFaireConfig={hasFaireConfig}
         faireEnabled={faireEnabled}
+        stats={stats}
         markupSettings={{
           pfs: {
             type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed" | "multiplier") || "percent",

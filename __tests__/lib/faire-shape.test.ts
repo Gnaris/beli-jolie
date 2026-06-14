@@ -11,9 +11,8 @@ function base(overrides: Partial<FaireShapeProductInput> = {}): FaireShapeProduc
     taxonomyTypeId: "tt_czw8pmzjrc",
     wholesalePriceCents: 750,
     retailPriceCents: 1500,
-    countryAlpha3: "CHN",
-    materials: ["Stainless Steel"],
-    hsCode: "7117.19.00",
+    countryAlpha2: "CN",
+    tariffCode: "7117.19.00",
     productImagesCount: 0,
     variants: [
       {
@@ -107,16 +106,15 @@ describe("validateFaireProductShape", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("émet des avertissements (pas erreurs) quand description / pays / matériaux manquent", () => {
+  it("émet des avertissements (pas erreurs) quand description / pays / code SH manquent", () => {
     const r = validateFaireProductShape(
       base({
         description: "",
-        countryAlpha3: null,
-        materials: [],
-        hsCode: null,
+        countryAlpha2: null,
+        tariffCode: null,
       }),
     );
     expect(r.ok).toBe(true);
-    expect(r.warnings.length).toBeGreaterThanOrEqual(4);
+    expect(r.warnings.length).toBeGreaterThanOrEqual(3);
   });
 });

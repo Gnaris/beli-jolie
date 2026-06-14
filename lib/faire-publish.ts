@@ -29,7 +29,7 @@ import {
   loadMarketplaceMarkupConfigs,
   type MarkupConfig,
 } from "@/lib/marketplace-pricing";
-import { resolveFaireCountry } from "@/lib/faire-country";
+import { buildFaireDescription } from "@/lib/faire-description";
 import {
   validateFaireProductShape,
   type FaireShapeValidation,
@@ -84,19 +84,18 @@ interface FullProduct {
   description: string;
   status: string;
   primaryColorId: string | null;
-  hsCode: { code: string; faireFormat: string | null } | null;
+  hsCode: { code: string } | null;
   category: {
     id: string;
     faireTaxonomyId: string | null;
-    faireHsCode: string | null;
   } | null;
   colors: FullVariant[];
   colorImages: { path: string; order: number; colorId: string }[];
   compositions: {
     percentage: Prisma.Decimal | number;
-    composition: { name: string; faireMaterialLabel: string | null };
+    composition: { name: string };
   }[];
-  manufacturingCountry: { isoCode: string | null; faireCountryCode: string | null } | null;
+  manufacturingCountry: { isoCode: string | null } | null;
 }
 
 // ─────────────────────────────────────────────
@@ -113,12 +112,11 @@ export async function loadFaireProductFull(productId: string): Promise<FullProdu
       description: true,
       status: true,
       primaryColorId: true,
-      hsCode: { select: { code: true, faireFormat: true } },
+      hsCode: { select: { code: true } },
       category: {
         select: {
           id: true,
           faireTaxonomyId: true,
-          faireHsCode: true,
         },
       },
       colors: {
@@ -155,10 +153,10 @@ export async function loadFaireProductFull(productId: string): Promise<FullProdu
       compositions: {
         select: {
           percentage: true,
-          composition: { select: { name: true, faireMaterialLabel: true } },
+          composition: { select: { name: true } },
         },
       },
-      manufacturingCountry: { select: { isoCode: true, faireCountryCode: true } },
+      manufacturingCountry: { select: { isoCode: true } },
     },
   }) as unknown as FullProduct | null;
 }
@@ -235,9 +233,12 @@ function effectiveStock(v: FullVariant, productStatus: string): number {
 
 export interface FairePublishContext {
   taxonomyTypeId: string;
-  hsCode: string | null;
-  countryAlpha3: string;
-  materials: string[];
+  /** Code SH brut (ex : "7117.19.00"). Posé en `tariff_code` sur chaque variante. */
+  tariffCode: string | null;
+  /** Pays alpha-2 ISO (ex : "CN", "FR"). Envoyé en `made_in_country`. */
+  countryAlpha2: string;
+  /** Description finale (description produit + composition + code SH automatiques). */
+  description: string;
   countryUsedFallback: boolean;
 }
 
@@ -245,6 +246,8 @@ interface FaireVariantPayload {
   bjVariantId: string;
   sku: string;
   payload: {
+    /** Stable per BJ ProductColor — réutilisé sur retry (idempotence Faire). */
+    idempotence_token: string;
     sku: string;
     name: string;
     wholesale_price_cents: number;
@@ -257,6 +260,20 @@ interface FaireVariantPayload {
       weight: number;
       mass_unit: "GRAMS";
     };
+    /** Code SH douanier (ex : "7117.19.00"). Faire le veut sur la variante. */
+    tariff_code?: string;
+    /**
+     * Prix par région. Pour éviter que Faire crée des prix USD/USA par défaut,
+     * on envoie explicitement les prix EUR/Union européenne sur chaque variante.
+     * Tous les variants doivent avoir des prices avec les MÊMES geo_constraints.
+     */
+    prices?: {
+      geo_constraint: { country_group: "EUROPEAN_UNION" };
+      wholesale_price: { amount_minor: number; currency: "EUR" };
+      retail_price: { amount_minor: number; currency: "EUR" };
+    }[];
+    /** Quantité par carton (>0). Pour vente à l'unité, 1. */
+    unit_multiplier?: number;
   };
 }
 
@@ -310,6 +327,8 @@ export function buildFaireProductPayload(
       bjVariantId: v.id,
       sku,
       payload: {
+        // Token déterministe basé sur l'ID BJ de la variante + version schema.
+        idempotence_token: `bj-var-${v.id}-v2`,
         sku,
         name: variantName,
         wholesale_price_cents: prices.wholesaleCents,
@@ -319,6 +338,19 @@ export function buildFaireProductPayload(
         options: [{ name: "Color", value: colorLabel }],
         ...(images ? { images } : {}),
         ...(measurements ? { measurements } : {}),
+        ...(ctx.tariffCode ? { tariff_code: ctx.tariffCode } : {}),
+        // Quantité par carton — Faire impose > 0 dès qu'on envoie `prices`.
+        // 1 = vente à l'unité (pas d'emballage par carton).
+        unit_multiplier: 1,
+        // Prix EUR explicite. Sinon Faire crée des prix USD/USA par défaut.
+        // Format obligatoire `amount_minor` (pas `amount_cents`).
+        prices: [
+          {
+            geo_constraint: { country_group: "EUROPEAN_UNION" as const },
+            wholesale_price: { amount_minor: prices.wholesaleCents, currency: "EUR" as const },
+            retail_price: { amount_minor: prices.retailCents, currency: "EUR" as const },
+          },
+        ],
       },
     });
   }
@@ -332,23 +364,32 @@ export function buildFaireProductPayload(
       }
     : { wholesale_price_cents: 0, retail_price_cents: 0 };
 
+  // Note : `sale_state` est read-only côté Faire — c'est Faire qui bascule
+  // automatiquement entre FOR_SALE et SALES_PAUSED selon le stock vs MOQ.
+  // Tenter de l'envoyer renvoie HTTP 400 "product field 'sale_state' is read-only".
+  // Note : `idempotence_token` est obligatoire à la création — utilisé pour
+  // éviter les doublons en cas de retry. Stable par produit BJ.
+  // Token incluant un suffixe schema-version : si on change le format du
+  // payload, on bumpe ce suffixe pour ne pas tomber sur un cache d'erreur
+  // d'une ancienne tentative.
   const body: Record<string, unknown> = {
+    idempotence_token: `bj-product-${product.id}-v2`,
     name: product.name,
-    description: product.description || "",
-    short_description: product.description?.slice(0, 200) || "",
+    description: ctx.description,
+    short_description: ctx.description.slice(0, 200),
     lifecycle_state: lifecycleState,
-    sale_state: product.status === "ONLINE" ? "FOR_SALE" : "NOT_FOR_SALE",
     taxonomy_type: { id: ctx.taxonomyTypeId },
-    country_of_manufacture: ctx.countryAlpha3,
-    materials: ctx.materials,
+    made_in_country: ctx.countryAlpha2,
     minimum_order_quantity: 1,
     per_style_minimum_order_quantity: 1,
+    // unit_multiplier = 1 obligatoire (>0). Représente la "quantité par carton" :
+    // ici on vend à l'unité (pas par carton), donc 1.
+    unit_multiplier: 1,
     variant_option_sets: [
       { name: "Color", values: Array.from(optionValuesSet) },
     ],
     variants: variants.map((v) => v.payload),
     ...rootPrices,
-    ...(ctx.hsCode ? { hs_code: ctx.hsCode } : {}),
   };
 
   return { body, variants, optionValues: Array.from(optionValuesSet) };
@@ -362,8 +403,7 @@ export function buildFaireSnapshot(
   product: FullProduct,
   ctx: FairePublishContext,
   variants: FaireVariantPayload[],
-  lifecycleState: "DRAFT" | "PUBLISHED" | "RETIRED",
-  saleState: "FOR_SALE" | "NOT_FOR_SALE",
+  lifecycleState: "DRAFT" | "PUBLISHED" | "UNPUBLISHED",
 ): FaireSyncSnapshot {
   const variantSnapshot: Record<string, FaireVariantSnapshot> = {};
   for (const v of variants) {
@@ -377,32 +417,32 @@ export function buildFaireSnapshot(
       colorOption: p.options.find((o) => o.name === "Color")?.value ?? "",
       images: (p.images ?? []).map((i) => i.url),
       weightGrams: p.measurements?.weight ?? null,
+      tariffCode: p.tariff_code ?? null,
     };
   }
   return {
     schemaVersion: FAIRE_SNAPSHOT_VERSION,
     product: {
       name: product.name,
-      shortDescription: product.description?.slice(0, 200) || "",
-      description: product.description || "",
+      shortDescription: ctx.description.slice(0, 200),
+      description: ctx.description,
       taxonomyTypeId: ctx.taxonomyTypeId,
-      countryAlpha3: ctx.countryAlpha3,
-      materials: ctx.materials,
-      hsCode: ctx.hsCode ?? "",
+      countryAlpha2: ctx.countryAlpha2,
       minimumOrderQuantity: 1,
       perStyleMinimumOrderQuantity: 1,
     },
     variants: variantSnapshot,
     lifecycleState,
-    saleState,
   };
 }
 
 // ─────────────────────────────────────────────
-// Validation prep — résout taxonomyId / hsCode / country / materials
+// Validation prep — résout taxonomyId / tariffCode / country / description
 // ─────────────────────────────────────────────
 
-export function buildPublishContext(product: Pick<FullProduct, "category" | "hsCode" | "manufacturingCountry" | "compositions">): {
+export function buildPublishContext(
+  product: Pick<FullProduct, "category" | "hsCode" | "manufacturingCountry" | "compositions" | "description">,
+): {
   ok: boolean;
   ctx?: FairePublishContext;
   reason?: string;
@@ -416,31 +456,37 @@ export function buildPublishContext(product: Pick<FullProduct, "category" | "hsC
     };
   }
 
-  // Priorité : HsCode.faireFormat (pointé) > HsCode.code (chiffres bruts) > Category.faireHsCode (legacy).
-  const hsCode =
-    product.hsCode?.faireFormat ||
-    product.hsCode?.code ||
-    product.category?.faireHsCode ||
-    null;
-  const alpha2 = product.manufacturingCountry?.isoCode ?? null;
-  // Priorité 1 : override manuel saisi dans la modale pays (faireCountryCode)
-  // Priorité 2 : table embarquée alpha-2 → alpha-3 (lib/faire-country.ts)
-  // Priorité 3 : fallback "CHN" (catalogue BJ majoritairement made-in-China)
-  const overrideAlpha3 = product.manufacturingCountry?.faireCountryCode?.trim().toUpperCase() || null;
-  const countryAlpha3 = overrideAlpha3 ?? resolveFaireCountry(alpha2);
-  const countryUsedFallback = alpha2 == null || countryAlpha3 === "CHN" && alpha2?.toUpperCase() !== "CN";
+  // Faire veut le code SH sur la VARIANTE en `tariff_code` (champ documenté
+  // par l'IA Faire en juin 2026). Plus de format dédié — on envoie le `code`
+  // brut tel que saisi par l'admin (qui peut déjà mettre les points si elle
+  // veut, ex : "7117.19.00").
+  const tariffCode = product.hsCode?.code?.trim() || null;
 
-  const materials = product.compositions
-    .map((c) => c.composition.faireMaterialLabel?.trim())
-    .filter((s): s is string => !!s);
+  // Faire veut le pays en alpha-2 dans `made_in_country` (ex : "CN", "FR").
+  // L'isoCode en BDD est déjà alpha-2 — pas de conversion à faire.
+  const rawAlpha2 = product.manufacturingCountry?.isoCode?.trim().toUpperCase() || null;
+  const countryAlpha2 = rawAlpha2 ?? "CN"; // fallback raisonnable pour catalogue made-in-China
+  const countryUsedFallback = rawAlpha2 == null;
+
+  // Description = description produit + composition (toujours) + code SH (si rempli)
+  // appendus automatiquement. Faire n'expose pas de champ structuré pour ces
+  // infos visibles côté acheteuse, donc tout passe par la description.
+  const description = buildFaireDescription(
+    product.description ?? "",
+    product.compositions.map((c) => ({
+      name: c.composition.name,
+      percentage: Number(c.percentage),
+    })),
+    tariffCode,
+  );
 
   return {
     ok: true,
     ctx: {
       taxonomyTypeId,
-      hsCode,
-      countryAlpha3,
-      materials,
+      tariffCode,
+      countryAlpha2,
+      description,
       countryUsedFallback,
     },
   };
@@ -482,9 +528,8 @@ export async function fairePublishProduct(
     taxonomyTypeId: ctx.taxonomyTypeId,
     wholesalePriceCents: Number(body.wholesale_price_cents),
     retailPriceCents: Number(body.retail_price_cents),
-    countryAlpha3: ctx.countryAlpha3,
-    materials: ctx.materials,
-    hsCode: ctx.hsCode,
+    countryAlpha2: ctx.countryAlpha2,
+    tariffCode: ctx.tariffCode,
     productImagesCount: 0,
     variants: variants.map((v) => ({
       sku: v.sku,
@@ -566,7 +611,6 @@ export async function fairePublishProduct(
     ctx,
     variants,
     lifecycleState,
-    product.status === "ONLINE" ? "FOR_SALE" : "NOT_FOR_SALE",
   );
 
   try {

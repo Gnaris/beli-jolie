@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   updatePfsCredentials, validatePfsCredentials,
   updateAnkorstoreCredentials, validateAnkorstoreCredentials, toggleAnkorstoreEnabled,
@@ -9,14 +9,22 @@ import {
   updateMarketplaceMarkup,
   loadPfsBrands, updatePfsBrand,
 } from "@/app/actions/admin/site-config";
-import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
+import { applyMarketplaceMarkup, applyFaireMarkupWithClamp, type MarkupType, type RoundingMode } from "@/lib/marketplace-pricing-shared";
+import { MARKETPLACES_BRAND, brandGradient, type MarketplaceKey } from "@/lib/marketplaces-brand";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
+// ─── Types ──────────────────────────────────────────────────────────────────
 interface MarkupState {
   type: MarkupType;
   value: number;
   rounding: RoundingMode;
+}
+
+interface MarketplaceStats {
+  published: number;
+  toSync: number;
+  lastSyncAt: string | null;
 }
 
 interface Props {
@@ -28,6 +36,12 @@ interface Props {
   efashionEnabled: boolean;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  stats: {
+    pfs: MarketplaceStats;
+    ankorstore: MarketplaceStats;
+    efashion: MarketplaceStats;
+    faire: MarketplaceStats;
+  };
   markupSettings: {
     pfs: MarkupState;
     ankorstoreWholesale: MarkupState;
@@ -40,152 +54,509 @@ interface Props {
   };
 }
 
-// ─── SVG Icons ──────────────────────────────────────────────────────────────
-function IconShop({ className }: { className?: string }) {
+// ─── Petits utilitaires ────────────────────────────────────────────────────
+function formatRelative(iso: string | null): string {
+  if (!iso) return "jamais";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 60_000) return "à l'instant";
+  const min = Math.floor(ms / 60_000);
+  if (min < 60) return `il y a ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `il y a ${h} h`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `il y a ${d} j`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `il y a ${mo} mois`;
+  return `il y a ${Math.floor(mo / 12)} an${mo >= 24 ? "s" : ""}`;
+}
+
+function formatEUR(n: number): string {
+  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+}
+
+// ─── Icônes (inline SVG) ───────────────────────────────────────────────────
+const Icons = {
+  Bolt: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" /></svg>
+  ),
+  Box: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" /><path d="M3.27 6.96L12 12.01l8.73-5.05" /><path d="M12 22.08V12" /></svg>
+  ),
+  Refresh: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" /></svg>
+  ),
+  Clock: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+  ),
+  Plug: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M9 7V2M15 7V2M5 11h14a2 2 0 012 2v0a2 2 0 01-2 2h-2v3a4 4 0 01-4 4h-2a4 4 0 01-4-4v-3H5a2 2 0 01-2-2v0a2 2 0 012-2z" /></svg>
+  ),
+  Settings: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" /></svg>
+  ),
+  Check: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+  ),
+  X: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+  ),
+  Pencil: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+  ),
+  Loader: ({ className }: { className?: string }) => (
+    <svg className={`animate-spin ${className ?? ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
+  ),
+  Tag: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" /><circle cx="7" cy="7" r="1" /></svg>
+  ),
+  Calculator: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" /><line x1="8" y1="6" x2="16" y2="6" /><line x1="8" y1="14" x2="8" y2="14" /><line x1="12" y1="14" x2="12" y2="14" /><line x1="16" y1="14" x2="16" y2="14" /><line x1="8" y1="18" x2="8" y2="18" /><line x1="12" y1="18" x2="12" y2="18" /><line x1="16" y1="18" x2="16" y2="18" /></svg>
+  ),
+  Sparkles: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2zM5 14l.75 2.25L8 17l-2.25.75L5 20l-.75-2.25L2 17l2.25-.75L5 14zM19 14l.75 2.25L22 17l-2.25.75L19 20l-.75-2.25L16 17l2.25-.75L19 14z" /></svg>
+  ),
+};
+
+// ─── Composants partagés ───────────────────────────────────────────────────
+function Logo({ brandKey }: { brandKey: MarketplaceKey }) {
+  const b = MARKETPLACES_BRAND[brandKey];
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 9l1.5-5h15L21 9" />
-      <path d="M3 9h18v12a1 1 0 01-1 1H4a1 1 0 01-1-1V9z" />
-      <path d="M9 21V13h6v8" />
-      <path d="M3 9c0 1.1.9 2 2 2s2-.9 2-2" />
-      <path d="M7 9c0 1.1.9 2 2 2s2-.9 2-2" />
-      <path d="M11 9c0 1.1.9 2 2 2s2-.9 2-2" />
-      <path d="M15 9c0 1.1.9 2 2 2s2-.9 2-2" />
-    </svg>
+    <div
+      className="w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-base shadow-sm shrink-0"
+      style={{ background: brandGradient(b), color: b.onPrimary, letterSpacing: "-0.02em" }}
+    >
+      {b.monogram}
+    </div>
   );
 }
 
-function IconKey({ className }: { className?: string }) {
+function StatusDot({ kind }: { kind: "ok" | "warn" | "off" | "checking" }) {
+  const map = {
+    ok: "bg-emerald-500",
+    warn: "bg-amber-500",
+    off: "bg-gray-300",
+    checking: "bg-amber-500 animate-pulse",
+  };
+  return <span className={`w-2 h-2 rounded-full ${map[kind]} shrink-0`} />;
+}
+
+function Toggle({ checked, disabled, onChange, label }: { checked: boolean; disabled?: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.78 7.78 5.5 5.5 0 017.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-    </svg>
+    <label className="inline-flex items-center gap-2.5 cursor-pointer select-none">
+      <div className="relative">
+        <input type="checkbox" className="sr-only peer" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+        <div className={`w-10 h-6 rounded-full border transition-colors ${checked ? "bg-emerald-500 border-emerald-500" : "bg-gray-200 border-gray-200"}`} />
+        <div className={`absolute top-[3px] left-[3px] w-[18px] h-[18px] rounded-full bg-white shadow-sm transition-transform ${checked ? "translate-x-4" : ""}`} />
+      </div>
+      <span className="font-body text-xs font-medium text-text-secondary">{label}</span>
+    </label>
   );
 }
 
-function IconTag({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
-      <circle cx="7" cy="7" r="1" />
-    </svg>
-  );
-}
-
-function IconCheck({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 6L9 17l-5-5" />
-    </svg>
-  );
-}
-
-function IconPencil({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-    </svg>
-  );
-}
-
-function IconX({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 6L6 18M6 6l12 12" />
-    </svg>
-  );
-}
-
-function IconLoader({ className }: { className?: string }) {
-  return (
-    <svg className={`animate-spin ${className ?? ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-    </svg>
-  );
-}
-
-function StatusBadge({ status }: { status: "none" | "valid" | "invalid" | "checking" }) {
-  if (status === "valid") {
-    return (
-      <span className="badge badge-success">
-        <span className="w-1.5 h-1.5 rounded-full bg-success" />
-        Connecté
-      </span>
-    );
-  }
-  if (status === "invalid") {
-    return (
-      <span className="badge badge-error">
-        <span className="w-1.5 h-1.5 rounded-full bg-error" />
-        Invalide
-      </span>
-    );
-  }
-  if (status === "checking") {
-    return (
-      <span className="badge badge-warning">
-        <span className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
-        Vérification…
-      </span>
-    );
-  }
-  return (
-    <span className="badge badge-neutral">
-      <span className="w-1.5 h-1.5 rounded-full bg-text-muted" />
-      Non configuré
-    </span>
-  );
-}
-
-function MarkupRow({
-  label,
-  state,
-  onChange,
+// ─── Bandeau Cockpit (KPIs globaux) ────────────────────────────────────────
+function CockpitStrip({
+  activeCount, totalCount, totalPublished, totalToSync, lastSyncAt,
 }: {
-  label: string;
-  state: MarkupState;
-  onChange: (s: MarkupState) => void;
+  activeCount: number; totalCount: number; totalPublished: number; totalToSync: number; lastSyncAt: string | null;
 }) {
-  const typeOptions: { value: MarkupType; label: string; title: string }[] = [
-    { value: "percent", label: "Pourcentage", title: "Ajouter un pourcentage au prix" },
-    { value: "fixed", label: "Fixe (€)", title: "Ajouter un montant fixe en euros" },
-    { value: "multiplier", label: "Coeff. (×)", title: "Multiplier le prix (ex: 3 = ×3)" },
-  ];
-
-  const roundingOptions: { value: RoundingMode; label: string; title: string }[] = [
-    { value: "none", label: "Aucun", title: "Pas d'arrondi" },
-    { value: "down", label: "Inférieur", title: "Arrondi vers le bas" },
-    { value: "up", label: "Supérieur", title: "Arrondi vers le haut" },
+  const tiles: { label: string; value: string; sub?: string; icon: React.ReactNode; accent: string }[] = [
+    {
+      label: "Marketplaces actives",
+      value: `${activeCount} / ${totalCount}`,
+      sub: activeCount === totalCount ? "Tout est branché" : `${totalCount - activeCount} en pause`,
+      icon: <Icons.Plug className="w-5 h-5" />,
+      accent: "text-emerald-600",
+    },
+    {
+      label: "Produits publiés",
+      value: totalPublished.toLocaleString("fr-FR"),
+      sub: "toutes marketplaces confondues",
+      icon: <Icons.Box className="w-5 h-5" />,
+      accent: "text-text-primary",
+    },
+    {
+      label: "En attente de sync",
+      value: totalToSync.toLocaleString("fr-FR"),
+      sub: totalToSync === 0 ? "Tout est à jour" : "à propager côté marketplaces",
+      icon: <Icons.Refresh className="w-5 h-5" />,
+      accent: totalToSync > 0 ? "text-amber-600" : "text-text-muted",
+    },
+    {
+      label: "Dernière mise à jour",
+      value: formatRelative(lastSyncAt),
+      sub: lastSyncAt ? new Date(lastSyncAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—",
+      icon: <Icons.Clock className="w-5 h-5" />,
+      accent: "text-text-primary",
+    },
   ];
 
   return (
-    <div className="space-y-3">
-      <p className="font-body text-sm font-medium text-text-primary">{label}</p>
+    <div className="relative overflow-hidden rounded-3xl border border-border bg-bg-primary shadow-sm">
+      <div
+        className="absolute inset-0 opacity-[0.04] pointer-events-none"
+        style={{ background: "radial-gradient(circle at 0% 0%, #1A1A1A 0%, transparent 50%), radial-gradient(circle at 100% 100%, #1A1A1A 0%, transparent 50%)" }}
+      />
+      <div className="relative p-5 sm:p-6">
+        <div className="flex items-center gap-2 mb-5">
+          <Icons.Sparkles className="w-4 h-4 text-amber-500" />
+          <h2 className="font-heading text-sm font-semibold uppercase tracking-[0.18em] text-text-secondary">
+            Cockpit marketplaces
+          </h2>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {tiles.map((t, i) => (
+            <div key={i} className="rounded-2xl bg-bg-secondary/60 border border-border-light p-4 sm:p-5">
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-body text-[11px] font-medium uppercase tracking-wider text-text-muted leading-tight">
+                  {t.label}
+                </span>
+                <span className={`${t.accent}`}>{t.icon}</span>
+              </div>
+              <div className={`font-heading text-2xl sm:text-3xl font-semibold ${t.accent} leading-none mb-1.5`}>
+                {t.value}
+              </div>
+              {t.sub && (
+                <div className="font-body text-[11px] text-text-muted truncate">{t.sub}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex-shrink-0">
-          <label className="font-body text-[11px] text-text-muted mb-1 block">Valeur</label>
+// ─── Carte marketplace ─────────────────────────────────────────────────────
+interface MarketplaceCardProps {
+  brandKey: Exclude<MarketplaceKey, "microstore">;
+  hasConfig: boolean;
+  status: "ok" | "warn" | "off" | "checking";
+  enabled: boolean;
+  enabledControl?: { onToggle: (v: boolean) => void; toggling: boolean };
+  stats: MarketplaceStats;
+  previewHT: number;
+  previewLines: { label: string; value: string; muted?: boolean }[];
+  badge?: { text: string; tone: "ok" | "warn" | "info" | "muted" };
+  extraNote?: string;
+  onOpenSettings: () => void;
+}
+
+function MarketplaceCard({
+  brandKey, hasConfig, status, enabled, enabledControl, stats, previewLines, badge, extraNote, onOpenSettings,
+}: MarketplaceCardProps) {
+  const brand = MARKETPLACES_BRAND[brandKey];
+  const isLive = hasConfig && enabled && status === "ok";
+  const isDormant = !isLive;
+
+  const statusLabel = {
+    ok: enabled ? "Active" : "Connectée · en pause",
+    warn: "Identifiants à vérifier",
+    off: "Non configurée",
+    checking: "Vérification…",
+  }[status];
+
+  const badgeToneClass = badge ? ({
+    ok: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    warn: "bg-amber-50 text-amber-700 border-amber-200",
+    info: "bg-sky-50 text-sky-700 border-sky-200",
+    muted: "bg-gray-50 text-gray-600 border-gray-200",
+  }[badge.tone]) : "";
+
+  return (
+    <div
+      className={`group relative overflow-hidden rounded-3xl border border-border bg-bg-primary shadow-sm transition-all hover:shadow-md ${
+        isDormant ? "opacity-[0.92]" : ""
+      }`}
+    >
+      {/* ── Header brandé ─────────────────────────────────────────────── */}
+      <div
+        className="relative p-5 overflow-hidden"
+        style={{
+          background: isLive ? brandGradient(brand) : "linear-gradient(135deg, #2A2A2D 0%, #4B5563 100%)",
+          color: brand.onPrimary,
+        }}
+      >
+        {/* Texture subtile */}
+        <div className="absolute inset-0 opacity-10 pointer-events-none" style={{
+          backgroundImage: "radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)",
+          backgroundSize: "16px 16px",
+        }} />
+
+        <div className="relative flex items-start gap-4">
+          <Logo brandKey={brandKey} />
+          <div className="flex-1 min-w-0">
+            <h3 className="font-heading text-base font-semibold leading-tight mb-0.5 truncate" style={{ color: brand.onPrimary }}>
+              {brand.name}
+            </h3>
+            <p className="font-body text-[12px] opacity-80 truncate" style={{ color: brand.onPrimary }}>
+              {brand.tagline}
+            </p>
+            <div className="flex items-center gap-2 mt-2.5">
+              <StatusDot kind={status} />
+              <span className="font-body text-[11px] font-medium uppercase tracking-wider opacity-90" style={{ color: brand.onPrimary }}>
+                {statusLabel}
+              </span>
+            </div>
+          </div>
+
+          {enabledControl && hasConfig && (
+            <div
+              className="shrink-0 rounded-full bg-black/20 backdrop-blur-sm px-3 py-1.5 ring-1 ring-white/10"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Toggle
+                checked={enabled}
+                disabled={enabledControl.toggling}
+                onChange={enabledControl.onToggle}
+                label={enabled ? "ON" : "OFF"}
+              />
+            </div>
+          )}
+        </div>
+
+        {badge && (
+          <div className={`relative inline-flex items-center gap-1.5 mt-3 px-2.5 py-1 rounded-full text-[10.5px] font-semibold uppercase tracking-wider border ${badgeToneClass}`}>
+            {badge.text}
+          </div>
+        )}
+      </div>
+
+      {/* ── KPIs tuiles ────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-3 divide-x divide-border-light border-b border-border-light">
+        <KpiTile label="Publiés" value={stats.published.toLocaleString("fr-FR")} icon={<Icons.Box className="w-3.5 h-3.5" />} />
+        <KpiTile
+          label="À synchroniser"
+          value={stats.toSync.toLocaleString("fr-FR")}
+          icon={<Icons.Refresh className="w-3.5 h-3.5" />}
+          accent={stats.toSync > 0 ? "text-amber-600" : undefined}
+        />
+        <KpiTile label="Dernière sync" value={formatRelative(stats.lastSyncAt)} icon={<Icons.Clock className="w-3.5 h-3.5" />} small />
+      </div>
+
+      {/* ── Calculette aperçu prix ─────────────────────────────────────── */}
+      <div className="p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <Icons.Calculator className="w-3.5 h-3.5 text-text-muted" />
+          <p className="font-body text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            Aperçu prix
+          </p>
+        </div>
+        <div className="space-y-2 mb-1">
+          {previewLines.map((line, i) => (
+            <div key={i} className="flex items-baseline justify-between gap-3">
+              <span className={`font-body text-[12.5px] ${line.muted ? "text-text-muted" : "text-text-secondary"}`}>
+                {line.label}
+              </span>
+              <span className={`font-heading text-sm font-semibold tabular-nums ${line.muted ? "text-text-muted" : "text-text-primary"}`}>
+                {line.value}
+              </span>
+            </div>
+          ))}
+        </div>
+        {extraNote && (
+          <p className="mt-3 text-[11px] text-text-muted leading-snug font-body italic">{extraNote}</p>
+        )}
+      </div>
+
+      {/* ── Action ouvrir réglages ─────────────────────────────────────── */}
+      <div className="px-5 pb-5">
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="w-full inline-flex items-center justify-center gap-2 h-10 rounded-xl border border-border bg-bg-primary text-text-primary text-sm font-body font-medium hover:bg-bg-secondary hover:border-border-dark transition-all"
+        >
+          <Icons.Settings className="w-4 h-4" />
+          Identifiants &amp; réglages
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function KpiTile({ label, value, icon, accent, small }: { label: string; value: string; icon: React.ReactNode; accent?: string; small?: boolean }) {
+  return (
+    <div className="p-4 text-center">
+      <div className="flex items-center justify-center gap-1.5 text-text-muted mb-1.5">
+        {icon}
+        <span className="font-body text-[10px] font-medium uppercase tracking-wider">{label}</span>
+      </div>
+      <div className={`font-heading ${small ? "text-[13px]" : "text-xl"} font-semibold leading-none ${accent ?? "text-text-primary"}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+// ─── Carte Microstore (différente, plus discrète) ─────────────────────────
+function MicrostoreCard({ previewLines, onOpenSettings }: { previewLines: { label: string; value: string }[]; onOpenSettings: () => void }) {
+  const brand = MARKETPLACES_BRAND.microstore;
+  return (
+    <div className="relative overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-bg-secondary to-bg-tertiary shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-5 p-5 sm:p-6">
+        <div className="flex items-center gap-4 sm:flex-1">
+          <Logo brandKey="microstore" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="font-heading text-base font-semibold text-text-primary">{brand.name}</h3>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-bg-primary border border-border text-text-secondary">
+                Export Excel
+              </span>
+            </div>
+            <p className="font-body text-xs text-text-muted mt-0.5">
+              Pas de connexion : le fichier Excel se génère depuis la liste des produits.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4 sm:items-center sm:flex-1">
+          <div className="rounded-2xl bg-bg-primary border border-border-light p-3.5">
+            <div className="flex items-center gap-1.5 mb-2 text-text-muted">
+              <Icons.Calculator className="w-3 h-3" />
+              <span className="font-body text-[10px] font-semibold uppercase tracking-wider">Aperçu prix</span>
+            </div>
+            <div className="space-y-1">
+              {previewLines.map((line, i) => (
+                <div key={i} className="flex items-baseline justify-between gap-3">
+                  <span className="font-body text-xs text-text-secondary">{line.label}</span>
+                  <span className="font-heading text-sm font-semibold tabular-nums text-text-primary">{line.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl border border-border bg-bg-primary text-text-primary text-sm font-body font-medium hover:bg-bg-secondary transition-colors"
+          >
+            <Icons.Settings className="w-4 h-4" />
+            Régler le markup
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Slide-over drawer ─────────────────────────────────────────────────────
+function Drawer({ open, onClose, brandKey, children }: { open: boolean; onClose: () => void; brandKey: MarketplaceKey | null; children: React.ReactNode }) {
+  // Lock body scroll while open
+  useEffect(() => {
+    if (open) {
+      const original = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => { document.body.style.overflow = original; };
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open || !brandKey) return null;
+  const brand = MARKETPLACES_BRAND[brandKey];
+
+  return (
+    <div className="fixed inset-0 z-[60]">
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-[2px] animate-[fadeIn_120ms_ease-out]"
+        onClick={onClose}
+      />
+      <div
+        className="absolute top-0 right-0 h-full w-full sm:max-w-[520px] bg-bg-primary shadow-2xl flex flex-col animate-[slideInRight_240ms_cubic-bezier(0.16,1,0.3,1)]"
+      >
+        <div
+          className="relative px-6 py-5 overflow-hidden shrink-0"
+          style={{ background: brandGradient(brand), color: brand.onPrimary }}
+        >
+          <div className="absolute inset-0 opacity-10 pointer-events-none" style={{
+            backgroundImage: "radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)",
+            backgroundSize: "16px 16px",
+          }} />
+          <div className="relative flex items-center gap-4">
+            <Logo brandKey={brandKey} />
+            <div className="flex-1 min-w-0">
+              <p className="font-body text-[10.5px] font-semibold uppercase tracking-[0.18em] opacity-75" style={{ color: brand.onPrimary }}>
+                Réglages
+              </p>
+              <h2 className="font-heading text-lg font-semibold truncate" style={{ color: brand.onPrimary }}>
+                {brand.name}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="shrink-0 w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
+              aria-label="Fermer"
+            >
+              <span style={{ color: brand.onPrimary }} className="inline-flex"><Icons.X className="w-4 h-4" /></span>
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto">{children}</div>
+      </div>
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes slideInRight { from { transform: translateX(100%) } to { transform: translateX(0) } }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── Bloc réglages : section au sein du drawer ────────────────────────────
+function DrawerSection({ icon, title, subtitle, children }: { icon: React.ReactNode; title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <section className="px-6 py-5 border-b border-border-light last:border-b-0">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-text-muted">{icon}</span>
+        <h3 className="font-heading text-[13px] font-semibold uppercase tracking-wider text-text-secondary">{title}</h3>
+      </div>
+      {subtitle && <p className="font-body text-xs text-text-muted mb-4">{subtitle}</p>}
+      {!subtitle && <div className="h-2" />}
+      {children}
+    </section>
+  );
+}
+
+// ─── Réglage markup (3 sliders horizontaux) ───────────────────────────────
+function MarkupRow({ label, state, onChange }: { label: string; state: MarkupState; onChange: (s: MarkupState) => void }) {
+  const typeOptions: { value: MarkupType; label: string }[] = [
+    { value: "percent", label: "%" },
+    { value: "fixed", label: "€" },
+    { value: "multiplier", label: "×" },
+  ];
+  const roundingOptions: { value: RoundingMode; label: string }[] = [
+    { value: "none", label: "Aucun" },
+    { value: "down", label: "↓" },
+    { value: "up", label: "↑" },
+  ];
+
+  return (
+    <div className="rounded-xl border border-border-light bg-bg-secondary/40 p-3.5">
+      <p className="font-body text-xs font-medium text-text-primary mb-3">{label}</p>
+      <div className="flex flex-col sm:flex-row gap-2.5">
+        <div className="sm:w-24">
+          <label className="font-body text-[10px] text-text-muted mb-1 block uppercase tracking-wider">Valeur</label>
           <input
             type="number"
             min={0}
             step="0.01"
             value={state.value}
             onChange={(e) => onChange({ ...state, value: Number(e.target.value) || 0 })}
-            className="w-full sm:w-24 h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+            className="w-full h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-bg-dark/15 transition-shadow"
           />
         </div>
-
-        <div className="flex-1 min-w-0">
-          <label className="font-body text-[11px] text-text-muted mb-1 block">Type</label>
-          <div className="flex rounded-lg border border-border overflow-hidden">
+        <div className="flex-1">
+          <label className="font-body text-[10px] text-text-muted mb-1 block uppercase tracking-wider">Type</label>
+          <div className="flex rounded-lg border border-border overflow-hidden h-9">
             {typeOptions.map((opt) => (
               <button
                 key={opt.value}
                 type="button"
-                title={opt.title}
                 onClick={() => onChange({ ...state, type: opt.value })}
-                className={`flex-1 h-9 px-2 text-xs font-body font-medium transition-colors whitespace-nowrap ${
+                className={`flex-1 text-xs font-body font-medium transition-colors ${
                   state.type === opt.value
                     ? "bg-bg-dark text-text-inverse"
                     : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
@@ -196,17 +567,15 @@ function MarkupRow({
             ))}
           </div>
         </div>
-
-        <div className="flex-1 min-w-0">
-          <label className="font-body text-[11px] text-text-muted mb-1 block">Arrondi</label>
-          <div className="flex rounded-lg border border-border overflow-hidden">
+        <div className="flex-1">
+          <label className="font-body text-[10px] text-text-muted mb-1 block uppercase tracking-wider">Arrondi</label>
+          <div className="flex rounded-lg border border-border overflow-hidden h-9">
             {roundingOptions.map((opt) => (
               <button
                 key={opt.value}
                 type="button"
-                title={opt.title}
                 onClick={() => onChange({ ...state, rounding: opt.value })}
-                className={`flex-1 h-9 px-2 text-xs font-body font-medium transition-colors whitespace-nowrap ${
+                className={`flex-1 text-xs font-body font-medium transition-colors ${
                   state.rounding === opt.value
                     ? "bg-bg-dark text-text-inverse"
                     : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
@@ -222,6 +591,106 @@ function MarkupRow({
   );
 }
 
+// ─── Forme d'édition des identifiants (réutilisée par drawer) ─────────────
+function CredentialBlock({
+  hasConfig, editing, setEditing, status, fields, validating, saving, onValidate, onSave, canSave,
+}: {
+  hasConfig: boolean;
+  editing: boolean;
+  setEditing: (v: boolean) => void;
+  status: "none" | "valid" | "invalid" | "checking";
+  fields: React.ReactNode;
+  validating: boolean;
+  saving: boolean;
+  onValidate: () => void;
+  onSave: () => void;
+  canSave: boolean;
+}) {
+  if (!editing && hasConfig) {
+    return (
+      <div className="flex items-center gap-3 px-3.5 py-3 rounded-xl bg-bg-secondary/60 border border-border-light">
+        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+        <span className="flex-1 font-body text-sm text-text-secondary">Identifiants enregistrés et chiffrés.</span>
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+        >
+          <Icons.Pencil className="w-3.5 h-3.5" />
+          Modifier
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {fields}
+      {status === "invalid" && (
+        <p className="font-body text-xs text-error flex items-center gap-1.5">
+          <Icons.X className="w-3.5 h-3.5" /> Identifiants refusés par le service.
+        </p>
+      )}
+      {status === "valid" && (
+        <p className="font-body text-xs text-emerald-700 flex items-center gap-1.5">
+          <Icons.Check className="w-3.5 h-3.5" /> Connexion validée — vous pouvez enregistrer.
+        </p>
+      )}
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onValidate}
+          disabled={validating || saving}
+          className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
+        >
+          {validating ? <><Icons.Loader className="w-3.5 h-3.5" /> Vérification…</> : <><Icons.Check className="w-3.5 h-3.5" /> Tester</>}
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saving || !canSave || status !== "valid"}
+          className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+        >
+          {saving ? <><Icons.Loader className="w-3.5 h-3.5" /> Enregistrement…</> : "Enregistrer"}
+        </button>
+        {hasConfig && (
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            disabled={saving || validating}
+            className="inline-flex items-center gap-1 h-9 px-3 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
+          >
+            Annuler
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, type, value, onChange, placeholder, disabled, hint }: {
+  label: string; type: string; value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean; hint?: string;
+}) {
+  return (
+    <div>
+      <label className="font-body text-[11px] font-medium text-text-secondary mb-1.5 block">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        autoComplete="off"
+        className="w-full h-10 px-3.5 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-bg-dark/15 transition-shadow disabled:opacity-50"
+      />
+      {hint && <p className="mt-1.5 font-body text-[11px] text-text-muted">{hint}</p>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPOSANT PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════════════
 export default function MarketplaceConfig({
   hasPfsConfig,
   pfsBrand: initialPfsBrand,
@@ -231,40 +700,138 @@ export default function MarketplaceConfig({
   efashionEnabled: initialEfashionEnabled,
   hasFaireConfig,
   faireEnabled: initialFaireEnabled,
+  stats,
   markupSettings,
 }: Props) {
   // ── PFS state ──────────────────────────────────────────────────────────────
   const [pfsEmail, setPfsEmail] = useState("");
   const [pfsPassword, setPfsPassword] = useState("");
-  const [pfsStatus, setPfsStatus] = useState<"none" | "valid" | "invalid" | "checking">(
-    hasPfsConfig ? "valid" : "none"
-  );
+  const [pfsStatus, setPfsStatus] = useState<"none" | "valid" | "invalid" | "checking">(hasPfsConfig ? "valid" : "none");
   const [pfsEditing, setPfsEditing] = useState(!hasPfsConfig);
   const [isSavingPfs, startSavingPfs] = useTransition();
   const [isValidatingPfs, startValidatingPfs] = useTransition();
   const [pfsMarkup, setPfsMarkup] = useState<MarkupState>(markupSettings.pfs);
 
-  // ── PFS brand state ────────────────────────────────────────────────────────
+  // PFS brand
   const [pfsBrand, setPfsBrand] = useState<{ id: string; name: string } | null>(initialPfsBrand);
   const [brandList, setBrandList] = useState<{ id: string; name: string; logoUrl: string | null }[] | null>(null);
   const [brandListError, setBrandListError] = useState<string | null>(null);
   const [isLoadingBrands, startLoadingBrands] = useTransition();
   const [isSavingBrand, startSavingBrand] = useTransition();
-  const [brandEditing, setBrandEditing] = useState(false);
+  const [brandPickerOpen, setBrandPickerOpen] = useState(false);
 
+  // ── Ankorstore state ────────────────────────────────────────────────────────
+  const [ankClientId, setAnkClientId] = useState("");
+  const [ankClientSecret, setAnkClientSecret] = useState("");
+  const [ankStatus, setAnkStatus] = useState<"none" | "valid" | "invalid" | "checking">(hasAnkorstoreConfig ? "valid" : "none");
+  const [ankEditing, setAnkEditing] = useState(!hasAnkorstoreConfig);
+  const [isSavingAnk, startSavingAnk] = useTransition();
+  const [isValidatingAnk, startValidatingAnk] = useTransition();
+  const [isTogglingAnk, startTogglingAnk] = useTransition();
+  const [ankEnabled, setAnkEnabled] = useState(initialAnkorstoreEnabled);
+  const [ankWholesale, setAnkWholesale] = useState<MarkupState>(markupSettings.ankorstoreWholesale);
+  const [ankRetail, setAnkRetail] = useState<MarkupState>(markupSettings.ankorstoreRetail);
+  const [ankVat, setAnkVat] = useState<number>(markupSettings.ankorstoreVatRate);
+
+  // ── eFashion state ──────────────────────────────────────────────────────────
+  const [efaEmail, setEfaEmail] = useState("");
+  const [efaPassword, setEfaPassword] = useState("");
+  const [efaStatus, setEfaStatus] = useState<"none" | "valid" | "invalid" | "checking">(hasEfashionConfig ? "valid" : "none");
+  const [efaEditing, setEfaEditing] = useState(!hasEfashionConfig);
+  const [isSavingEfa, startSavingEfa] = useTransition();
+  const [isValidatingEfa, startValidatingEfa] = useTransition();
+  const [isTogglingEfa, startTogglingEfa] = useTransition();
+  const [efaEnabled, setEfaEnabled] = useState(initialEfashionEnabled);
+  const [efaMarkup, setEfaMarkup] = useState<MarkupState>(markupSettings.efashion);
+  const [efaVendor, setEfaVendor] = useState<{ id: number; name: string } | null>(null);
+
+  // ── Faire state ─────────────────────────────────────────────────────────────
+  const [faiKey, setFaiKey] = useState("");
+  const [faiStatus, setFaiStatus] = useState<"none" | "valid" | "invalid" | "checking">(hasFaireConfig ? "valid" : "none");
+  const [faiEditing, setFaiEditing] = useState(!hasFaireConfig);
+  const [isSavingFai, startSavingFai] = useTransition();
+  const [isValidatingFai, startValidatingFai] = useTransition();
+  const [isTogglingFai, startTogglingFai] = useTransition();
+  const [faiEnabled, setFaiEnabled] = useState(initialFaireEnabled);
+  const [faiWholesale, setFaiWholesale] = useState<MarkupState>(markupSettings.faireWholesale);
+  const [faiRetail, setFaiRetail] = useState<MarkupState>(markupSettings.faireRetail);
+
+  // ── Microstore ──────────────────────────────────────────────────────────────
+  const [microMarkup, setMicroMarkup] = useState<MarkupState>(markupSettings.microstore);
+
+  // ── Shared ──────────────────────────────────────────────────────────────────
+  const [isSavingMarkup, startSavingMarkup] = useTransition();
+  const [drawerKey, setDrawerKey] = useState<MarketplaceKey | null>(null);
+  const [previewHT, setPreviewHT] = useState<number>(5);
+  const toast = useToast();
+  const { showLoading, hideLoading } = useLoadingOverlay();
+
+  // ── Calculs aperçu prix ─────────────────────────────────────────────────────
+  const previews = useMemo(() => {
+    const pfsP = applyMarketplaceMarkup(previewHT, pfsMarkup);
+    const ankW = applyMarketplaceMarkup(previewHT, ankWholesale);
+    const ankR = applyMarketplaceMarkup(previewHT, ankRetail);
+    const ankRttc = ankR * (1 + (ankVat || 0) / 100);
+    const faiPair = applyFaireMarkupWithClamp(previewHT, faiWholesale, faiRetail);
+    const efaP = applyMarketplaceMarkup(previewHT, efaMarkup);
+    const microP = applyMarketplaceMarkup(previewHT, microMarkup);
+    return {
+      pfs: [
+        { label: `${formatEUR(previewHT)} HT en boutique`, value: "↓", muted: true },
+        { label: "Prix HT envoyé à PFS", value: formatEUR(pfsP) },
+      ],
+      ankorstore: [
+        { label: `${formatEUR(previewHT)} HT en boutique`, value: "↓", muted: true },
+        { label: "Prix de gros HT", value: formatEUR(ankW) },
+        { label: `Public TTC (TVA ${ankVat}%)`, value: formatEUR(ankRttc) },
+      ],
+      faire: [
+        { label: `${formatEUR(previewHT)} HT en boutique`, value: "↓", muted: true },
+        { label: "Prix de gros HT", value: formatEUR(faiPair.wholesale) },
+        { label: "Public conseillé HT", value: formatEUR(faiPair.retail) },
+      ],
+      efashion: [
+        { label: `${formatEUR(previewHT)} HT en boutique`, value: "↓", muted: true },
+        { label: "Prix de gros HT envoyé", value: formatEUR(efaP) },
+      ],
+      microstore: [
+        { label: `${formatEUR(previewHT)} HT en boutique`, value: "↓" },
+        { label: "Prix Excel exporté", value: formatEUR(microP) },
+      ],
+    };
+  }, [previewHT, pfsMarkup, ankWholesale, ankRetail, ankVat, faiWholesale, faiRetail, efaMarkup, microMarkup]);
+
+  // ── Cockpit stats ───────────────────────────────────────────────────────────
+  const cockpit = useMemo(() => {
+    const activeFlags = [
+      hasPfsConfig && !!pfsBrand,
+      hasAnkorstoreConfig && ankEnabled,
+      hasFaireConfig && faiEnabled,
+      hasEfashionConfig && efaEnabled,
+    ];
+    const totalPublished = stats.pfs.published + stats.ankorstore.published + stats.efashion.published + stats.faire.published;
+    const totalToSync = stats.pfs.toSync + stats.ankorstore.toSync + stats.efashion.toSync + stats.faire.toSync;
+    const lastSyncs = [stats.pfs.lastSyncAt, stats.ankorstore.lastSyncAt, stats.efashion.lastSyncAt, stats.faire.lastSyncAt].filter((x): x is string => !!x);
+    const lastSyncAt = lastSyncs.length > 0 ? lastSyncs.sort().at(-1)! : null;
+    return {
+      activeCount: activeFlags.filter(Boolean).length,
+      totalCount: activeFlags.length,
+      totalPublished,
+      totalToSync,
+      lastSyncAt,
+    };
+  }, [hasPfsConfig, pfsBrand, hasAnkorstoreConfig, ankEnabled, hasFaireConfig, faiEnabled, hasEfashionConfig, efaEnabled, stats]);
+
+  // ── PFS brand picker ────────────────────────────────────────────────────────
   function openBrandPicker() {
-    setBrandEditing(true);
+    setBrandPickerOpen(true);
     setBrandListError(null);
     startLoadingBrands(async () => {
       const res = await loadPfsBrands();
-      if (res.success && res.brands) {
-        setBrandList(res.brands);
-      } else {
-        setBrandListError(res.error ?? "Impossible de charger les marques.");
-      }
+      if (res.success && res.brands) setBrandList(res.brands);
+      else setBrandListError(res.error ?? "Impossible de charger les marques.");
     });
   }
-
   function handlePickBrand(brand: { id: string; name: string }) {
     showLoading();
     startSavingBrand(async () => {
@@ -272,72 +839,14 @@ export default function MarketplaceConfig({
         const res = await updatePfsBrand(brand);
         if (res.success) {
           setPfsBrand(brand);
-          setBrandEditing(false);
+          setBrandPickerOpen(false);
           toast.success("Marque PFS enregistrée", `« ${brand.name} » est maintenant utilisée.`);
         } else {
           toast.error("Erreur", res.error ?? "Impossible d'enregistrer la marque.");
         }
-      } finally {
-        hideLoading();
-      }
+      } finally { hideLoading(); }
     });
   }
-
-  // ── Ankorstore state ────────────────────────────────────────────────────────
-  const [ankorstoreClientId, setAnkorstoreClientId] = useState("");
-  const [ankorstoreClientSecret, setAnkorstoreClientSecret] = useState("");
-  const [ankorstoreStatus, setAnkorstoreStatus] = useState<"none" | "valid" | "invalid" | "checking">(
-    hasAnkorstoreConfig ? "valid" : "none"
-  );
-  const [ankorstoreEditing, setAnkorstoreEditing] = useState(!hasAnkorstoreConfig);
-  const [isSavingAnkorstore, startSavingAnkorstore] = useTransition();
-  const [isValidatingAnkorstore, startValidatingAnkorstore] = useTransition();
-  const [isTogglingAnkorstore, startTogglingAnkorstore] = useTransition();
-  const [ankorstoreEnabled, setAnkorstoreEnabled] = useState(initialAnkorstoreEnabled);
-
-  const [ankorstoreWholesale, setAnkorstoreWholesale] = useState<MarkupState>(markupSettings.ankorstoreWholesale);
-  const [ankorstoreRetail, setAnkorstoreRetail] = useState<MarkupState>(markupSettings.ankorstoreRetail);
-  const [ankorstoreVatRate, setAnkorstoreVatRate] = useState<number>(markupSettings.ankorstoreVatRate);
-
-  // ── eFashion state ──────────────────────────────────────────────────────────
-  const [efashionEmail, setEfashionEmail] = useState("");
-  const [efashionPassword, setEfashionPassword] = useState("");
-  const [efashionStatus, setEfashionStatus] = useState<"none" | "valid" | "invalid" | "checking">(
-    hasEfashionConfig ? "valid" : "none"
-  );
-  const [efashionEditing, setEfashionEditing] = useState(!hasEfashionConfig);
-  const [isSavingEfashion, startSavingEfashion] = useTransition();
-  const [isValidatingEfashion, startValidatingEfashion] = useTransition();
-  const [isTogglingEfashion, startTogglingEfashion] = useTransition();
-  const [efashionEnabled, setEfashionEnabled] = useState(initialEfashionEnabled);
-  const [efashionMarkup, setEfashionMarkup] = useState<MarkupState>(markupSettings.efashion);
-  const [efashionVendor, setEfashionVendor] = useState<{ id: number; name: string } | null>(null);
-
-  // ── Faire state ─────────────────────────────────────────────────────────────
-  const [faireApiKey, setFaireApiKey] = useState("");
-  const [faireStatus, setFaireStatus] = useState<"none" | "valid" | "invalid" | "checking">(
-    hasFaireConfig ? "valid" : "none"
-  );
-  const [faireEditing, setFaireEditing] = useState(!hasFaireConfig);
-  const [isSavingFaire, startSavingFaire] = useTransition();
-  const [isValidatingFaire, startValidatingFaire] = useTransition();
-  const [isTogglingFaire, startTogglingFaire] = useTransition();
-  const [faireEnabled, setFaireEnabled] = useState(initialFaireEnabled);
-  const [faireWholesale, setFaireWholesale] = useState<MarkupState>(markupSettings.faireWholesale);
-  const [faireRetail, setFaireRetail] = useState<MarkupState>(markupSettings.faireRetail);
-
-  // ── Microstore state (export Excel uniquement — pas de credentials) ──────────
-  const [microstoreMarkup, setMicrostoreMarkup] = useState<MarkupState>(markupSettings.microstore);
-
-  // ── Shared ──────────────────────────────────────────────────────────────────
-  const [isSavingMarkup, startSavingMarkup] = useTransition();
-  const toast = useToast();
-  const { showLoading, hideLoading } = useLoadingOverlay();
-
-  const isPendingPfs = isSavingPfs || isValidatingPfs;
-  const isPendingAnkorstore = isSavingAnkorstore || isValidatingAnkorstore;
-  const isPendingEfashion = isSavingEfashion || isValidatingEfashion;
-  const isPendingFaire = isSavingFaire || isValidatingFaire;
 
   // ── PFS handlers ────────────────────────────────────────────────────────────
   function handlePfsValidate() {
@@ -346,949 +855,460 @@ export default function MarketplaceConfig({
     startValidatingPfs(async () => {
       try {
         setPfsStatus("checking");
-        const result = await validatePfsCredentials({
-          email: pfsEmail.trim(),
-          password: pfsPassword.trim(),
-        });
-        if (result.valid) {
-          setPfsStatus("valid");
-          toast.success("Connexion réussie", "Identifiants Paris Fashion Shops valides.");
-        } else {
-          setPfsStatus("invalid");
-          toast.error("Connexion échouée", result.error ?? "Identifiants invalides.");
-        }
-      } finally {
-        hideLoading();
-      }
+        const r = await validatePfsCredentials({ email: pfsEmail.trim(), password: pfsPassword.trim() });
+        if (r.valid) { setPfsStatus("valid"); toast.success("Connexion réussie", "Identifiants PFS valides."); }
+        else { setPfsStatus("invalid"); toast.error("Connexion échouée", r.error ?? "Identifiants invalides."); }
+      } finally { hideLoading(); }
     });
   }
-
   function handlePfsSave() {
     showLoading();
     startSavingPfs(async () => {
       try {
-        const result = await updatePfsCredentials({
-          email: pfsEmail.trim(),
-          password: pfsPassword.trim(),
-        });
-        if (result.success) {
-          toast.success("Enregistré", "Identifiants PFS sauvegardés.");
-          setPfsEditing(false);
-          setPfsEmail("");
-          setPfsPassword("");
-        } else {
-          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
-        }
-      } finally {
-        hideLoading();
-      }
+        const r = await updatePfsCredentials({ email: pfsEmail.trim(), password: pfsPassword.trim() });
+        if (r.success) { toast.success("Enregistré", "Identifiants PFS sauvegardés."); setPfsEditing(false); setPfsEmail(""); setPfsPassword(""); }
+        else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
+      } finally { hideLoading(); }
     });
   }
 
   // ── Ankorstore handlers ─────────────────────────────────────────────────────
-  function handleAnkorstoreValidate() {
-    if (!ankorstoreClientId.trim() || !ankorstoreClientSecret.trim()) return;
+  function handleAnkValidate() {
+    if (!ankClientId.trim() || !ankClientSecret.trim()) return;
     showLoading();
-    startValidatingAnkorstore(async () => {
+    startValidatingAnk(async () => {
       try {
-        setAnkorstoreStatus("checking");
-        const result = await validateAnkorstoreCredentials({
-          clientId: ankorstoreClientId.trim(),
-          clientSecret: ankorstoreClientSecret.trim(),
-        });
-        if (result.valid) {
-          setAnkorstoreStatus("valid");
-          toast.success("Connexion réussie", "Identifiants Ankorstore valides.");
-        } else {
-          setAnkorstoreStatus("invalid");
-          toast.error("Connexion échouée", result.error ?? "Identifiants invalides.");
-        }
-      } finally {
-        hideLoading();
-      }
+        setAnkStatus("checking");
+        const r = await validateAnkorstoreCredentials({ clientId: ankClientId.trim(), clientSecret: ankClientSecret.trim() });
+        if (r.valid) { setAnkStatus("valid"); toast.success("Connexion réussie", "Identifiants Ankorstore valides."); }
+        else { setAnkStatus("invalid"); toast.error("Connexion échouée", r.error ?? "Identifiants invalides."); }
+      } finally { hideLoading(); }
     });
   }
-
-  function handleAnkorstoreSave() {
+  function handleAnkSave() {
     showLoading();
-    startSavingAnkorstore(async () => {
+    startSavingAnk(async () => {
       try {
-        const result = await updateAnkorstoreCredentials({
-          clientId: ankorstoreClientId.trim(),
-          clientSecret: ankorstoreClientSecret.trim(),
-        });
-        if (result.success) {
-          toast.success("Enregistré", "Identifiants Ankorstore sauvegardés.");
-          setAnkorstoreEditing(false);
-          setAnkorstoreClientId("");
-          setAnkorstoreClientSecret("");
-        } else {
-          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
-        }
-      } finally {
-        hideLoading();
-      }
+        const r = await updateAnkorstoreCredentials({ clientId: ankClientId.trim(), clientSecret: ankClientSecret.trim() });
+        if (r.success) { toast.success("Enregistré", "Identifiants Ankorstore sauvegardés."); setAnkEditing(false); setAnkClientId(""); setAnkClientSecret(""); }
+        else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
+      } finally { hideLoading(); }
     });
   }
-
-  function handleToggleAnkorstore(checked: boolean) {
-    startTogglingAnkorstore(async () => {
-      const result = await toggleAnkorstoreEnabled(checked);
-      if (result.success) {
-        setAnkorstoreEnabled(checked);
-        toast.success(
-          checked ? "Ankorstore activé" : "Ankorstore désactivé",
-          checked
-            ? "La synchronisation Ankorstore est maintenant active."
-            : "La synchronisation Ankorstore est maintenant désactivée."
-        );
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
-      }
+  function handleAnkToggle(v: boolean) {
+    startTogglingAnk(async () => {
+      const r = await toggleAnkorstoreEnabled(v);
+      if (r.success) { setAnkEnabled(v); toast.success(v ? "Ankorstore activé" : "Ankorstore en pause", v ? "La sync est de nouveau active." : "Plus de propagation vers Ankorstore."); }
+      else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
     });
   }
 
   // ── eFashion handlers ───────────────────────────────────────────────────────
-  function handleEfashionValidate() {
-    if (!efashionEmail.trim() || !efashionPassword.trim()) return;
+  function handleEfaValidate() {
+    if (!efaEmail.trim() || !efaPassword.trim()) return;
     showLoading();
-    startValidatingEfashion(async () => {
+    startValidatingEfa(async () => {
       try {
-        setEfashionStatus("checking");
-        setEfashionVendor(null);
-        const result = await validateEfashionCredentials({
-          email: efashionEmail.trim(),
-          password: efashionPassword.trim(),
-        });
-        if (result.valid) {
-          setEfashionStatus("valid");
-          if (result.vendor) setEfashionVendor(result.vendor);
-          toast.success(
-            "Connexion réussie",
-            result.vendor
-              ? `Bienvenue ${result.vendor.name} (vendeur n°${result.vendor.id}).`
-              : "Identifiants eFashion Paris valides."
-          );
-        } else {
-          setEfashionStatus("invalid");
-          toast.error("Connexion échouée", result.error ?? "Identifiants invalides.");
-        }
-      } finally {
-        hideLoading();
-      }
+        setEfaStatus("checking"); setEfaVendor(null);
+        const r = await validateEfashionCredentials({ email: efaEmail.trim(), password: efaPassword.trim() });
+        if (r.valid) { setEfaStatus("valid"); if (r.vendor) setEfaVendor(r.vendor); toast.success("Connexion réussie", r.vendor ? `Bienvenue ${r.vendor.name} (vendeur n°${r.vendor.id}).` : "Identifiants eFashion valides."); }
+        else { setEfaStatus("invalid"); toast.error("Connexion échouée", r.error ?? "Identifiants invalides."); }
+      } finally { hideLoading(); }
     });
   }
-
-  function handleEfashionSave() {
+  function handleEfaSave() {
     showLoading();
-    startSavingEfashion(async () => {
+    startSavingEfa(async () => {
       try {
-        const result = await updateEfashionCredentials({
-          email: efashionEmail.trim(),
-          password: efashionPassword.trim(),
-        });
-        if (result.success) {
-          toast.success("Enregistré", "Identifiants eFashion Paris sauvegardés.");
-          setEfashionEditing(false);
-          setEfashionEmail("");
-          setEfashionPassword("");
-        } else {
-          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
-        }
-      } finally {
-        hideLoading();
-      }
+        const r = await updateEfashionCredentials({ email: efaEmail.trim(), password: efaPassword.trim() });
+        if (r.success) { toast.success("Enregistré", "Identifiants eFashion sauvegardés."); setEfaEditing(false); setEfaEmail(""); setEfaPassword(""); }
+        else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
+      } finally { hideLoading(); }
     });
   }
-
-  function handleToggleEfashion(checked: boolean) {
-    startTogglingEfashion(async () => {
-      const result = await toggleEfashionEnabled(checked);
-      if (result.success) {
-        setEfashionEnabled(checked);
-        toast.success(
-          checked ? "eFashion activé" : "eFashion désactivé",
-          checked
-            ? "La synchronisation eFashion Paris est maintenant active."
-            : "La synchronisation eFashion Paris est maintenant désactivée."
-        );
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
-      }
+  function handleEfaToggle(v: boolean) {
+    startTogglingEfa(async () => {
+      const r = await toggleEfashionEnabled(v);
+      if (r.success) { setEfaEnabled(v); toast.success(v ? "eFashion activé" : "eFashion en pause", v ? "La sync est de nouveau active." : "Plus de propagation vers eFashion."); }
+      else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
     });
   }
 
   // ── Faire handlers ──────────────────────────────────────────────────────────
-  function handleFaireValidate() {
-    if (!faireApiKey.trim()) return;
+  function handleFaiValidate() {
+    if (!faiKey.trim()) return;
     showLoading();
-    startValidatingFaire(async () => {
+    startValidatingFai(async () => {
       try {
-        setFaireStatus("checking");
-        const result = await validateFaireCredentials({ apiKey: faireApiKey.trim() });
-        if (result.valid) {
-          setFaireStatus("valid");
-          toast.success("Connexion réussie", "Clé API Faire valide.");
-        } else {
-          setFaireStatus("invalid");
-          toast.error("Connexion échouée", result.error ?? "Clé invalide.");
-        }
-      } finally {
-        hideLoading();
-      }
+        setFaiStatus("checking");
+        const r = await validateFaireCredentials({ apiKey: faiKey.trim() });
+        if (r.valid) { setFaiStatus("valid"); toast.success("Connexion réussie", "Clé API Faire valide."); }
+        else { setFaiStatus("invalid"); toast.error("Connexion échouée", r.error ?? "Clé invalide."); }
+      } finally { hideLoading(); }
     });
   }
-
-  function handleFaireSave() {
+  function handleFaiSave() {
     showLoading();
-    startSavingFaire(async () => {
+    startSavingFai(async () => {
       try {
-        const result = await updateFaireCredentials({ apiKey: faireApiKey.trim() });
-        if (result.success) {
-          toast.success("Enregistré", "Clé API Faire sauvegardée.");
-          setFaireEditing(false);
-          setFaireApiKey("");
-        } else {
-          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
-        }
-      } finally {
-        hideLoading();
-      }
+        const r = await updateFaireCredentials({ apiKey: faiKey.trim() });
+        if (r.success) { toast.success("Enregistré", "Clé Faire sauvegardée."); setFaiEditing(false); setFaiKey(""); }
+        else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
+      } finally { hideLoading(); }
+    });
+  }
+  function handleFaiToggle(v: boolean) {
+    startTogglingFai(async () => {
+      const r = await toggleFaireEnabled(v);
+      if (r.success) { setFaiEnabled(v); toast.success(v ? "Faire activé" : "Faire en pause", v ? "La sync est de nouveau active." : "Plus de propagation vers Faire."); }
+      else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
     });
   }
 
-  function handleToggleFaire(checked: boolean) {
-    startTogglingFaire(async () => {
-      const result = await toggleFaireEnabled(checked);
-      if (result.success) {
-        setFaireEnabled(checked);
-        toast.success(
-          checked ? "Faire activé" : "Faire désactivé",
-          checked
-            ? "La synchronisation Faire est maintenant active."
-            : "La synchronisation Faire est maintenant désactivée."
-        );
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
-      }
-    });
-  }
-
-  // ── Markup save ─────────────────────────────────────────────────────────────
+  // ── Sauvegarde markup global ───────────────────────────────────────────────
   function handleSaveMarkup() {
     showLoading();
     startSavingMarkup(async () => {
       try {
-        const result = await updateMarketplaceMarkup({
+        const r = await updateMarketplaceMarkup({
           pfs: pfsMarkup,
-          ankorstoreWholesale: ankorstoreWholesale,
-          ankorstoreRetail: ankorstoreRetail,
-          ankorstoreVatRate: ankorstoreVatRate,
-          efashion: efashionMarkup,
-          microstore: microstoreMarkup,
-          faireWholesale: faireWholesale,
-          faireRetail: faireRetail,
+          ankorstoreWholesale: ankWholesale,
+          ankorstoreRetail: ankRetail,
+          ankorstoreVatRate: ankVat,
+          efashion: efaMarkup,
+          microstore: microMarkup,
+          faireWholesale: faiWholesale,
+          faireRetail: faiRetail,
         });
-        if (result.success) {
-          toast.success("Enregistré", "Majorations marketplace sauvegardées.");
-        } else {
-          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
-        }
-      } finally {
-        hideLoading();
-      }
+        if (r.success) toast.success("Enregistré", "Réglages prix sauvegardés.");
+        else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
+      } finally { hideLoading(); }
     });
   }
 
+  // ── Helpers status par marketplace ─────────────────────────────────────────
+  function pfsCardStatus(): "ok" | "warn" | "off" | "checking" {
+    if (pfsStatus === "checking") return "checking";
+    if (!hasPfsConfig) return "off";
+    if (pfsStatus === "invalid") return "warn";
+    if (!pfsBrand) return "warn";
+    return "ok";
+  }
+  function simpleStatus(has: boolean, st: typeof pfsStatus): "ok" | "warn" | "off" | "checking" {
+    if (st === "checking") return "checking";
+    if (!has) return "off";
+    if (st === "invalid") return "warn";
+    return "ok";
+  }
+
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-        {/* ── PFS card ────────────────────────────────────────────────────── */}
-        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
-                <IconShop className="w-[18px] h-[18px] text-text-primary" />
-              </div>
-              <div>
-                <h3 className="font-heading text-sm font-semibold text-text-primary leading-tight">
-                  Paris Fashion Shops
-                </h3>
-                <div className="mt-0.5">
-                  <StatusBadge status={pfsStatus} />
-                </div>
-              </div>
-            </div>
-          </div>
+    <div className="space-y-6">
+      {/* ── Aperçu prix : input partagé ─────────────────────────────────── */}
+      <CockpitStrip {...cockpit} />
 
-          <div className="px-5 py-4">
-            <div className="flex items-center gap-2 mb-3">
-              <IconKey className="w-4 h-4 text-text-muted" />
-              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                Connexion
-              </p>
-            </div>
-
-            {!pfsEditing && hasPfsConfig ? (
-              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-secondary/60">
-                <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
-                  ••••••••••••••••
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setPfsEditing(true)}
-                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-                >
-                  <IconPencil className="w-3.5 h-3.5" />
-                  Modifier
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                <div>
-                  <label className="font-body text-[11px] text-text-muted mb-1 block">Email</label>
-                  <input
-                    type="email"
-                    value={pfsEmail}
-                    onChange={(e) => {
-                      setPfsEmail(e.target.value);
-                      if (pfsStatus === "valid" || pfsStatus === "invalid") setPfsStatus("none");
-                    }}
-                    placeholder="votre@email-pfs.com"
-                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
-                    disabled={isPendingPfs}
-                    autoComplete="off"
-                  />
-                </div>
-                <div>
-                  <label className="font-body text-[11px] text-text-muted mb-1 block">Mot de passe</label>
-                  <input
-                    type="password"
-                    value={pfsPassword}
-                    onChange={(e) => {
-                      setPfsPassword(e.target.value);
-                      if (pfsStatus === "valid" || pfsStatus === "invalid") setPfsStatus("none");
-                    }}
-                    placeholder="••••••••"
-                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
-                    disabled={isPendingPfs}
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={handlePfsValidate}
-                    disabled={isPendingPfs || !pfsEmail.trim() || !pfsPassword.trim()}
-                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
-                  >
-                    {isValidatingPfs ? (
-                      <><IconLoader className="w-3.5 h-3.5" /> Vérification…</>
-                    ) : (
-                      <><IconCheck className="w-3.5 h-3.5" /> Tester la connexion</>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handlePfsSave}
-                    disabled={isPendingPfs || !pfsEmail.trim() || !pfsPassword.trim() || pfsStatus !== "valid"}
-                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
-                  >
-                    {isSavingPfs ? "Enregistrement…" : "Sauvegarder"}
-                  </button>
-                  {hasPfsConfig && (
-                    <button
-                      type="button"
-                      onClick={() => { setPfsEditing(false); setPfsEmail(""); setPfsPassword(""); setPfsStatus("valid"); }}
-                      disabled={isPendingPfs}
-                      className="inline-flex items-center gap-1 h-9 px-3 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
-                    >
-                      <IconX className="w-3.5 h-3.5" />
-                      Annuler
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* ── PFS Marque ─────────────────────────────────────────────────── */}
-          <div className="px-5 py-4 border-t border-border">
-            <div className="flex items-center gap-2 mb-3">
-              <IconTag className="w-4 h-4 text-text-muted" />
-              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                Marque utilisée
-              </p>
-            </div>
-            {!hasPfsConfig ? (
-              <p className="font-body text-xs text-text-muted">
-                Renseignez vos identifiants PFS pour choisir une marque.
-              </p>
-            ) : !brandEditing ? (
-              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-secondary/60">
-                <div className={`flex-1 font-body text-sm ${pfsBrand ? "text-text-primary font-medium" : "text-text-muted italic"}`}>
-                  {pfsBrand ? pfsBrand.name : "Aucune marque sélectionnée — PFS verrouillé"}
-                </div>
-                <button
-                  type="button"
-                  onClick={openBrandPicker}
-                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-                >
-                  <IconPencil className="w-3.5 h-3.5" />
-                  {pfsBrand ? "Changer" : "Choisir"}
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {isLoadingBrands && (
-                  <div className="inline-flex items-center gap-2 text-xs font-body text-text-muted">
-                    <IconLoader className="w-3.5 h-3.5" /> Chargement des marques…
-                  </div>
-                )}
-                {brandListError && (
-                  <p className="font-body text-xs text-error">{brandListError}</p>
-                )}
-                {brandList && brandList.length === 0 && (
-                  <p className="font-body text-xs text-text-muted">Aucune marque disponible sur votre compte PFS.</p>
-                )}
-                {brandList && brandList.length > 0 && (
-                  <div className="space-y-1.5 max-h-56 overflow-y-auto">
-                    {brandList.map((b) => {
-                      const isCurrent = pfsBrand?.id === b.id;
-                      return (
-                        <button
-                          key={b.id}
-                          type="button"
-                          disabled={isSavingBrand}
-                          onClick={() => handlePickBrand({ id: b.id, name: b.name })}
-                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
-                            isCurrent
-                              ? "border-bg-dark bg-bg-dark/5"
-                              : "border-border bg-bg-primary hover:bg-bg-secondary"
-                          } disabled:opacity-50`}
-                        >
-                          <span className="flex-1 font-body text-sm text-text-primary">{b.name}</span>
-                          {isCurrent && <IconCheck className="w-4 h-4 text-success" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setBrandEditing(false)}
-                  className="inline-flex items-center gap-1 h-8 px-2 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
-                >
-                  <IconX className="w-3.5 h-3.5" />
-                  Fermer
-                </button>
-              </div>
-            )}
-            <p className="mt-2 font-body text-[11px] text-text-muted">
-              Toutes les opérations PFS (création, modification, rafraîchissement, import)
-              utilisent uniquement cette marque. Sans marque, PFS est verrouillé.
-            </p>
-          </div>
-
-          <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto">
-            <div className="flex items-center gap-2 mb-4">
-              <IconTag className="w-4 h-4 text-text-muted" />
-              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                Majoration des prix
-              </p>
-            </div>
-            <MarkupRow label="Prix HT" state={pfsMarkup} onChange={setPfsMarkup} />
-          </div>
+      {/* ── Bandeau aperçu : input prix HT partagé ─────────────────────── */}
+      <div className="rounded-2xl border border-border bg-bg-primary p-4 sm:p-5 shadow-sm flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2 shrink-0">
+          <Icons.Calculator className="w-4 h-4 text-text-muted" />
+          <span className="font-body text-xs font-semibold uppercase tracking-wider text-text-secondary">
+            Aperçu prix · simulez avec
+          </span>
         </div>
-
-        {/* ── Ankorstore card ─────────────────────────────────────────────── */}
-        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
-                <IconShop className="w-[18px] h-[18px] text-text-primary" />
-              </div>
-              <div>
-                <h3 className="font-heading text-sm font-semibold text-text-primary leading-tight">
-                  Ankorstore
-                </h3>
-                <div className="mt-0.5">
-                  <StatusBadge status={ankorstoreStatus} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Toggle activation */}
-          <div className="px-5 pt-4 pb-3 border-b border-border/60">
-            <label className="flex items-center gap-3 cursor-pointer select-none">
-              <div className="relative">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={ankorstoreEnabled}
-                  disabled={isTogglingAnkorstore}
-                  onChange={(e) => handleToggleAnkorstore(e.target.checked)}
-                />
-                <div className="w-10 h-6 rounded-full border border-border bg-bg-secondary peer-checked:bg-bg-dark peer-checked:border-bg-dark transition-colors" />
-                <div className="absolute top-1 left-1 w-4 h-4 rounded-full bg-text-muted peer-checked:bg-text-inverse peer-checked:translate-x-4 transition-all" />
-              </div>
-              <span className="font-body text-sm font-medium text-text-primary">
-                Activer la sync Ankorstore
-              </span>
-              {isTogglingAnkorstore && <IconLoader className="w-4 h-4 text-text-muted" />}
-            </label>
-          </div>
-
-          <div className="px-5 py-4">
-            <div className="flex items-center gap-2 mb-3">
-              <IconKey className="w-4 h-4 text-text-muted" />
-              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                Connexion
-              </p>
-            </div>
-
-            {!ankorstoreEditing && hasAnkorstoreConfig ? (
-              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-secondary/60">
-                <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
-                  ••••••••••••••••
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setAnkorstoreEditing(true)}
-                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-                >
-                  <IconPencil className="w-3.5 h-3.5" />
-                  Modifier
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                <div>
-                  <label className="font-body text-[11px] text-text-muted mb-1 block">Client ID</label>
-                  <input
-                    type="text"
-                    value={ankorstoreClientId}
-                    onChange={(e) => {
-                      setAnkorstoreClientId(e.target.value);
-                      if (ankorstoreStatus === "valid" || ankorstoreStatus === "invalid") setAnkorstoreStatus("none");
-                    }}
-                    placeholder="votre-client-id"
-                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
-                    disabled={isPendingAnkorstore}
-                    autoComplete="off"
-                  />
-                </div>
-                <div>
-                  <label className="font-body text-[11px] text-text-muted mb-1 block">Client Secret</label>
-                  <input
-                    type="password"
-                    value={ankorstoreClientSecret}
-                    onChange={(e) => {
-                      setAnkorstoreClientSecret(e.target.value);
-                      if (ankorstoreStatus === "valid" || ankorstoreStatus === "invalid") setAnkorstoreStatus("none");
-                    }}
-                    placeholder="••••••••"
-                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
-                    disabled={isPendingAnkorstore}
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleAnkorstoreValidate}
-                    disabled={isPendingAnkorstore || !ankorstoreClientId.trim() || !ankorstoreClientSecret.trim()}
-                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
-                  >
-                    {isValidatingAnkorstore ? (
-                      <><IconLoader className="w-3.5 h-3.5" /> Vérification…</>
-                    ) : (
-                      <><IconCheck className="w-3.5 h-3.5" /> Tester la connexion</>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleAnkorstoreSave}
-                    disabled={isPendingAnkorstore || !ankorstoreClientId.trim() || !ankorstoreClientSecret.trim() || ankorstoreStatus !== "valid"}
-                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
-                  >
-                    {isSavingAnkorstore ? "Enregistrement…" : "Sauvegarder"}
-                  </button>
-                  {hasAnkorstoreConfig && (
-                    <button
-                      type="button"
-                      onClick={() => { setAnkorstoreEditing(false); setAnkorstoreClientId(""); setAnkorstoreClientSecret(""); setAnkorstoreStatus("valid"); }}
-                      disabled={isPendingAnkorstore}
-                      className="inline-flex items-center gap-1 h-9 px-3 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
-                    >
-                      <IconX className="w-3.5 h-3.5" />
-                      Annuler
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto space-y-4">
-            <div className="flex items-center gap-2 mb-1">
-              <IconTag className="w-4 h-4 text-text-muted" />
-              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                Majoration des prix
-              </p>
-            </div>
-            <MarkupRow label="Prix de gros" state={ankorstoreWholesale} onChange={setAnkorstoreWholesale} />
-            <MarkupRow label="Prix public conseillé" state={ankorstoreRetail} onChange={setAnkorstoreRetail} />
-            <div>
-              <label className="font-body text-sm font-medium text-text-primary block mb-2">
-                TVA par défaut (%)
-              </label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step="0.1"
-                value={ankorstoreVatRate}
-                onChange={(e) => setAnkorstoreVatRate(Number(e.target.value) || 0)}
-                placeholder="20"
-                className="w-24 h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
-              />
-            </div>
-          </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            step="0.5"
+            value={previewHT}
+            onChange={(e) => setPreviewHT(Math.max(0, Number(e.target.value) || 0))}
+            className="w-28 h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-base font-heading font-semibold focus:outline-none focus:ring-2 focus:ring-bg-dark/15 transition-shadow tabular-nums"
+          />
+          <span className="font-body text-sm text-text-secondary">€ HT en boutique</span>
         </div>
-
-        {/* ── eFashion Paris card ─────────────────────────────────────────── */}
-        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
-                <IconShop className="w-[18px] h-[18px] text-text-primary" />
-              </div>
-              <div>
-                <h3 className="font-heading text-sm font-semibold text-text-primary leading-tight">
-                  eFashion Paris
-                </h3>
-                <div className="mt-0.5">
-                  <StatusBadge status={efashionStatus} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Toggle activation */}
-          <div className="px-5 pt-4 pb-3 border-b border-border/60">
-            <label className="flex items-center gap-3 cursor-pointer select-none">
-              <div className="relative">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={efashionEnabled}
-                  disabled={isTogglingEfashion}
-                  onChange={(e) => handleToggleEfashion(e.target.checked)}
-                />
-                <div className="w-10 h-6 rounded-full border border-border bg-bg-secondary peer-checked:bg-bg-dark peer-checked:border-bg-dark transition-colors" />
-                <div className="absolute top-1 left-1 w-4 h-4 rounded-full bg-text-muted peer-checked:bg-text-inverse peer-checked:translate-x-4 transition-all" />
-              </div>
-              <span className="font-body text-sm font-medium text-text-primary">
-                Activer la sync eFashion
-              </span>
-              {isTogglingEfashion && <IconLoader className="w-4 h-4 text-text-muted" />}
-            </label>
-          </div>
-
-          <div className="px-5 py-4">
-            <div className="flex items-center gap-2 mb-3">
-              <IconKey className="w-4 h-4 text-text-muted" />
-              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                Connexion
-              </p>
-            </div>
-
-            {!efashionEditing && hasEfashionConfig ? (
-              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-secondary/60">
-                <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
-                  ••••••••••••••••
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setEfashionEditing(true)}
-                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-                >
-                  <IconPencil className="w-3.5 h-3.5" />
-                  Modifier
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                <div>
-                  <label className="font-body text-[11px] text-text-muted mb-1 block">Email</label>
-                  <input
-                    type="email"
-                    value={efashionEmail}
-                    onChange={(e) => {
-                      setEfashionEmail(e.target.value);
-                      if (efashionStatus === "valid" || efashionStatus === "invalid") setEfashionStatus("none");
-                    }}
-                    placeholder="votre@email-efashion.com"
-                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
-                    disabled={isPendingEfashion}
-                    autoComplete="off"
-                  />
-                </div>
-                <div>
-                  <label className="font-body text-[11px] text-text-muted mb-1 block">Mot de passe</label>
-                  <input
-                    type="password"
-                    value={efashionPassword}
-                    onChange={(e) => {
-                      setEfashionPassword(e.target.value);
-                      if (efashionStatus === "valid" || efashionStatus === "invalid") setEfashionStatus("none");
-                    }}
-                    placeholder="••••••••"
-                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
-                    disabled={isPendingEfashion}
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleEfashionValidate}
-                    disabled={isPendingEfashion || !efashionEmail.trim() || !efashionPassword.trim()}
-                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
-                  >
-                    {isValidatingEfashion ? (
-                      <><IconLoader className="w-3.5 h-3.5" /> Vérification…</>
-                    ) : (
-                      <><IconCheck className="w-3.5 h-3.5" /> Tester la connexion</>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleEfashionSave}
-                    disabled={isPendingEfashion || !efashionEmail.trim() || !efashionPassword.trim() || efashionStatus !== "valid"}
-                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
-                  >
-                    {isSavingEfashion ? "Enregistrement…" : "Sauvegarder"}
-                  </button>
-                  {hasEfashionConfig && (
-                    <button
-                      type="button"
-                      onClick={() => { setEfashionEditing(false); setEfashionEmail(""); setEfashionPassword(""); setEfashionStatus("valid"); }}
-                      disabled={isPendingEfashion}
-                      className="inline-flex items-center gap-1 h-9 px-3 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
-                    >
-                      <IconX className="w-3.5 h-3.5" />
-                      Annuler
-                    </button>
-                  )}
-                </div>
-                {efashionVendor && (
-                  <p className="mt-2 font-body text-[11px] text-success">
-                    Connecté à <strong>{efashionVendor.name}</strong> (vendeur n°{efashionVendor.id}).
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto">
-            <div className="flex items-center gap-2 mb-4">
-              <IconTag className="w-4 h-4 text-text-muted" />
-              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                Majoration des prix
-              </p>
-            </div>
-            <MarkupRow label="Prix de gros" state={efashionMarkup} onChange={setEfashionMarkup} />
-          </div>
+        <div className="flex-1 min-w-[180px]">
+          <p className="font-body text-xs text-text-muted leading-relaxed">
+            Tapez un prix : chaque carte vous montre ce qu&apos;il devient une fois envoyé à la marketplace, avec votre majoration et vos arrondis appliqués.
+          </p>
         </div>
-
-        {/* ── Faire card ──────────────────────────────────────────────────── */}
-        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
-                <IconShop className="w-[18px] h-[18px] text-text-primary" />
-              </div>
-              <div>
-                <h3 className="font-heading text-sm font-semibold text-text-primary leading-tight">
-                  Faire
-                </h3>
-                <div className="mt-0.5">
-                  <StatusBadge status={faireStatus} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Toggle activation */}
-          <div className="px-5 pt-4 pb-3 border-b border-border/60">
-            <label className="flex items-center gap-3 cursor-pointer select-none">
-              <div className="relative">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={faireEnabled}
-                  disabled={isTogglingFaire}
-                  onChange={(e) => handleToggleFaire(e.target.checked)}
-                />
-                <div className="w-10 h-6 rounded-full border border-border bg-bg-secondary peer-checked:bg-bg-dark peer-checked:border-bg-dark transition-colors" />
-                <div className="absolute top-1 left-1 w-4 h-4 rounded-full bg-text-muted peer-checked:bg-text-inverse peer-checked:translate-x-4 transition-all" />
-              </div>
-              <span className="font-body text-sm font-medium text-text-primary">
-                Activer la sync Faire
-              </span>
-              {isTogglingFaire && <IconLoader className="w-4 h-4 text-text-muted" />}
-            </label>
-          </div>
-
-          <div className="px-5 py-4">
-            <div className="flex items-center gap-2 mb-3">
-              <IconKey className="w-4 h-4 text-text-muted" />
-              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                Connexion
-              </p>
-            </div>
-
-            {!faireEditing && hasFaireConfig ? (
-              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-secondary/60">
-                <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
-                  ••••••••••••••••
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFaireEditing(true)}
-                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-                >
-                  <IconPencil className="w-3.5 h-3.5" />
-                  Modifier
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                <div>
-                  <label className="font-body text-[11px] text-text-muted mb-1 block">Clé API</label>
-                  <input
-                    type="password"
-                    value={faireApiKey}
-                    onChange={(e) => {
-                      setFaireApiKey(e.target.value);
-                      if (faireStatus === "valid" || faireStatus === "invalid") setFaireStatus("none");
-                    }}
-                    placeholder="••••••••••••••••••••••••••••••••"
-                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
-                    disabled={isPendingFaire}
-                    autoComplete="off"
-                  />
-                  <p className="mt-1 font-body text-[11px] text-text-muted">
-                    Disponible dans votre portail Faire : Settings → Integrations → « Generate API key ».
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleFaireValidate}
-                    disabled={isPendingFaire || !faireApiKey.trim()}
-                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
-                  >
-                    {isValidatingFaire ? (
-                      <><IconLoader className="w-3.5 h-3.5" /> Vérification…</>
-                    ) : (
-                      <><IconCheck className="w-3.5 h-3.5" /> Tester la connexion</>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleFaireSave}
-                    disabled={isPendingFaire || !faireApiKey.trim() || faireStatus !== "valid"}
-                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
-                  >
-                    {isSavingFaire ? "Enregistrement…" : "Sauvegarder"}
-                  </button>
-                  {hasFaireConfig && (
-                    <button
-                      type="button"
-                      onClick={() => { setFaireEditing(false); setFaireApiKey(""); setFaireStatus("valid"); }}
-                      disabled={isPendingFaire}
-                      className="inline-flex items-center gap-1 h-9 px-3 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
-                    >
-                      <IconX className="w-3.5 h-3.5" />
-                      Annuler
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto space-y-4">
-            <div className="flex items-center gap-2 mb-1">
-              <IconTag className="w-4 h-4 text-text-muted" />
-              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                Majoration des prix
-              </p>
-            </div>
-            <MarkupRow label="Prix de gros" state={faireWholesale} onChange={setFaireWholesale} />
-            <MarkupRow label="Prix public conseillé" state={faireRetail} onChange={setFaireRetail} />
-            <p className="font-body text-[11px] text-text-muted leading-relaxed">
-              Faire impose un prix public ≥ 2× le prix de gros. Le système ajuste
-              automatiquement à la hausse si la majoration retail tombe sous ce seuil.
-            </p>
-          </div>
-        </div>
-
-        {/* ── Microstore card (export Excel uniquement) ─────────────────── */}
-        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
-                <IconShop className="w-[18px] h-[18px] text-text-primary" />
-              </div>
-              <div>
-                <h3 className="font-display text-base font-semibold text-text-primary">Microstore</h3>
-                <p className="font-body text-[11px] text-text-muted">Export Excel uniquement</p>
-              </div>
-            </div>
-            <span className="badge badge-neutral">Export</span>
-          </div>
-
-          <div className="p-5 flex-1 flex flex-col gap-4">
-            <p className="font-body text-xs text-text-muted leading-relaxed">
-              Microstore n'a pas de publication automatique : utilisez le bouton « Exporter » de la liste des produits
-              pour générer le fichier Excel à uploader manuellement.
-            </p>
-          </div>
-
-          <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto">
-            <div className="flex items-center gap-2 mb-4">
-              <IconTag className="w-4 h-4 text-text-muted" />
-              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                Majoration des prix
-              </p>
-            </div>
-            <MarkupRow label="Prix de gros" state={microstoreMarkup} onChange={setMicrostoreMarkup} />
-          </div>
-        </div>
-      </div>
-
-      <div className="flex justify-end">
         <button
           type="button"
           onClick={handleSaveMarkup}
           disabled={isSavingMarkup}
-          className="h-10 px-6 rounded-xl bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 shadow-sm"
+          className="shrink-0 inline-flex items-center gap-2 h-10 px-5 rounded-xl bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 shadow-sm"
         >
-          {isSavingMarkup ? (
-            <span className="inline-flex items-center gap-2">
-              <IconLoader className="w-4 h-4" />
-              Enregistrement…
-            </span>
-          ) : (
-            "Sauvegarder les majorations"
-          )}
+          {isSavingMarkup ? <><Icons.Loader className="w-4 h-4" /> Enregistrement…</> : "Sauvegarder les prix"}
         </button>
       </div>
+
+      {/* ── Grille de cartes principales ────────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <MarketplaceCard
+          brandKey="pfs"
+          hasConfig={hasPfsConfig}
+          status={pfsCardStatus()}
+          enabled={hasPfsConfig && !!pfsBrand}
+          stats={stats.pfs}
+          previewHT={previewHT}
+          previewLines={previews.pfs}
+          badge={pfsBrand ? { text: `Marque · ${pfsBrand.name}`, tone: "ok" } : (hasPfsConfig ? { text: "Marque à choisir", tone: "warn" } : undefined)}
+          onOpenSettings={() => setDrawerKey("pfs")}
+        />
+        <MarketplaceCard
+          brandKey="ankorstore"
+          hasConfig={hasAnkorstoreConfig}
+          status={simpleStatus(hasAnkorstoreConfig, ankStatus)}
+          enabled={ankEnabled}
+          enabledControl={{ onToggle: handleAnkToggle, toggling: isTogglingAnk }}
+          stats={stats.ankorstore}
+          previewHT={previewHT}
+          previewLines={previews.ankorstore}
+          onOpenSettings={() => setDrawerKey("ankorstore")}
+        />
+        <MarketplaceCard
+          brandKey="faire"
+          hasConfig={hasFaireConfig}
+          status={simpleStatus(hasFaireConfig, faiStatus)}
+          enabled={faiEnabled}
+          enabledControl={{ onToggle: handleFaiToggle, toggling: isTogglingFai }}
+          stats={stats.faire}
+          previewHT={previewHT}
+          previewLines={previews.faire}
+          extraNote="Faire impose un prix public ≥ 2× le prix de gros — ajusté automatiquement."
+          onOpenSettings={() => setDrawerKey("faire")}
+        />
+        <MarketplaceCard
+          brandKey="efashion"
+          hasConfig={hasEfashionConfig}
+          status={simpleStatus(hasEfashionConfig, efaStatus)}
+          enabled={efaEnabled}
+          enabledControl={{ onToggle: handleEfaToggle, toggling: isTogglingEfa }}
+          stats={stats.efashion}
+          previewHT={previewHT}
+          previewLines={previews.efashion}
+          badge={efaVendor ? { text: `Vendeur · ${efaVendor.name}`, tone: "info" } : undefined}
+          onOpenSettings={() => setDrawerKey("efashion")}
+        />
+      </div>
+
+      {/* ── Microstore (différent) ─────────────────────────────────────── */}
+      <MicrostoreCard
+        previewLines={previews.microstore.map((l) => ({ label: l.label, value: l.value }))}
+        onOpenSettings={() => setDrawerKey("microstore")}
+      />
+
+      {/* ═══════════════════ DRAWERS ═══════════════════ */}
+      <Drawer open={drawerKey === "pfs"} onClose={() => setDrawerKey(null)} brandKey="pfs">
+        <DrawerSection icon={<Icons.Plug className="w-4 h-4" />} title="Identifiants" subtitle="Email et mot de passe de votre compte Paris Fashion Shops.">
+          <CredentialBlock
+            hasConfig={hasPfsConfig}
+            editing={pfsEditing}
+            setEditing={setPfsEditing}
+            status={pfsStatus}
+            validating={isValidatingPfs}
+            saving={isSavingPfs}
+            onValidate={handlePfsValidate}
+            onSave={handlePfsSave}
+            canSave={!!pfsEmail.trim() && !!pfsPassword.trim()}
+            fields={<>
+              <Field label="Email" type="email" value={pfsEmail} onChange={(v) => { setPfsEmail(v); if (pfsStatus === "valid" || pfsStatus === "invalid") setPfsStatus("none"); }} placeholder="votre@email-pfs.com" disabled={isValidatingPfs || isSavingPfs} />
+              <Field label="Mot de passe" type="password" value={pfsPassword} onChange={(v) => { setPfsPassword(v); if (pfsStatus === "valid" || pfsStatus === "invalid") setPfsStatus("none"); }} placeholder="••••••••" disabled={isValidatingPfs || isSavingPfs} />
+            </>}
+          />
+        </DrawerSection>
+
+        <DrawerSection
+          icon={<Icons.Tag className="w-4 h-4" />}
+          title="Marque utilisée"
+          subtitle="Sans marque sélectionnée, toutes les opérations PFS sont bloquées."
+        >
+          {!hasPfsConfig ? (
+            <p className="font-body text-xs text-text-muted">Renseignez vos identifiants PFS pour choisir une marque.</p>
+          ) : !brandPickerOpen ? (
+            <div className="flex items-center gap-3 px-3.5 py-3 rounded-xl bg-bg-secondary/60 border border-border-light">
+              <div className={`flex-1 font-body text-sm ${pfsBrand ? "text-text-primary font-medium" : "text-text-muted italic"}`}>
+                {pfsBrand ? pfsBrand.name : "Aucune marque sélectionnée — PFS verrouillé"}
+              </div>
+              <button
+                type="button"
+                onClick={openBrandPicker}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+              >
+                <Icons.Pencil className="w-3.5 h-3.5" />
+                {pfsBrand ? "Changer" : "Choisir"}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {isLoadingBrands && (
+                <div className="inline-flex items-center gap-2 text-xs font-body text-text-muted">
+                  <Icons.Loader className="w-3.5 h-3.5" /> Chargement des marques…
+                </div>
+              )}
+              {brandListError && <p className="font-body text-xs text-error">{brandListError}</p>}
+              {brandList && brandList.length === 0 && (
+                <p className="font-body text-xs text-text-muted">Aucune marque disponible sur votre compte PFS.</p>
+              )}
+              {brandList && brandList.length > 0 && (
+                <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                  {brandList.map((b) => {
+                    const isCurrent = pfsBrand?.id === b.id;
+                    return (
+                      <button
+                        key={b.id}
+                        type="button"
+                        disabled={isSavingBrand}
+                        onClick={() => handlePickBrand({ id: b.id, name: b.name })}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-colors ${
+                          isCurrent ? "border-bg-dark bg-bg-dark/5" : "border-border bg-bg-primary hover:bg-bg-secondary"
+                        } disabled:opacity-50`}
+                      >
+                        <span className="flex-1 font-body text-sm text-text-primary">{b.name}</span>
+                        {isCurrent && <Icons.Check className="w-4 h-4 text-emerald-600" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setBrandPickerOpen(false)}
+                className="inline-flex items-center gap-1 h-8 px-2 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
+              >
+                Fermer
+              </button>
+            </div>
+          )}
+        </DrawerSection>
+
+        <DrawerSection icon={<Icons.Bolt className="w-4 h-4" />} title="Majoration prix HT" subtitle="Appliquée à tous les prix envoyés à PFS.">
+          <MarkupRow label="Prix HT" state={pfsMarkup} onChange={setPfsMarkup} />
+          <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
+        </DrawerSection>
+      </Drawer>
+
+      <Drawer open={drawerKey === "ankorstore"} onClose={() => setDrawerKey(null)} brandKey="ankorstore">
+        <DrawerSection icon={<Icons.Plug className="w-4 h-4" />} title="Identifiants API" subtitle="Client ID et Client Secret de votre app Ankorstore.">
+          <CredentialBlock
+            hasConfig={hasAnkorstoreConfig}
+            editing={ankEditing}
+            setEditing={setAnkEditing}
+            status={ankStatus}
+            validating={isValidatingAnk}
+            saving={isSavingAnk}
+            onValidate={handleAnkValidate}
+            onSave={handleAnkSave}
+            canSave={!!ankClientId.trim() && !!ankClientSecret.trim()}
+            fields={<>
+              <Field label="Client ID" type="text" value={ankClientId} onChange={(v) => { setAnkClientId(v); if (ankStatus === "valid" || ankStatus === "invalid") setAnkStatus("none"); }} placeholder="votre-client-id" disabled={isValidatingAnk || isSavingAnk} />
+              <Field label="Client Secret" type="password" value={ankClientSecret} onChange={(v) => { setAnkClientSecret(v); if (ankStatus === "valid" || ankStatus === "invalid") setAnkStatus("none"); }} placeholder="••••••••" disabled={isValidatingAnk || isSavingAnk} />
+            </>}
+          />
+        </DrawerSection>
+
+        <DrawerSection icon={<Icons.Bolt className="w-4 h-4" />} title="Majoration prix" subtitle="Gros = envoyé aux détaillants. Public = prix conseillé affiché en vitrine Ankorstore.">
+          <div className="space-y-3">
+            <MarkupRow label="Prix de gros" state={ankWholesale} onChange={setAnkWholesale} />
+            <MarkupRow label="Prix public conseillé" state={ankRetail} onChange={setAnkRetail} />
+            <div className="rounded-xl border border-border-light bg-bg-secondary/40 p-3.5">
+              <label className="font-body text-xs font-medium text-text-primary block mb-2">TVA par défaut (%)</label>
+              <input
+                type="number"
+                min={0} max={100} step="0.1"
+                value={ankVat}
+                onChange={(e) => setAnkVat(Number(e.target.value) || 0)}
+                placeholder="20"
+                className="w-24 h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-bg-dark/15 transition-shadow"
+              />
+            </div>
+          </div>
+          <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
+        </DrawerSection>
+      </Drawer>
+
+      <Drawer open={drawerKey === "faire"} onClose={() => setDrawerKey(null)} brandKey="faire">
+        <DrawerSection icon={<Icons.Plug className="w-4 h-4" />} title="Clé API" subtitle="Disponible dans votre portail Faire : Settings → Integrations → Generate API key.">
+          <CredentialBlock
+            hasConfig={hasFaireConfig}
+            editing={faiEditing}
+            setEditing={setFaiEditing}
+            status={faiStatus}
+            validating={isValidatingFai}
+            saving={isSavingFai}
+            onValidate={handleFaiValidate}
+            onSave={handleFaiSave}
+            canSave={!!faiKey.trim()}
+            fields={
+              <Field label="Clé API Faire" type="password" value={faiKey} onChange={(v) => { setFaiKey(v); if (faiStatus === "valid" || faiStatus === "invalid") setFaiStatus("none"); }} placeholder="••••••••••••••••••••" disabled={isValidatingFai || isSavingFai} />
+            }
+          />
+        </DrawerSection>
+
+        <DrawerSection icon={<Icons.Bolt className="w-4 h-4" />} title="Majoration prix" subtitle="Faire impose un prix public ≥ 2× le prix de gros, ajusté à la hausse si besoin.">
+          <div className="space-y-3">
+            <MarkupRow label="Prix de gros" state={faiWholesale} onChange={setFaiWholesale} />
+            <MarkupRow label="Prix public conseillé" state={faiRetail} onChange={setFaiRetail} />
+          </div>
+          <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
+        </DrawerSection>
+      </Drawer>
+
+      <Drawer open={drawerKey === "efashion"} onClose={() => setDrawerKey(null)} brandKey="efashion">
+        <DrawerSection icon={<Icons.Plug className="w-4 h-4" />} title="Identifiants" subtitle="Email et mot de passe de votre compte eFashion Paris.">
+          <CredentialBlock
+            hasConfig={hasEfashionConfig}
+            editing={efaEditing}
+            setEditing={setEfaEditing}
+            status={efaStatus}
+            validating={isValidatingEfa}
+            saving={isSavingEfa}
+            onValidate={handleEfaValidate}
+            onSave={handleEfaSave}
+            canSave={!!efaEmail.trim() && !!efaPassword.trim()}
+            fields={<>
+              <Field label="Email" type="email" value={efaEmail} onChange={(v) => { setEfaEmail(v); if (efaStatus === "valid" || efaStatus === "invalid") setEfaStatus("none"); }} placeholder="votre@email-efashion.com" disabled={isValidatingEfa || isSavingEfa} />
+              <Field label="Mot de passe" type="password" value={efaPassword} onChange={(v) => { setEfaPassword(v); if (efaStatus === "valid" || efaStatus === "invalid") setEfaStatus("none"); }} placeholder="••••••••" disabled={isValidatingEfa || isSavingEfa} />
+            </>}
+          />
+          {efaVendor && (
+            <p className="mt-3 font-body text-[11px] text-emerald-700">
+              Connecté à <strong>{efaVendor.name}</strong> (vendeur n°{efaVendor.id}).
+            </p>
+          )}
+        </DrawerSection>
+
+        <DrawerSection icon={<Icons.Bolt className="w-4 h-4" />} title="Majoration prix" subtitle="Appliquée au prix de gros envoyé à eFashion.">
+          <MarkupRow label="Prix de gros" state={efaMarkup} onChange={setEfaMarkup} />
+          <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
+        </DrawerSection>
+      </Drawer>
+
+      <Drawer open={drawerKey === "microstore"} onClose={() => setDrawerKey(null)} brandKey="microstore">
+        <DrawerSection icon={<Icons.Bolt className="w-4 h-4" />} title="Majoration prix" subtitle="Appliquée aux prix exportés dans le fichier Excel Microstore.">
+          <MarkupRow label="Prix Excel" state={microMarkup} onChange={setMicroMarkup} />
+          <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
+        </DrawerSection>
+        <DrawerSection icon={<Icons.Clock className="w-4 h-4" />} title="Comment ça marche" subtitle={undefined}>
+          <p className="font-body text-xs text-text-secondary leading-relaxed">
+            Microstore n&apos;a pas de connexion automatique. Depuis la liste des produits, cliquez sur « Exporter » pour générer le fichier Excel
+            avec les prix calculés selon la majoration ci-dessus, puis uploadez-le manuellement dans Microstore.
+          </p>
+        </DrawerSection>
+      </Drawer>
+    </div>
+  );
+}
+
+function DrawerSaveBar({ onSave, saving }: { onSave: () => void; saving: boolean }) {
+  return (
+    <div className="mt-4 flex justify-end">
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={saving}
+        className="inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+      >
+        {saving ? <><Icons.Loader className="w-3.5 h-3.5" /> Enregistrement…</> : "Sauvegarder les réglages prix"}
+      </button>
     </div>
   );
 }

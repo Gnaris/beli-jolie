@@ -81,9 +81,7 @@ export function buildPatchBody(
       "description",
       "short_description",
       "taxonomy_type",
-      "country_of_manufacture",
-      "materials",
-      "hs_code",
+      "made_in_country",
       "minimum_order_quantity",
       "per_style_minimum_order_quantity",
     ]) {
@@ -93,9 +91,8 @@ export function buildPatchBody(
   if (diff.lifecycleChanged) {
     out.lifecycle_state = fullBody.lifecycle_state;
   }
-  if (diff.saleStateChanged) {
-    out.sale_state = fullBody.sale_state;
-  }
+  // sale_state retiré : champ read-only côté Faire — géré automatiquement
+  // selon le stock vs MOQ. Tenter de l'envoyer renvoie HTTP 400.
   // Variants : pour les changements structurels ou prix, on renvoie le tableau
   // complet (Faire ne supporte pas un patch "par delta" propre).
   if (diff.variantsChanged.length > 0 || diff.variantsAdded.length > 0) {
@@ -125,27 +122,24 @@ export async function faireUpdateProduct(
   const ctx = ctxResult.ctx;
 
   const configs = await loadMarketplaceMarkupConfigs();
-  const lifecycleState =
-    product.status === "ARCHIVED" ? "RETIRED" : "PUBLISHED";
-  const saleState = product.status === "ONLINE" ? "FOR_SALE" : "NOT_FOR_SALE";
+  const lifecycleState: "PUBLISHED" | "UNPUBLISHED" =
+    product.status === "ARCHIVED" ? "UNPUBLISHED" : "PUBLISHED";
 
   const { body, variants } = buildFaireProductPayload(
     product,
     ctx,
     configs.faireWholesale,
     configs.faireRetail,
-    lifecycleState === "RETIRED" ? "PUBLISHED" : lifecycleState,
+    lifecycleState === "UNPUBLISHED" ? "PUBLISHED" : lifecycleState,
   );
-  // Override les états dans le body (publish met DRAFT par défaut).
+  // Override le lifecycle dans le body (publish met DRAFT par défaut).
   body.lifecycle_state = lifecycleState;
-  body.sale_state = saleState;
 
   const nextSnapshot = buildFaireSnapshot(
     product,
     ctx,
     variants,
     lifecycleState,
-    saleState,
   );
 
   const prevSnapshot = (meta.faireLastSyncSnapshot ?? null) as FaireSyncSnapshot | null;
@@ -192,7 +186,6 @@ export async function faireUpdateProduct(
   const inventoryOnlyMode =
     !diff.productChanged &&
     !diff.lifecycleChanged &&
-    !diff.saleStateChanged &&
     diff.variantsChanged.length === 0 &&
     diff.variantsAdded.length === 0 &&
     diff.variantsRemoved.length === 0 &&
@@ -218,7 +211,6 @@ export async function faireUpdateProduct(
   const pricesOnlyMode =
     !diff.productChanged &&
     !diff.lifecycleChanged &&
-    !diff.saleStateChanged &&
     diff.variantsChanged.length === 0 &&
     diff.variantsAdded.length === 0 &&
     diff.variantsRemoved.length === 0 &&

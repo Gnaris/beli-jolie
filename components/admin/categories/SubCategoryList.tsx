@@ -52,6 +52,11 @@ export default function CategoriesManager({ categories }: { categories: Category
   const [editCat, setEditCat] = useState<Category | null>(null);
   const [editSub, setEditSub] = useState<{ sub: SubCategoryItem; catId: string } | null>(null);
   const [search, setSearch] = useState("");
+  // Override local du faireTaxonomyId par catégorie. Permet au badge dans le
+  // tableau d'afficher la nouvelle valeur dès l'auto-save côté modale, sans
+  // attendre la propagation server-side de `router.refresh()` (qui peut
+  // arriver après que l'utilisatrice a déjà fermé/rouvert).
+  const [faireOverrides, setFaireOverrides] = useState<Record<string, string | null>>({});
   const router = useRouter();
   const { confirm } = useConfirm();
 
@@ -289,10 +294,17 @@ export default function CategoriesManager({ categories }: { categories: Category
                         </td>
                         {/* Faire — taxonomy_type.id (édité depuis la modale catégorie) */}
                         <td className="px-4 py-3 hidden lg:table-cell" onClick={(e) => e.stopPropagation()}>
-                          <MarketplaceMappingBadge
-                            value={cat.faireTaxonomyId ?? null}
-                            title={cat.faireTaxonomyId ?? undefined}
-                          />
+                          {(() => {
+                            const faireValue = cat.id in faireOverrides
+                              ? faireOverrides[cat.id]
+                              : (cat.faireTaxonomyId ?? null);
+                            return (
+                              <MarketplaceMappingBadge
+                                value={faireValue}
+                                title={faireValue ?? undefined}
+                              />
+                            );
+                          })()}
                         </td>
                         {/* Actions */}
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -435,7 +447,10 @@ export default function CategoriesManager({ categories }: { categories: Category
             pfsFamilyName: isSalesforceId(editCat.pfsFamilyName) ? null : editCat.pfsFamilyName,
             pfsCategoryName: editCat.pfsCategoryName,
             efashionCurrentId: editCat.efashionCategorieId ?? null,
-            faireCurrentTaxonomyId: editCat.faireTaxonomyId ?? null,
+            faireCurrentTaxonomyId: faireOverrides[editCat.id] !== undefined ? faireOverrides[editCat.id] : (editCat.faireTaxonomyId ?? null),
+            onFaireTaxonomySaved: (next) => {
+              setFaireOverrides((prev) => ({ ...prev, [editCat.id]: next }));
+            },
             onSave: handleSaveCat,
           }}
         />

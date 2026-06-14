@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteComposition, updateCompositionDirect, updateCompositionPfsRef, updateCompositionFaireMaterial } from "@/app/actions/admin/compositions";
+import { deleteComposition, updateCompositionDirect, updateCompositionPfsRef } from "@/app/actions/admin/compositions";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
@@ -15,7 +15,6 @@ interface CompositionItem {
   pfsCompositionRef: string | null;
   efashionId?: number | null;
   efashionLabel?: string | null;
-  faireMaterialLabel?: string | null;
   productCount: number;
   translations: Record<string, string>;
 }
@@ -67,17 +66,12 @@ export default function CompositionsManager({
     _hex?: string,
     _patternImage?: string | null,
     pfs?: { ref?: string },
-    faire?: { materialLabel?: string | null },
   ) {
     if (!editTarget) return;
     await updateCompositionDirect(editTarget.id, name, translations);
     const newRef = pfs?.ref || null;
     if (newRef !== (editTarget.pfsCompositionRef ?? null)) {
       await updateCompositionPfsRef(editTarget.id, newRef);
-    }
-    const newFaireMaterial = faire?.materialLabel ?? null;
-    if (newFaireMaterial !== (editTarget.faireMaterialLabel ?? null)) {
-      await updateCompositionFaireMaterial(editTarget.id, newFaireMaterial);
     }
     router.refresh();
   }
@@ -135,7 +129,6 @@ export default function CompositionsManager({
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Produits</th>
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Paris Fashion Shop</th>
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">eFashion</th>
-                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Faire</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Traduction</th>
                   <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Actions</th>
                 </tr>
@@ -158,13 +151,6 @@ export default function CompositionsManager({
                       <MarketplaceMappingBadge
                         value={comp.efashionLabel ?? (comp.efashionId != null ? `id ${comp.efashionId}` : null)}
                         title={comp.efashionId != null ? `id ${comp.efashionId}` : undefined}
-                      />
-                    </td>
-                    {/* Faire — édité depuis la modale */}
-                    <td className="px-4 py-3 hidden md:table-cell">
-                      <MarketplaceMappingBadge
-                        value={comp.faireMaterialLabel ?? null}
-                        title={comp.faireMaterialLabel ?? undefined}
                       />
                     </td>
                     <td className="px-4 py-3 text-center hidden sm:table-cell">
@@ -229,7 +215,6 @@ export default function CompositionsManager({
             translations: editTarget.translations,
             pfsRef: editTarget.pfsCompositionRef,
             efashionCurrentId: editTarget.efashionId ?? null,
-            faireCurrentMaterialLabel: editTarget.faireMaterialLabel ?? null,
             onSave: handleSave,
           }}
         />

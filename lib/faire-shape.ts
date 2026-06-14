@@ -16,8 +16,8 @@
  *
  * Règles douces (avertissement, pas rejet) :
  *   - description vide
- *   - made_in_country non résolu → fallback CHN
- *   - composition vide
+ *   - made_in_country non résolu → fallback CN
+ *   - code SH non renseigné
  */
 
 export interface FaireShapeProductInput {
@@ -27,9 +27,10 @@ export interface FaireShapeProductInput {
   taxonomyTypeId?: string | null;
   wholesalePriceCents: number;
   retailPriceCents: number;
-  countryAlpha3: string | null;
-  materials: string[];
-  hsCode?: string | null;
+  /** Pays alpha-2 ISO envoyé en `made_in_country` (ex : "CN", "FR"). */
+  countryAlpha2: string | null;
+  /** Code SH envoyé en `tariff_code` sur chaque variante (ex : "7117.19.00"). */
+  tariffCode?: string | null;
   minimumOrderQuantity?: number;
   perStyleMinimumOrderQuantity?: number;
   productImagesCount: number;
@@ -110,14 +111,11 @@ export function validateFaireProductShape(
     }
   }
 
-  if (!input.countryAlpha3) {
-    warnings.push("Pays de fabrication inconnu — fallback `CHN` appliqué.");
+  if (!input.countryAlpha2) {
+    warnings.push("Pays de fabrication inconnu — fallback `CN` appliqué.");
   }
-  if (!input.materials || input.materials.length === 0) {
-    warnings.push("Aucun matériau (composition) renseigné.");
-  }
-  if (!input.hsCode) {
-    warnings.push("Code HS non renseigné — recommandé pour le dédouanement.");
+  if (!input.tariffCode) {
+    warnings.push("Code SH non renseigné — recommandé pour la douane douanière.");
   }
   if (!input.description?.trim()) {
     warnings.push("Description vide — risque de validation lente côté Faire.");

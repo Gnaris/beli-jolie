@@ -1,13 +1,17 @@
 /**
- * Faire Delete / Retire — gestion de la fin de vie d'un produit côté Faire.
+ * Faire Delete / Unpublish — gestion de la fin de vie d'un produit côté Faire.
  *
- * Faire encourage l'archivage (RETIRED) plutôt que la suppression hard. Mapping :
- *   - BJ `ARCHIVED`     → PATCH lifecycle_state="RETIRED"  (réversible côté portail)
- *   - Suppression locale → DELETE /products/{id}            (irréversible)
+ * Faire encourage l'archivage (UNPUBLISHED) plutôt que la suppression hard. Mapping :
+ *   - BJ `ARCHIVED`     → PATCH lifecycle_state="UNPUBLISHED" (réversible côté portail)
+ *   - Suppression locale → DELETE /products/{id}              (irréversible)
  *
  * Le flow normal côté UI (bouton "Archiver" sur la fiche produit) appelle
- * `faireRetireProduct`. `faireHardDeleteProduct` est réservé au refresh
+ * `faireUnpublishProduct`. `faireHardDeleteProduct` est réservé au refresh
  * (qui doit purger l'ancien ID avant de réenregistrer un nouveau produit).
+ *
+ * États valides côté Faire (confirmés IA Faire juin 2026) :
+ *   lifecycle_state : DRAFT | PUBLISHED | UNPUBLISHED | DELETED
+ *   sale_state      : FOR_SALE | SALES_PAUSED
  */
 
 import { faireFetch } from "@/lib/faire-api";
@@ -21,21 +25,21 @@ export interface FaireDeleteResult {
 }
 
 /**
- * Marque le produit comme RETIRED côté Faire. Le produit reste visible dans
- * l'historique du portail brand mais n'est plus commandable.
+ * Marque le produit comme UNPUBLISHED côté Faire. Le produit reste visible
+ * dans l'historique du portail brand mais n'est plus commandable.
  */
-export async function faireRetireProduct(
+export async function faireUnpublishProduct(
   faireProductId: string,
 ): Promise<FaireDeleteResult> {
   try {
     const res = await faireFetch(`/products/${encodeURIComponent(faireProductId)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ lifecycle_state: "RETIRED" }),
+      body: JSON.stringify({ lifecycle_state: "UNPUBLISHED" }),
     });
 
     if (res.status === 404) {
-      logger.warn("[Faire Delete] PATCH RETIRED — produit introuvable", {
+      logger.warn("[Faire Delete] PATCH UNPUBLISHED — produit introuvable", {
         faireProductId,
       });
       return { success: true, alreadyGone: true };
@@ -43,7 +47,7 @@ export async function faireRetireProduct(
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      logger.error("[Faire Delete] PATCH RETIRED failed", {
+      logger.error("[Faire Delete] PATCH UNPUBLISHED failed", {
         faireProductId,
         status: res.status,
         body: body.slice(0, 300),
@@ -53,7 +57,7 @@ export async function faireRetireProduct(
 
     return { success: true };
   } catch (err) {
-    logger.error("[Faire Delete] PATCH RETIRED threw", {
+    logger.error("[Faire Delete] PATCH UNPUBLISHED threw", {
       faireProductId,
       error: String(err),
     });
@@ -107,12 +111,14 @@ export async function faireHardDeleteProduct(
 }
 
 /**
- * Re-publie un produit RETIRED : PATCH lifecycle_state="PUBLISHED".
+ * Re-publie un produit UNPUBLISHED : PATCH lifecycle_state="PUBLISHED".
  * Utilisé quand un produit BJ repasse de ARCHIVED à ONLINE/OFFLINE.
+ *
+ * Note : on n'envoie pas `sale_state` — c'est un champ read-only côté Faire,
+ * géré automatiquement selon le stock vs MOQ.
  */
-export async function faireUnretireProduct(
+export async function faireRepublishProduct(
   faireProductId: string,
-  saleState: "FOR_SALE" | "NOT_FOR_SALE" = "FOR_SALE",
 ): Promise<FaireDeleteResult> {
   try {
     const res = await faireFetch(`/products/${encodeURIComponent(faireProductId)}`, {
@@ -120,13 +126,12 @@ export async function faireUnretireProduct(
       headers: { "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify({
         lifecycle_state: "PUBLISHED",
-        sale_state: saleState,
       }),
     });
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      logger.error("[Faire Delete] unretire failed", {
+      logger.error("[Faire Delete] republish failed", {
         faireProductId,
         status: res.status,
         body: body.slice(0, 300),

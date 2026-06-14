@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
 import {
@@ -12,6 +13,8 @@ import {
   createManufacturingCountryQuick,
   createSeasonQuick,
 } from "@/app/actions/admin/quick-create";
+import { updateCategoryFaireTaxonomy } from "@/app/actions/admin/categories";
+import { useToast } from "@/components/ui/Toast";
 import { fetchPfsColorOptions } from "@/app/actions/admin/colors";
 import { fetchPfsMappingOptions, type PfsMappingOptions } from "@/app/actions/admin/pfs-annexes";
 import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
@@ -70,17 +73,21 @@ interface QuickCreateModalProps {
     efashionCurrentId?: number | null;
     /** taxonomy_type.id Faire actuellement lié — uniquement pour type="category". */
     faireCurrentTaxonomyId?: string | null;
-    /** Libellé matière Faire — uniquement pour type="composition". */
-    faireCurrentMaterialLabel?: string | null;
     /** Code pays Faire (alpha-3, ex "CHN") — uniquement pour type="country". */
     faireCurrentCountryCode?: string | null;
+    /**
+     * Callback déclenché juste après l'auto-save du `faireTaxonomyId` côté serveur
+     * (uniquement pour type="category"). Permet au parent (liste catégories) de
+     * mettre à jour l'affichage du badge sans dépendre de router.refresh().
+     */
+    onFaireTaxonomySaved?: (next: string | null) => void;
     onSave: (
       name: string,
       translations: Record<string, string>,
       hex?: string,
       patternImage?: string | null,
       pfs?: { ref?: string; pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null; isoCode?: string | null },
-      faire?: { taxonomyId?: string | null; materialLabel?: string | null; countryCode?: string | null },
+      faire?: { taxonomyId?: string | null; countryCode?: string | null },
     ) => Promise<void>;
   };
 }
@@ -163,6 +170,8 @@ export default function QuickCreateModal({
 }: QuickCreateModalProps) {
   const isEdit = !!editMode;
   const autoTranslateEnabled = useAutoTranslateEnabled();
+  const router = useRouter();
+  const toast = useToast();
   const [mounted, setMounted] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
   const [hex, setHex] = useState("#9CA3AF");
@@ -179,7 +188,6 @@ export default function QuickCreateModal({
   const [pfsFamilyName, setPfsFamilyName] = useState<string | null>(null);
   const [pfsCategoryName, setPfsCategoryName] = useState<string | null>(null);
   const [faireTaxonomyId, setFaireTaxonomyId] = useState<string | null>(null);
-  const [faireMaterialLabel, setFaireMaterialLabel] = useState<string>("");
   const [faireCountryCode, setFaireCountryCode] = useState<string>("");
   // eFashion mapping state (utilisé uniquement en mode création — en édition,
   // le picker auto-save directement via les server actions update).
@@ -313,7 +321,6 @@ export default function QuickCreateModal({
         setPfsFamilyName(editMode.pfsFamilyName ?? null);
         setPfsCategoryName(editMode.pfsCategoryName ?? null);
         setFaireTaxonomyId(editMode.faireCurrentTaxonomyId ?? null);
-        setFaireMaterialLabel(editMode.faireCurrentMaterialLabel ?? "");
         setFaireCountryCode(editMode.faireCurrentCountryCode ?? "");
         setIsoCode(editMode.isoCode ?? "");
         setIsoTouched(!!editMode.isoCode);
@@ -432,11 +439,9 @@ export default function QuickCreateModal({
           },
           type === "category"
             ? { taxonomyId: faireTaxonomyId }
-            : type === "composition"
-              ? { materialLabel: faireMaterialLabel.trim() || null }
-              : type === "country"
-                ? { countryCode: faireCountryCode.trim().toUpperCase() || null }
-                : undefined,
+            : type === "country"
+              ? { countryCode: faireCountryCode.trim().toUpperCase() || null }
+              : undefined,
         );
         onClose();
         return;
@@ -853,32 +858,10 @@ export default function QuickCreateModal({
                   </section>
                 )}
 
-                {/* ── Carte Faire (composition uniquement — libellé matière) ──── */}
-                {type === "composition" && !lockPfs && (
-                  <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden h-full flex flex-col">
-                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-purple-50/70 to-transparent">
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700">
-                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM6 8a2 2 0 114 0 2 2 0 01-4 0zm6 0a2 2 0 114 0 2 2 0 01-4 0zM6.5 13a3.5 3.5 0 007 0H6.5z" />
-                        </svg>
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-semibold text-text-primary font-heading leading-none">Faire</p>
-                        <p className="text-[10px] text-text-muted font-body mt-1">{isEdit ? "Enregistré automatiquement" : "Optionnel — peut être complété plus tard"}</p>
-                      </div>
-                    </header>
-                    <div className="p-4 flex-1 space-y-2">
-                      <p className="font-body text-[10px] uppercase tracking-wider text-text-muted">Libellé matière Faire</p>
-                      <input
-                        type="text"
-                        value={faireMaterialLabel}
-                        onChange={(e) => setFaireMaterialLabel(e.target.value)}
-                        placeholder="ex: Stainless Steel 316L"
-                        className="w-full h-9 px-3 rounded-md border border-border bg-bg-primary text-text-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
-                      />
-                    </div>
-                  </section>
-                )}
+                {/* Carte Faire (matériau) supprimée : Faire n'expose pas de
+                    champ structuré pour la composition. L'info part désormais
+                    automatiquement dans la description du produit, construite
+                    par lib/faire-description.ts. */}
 
                 {/* ── Carte Faire (catégorie uniquement) ──────────────── */}
                 {type === "category" && !lockPfs && (
@@ -901,6 +884,23 @@ export default function QuickCreateModal({
                         helpText="Recherchez par nom (« bracelet », « bague »…). Le breadcrumb aide à distinguer les doublons."
                         suggestionQuery={names["fr"] ?? ""}
                         onSave={async (next) => {
+                          // En édition : on persiste tout de suite côté serveur
+                          // pour aligner le comportement sur eFashion (la carte
+                          // affiche déjà "Enregistré automatiquement"). En création,
+                          // on garde uniquement le state local — la valeur sera
+                          // posée lors de la création de la catégorie.
+                          if (editMode) {
+                            try {
+                              await updateCategoryFaireTaxonomy(editMode.id, next);
+                              editMode.onFaireTaxonomySaved?.(next);
+                              router.refresh();
+                              toast.success(next ? "Catégorie Faire liée" : "Lien Faire retiré");
+                            } catch (err) {
+                              const message = err instanceof Error ? err.message : "Erreur d'enregistrement.";
+                              toast.error("Faire", message);
+                              throw err;
+                            }
+                          }
                           setFaireTaxonomyId(next);
                         }}
                       />

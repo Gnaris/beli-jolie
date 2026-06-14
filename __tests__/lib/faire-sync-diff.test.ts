@@ -14,9 +14,7 @@ function snap(overrides: Partial<FaireSyncSnapshot> = {}): FaireSyncSnapshot {
       shortDescription: "court",
       description: "long",
       taxonomyTypeId: "tt_czw8pmzjrc",
-      countryAlpha3: "CHN",
-      materials: ["Stainless Steel"],
-      hsCode: "7117.19.00",
+      countryAlpha2: "CN",
       minimumOrderQuantity: 1,
       perStyleMinimumOrderQuantity: 1,
     },
@@ -30,10 +28,10 @@ function snap(overrides: Partial<FaireSyncSnapshot> = {}): FaireSyncSnapshot {
         colorOption: "Or",
         images: ["/u/a.jpg"],
         weightGrams: 30,
+        tariffCode: "7117.19.00",
       },
     },
     lifecycleState: "PUBLISHED",
-    saleState: "FOR_SALE",
     ...overrides,
   };
 }
@@ -43,7 +41,6 @@ describe("diffSnapshots", () => {
     const d = diffSnapshots(null, snap());
     expect(d.productChanged).toBe(true);
     expect(d.lifecycleChanged).toBe(true);
-    expect(d.saleStateChanged).toBe(true);
     expect(d.variantsAdded).toEqual(["sku1"]);
     expect(diffIsEmpty(d)).toBe(false);
   });
@@ -114,6 +111,7 @@ describe("diffSnapshots", () => {
           colorOption: "Argent",
           images: [],
           weightGrams: 30,
+          tariffCode: null,
         },
       },
     });
@@ -123,7 +121,7 @@ describe("diffSnapshots", () => {
   });
 
   it("traite un schemaVersion différent comme reset complet", () => {
-    const a = snap({ schemaVersion: 0 as unknown as 1 });
+    const a = snap({ schemaVersion: 0 as unknown as 2 });
     const b = snap();
     const d = diffSnapshots(a, b);
     expect(d.productChanged).toBe(true);
