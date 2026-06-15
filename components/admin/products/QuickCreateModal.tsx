@@ -80,7 +80,7 @@ interface QuickCreateModalProps {
      * (uniquement pour type="category"). Permet au parent (liste catégories) de
      * mettre à jour l'affichage du badge sans dépendre de router.refresh().
      */
-    onFaireTaxonomySaved?: (next: string | null) => void;
+    onFaireTaxonomySaved?: (next: string | null, nextLabel: string | null) => void;
     onSave: (
       name: string,
       translations: Record<string, string>,
@@ -883,7 +883,7 @@ export default function QuickCreateModal({
                         value={faireTaxonomyId}
                         helpText="Recherchez par nom (« bracelet », « bague »…). Le breadcrumb aide à distinguer les doublons."
                         suggestionQuery={names["fr"] ?? ""}
-                        onSave={async (next) => {
+                        onSave={async (next, nextLabel) => {
                           // En édition : on persiste tout de suite côté serveur
                           // pour aligner le comportement sur eFashion (la carte
                           // affiche déjà "Enregistré automatiquement"). En création,
@@ -892,7 +892,7 @@ export default function QuickCreateModal({
                           if (editMode) {
                             try {
                               await updateCategoryFaireTaxonomy(editMode.id, next);
-                              editMode.onFaireTaxonomySaved?.(next);
+                              editMode.onFaireTaxonomySaved?.(next, nextLabel);
                               router.refresh();
                               toast.success(next ? "Catégorie Faire liée" : "Lien Faire retiré");
                             } catch (err) {

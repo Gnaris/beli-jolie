@@ -17,7 +17,15 @@
 // v2 : bascule sur les vrais noms de champs Faire (made_in_country alpha-2 +
 // tariff_code sur variante + sale_state SALES_PAUSED) après confirmation IA
 // Faire (juin 2026). v1 snapshots sont automatiquement considérés "à réenvoyer".
-export const FAIRE_SNAPSHOT_VERSION = 2 as const;
+// v3 : capture les dimensions (length/width/height en mm) côté variante — sans
+// ça, modifier les dimensions ne déclenchait aucun envoi à Faire.
+// v4 : on envoie les dimensions à Faire en CENTIMÈTRES (`distance_unit:
+// CENTIMETERS`). La BDD reste en mm, conversion ÷10 au moment du payload.
+// Les snapshots v3 (en mm) sont automatiquement considérés à réenvoyer.
+// v5 : capture les images au niveau produit racine (image principale Faire),
+// pour qu'un changement de la couleur primaire ou des images de la couleur
+// primaire déclenche bien un PATCH /products/{id}.
+export const FAIRE_SNAPSHOT_VERSION = 5 as const;
 
 export interface FaireProductFieldsSnapshot {
   name: string;
@@ -28,6 +36,8 @@ export interface FaireProductFieldsSnapshot {
   countryAlpha2: string;
   minimumOrderQuantity: number;
   perStyleMinimumOrderQuantity: number;
+  /** Images au niveau produit racine (image principale Faire), dans l'ordre. */
+  images: string[];
 }
 
 export interface FaireVariantSnapshot {
@@ -42,6 +52,13 @@ export interface FaireVariantSnapshot {
   images: string[];
   /** Mesures envoyées (gardées pour diff). */
   weightGrams: number | null;
+  /**
+   * Dimensions envoyées à Faire en CENTIMÈTRES (BJ stocke au niveau produit en mm,
+   * conversion ÷10 au moment du payload). On duplique sur chaque variante côté Faire.
+   */
+  lengthCm: number | null;
+  widthCm: number | null;
+  heightCm: number | null;
   /** Code SH envoyé sur la variante (`tariff_code`) — null si non rempli. */
   tariffCode: string | null;
 }
@@ -67,10 +84,12 @@ export interface FaireSyncDiff {
   lifecycleChanged: boolean;
 }
 
-function stringListEqual(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
+function stringListEqual(a: readonly string[] | undefined | null, b: readonly string[] | undefined | null): boolean {
+  const aa = a ?? [];
+  const bb = b ?? [];
+  if (aa.length !== bb.length) return false;
+  for (let i = 0; i < aa.length; i++) {
+    if (aa[i] !== bb[i]) return false;
   }
   return true;
 }
@@ -86,7 +105,8 @@ export function productFieldsEqual(
     a.taxonomyTypeId === b.taxonomyTypeId &&
     a.countryAlpha2 === b.countryAlpha2 &&
     a.minimumOrderQuantity === b.minimumOrderQuantity &&
-    a.perStyleMinimumOrderQuantity === b.perStyleMinimumOrderQuantity
+    a.perStyleMinimumOrderQuantity === b.perStyleMinimumOrderQuantity &&
+    stringListEqual(a.images, b.images)
   );
 }
 
@@ -108,6 +128,9 @@ export function diffVariantSnapshot(
     prev.colorOption !== next.colorOption ||
     prev.active !== next.active ||
     prev.weightGrams !== next.weightGrams ||
+    prev.lengthCm !== next.lengthCm ||
+    prev.widthCm !== next.widthCm ||
+    prev.heightCm !== next.heightCm ||
     prev.tariffCode !== next.tariffCode ||
     !stringListEqual(prev.images, next.images);
   return { inventoryChanged, pricesChanged, otherChanged };

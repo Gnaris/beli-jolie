@@ -8,11 +8,14 @@
  *   4. Sinon, choisir le bon endpoint selon la nature du diff :
  *      - productChanged / variantsChanged / lifecycleChanged
  *           → PATCH /products/{id} (body partiel)
- *      - uniquement inventoryOnlyChanged
+ *      - inventoryOnlyChanged
  *           → PATCH /product-inventory/by-skus (via faire-inventory)
- *      - uniquement pricesOnlyChanged
- *           → PATCH /products/{id} avec variants[].prices (voie fiable
- *             confirmée le 2026-06-12 — éviter le bulk by-skus moins stable)
+ *      - pricesOnlyChanged
+ *           → PATCH /product-prices/by-skus (via faire-prices). On NE PASSE
+ *             PAS par PATCH variant individuel : Faire répond 200 mais ignore
+ *             silencieusement les champs prix (« You cannot change the
+ *             currencies or geographic regions for a single variant's
+ *             prices… ») — même piège que l'ancien bug `current_quantity`.
  *      - variantsRemoved → DELETE /products/{id}/variants/{vid}
  *   5. Sauver le nouveau snapshot + reset `faireSyncRequired`.
  */
@@ -38,6 +41,10 @@ import {
   faireUpdateInventory,
   type FaireInventoryUpdate,
 } from "@/lib/faire-inventory";
+import {
+  faireUpdatePrices,
+  type FairePriceUpdate,
+} from "@/lib/faire-prices";
 import { loadMarketplaceMarkupConfigs } from "@/lib/marketplace-pricing";
 
 export type FaireUpdateResult =
@@ -80,8 +87,8 @@ export function buildPatchBody(
   newVariantsOnly?: unknown[],
 ): Record<string, unknown> {
   if (pricesOnly) {
-    // Cas prix-only : on update via PATCH variant individuel, donc on n'envoie
-    // pas variants[] dans le PATCH produit.
+    // Cas prix-only : on update via le batch /product-prices/by-skus à la fin
+    // du flow — pas besoin de toucher au PATCH produit.
     return {};
   }
 
@@ -95,6 +102,9 @@ export function buildPatchBody(
       "made_in_country",
       "minimum_order_quantity",
       "per_style_minimum_order_quantity",
+      // Images au niveau produit racine (image principale Faire). PATCH avec
+      // la liste complète remplace l'ancienne, conformément à la doc Faire §7.4.
+      "images",
     ]) {
       if (key in fullBody) out[key] = fullBody[key];
     }
@@ -141,7 +151,7 @@ export async function faireUpdateProduct(
   // « Duplicate variants with same options ». Pour les publish (POST), au
   // contraire, le salt timestamp évite le cache d'erreurs sur des produits
   // DELETED.
-  const { body, variants } = buildFaireProductPayload(
+  const { body, variants, productImageUrls } = buildFaireProductPayload(
     product,
     ctx,
     configs.faireWholesale,
@@ -157,6 +167,7 @@ export async function faireUpdateProduct(
     ctx,
     variants,
     lifecycleState,
+    productImageUrls,
   );
 
   const prevSnapshot = (meta.faireLastSyncSnapshot ?? null) as FaireSyncSnapshot | null;
@@ -224,7 +235,9 @@ export async function faireUpdateProduct(
     return { success: true, diff, noop: false };
   }
 
-  // 3) Cas "prices only" : PATCH variant individuel par SKU (pas via variants[]).
+  // 3) Cas "prices only" : court-circuit via batch /product-prices/by-skus.
+  // Le PATCH variant individuel ne fonctionne PAS pour les prix (cf. en-tête
+  // du fichier) — on saute directement à la phase d'envoi batch.
   const pricesOnlyMode =
     !diff.productChanged &&
     !diff.lifecycleChanged &&
@@ -249,7 +262,7 @@ export async function faireUpdateProduct(
 
   // 4) PATCH /products/{id} — uniquement les champs produit + les nouvelles
   // variantes (pas les existantes). Les variantes existantes sont gérées
-  // après via PATCH /products/{id}/variants/{vid}.
+  // après via PATCH /products/{id}/variants/{vid} (champs non-prix uniquement).
   const patchBody = buildPatchBody(
     diff,
     body as Record<string, unknown>,
@@ -306,23 +319,23 @@ export async function faireUpdateProduct(
     }
   }
 
-  // 4.bis) PATCH variant individuel pour chaque variante existante touchée.
-  // Touchée = changée structurellement OU dont seul le prix a changé.
-  const existingVariantSkusToPatch = new Set<string>([
-    ...diff.variantsChanged.filter((sku) => faireVariantIdBySku.has(sku)),
-    ...diff.pricesOnlyChanged.filter((sku) => faireVariantIdBySku.has(sku)),
-  ]);
+  // 4.bis) PATCH variant individuel pour chaque variante existante touchée
+  // par un changement STRUCTUREL (name, images, measurements, tariff_code, active).
+  // ⚠️ On NE met PAS les prix ici : Faire répond 200 mais ignore le champ
+  // (cf. en-tête du fichier + faire-prices.ts). Les SKU `pricesOnlyChanged`
+  // sont gérés en bloc à la fin via faireUpdatePrices().
+  const existingVariantSkusToPatch = new Set<string>(
+    diff.variantsChanged.filter((sku) => faireVariantIdBySku.has(sku)),
+  );
   for (const sku of existingVariantSkusToPatch) {
     const variantInfo = variants.find((v) => v.sku === sku);
     const faireVid = faireVariantIdBySku.get(sku)!;
     if (!variantInfo) continue;
-    // Body partiel : champs modifiables uniquement (PAS d'options — la doc
-    // Faire interdit la modif d'options via ce endpoint).
+    // Body partiel : champs modifiables (hors prix) — la doc Faire interdit
+    // la modif d'options ET de prix via ce endpoint.
     const variantBody: Record<string, unknown> = {
       sku: variantInfo.payload.sku,
       name: variantInfo.payload.name,
-      wholesale_price_cents: variantInfo.payload.wholesale_price_cents,
-      retail_price_cents: variantInfo.payload.retail_price_cents,
       active: variantInfo.payload.active,
       ...(variantInfo.payload.measurements
         ? { measurements: variantInfo.payload.measurements }
@@ -331,7 +344,6 @@ export async function faireUpdateProduct(
         ? { tariff_code: variantInfo.payload.tariff_code }
         : {}),
       ...(variantInfo.payload.images ? { images: variantInfo.payload.images } : {}),
-      ...(variantInfo.payload.prices ? { prices: variantInfo.payload.prices } : {}),
       ...(variantInfo.payload.unit_multiplier
         ? { unit_multiplier: variantInfo.payload.unit_multiplier }
         : {}),
@@ -402,6 +414,42 @@ export async function faireUpdateProduct(
       currentQuantity: nextSnapshot.variants[sku].availableQuantity,
     }));
     await faireUpdateInventory(updates);
+  }
+
+  // Prix à part : même règle que le stock — Faire les ignore quand on les
+  // envoie via PATCH variant individuel. On pousse les SKU dont le prix a
+  // changé (qu'ils aient été classés pricesOnly OU mélangés à un changement
+  // structurel) via le batch /product-prices/by-skus.
+  const priceChangedSkus = new Set<string>([
+    ...diff.pricesOnlyChanged,
+    ...diff.variantsChanged.filter((sku) => {
+      const prev = prevSnapshot?.variants?.[sku];
+      const next = nextSnapshot.variants[sku];
+      if (!prev || !next) return false;
+      return (
+        prev.wholesalePriceCents !== next.wholesalePriceCents ||
+        prev.retailPriceCents !== next.retailPriceCents
+      );
+    }),
+  ]);
+  if (priceChangedSkus.size > 0) {
+    const priceUpdates: FairePriceUpdate[] = [];
+    for (const sku of priceChangedSkus) {
+      const next = nextSnapshot.variants[sku];
+      if (!next) continue;
+      priceUpdates.push({
+        sku,
+        wholesaleCents: next.wholesalePriceCents,
+        retailCents: next.retailPriceCents,
+      });
+    }
+    const pricesRes = await faireUpdatePrices(priceUpdates);
+    if (!pricesRes.success) {
+      return {
+        success: false,
+        error: `PATCH prix échoué (${pricesRes.failedCount}/${priceUpdates.length} SKU).`,
+      };
+    }
   }
 
   await saveSnapshot(productId, nextSnapshot);

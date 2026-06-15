@@ -75,11 +75,12 @@ describe("buildFaireProductPayload — measurements (dimensions + poids)", () =>
       "PUBLISHED",
     );
     for (const v of variants) {
+      // BDD en mm → envoi à Faire en cm (÷10).
       expect(v.payload.measurements).toMatchObject({
-        length: 180,
-        width: 5,
-        height: 3,
-        distance_unit: "MILLIMETERS",
+        length: 18,
+        width: 0.5,
+        height: 0.3,
+        distance_unit: "CENTIMETERS",
       });
     }
   });

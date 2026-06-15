@@ -25,6 +25,7 @@ import {
   resolveProvenanceLabel,
   resolveCollectionLabel,
 } from "@/lib/efashion-labels";
+import { getFaireTaxonomy, findFaireTaxonomyById } from "@/lib/faire-taxonomy";
 
 // Attribute managers
 import CategoriesManager from "@/components/admin/categories/SubCategoryList";
@@ -580,7 +581,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
    TAB: Catégories
    ═══════════════════════════════════════════════════════════════════════════ */
 async function CategoriesContent() {
-  const [categories, efashionLabels] = await Promise.all([
+  const [categories, efashionLabels, faireTaxonomy] = await Promise.all([
     prisma.category.findMany({
       orderBy: { name: "asc" },
       include: {
@@ -593,7 +594,14 @@ async function CategoriesContent() {
       },
     }),
     getEfashionLabelMaps(),
+    getFaireTaxonomy(),
   ]);
+
+  function resolveFaireLabel(taxonomyId: string | null): string | null {
+    if (!taxonomyId) return null;
+    const hit = findFaireTaxonomyById(faireTaxonomy, taxonomyId);
+    return hit?.name ?? null;
+  }
 
   return (
     <div className="space-y-5">
@@ -614,6 +622,8 @@ async function CategoriesContent() {
           pfsCategoryName: c.pfsCategoryName,
           efashionCategorieId: c.efashionCategorieId,
           efashionCategorieLabel: resolveCategoryLabel(efashionLabels, c.efashionCategorieId),
+          faireTaxonomyId: c.faireTaxonomyId,
+          faireTaxonomyLabel: resolveFaireLabel(c.faireTaxonomyId),
           productCount: c._count.products,
           translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
           subCategories: c.subCategories.map((s) => ({

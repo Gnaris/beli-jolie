@@ -33,6 +33,8 @@ interface Category {
   /** Libellé résolu de la catégorie eFashion (ex : "Femme > Bijoux > Bracelets"). */
   efashionCategorieLabel?: string | null;
   faireTaxonomyId?: string | null;
+  /** Nom lisible du type Faire (ex : "Bracelets"), résolu côté serveur via la taxonomie. */
+  faireTaxonomyLabel?: string | null;
   productCount: number;
   translations: Record<string, string>;
   subCategories: SubCategoryItem[];
@@ -52,11 +54,15 @@ export default function CategoriesManager({ categories }: { categories: Category
   const [editCat, setEditCat] = useState<Category | null>(null);
   const [editSub, setEditSub] = useState<{ sub: SubCategoryItem; catId: string } | null>(null);
   const [search, setSearch] = useState("");
-  // Override local du faireTaxonomyId par catégorie. Permet au badge dans le
+  // Override local du mapping Faire par catégorie. Permet au badge dans le
   // tableau d'afficher la nouvelle valeur dès l'auto-save côté modale, sans
   // attendre la propagation server-side de `router.refresh()` (qui peut
-  // arriver après que l'utilisatrice a déjà fermé/rouvert).
-  const [faireOverrides, setFaireOverrides] = useState<Record<string, string | null>>({});
+  // arriver après que l'utilisatrice a déjà fermé/rouvert). On stocke aussi
+  // le `label` (nom lisible) car la taxonomie Faire n'est pas en mémoire
+  // côté ce composant.
+  const [faireOverrides, setFaireOverrides] = useState<
+    Record<string, { id: string | null; label: string | null }>
+  >({});
   const router = useRouter();
   const { confirm } = useConfirm();
 
@@ -295,13 +301,15 @@ export default function CategoriesManager({ categories }: { categories: Category
                         {/* Faire — taxonomy_type.id (édité depuis la modale catégorie) */}
                         <td className="px-4 py-3 hidden lg:table-cell" onClick={(e) => e.stopPropagation()}>
                           {(() => {
-                            const faireValue = cat.id in faireOverrides
-                              ? faireOverrides[cat.id]
-                              : (cat.faireTaxonomyId ?? null);
+                            const override = faireOverrides[cat.id];
+                            const faireId = override ? override.id : (cat.faireTaxonomyId ?? null);
+                            const faireLabel = override
+                              ? override.label
+                              : (cat.faireTaxonomyLabel ?? null);
                             return (
                               <MarketplaceMappingBadge
-                                value={faireValue}
-                                title={faireValue ?? undefined}
+                                value={faireLabel ?? faireId}
+                                title={faireId ?? undefined}
                               />
                             );
                           })()}
@@ -447,9 +455,15 @@ export default function CategoriesManager({ categories }: { categories: Category
             pfsFamilyName: isSalesforceId(editCat.pfsFamilyName) ? null : editCat.pfsFamilyName,
             pfsCategoryName: editCat.pfsCategoryName,
             efashionCurrentId: editCat.efashionCategorieId ?? null,
-            faireCurrentTaxonomyId: faireOverrides[editCat.id] !== undefined ? faireOverrides[editCat.id] : (editCat.faireTaxonomyId ?? null),
-            onFaireTaxonomySaved: (next) => {
-              setFaireOverrides((prev) => ({ ...prev, [editCat.id]: next }));
+            faireCurrentTaxonomyId:
+              faireOverrides[editCat.id] !== undefined
+                ? faireOverrides[editCat.id].id
+                : (editCat.faireTaxonomyId ?? null),
+            onFaireTaxonomySaved: (next, nextLabel) => {
+              setFaireOverrides((prev) => ({
+                ...prev,
+                [editCat.id]: { id: next, label: nextLabel },
+              }));
             },
             onSave: handleSaveCat,
           }}

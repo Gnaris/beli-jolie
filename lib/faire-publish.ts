@@ -271,7 +271,7 @@ interface FaireVariantPayload {
       length?: number;
       width?: number;
       height?: number;
-      distance_unit?: "MILLIMETERS";
+      distance_unit?: "CENTIMETERS";
     };
     /** Code SH douanier (ex : "7117.19.00"). Faire le veut sur la variante. */
     tariff_code?: string;
@@ -302,6 +302,7 @@ export function buildFaireProductPayload(
   variants: FaireVariantPayload[];
   optionValues: string[];
   productImagesCount: number;
+  productImageUrls: string[];
 } {
   const imagesByColorId = buildImagesByColorId(product.colorImages);
   const skuByVariantId = buildFaireVariantSkus(
@@ -332,8 +333,9 @@ export function buildFaireProductPayload(
     // measurements (schéma `ExternalMeasurementsV2`, cf. docs/faire-api.md §6).
     // - weight : poids en grammes (BDD = kg → ×1000). `mass_unit` obligatoire si weight.
     // - length/width/height : dimensions au niveau VARIANTE (BJ les stocke au niveau
-    //   produit, on duplique sur chaque variante). `distance_unit` obligatoire si dim.
-    //   On envoie en MILLIMETERS — c'est l'unité stockée en BDD.
+    //   produit en mm, on convertit ÷10 pour envoyer en CENTIMETERS — unité
+    //   naturelle pour Faire et plus lisible côté portail brand). `distance_unit`
+    //   obligatoire si dim.
     const measurementsObj: NonNullable<FaireVariantPayload["payload"]["measurements"]> = {};
     if (v.weight > 0) {
       measurementsObj.weight = Math.round(v.weight * 1000);
@@ -344,13 +346,15 @@ export function buildFaireProductPayload(
       (product.dimensionWidth && product.dimensionWidth > 0) ||
       (product.dimensionHeight && product.dimensionHeight > 0);
     if (hasAnyDim) {
+      // Arrondi à 1 décimale pour rester précis sans bruit (ex 42 mm → 4.2 cm).
+      const mmToCm = (mm: number) => Math.round((mm / 10) * 10) / 10;
       if (product.dimensionLength && product.dimensionLength > 0)
-        measurementsObj.length = product.dimensionLength;
+        measurementsObj.length = mmToCm(product.dimensionLength);
       if (product.dimensionWidth && product.dimensionWidth > 0)
-        measurementsObj.width = product.dimensionWidth;
+        measurementsObj.width = mmToCm(product.dimensionWidth);
       if (product.dimensionHeight && product.dimensionHeight > 0)
-        measurementsObj.height = product.dimensionHeight;
-      measurementsObj.distance_unit = "MILLIMETERS";
+        measurementsObj.height = mmToCm(product.dimensionHeight);
+      measurementsObj.distance_unit = "CENTIMETERS";
     }
     const measurements = Object.keys(measurementsObj).length > 0 ? measurementsObj : undefined;
 
@@ -457,6 +461,8 @@ export function buildFaireProductPayload(
     variants,
     optionValues: Array.from(optionValuesSet),
     productImagesCount: productImages.length,
+    /** URLs des images au niveau produit racine — gardées pour le snapshot diff. */
+    productImageUrls: productImages.map((i) => i.url),
   };
 }
 
@@ -469,6 +475,7 @@ export function buildFaireSnapshot(
   ctx: FairePublishContext,
   variants: FaireVariantPayload[],
   lifecycleState: "DRAFT" | "PUBLISHED" | "UNPUBLISHED",
+  rootImages: string[],
 ): FaireSyncSnapshot {
   const variantSnapshot: Record<string, FaireVariantSnapshot> = {};
   for (const v of variants) {
@@ -482,6 +489,9 @@ export function buildFaireSnapshot(
       colorOption: p.options.find((o) => o.name === "Color")?.value ?? "",
       images: (p.images ?? []).map((i) => i.url),
       weightGrams: p.measurements?.weight ?? null,
+      lengthCm: p.measurements?.length ?? null,
+      widthCm: p.measurements?.width ?? null,
+      heightCm: p.measurements?.height ?? null,
       tariffCode: p.tariff_code ?? null,
     };
   }
@@ -495,6 +505,7 @@ export function buildFaireSnapshot(
       countryAlpha2: ctx.countryAlpha2,
       minimumOrderQuantity: 1,
       perStyleMinimumOrderQuantity: 1,
+      images: rootImages,
     },
     variants: variantSnapshot,
     lifecycleState,
@@ -588,7 +599,7 @@ export async function fairePublishProduct(
 
   const configs = await loadMarketplaceMarkupConfigs();
   const lifecycleState = options.lifecycleState ?? "DRAFT";
-  const { body, variants, productImagesCount } = buildFaireProductPayload(
+  const { body, variants, productImagesCount, productImageUrls } = buildFaireProductPayload(
     product,
     ctx,
     configs.faireWholesale,
@@ -701,6 +712,7 @@ export async function fairePublishProduct(
     ctx,
     variants,
     lifecycleState,
+    productImageUrls,
   );
 
   try {

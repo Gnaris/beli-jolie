@@ -27,7 +27,12 @@ export default function FaireTaxonomySelect({
   suggestionQuery,
 }: {
   value: string | null;
-  onSave: (next: string | null) => Promise<void>;
+  /**
+   * Callback de sauvegarde. Reçoit l'ID Faire ET le nom lisible déjà
+   * résolu (ex: « Bracelets ») — évite au parent de devoir recharger la
+   * taxonomie juste pour afficher le label dans son tableau.
+   */
+  onSave: (next: string | null, nextLabel: string | null) => Promise<void>;
   label?: string;
   helpText?: string;
   /** Texte utilisé pour proposer 1-3 raccourcis sous le sélecteur (nom FR). */
@@ -92,7 +97,8 @@ export default function FaireTaxonomySelect({
     setSaving(true);
     setErrorMsg(null);
     try {
-      await onSave(id);
+      const nextLabel = id && types ? (findFaireTaxonomyById(types, id)?.name ?? null) : null;
+      await onSave(id, nextLabel);
       setDropdownOpen(false);
       setQuery("");
     } catch (err) {

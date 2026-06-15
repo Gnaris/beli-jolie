@@ -1907,30 +1907,6 @@ export default function ProductForm({
       const showEfashion = hasEfashionConfig && efashionEnabled;
       const showFaire = hasFaireConfig && faireEnabled;
 
-      // Log temporaire (à retirer une fois le bug "case Faire absente" diagnostiqué).
-      const saveModalDebug = {
-        hasPfsConfig,
-        hasAnkorstoreConfig,
-        ankorstoreEnabled,
-        hasEfashionConfig,
-        efashionEnabled,
-        hasFaireConfig,
-        faireEnabled,
-        showFaire,
-        alreadyOnFaire,
-      };
-      // eslint-disable-next-line no-console
-      console.log("[ProductForm save modal]", saveModalDebug);
-      try {
-        await fetch("/api/_debug-log", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tag: "saveModal", payload: saveModalDebug }),
-        });
-      } catch {
-        // ignore
-      }
-
       // La popup marketplace s'affiche aussi pour le passage en ARCHIVED
       // (Ankorstore : on envoie stock 0 → produit non commandable, équivalent
       //  "hors ligne" — leur API n'a pas de vraie archive côté produit).
@@ -2072,28 +2048,6 @@ export default function ProductForm({
               faireRef.current = v;
             },
           });
-        }
-
-        // DEBUG TEMP : vérifier les checkboxes finales avant d'ouvrir la modale.
-        const debugPayload = {
-          length: checkboxes.length,
-          ids: checkboxes.map((c) => c.id),
-          showFaire,
-          hasFaireConfig,
-          faireEnabled,
-          alreadyOnFaire,
-          isArchivingNow,
-        };
-        // eslint-disable-next-line no-console
-        console.log("[ProductForm DEBUG checkboxes]", debugPayload);
-        try {
-          await fetch("/api/_debug-log", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tag: "checkboxes", payload: debugPayload }),
-          });
-        } catch {
-          // ignore
         }
 
         // Le titre suit ce qui est réellement présent dans la modale
