@@ -50,13 +50,22 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const dbPath = url.searchParams.get("path");
   const format = url.searchParams.get("format") === "jpeg" ? "jpeg" : "webp";
+  // Largeur minimale demandée — utile pour Faire qui exige ≥ 1000 px de large.
+  // Par défaut on garde MIN_MARKETPLACE_WIDTH (500, suffisant pour Ankorstore).
+  const minWidthParam = Number(url.searchParams.get("minWidth") ?? "");
+  const minWidth =
+    Number.isFinite(minWidthParam) && minWidthParam >= MIN_MARKETPLACE_WIDTH
+      ? Math.min(Math.round(minWidthParam), 4000)
+      : MIN_MARKETPLACE_WIDTH;
 
   if (!isSafeMarketplaceImagePath(dbPath)) {
     return NextResponse.json({ error: "Chemin invalide." }, { status: 400 });
   }
 
   const sourceKey = keyFromDbPath(dbPath);
-  const cacheKey = cacheKeyFor(dbPath, format);
+  // Inclut la largeur dans la clé de cache pour éviter de servir une version
+  // 500 px quand on a explicitement demandé 1000 px (et inversement).
+  const cacheKey = cacheKeyFor(`${dbPath}|w${minWidth}`, format);
   const targetContentType = format === "jpeg" ? "image/jpeg" : "image/webp";
 
   // ── 1. Cache hit ? ──────────────────────────────────────────────
@@ -93,7 +102,7 @@ export async function GET(request: NextRequest) {
 
   // ── 3. Upscale si nécessaire + conversion JPEG si demandée ─────
   try {
-    const result = await ensureMinWidth(buffer, MIN_MARKETPLACE_WIDTH);
+    const result = await ensureMinWidth(buffer, minWidth);
 
     let outBuffer = result.buffer;
     let contentType: string;

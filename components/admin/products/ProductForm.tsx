@@ -566,6 +566,14 @@ export default function ProductForm({
       setPfsRefMessage(null);
       return "idle";
     }
+    // Édition d'un produit existant et la référence n'a pas bougé : pas la
+    // peine d'aller voir PFS, on ne va pas se rejeter soi-même.
+    const initialRef = initialData?.reference?.trim().replace(/\s/g, "").toUpperCase() ?? "";
+    if (initialRef && initialRef === value) {
+      setPfsRefStatus("idle");
+      setPfsRefMessage(null);
+      return "idle";
+    }
     if (!options.force && pfsRefCheckedValueRef.current === value) {
       return "idle";
     }
@@ -1632,11 +1640,20 @@ export default function ProductForm({
     // Minimal validation: DB non-nullable constraints
     if (!reference.trim()) return setError("La référence est requise.");
 
-    // Re-check PFS avant de soumettre (force=true pour forcer même si déjà checké).
-    const pfsCheck = await runPfsRefCheck(reference, { force: true });
-    if (pfsCheck === "exists") {
-      setError("Cette référence est déjà utilisée sur Paris Fashion Shop. Choisissez-en une autre.");
-      return;
+    // Re-check PFS avant de soumettre, uniquement si la référence a changé
+    // (création OU renommage). Pour une simple mise à jour du produit existant
+    // — par exemple passer en hors ligne — pas la peine de vérifier l'unicité
+    // sur PFS, ça bloquait à tort dès que le mapping pfsProductId local n'était
+    // pas connu (BDD locale dé-sync de la prod).
+    const initialRef = initialData?.reference?.trim().replace(/\s/g, "").toUpperCase() ?? "";
+    const submittedRef = reference.trim().replace(/\s/g, "").toUpperCase();
+    const referenceChanged = !initialRef || initialRef !== submittedRef;
+    if (referenceChanged) {
+      const pfsCheck = await runPfsRefCheck(reference, { force: true });
+      if (pfsCheck === "exists") {
+        setError("Cette référence est déjà utilisée sur Paris Fashion Shop. Choisissez-en une autre.");
+        return;
+      }
     }
 
     if (!name.trim()) return setError("Le nom est requis.");
@@ -1890,6 +1907,30 @@ export default function ProductForm({
       const showEfashion = hasEfashionConfig && efashionEnabled;
       const showFaire = hasFaireConfig && faireEnabled;
 
+      // Log temporaire (à retirer une fois le bug "case Faire absente" diagnostiqué).
+      const saveModalDebug = {
+        hasPfsConfig,
+        hasAnkorstoreConfig,
+        ankorstoreEnabled,
+        hasEfashionConfig,
+        efashionEnabled,
+        hasFaireConfig,
+        faireEnabled,
+        showFaire,
+        alreadyOnFaire,
+      };
+      // eslint-disable-next-line no-console
+      console.log("[ProductForm save modal]", saveModalDebug);
+      try {
+        await fetch("/api/_debug-log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tag: "saveModal", payload: saveModalDebug }),
+        });
+      } catch {
+        // ignore
+      }
+
       // La popup marketplace s'affiche aussi pour le passage en ARCHIVED
       // (Ankorstore : on envoie stock 0 → produit non commandable, équivalent
       //  "hors ligne" — leur API n'a pas de vraie archive côté produit).
@@ -2031,6 +2072,28 @@ export default function ProductForm({
               faireRef.current = v;
             },
           });
+        }
+
+        // DEBUG TEMP : vérifier les checkboxes finales avant d'ouvrir la modale.
+        const debugPayload = {
+          length: checkboxes.length,
+          ids: checkboxes.map((c) => c.id),
+          showFaire,
+          hasFaireConfig,
+          faireEnabled,
+          alreadyOnFaire,
+          isArchivingNow,
+        };
+        // eslint-disable-next-line no-console
+        console.log("[ProductForm DEBUG checkboxes]", debugPayload);
+        try {
+          await fetch("/api/_debug-log", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tag: "checkboxes", payload: debugPayload }),
+          });
+        } catch {
+          // ignore
         }
 
         // Le titre suit ce qui est réellement présent dans la modale

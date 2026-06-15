@@ -26,22 +26,37 @@ const MARKETPLACE_IMAGE_PREFIX = "/api/marketplace-image";
  * `?path=...` pour éviter tout problème d'encodage de segments contenant
  * des accents ou caractères spéciaux.
  *
+ * Priorité de la base URL :
+ *   1. `baseOverride` (paramètre)
+ *   2. `MARKETPLACE_IMAGE_BASE_URL` (env var explicite, recommandé en dev
+ *      pour pointer sur la prod — Faire/Ankorstore ne peuvent pas atteindre
+ *      `localhost`)
+ *   3. `NEXTAUTH_URL`
+ *   4. `https://beliandjolie.com` (fallback prod)
+ *
  * @param dbPath  Chemin tel que stocké en BDD (commence par "/uploads/").
- * @param baseOverride  Pour les tests : surcharge `NEXTAUTH_URL`.
+ * @param baseOverride  Pour les tests : surcharge l'env.
  */
 export function buildMarketplaceImageUrl(dbPath: string, baseOverride?: string): string {
-  const base = (baseOverride ?? process.env.NEXTAUTH_URL ?? "https://beliandjolie.com").replace(/\/$/, "");
+  const base = (
+    baseOverride ??
+    process.env.MARKETPLACE_IMAGE_BASE_URL ??
+    process.env.NEXTAUTH_URL ??
+    "https://beliandjolie.com"
+  ).replace(/\/$/, "");
   const normalized = dbPath.startsWith("/") ? dbPath : `/${dbPath}`;
   return `${base}${MARKETPLACE_IMAGE_PREFIX}?path=${encodeURIComponent(normalized)}`;
 }
 
 /**
- * Variante Faire : ajoute `?format=jpeg` à l'URL. Le proxy convertira le WebP
- * en JPEG côté serveur. Faire refuse les WebP.
+ * Variante Faire : ajoute `?format=jpeg&minWidth=1000` à l'URL.
+ * Le proxy convertira le WebP en JPEG et upscalera à au moins 1000 px de large
+ * (Faire refuse les images < 1000×1000 et les crop_fill en panoramique).
  */
 export function buildFaireImageUrl(dbPath: string, baseOverride?: string): string {
   const url = buildMarketplaceImageUrl(dbPath, baseOverride);
-  return url.includes("?") ? `${url}&format=jpeg` : `${url}?format=jpeg`;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}format=jpeg&minWidth=1000`;
 }
 
 /**

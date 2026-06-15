@@ -60,6 +60,7 @@ export type FairePublishResult =
 
 interface FullVariant {
   id: string;
+  faireVariantId: string | null;
   unitPrice: Prisma.Decimal | number;
   weight: number;
   stock: number;
@@ -96,6 +97,10 @@ interface FullProduct {
     composition: { name: string };
   }[];
   manufacturingCountry: { isoCode: string | null } | null;
+  // Dimensions stockées en mm dans la BDD (cohérent avec Faire qui attend des mm).
+  dimensionLength: number | null;
+  dimensionWidth: number | null;
+  dimensionHeight: number | null;
 }
 
 // ─────────────────────────────────────────────
@@ -122,6 +127,7 @@ export async function loadFaireProductFull(productId: string): Promise<FullProdu
       colors: {
         select: {
           id: true,
+          faireVariantId: true,
           unitPrice: true,
           weight: true,
           stock: true,
@@ -157,6 +163,9 @@ export async function loadFaireProductFull(productId: string): Promise<FullProdu
         },
       },
       manufacturingCountry: { select: { isoCode: true } },
+      dimensionLength: true,
+      dimensionWidth: true,
+      dimensionHeight: true,
     },
   }) as unknown as FullProduct | null;
 }
@@ -257,8 +266,12 @@ interface FaireVariantPayload {
     options: { name: string; value: string }[];
     images?: { url: string }[];
     measurements?: {
-      weight: number;
-      mass_unit: "GRAMS";
+      weight?: number;
+      mass_unit?: "GRAMS";
+      length?: number;
+      width?: number;
+      height?: number;
+      distance_unit?: "MILLIMETERS";
     };
     /** Code SH douanier (ex : "7117.19.00"). Faire le veut sur la variante. */
     tariff_code?: string;
@@ -283,10 +296,12 @@ export function buildFaireProductPayload(
   wholesaleConfig: MarkupConfig,
   retailConfig: MarkupConfig,
   lifecycleState: "DRAFT" | "PUBLISHED" = "DRAFT",
+  idempotenceSalt: string = Date.now().toString(36),
 ): {
   body: Record<string, unknown>;
   variants: FaireVariantPayload[];
   optionValues: string[];
+  productImagesCount: number;
 } {
   const imagesByColorId = buildImagesByColorId(product.colorImages);
   const skuByVariantId = buildFaireVariantSkus(
@@ -314,9 +329,30 @@ export function buildFaireProductPayload(
       ? imgPaths.slice(0, 5).map((p) => ({ url: buildFaireImageUrl(p) }))
       : undefined;
 
-    const measurements = v.weight > 0
-      ? { weight: Math.round(v.weight * 1000), mass_unit: "GRAMS" as const }
-      : undefined;
+    // measurements (schéma `ExternalMeasurementsV2`, cf. docs/faire-api.md §6).
+    // - weight : poids en grammes (BDD = kg → ×1000). `mass_unit` obligatoire si weight.
+    // - length/width/height : dimensions au niveau VARIANTE (BJ les stocke au niveau
+    //   produit, on duplique sur chaque variante). `distance_unit` obligatoire si dim.
+    //   On envoie en MILLIMETERS — c'est l'unité stockée en BDD.
+    const measurementsObj: NonNullable<FaireVariantPayload["payload"]["measurements"]> = {};
+    if (v.weight > 0) {
+      measurementsObj.weight = Math.round(v.weight * 1000);
+      measurementsObj.mass_unit = "GRAMS";
+    }
+    const hasAnyDim =
+      (product.dimensionLength && product.dimensionLength > 0) ||
+      (product.dimensionWidth && product.dimensionWidth > 0) ||
+      (product.dimensionHeight && product.dimensionHeight > 0);
+    if (hasAnyDim) {
+      if (product.dimensionLength && product.dimensionLength > 0)
+        measurementsObj.length = product.dimensionLength;
+      if (product.dimensionWidth && product.dimensionWidth > 0)
+        measurementsObj.width = product.dimensionWidth;
+      if (product.dimensionHeight && product.dimensionHeight > 0)
+        measurementsObj.height = product.dimensionHeight;
+      measurementsObj.distance_unit = "MILLIMETERS";
+    }
+    const measurements = Object.keys(measurementsObj).length > 0 ? measurementsObj : undefined;
 
     const variantName =
       v.saleType === "PACK" && v.packQuantity
@@ -327,8 +363,11 @@ export function buildFaireProductPayload(
       bjVariantId: v.id,
       sku,
       payload: {
-        // Token déterministe basé sur l'ID BJ de la variante + version schema.
-        idempotence_token: `bj-var-${v.id}-v2`,
+        // Token unique par publication : ID variante + salt timestamp (passé
+        // par buildFaireProductPayload). On NE veut PAS d'idempotence stable
+        // entre publications successives — Faire renvoie sinon les vieux
+        // produits DELETED en cache, qui font échouer toute republication.
+        idempotence_token: `bj-var-${v.id}-${idempotenceSalt}`,
         sku,
         name: variantName,
         wholesale_price_cents: prices.wholesaleCents,
@@ -364,6 +403,20 @@ export function buildFaireProductPayload(
       }
     : { wholesale_price_cents: 0, retail_price_cents: 0 };
 
+  // Images niveau produit — Faire exige au moins 1 image racine pour publier
+  // (erreur PUBLISHED_PRODUCT_NEEDS_AT_LEAST_ONE_IMAGE sinon, même si chaque
+  // variante a ses images). On prend en priorité les images de la couleur
+  // primaire, sinon les premières images disponibles, max 5.
+  const primaryImages =
+    (product.primaryColorId && imagesByColorId.get(product.primaryColorId)) || [];
+  const fallbackImages =
+    primaryImages.length > 0
+      ? primaryImages
+      : Array.from(imagesByColorId.values()).find((arr) => arr.length > 0) ?? [];
+  const productImages = fallbackImages
+    .slice(0, 5)
+    .map((p) => ({ url: buildFaireImageUrl(p) }));
+
   // Note : `sale_state` est read-only côté Faire — c'est Faire qui bascule
   // automatiquement entre FOR_SALE et SALES_PAUSED selon le stock vs MOQ.
   // Tenter de l'envoyer renvoie HTTP 400 "product field 'sale_state' is read-only".
@@ -373,15 +426,21 @@ export function buildFaireProductPayload(
   // payload, on bumpe ce suffixe pour ne pas tomber sur un cache d'erreur
   // d'une ancienne tentative.
   const body: Record<string, unknown> = {
-    idempotence_token: `bj-product-${product.id}-v2`,
+    idempotence_token: `bj-product-${product.id}-${idempotenceSalt}`,
     name: product.name,
     description: ctx.description,
-    short_description: ctx.description.slice(0, 200),
+    // Faire limite le short_description à 75 caractères. On part du nom du
+    // produit (souvent court et descriptif) plutôt que de la description
+    // complète qui contient maintenant composition + dimensions + code SH.
+    short_description: (product.description?.trim() || product.name).slice(0, 75),
     lifecycle_state: lifecycleState,
     taxonomy_type: { id: ctx.taxonomyTypeId },
     made_in_country: ctx.countryAlpha2,
     minimum_order_quantity: 1,
-    per_style_minimum_order_quantity: 1,
+    // Note : `per_style_minimum_order_quantity` ne doit PAS être envoyé tant
+    // qu'on n'expose pas d'axe Size dans `variant_option_sets`. Faire renvoie
+    // sinon HTTP 400 « Le produit sans variantes de taille ne peut pas être
+    // défini sur tailles personnalisées ».
     // unit_multiplier = 1 obligatoire (>0). Représente la "quantité par carton" :
     // ici on vend à l'unité (pas par carton), donc 1.
     unit_multiplier: 1,
@@ -389,10 +448,16 @@ export function buildFaireProductPayload(
       { name: "Color", values: Array.from(optionValuesSet) },
     ],
     variants: variants.map((v) => v.payload),
+    ...(productImages.length > 0 ? { images: productImages } : {}),
     ...rootPrices,
   };
 
-  return { body, variants, optionValues: Array.from(optionValuesSet) };
+  return {
+    body,
+    variants,
+    optionValues: Array.from(optionValuesSet),
+    productImagesCount: productImages.length,
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -424,7 +489,7 @@ export function buildFaireSnapshot(
     schemaVersion: FAIRE_SNAPSHOT_VERSION,
     product: {
       name: product.name,
-      shortDescription: ctx.description.slice(0, 200),
+      shortDescription: (product.description?.trim() || product.name).slice(0, 75),
       description: ctx.description,
       taxonomyTypeId: ctx.taxonomyTypeId,
       countryAlpha2: ctx.countryAlpha2,
@@ -441,7 +506,17 @@ export function buildFaireSnapshot(
 // ─────────────────────────────────────────────
 
 export function buildPublishContext(
-  product: Pick<FullProduct, "category" | "hsCode" | "manufacturingCountry" | "compositions" | "description">,
+  product: Pick<
+    FullProduct,
+    | "category"
+    | "hsCode"
+    | "manufacturingCountry"
+    | "compositions"
+    | "description"
+    | "dimensionLength"
+    | "dimensionWidth"
+    | "dimensionHeight"
+  >,
 ): {
   ok: boolean;
   ctx?: FairePublishContext;
@@ -468,9 +543,9 @@ export function buildPublishContext(
   const countryAlpha2 = rawAlpha2 ?? "CN"; // fallback raisonnable pour catalogue made-in-China
   const countryUsedFallback = rawAlpha2 == null;
 
-  // Description = description produit + composition (toujours) + code SH (si rempli)
-  // appendus automatiquement. Faire n'expose pas de champ structuré pour ces
-  // infos visibles côté acheteuse, donc tout passe par la description.
+  // Description = description produit + composition (toujours) + code SH (si
+  // rempli) appendus automatiquement. Les dimensions sont envoyées dans le
+  // champ structuré `measurements` au niveau variante (cf. buildFaireProductPayload).
   const description = buildFaireDescription(
     product.description ?? "",
     product.compositions.map((c) => ({
@@ -513,7 +588,7 @@ export async function fairePublishProduct(
 
   const configs = await loadMarketplaceMarkupConfigs();
   const lifecycleState = options.lifecycleState ?? "DRAFT";
-  const { body, variants } = buildFaireProductPayload(
+  const { body, variants, productImagesCount } = buildFaireProductPayload(
     product,
     ctx,
     configs.faireWholesale,
@@ -530,7 +605,7 @@ export async function fairePublishProduct(
     retailPriceCents: Number(body.retail_price_cents),
     countryAlpha2: ctx.countryAlpha2,
     tariffCode: ctx.tariffCode,
-    productImagesCount: 0,
+    productImagesCount,
     variants: variants.map((v) => ({
       sku: v.sku,
       wholesalePriceCents: v.payload.wholesale_price_cents,
@@ -564,9 +639,24 @@ export async function fairePublishProduct(
         status: res.status,
         body: text.slice(0, 400),
       });
+      // Extrait le message Faire en clair pour qu'il remonte à l'UI.
+      let humanMsg = "";
+      try {
+        const j = JSON.parse(text) as {
+          localized_message?: string;
+          message?: string;
+          field?: string;
+        };
+        humanMsg = j.localized_message || j.message || "";
+        if (j.field) humanMsg = `${humanMsg} (champ : ${j.field})`;
+      } catch {
+        // body non JSON, on ignore
+      }
       return {
         success: false,
-        error: `Faire a refusé la création (HTTP ${res.status}).`,
+        error: humanMsg
+          ? `Faire a refusé la création (HTTP ${res.status}) : ${humanMsg}`
+          : `Faire a refusé la création (HTTP ${res.status}).`,
       };
     }
 

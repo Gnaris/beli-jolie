@@ -7,10 +7,12 @@ const product = (
   ankorsProductId: string | null,
   variantIds: string[],
   efashionVariantIds: string[] = [],
+  faireProductId: string | null = null,
 ) => ({
   id,
   pfsProductId,
   ankorsProductId,
+  faireProductId,
   colors: variantIds.map((vId) => ({
     id: vId,
     efashionProductId: efashionVariantIds.includes(vId) ? 1 : null,
@@ -134,5 +136,36 @@ describe("computeBulkVariantMarketplaceTargets", () => {
       { hasPfsConfig: false, showAnkorstore: false },
     );
     expect(resultMissing.efashionProducts).toEqual([]);
+  });
+
+  it("ne retient pour Faire que les produits déjà publiés (faireProductId connu)", () => {
+    const products = [
+      product("p1", "pfs-1", null, ["v1"], [], "faire-1"), // lié à Faire
+      product("p2", "pfs-2", null, ["v2"]),                // pas lié
+      product("p3", null, null, ["v3"], [], "faire-3"),    // lié à Faire seul
+    ];
+    const result = computeBulkVariantMarketplaceTargets(
+      products,
+      ["v1", "v2", "v3"],
+      { hasPfsConfig: true, showAnkorstore: false, showFaire: true },
+    );
+    expect(result.affectedProducts.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+    expect(result.faireProducts.map((p) => p.id)).toEqual(["p1", "p3"]);
+  });
+
+  it("ignore Faire quand la marketplace n'est pas activée (kill switch off ou non configurée)", () => {
+    const products = [product("p1", null, null, ["v1"], [], "faire-1")];
+    const resultDisabled = computeBulkVariantMarketplaceTargets(
+      products,
+      ["v1"],
+      { hasPfsConfig: false, showAnkorstore: false, showFaire: false },
+    );
+    expect(resultDisabled.faireProducts).toEqual([]);
+    const resultMissing = computeBulkVariantMarketplaceTargets(
+      products,
+      ["v1"],
+      { hasPfsConfig: false, showAnkorstore: false },
+    );
+    expect(resultMissing.faireProducts).toEqual([]);
   });
 });

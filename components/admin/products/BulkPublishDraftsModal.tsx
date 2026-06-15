@@ -12,6 +12,7 @@ export interface BulkPublishDraftsConfirm {
   publishPfs: boolean;
   publishAnkorstore: boolean;
   publishEfashion: boolean;
+  publishFaire: boolean;
   /** ids des produits éligibles pour eFashion (pas encore liés) — sous-ensemble d'eligibleIds */
   efashionEligibleIds: string[];
 }
@@ -24,6 +25,8 @@ interface Props {
   ankorstoreEnabled: boolean;
   hasEfashionConfig: boolean;
   efashionEnabled: boolean;
+  hasFaireConfig: boolean;
+  faireEnabled: boolean;
   onCancel: () => void;
   onConfirm: (decision: BulkPublishDraftsConfirm) => void;
 }
@@ -36,6 +39,8 @@ export default function BulkPublishDraftsModal({
   ankorstoreEnabled,
   hasEfashionConfig,
   efashionEnabled,
+  hasFaireConfig,
+  faireEnabled,
   onCancel,
   onConfirm,
 }: Props) {
@@ -47,6 +52,7 @@ export default function BulkPublishDraftsModal({
   const [publishPfs, setPublishPfs] = useState(true);
   const [publishAnkorstore, setPublishAnkorstore] = useState(true);
   const [publishEfashion, setPublishEfashion] = useState(true);
+  const [publishFaire, setPublishFaire] = useState(true);
   const backdropRef = useRef<HTMLDivElement>(null);
   const mouseDownOnBackdrop = useRef(false);
   // Liste des ids capturée à l'ouverture. La prop `productIds` change de
@@ -63,6 +69,9 @@ export default function BulkPublishDraftsModal({
   const showEfashion = hasEfashionConfig && efashionEnabled;
   const showEfashionRef = useRef(showEfashion);
   showEfashionRef.current = showEfashion;
+  const showFaire = hasFaireConfig && faireEnabled;
+  const showFaireRef = useRef(showFaire);
+  showFaireRef.current = showFaire;
   const frozenIdsRef = useRef<string[]>([]);
 
   useEffect(() => { setMounted(true); }, []);
@@ -81,6 +90,7 @@ export default function BulkPublishDraftsModal({
     setPublishPfs(hasPfsConfigRef.current);
     setPublishAnkorstore(showAnkorstoreRef.current);
     setPublishEfashion(showEfashionRef.current);
+    setPublishFaire(showFaireRef.current);
     (async () => {
       try {
         const res = await previewBulkPublishDrafts(frozenIdsRef.current);
@@ -122,8 +132,8 @@ export default function BulkPublishDraftsModal({
   // Compteur du titre : on s'appuie sur les ids figés à l'ouverture pour ne pas
   // laisser le nombre changer si la prop `productIds` bouge entre-temps.
   const totalCount = frozenIdsRef.current.length || productIds.length;
-  const noMarketplaceAvailable = !hasPfsConfig && !showAnkorstore && !showEfashion;
-  const noMarketplaceChecked = !publishPfs && !publishAnkorstore && !publishEfashion;
+  const noMarketplaceAvailable = !hasPfsConfig && !showAnkorstore && !showEfashion && !showFaire;
+  const noMarketplaceChecked = !publishPfs && !publishAnkorstore && !publishEfashion && !publishFaire;
   const canContinue =
     !loading &&
     !error &&
@@ -138,6 +148,7 @@ export default function BulkPublishDraftsModal({
         publishPfs: publishPfs && hasPfsConfig,
         publishAnkorstore: publishAnkorstore && showAnkorstore,
         publishEfashion: publishEfashion && showEfashion,
+        publishFaire: publishFaire && showFaire,
         efashionEligibleIds: efashionEligible.map((p) => p.id),
       });
     }, 200);
@@ -301,6 +312,17 @@ export default function BulkPublishDraftsModal({
                                 : "Ajoutés à la file shooting — à valider depuis la fenêtre eFashion en bas à droite."}
                             </span>
                           </span>
+                        </label>
+                      )}
+                      {showFaire && (
+                        <label className="flex items-center gap-2.5 text-[13px] font-body cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={publishFaire}
+                            onChange={(e) => setPublishFaire(e.target.checked)}
+                            className="checkbox-custom"
+                          />
+                          <span className="text-text-primary">Faire ({eligibleCount} produit{eligibleCount > 1 ? "s" : ""})</span>
                         </label>
                       )}
                     </div>

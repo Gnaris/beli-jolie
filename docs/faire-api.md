@@ -1,16 +1,17 @@
 # API Faire — Documentation
 
 > **Statut** : 🚧 EN COURS DE REVERSE-ENGINEERING — chantier juin 2026. Auth simple confirmée en réel le 2026-06-12.
-> Source officielle : `https://developers.faire.com/docs` (portail verrouillé, accès brand connecté requis).
-> Sources complémentaires : doc archivée `faire.github.io/external-api-v2-docs`, code source `hotglue/tap-faire`, exemples Chilkat, guides Celigo / Extensiv, Faire Help Center, Postman public.
+> **Spec officielle OpenAPI 3.0.3** copiée dans le repo : [`docs/faire-openapi.json`](./faire-openapi.json). C'est la source de vérité pour les chemins, méthodes et schémas.
+> Portail humain : `https://developers.faire.com/docs` (SPA Cloudflare, accès brand requis — script d'aspiration disponible : `npx tsx scripts/fetch-faire-docs.ts`, sortie dans `docs/faire-api-dump.md`).
+> Sources complémentaires : code source `hotglue/tap-faire`, exemples Chilkat, guides Celigo / Extensiv, Faire Help Center.
 >
-> Base URL **v2** : `https://www.faire.com/external-api/v2/`
+> Base URL **v2** : `https://www.faire.com/external-api/v2/` (confirmée par la spec, champ `servers[0].url`).
 > Base URL **v1** : `https://www.faire.com/api/v1/` — ⚠️ **DEPRECATED 15 décembre 2025, ne plus utiliser**.
 > Identifiants : `SiteConfig.faire_api_key` (mode clé simple — **recommandé, validé en réel**) ou OAuth si plusieurs marques — chiffrés via `SENSITIVE_KEYS`.
 
 ## ⚠️ TL;DR — ce qui marche réellement (confirmé 2026-06-12)
 
-1. **L'auth simple suffit** : un seul header `X-FAIRE-ACCESS-TOKEN: {clé}` sur **toutes** les requêtes. Pas d'OAuth, pas de refresh, pas de token endpoint. La clé est générée côté brand depuis le portail Faire (Settings → Integrations).
+1. **L'auth simple suffit pour notre cas (single brand)** : un seul header `X-FAIRE-ACCESS-TOKEN: {clé}` sur **toutes** les requêtes. Pas d'OAuth, pas de refresh, pas de token endpoint. La clé est générée côté brand depuis le portail Faire (Settings → Integrations). ⚠️ **Statut documentaire** (vérifié auprès de l'IA Faire le 2026-06-15) : la doc confirme bien qu'une marque unique peut générer un token sans implémenter OAuth, **mais le nom exact du header `X-FAIRE-ACCESS-TOKEN` n'est pas mentionné dans la doc officielle** — toute la doc d'auth montre `X-FAIRE-OAUTH-ACCESS-TOKEN` + `X-FAIRE-APP-CREDENTIALS`. Notre header marche en réel depuis le 2026-06-12 → on garde, mais c'est une zone grise. À surveiller : si Faire le coupe un jour, basculer en OAuth (§1.2). Pour lever le doute durablement, écrire au support Faire.
 2. **Endpoint racine** : `https://www.faire.com/external-api/v2/`. Tout ce qui est sous `/api/v1/...` est mort.
 3. **Instance EU** : `https://www.faire.com/eu/external-api/v2/` répond mais le catalogue est partagé avec l'instance US (même brand_id, même produits).
 4. **Limites `limit` strictes** : `/products?limit=N` exige `10 ≤ N ≤ 250`. `/orders?limit=N` exige `10 ≤ N ≤ 50`. Hors plage = HTTP 400 explicite.
@@ -67,8 +68,8 @@
 - `PATCH /product-inventory/by-product-variant-ids`
 - `GET   /product-inventory/by-skus`
 - `PATCH /product-inventory/by-skus`
-- `PATCH /products/variants/inventory-levels/by-product-variant-ids` (alias plus ancien, Chilkat)
-- `PATCH /products/variants/inventory-levels/by-skus` (alias plus ancien, Chilkat)
+- `PATCH /products/variants/inventory-levels-by-product-variant-ids` (ancienne route batch, **toujours présente dans la spec**)
+- `PATCH /products/variants/inventory-levels-by-skus` (idem — chemin canonique : pas de slash entre `inventory-levels` et `by-…`)
 
 ⚠ Le `available_quantity` envoyé dans le POST initial est ignoré — toujours suivre d'un PATCH inventory.
 
@@ -80,24 +81,41 @@
 - `DELETE /products/{product_id}/prepacks/{prepack_id}`
 
 ### Orders
-- `GET /orders` — liste (limit 10-50)
-- `GET /orders/{order_id}` — détail
-- `PUT /orders/{order_id}/processing` — accepter / passer en traitement
-- `PUT /orders/{order_id}/cancel` — annuler
+- `GET  /orders` — liste (limit 10-50)
+- `GET  /orders/{order_id}` — détail
+- `PUT  /orders/{order_id}/processing` — accepter / passer en traitement
+- `PUT  /orders/{order_id}/cancel` — annuler
 - `POST /orders/{order_id}/shipments` — créer un envoi (tracking, carrier)
 - `POST /orders/{order_id}/items/availability` — déclarer disponibilité / backorder
-- `GET /orders/{order_id}/packing-slip/pdf` — bon de livraison PDF
+- `GET  /orders/{order_id}/packing-slip-pdf` — bon de livraison PDF (changelog 2025-11)
 
 ### Retailers
 - `GET /retailers/public/{retailer_id}` — infos publiques d'un retailer
 
-### Mode OAuth (apps multi-brands)
-Application ID + Secret existent mais réservés aux apps multi-brands. Le token endpoint n'est pas exposé publiquement. Tant qu'on reste sur une seule marque, ne pas implémenter — passer par la clé simple.
+### Mode OAuth (apps multi-brands) — **endpoints officiels confirmés par la spec**
+
+```http
+POST https://www.faire.com/api/external-api-oauth2/token        # échange authorization_code → access_token
+POST https://www.faire.com/api/external-api-oauth2/revoke       # révoque un access token
+```
+
+URL d'autorisation : `https://faire.com/oauth2/authorize?applicationId={YOUR_APP_ID}&scope=SPECIFIC_PERMISSION&state={CSRF}&redirectUrl={REDIRECT}`.
+
+**Permissions (scopes) disponibles** :
+- `READ_PRODUCTS` / `WRITE_PRODUCTS`
+- `READ_ORDERS` / `WRITE_ORDERS`
+- `READ_BRAND`
+- `READ_RETAILER`
+- `READ_INVENTORIES` / `WRITE_INVENTORIES`
+- `READ_SHIPMENTS`
+- `READ_REVIEWS`
+
+⚠️ Le code d'autorisation expire en **10 minutes** — l'échanger contre l'access token avant. Tant qu'on reste sur une seule marque, ne pas implémenter — passer par la clé simple.
 
 ### Champs Product confirmés (réponse GET)
 - `id`, `brand_id`, `idempotence_token`, `created_at`, `updated_at`
 - `name`, `short_description`, `description` (UTF-8 ok)
-- `lifecycle_state` (`DRAFT`/`PUBLISHED`/`RETIRED`/`DELETED`)
+- `lifecycle_state` (`DRAFT`/`PUBLISHED`/`UNPUBLISHED`/`DELETED`) — ⚠️ `RETIRED` **n'existe pas** dans la spec, c'est `UNPUBLISHED`.
 - `sale_state` (`FOR_SALE`/`NOT_FOR_SALE`)
 - `taxonomy_type: { id, name }` (id obligatoire, format `tt_xxxxxxxxxx`)
 - `made_in_country` — **ISO alpha-3** (`CHN`, `PRT`, `FRA`, …) pas alpha-2
@@ -106,7 +124,7 @@ Application ID + Secret existent mais réservés aux apps multi-brands. Le token
 - `images[]: { id, url, sequence, tags[] }` (Faire mirror via cdn.faire.com)
 - `variants[]` (cf. plus bas)
 - `variant_option_sets[]: { name, values[] }`
-- `product_attributes[]` (champ encore mystère)
+- `product_attributes[]: { name, value }` — **présent dans le schéma OpenAPI mais NON synchronisé avec le portail brand** : tester sur F137 le 2026-06-15 a montré que remplir « Matériau / Occasion / Style / Thème… » côté portail ne fait PAS apparaître ces valeurs dans la réponse API. Verdict : champ inactif pour les brands single — gestion manuelle dans le portail uniquement. Cf. §19.
 
 ### Champs Variant confirmés
 - `id` (`po_xxx`), `product_id`, `created_at`, `updated_at`, `idempotence_token`
@@ -117,10 +135,11 @@ Application ID + Secret existent mais réservés aux apps multi-brands. Le token
 - `prices[]: [{ geo_constraint, wholesale_price, retail_price }]` (multi-marchés)
 - `available_quantity` (à pousser via inventory PATCH)
 - `images[]` (4-5 max par variante)
-- `measurements: { weight, mass_unit, length, width, height, distance_unit }`
+- `measurements: { weight, mass_unit, length, width, height, distance_unit }` (schéma `ExternalMeasurementsV2`)
   - `mass_unit` ∈ `GRAMS|KILOGRAMS|OUNCES|POUNDS`
   - `distance_unit` ∈ `CENTIMETERS|INCHES|FEET|MILLIMETERS|METERS|YARDS`
   - **Si `weight` est envoyé, `mass_unit` est obligatoire.** Idem `length/width/height` exigent `distance_unit`.
+  - ✅ **`length / width / height` sont structurés et supportés** (confirmé spec OpenAPI + IA Faire 2026-06-15). Notre code actuel les met dans la description — à corriger pour les envoyer dans `measurements`.
 
 ⚠️ **Différences majeures avec les autres marketplaces** :
 - Pas de **sandbox public** — tests obligatoirement en compte de marque réel (créer des produits « test ») ou demander un staging à `integrations.support@faire.com`.
@@ -196,7 +215,7 @@ Tel que confirmé par `tap-faire/streams.py` (schémas JSON canoniques) :
   "wholesale_price_cents": 750,              // OBLIGATOIRE — entier centimes
   "retail_price_cents": 1500,                // OBLIGATOIRE — ≥ 2× wholesale
   "sale_state": "FOR_SALE",                  // FOR_SALE | NOT_FOR_SALE
-  "lifecycle_state": "PUBLISHED",            // DRAFT | PUBLISHED | RETIRED
+  "lifecycle_state": "PUBLISHED",            // DRAFT | PUBLISHED | UNPUBLISHED | DELETED
   "unit_multiplier": 1,                      // packs / by-the-case
   "minimum_order_quantity": 1,               // MOQ produit
   "per_style_minimum_order_quantity": 1,     // MOQ par variante
@@ -283,21 +302,22 @@ Retourne le même objet que §3 pour un produit unique. Utilisé par le live-che
 
 Le tableau `variants` est posté en même temps que le produit (cf. §8). C'est la voie la plus rapide pour notre cas (création + variantes en une transaction).
 
-### 6.3 Édition séparée des variantes
-
-Endpoints (alignés sur le pattern Faire, à confirmer dans le portail) :
+### 6.3 Édition séparée des variantes — endpoints **réels** (spec OpenAPI)
 
 ```http
-GET    /external-api/v2/products/{product_id}/options          # liste
-POST   /external-api/v2/products/{product_id}/options          # ajout
-PATCH  /external-api/v2/products/options/{option_id}           # modif
-DELETE /external-api/v2/products/options/{option_id}           # suppression
+POST   /external-api/v2/products/{product_id}/variants                          # ajout
+PATCH  /external-api/v2/products/{product_id}/variants/{variant_id}             # modif (measurements, images, prix, lifecycle_state…)
+DELETE /external-api/v2/products/{product_id}/variants/{variant_id}             # suppression
+DELETE /external-api/v2/products/{product_id}/variants/{variant_id}/images/{image_id}
+PATCH  /external-api/v2/products/{product_id}/variant-option-sets               # modifier les axes (Color, Size…)
 ```
 
-### 6.4 PATCH stock + état — endpoint **CONFIRMÉ** (Chilkat)
+⚠️ **Les anciens chemins `/products/{id}/options` et `/products/options/{option_id}` n'existent PAS dans la spec.** Ils traînent dans de vieux exemples Chilkat / forums — les ignorer.
+
+### 6.4 PATCH stock en bulk — chemin officiel spec
 
 ```http
-PATCH /external-api/v2/products/options/inventory-levels
+PATCH /external-api/v2/products/variants/inventory-levels-by-skus
 Content-Type: application/json
 X-FAIRE-ACCESS-TOKEN: {token}
 
@@ -310,19 +330,9 @@ X-FAIRE-ACCESS-TOKEN: {token}
 }
 ```
 
-**Réponse** :
-```jsonc
-{
-  "options": [
-    { "id": "po_456", "product_id": "p_abc", "active": true, "name": "Or / S",
-      "sku": "BJ-BRC-001-OR-S", "available_quantity": 24,
-      "wholesale_price_cents": 750, "retail_price_cents": 1500,
-      "updated_at": "2026-06-12T10:00:00Z" }
-  ]
-}
-```
+Variante équivalente par ID variant : `PATCH /products/variants/inventory-levels-by-product-variant-ids`. C'est ce qu'utilise `lib/faire-inventory.ts` pour **synchroniser le stock en bulk** (équivalent PATCH stock PFS / Ankorstore). Limite suggérée : ~500 SKU/appel (à confirmer).
 
-C'est la route à utiliser pour **synchroniser le stock en bulk** (équivalent PATCH stock PFS / Ankorstore). Limite suggérée : ~500 SKU/appel (à confirmer).
+Réponse (format `UpdateInventoryLevelsResponseV2` — cf. spec) : tableau des SKUs mis à jour avec `available_quantity`, `updated_at`.
 
 ---
 
@@ -354,18 +364,19 @@ C'est la route à utiliser pour **synchroniser le stock en bulk** (équivalent P
 
 Faire télécharge depuis nos URLs. Pas de multipart. **C'est la voie officielle** documentée dans le template de catalogue. ⚠️ Reconvertir les WebP en JPEG avant exposition via `/api/marketplace-image?path=...` (réutiliser le proxy existant utilisé pour Ankorstore).
 
-### 7.3 Voie B — Upload multipart (fallback)
+### 7.3 Voie B — Upload via endpoint dédié
 
 ```http
-POST /external-api/v2/products/{product_id}/images
+POST /external-api/v2/products/upload-image
 Content-Type: multipart/form-data
 ```
 
-À utiliser uniquement si les images ne sont pas accessibles publiquement. À confirmer côté portail.
+Confirmé par la spec (changelog 2023-04 : *« Added support for uploading images to be used by products/variants »*). Réponse type `UploadImageResponseV2` qui contient l'URL Faire (cdn.faire.com) à réutiliser ensuite dans le tableau `images` d'un PATCH produit/variant. À utiliser uniquement si nos images ne sont pas accessibles publiquement. ⚠️ **L'ancien chemin `POST /products/{id}/images` n'existe pas** — exemples Chilkat obsolètes.
 
 ### 7.4 Remplacer / supprimer / réordonner
 
-Envoyer le **tableau `images` complet** dans un `PATCH /products/{id}` ou `PATCH /products/options/{option_id}`. Pas de DELETE individuel documenté.
+- Pour remplacer/réordonner : envoyer le **tableau `images` complet** dans un `PATCH /products/{product_id}` (niveau produit) ou `PATCH /products/{product_id}/variants/{variant_id}` (niveau variant).
+- Pour supprimer une image précise : `DELETE /products/{product_id}/images/{image_id}` (produit) ou `DELETE /products/{product_id}/variants/{variant_id}/images/{image_id}` (variant).
 
 ---
 
@@ -433,22 +444,23 @@ Champs immuables : `id`, `brand_id`, `created_at`. Tout le reste est modifiable.
 
 ## 10. Publier / archiver / supprimer
 
-Faire distingue **trois états** via `lifecycle_state` + un toggle `sale_state` :
+Faire distingue **quatre états** via `lifecycle_state` (enum confirmé spec `ExternalProductV2.LifecycleState`) + un toggle `sale_state` (`FOR_SALE` / `NOT_FOR_SALE`, **read-only — c'est Faire qui le bascule selon le stock vs MOQ**, ne pas l'envoyer en POST/PATCH sinon HTTP 400).
 
 | Action | Méthode | Effet |
 |---|---|---|
-| **Masquer temporairement** | `PATCH /products/{id}` `sale_state: "NOT_FOR_SALE"` | Produit caché, peut être réactivé. |
-| **Publier** | `PATCH /products/{id}` `lifecycle_state: "PUBLISHED"` | Sortie de DRAFT, commandable. |
-| **Archiver** | `PATCH /products/{id}` `lifecycle_state: "RETIRED"` | Retiré du catalogue, non commandable. |
-| **Supprimer hard** | `DELETE /products/{id}` | À confirmer — Faire encourage `RETIRED` plutôt. |
+| **Publier** | `PATCH /products/{id}` `lifecycle_state: "PUBLISHED"` | Sortie de DRAFT, commandable. **Pas d'endpoint Publish dédié** (confirmé IA Faire 2026-06-15). |
+| **Dépublier (réversible)** | `PATCH /products/{id}` `lifecycle_state: "UNPUBLISHED"` | Retiré du catalogue, peut être republié. C'est l'équivalent « archivé ». |
+| **Supprimer (réversibilité incertaine)** | `DELETE /products/{id}` | Passe en `lifecycle_state: "DELETED"`. À privilégier pour usage final. |
+
+⚠️ **L'état `RETIRED` n'existe pas** dans la spec OpenAPI — c'est `UNPUBLISHED`. D'anciens exemples Chilkat et notre doc historique en parlent, à ignorer.
 
 ### Mapping vers `ProductStatus` Beli & Jolie
 
 | BJ | Faire |
 |---|---|
-| `ONLINE` | `lifecycle_state: PUBLISHED` + `sale_state: FOR_SALE` |
-| `OFFLINE` | `lifecycle_state: PUBLISHED` + `sale_state: NOT_FOR_SALE` (ou rester en `DRAFT` si jamais publié) |
-| `ARCHIVED` | `lifecycle_state: RETIRED` |
+| `ONLINE` | `lifecycle_state: PUBLISHED` (Faire décide `sale_state` selon stock) |
+| `OFFLINE` | `lifecycle_state: UNPUBLISHED` (réversible) — ou rester en `DRAFT` si jamais publié |
+| `ARCHIVED` | `lifecycle_state: DELETED` via `DELETE /products/{id}` |
 | `SYNCING` | côté Faire toujours `DRAFT` pendant le kickoff |
 
 ### Workflow de publication recommandé
@@ -501,19 +513,28 @@ Params optionnels : `excluded_states=PROCESSING`, `excluded_states=DELIVERED`, e
 }
 ```
 
-### 11.3 Actions sur une commande
+### 11.3 Actions sur une commande — endpoints **réels** (spec OpenAPI)
 
 ```http
-POST /external-api/v2/orders/{order_id}/accept
-POST /external-api/v2/orders/{order_id}/backorder
-  Body: { "items": [{ "id": "oi_1", "available_quantity": 1 }] }
-POST /external-api/v2/orders/{order_id}/items/availability
-  Body: idem backorder
-POST /external-api/v2/orders/{order_id}/ship
-  Body: { "shipments": [{ "carrier": "UPS", "tracking_code": "1Z999…",
-                          "items": [{ "id": "oi_1", "quantity": 3 }] }] }
-POST /external-api/v2/orders/{order_id}/cancel
+PUT  /external-api/v2/orders/{order_id}/processing                # accepter / passer en traitement
+     Body: MoveOrderToProcessingRequestV2
+
+POST /external-api/v2/orders/{order_id}/items/availability        # déclarer rupture / dispo partielle (backorder)
+     Body: EditItemsAvailabilityRequestV2
+       { "items": [{ "id": "oi_1", "available_quantity": 1 }] }
+
+POST /external-api/v2/orders/{order_id}/shipments                 # créer un envoi (tracking, carrier)
+     Body: AddShipmentsRequestV2
+       { "shipments": [{ "carrier": "UPS", "tracking_code": "1Z999…",
+                         "items": [{ "id": "oi_1", "quantity": 3 }] }] }
+
+PUT  /external-api/v2/orders/{order_id}/cancel                    # annuler
+     Body: ExternalCancelBrandOrderRequestV2
+
+GET  /external-api/v2/orders/{order_id}/packing-slip-pdf          # bon de livraison PDF (ajouté 2025-11)
 ```
+
+⚠️ **Pièges historiques** : les routes `/accept`, `/backorder`, `/ship` (POST) que d'anciens exemples mentionnent **n'existent pas**. La vraie convention Faire est : *processing* (PUT) pour accepter, *shipments* (POST) pour expédier, *items/availability* (POST) pour la rupture, *cancel* (PUT, pas POST).
 
 ### 11.4 Mapping vers `OrderStatus` Beli & Jolie
 
@@ -604,34 +625,30 @@ Choisir celui qui correspond à l'audience de la marque (ex: bijoux Beli & Jolie
 
 ---
 
-## 13. Webhooks asynchrones
+## 13. Webhooks — ⚠️ NON SUPPORTÉS par Faire
 
-### 13.1 Disponibilité
+**Confirmé par l'IA Faire le 2026-06-15** : *« I find no documented webhooks. On the contrary, the FAQ indicates the API uses a polling model and there are no webhooks documented currently. »*
 
-Faire **supporte les webhooks** (mentionnés dans la doc générale). Endpoint d'abonnement non public dans les sources accessibles — à confirmer via le portail brand. Pattern observé chez les intégrateurs (Extensiv, Sellercloud, Cin7) :
+→ **Pas de subscription, pas de callback HTTP entrant.** Aucune var d'env `FAIRE_WEBHOOK_SECRET` à prévoir. Pas de route `app/api/webhooks/faire`.
 
-1. Abonnement à un événement via portail ou API d'abonnement.
-2. Faire envoie `POST` JSON sur notre URL webhook.
-3. Notre endpoint répond `HTTP 200` en ≤ 10 s. Sinon, retry exponentiel.
+### 13.1 Modèle de polling (seul mode pris en charge)
 
-### 13.2 Événements probables
+Tous les évènements (nouvelles commandes, changements d'état, etc.) doivent être détectés par interrogation périodique :
 
-| Event | Cas d'usage |
-|---|---|
-| `order.new` / `order.created` | Nouvelle commande à traiter |
-| `order.cancelled` | Annulation par le retailer |
-| `order.shipped` | Confirmation expédition |
-| `order.backordered` | Réponse à notre déclaration de rupture |
-| `product.approved` / `product.rejected` | Validation post-publish |
-| `inventory.updated` | (si plusieurs systèmes poussent du stock) |
+```http
+GET /external-api/v2/orders?updated_at_min={lastSync}&limit=50
+```
 
-### 13.3 Sécurité
+Cron à prévoir côté Beli & Jolie (réutiliser le pattern PFS / Ankorstore de polling commandes) :
+- Fréquence raisonnable : **toutes les 5-10 min** pour les commandes.
+- Stocker `lastFaireOrderSync` en BDD (SiteConfig) → réutilisé en `updated_at_min` à chaque tick.
+- Pagination cursor (changelog 2023-05) : utiliser `cursor` si la première page est saturée.
 
-Faire devrait fournir un secret HMAC dans un header (ex : `X-Faire-Signature`). Variable d'env : `FAIRE_WEBHOOK_SECRET` côté Beli & Jolie. À vérifier sur la doc portail au branchement.
+C'est ce que font Sellercloud, Extensiv et la plupart des intégrateurs publics.
 
-### 13.4 Plan B si webhooks indisponibles
+### 13.2 Conséquence pour le chantier
 
-Polling : `GET /orders?updated_at_min=…` toutes les 5-10 min via un cron. C'est ce que font Sellercloud et Extensiv.
+L'étape 4 (commandes) ne nécessite **ni** route webhook **ni** modèle `FaireOperation` callback-only (contrairement à Ankorstore). Architecture plus simple : juste un job cron + une server action `syncFaireOrders` qui fait du polling.
 
 ---
 
@@ -671,7 +688,7 @@ Aucun chiffre officiel public. Recommandations des intégrateurs et hypothèses 
 | Concept | Mapping Beli & Jolie |
 |---|---|
 | **`minimum_order_quantity`** (MOQ produit) | Champ à ajouter ou défaut 1 |
-| **`per_style_minimum_order_quantity`** | MOQ par couleur — défaut 1 |
+| **`per_style_minimum_order_quantity`** | ⚠️ **Mutuellement exclusif avec `unit_multiplier` + `minimum_order_quantity`** (confirmé IA Faire 2026-06-15) — choisir l'un OU l'autre. Notre code actuel utilise `unit_multiplier: 1` + `minimum_order_quantity: 1`, donc on **n'envoie pas** `per_style_minimum_order_quantity`. |
 | **`unit_multiplier`** / case pack | À utiliser pour les `SaleType.PACK` (quantité par pack) |
 | **`lead_time`** | Calculer depuis stock + délai entrepôt (à définir) |
 | **`country_of_manufacture`** | `ManufacturingCountry.isoCode` (déjà mappé pour PFS) |
@@ -793,10 +810,62 @@ Convention : `logger.info("[Faire Publish] …", { context })`, `[Faire Update]`
 
 ---
 
+---
+
+## Changelog officiel Faire (extrait, source spec OpenAPI)
+
+Pour la version complète et toujours à jour, voir `docs/faire-openapi.json` → `info.description` → section *Changelog*. Points marquants depuis 2024 :
+
+| Date | Changement |
+|---|---|
+| **2025-11** | Endpoints batch `PATCH /product-prices/by-product-variant-ids` & `by-skus`. Champs `has_pending_retailer_cancellation_request` (order), `shipping_label_url` (shipment), `made_in_country` (product), `case_measurements` (variant). Endpoint `GET /orders/{id}/packing-slip-pdf`. |
+| **2025-10** | Query param `original_order_id` sur `GET /orders`. Champs `notes` (order), `is_insider` (retailer). |
+| **2025-09** | Champ `purchase_order_number` sur order. |
+| **2025-06** | Champ `estimated_payout_at` sur order. |
+| **2024-11** | Champs `is_free_shipping`, `free_shipping_reason`, `faire_covered_shipping_cost` (order). `shipping_type` (shipment). |
+| **2024-09** | Champs `total_brand_discounts` / `subtotal_after_brand_discounts` sur payout costs. |
+| **2024-05** | `address_type` sur addresses. |
+| **2024-03** | Nouveaux endpoints `product-inventory/*` (les anciens `inventory-levels-*` deprecated mais toujours présents). |
+| **2023-05** | Pagination par cursor sur `GET /orders` et `GET /products`. Doc OAuth complète. |
+
+---
+
+---
+
+## 19. Attributs « Détails du produit > En savoir plus » — gérés manuellement uniquement
+
+Le portail Faire affiche pour chaque produit une section **« Détails du produit > En savoir plus »** avec les filtres utilisés par les retailers :
+
+- Couleur, Langue du produit, Matériau, Pays de fabrication, Emballage, Matériaux du produit
+- Occasion, Set, Style, Taille, Thème, Type de pierre
+- Production (écoresponsabilité)
+
+### 19.1 Verdict — non synchronisé avec l'API (confirmé 2026-06-15)
+
+Le champ `product_attributes[]` (schéma `ExternalProductTaxonomyAttributeV2 = { name, value }`) **existe** dans la réponse `GET /products/{id}`, **mais il reste vide même quand l'admin remplit ces attributs dans le portail brand**.
+
+**Test réel sur F137** (`p_w7db3utw9u`) :
+1. La cliente a rempli Matériau / Occasion / Style / Thème… côté portail et sauvegardé.
+2. `GET /products/p_w7db3utw9u` retourne toujours `product_attributes: []`.
+
+→ Pour les marques single brand (notre cas), ces attributs sont **gérés uniquement côté portail** et **ne sont pas exposables/modifiables via l'API publique**. C'est cohérent avec la position habituelle de l'IA Faire (*« the API does not document these merchandising/facet attributes »*).
+
+**Pays de fabrication** est la seule exception : il a son propre champ racine `made_in_country` (déjà rempli par notre code, ISO alpha-2 → Faire convertit en alpha-3 en interne).
+
+### 19.2 Conséquence pour Beli & Jolie
+
+- **Pas d'UI à ajouter dans l'admin BJ** pour ces attributs — ce serait du travail dans le vide.
+- **Procédure manuelle après chaque publication** : la cliente va sur le portail Faire et coche les attributs filtre par filtre. À documenter dans le guide opérateur quand elle voudra industrialiser.
+- À ré-évaluer **si Faire ouvre l'écriture** un jour (changelog à surveiller) ou si on passe en intégration partenaire OAuth (les apps OAuth pourraient avoir un accès étendu).
+
+---
+
 ## Sources
 
-- [Faire Developer Portal (accès brand)](https://developers.faire.com/docs)
-- [Faire External API v2 — doc archivée](https://faire.github.io/external-api-v2-docs/)
+- **Spec OpenAPI officielle** (source de vérité) : [`docs/faire-openapi.json`](./faire-openapi.json) — 36 paths, 78 schémas, copiée le 2026-06-15.
+- **Dump texte de la doc humaine** : [`docs/faire-api-dump.md`](./faire-api-dump.md) — produit par `npx tsx scripts/fetch-faire-docs.ts` (Playwright sur le portail Cloudflare).
+- [Faire Developer Portal (accès brand, SPA)](https://developers.faire.com/docs)
+- [Faire External API v2 — page de redirection (legacy)](https://faire.github.io/external-api-v2-docs/)
 - [hotglue/tap-faire — schémas v2 confirmés (GitLab)](https://gitlab.com/hotglue/tap-faire)
 - [Faire — Get All Products (Chilkat PHP)](https://www.example-code.com/phpExt/faire_get_all_products.asp)
 - [Faire — Update Inventory Levels (Chilkat)](https://www.example-code.com/phpext/faire_update_inventory_levels.asp)

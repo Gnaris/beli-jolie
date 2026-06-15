@@ -86,15 +86,26 @@ function getActionVerb(mode: MarketplaceRefreshItem["mode"]): string {
 // directement dans `document.body` via createPortal + position: fixed
 // calculée par rapport au rect du déclencheur, il flotte au-dessus de
 // toute l'interface, même hors des limites du panneau.
+//
+// Interactivité : on accepte la souris dans le tooltip (sélection +
+// bouton copier). Les parents (badge + tooltip) partagent un délai de
+// fermeture de 200 ms via onMouseEnter/onMouseLeave pour laisser le
+// curseur traverser le petit espace de 6 px sans refermer.
 function ErrorTooltipPortal({
   anchorRect,
   title,
   message,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   anchorRect: DOMRect;
   title: string;
   message: string;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+
   if (typeof document === "undefined") return null;
 
   const margin = 8;
@@ -112,14 +123,52 @@ function ErrorTooltipPortal({
     ? { position: "fixed", left, bottom: viewportHeight - anchorRect.top + 6, width, zIndex: 9999 }
     : { position: "fixed", left, top: anchorRect.bottom + 6, width, zIndex: 9999 };
 
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Fallback : sélection via execCommand si l'API n'est pas dispo
+    }
+  };
+
   return createPortal(
     <div
       role="tooltip"
       style={style}
-      className="pointer-events-none p-2.5 bg-red-700 text-white text-[11px] font-body leading-snug rounded-lg shadow-xl whitespace-pre-line break-words max-h-[60vh] overflow-y-auto"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className="p-2.5 bg-red-700 text-white text-[11px] font-body leading-snug rounded-lg shadow-xl whitespace-pre-line break-words max-h-[60vh] overflow-y-auto select-text"
     >
-      <span className="block font-semibold mb-0.5">{title}</span>
-      {message}
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <span className="block font-semibold">{title}</span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 hover:bg-white/25 text-white text-[10px] font-medium transition-colors"
+          title="Copier le message d'erreur"
+          aria-label="Copier le message d'erreur"
+        >
+          {copied ? (
+            <>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              Copié
+            </>
+          ) : (
+            <>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <rect x="9" y="9" width="11" height="11" rx="2" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 15V6a1 1 0 011-1h9" />
+              </svg>
+              Copier
+            </>
+          )}
+        </button>
+      </div>
+      <div className="select-text cursor-text">{message}</div>
     </div>,
     document.body,
   );
@@ -179,20 +228,39 @@ function MarketplaceStatusBadge({ item }: { item: MarketplaceRefreshItem }) {
   // Mesure la position de la pastille au moment d'afficher le tooltip.
   // Pas de listener resize/scroll : ouverture courte (hover), recalcul à
   // chaque nouveau hover suffit pour rester correct.
+  // Délai de 200 ms à la fermeture : laisse le temps de traverser le
+  // petit espace entre le badge et le tooltip (qui devient interactif
+  // pour permettre sélection + copie).
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelClose = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
   const openTooltip = () => {
     if (!errorMsg || !badgeRef.current) return;
+    cancelClose();
     setAnchorRect(badgeRef.current.getBoundingClientRect());
   };
-  const closeTooltip = () => setAnchorRect(null);
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimerRef.current = setTimeout(() => setAnchorRect(null), 200);
+  };
+  const closeNow = () => {
+    cancelClose();
+    setAnchorRect(null);
+  };
 
   return (
     <span
       ref={badgeRef}
       className="relative inline-flex"
       onMouseEnter={openTooltip}
-      onMouseLeave={closeTooltip}
+      onMouseLeave={scheduleClose}
       onFocus={openTooltip}
-      onBlur={closeTooltip}
+      onBlur={closeNow}
       tabIndex={errorMsg ? 0 : -1}
     >
       <span
@@ -207,6 +275,8 @@ function MarketplaceStatusBadge({ item }: { item: MarketplaceRefreshItem }) {
           anchorRect={anchorRect}
           title={`Échec sur ${meta.label}`}
           message={errorMsg}
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
         />
       )}
     </span>

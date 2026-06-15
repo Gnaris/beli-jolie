@@ -37,12 +37,15 @@ export interface UseRefreshMarketplaceDialogOptions {
   showAnkorstore?: boolean;
   /** Affiche la case eFashion Paris. Défaut false. */
   showEfashion?: boolean;
+  /** Affiche la case Faire. Défaut false. */
+  showFaire?: boolean;
 }
 
 export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOptions) {
   const showPfs = opts?.showPfs ?? true;
   const showAnkorstore = opts?.showAnkorstore ?? false;
   const showEfashion = opts?.showEfashion ?? false;
+  const showFaire = opts?.showFaire ?? false;
 
   const { confirm } = useConfirm();
   const toast = useToast();
@@ -122,6 +125,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       const pfsRef = { current: false };
       const ankorstoreRef = { current: false };
       const efashionRef = { current: false };
+      const faireRef = { current: false };
 
       const title = count === 1 ? "Rafraîchir ce produit ?" : `Rafraîchir ${count} produits ?`;
       const message =
@@ -171,6 +175,16 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
           },
         });
       }
+      if (showFaire) {
+        checkboxes.push({
+          id: "faire",
+          label: "Rafraîchir sur Faire (crée le nouveau, supprime l'ancien)",
+          defaultChecked: false,
+          onChange: (v: boolean) => {
+            faireRef.current = v;
+          },
+        });
+      }
 
       const ok = await confirm({
         type: "warning",
@@ -188,15 +202,22 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         pfs: pfsRef.current,
         ankorstore: ankorstoreRef.current,
         efashion: efashionRef.current,
+        faire: faireRef.current,
       };
 
-      if (!options.local && !options.pfs && !options.ankorstore && !options.efashion) {
+      if (
+        !options.local &&
+        !options.pfs &&
+        !options.ankorstore &&
+        !options.efashion &&
+        !options.faire
+      ) {
         toast.error("Aucune option sélectionnée.");
         return null;
       }
       return options;
     },
-    [confirm, toast, showPfs, showAnkorstore, showEfashion],
+    [confirm, toast, showPfs, showAnkorstore, showEfashion, showFaire],
   );
 
   const refreshSingle = useCallback(
@@ -235,7 +256,13 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       if (!options) return false;
 
       // If only local (no marketplace), run directly — it's instant
-      if (options.local && !options.pfs && !options.ankorstore && !options.efashion) {
+      if (
+        options.local &&
+        !options.pfs &&
+        !options.ankorstore &&
+        !options.efashion &&
+        !options.faire
+      ) {
         try {
           await refreshProductOnMarketplaces(target.productId, options);
           toast.success("Produit remis en Nouveauté");
@@ -292,7 +319,25 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
             options: { local: true, pfs: false, ankorstore: false, efashion: false },
             marketplace: "pfs",
           });
+          localConsumed = true;
         }
+      }
+      if (options.faire) {
+        inputs.push({
+          productId: target.productId,
+          reference: target.reference,
+          productName: target.productName,
+          firstImage: target.firstImage ?? null,
+          options: {
+            local: options.local && !localConsumed,
+            pfs: false,
+            ankorstore: false,
+            efashion: false,
+            faire: true,
+          },
+          marketplace: "faire",
+        });
+        localConsumed = options.local;
       }
       enqueue(inputs);
       if (options.efashion) {
@@ -363,7 +408,13 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       const options = await askOptions(filtered.length, filtered[0]?.productName);
       if (!options) return false;
 
-      if (options.local && !options.pfs && !options.ankorstore && !options.efashion) {
+      if (
+        options.local &&
+        !options.pfs &&
+        !options.ankorstore &&
+        !options.efashion &&
+        !options.faire
+      ) {
         // Run sequentially for local-only — quick operations
         try {
           for (const p of filtered) {
@@ -415,7 +466,25 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
               options: { local: true, pfs: false, ankorstore: false, efashion: false },
               marketplace: "pfs",
             });
+            localConsumed = true;
           }
+        }
+        if (options.faire) {
+          inputs.push({
+            productId: p.productId,
+            reference: p.reference,
+            productName: p.productName,
+            firstImage: p.firstImage ?? null,
+            options: {
+              local: options.local && !localConsumed,
+              pfs: false,
+              ankorstore: false,
+              efashion: false,
+              faire: true,
+            },
+            marketplace: "faire",
+          });
+          localConsumed = options.local;
         }
       }
       enqueue(inputs);

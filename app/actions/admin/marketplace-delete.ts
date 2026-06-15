@@ -1,13 +1,16 @@
 "use server";
 
 import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { pfsDeleteProduct } from "@/lib/pfs-api-write";
 import { ankorstoreKickoffStandaloneDelete } from "@/lib/ankorstore-delete";
 import { efashionDeleteShootingProduct } from "@/lib/efashion-shootings";
+import { faireHardDeleteProduct } from "@/lib/faire-delete";
 import {
   getCachedAnkorstoreEnabled,
   getCachedEfashionEnabled,
+  getCachedFaireEnabled,
 } from "@/lib/cached-data";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
@@ -220,6 +223,93 @@ export async function deleteProductsOnEfashion(
       });
       results.push({
         efashionProductId: item.efashionProductId,
+        reference: item.reference,
+        status: "error",
+        message,
+      });
+    }
+  }
+  return results;
+}
+
+// ─── Faire ──────────────────────────────────────────────────────────────────
+
+export interface FaireDeleteOutcome {
+  faireProductId: string;
+  reference: string;
+  status: "ok" | "error";
+  /** True quand Faire renvoie 404 — la fiche distante n'existait déjà plus. */
+  alreadyGone?: boolean;
+  message?: string;
+}
+
+/**
+ * Suppression définitive (hard delete) d'une liste de produits côté Faire.
+ *
+ * Faire renvoie 404 si l'ID n'existe déjà plus — on traite comme un succès
+ * idempotent. Les mappings locaux (`Product.faireProductId`, `ProductColor.faireVariantId`)
+ * sont nettoyés pour les opérations OK afin que l'UI reflète l'état réel,
+ * même si le produit local doit ensuite être supprimé.
+ */
+export async function deleteProductsOnFaire(
+  items: Array<{ faireProductId: string; reference: string }>,
+): Promise<FaireDeleteOutcome[]> {
+  await requireAdmin();
+
+  const faireEnabled = await getCachedFaireEnabled();
+  if (!faireEnabled) {
+    logger.info("[Marketplace Delete] Faire disabled, skipping all deletes", {
+      itemCount: items.length,
+    });
+    return items.map((item) => ({
+      faireProductId: item.faireProductId,
+      reference: item.reference,
+      status: "error" as const,
+      message: "Faire désactivé dans les paramètres — aucune suppression envoyée.",
+    }));
+  }
+
+  const results: FaireDeleteOutcome[] = [];
+  for (const item of items) {
+    try {
+      const res = await faireHardDeleteProduct(item.faireProductId);
+      if (res.success) {
+        // Best-effort cleanup local. Si la fiche locale a déjà disparu (cas du
+        // bulk delete qui appelle cette fonction APRÈS prisma.product.delete),
+        // l'updateMany ne touche rien — pas grave.
+        await prisma.product
+          .updateMany({
+            where: { faireProductId: item.faireProductId },
+            data: {
+              faireProductId: null,
+              faireLastSyncSnapshot: Prisma.DbNull,
+              faireSyncRequired: false,
+            },
+          })
+          .catch(() => {});
+        results.push({
+          faireProductId: item.faireProductId,
+          reference: item.reference,
+          status: "ok",
+          alreadyGone: res.alreadyGone,
+        });
+      } else {
+        results.push({
+          faireProductId: item.faireProductId,
+          reference: item.reference,
+          status: "error",
+          message: res.error ?? "Erreur inconnue",
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error("[Marketplace Delete] Faire delete threw", {
+        faireProductId: item.faireProductId,
+        reference: item.reference,
+        error: message,
+      });
+      results.push({
+        faireProductId: item.faireProductId,
         reference: item.reference,
         status: "error",
         message,

@@ -1,20 +1,25 @@
 /**
  * Faire Inventory — PATCH stock en bulk par SKU.
  *
- * Endpoint : `PATCH /product-inventory/by-skus` (confirmé en réel).
+ * Endpoint : `PATCH /product-inventory/by-skus` (schéma OpenAPI officiel Faire).
  * Le `available_quantity` envoyé dans `POST /products` est ignoré
  * silencieusement → après toute création/refresh il faut systématiquement
  * appeler cette fonction pour pousser le stock réel.
+ *
+ * ⚠️ Bug historique (corrigé 2026-06-15) : on envoyait `current_quantity` au
+ * lieu de `on_hand_quantity`. Faire répondait 200 mais le champ inconnu était
+ * silencieusement ignoré → le stock ne se mettait jamais à jour côté Faire.
+ * Le champ `current_quantity` appartient à l'ANCIEN endpoint deprecated
+ * `/products/variants/inventory-levels-by-skus` — ne pas mélanger.
  *
  * Limites :
  *   - ~500 SKUs par appel (estimé — pas de chiffre officiel).
  *   - 429 fréquents si on chaîne sans pause. Backoff intégré dans `faireFetch`.
  *
- * Format payload validé :
+ * Format payload officiel :
  * {
  *   "inventories": [
- *     { "sku": "...", "current_quantity": 24,
- *       "discontinued": false, "backordered_until": null }
+ *     { "sku": "...", "on_hand_quantity": 24 }
  *   ]
  * }
  */
@@ -24,12 +29,8 @@ import { logger } from "@/lib/logger";
 
 export interface FaireInventoryUpdate {
   sku: string;
-  /** Quantité disponible (entier ≥ 0). */
+  /** Quantité disponible (entier ≥ 0). Envoyée comme `on_hand_quantity` à Faire. */
   currentQuantity: number;
-  /** Marqueur "fin de série" — variante visible mais non commandable. */
-  discontinued?: boolean;
-  /** Date de retour de stock (ISO 8601) ou null. */
-  backorderedUntil?: string | null;
 }
 
 export interface FaireInventoryResult {
@@ -58,17 +59,13 @@ export function chunkInventory<T>(items: T[], size = MAX_BATCH): T[][] {
 export function buildInventoryPayload(updates: FaireInventoryUpdate[]): {
   inventories: {
     sku: string;
-    current_quantity: number;
-    discontinued: boolean;
-    backordered_until: string | null;
+    on_hand_quantity: number;
   }[];
 } {
   return {
     inventories: updates.map((u) => ({
       sku: u.sku,
-      current_quantity: Math.max(0, Math.floor(u.currentQuantity)),
-      discontinued: !!u.discontinued,
-      backordered_until: u.backorderedUntil ?? null,
+      on_hand_quantity: Math.max(0, Math.floor(u.currentQuantity)),
     })),
   };
 }

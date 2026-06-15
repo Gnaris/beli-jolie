@@ -1,9 +1,9 @@
 /**
  * Ajoute à la fin de la description produit envoyée à Faire les infos
- * matériaux + code SH, parce que ces champs structurés (`materials`,
- * `hs_code`/`tariff_code`) ne sont soit pas exposés à l'acheteuse côté
- * Faire, soit non documentés. La description reste le seul endroit
- * garanti où l'acheteuse verra ces infos.
+ * matériaux + code SH, parce que ces champs ne sont pas exposés à l'acheteuse
+ * dans le schéma Faire (composition) ou pas affichés en clair (tariff_code).
+ * Les dimensions et le poids passent par le champ structuré `measurements`
+ * côté variante (cf. `lib/faire-publish.ts → buildFaireProductPayload`).
  *
  * Format de sortie :
  *
@@ -11,9 +11,6 @@
  *
  *     Composition : Acier inoxydable 316L (70%), Plaqué or 18 carats (30%)
  *     Code SH : 7117.19.00
- *
- * - Composition : ajoutée tant qu'il y a au moins une ligne renseignée.
- * - Code SH    : ajouté uniquement si non vide.
  */
 
 export interface FaireDescriptionComposition {
@@ -59,7 +56,6 @@ function formatCompositionLine(compositions: FaireDescriptionComposition[]): str
 }
 
 function roundPercent(pct: number): string {
-  // Si le pourcentage tombe juste, pas de décimale ; sinon une décimale.
   const rounded = Math.round(pct * 10) / 10;
   return Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1);
 }

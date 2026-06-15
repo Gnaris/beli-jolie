@@ -14,12 +14,17 @@
  *   - eFashion est configuré ET activé (kill switch)
  *   - Au moins une de ses couleurs est liée à un produit eFashion
  *     (efashionProductId non nul)
+ *
+ * Un produit est éligible à Faire si :
+ *   - Faire est configuré ET activé (kill switch)
+ *   - Le produit est déjà publié (faireProductId connu)
  */
 
 export interface BulkVariantProduct {
   id: string;
   pfsProductId: string | null;
   ankorsProductId: string | null;
+  faireProductId?: string | null;
   colors: { id: string; efashionProductId?: number | null }[];
 }
 
@@ -28,12 +33,18 @@ export interface BulkVariantMarketplaceTargets<P extends BulkVariantProduct> {
   pfsProducts: P[];
   ankorsProducts: P[];
   efashionProducts: P[];
+  faireProducts: P[];
 }
 
 export function computeBulkVariantMarketplaceTargets<P extends BulkVariantProduct>(
   allProducts: readonly P[],
   selectedVariantIds: readonly string[],
-  flags: { hasPfsConfig: boolean; showAnkorstore: boolean; showEfashion?: boolean },
+  flags: {
+    hasPfsConfig: boolean;
+    showAnkorstore: boolean;
+    showEfashion?: boolean;
+    showFaire?: boolean;
+  },
 ): BulkVariantMarketplaceTargets<P> {
   const affectedProductIds = new Set<string>();
   for (const variantId of selectedVariantIds) {
@@ -50,5 +61,8 @@ export function computeBulkVariantMarketplaceTargets<P extends BulkVariantProduc
   const efashionProducts = flags.showEfashion
     ? affectedProducts.filter((p) => p.colors.some((c) => c.efashionProductId != null))
     : [];
-  return { affectedProducts, pfsProducts, ankorsProducts, efashionProducts };
+  const faireProducts = flags.showFaire
+    ? affectedProducts.filter((p) => !!p.faireProductId)
+    : [];
+  return { affectedProducts, pfsProducts, ankorsProducts, efashionProducts, faireProducts };
 }

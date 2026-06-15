@@ -13,7 +13,7 @@ import {
   updateVariantQuick,
   bulkUpdateVariants,
 } from "@/app/actions/admin/products";
-import { deleteProductsOnPfs, deleteProductsOnAnkorstore, deleteProductsOnEfashion } from "@/app/actions/admin/marketplace-delete";
+import { deleteProductsOnPfs, deleteProductsOnAnkorstore, deleteProductsOnEfashion, deleteProductsOnFaire } from "@/app/actions/admin/marketplace-delete";
 import { bulkAddToEfashionShootingBatch } from "@/app/actions/admin/efashion-shooting-batch";
 import BulkEditAttributesModal, { type BulkEditOptions, type BulkEditPayload } from "@/components/admin/products/BulkEditAttributesModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -724,6 +724,8 @@ function VariantRow({
   ankorstoreEnabled,
   hasEfashionConfig,
   efashionEnabled,
+  hasFaireConfig,
+  faireEnabled,
   checked,
   onCheck,
   onSaved,
@@ -735,6 +737,8 @@ function VariantRow({
   ankorstoreEnabled: boolean;
   hasEfashionConfig: boolean;
   efashionEnabled: boolean;
+  hasFaireConfig: boolean;
+  faireEnabled: boolean;
   checked: boolean;
   onCheck: () => void;
   onSaved: () => void;
@@ -762,17 +766,20 @@ function VariantRow({
       setEditing(false);
       onSaved();
 
-      // Propose la mise a jour marketplaces avec cases a cocher (PFS + AS + eFashion).
+      // Propose la mise a jour marketplaces avec cases a cocher (PFS + AS + eFashion + Faire).
       const pfsAvailable = hasPfsConfig && !!product.pfsProductId;
       const ankorsAvailable =
         hasAnkorstoreConfig && ankorstoreEnabled && !!product.ankorsProductId;
       const efashionAvailable =
         hasEfashionConfig && efashionEnabled &&
         product.colors.some((c) => c.efashionProductId != null);
-      if (pfsAvailable || ankorsAvailable || efashionAvailable) {
+      const faireAvailable =
+        hasFaireConfig && faireEnabled && !!product.faireProductId;
+      if (pfsAvailable || ankorsAvailable || efashionAvailable || faireAvailable) {
         const pfsRef = { current: pfsAvailable };
         const ankorsRef = { current: ankorsAvailable };
         const efashionRef = { current: efashionAvailable };
+        const faireRef = { current: faireAvailable };
         const checkboxes: {
           id: string;
           label: string;
@@ -806,6 +813,16 @@ function VariantRow({
             defaultChecked: true,
             onChange: (v) => {
               efashionRef.current = v;
+            },
+          });
+        }
+        if (faireAvailable) {
+          checkboxes.push({
+            id: "faire",
+            label: "Mettre à jour sur Faire",
+            defaultChecked: true,
+            onChange: (v) => {
+              faireRef.current = v;
             },
           });
         }
@@ -851,6 +868,17 @@ function VariantRow({
               options: { local: false, pfs: false, ankorstore: false, efashion: true },
               mode: "publish",
               marketplace: "efashion",
+            });
+          }
+          if (faireRef.current) {
+            inputs.push({
+              productId: product.id,
+              reference: product.reference,
+              productName: product.name,
+              firstImage: product.firstImage,
+              options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+              mode: "publish",
+              marketplace: "faire",
             });
           }
           if (inputs.length > 0) enqueue(inputs);
@@ -1463,6 +1491,7 @@ function ProductRow({
     showPfs: hasPfsConfig,
     showAnkorstore,
     showEfashion,
+    showFaire,
   });
 
   // État "loading" des badges marketplaces : on regarde la dernière opération
@@ -2158,6 +2187,8 @@ function ProductRow({
                       ankorstoreEnabled={ankorstoreEnabled}
                       hasEfashionConfig={hasEfashionConfig}
                       efashionEnabled={efashionEnabled}
+                      hasFaireConfig={hasFaireConfig}
+                      faireEnabled={faireEnabled}
                       checked={selectedVariantIds.has(variant.id)}
                       onCheck={() => onToggleVariant(variant.id)}
                       onSaved={() => {}}
@@ -2685,10 +2716,12 @@ export default function AdminProductsTable({
   const { confirm } = useConfirm();
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const showEfashion = !!(hasEfashionConfig && efashionEnabled);
+  const showFaire = !!(hasFaireConfig && faireEnabled);
   const { refreshBulk } = useRefreshMarketplaceDialog({
     showPfs: hasPfsConfig,
     showAnkorstore,
     showEfashion,
+    showFaire,
   });
   const { enqueue: enqueuePfs } = useMarketplaceRefreshQueue();
   const { refresh: refreshEfashionBatch } = useEfashionShootingBatch();
@@ -2768,6 +2801,7 @@ export default function AdminProductsTable({
       publishPfs: boolean;
       publishAnkorstore: boolean;
       publishEfashion: boolean;
+      publishFaire: boolean;
       efashionEligibleIds: string[];
     }) => {
       setBulkPublishDraftsOpen(false);
@@ -2829,6 +2863,17 @@ export default function AdminProductsTable({
             marketplace: "ankorstore" as const,
           });
         }
+        if (decision.publishFaire && showFaire && !p.faireProductId) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+            mode: "publish" as const,
+            marketplace: "faire" as const,
+          });
+        }
       }
       if (inputs.length > 0) enqueuePfs(inputs);
 
@@ -2866,6 +2911,7 @@ export default function AdminProductsTable({
       hasPfsConfig,
       showAnkorstore,
       showEfashion,
+      showFaire,
       refreshEfashionBatch,
       showLoading,
       hideLoading,
@@ -2936,9 +2982,9 @@ export default function AdminProductsTable({
     });
 
     // Propose la mise a jour marketplaces pour les produits deja publies
-    // (PFS, Ankorstore et eFashion Paris). Une seule modale avec cases a
-    // cocher : l'admin decide pour chaque marketplace ; cochee par defaut
-    // quand au moins 1 candidat existe.
+    // (PFS, Ankorstore, eFashion Paris et Faire). Une seule modale avec
+    // cases a cocher : l'admin decide pour chaque marketplace ; cochee par
+    // defaut quand au moins 1 candidat existe.
     if (successIds.length > 0) {
       const pfsCandidates = hasPfsConfig
         ? allProducts.filter((p) => successIds.includes(p.id) && p.pfsProductId)
@@ -2955,15 +3001,21 @@ export default function AdminProductsTable({
               (p.colors ?? []).some((c) => c.efashionProductId != null),
           )
         : [];
+      const showFaire = hasFaireConfig && faireEnabled;
+      const faireCandidates = showFaire
+        ? allProducts.filter((p) => successIds.includes(p.id) && p.faireProductId)
+        : [];
 
       if (
         pfsCandidates.length > 0 ||
         ankorsCandidates.length > 0 ||
-        efashionCandidates.length > 0
+        efashionCandidates.length > 0 ||
+        faireCandidates.length > 0
       ) {
         const pfsRef = { current: pfsCandidates.length > 0 };
         const ankorsRef = { current: ankorsCandidates.length > 0 };
         const efashionRef = { current: efashionCandidates.length > 0 };
+        const faireRef = { current: faireCandidates.length > 0 };
         const checkboxes: {
           id: string;
           label: string;
@@ -2997,6 +3049,16 @@ export default function AdminProductsTable({
             defaultChecked: true,
             onChange: (v) => {
               efashionRef.current = v;
+            },
+          });
+        }
+        if (faireCandidates.length > 0) {
+          checkboxes.push({
+            id: "faire",
+            label: `Mettre à jour sur Faire (${faireCandidates.length} sur ${successIds.length})`,
+            defaultChecked: true,
+            onChange: (v) => {
+              faireRef.current = v;
             },
           });
         }
@@ -3051,11 +3113,24 @@ export default function AdminProductsTable({
               });
             }
           }
+          if (faireRef.current) {
+            for (const p of faireCandidates) {
+              inputs.push({
+                productId: p.id,
+                reference: p.reference,
+                productName: p.name,
+                firstImage: p.firstImage,
+                options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+                mode: "publish" as const,
+                marketplace: "faire" as const,
+              });
+            }
+          }
           if (inputs.length > 0) enqueuePfs(inputs);
         }
       }
     }
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, router]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, router]);
 
   // ─── Bulk modif d'attributs produit (catégorie, code SH, composition, pays,
   // saison, best-seller) ──
@@ -3096,7 +3171,7 @@ export default function AdminProductsTable({
     });
 
     // Propose la propagation aux marketplaces sur les produits modifiés et déjà
-    // publiés (PFS + Ankorstore + eFashion).
+    // publiés (PFS + Ankorstore + eFashion + Faire).
     const successIds = result?.success ?? [];
     if (successIds.length === 0) return;
 
@@ -3113,12 +3188,22 @@ export default function AdminProductsTable({
             (p.colors ?? []).some((c) => c.efashionProductId != null),
         )
       : [];
+    const faireCandidates = showFaire
+      ? allProducts.filter((p) => successIds.includes(p.id) && p.faireProductId)
+      : [];
 
-    if (pfsCandidates.length === 0 && ankorsCandidates.length === 0 && efashionCandidates.length === 0) return;
+    if (
+      pfsCandidates.length === 0 &&
+      ankorsCandidates.length === 0 &&
+      efashionCandidates.length === 0 &&
+      faireCandidates.length === 0
+    )
+      return;
 
     const pfsRef = { current: pfsCandidates.length > 0 };
     const ankorsRef = { current: ankorsCandidates.length > 0 };
     const efashionRef = { current: efashionCandidates.length > 0 };
+    const faireRef = { current: faireCandidates.length > 0 };
     const checkboxes: {
       id: string;
       label: string;
@@ -3147,6 +3232,14 @@ export default function AdminProductsTable({
         label: `Mettre à jour sur eFashion Paris (${efashionCandidates.length} sur ${successIds.length})`,
         defaultChecked: true,
         onChange: (v) => { efashionRef.current = v; },
+      });
+    }
+    if (faireCandidates.length > 0) {
+      checkboxes.push({
+        id: "faire",
+        label: `Mettre à jour sur Faire (${faireCandidates.length} sur ${successIds.length})`,
+        defaultChecked: true,
+        onChange: (v) => { faireRef.current = v; },
       });
     }
 
@@ -3201,8 +3294,21 @@ export default function AdminProductsTable({
         });
       }
     }
+    if (faireRef.current) {
+      for (const p of faireCandidates) {
+        inputs.push({
+          productId: p.id,
+          reference: p.reference,
+          productName: p.name,
+          firstImage: p.firstImage,
+          options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+          mode: "publish" as const,
+          marketplace: "faire" as const,
+        });
+      }
+    }
     if (inputs.length > 0) enqueuePfs(inputs);
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, showAnkorstore, showEfashion]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, showAnkorstore, showEfashion, showFaire]);
 
   const handleBulkDelete = useCallback(async (idsOverride?: string[]) => {
     const ids = idsOverride ?? [...selectedIds];
@@ -3278,10 +3384,17 @@ export default function AdminProductsTable({
               })),
           )
       : [];
+    const showFaireDelete = hasFaireConfig && faireEnabled;
+    const faireCandidates = showFaireDelete
+      ? allProducts
+          .filter((p) => ids.includes(p.id) && p.faireProductId)
+          .map((p) => ({ faireProductId: p.faireProductId as string, reference: p.reference }))
+      : [];
 
     const pfsRef = { current: false };
     const ankorsRef = { current: false };
     const efashionRef = { current: false };
+    const faireRef = { current: false };
 
     const checkboxes: {
       id: string;
@@ -3320,6 +3433,16 @@ export default function AdminProductsTable({
         },
       });
     }
+    if (faireCandidates.length > 0) {
+      checkboxes.push({
+        id: "faire",
+        label: `Supprimer aussi sur Faire (${faireCandidates.length} produit${faireCandidates.length > 1 ? "s" : ""} publié${faireCandidates.length > 1 ? "s" : ""})`,
+        defaultChecked: false,
+        onChange: (v) => {
+          faireRef.current = v;
+        },
+      });
+    }
 
     const confirmed = await confirm({
       type: "danger",
@@ -3337,6 +3460,7 @@ export default function AdminProductsTable({
     const confirmPfsDelete = pfsRef.current && pfsCandidates.length > 0;
     const confirmAnkorsDelete = ankorsRef.current && ankorsCandidates.length > 0;
     const confirmEfashionDelete = efashionRef.current && efashionCandidates.length > 0;
+    const confirmFaireDelete = faireRef.current && faireCandidates.length > 0;
 
     setBulkMessage(null);
     setDeletingIds(new Set(ids));
@@ -3420,6 +3544,26 @@ export default function AdminProductsTable({
             toast.error("Échec suppression PFS", err instanceof Error ? err.message : String(err));
           }
         }
+
+        // Suppression Faire en parallèle (synchrone) si l'admin a confirmé
+        if (confirmFaireDelete) {
+          try {
+            const faireResults = await deleteProductsOnFaire(faireCandidates);
+            const okCount = faireResults.filter((r) => r.status === "ok").length;
+            const errCount = faireResults.length - okCount;
+            if (errCount === 0) {
+              toast.success(`${okCount} produit${okCount > 1 ? "s" : ""} supprimé${okCount > 1 ? "s" : ""} de Faire`);
+            } else {
+              const errRefs = faireResults.filter((r) => r.status === "error").map((r) => r.reference).join(", ");
+              toast.error(
+                "Suppression Faire partielle",
+                `${okCount} OK · ${errCount} échec${errCount > 1 ? "s" : ""} (${errRefs})`,
+              );
+            }
+          } catch (err) {
+            toast.error("Échec suppression Faire", err instanceof Error ? err.message : String(err));
+          }
+        }
       } catch (e) {
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
       } finally {
@@ -3427,7 +3571,7 @@ export default function AdminProductsTable({
         setDeletingIds(new Set());
       }
     });
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, toast, router]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, toast, router]);
 
   // Synchroniser un (ou plusieurs) produit(s) avec les marketplaces : renvoie
   // toutes les données (prix, stock, images, statut, etc.) au même `pfsProductId`
@@ -3437,14 +3581,21 @@ export default function AdminProductsTable({
     const ids = idsOverride;
     if (ids.length === 0) return;
     const showEfashion = hasEfashionConfig && efashionEnabled;
+    const showFaireLocal = hasFaireConfig && faireEnabled;
     const targets = allProducts.filter((p) => ids.includes(p.id));
     const pfsTargets = hasPfsConfig ? targets.filter((p) => p.pfsProductId) : [];
     const ankorsTargets = showAnkorstore ? targets.filter((p) => p.ankorsProductId) : [];
     const efashionTargets = showEfashion
       ? targets.filter((p) => (p.colors ?? []).some((c) => c.efashionProductId != null))
       : [];
+    const faireTargets = showFaireLocal ? targets.filter((p) => p.faireProductId) : [];
 
-    if (pfsTargets.length === 0 && ankorsTargets.length === 0 && efashionTargets.length === 0) {
+    if (
+      pfsTargets.length === 0 &&
+      ankorsTargets.length === 0 &&
+      efashionTargets.length === 0 &&
+      faireTargets.length === 0
+    ) {
       toast.error("Rien à synchroniser", "Ce produit n'est publié sur aucune marketplace.");
       return;
     }
@@ -3452,6 +3603,7 @@ export default function AdminProductsTable({
     const pfsRef = { current: pfsTargets.length > 0 };
     const ankorsRef = { current: ankorsTargets.length > 0 };
     const efashionRef = { current: efashionTargets.length > 0 };
+    const faireRef = { current: faireTargets.length > 0 };
     const checkboxes: {
       id: string;
       label: string;
@@ -3480,6 +3632,14 @@ export default function AdminProductsTable({
         label: `eFashion Paris (${efashionTargets.length} produit${efashionTargets.length > 1 ? "s" : ""})`,
         defaultChecked: true,
         onChange: (v) => { efashionRef.current = v; },
+      });
+    }
+    if (faireTargets.length > 0) {
+      checkboxes.push({
+        id: "faire",
+        label: `Faire (${faireTargets.length} produit${faireTargets.length > 1 ? "s" : ""})`,
+        defaultChecked: true,
+        onChange: (v) => { faireRef.current = v; },
       });
     }
 
@@ -3535,8 +3695,21 @@ export default function AdminProductsTable({
         });
       }
     }
+    if (faireRef.current) {
+      for (const p of faireTargets) {
+        inputs.push({
+          productId: p.id,
+          reference: p.reference,
+          productName: p.name,
+          firstImage: p.firstImage,
+          options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+          mode: "resync" as const,
+          marketplace: "faire" as const,
+        });
+      }
+    }
     if (inputs.length > 0) enqueuePfs(inputs);
-  }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, confirm, enqueuePfs, toast]);
+  }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, confirm, enqueuePfs, toast]);
 
   // ─── Bulk variant actions ──
   const handleBulkVariantUpdate = useCallback(async (data: Record<string, unknown>) => {
@@ -3585,21 +3758,30 @@ export default function AdminProductsTable({
         hideLoading();
       }
 
-      // Propose la mise à jour marketplaces (PFS + Ankorstore + eFashion) sur
-      // les produits dont au moins une variante a été modifiée.
+      // Propose la mise à jour marketplaces (PFS + Ankorstore + eFashion + Faire)
+      // sur les produits dont au moins une variante a été modifiée.
       if (!bulkSucceeded) return;
       const showEfashion = hasEfashionConfig && efashionEnabled;
-      const { affectedProducts, pfsProducts, ankorsProducts, efashionProducts } =
+      const showFaire = hasFaireConfig && faireEnabled;
+      const { affectedProducts, pfsProducts, ankorsProducts, efashionProducts, faireProducts } =
         computeBulkVariantMarketplaceTargets(allProducts, ids, {
           hasPfsConfig,
           showAnkorstore,
           showEfashion,
+          showFaire,
         });
-      if (pfsProducts.length === 0 && ankorsProducts.length === 0 && efashionProducts.length === 0) return;
+      if (
+        pfsProducts.length === 0 &&
+        ankorsProducts.length === 0 &&
+        efashionProducts.length === 0 &&
+        faireProducts.length === 0
+      )
+        return;
 
       const pfsRef = { current: pfsProducts.length > 0 };
       const ankorsRef = { current: ankorsProducts.length > 0 };
       const efashionRef = { current: efashionProducts.length > 0 };
+      const faireRef = { current: faireProducts.length > 0 };
       const checkboxes: {
         id: string;
         label: string;
@@ -3633,6 +3815,16 @@ export default function AdminProductsTable({
           defaultChecked: true,
           onChange: (v) => {
             efashionRef.current = v;
+          },
+        });
+      }
+      if (faireProducts.length > 0) {
+        checkboxes.push({
+          id: "faire",
+          label: `Mettre à jour sur Faire (${faireProducts.length} produit${faireProducts.length > 1 ? "s" : ""})`,
+          defaultChecked: true,
+          onChange: (v) => {
+            faireRef.current = v;
           },
         });
       }
@@ -3687,9 +3879,22 @@ export default function AdminProductsTable({
           });
         }
       }
+      if (faireRef.current) {
+        for (const p of faireProducts) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+            mode: "publish",
+            marketplace: "faire",
+          });
+        }
+      }
       if (inputs.length > 0) enqueuePfs(inputs);
     });
-  }, [selectedVariantIds, allProducts, startTransition, showLoading, hideLoading, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, confirm, enqueuePfs]);
+  }, [selectedVariantIds, allProducts, startTransition, showLoading, hideLoading, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, confirm, enqueuePfs]);
 
   if (allProducts.length === 0) {
     return (
@@ -3890,6 +4095,8 @@ export default function AdminProductsTable({
           ankorstoreEnabled={ankorstoreEnabled}
           hasEfashionConfig={hasEfashionConfig}
           efashionEnabled={efashionEnabled}
+          hasFaireConfig={hasFaireConfig}
+          faireEnabled={faireEnabled}
           onCancel={() => setBulkPublishDraftsOpen(false)}
           onConfirm={handleBulkPublishDraftsConfirm}
         />

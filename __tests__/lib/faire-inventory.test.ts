@@ -22,13 +22,13 @@ describe("chunkInventory", () => {
 });
 
 describe("buildInventoryPayload", () => {
-  it("formate les SKUs avec snake_case et defaults", () => {
+  it("formate les SKUs avec snake_case (on_hand_quantity)", () => {
     const out = buildInventoryPayload([
       { sku: "abc", currentQuantity: 12 },
     ]);
     expect(out).toEqual({
       inventories: [
-        { sku: "abc", current_quantity: 12, discontinued: false, backordered_until: null },
+        { sku: "abc", on_hand_quantity: 12 },
       ],
     });
   });
@@ -37,21 +37,13 @@ describe("buildInventoryPayload", () => {
     const out = buildInventoryPayload([
       { sku: "abc", currentQuantity: -5 },
     ]);
-    expect(out.inventories[0].current_quantity).toBe(0);
+    expect(out.inventories[0].on_hand_quantity).toBe(0);
   });
 
   it("plancher entier (Math.floor)", () => {
     const out = buildInventoryPayload([
       { sku: "abc", currentQuantity: 12.9 },
     ]);
-    expect(out.inventories[0].current_quantity).toBe(12);
-  });
-
-  it("propage discontinued + backorderedUntil quand fournis", () => {
-    const out = buildInventoryPayload([
-      { sku: "abc", currentQuantity: 0, discontinued: true, backorderedUntil: "2026-07-01T00:00:00Z" },
-    ]);
-    expect(out.inventories[0].discontinued).toBe(true);
-    expect(out.inventories[0].backordered_until).toBe("2026-07-01T00:00:00Z");
+    expect(out.inventories[0].on_hand_quantity).toBe(12);
   });
 });
