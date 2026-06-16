@@ -14,6 +14,10 @@ interface ConfirmCheckbox {
   label: string;
   defaultChecked: boolean;
   onChange?: (checked: boolean) => void;
+  /** Si vrai, la case est grisée et non cliquable. */
+  disabled?: boolean;
+  /** Petite ligne d'explication sous le label (ex : « produit non lié »). */
+  hint?: string;
 }
 
 interface ConfirmSecondaryAction {
@@ -106,32 +110,43 @@ function CheckboxItem({
   label,
   checked,
   onChange,
+  disabled = false,
+  hint,
 }: {
   label: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
+  hint?: string;
 }) {
   return (
-    <label className="flex items-center gap-2.5 cursor-pointer group select-none">
-      <span className="relative flex items-center justify-center shrink-0">
+    <label
+      className={`flex items-start gap-2.5 group select-none ${
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+      }`}
+    >
+      <span className="relative flex items-center justify-center shrink-0 mt-0.5">
         <input
           type="checkbox"
           checked={checked}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.checked)}
           className="peer sr-only"
         />
         <span
           className={`
             w-[18px] h-[18px] rounded-[5px] border-2 transition-all duration-150
-            ${checked
-              ? "border-text-primary bg-text-primary"
-              : "border-border-dark bg-bg-primary hover:border-text-muted"
+            ${disabled
+              ? "border-border bg-bg-secondary"
+              : checked
+                ? "border-text-primary bg-text-primary"
+                : "border-border-dark bg-bg-primary hover:border-text-muted"
             }
           `}
         />
         <svg
           className={`absolute w-3 h-3 text-white pointer-events-none transition-all duration-150 ${
-            checked ? "opacity-100 scale-100" : "opacity-0 scale-75"
+            checked && !disabled ? "opacity-100 scale-100" : "opacity-0 scale-75"
           }`}
           fill="none"
           viewBox="0 0 24 24"
@@ -143,8 +158,19 @@ function CheckboxItem({
           <path d="M5 13l4 4L19 7" />
         </svg>
       </span>
-      <span className="text-[13px] font-body text-text-secondary leading-snug">
-        {label}
+      <span className="flex-1">
+        <span
+          className={`block text-[13px] font-body leading-snug ${
+            disabled ? "text-text-muted" : "text-text-secondary"
+          }`}
+        >
+          {label}
+        </span>
+        {hint && (
+          <span className="block text-[11px] font-body text-text-muted italic leading-snug mt-0.5">
+            {hint}
+          </span>
+        )}
       </span>
     </label>
   );
@@ -191,6 +217,9 @@ function ConfirmModal({
   }, []);
 
   function handleCheckboxChange(idx: number, checked: boolean) {
+    // Ignore les changements sur les cases disabled (filet de sécurité ;
+    // l'input HTML est déjà bloqué, mais on évite tout effet de bord JS).
+    if (allCheckboxes[idx]?.disabled) return;
     setCheckedStates((prev) => {
       const next = [...prev];
       next[idx] = checked;
@@ -250,6 +279,8 @@ function ConfirmModal({
               <CheckboxItem
                 key={cb.id ?? idx}
                 label={cb.label}
+                hint={cb.hint}
+                disabled={cb.disabled}
                 checked={checkedStates[idx]}
                 onChange={(v) => handleCheckboxChange(idx, v)}
               />

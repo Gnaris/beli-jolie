@@ -2,7 +2,7 @@
 
 import { ReactNode } from "react";
 
-export type MarketplaceKey = "pfs" | "ankorstore" | "efashion";
+export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire";
 
 interface ThemeTokens {
   label: string;
@@ -29,6 +29,12 @@ const THEMES: Record<MarketplaceKey, ThemeTokens> = {
     badgeBg: "bg-violet-100",
     badgeText: "text-violet-800",
     ring: "ring-violet-200",
+  },
+  faire: {
+    label: "Faire",
+    badgeBg: "bg-sky-100",
+    badgeText: "text-sky-800",
+    ring: "ring-sky-200",
   },
 };
 

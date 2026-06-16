@@ -251,16 +251,17 @@ export interface FairePublishContext {
   countryUsedFallback: boolean;
 }
 
-interface FaireVariantPayload {
+export interface FaireVariantPayload {
   bjVariantId: string;
   sku: string;
+  /** Cents EUR — gardés à part pour les snapshots/diff, PAS envoyés à Faire. */
+  wholesalePriceCents: number;
+  retailPriceCents: number;
   payload: {
     /** Stable per BJ ProductColor — réutilisé sur retry (idempotence Faire). */
     idempotence_token: string;
     sku: string;
     name: string;
-    wholesale_price_cents: number;
-    retail_price_cents: number;
     available_quantity: number;
     active: boolean;
     options: { name: string; value: string }[];
@@ -276,11 +277,16 @@ interface FaireVariantPayload {
     /** Code SH douanier (ex : "7117.19.00"). Faire le veut sur la variante. */
     tariff_code?: string;
     /**
-     * Prix par région. Pour éviter que Faire crée des prix USD/USA par défaut,
-     * on envoie explicitement les prix EUR/Union européenne sur chaque variante.
-     * Tous les variants doivent avoir des prices avec les MÊMES geo_constraints.
+     * Prix par région. Format moderne (depuis 2021). Les champs racine
+     * `wholesale_price_cents` / `retail_price_cents` sont DÉPRÉCIÉS et
+     * interprétés par Faire comme un prix en devise par défaut (USD), ce qui
+     * crée des incohérences de geo_constraints entre variantes. On envoie
+     * UNIQUEMENT `prices[]` avec geo_constraint explicite EUROPEAN_UNION/EUR
+     * pour que toutes les variantes (existantes ou nouvelles) aient le même
+     * périmètre géographique. Tout autre champ briserait la règle « consistent
+     * prices for different countries » que Faire vérifie au PATCH.
      */
-    prices?: {
+    prices: {
       geo_constraint: { country_group: "EUROPEAN_UNION" };
       wholesale_price: { amount_minor: number; currency: "EUR" };
       retail_price: { amount_minor: number; currency: "EUR" };
@@ -366,6 +372,8 @@ export function buildFaireProductPayload(
     variants.push({
       bjVariantId: v.id,
       sku,
+      wholesalePriceCents: prices.wholesaleCents,
+      retailPriceCents: prices.retailCents,
       payload: {
         // Token unique par publication : ID variante + salt timestamp (passé
         // par buildFaireProductPayload). On NE veut PAS d'idempotence stable
@@ -374,8 +382,6 @@ export function buildFaireProductPayload(
         idempotence_token: `bj-var-${v.id}-${idempotenceSalt}`,
         sku,
         name: variantName,
-        wholesale_price_cents: prices.wholesaleCents,
-        retail_price_cents: prices.retailCents,
         available_quantity: stock,
         active: stock > 0 || product.status !== "ARCHIVED",
         options: [{ name: "Color", value: colorLabel }],
@@ -385,8 +391,12 @@ export function buildFaireProductPayload(
         // Quantité par carton — Faire impose > 0 dès qu'on envoie `prices`.
         // 1 = vente à l'unité (pas d'emballage par carton).
         unit_multiplier: 1,
-        // Prix EUR explicite. Sinon Faire crée des prix USD/USA par défaut.
-        // Format obligatoire `amount_minor` (pas `amount_cents`).
+        // Prix EUR explicite avec geo_constraint EUROPEAN_UNION.
+        // PAS de `wholesale_price_cents` ni `retail_price_cents` racine :
+        // Faire les déprécie depuis 2021 et les considère comme un prix dans
+        // la devise par défaut de la brand (USD) → casse la cohérence des
+        // geo_constraints entre variantes au PATCH (« All variants must have
+        // consistent prices for different countries »).
         prices: [
           {
             geo_constraint: { country_group: "EUROPEAN_UNION" as const },
@@ -397,15 +407,6 @@ export function buildFaireProductPayload(
       },
     });
   }
-
-  // Prix produit racine = ceux de la première variante (Faire exige des
-  // wholesale_price_cents / retail_price_cents au niveau produit).
-  const rootPrices = variants[0]
-    ? {
-        wholesale_price_cents: variants[0].payload.wholesale_price_cents,
-        retail_price_cents: variants[0].payload.retail_price_cents,
-      }
-    : { wholesale_price_cents: 0, retail_price_cents: 0 };
 
   // Images niveau produit — Faire exige au moins 1 image racine pour publier
   // (erreur PUBLISHED_PRODUCT_NEEDS_AT_LEAST_ONE_IMAGE sinon, même si chaque
@@ -453,7 +454,9 @@ export function buildFaireProductPayload(
     ],
     variants: variants.map((v) => v.payload),
     ...(productImages.length > 0 ? { images: productImages } : {}),
-    ...rootPrices,
+    // PAS de wholesale_price_cents / retail_price_cents racine : champs
+    // dépréciés côté Faire et absents du schéma ExternalProductV2. Tout le
+    // prix est porté par variants[].prices[].
   };
 
   return {
@@ -482,8 +485,8 @@ export function buildFaireSnapshot(
     const p = v.payload;
     variantSnapshot[v.sku] = {
       sku: v.sku,
-      wholesalePriceCents: p.wholesale_price_cents,
-      retailPriceCents: p.retail_price_cents,
+      wholesalePriceCents: v.wholesalePriceCents,
+      retailPriceCents: v.retailPriceCents,
       availableQuantity: p.available_quantity,
       active: p.active,
       colorOption: p.options.find((o) => o.name === "Color")?.value ?? "",
@@ -586,6 +589,26 @@ export async function fairePublishProduct(
   productId: string,
   options: { lifecycleState?: "DRAFT" | "PUBLISHED" } = {},
 ): Promise<FairePublishResult> {
+  // ⚠️ Garde-fou strict : si un faireProductId est déjà renseigné, on REFUSE
+  // de POST. Sinon on crée un doublon côté Faire (cas vu en réel sur F137 :
+  // un fallback "update échoue → publish" avait dupliqué la fiche). Tout
+  // chemin légitime qui veut recréer un produit DOIT explicitement remettre
+  // `Product.faireProductId` à null en amont (cf. `faireRefreshProduct`).
+  const existing = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { faireProductId: true },
+  });
+  if (existing?.faireProductId) {
+    return {
+      success: false,
+      error:
+        `Ce produit est déjà lié à Faire (id ${existing.faireProductId}). ` +
+        `Création refusée pour éviter un doublon. ` +
+        `Utilisez « Resync » pour modifier la fiche existante, ou « Délier » ` +
+        `+ « Rafraîchir » pour la remplacer volontairement.`,
+    };
+  }
+
   const product = await loadFaireProductFull(productId);
   if (!product) {
     return { success: false, error: "Produit introuvable." };
@@ -608,19 +631,24 @@ export async function fairePublishProduct(
   );
 
   // Validation locale (rejet rapide avant l'aller-retour HTTP).
+  // Le prix « produit » est celui de la première variante (utilisé uniquement
+  // pour la règle BJ « retail >= 2× wholesale » côté validation, pas envoyé
+  // à Faire — qui ne supporte plus les prix racine).
+  const headWholesale = variants[0]?.wholesalePriceCents ?? 0;
+  const headRetail = variants[0]?.retailPriceCents ?? 0;
   const validation = validateFaireProductShape({
     name: String(body.name),
     description: String(body.description ?? ""),
     taxonomyTypeId: ctx.taxonomyTypeId,
-    wholesalePriceCents: Number(body.wholesale_price_cents),
-    retailPriceCents: Number(body.retail_price_cents),
+    wholesalePriceCents: headWholesale,
+    retailPriceCents: headRetail,
     countryAlpha2: ctx.countryAlpha2,
     tariffCode: ctx.tariffCode,
     productImagesCount,
     variants: variants.map((v) => ({
       sku: v.sku,
-      wholesalePriceCents: v.payload.wholesale_price_cents,
-      retailPriceCents: v.payload.retail_price_cents,
+      wholesalePriceCents: v.wholesalePriceCents,
+      retailPriceCents: v.retailPriceCents,
       imagesCount: v.payload.images?.length ?? 0,
     })),
   });

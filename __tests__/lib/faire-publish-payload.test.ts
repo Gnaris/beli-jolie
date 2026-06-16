@@ -115,6 +115,54 @@ describe("buildFaireProductPayload — measurements (dimensions + poids)", () =>
   });
 });
 
+describe("buildFaireProductPayload — prix moderne uniquement (pas de champs dépréciés)", () => {
+  it("envoie prices[] EUR/EU sur chaque variante, jamais wholesale_price_cents/retail_price_cents", () => {
+    const { body, variants } = buildFaireProductPayload(
+      makeProduct(),
+      ctx,
+      wholesale,
+      retail,
+      "PUBLISHED",
+    );
+    for (const v of variants) {
+      const p = v.payload as Record<string, unknown>;
+      // Champs dépréciés Faire 2021 — leur présence + prices[] casse la
+      // cohérence des geo_constraints entre variantes au PATCH.
+      expect(p.wholesale_price_cents).toBeUndefined();
+      expect(p.retail_price_cents).toBeUndefined();
+      // Format moderne attendu.
+      expect(v.payload.prices).toHaveLength(1);
+      expect(v.payload.prices[0]).toMatchObject({
+        geo_constraint: { country_group: "EUROPEAN_UNION" },
+        wholesale_price: { currency: "EUR" },
+        retail_price: { currency: "EUR" },
+      });
+    }
+    // Le body racine ne porte plus non plus les champs dépréciés.
+    const root = body as Record<string, unknown>;
+    expect(root.wholesale_price_cents).toBeUndefined();
+    expect(root.retail_price_cents).toBeUndefined();
+  });
+
+  it("expose wholesalePriceCents/retailPriceCents sur l'objet FaireVariantPayload (pour le snapshot interne)", () => {
+    const { variants } = buildFaireProductPayload(
+      makeProduct(),
+      ctx,
+      wholesale,
+      retail,
+      "PUBLISHED",
+    );
+    for (const v of variants) {
+      // Cents EUR positifs — utilisés en interne (snapshot/diff) sans être
+      // envoyés à Faire en tant que champs racine variant.
+      expect(typeof v.wholesalePriceCents).toBe("number");
+      expect(typeof v.retailPriceCents).toBe("number");
+      expect(v.wholesalePriceCents).toBeGreaterThan(0);
+      expect(v.retailPriceCents).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe("buildFaireProductPayload — images racine", () => {
   it("pose un tableau `images` au niveau produit à partir de la couleur primaire", () => {
     const { body, productImagesCount } = buildFaireProductPayload(

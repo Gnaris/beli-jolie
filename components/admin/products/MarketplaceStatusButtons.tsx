@@ -17,6 +17,7 @@ const LinkAnkorstoreProductModal = dynamic(() => import("./LinkAnkorstoreProduct
 const OrphanAnkorstoreVariantsModal = dynamic(() => import("./OrphanAnkorstoreVariantsModal"));
 const LinkEfashionProductModal = dynamic(() => import("./LinkEfashionProductModal"));
 const LinkPfsProductModal = dynamic(() => import("./LinkPfsProductModal"));
+const LinkFaireProductModal = dynamic(() => import("./LinkFaireProductModal"));
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { removeAnkorstoreMatch } from "@/app/actions/admin/ankorstore";
@@ -315,6 +316,7 @@ export function MarketplaceStatusButtons({
   const [confirmFaireOpen, setConfirmFaireOpen] = useState(false);
   const [resyncFaireOpen, setResyncFaireOpen] = useState(false);
   const [unlinkFaireBusy, setUnlinkFaireBusy] = useState(false);
+  const [linkFaireOpen, setLinkFaireOpen] = useState(false);
 
   const pfsOp = useMemo(() => findLatestOpForProduct(items, productId, "pfs"), [items, productId]);
   const ankorstoreOp = useMemo(
@@ -932,6 +934,22 @@ export function MarketplaceStatusButtons({
               />
             )}
 
+            <IconBtn
+              tone="neutral"
+              icon={Icon.Link}
+              onClick={() => setLinkFaireOpen(true)}
+              title={
+                faireProductId
+                  ? "Re-lier vers une autre fiche Faire"
+                  : "Lier à une fiche Faire existante (recherche par SKU)"
+              }
+              ariaLabel={
+                faireProductId
+                  ? "Re-lier à une autre fiche Faire"
+                  : "Lier à une fiche Faire existante"
+              }
+            />
+
             {faireProductId && (
               <IconBtn
                 tone="danger"
@@ -1095,6 +1113,15 @@ export function MarketplaceStatusButtons({
           productName={productName}
           reference={reference}
           onClose={() => setLinkEfOpen(false)}
+        />
+      )}
+
+      {linkFaireOpen && (
+        <LinkFaireProductModal
+          productId={productId}
+          productName={productName}
+          reference={reference}
+          onClose={() => setLinkFaireOpen(false)}
         />
       )}
     </>

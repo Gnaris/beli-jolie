@@ -1910,10 +1910,17 @@ export default function ProductForm({
       // La popup marketplace s'affiche aussi pour le passage en ARCHIVED
       // (Ankorstore : on envoie stock 0 → produit non commandable, équivalent
       //  "hors ligne" — leur API n'a pas de vraie archive côté produit).
+      //
+      // ⚠️ Demande cliente : ne PAS proposer la modale tant qu'aucune
+      // marketplace n'est liée. La 1ʳᵉ publication doit être déclenchée
+      // explicitement depuis le badge marketplace de la fiche, pas au save.
+      const anyMarketplaceLinked =
+        alreadyOnPfs || alreadyOnAnkorstore || alreadyOnEfashion || alreadyOnFaire;
       const canPublish =
         savedProductId &&
         !isIncomplete &&
         (hasPfsConfig || showAnkorstore || showEfashion || showFaire) &&
+        anyMarketplaceLinked &&
         // Garde-fou ergonomique : si seuls des champs locaux ont changé (mots-
         // clés, sous-catégories, produits similaires, contenu de l'ensemble),
         // on n'affiche pas la modale — rien à pousser aux marketplaces.
@@ -1960,6 +1967,8 @@ export default function ProductForm({
           id: string;
           label: string;
           defaultChecked: boolean;
+          disabled?: boolean;
+          hint?: string;
           onChange: (v: boolean) => void;
         }[] = [];
         const isArchivingNow = finalStatus === "ARCHIVED";
@@ -1972,14 +1981,19 @@ export default function ProductForm({
               : willBeDraftOnPfs
                 ? "Publier en brouillon sur Paris Fashion Shop"
                 : "Publier sur Paris Fashion Shop";
-          // Si le produit n'est pas encore publié et qu'on l'archive, pas la
-          // peine de cocher PFS par défaut (rien à archiver côté marketplace).
-          const pfsDefaultChecked = !isArchivingNow || alreadyOnPfs;
+          // Marketplace non liée → case désactivée avec hint (la 1ʳᵉ
+          // publication doit se faire explicitement depuis le badge de la fiche).
+          const pfsDisabled = !alreadyOnPfs;
+          const pfsDefaultChecked = !pfsDisabled && (!isArchivingNow || alreadyOnPfs);
           pfsRef.current = pfsDefaultChecked;
           checkboxes.push({
             id: "pfs",
             label: pfsLabel,
             defaultChecked: pfsDefaultChecked,
+            disabled: pfsDisabled,
+            hint: pfsDisabled
+              ? "Produit non lié — utilisez le bouton « Lier » ou « Publier » sur la fiche"
+              : undefined,
             onChange: (v) => {
               pfsRef.current = v;
             },
@@ -2000,12 +2014,17 @@ export default function ProductForm({
             : alreadyOnAnkorstore
               ? "Mettre à jour sur Ankorstore"
               : "Publier sur Ankorstore";
-          const akDefaultChecked = !isArchivingNow || alreadyOnAnkorstore;
+          const akDisabled = !alreadyOnAnkorstore;
+          const akDefaultChecked = !akDisabled && (!isArchivingNow || alreadyOnAnkorstore);
           ankorstoreRef.current = akDefaultChecked;
           checkboxes.push({
             id: "ankorstore",
             label: akLabel,
             defaultChecked: akDefaultChecked,
+            disabled: akDisabled,
+            hint: akDisabled
+              ? "Produit non lié — utilisez le bouton « Lier » ou « Publier » sur la fiche"
+              : undefined,
             onChange: (v) => {
               ankorstoreRef.current = v;
             },
@@ -2018,14 +2037,17 @@ export default function ProductForm({
             : alreadyOnEfashion
               ? "Mettre à jour sur eFashion Paris"
               : "Publier sur eFashion Paris";
-          // Si on archive un produit jamais publié, pas la peine de cocher
-          // eFashion par défaut (rien à archiver).
-          const efDefaultChecked = !isArchivingNow || alreadyOnEfashion;
+          const efDisabled = !alreadyOnEfashion;
+          const efDefaultChecked = !efDisabled && (!isArchivingNow || alreadyOnEfashion);
           efashionRef.current = efDefaultChecked;
           checkboxes.push({
             id: "efashion",
             label: efLabel,
             defaultChecked: efDefaultChecked,
+            disabled: efDisabled,
+            hint: efDisabled
+              ? "Produit non lié — utilisez le bouton « Lier » ou « Publier » sur la fiche"
+              : undefined,
             onChange: (v) => {
               efashionRef.current = v;
             },
@@ -2038,12 +2060,17 @@ export default function ProductForm({
             : alreadyOnFaire
               ? "Mettre à jour sur Faire"
               : "Publier sur Faire (en brouillon)";
-          const faireDefaultChecked = !isArchivingNow || alreadyOnFaire;
+          const faireDisabled = !alreadyOnFaire;
+          const faireDefaultChecked = !faireDisabled && (!isArchivingNow || alreadyOnFaire);
           faireRef.current = faireDefaultChecked;
           checkboxes.push({
             id: "faire",
             label: faireLabel,
             defaultChecked: faireDefaultChecked,
+            disabled: faireDisabled,
+            hint: faireDisabled
+              ? "Produit non lié — utilisez le bouton « Lier » ou « Publier » sur la fiche"
+              : undefined,
             onChange: (v) => {
               faireRef.current = v;
             },

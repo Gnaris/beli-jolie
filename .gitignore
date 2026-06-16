@@ -76,3 +76,10 @@ docs/superpowers/
 # journal de suivi du renommage des produits (skill produits-nom) — vit
 # uniquement sur le VPS et évolue à chaque session, ne jamais commit.
 /data/
+
+# diagnostic et cookies Faire (générés localement par les scripts de debug)
+/.faire-cookies.txt
+/scripts/.faire-debug.png
+/scripts/.faire-docs-diag.html
+/scripts/.faire-docs-diag.png
+/scripts/.faire-product-dump.json

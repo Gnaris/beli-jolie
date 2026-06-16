@@ -690,28 +690,26 @@ async function runFaireJob(job: JobRow, payload: QueueJobPayload): Promise<void>
       else await markFaireFailed(job.id, "error", res.error);
     } else if (job.mode === "PUBLISH") {
       if (isLinked) {
+        // Produit déjà lié à une fiche Faire → PATCH (modification seulement).
+        // ⚠️ PAS de fallback "publish" auto si le PATCH échoue : ça créerait
+        // un doublon côté Faire (cas vu en réel sur F137). On remonte l'erreur
+        // claire pour que l'admin re-tente ou délie + relie manuellement.
         const { faireUpdateProduct } = await import("@/lib/faire-update");
         const res = await faireUpdateProduct(job.productId);
         if (res.success) {
           await markFaireSuccess(job.id);
         } else {
-          // Fallback : reset les IDs et retente en publish (même logique que PFS).
-          logger.warn("[Marketplace Queue] Faire update failed, fallback to publish", {
+          logger.error("[Marketplace Queue] Faire update failed (no fallback)", {
             productId: job.productId,
             error: res.error,
           });
-          await prisma.product.update({
-            where: { id: job.productId },
-            data: { faireProductId: null, faireLastSyncSnapshot: Prisma.DbNull },
-          });
-          await prisma.productColor.updateMany({
-            where: { productId: job.productId },
-            data: { faireVariantId: null },
-          });
-          const { fairePublishProduct } = await import("@/lib/faire-publish");
-          const pubRes = await fairePublishProduct(job.productId, { lifecycleState });
-          if (pubRes.success) await markFaireSuccess(job.id);
-          else await markFaireFailed(job.id, "error", pubRes.error);
+          await markFaireFailed(
+            job.id,
+            "error",
+            `Modification Faire refusée : ${res.error ?? "erreur inconnue"}. ` +
+              `Aucun produit n'a été recréé pour éviter un doublon. ` +
+              `Vérifiez le contenu (caractères spéciaux, champs trop longs) puis re-tentez.`,
+          );
         }
       } else {
         const { fairePublishProduct } = await import("@/lib/faire-publish");

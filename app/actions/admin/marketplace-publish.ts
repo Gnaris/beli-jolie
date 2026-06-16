@@ -165,28 +165,27 @@ export async function publishProductToMarketplaces(
     } else {
       try {
         if (product.faireProductId) {
+          // Produit déjà lié à une fiche Faire → PATCH (modification seulement).
+          // ⚠️ PAS de fallback "publish" auto si le PATCH échoue : ça créerait
+          // un doublon côté Faire (cas vu en réel sur F137). Si la modif
+          // échoue, on remonte l'erreur claire pour que l'admin re-tente,
+          // délie + relie manuellement, ou ajuste les données.
           const { faireUpdateProduct } = await import("@/lib/faire-update");
           const res = await faireUpdateProduct(productId);
           if (res.success) {
             outcome.faire = { status: "ok", mode: "update" };
           } else {
-            logger.warn("[Marketplace Publish] Faire update failed, falling back to publish", {
+            logger.error("[Marketplace Publish] Faire update failed", {
               productId,
               error: res.error,
             });
-            await prisma.product.update({
-              where: { id: productId },
-              data: { faireProductId: null, faireLastSyncSnapshot: Prisma.DbNull },
-            });
-            await prisma.productColor.updateMany({
-              where: { productId },
-              data: { faireVariantId: null },
-            });
-            const { fairePublishProduct } = await import("@/lib/faire-publish");
-            const pubRes = await fairePublishProduct(productId);
-            outcome.faire = pubRes.success
-              ? { status: "ok", mode: "create" }
-              : { status: "error", message: pubRes.error };
+            outcome.faire = {
+              status: "error",
+              message:
+                `Modification Faire refusée : ${res.error ?? "erreur inconnue"}. ` +
+                `Aucun produit n'a été recréé pour éviter un doublon. ` +
+                `Vérifiez le contenu (caractères spéciaux, champs trop longs) puis re-tentez.`,
+            };
           }
         } else {
           const { fairePublishProduct } = await import("@/lib/faire-publish");
