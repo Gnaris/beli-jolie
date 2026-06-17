@@ -1673,6 +1673,13 @@ export async function processImageImport(jobId: string): Promise<void> {
     }> = [];
 
     if (touchedProductIds.length > 0) {
+      // Recevoir des images via l'import en masse est une modification du
+      // produit du point de vue de l'admin : on bump `updatedAt` pour que
+      // ces fiches remontent dans le tri « Modifié récemment d'abord ».
+      // Sans ce coup de pouce, seul Product.update() bump le timestamp, et
+      // l'écriture de ProductColorImage seule laisserait la date figée.
+      await bumpProductsUpdatedAt(prisma, touchedProductIds);
+
       const linkedProducts = await prisma.product.findMany({
         where: { id: { in: touchedProductIds } },
         select: {
@@ -1741,4 +1748,30 @@ export async function processImageImport(jobId: string): Promise<void> {
       },
     }).catch(() => {});
   }
+}
+
+/**
+ * Bump `Product.updatedAt` for the given product ids so they surface in the
+ * admin list sort "Modifié récemment d'abord". Used by the bulk image import
+ * because writing only ProductColorImage rows doesn't trigger Prisma's
+ * `@updatedAt` on Product. Idempotent + no-op on empty arrays.
+ */
+export interface BumpProductsUpdatedAtClient {
+  product: {
+    updateMany: (args: {
+      where: { id: { in: string[] } };
+      data: { updatedAt: Date };
+    }) => Promise<unknown>;
+  };
+}
+
+export async function bumpProductsUpdatedAt(
+  client: BumpProductsUpdatedAtClient,
+  productIds: string[],
+): Promise<void> {
+  if (productIds.length === 0) return;
+  await client.product.updateMany({
+    where: { id: { in: productIds } },
+    data: { updatedAt: new Date() },
+  });
 }
