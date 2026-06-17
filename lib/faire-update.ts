@@ -236,12 +236,15 @@ export async function faireUpdateProduct(
   // on retombe sur un GET /products/{id} qui retourne la liste actuelle des
   // variantes Faire — on matche alors par SKU.
   let faireVariantIdBySkuFromFaire: Map<string, string> | null = null;
+  // Narrowed capture pour la closure : TS ne propage pas le `if (!meta)`
+  // initial à travers les fermetures, on fige donc l'id ici.
+  const faireProductIdForFetch: string = meta.faireProductId;
   async function resolveFaireVariantId(sku: string, prevId?: string | null): Promise<string | null> {
     if (prevId) return prevId;
     if (!faireVariantIdBySkuFromFaire) {
       faireVariantIdBySkuFromFaire = new Map();
       try {
-        const res = await faireFetch(`/products/${encodeURIComponent(meta.faireProductId!)}`, {
+        const res = await faireFetch(`/products/${encodeURIComponent(faireProductIdForFetch)}`, {
           method: "GET",
         });
         if (res.ok) {
