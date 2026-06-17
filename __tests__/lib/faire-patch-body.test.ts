@@ -18,6 +18,9 @@ const fullBody = {
   lifecycle_state: "PUBLISHED",
   taxonomy_type: { id: "tt_123" },
   variant_option_sets: [{ name: "Color", values: ["Argent"] }],
+  variants: [
+    { id: "po_existing", sku: "sku-argent", options: [{ name: "Color", value: "Argent" }] },
+  ],
 };
 
 describe("buildPatchBody — lifecycle robustness", () => {
@@ -33,15 +36,42 @@ describe("buildPatchBody — lifecycle robustness", () => {
     expect(out.lifecycle_state).toBe("PUBLISHED");
   });
 
-  it("ne met JAMAIS variants[] dans le PATCH produit (utilisation POST dédié)", () => {
+  it("sans nouvelle variante, n'inclut PAS variants[] ni variant_option_sets dans le PATCH produit", () => {
     const out = buildPatchBody(
       { ...emptyDiff, productChanged: true },
       fullBody,
       false,
-      true,
+      false,
     );
+    // Les modifs des variantes existantes passent par PATCH /variants/{id} dédié.
     expect(out.variants).toBeUndefined();
     expect(out.variant_option_sets).toBeUndefined();
+  });
+
+  it("inclut variants[] + variant_option_sets quand de nouvelles variantes sont ajoutées (création + déclaration de la nouvelle valeur d'option en un seul PATCH)", () => {
+    const out = buildPatchBody(
+      emptyDiff,
+      {
+        ...fullBody,
+        variant_option_sets: [
+          { name: "Color", values: ["Argent", "Doré", "Marron"] },
+        ],
+        variants: [
+          { id: "po_argent", sku: "sku-argent", options: [{ name: "Color", value: "Argent" }] },
+          { id: "po_dore", sku: "sku-dore", options: [{ name: "Color", value: "Doré" }] },
+          { sku: "sku-marron", options: [{ name: "Color", value: "Marron" }] },
+        ],
+      },
+      false,
+      true,
+    );
+    expect(out.variant_option_sets).toEqual([
+      { name: "Color", values: ["Argent", "Doré", "Marron"] },
+    ]);
+    expect(out.lifecycle_state).toBe("PUBLISHED");
+    // variants[] doit être présent : 2 existantes avec `id`, 1 nouvelle sans
+    expect(Array.isArray(out.variants)).toBe(true);
+    expect((out.variants as unknown[]).length).toBe(3);
   });
 
   it("n'inclut PAS lifecycle_state quand aucun PATCH n'est nécessaire", () => {

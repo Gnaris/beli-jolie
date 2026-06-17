@@ -163,8 +163,8 @@ describe("buildFaireProductPayload — prix moderne uniquement (pas de champs d�
   });
 });
 
-describe("buildFaireProductPayload — images racine", () => {
-  it("pose un tableau `images` au niveau produit à partir de la couleur primaire", () => {
+describe("buildFaireProductPayload — galerie racine palette", () => {
+  it("commence par la 1ʳᵉ image de la couleur primaire puis ajoute une image de chaque autre couleur", () => {
     const { body, productImagesCount } = buildFaireProductPayload(
       makeProduct(),
       ctx,
@@ -174,10 +174,14 @@ describe("buildFaireProductPayload — images racine", () => {
     );
     const images = body.images as { url: string }[] | undefined;
     expect(Array.isArray(images)).toBe(true);
-    expect(images?.length).toBe(2);
-    // Doit viser les images de la couleur primaire (Or), pas Argent
+    // makeProduct() : 2 images Or (primaire) + 1 image Argent.
+    // Tour 1 : or-1 (primaire), ar-1 (autre couleur) → 2 images.
+    // Tour 2 : or-2 (rajout primaire) → 3 images.
+    expect(images?.length).toBe(3);
     expect(images?.[0]?.url).toContain("or-1");
-    expect(productImagesCount).toBe(2);
+    expect(images?.[1]?.url).toContain("ar-1");
+    expect(images?.[2]?.url).toContain("or-2");
+    expect(productImagesCount).toBe(3);
   });
 
   it("retombe sur la première couleur disponible si la couleur primaire n'a pas d'images", () => {
@@ -211,7 +215,7 @@ describe("buildFaireProductPayload — images racine", () => {
     expect(productImagesCount).toBe(0);
   });
 
-  it("plafonne à 5 images au niveau produit", () => {
+  it("plafonne à 5 images au niveau produit même quand chaque couleur a beaucoup d'images", () => {
     const many = Array.from({ length: 8 }, (_, i) => ({
       path: `/uploads/produits/BJ001/or-${i + 1}.webp`,
       order: i,
@@ -227,5 +231,76 @@ describe("buildFaireProductPayload — images racine", () => {
     const images = body.images as { url: string }[] | undefined;
     expect(images?.length).toBe(5);
     expect(productImagesCount).toBe(5);
+  });
+
+  it("avec 3 couleurs et beaucoup d'images, garantit au moins 1 image de chaque couleur en tête", () => {
+    const product = makeProduct({
+      primaryColorId: "c-or",
+      colors: [
+        {
+          id: "v-or",
+          unitPrice: 10,
+          weight: 0.02,
+          stock: 5,
+          isPrimary: true,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-or",
+          color: { id: "c-or", name: "Or" },
+          variantSizes: [],
+          packLines: [],
+        },
+        {
+          id: "v-ar",
+          unitPrice: 10,
+          weight: 0.02,
+          stock: 3,
+          isPrimary: false,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-ar",
+          color: { id: "c-ar", name: "Argent" },
+          variantSizes: [],
+          packLines: [],
+        },
+        {
+          id: "v-rg",
+          unitPrice: 10,
+          weight: 0.02,
+          stock: 1,
+          isPrimary: false,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-rg",
+          color: { id: "c-rg", name: "Rouge" },
+          variantSizes: [],
+          packLines: [],
+        },
+      ],
+      colorImages: [
+        // Or : 4 images
+        { path: "/uploads/produits/BJ001/or-1.webp", order: 0, colorId: "c-or" },
+        { path: "/uploads/produits/BJ001/or-2.webp", order: 1, colorId: "c-or" },
+        { path: "/uploads/produits/BJ001/or-3.webp", order: 2, colorId: "c-or" },
+        { path: "/uploads/produits/BJ001/or-4.webp", order: 3, colorId: "c-or" },
+        // Argent : 3 images
+        { path: "/uploads/produits/BJ001/ar-1.webp", order: 0, colorId: "c-ar" },
+        { path: "/uploads/produits/BJ001/ar-2.webp", order: 1, colorId: "c-ar" },
+        { path: "/uploads/produits/BJ001/ar-3.webp", order: 2, colorId: "c-ar" },
+        // Rouge : 2 images
+        { path: "/uploads/produits/BJ001/rg-1.webp", order: 0, colorId: "c-rg" },
+        { path: "/uploads/produits/BJ001/rg-2.webp", order: 1, colorId: "c-rg" },
+      ],
+    });
+    const { body } = buildFaireProductPayload(product, ctx, wholesale, retail, "PUBLISHED");
+    const images = body.images as { url: string }[] | undefined;
+    expect(images?.length).toBe(5);
+    // Tour 1 : or-1, ar-1, rg-1 → 1 image de chaque couleur en tête.
+    expect(images?.[0]?.url).toContain("or-1");
+    expect(images?.[1]?.url).toContain("ar-1");
+    expect(images?.[2]?.url).toContain("rg-1");
+    // Tour 2 : remplit avec les autres images de la primaire (Or).
+    expect(images?.[3]?.url).toContain("or-2");
+    expect(images?.[4]?.url).toContain("or-3");
   });
 });

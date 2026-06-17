@@ -89,18 +89,31 @@ async function loadFaireProductMeta(productId: string): Promise<ReloadedProduct 
  * Construit le body PATCH partiel à envoyer à `/products/{id}` à partir du diff.
  * Seuls les champs marqués comme changés sont inclus.
  *
- * ⚠️ Variantes : ce body ne contient JAMAIS de `variants[]`. La création,
- * la modification et la suppression de variantes passent par les endpoints
- * dédiés :
- *   - création :  POST    /products/{id}/variants
- *   - modif :     PATCH   /products/{id}/variants/{vid}
- *   - suppr :     DELETE  /products/{id}/variants/{vid}
+ * Variantes :
+ *   - cas standard (modif champ produit, ou modif variantes existantes) :
+ *     ce body ne contient PAS `variants[]`. La modif/suppr des variantes
+ *     existantes passe par les endpoints dédiés (`PATCH /products/{id}/variants/{vid}`,
+ *     `DELETE /products/{id}/variants/{vid}`).
+ *   - cas « nouvelle variante » (hasNewVariants=true) : on inclut `variants[]`
+ *     ET `variant_option_sets` dans le PATCH produit. Pourquoi :
+ *       a) Faire valide chaque variante contre `variant_option_sets` — sans
+ *          mise à jour préalable de la liste des couleurs autorisées, le POST
+ *          /variants dédié échoue avec HTTP 400 « Color:Marron is not one of
+ *          the values for Color ».
+ *       b) Le POST /variants dédié ne permet PAS d'enrichir variant_option_sets
+ *          en même temps, et un PATCH /products/{id} qui ne touche QUE
+ *          variant_option_sets est silencieusement ignoré par Faire (constaté
+ *          en prod sur F137, juin 2026).
+ *       c) La doc OpenAPI (§ patch /products/{id}) précise : « Variants can be
+ *          updated/created with this endpoint ». Les variantes existantes
+ *          portent leur `id` Faire pour que Faire les matche au lieu de croire
+ *          à des doublons (« Duplicate variants with same options »).
  *
- * Inclure `variants[]` dans le PATCH produit déclenche des erreurs subtiles
- * (« Duplicate variants with same options » sur les existantes ; « All
- * variants must have consistent prices for different countries » si les
- * geo_constraints divergent), et empêche de récupérer proprement les IDs
- * Faire des nouvelles variantes.
+ * Note : les anciennes erreurs « All variants must have consistent prices for
+ * different countries » venaient des champs dépréciés `wholesale_price_cents` /
+ * `retail_price_cents` racine. Ils sont retirés depuis le commit 70dd4b6, tous
+ * les prix sont EUR/EUROPEAN_UNION, donc l'inclusion de `variants[]` dans le
+ * PATCH est désormais sûre.
  */
 export function buildPatchBody(
   diff: FaireSyncDiff,
@@ -141,6 +154,19 @@ export function buildPatchBody(
   const willPatch = diff.productChanged || diff.lifecycleChanged || hasNewVariants;
   if (willPatch) {
     out.lifecycle_state = fullBody.lifecycle_state;
+  }
+  // Quand on crée une ou plusieurs nouvelles variantes, on envoie variants[]
+  // (avec `id` sur les existantes) + variant_option_sets complet, dans un
+  // seul PATCH. Faire applique alors les nouvelles valeurs d'option et crée
+  // les variantes manquantes en une opération atomique. Voir l'en-tête de
+  // cette fonction pour le raisonnement complet.
+  if (hasNewVariants) {
+    if (Array.isArray(fullBody.variant_option_sets)) {
+      out.variant_option_sets = fullBody.variant_option_sets;
+    }
+    if (Array.isArray(fullBody.variants)) {
+      out.variants = fullBody.variants;
+    }
   }
   return out;
 }
@@ -195,21 +221,62 @@ export async function faireUpdateProduct(
   const diff = diffSnapshots(prevSnapshot, nextSnapshot);
 
   if (diffIsEmpty(diff)) {
-    // Reset le flag même quand rien n'a bougé (peut traîner depuis un build récent).
-    if (meta.faireProductId) {
-      await prisma.product.update({
-        where: { id: productId },
-        data: { faireSyncRequired: false },
-      });
-    }
+    // Rien à pousser côté Faire, mais on enregistre quand même le nouveau
+    // snapshot. Il peut contenir des `faireVariantId` qui manquaient dans
+    // l'ancienne version (rétro-compat des snapshots pré-juin 2026, sans
+    // lesquels la suppression de variantes ne peut pas trouver l'ID Faire).
+    // Reset aussi `faireSyncRequired`.
+    await saveSnapshot(productId, nextSnapshot);
     return { success: true, diff, noop: true };
   }
 
   // 1) Suppressions de variantes (avant les ajouts pour éviter conflit de SKU).
+  // Pour les snapshots récents, l'ID Faire `po_xxx` est stocké directement.
+  // Pour les snapshots anciens (avant juin 2026) ou si le champ est null,
+  // on retombe sur un GET /products/{id} qui retourne la liste actuelle des
+  // variantes Faire — on matche alors par SKU.
+  let faireVariantIdBySkuFromFaire: Map<string, string> | null = null;
+  async function resolveFaireVariantId(sku: string, prevId?: string | null): Promise<string | null> {
+    if (prevId) return prevId;
+    if (!faireVariantIdBySkuFromFaire) {
+      faireVariantIdBySkuFromFaire = new Map();
+      try {
+        const res = await faireFetch(`/products/${encodeURIComponent(meta.faireProductId!)}`, {
+          method: "GET",
+        });
+        if (res.ok) {
+          const data = (await res.json().catch(() => null)) as
+            | { variants?: { id?: string; sku?: string }[] }
+            | null;
+          for (const v of data?.variants ?? []) {
+            if (v.sku && v.id) faireVariantIdBySkuFromFaire.set(v.sku, v.id);
+          }
+        } else {
+          logger.warn("[Faire Update] Fallback GET product failed", {
+            productId,
+            status: res.status,
+          });
+        }
+      } catch (err) {
+        logger.warn("[Faire Update] Fallback GET product threw", {
+          productId,
+          error: String(err),
+        });
+      }
+    }
+    return faireVariantIdBySkuFromFaire.get(sku) ?? null;
+  }
+
   for (const sku of diff.variantsRemoved) {
-    const prevId = (prevSnapshot?.variants?.[sku] as { faireVariantId?: string } | undefined)
-      ?.faireVariantId;
-    if (!prevId) continue;
+    const snapshotId = prevSnapshot?.variants?.[sku]?.faireVariantId ?? null;
+    const prevId = await resolveFaireVariantId(sku, snapshotId);
+    if (!prevId) {
+      logger.warn("[Faire Update] DELETE variant : ID Faire introuvable (snapshot + fetch)", {
+        productId,
+        sku,
+      });
+      continue;
+    }
     try {
       const res = await faireFetch(
         `/products/${encodeURIComponent(meta.faireProductId)}/variants/${encodeURIComponent(prevId)}`,
@@ -268,7 +335,7 @@ export async function faireUpdateProduct(
     diff.pricesOnlyChanged.length > 0;
 
   // 3.bis) Sépare les variantes existantes (faireVariantId connu, à patcher
-  // individuellement) des nouvelles (à créer via POST /products/{id}/variants).
+  // individuellement) des nouvelles (créées par le PATCH consolidé).
   const faireVariantIdBySku = new Map<string, string>();
   const bjVariantIdBySku = new Map<string, string>();
   for (const v of variants) {
@@ -281,9 +348,8 @@ export async function faireUpdateProduct(
   const newVariantsToCreate = variants.filter((v) => !faireVariantIdBySku.has(v.sku));
   const hasNewVariants = newVariantsToCreate.length > 0;
 
-  // 4) PATCH /products/{id} — uniquement les champs produit (jamais de
-  // variants[]). Les nouvelles variantes sont créées via POST dédié juste
-  // après. Les existantes sont patchées via PATCH variant individuel plus bas.
+  // 4) PATCH /products/{id} — champs produit, +variants[] et variant_option_sets
+  // quand on a des nouvelles variantes (voir docstring de buildPatchBody).
   const patchBody = buildPatchBody(
     diff,
     body as Record<string, unknown>,
@@ -291,10 +357,8 @@ export async function faireUpdateProduct(
     hasNewVariants,
   );
 
-  // Si patchBody est vide ET qu'on n'a pas de variantes à update (cas
-  // dégénéré : diff non vide mais que sur des champs qu'on délègue aux
-  // PATCH variant individuels), on saute l'appel produit.
   const hasProductPatchPayload = Object.keys(patchBody).length > 0;
+  const createdFaireVariantIds: { bjVariantId: string; faireVariantId: string }[] = [];
 
   if (hasProductPatchPayload) {
     try {
@@ -331,6 +395,30 @@ export async function faireUpdateProduct(
             : `Faire a refusé la mise à jour (HTTP ${res.status}).`,
         };
       }
+
+      // Si on a envoyé des nouvelles variantes dans variants[], on récupère
+      // leurs IDs Faire `po_xxx` depuis la réponse pour les persister.
+      if (hasNewVariants) {
+        const data = (await res.json().catch(() => null)) as
+          | { variants?: { id?: string; sku?: string }[] }
+          | null;
+        const respVariants = data?.variants ?? [];
+        for (const newVariant of newVariantsToCreate) {
+          const match = respVariants.find((rv) => rv.sku === newVariant.sku);
+          if (match?.id) {
+            faireVariantIdBySku.set(newVariant.sku, match.id);
+            createdFaireVariantIds.push({
+              bjVariantId: newVariant.bjVariantId,
+              faireVariantId: match.id,
+            });
+          } else {
+            logger.warn("[Faire Update] PATCH response sans ID pour nouvelle variante", {
+              productId,
+              sku: newVariant.sku,
+            });
+          }
+        }
+      }
     } catch (err) {
       logger.error("[Faire Update] PATCH threw", { productId, error: String(err) });
       return {
@@ -340,79 +428,19 @@ export async function faireUpdateProduct(
     }
   }
 
-  // 4.ter) POST /products/{id}/variants pour chaque nouvelle variante.
-  // Endpoint dédié : Faire renvoie l'ID Faire `po_xxx` qu'on persiste sur
-  // ProductColor.faireVariantId. Le payload contient déjà `prices[]` EUR/EU
-  // (cohérent avec les variantes existantes) et PAS les champs dépréciés
-  // `wholesale_price_cents`/`retail_price_cents`. Si un POST échoue, on
-  // s'arrête immédiatement pour ne pas laisser le produit dans un état
-  // intermédiaire — le retry recréera juste la/les variantes manquantes.
-  const createdFaireVariantIds: { bjVariantId: string; faireVariantId: string }[] = [];
-  for (const newVariant of newVariantsToCreate) {
-    try {
-      const res = await faireFetch(
-        `/products/${encodeURIComponent(meta.faireProductId)}/variants`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json; charset=utf-8" },
-          body: JSON.stringify(newVariant.payload),
-        },
-      );
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        logger.error("[Faire Update] POST variant failed", {
-          productId,
-          sku: newVariant.sku,
-          status: res.status,
-          body: text.slice(0, 400),
-        });
-        let humanMsg = "";
-        try {
-          const j = JSON.parse(text) as {
-            localized_message?: string;
-            message?: string;
-            field?: string;
-          };
-          humanMsg = j.localized_message || j.message || (j.field ? `champ : ${j.field}` : "");
-        } catch {
-          if (text) humanMsg = text.slice(0, 150);
-        }
-        return {
-          success: false,
-          error: humanMsg
-            ? `Faire a refusé la création de la variante "${newVariant.sku}" (HTTP ${res.status}) : ${humanMsg}`
-            : `Faire a refusé la création de la variante "${newVariant.sku}" (HTTP ${res.status}).`,
-        };
-      }
-      const data = (await res.json().catch(() => null)) as { id?: string } | null;
-      if (data?.id) {
-        faireVariantIdBySku.set(newVariant.sku, data.id);
-        createdFaireVariantIds.push({
-          bjVariantId: newVariant.bjVariantId,
-          faireVariantId: data.id,
-        });
-      } else {
-        logger.warn("[Faire Update] POST variant réponse sans id", {
-          productId,
-          sku: newVariant.sku,
-        });
-      }
-    } catch (err) {
-      logger.error("[Faire Update] POST variant threw", {
-        productId,
-        sku: newVariant.sku,
-        error: String(err),
-      });
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : "Erreur réseau Faire (création variante).",
-      };
-    }
-  }
-
   // Persiste immédiatement les `faireVariantId` reçus avant le reste du flow,
-  // pour qu'un échec en aval ne laisse pas la BDD désynchronisée.
+  // pour qu'un échec en aval ne laisse pas la BDD désynchronisée. On met
+  // aussi à jour le snapshot en mémoire : sans ça, une suppression future
+  // de cette variante n'aurait aucun moyen de retrouver l'ID Faire à
+  // appeler en DELETE (le snapshot écrit en fin de flow doit refléter
+  // l'état réel côté Faire, pas l'état initial du build).
   if (createdFaireVariantIds.length > 0) {
+    for (const m of createdFaireVariantIds) {
+      const variantPayload = variants.find((v) => v.bjVariantId === m.bjVariantId);
+      if (variantPayload && nextSnapshot.variants[variantPayload.sku]) {
+        nextSnapshot.variants[variantPayload.sku].faireVariantId = m.faireVariantId;
+      }
+    }
     await prisma.$transaction(
       createdFaireVariantIds.map((m) =>
         prisma.productColor.update({
@@ -428,13 +456,20 @@ export async function faireUpdateProduct(
   // ⚠️ On NE met PAS les prix ici : Faire répond 200 mais ignore le champ
   // (cf. en-tête du fichier + faire-prices.ts). Les SKU `pricesOnlyChanged`
   // sont gérés en bloc à la fin via faireUpdatePrices().
-  const existingVariantSkusToPatch = new Set<string>(
-    diff.variantsChanged.filter(
-      (sku) =>
-        faireVariantIdBySku.has(sku) &&
-        !createdFaireVariantIds.find((c) => bjVariantIdBySku.get(sku) === c.bjVariantId),
-    ),
-  );
+  //
+  // ⚠️ Si on a envoyé `variants[]` dans le PATCH consolidé (hasNewVariants),
+  // les variantes existantes ont DÉJÀ été mises à jour dans cet appel — on
+  // saute ce bloc pour éviter un PATCH redondant et un risque de race sur
+  // les images.
+  const existingVariantSkusToPatch = hasNewVariants
+    ? new Set<string>()
+    : new Set<string>(
+        diff.variantsChanged.filter(
+          (sku) =>
+            faireVariantIdBySku.has(sku) &&
+            !createdFaireVariantIds.find((c) => bjVariantIdBySku.get(sku) === c.bjVariantId),
+        ),
+      );
   for (const sku of existingVariantSkusToPatch) {
     const variantInfo = variants.find((v) => v.sku === sku);
     const faireVid = faireVariantIdBySku.get(sku)!;
@@ -527,7 +562,22 @@ export async function faireUpdateProduct(
       sku,
       currentQuantity: nextSnapshot.variants[sku].availableQuantity,
     }));
-    await faireUpdateInventory(updates);
+    // Pour les variantes fraîchement créées par le PATCH consolidé, Faire
+    // peut renvoyer 404 sur /product-inventory/by-skus le temps que son
+    // index SKU se propage. On laisse ~3s, et on retente une fois si le
+    // premier appel a échoué — généralement suffisant.
+    if (hasNewVariants) {
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    const inv = await faireUpdateInventory(updates);
+    if (!inv.success && hasNewVariants) {
+      logger.warn("[Faire Update] Inventory échec après création — retry dans 3s", {
+        productId,
+        failedCount: inv.failedCount,
+      });
+      await new Promise((r) => setTimeout(r, 3000));
+      await faireUpdateInventory(updates);
+    }
   }
 
   // Prix à part : même règle que le stock — Faire les ignore quand on les

@@ -61,6 +61,15 @@ export interface FaireVariantSnapshot {
   heightCm: number | null;
   /** Code SH envoyé sur la variante (`tariff_code`) — null si non rempli. */
   tariffCode: string | null;
+  /**
+   * ID Faire `po_xxx` de la variante. Indispensable pour la suppression :
+   * quand une variante est retirée localement, l'enregistrement BDD est
+   * supprimé et seul le snapshot peut nous dire quel ID Faire appeler en
+   * DELETE. Optional pour rétro-compat avec les snapshots écrits avant
+   * l'ajout du champ (juin 2026) — dans ce cas, le flow update bascule sur
+   * un fetch Faire en fallback.
+   */
+  faireVariantId?: string | null;
 }
 
 export interface FaireSyncSnapshot {

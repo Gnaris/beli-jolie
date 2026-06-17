@@ -258,6 +258,12 @@ export interface FaireVariantPayload {
   wholesalePriceCents: number;
   retailPriceCents: number;
   payload: {
+    /**
+     * ID Faire `po_xxx` de la variante existante. Présent UNIQUEMENT pour
+     * les variantes déjà publiées (matching par id côté Faire au PATCH).
+     * Absent à la création — Faire le génère lui-même.
+     */
+    id?: string;
     /** Stable per BJ ProductColor — réutilisé sur retry (idempotence Faire). */
     idempotence_token: string;
     sku: string;
@@ -375,6 +381,12 @@ export function buildFaireProductPayload(
       wholesalePriceCents: prices.wholesaleCents,
       retailPriceCents: prices.retailCents,
       payload: {
+        // `id` Faire si on connaît déjà la variante. Permet à PATCH
+        // /products/{id} de matcher proprement les variantes existantes au
+        // lieu de croire qu'on crée des doublons (« Duplicate variants with
+        // same options »). Absent pour les nouvelles variantes → Faire les
+        // crée à partir du payload.
+        ...(v.faireVariantId ? { id: v.faireVariantId } : {}),
         // Token unique par publication : ID variante + salt timestamp (passé
         // par buildFaireProductPayload). On NE veut PAS d'idempotence stable
         // entre publications successives — Faire renvoie sinon les vieux
@@ -410,17 +422,57 @@ export function buildFaireProductPayload(
 
   // Images niveau produit — Faire exige au moins 1 image racine pour publier
   // (erreur PUBLISHED_PRODUCT_NEEDS_AT_LEAST_ONE_IMAGE sinon, même si chaque
-  // variante a ses images). On prend en priorité les images de la couleur
-  // primaire, sinon les premières images disponibles, max 5.
-  const primaryImages =
-    (product.primaryColorId && imagesByColorId.get(product.primaryColorId)) || [];
-  const fallbackImages =
-    primaryImages.length > 0
-      ? primaryImages
-      : Array.from(imagesByColorId.values()).find((arr) => arr.length > 0) ?? [];
-  const productImages = fallbackImages
-    .slice(0, 5)
-    .map((p) => ({ url: buildFaireImageUrl(p) }));
+  // variante a ses images).
+  //
+  // Stratégie « palette » : on monte la galerie principale Faire de façon à
+  // ce que toutes les couleurs du produit y soient visibles, max 5 images.
+  //  1. la 1ʳᵉ image de la couleur primaire (en tête, c'est l'image vedette
+  //     côté Faire — utilisée pour la miniature catalogue)
+  //  2. la 1ʳᵉ image de chaque autre couleur, dans l'ordre BJ
+  //  3. le reste rempli avec les autres images de la couleur primaire
+  // Avant ce changement : 5 images de la couleur primaire uniquement → la
+  // fiche Faire montrait par exemple 5 fois l'argent sans laisser deviner
+  // qu'il y avait du doré / bleu, ce qui surprenait la brand au point de
+  // croire que les variantes avaient toutes les mêmes photos.
+  const orderedColorIds: string[] = [];
+  if (product.primaryColorId && imagesByColorId.has(product.primaryColorId)) {
+    orderedColorIds.push(product.primaryColorId);
+  }
+  for (const c of product.colors) {
+    const cid = c.colorId;
+    if (cid && imagesByColorId.has(cid) && !orderedColorIds.includes(cid)) {
+      orderedColorIds.push(cid);
+    }
+  }
+
+  const galleryPaths: string[] = [];
+  const seenPaths = new Set<string>();
+  // Tour 1 : la 1ʳᵉ image de chaque couleur (commence par la primaire).
+  for (const cid of orderedColorIds) {
+    const imgs = imagesByColorId.get(cid) ?? [];
+    if (imgs[0] && !seenPaths.has(imgs[0])) {
+      galleryPaths.push(imgs[0]);
+      seenPaths.add(imgs[0]);
+      if (galleryPaths.length >= 5) break;
+    }
+  }
+  // Tour 2 : remplir avec les autres images de la couleur primaire (puis
+  // les autres couleurs si encore de la place).
+  if (galleryPaths.length < 5) {
+    for (const cid of orderedColorIds) {
+      const imgs = imagesByColorId.get(cid) ?? [];
+      for (let j = 1; j < imgs.length; j++) {
+        if (!seenPaths.has(imgs[j])) {
+          galleryPaths.push(imgs[j]);
+          seenPaths.add(imgs[j]);
+          if (galleryPaths.length >= 5) break;
+        }
+      }
+      if (galleryPaths.length >= 5) break;
+    }
+  }
+
+  const productImages = galleryPaths.map((p) => ({ url: buildFaireImageUrl(p) }));
 
   // Note : `sale_state` est read-only côté Faire — c'est Faire qui bascule
   // automatiquement entre FOR_SALE et SALES_PAUSED selon le stock vs MOQ.
@@ -496,6 +548,11 @@ export function buildFaireSnapshot(
       widthCm: p.measurements?.width ?? null,
       heightCm: p.measurements?.height ?? null,
       tariffCode: p.tariff_code ?? null,
+      // ID Faire connu au moment du build (existant). Pour les nouvelles
+      // variantes (créées dans le même PATCH), `p.id` est undefined ici ;
+      // le flow update mute le snapshot avec le nouvel ID après réponse
+      // Faire, avant saveSnapshot.
+      faireVariantId: p.id ?? null,
     };
   }
   return {
