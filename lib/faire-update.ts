@@ -385,6 +385,72 @@ export async function faireUpdateProduct(
   const hasProductPatchPayload = Object.keys(patchBody).length > 0;
   const createdFaireVariantIds: { bjVariantId: string; faireVariantId: string }[] = [];
 
+  // ⚠️ Image vedette Faire (tag `"Hero"`) — quand l'ordre des images racine
+  // change (typiquement quand la couleur principale BJ change), envoyer
+  // simplement `tags: ["Hero"]` sur la nouvelle 1ʳᵉ image ne suffit pas :
+  // Faire conserve le tag « Hero » sur les images existantes dont le hash est
+  // déjà connu, et a tendance à reposer ce tag sur les nouvelles images
+  // téléchargées dans la foulée. Du coup, plusieurs images peuvent porter
+  // « Hero » en même temps et le portail Faire continue d'afficher l'ancienne.
+  //
+  // Parade : juste AVANT le PATCH product avec images, supprimer côté Faire
+  // toutes les images racine qui portent encore le tag « Hero ». Le PATCH
+  // suivant (qui inclut `tags: ["Hero"]` sur sa 1ʳᵉ image) recrée alors
+  // l'image vedette proprement, sans concurrence.
+  if (hasProductPatchPayload && diff.productImagesChanged) {
+    try {
+      const res = await faireFetch(`/products/${encodeURIComponent(meta.faireProductId)}`, {
+        method: "GET",
+      });
+      if (res.ok) {
+        const data = (await res.json().catch(() => null)) as
+          | { images?: { id?: string; tags?: string[] }[] }
+          | null;
+        const allImages = data?.images ?? [];
+        const heroImages = allImages.filter((img) =>
+          (img.tags ?? []).includes("Hero") && img.id,
+        );
+        // Faire interdit de supprimer la DERNIÈRE image d'un produit publié
+        // (HTTP 400). On garde donc au moins 1 image en stock à chaque DELETE.
+        let remaining = allImages.length;
+        for (const img of heroImages) {
+          if (remaining <= 1) break;
+          try {
+            const delRes = await faireFetch(
+              `/products/${encodeURIComponent(meta.faireProductId)}/images/${encodeURIComponent(img.id!)}`,
+              { method: "DELETE" },
+            );
+            if (delRes.ok || delRes.status === 404) {
+              remaining -= 1;
+            } else {
+              logger.warn("[Faire Update] DELETE image Hero : status non-OK", {
+                productId,
+                imgId: img.id,
+                status: delRes.status,
+              });
+            }
+          } catch (err) {
+            logger.warn("[Faire Update] DELETE image Hero : exception", {
+              productId,
+              imgId: img.id,
+              error: String(err),
+            });
+          }
+        }
+      } else {
+        logger.warn("[Faire Update] GET product pour images Hero : status non-OK", {
+          productId,
+          status: res.status,
+        });
+      }
+    } catch (err) {
+      logger.warn("[Faire Update] GET product pour images Hero : exception", {
+        productId,
+        error: String(err),
+      });
+    }
+  }
+
   if (hasProductPatchPayload) {
     try {
       const res = await faireFetch(`/products/${encodeURIComponent(meta.faireProductId)}`, {
