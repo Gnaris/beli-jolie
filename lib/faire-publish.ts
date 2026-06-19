@@ -424,16 +424,15 @@ export function buildFaireProductPayload(
   // (erreur PUBLISHED_PRODUCT_NEEDS_AT_LEAST_ONE_IMAGE sinon, même si chaque
   // variante a ses images).
   //
-  // Stratégie « palette » : on monte la galerie principale Faire de façon à
-  // ce que toutes les couleurs du produit y soient visibles, max 5 images.
-  //  1. la 1ʳᵉ image de la couleur primaire (en tête, c'est l'image vedette
-  //     côté Faire — utilisée pour la miniature catalogue)
-  //  2. la 1ʳᵉ image de chaque autre couleur, dans l'ordre BJ
-  //  3. le reste rempli avec les autres images de la couleur primaire
-  // Avant ce changement : 5 images de la couleur primaire uniquement → la
-  // fiche Faire montrait par exemple 5 fois l'argent sans laisser deviner
-  // qu'il y avait du doré / bleu, ce qui surprenait la brand au point de
-  // croire que les variantes avaient toutes les mêmes photos.
+  // Stratégie « couleur principale d'abord » : on monte la galerie principale
+  // Faire en mettant TOUTES les photos de la couleur primaire d'abord (dans
+  // leur ordre BDD), puis TOUTES les photos des autres couleurs (dans l'ordre
+  // BJ). Max 5 images.
+  //
+  // Choix cliente (juin 2026, sur F137) : préférable que la galerie Faire
+  // expose la couleur principale complètement plutôt que d'alterner les
+  // couleurs. Les autres couleurs restent visibles dans les variantes en bas
+  // de fiche Faire.
   const orderedColorIds: string[] = [];
   if (product.primaryColorId && imagesByColorId.has(product.primaryColorId)) {
     orderedColorIds.push(product.primaryColorId);
@@ -447,29 +446,16 @@ export function buildFaireProductPayload(
 
   const galleryPaths: string[] = [];
   const seenPaths = new Set<string>();
-  // Tour 1 : la 1ʳᵉ image de chaque couleur (commence par la primaire).
   for (const cid of orderedColorIds) {
     const imgs = imagesByColorId.get(cid) ?? [];
-    if (imgs[0] && !seenPaths.has(imgs[0])) {
-      galleryPaths.push(imgs[0]);
-      seenPaths.add(imgs[0]);
-      if (galleryPaths.length >= 5) break;
-    }
-  }
-  // Tour 2 : remplir avec les autres images de la couleur primaire (puis
-  // les autres couleurs si encore de la place).
-  if (galleryPaths.length < 5) {
-    for (const cid of orderedColorIds) {
-      const imgs = imagesByColorId.get(cid) ?? [];
-      for (let j = 1; j < imgs.length; j++) {
-        if (!seenPaths.has(imgs[j])) {
-          galleryPaths.push(imgs[j]);
-          seenPaths.add(imgs[j]);
-          if (galleryPaths.length >= 5) break;
-        }
+    for (const img of imgs) {
+      if (!seenPaths.has(img)) {
+        galleryPaths.push(img);
+        seenPaths.add(img);
+        if (galleryPaths.length >= 5) break;
       }
-      if (galleryPaths.length >= 5) break;
     }
+    if (galleryPaths.length >= 5) break;
   }
 
   const productImages = galleryPaths.map((p) => ({ url: buildFaireImageUrl(p) }));

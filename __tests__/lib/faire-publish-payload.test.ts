@@ -163,8 +163,8 @@ describe("buildFaireProductPayload — prix moderne uniquement (pas de champs d�
   });
 });
 
-describe("buildFaireProductPayload — galerie racine palette", () => {
-  it("commence par la 1ʳᵉ image de la couleur primaire puis ajoute une image de chaque autre couleur", () => {
+describe("buildFaireProductPayload — galerie racine : couleur principale d'abord", () => {
+  it("place TOUTES les images de la couleur primaire d'abord, puis les autres couleurs", () => {
     const { body, productImagesCount } = buildFaireProductPayload(
       makeProduct(),
       ctx,
@@ -175,12 +175,11 @@ describe("buildFaireProductPayload — galerie racine palette", () => {
     const images = body.images as { url: string }[] | undefined;
     expect(Array.isArray(images)).toBe(true);
     // makeProduct() : 2 images Or (primaire) + 1 image Argent.
-    // Tour 1 : or-1 (primaire), ar-1 (autre couleur) → 2 images.
-    // Tour 2 : or-2 (rajout primaire) → 3 images.
+    // Ordre attendu : or-1, or-2 (toute la primaire), puis ar-1.
     expect(images?.length).toBe(3);
     expect(images?.[0]?.url).toContain("or-1");
-    expect(images?.[1]?.url).toContain("ar-1");
-    expect(images?.[2]?.url).toContain("or-2");
+    expect(images?.[1]?.url).toContain("or-2");
+    expect(images?.[2]?.url).toContain("ar-1");
     expect(productImagesCount).toBe(3);
   });
 
@@ -233,7 +232,7 @@ describe("buildFaireProductPayload — galerie racine palette", () => {
     expect(productImagesCount).toBe(5);
   });
 
-  it("avec 3 couleurs et beaucoup d'images, garantit au moins 1 image de chaque couleur en tête", () => {
+  it("avec 3 couleurs et beaucoup d'images, vide TOUTE la couleur primaire avant d'attaquer les autres", () => {
     const product = makeProduct({
       primaryColorId: "c-or",
       colors: [
@@ -295,12 +294,13 @@ describe("buildFaireProductPayload — galerie racine palette", () => {
     const { body } = buildFaireProductPayload(product, ctx, wholesale, retail, "PUBLISHED");
     const images = body.images as { url: string }[] | undefined;
     expect(images?.length).toBe(5);
-    // Tour 1 : or-1, ar-1, rg-1 → 1 image de chaque couleur en tête.
+    // Stratégie « primaire d'abord » : on remplit avec or-1..or-4 puis ar-1.
+    // Rouge n'apparaît pas dans les 5 premières (visible quand même côté Faire
+    // dans les variantes en bas de fiche).
     expect(images?.[0]?.url).toContain("or-1");
-    expect(images?.[1]?.url).toContain("ar-1");
-    expect(images?.[2]?.url).toContain("rg-1");
-    // Tour 2 : remplit avec les autres images de la primaire (Or).
-    expect(images?.[3]?.url).toContain("or-2");
-    expect(images?.[4]?.url).toContain("or-3");
+    expect(images?.[1]?.url).toContain("or-2");
+    expect(images?.[2]?.url).toContain("or-3");
+    expect(images?.[3]?.url).toContain("or-4");
+    expect(images?.[4]?.url).toContain("ar-1");
   });
 });
