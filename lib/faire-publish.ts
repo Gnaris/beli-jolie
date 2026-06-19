@@ -461,14 +461,19 @@ export function buildFaireProductPayload(
     if (galleryPaths.length >= 5) break;
   }
 
-  // `sequence` explicite (0 = image vedette / à la une côté Faire) : sans ce
-  // champ, Faire conserve l'ancien `sequence` des images dont l'URL/hash est
-  // déjà connu, donc l'image vedette reste celle qui était en sequence=0 même
-  // si on change l'ordre du tableau. Cause initiale du bug « image principale
-  // ne change pas » constaté juin 2026 sur F137.
+  // Image vedette Faire (« mettre à la une » côté portail) = image qui porte
+  // le tag `"Hero"`. Ce tag est INDÉPENDANT de `sequence` : Faire affichait
+  // toujours l'ancienne vedette même quand on changeait l'ordre du tableau.
+  // En envoyant explicitement `tags: ["Hero"]` sur la 1ʳᵉ image du payload,
+  // Faire pose le tag sur celle-ci ET le retire automatiquement des autres.
+  // Constat juin 2026 sur F137 : sans ce tag, changer la couleur principale
+  // n'avait aucun effet visible côté portail Faire.
+  //
+  // `sequence` (0, 1, 2…) reste utile pour l'ordre dans la galerie complète.
   const productImages = galleryPaths.map((p, idx) => ({
     url: buildFaireImageUrl(p),
     sequence: idx,
+    ...(idx === 0 ? { tags: ["Hero"] } : {}),
   }));
 
   // Note : `sale_state` est read-only côté Faire — c'est Faire qui bascule
