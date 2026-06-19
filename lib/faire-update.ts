@@ -30,6 +30,7 @@ import {
   diffIsEmpty,
   type FaireSyncSnapshot,
   type FaireSyncDiff,
+  type FaireVariantSnapshot,
 } from "@/lib/faire-sync-diff";
 import {
   buildPublishContext,
@@ -137,12 +138,19 @@ export function buildPatchBody(
       "made_in_country",
       "minimum_order_quantity",
       "per_style_minimum_order_quantity",
-      // Images au niveau produit racine (image principale Faire). PATCH avec
-      // la liste complète remplace l'ancienne, conformément à la doc Faire §7.4.
-      "images",
     ]) {
       if (key in fullBody) out[key] = fullBody[key];
     }
+  }
+  // Images racine : ENVOI CONDITIONNEL. Faire déduplique les images par contenu :
+  // si la même image est déjà à la racine (ou sur une variante), re-pousser la
+  // même URL la marque à nouveau comme « principale » et Faire répond HTTP 400
+  // « Tentative de mise à jour de l'image […] avec 2 images principales ». On
+  // n'inclut donc `images` que quand la liste a réellement changé. Quand le
+  // snapshot est null (post-reset), `productImagesChanged` est false → Faire
+  // garde son état d'images intact (refresh manuel via le script si besoin).
+  if (diff.productImagesChanged && "images" in fullBody) {
+    out.images = fullBody.images;
   }
   // Lifecycle : on l'inclut DÈS QU'un PATCH /products/{id} est envoyé (peu
   // importe la raison — champ produit, nouvelles variantes, etc.). Pas
@@ -160,12 +168,26 @@ export function buildPatchBody(
   // seul PATCH. Faire applique alors les nouvelles valeurs d'option et crée
   // les variantes manquantes en une opération atomique. Voir l'en-tête de
   // cette fonction pour le raisonnement complet.
+  //
+  // ⚠️ Pour les variantes EXISTANTES (qui ont un `id` Faire), on retire
+  // `images` du payload si leurs images n'ont pas changé. Sinon Faire les
+  // re-traite et déclenche l'erreur « 2 images principales ». Les nouvelles
+  // variantes (sans `id`) conservent leurs `images` (création).
   if (hasNewVariants) {
     if (Array.isArray(fullBody.variant_option_sets)) {
       out.variant_option_sets = fullBody.variant_option_sets;
     }
     if (Array.isArray(fullBody.variants)) {
-      out.variants = fullBody.variants;
+      const variantsImagesChangedSet = new Set(diff.variantsImagesChanged);
+      out.variants = (fullBody.variants as Record<string, unknown>[]).map((v) => {
+        const sku = typeof v.sku === "string" ? v.sku : "";
+        const hasId = typeof v.id === "string" && v.id.length > 0;
+        if (hasId && !variantsImagesChangedSet.has(sku)) {
+          const { images: _omitImages, ...rest } = v;
+          return rest;
+        }
+        return v;
+      });
     }
   }
   return out;
@@ -473,12 +495,92 @@ export async function faireUpdateProduct(
             !createdFaireVariantIds.find((c) => bjVariantIdBySku.get(sku) === c.bjVariantId),
         ),
       );
+  const variantsImagesChangedSet = new Set(diff.variantsImagesChanged);
+
+  // ⚠️ Bug Faire « 2 images principales » : même quand le diff identifie qu'une
+  // image a changé (variantsImagesChanged.has(sku) = true), envoyer la nouvelle
+  // URL directement dans le PATCH variant échoue avec HTTP 400 « Tentative de
+  // mise à jour de l'image pour 'Couleur' avec 2 images principales » — Faire
+  // tente de poser is_main=true sur la nouvelle image mais l'ancienne porte
+  // déjà ce drapeau. Parade : DELETE chacune des images existantes côté Faire
+  // pour cette variante AVANT le PATCH, puis envoyer les nouvelles dans le
+  // PATCH (Faire les recrée propres sans conflit).
+  //
+  // Optimisation : un seul GET /products/{id} pour récupérer tous les IDs
+  // d'images à supprimer, quel que soit le nombre de variantes concernées.
+  const faireImageIdsByFaireVariantId = new Map<string, string[]>();
+  if (variantsImagesChangedSet.size > 0) {
+    try {
+      const res = await faireFetch(`/products/${encodeURIComponent(meta.faireProductId)}`, {
+        method: "GET",
+      });
+      if (res.ok) {
+        const data = (await res.json().catch(() => null)) as
+          | { variants?: { id?: string; images?: { id?: string }[] }[] }
+          | null;
+        for (const v of data?.variants ?? []) {
+          if (!v.id) continue;
+          const ids = (v.images ?? [])
+            .map((i) => i.id)
+            .filter((id): id is string => typeof id === "string");
+          if (ids.length > 0) faireImageIdsByFaireVariantId.set(v.id, ids);
+        }
+      } else {
+        logger.warn("[Faire Update] GET product pour images variant : status non-OK", {
+          productId,
+          status: res.status,
+        });
+      }
+    } catch (err) {
+      logger.warn("[Faire Update] GET product pour images variant : exception", {
+        productId,
+        error: String(err),
+      });
+    }
+  }
+
   for (const sku of existingVariantSkusToPatch) {
     const variantInfo = variants.find((v) => v.sku === sku);
     const faireVid = faireVariantIdBySku.get(sku)!;
     if (!variantInfo) continue;
+
+    const shouldSendImages =
+      variantsImagesChangedSet.has(sku) && Boolean(variantInfo.payload.images);
+
+    // DELETE les images existantes de la variante côté Faire si on s'apprête
+    // à en envoyer de nouvelles. Sans ça, Faire refuse avec « 2 images
+    // principales » (cf. bloc explicatif au-dessus).
+    if (shouldSendImages) {
+      const oldImageIds = faireImageIdsByFaireVariantId.get(faireVid) ?? [];
+      for (const imgId of oldImageIds) {
+        try {
+          const delRes = await faireFetch(
+            `/products/${encodeURIComponent(meta.faireProductId)}/variants/${encodeURIComponent(faireVid)}/images/${encodeURIComponent(imgId)}`,
+            { method: "DELETE" },
+          );
+          if (!delRes.ok && delRes.status !== 404) {
+            logger.warn("[Faire Update] DELETE variant image : status non-OK", {
+              productId,
+              sku,
+              imgId,
+              status: delRes.status,
+            });
+          }
+        } catch (err) {
+          logger.warn("[Faire Update] DELETE variant image : exception", {
+            productId,
+            sku,
+            imgId,
+            error: String(err),
+          });
+        }
+      }
+    }
+
     // Body partiel : champs modifiables (hors prix) — la doc Faire interdit
     // la modif d'options ET de prix via ce endpoint.
+    // `images` n'est inclus que pour les SKU dont les images ont réellement
+    // changé. Cf. parade « 2 images principales » au-dessus.
     const variantBody: Record<string, unknown> = {
       sku: variantInfo.payload.sku,
       name: variantInfo.payload.name,
@@ -489,7 +591,7 @@ export async function faireUpdateProduct(
       ...(variantInfo.payload.tariff_code
         ? { tariff_code: variantInfo.payload.tariff_code }
         : {}),
-      ...(variantInfo.payload.images ? { images: variantInfo.payload.images } : {}),
+      ...(shouldSendImages ? { images: variantInfo.payload.images } : {}),
       ...(variantInfo.payload.unit_multiplier
         ? { unit_multiplier: variantInfo.payload.unit_multiplier }
         : {}),

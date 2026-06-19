@@ -25,7 +25,14 @@
 // v5 : capture les images au niveau produit racine (image principale Faire),
 // pour qu'un changement de la couleur primaire ou des images de la couleur
 // primaire déclenche bien un PATCH /products/{id}.
-export const FAIRE_SNAPSHOT_VERSION = 5 as const;
+// v6 : sépare le diff des images de celui des autres champs (productImagesChanged
+// + variantsImagesChanged) pour éviter de re-pousser systématiquement les images
+// dans le PATCH. Faire déduplique les images par contenu : envoyer la même URL à
+// la racine ET sur une variante déclenche « 2 images principales » (HTTP 400).
+// Conséquence : sur un snapshot null (post-reset), on N'ENVOIE PLUS les images
+// dans le PATCH — l'état Faire est gardé tel quel. Pour forcer un re-upload des
+// images, utiliser scripts/faire-refresh-variant-images.ts.
+export const FAIRE_SNAPSHOT_VERSION = 6 as const;
 
 export interface FaireProductFieldsSnapshot {
   name: string;
@@ -83,7 +90,21 @@ export interface FaireSyncSnapshot {
 
 export interface FaireSyncDiff {
   productChanged: boolean;
+  /**
+   * Images racine du produit. Séparé de `productChanged` car Faire refuse de
+   * « re-PATCH » des images déjà présentes (déduplication par contenu → erreur
+   * « 2 images principales »). On n'inclut donc `images` dans le PATCH que
+   * lorsque ce flag est vrai. Toujours `false` quand `prev` est null (snapshot
+   * inexistant), pour ne pas écraser l'état Faire au premier sync post-reset.
+   */
+  productImagesChanged: boolean;
   variantsChanged: string[];
+  /**
+   * SKU des variantes dont les images ont changé. Même règle que
+   * `productImagesChanged` : on n'envoie `images` au PATCH variant que pour
+   * ces SKU. Toujours vide quand `prev` est null.
+   */
+  variantsImagesChanged: string[];
   variantsAdded: string[];
   variantsRemoved: string[];
   /** Variantes dont seul le stock a changé — peuvent passer par l'endpoint inventory bulk. */
@@ -103,7 +124,12 @@ function stringListEqual(a: readonly string[] | undefined | null, b: readonly st
   return true;
 }
 
-export function productFieldsEqual(
+/**
+ * Compare les champs « méta » du produit (tout sauf les images racine).
+ * Séparé de la comparaison d'images : on veut savoir si on doit PATCH la
+ * fiche pour son nom/description/… sans forcément re-pousser les images.
+ */
+export function productMetaEqual(
   a: FaireProductFieldsSnapshot,
   b: FaireProductFieldsSnapshot,
 ): boolean {
@@ -114,15 +140,25 @@ export function productFieldsEqual(
     a.taxonomyTypeId === b.taxonomyTypeId &&
     a.countryAlpha2 === b.countryAlpha2 &&
     a.minimumOrderQuantity === b.minimumOrderQuantity &&
-    a.perStyleMinimumOrderQuantity === b.perStyleMinimumOrderQuantity &&
-    stringListEqual(a.images, b.images)
+    a.perStyleMinimumOrderQuantity === b.perStyleMinimumOrderQuantity
   );
+}
+
+/** Compatibilité avec les tests/imports anciens (= méta + images). */
+export function productFieldsEqual(
+  a: FaireProductFieldsSnapshot,
+  b: FaireProductFieldsSnapshot,
+): boolean {
+  return productMetaEqual(a, b) && stringListEqual(a.images, b.images);
 }
 
 export interface VariantDiffDetail {
   inventoryChanged: boolean;
   pricesChanged: boolean;
+  /** Tous les autres champs (couleur/active/mesures/tariff) HORS images. */
   otherChanged: boolean;
+  /** Les images de la variante ont changé (séparé pour le PATCH conditionnel). */
+  imagesChanged: boolean;
 }
 
 export function diffVariantSnapshot(
@@ -133,6 +169,7 @@ export function diffVariantSnapshot(
   const pricesChanged =
     prev.wholesalePriceCents !== next.wholesalePriceCents ||
     prev.retailPriceCents !== next.retailPriceCents;
+  const imagesChanged = !stringListEqual(prev.images, next.images);
   const otherChanged =
     prev.colorOption !== next.colorOption ||
     prev.active !== next.active ||
@@ -140,9 +177,8 @@ export function diffVariantSnapshot(
     prev.lengthCm !== next.lengthCm ||
     prev.widthCm !== next.widthCm ||
     prev.heightCm !== next.heightCm ||
-    prev.tariffCode !== next.tariffCode ||
-    !stringListEqual(prev.images, next.images);
-  return { inventoryChanged, pricesChanged, otherChanged };
+    prev.tariffCode !== next.tariffCode;
+  return { inventoryChanged, pricesChanged, otherChanged, imagesChanged };
 }
 
 export function diffSnapshots(
@@ -150,9 +186,17 @@ export function diffSnapshots(
   next: FaireSyncSnapshot,
 ): FaireSyncDiff {
   if (!prev || prev.schemaVersion !== FAIRE_SNAPSHOT_VERSION) {
+    // Snapshot inexistant ou périmé : tout est considéré comme à pousser
+    // SAUF les images. On ne peut pas comparer avec l'état réel de Faire sans
+    // un GET (Faire renvoie des CDN URLs qui ne correspondent pas aux nôtres),
+    // et re-pousser systématiquement les images déclenche l'erreur « 2 images
+    // principales ». On laisse donc Faire conserver ses images existantes ;
+    // pour forcer un re-upload, passer par scripts/faire-refresh-variant-images.ts.
     return {
       productChanged: true,
+      productImagesChanged: false,
       variantsChanged: Object.keys(next.variants),
+      variantsImagesChanged: [],
       variantsAdded: Object.keys(next.variants),
       variantsRemoved: [],
       inventoryOnlyChanged: [],
@@ -161,10 +205,17 @@ export function diffSnapshots(
     };
   }
 
-  const productChanged = !productFieldsEqual(prev.product, next.product);
+  const productMetaChanged = !productMetaEqual(prev.product, next.product);
+  const productImagesChanged = !stringListEqual(prev.product.images, next.product.images);
+  // `productChanged` reste vrai si méta OU images ont changé — c'est ce flag
+  // que buildPatchBody utilise pour décider d'inclure les champs non-image
+  // (name, description, etc.). Le sous-flag `productImagesChanged` gouverne
+  // l'inclusion conditionnelle des images.
+  const productChanged = productMetaChanged || productImagesChanged;
   const lifecycleChanged = prev.lifecycleState !== next.lifecycleState;
 
   const variantsChanged: string[] = [];
+  const variantsImagesChanged: string[] = [];
   const variantsAdded: string[] = [];
   const variantsRemoved: string[] = [];
   const inventoryOnlyChanged: string[] = [];
@@ -175,10 +226,14 @@ export function diffSnapshots(
     if (!prevVariant) {
       variantsAdded.push(sku);
       variantsChanged.push(sku);
+      // Variante ajoutée : ses images doivent être envoyées au PATCH consolidé
+      // (Faire les attend dans le payload variant à la création).
+      variantsImagesChanged.push(sku);
       continue;
     }
     const detail = diffVariantSnapshot(prevVariant, nextVariant);
-    if (detail.otherChanged) {
+    if (detail.imagesChanged) variantsImagesChanged.push(sku);
+    if (detail.otherChanged || detail.imagesChanged) {
       variantsChanged.push(sku);
     } else if (detail.inventoryChanged && !detail.pricesChanged) {
       inventoryOnlyChanged.push(sku);
@@ -195,7 +250,9 @@ export function diffSnapshots(
 
   return {
     productChanged,
+    productImagesChanged,
     variantsChanged,
+    variantsImagesChanged,
     variantsAdded,
     variantsRemoved,
     inventoryOnlyChanged,

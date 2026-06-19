@@ -4,7 +4,9 @@ import type { FaireSyncDiff } from "@/lib/faire-sync-diff";
 
 const emptyDiff: FaireSyncDiff = {
   productChanged: false,
+  productImagesChanged: false,
   variantsChanged: [],
+  variantsImagesChanged: [],
   variantsAdded: [],
   variantsRemoved: [],
   inventoryOnlyChanged: [],
@@ -90,5 +92,87 @@ describe("buildPatchBody — lifecycle robustness", () => {
     const diff = { ...emptyDiff, pricesOnlyChanged: ["sku1"] };
     const out = buildPatchBody(diff, fullBody, true, false);
     expect(out).toEqual({});
+  });
+});
+
+describe("buildPatchBody — images conditionnelles", () => {
+  const bodyWithImages = {
+    ...fullBody,
+    images: [{ url: "https://example/a.jpg" }, { url: "https://example/b.jpg" }],
+  };
+
+  it("n'inclut PAS images quand productChanged=true mais productImagesChanged=false", () => {
+    const diff = { ...emptyDiff, productChanged: true, productImagesChanged: false };
+    const out = buildPatchBody(diff, bodyWithImages, false, false);
+    expect(out.name).toBe("Bague test");
+    expect(out.images).toBeUndefined();
+  });
+
+  it("inclut images quand productImagesChanged=true", () => {
+    const diff = { ...emptyDiff, productChanged: true, productImagesChanged: true };
+    const out = buildPatchBody(diff, bodyWithImages, false, false);
+    expect(out.images).toEqual(bodyWithImages.images);
+  });
+
+  it("retire images des variantes EXISTANTES (avec id) dont les images n'ont pas changé, dans le PATCH consolidé", () => {
+    const bodyWithVariantImages = {
+      ...fullBody,
+      variants: [
+        {
+          id: "po_argent",
+          sku: "sku-argent",
+          options: [{ name: "Color", value: "Argent" }],
+          images: [{ url: "https://example/argent.jpg" }],
+        },
+        {
+          id: "po_dore",
+          sku: "sku-dore",
+          options: [{ name: "Color", value: "Doré" }],
+          images: [{ url: "https://example/dore.jpg" }],
+        },
+        {
+          sku: "sku-marron",
+          options: [{ name: "Color", value: "Marron" }],
+          images: [{ url: "https://example/marron.jpg" }],
+        },
+      ],
+    };
+    const diff = {
+      ...emptyDiff,
+      variantsImagesChanged: ["sku-marron"], // que la nouvelle variante
+    };
+    const out = buildPatchBody(diff, bodyWithVariantImages, false, true);
+    const outVariants = out.variants as Array<Record<string, unknown>>;
+    expect(outVariants).toHaveLength(3);
+    // Variante existante Argent : images retirées
+    const argent = outVariants.find((v) => v.sku === "sku-argent")!;
+    expect(argent.images).toBeUndefined();
+    // Variante existante Doré : images retirées
+    const dore = outVariants.find((v) => v.sku === "sku-dore")!;
+    expect(dore.images).toBeUndefined();
+    // Nouvelle variante Marron : images conservées (création)
+    const marron = outVariants.find((v) => v.sku === "sku-marron")!;
+    expect(marron.images).toEqual([{ url: "https://example/marron.jpg" }]);
+  });
+
+  it("garde les images des variantes existantes dont les images ont effectivement changé", () => {
+    const bodyWithVariantImages = {
+      ...fullBody,
+      variants: [
+        {
+          id: "po_argent",
+          sku: "sku-argent",
+          options: [{ name: "Color", value: "Argent" }],
+          images: [{ url: "https://example/argent-new.jpg" }],
+        },
+      ],
+    };
+    const diff = {
+      ...emptyDiff,
+      variantsImagesChanged: ["sku-argent"],
+    };
+    const out = buildPatchBody(diff, bodyWithVariantImages, false, true);
+    const outVariants = out.variants as Array<Record<string, unknown>>;
+    expect(outVariants[0].images).toEqual([{ url: "https://example/argent-new.jpg" }]);
   });
 });

@@ -17,6 +17,7 @@ function snap(overrides: Partial<FaireSyncSnapshot> = {}): FaireSyncSnapshot {
       countryAlpha2: "CN",
       minimumOrderQuantity: 1,
       perStyleMinimumOrderQuantity: 1,
+      images: ["/root-a.jpg"],
     },
     variants: {
       sku1: {
@@ -28,6 +29,9 @@ function snap(overrides: Partial<FaireSyncSnapshot> = {}): FaireSyncSnapshot {
         colorOption: "Or",
         images: ["/u/a.jpg"],
         weightGrams: 30,
+        lengthCm: null,
+        widthCm: null,
+        heightCm: null,
         tariffCode: "7117.19.00",
       },
     },
@@ -37,11 +41,15 @@ function snap(overrides: Partial<FaireSyncSnapshot> = {}): FaireSyncSnapshot {
 }
 
 describe("diffSnapshots", () => {
-  it("traite null prev comme tout-à-envoyer", () => {
+  it("traite null prev comme tout-à-envoyer SAUF les images (évite '2 images principales')", () => {
     const d = diffSnapshots(null, snap());
     expect(d.productChanged).toBe(true);
     expect(d.lifecycleChanged).toBe(true);
     expect(d.variantsAdded).toEqual(["sku1"]);
+    // Images NE doivent PAS être re-poussées sur snapshot null : Faire
+    // déduplique par contenu et refuse les re-uploads de mêmes URLs.
+    expect(d.productImagesChanged).toBe(false);
+    expect(d.variantsImagesChanged).toEqual([]);
     expect(diffIsEmpty(d)).toBe(false);
   });
 
@@ -52,12 +60,33 @@ describe("diffSnapshots", () => {
     expect(diffIsEmpty(d)).toBe(true);
   });
 
-  it("détecte un changement de nom comme productChanged", () => {
+  it("détecte un changement de nom comme productChanged mais PAS productImagesChanged", () => {
     const a = snap();
     const b = snap({ product: { ...a.product, name: "Nouveau nom" } });
     const d = diffSnapshots(a, b);
     expect(d.productChanged).toBe(true);
+    expect(d.productImagesChanged).toBe(false);
     expect(d.variantsChanged).toHaveLength(0);
+  });
+
+  it("détecte un changement d'images racine comme productImagesChanged", () => {
+    const a = snap();
+    const b = snap({ product: { ...a.product, images: ["/root-b.jpg"] } });
+    const d = diffSnapshots(a, b);
+    expect(d.productChanged).toBe(true);
+    expect(d.productImagesChanged).toBe(true);
+  });
+
+  it("détecte un changement d'images variante comme variantsImagesChanged + variantsChanged", () => {
+    const a = snap();
+    const b = snap({
+      variants: {
+        sku1: { ...a.variants.sku1, images: ["/u/b.jpg"] },
+      },
+    });
+    const d = diffSnapshots(a, b);
+    expect(d.variantsImagesChanged).toEqual(["sku1"]);
+    expect(d.variantsChanged).toEqual(["sku1"]);
   });
 
   it("inventoryOnlyChanged quand seul le stock bouge", () => {
@@ -111,6 +140,9 @@ describe("diffSnapshots", () => {
           colorOption: "Argent",
           images: [],
           weightGrams: 30,
+          lengthCm: null,
+          widthCm: null,
+          heightCm: null,
           tariffCode: null,
         },
       },
