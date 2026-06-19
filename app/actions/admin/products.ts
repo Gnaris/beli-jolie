@@ -647,6 +647,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       dimensionLength: true,
       dimensionWidth: true,
       dimensionHeight: true,
+      primaryColorId: true,
       // Pour décider si on doit poser les drapeaux « Synchro nécessaire »
       // sur les marketplaces liées après la mise à jour.
       pfsProductId: true,
@@ -724,6 +725,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     oldVariantMap: Map<string, { stock: number; unitPrice: number; saleType: "UNIT" | "PACK"; packQuantity: number | null; totalPackQty: number }>;
     variantIdMap: { colorInput: ColorInput; variantId: string; isNew: boolean }[];
     orphanImagePaths: string[];
+    resolvedPrimaryAfter: string | null;
   } | null = null;
   try {
     txResult = await prisma.$transaction(async (tx) => {
@@ -1089,7 +1091,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       });
     }
 
-    return { oldStockMap, oldVariantMap, variantIdMap, orphanImagePaths };
+    return { oldStockMap, oldVariantMap, variantIdMap, orphanImagePaths, resolvedPrimaryAfter };
     }, { timeout: 30000 });
   } catch (err) {
     // Si la transaction échoue après un rename de dossier, on remet le dossier
@@ -1112,7 +1114,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     // Should be unreachable: the transaction either returns a value or throws.
     throw new Error("Erreur interne : transaction sans résultat.");
   }
-  const { oldStockMap, oldVariantMap, variantIdMap, orphanImagePaths } = txResult;
+  const { oldStockMap, oldVariantMap, variantIdMap, orphanImagePaths, resolvedPrimaryAfter } = txResult;
 
   // ── Suppression effective des fichiers image orphelins (post-transaction) ──
   // Toute image présente en BDD avant le save mais absente de l'état envoyé
@@ -1220,7 +1222,12 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       oldProduct.categoryId !== input.categoryId ||
       oldProduct.manufacturingCountryId !== (input.manufacturingCountryId || null) ||
       oldProduct.seasonId !== (input.seasonId || null) ||
-      oldProduct.reference !== newRefUpper;
+      oldProduct.reference !== newRefUpper ||
+      // Changement de couleur principale : impacte les marketplaces qui exposent
+      // la photo principale du produit (Faire racine, PFS, Ankorstore, eFashion).
+      // Sans ça, le badge orange « Synchro nécessaire » resterait éteint alors
+      // que la photo principale envoyée à la marketplace doit changer.
+      oldProduct.primaryColorId !== resolvedPrimaryAfter;
     if (fieldsChanged) {
       const flagsData: Prisma.ProductUpdateInput = {};
       if (oldProduct.pfsProductId) flagsData.pfsSyncRequired = true;
