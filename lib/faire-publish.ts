@@ -338,8 +338,11 @@ export function buildFaireProductPayload(
     optionValuesSet.add(colorLabel);
 
     const imgPaths = imagesByColorId.get(v.colorId ?? "") ?? [];
+    // `sequence` (0-indexed) : Faire utilise ce champ pour l'ordre d'affichage
+    // côté galerie de la variante. Sans ça, Faire conserve l'ordre historique
+    // des images existantes même quand on PATCH avec un nouveau tableau.
     const images = imgPaths.length > 0
-      ? imgPaths.slice(0, 5).map((p) => ({ url: buildFaireImageUrl(p) }))
+      ? imgPaths.slice(0, 5).map((p, idx) => ({ url: buildFaireImageUrl(p), sequence: idx }))
       : undefined;
 
     // measurements (schéma `ExternalMeasurementsV2`, cf. docs/faire-api.md §6).
@@ -458,7 +461,15 @@ export function buildFaireProductPayload(
     if (galleryPaths.length >= 5) break;
   }
 
-  const productImages = galleryPaths.map((p) => ({ url: buildFaireImageUrl(p) }));
+  // `sequence` explicite (0 = image vedette / à la une côté Faire) : sans ce
+  // champ, Faire conserve l'ancien `sequence` des images dont l'URL/hash est
+  // déjà connu, donc l'image vedette reste celle qui était en sequence=0 même
+  // si on change l'ordre du tableau. Cause initiale du bug « image principale
+  // ne change pas » constaté juin 2026 sur F137.
+  const productImages = galleryPaths.map((p, idx) => ({
+    url: buildFaireImageUrl(p),
+    sequence: idx,
+  }));
 
   // Note : `sale_state` est read-only côté Faire — c'est Faire qui bascule
   // automatiquement entre FOR_SALE et SALES_PAUSED selon le stock vs MOQ.
