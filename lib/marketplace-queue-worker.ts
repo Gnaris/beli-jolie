@@ -685,7 +685,7 @@ async function runFaireJob(job: JobRow, payload: QueueJobPayload): Promise<void>
         return;
       }
       const { faireUpdateProduct } = await import("@/lib/faire-update");
-      const res = await faireUpdateProduct(job.productId);
+      const res = await faireUpdateProduct(job.productId, { forceFullSync: true });
       if (res.success) await markFaireSuccess(job.id);
       else await markFaireFailed(job.id, "error", res.error);
     } else if (job.mode === "PUBLISH") {

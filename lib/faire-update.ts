@@ -195,12 +195,14 @@ export function buildPatchBody(
 
 export async function faireUpdateProduct(
   productId: string,
+  options?: { forceFullSync?: boolean },
 ): Promise<FaireUpdateResult> {
   const meta = await loadFaireProductMeta(productId);
   if (!meta) return { success: false, error: "Produit introuvable." };
   if (!meta.faireProductId) {
     return { success: false, error: "Produit pas encore publié sur Faire." };
   }
+  const forceFullSync = options?.forceFullSync === true;
 
   const product = await loadFaireProductFull(productId);
   if (!product) return { success: false, error: "Produit introuvable (loader)." };
@@ -239,7 +241,11 @@ export async function faireUpdateProduct(
     productImageUrls,
   );
 
-  const prevSnapshot = (meta.faireLastSyncSnapshot ?? null) as FaireSyncSnapshot | null;
+  const realPrevSnapshot = (meta.faireLastSyncSnapshot ?? null) as FaireSyncSnapshot | null;
+  // En resynchro forcée, on force `prev = null` pour que le diff considère tout
+  // comme à pousser (champs produit, variantes, lifecycle). On garde toutefois
+  // le snapshot réel pour les fallback (résolution d'ID Faire de variante par SKU).
+  const prevSnapshot = forceFullSync ? null : realPrevSnapshot;
   const diff = diffSnapshots(prevSnapshot, nextSnapshot);
 
   if (diffIsEmpty(diff)) {
@@ -716,18 +722,25 @@ export async function faireUpdateProduct(
   // (même règle qu'à la création), donc on doit le pousser quand le stock a
   // changé ET pour chaque nouvelle variante (son stock initial ne passe pas
   // par le POST /products/{id}/variants).
-  const stockUpdates = Array.from(
-    new Set<string>([
-      ...diff.variantsAdded.filter((sku) => nextSnapshot.variants[sku]?.availableQuantity > 0),
-      ...(diff.inventoryOnlyChanged.length > 0
-        ? diff.inventoryOnlyChanged
-        : diff.variantsChanged.filter((sku) => {
-            const prev = prevSnapshot?.variants?.[sku];
-            const next = nextSnapshot.variants[sku];
-            return prev && prev.availableQuantity !== next.availableQuantity;
-          })),
-    ]),
-  );
+  // En resynchro forcée, on pousse le stock de TOUTES les variantes (même 0)
+  // pour aligner Faire sur la BDD, indépendamment du diff. Sinon, on garde
+  // la logique nominale basée sur le diff.
+  const stockUpdates = forceFullSync
+    ? Object.keys(nextSnapshot.variants).filter((sku) =>
+        faireVariantIdBySku.has(sku),
+      )
+    : Array.from(
+        new Set<string>([
+          ...diff.variantsAdded.filter((sku) => nextSnapshot.variants[sku]?.availableQuantity > 0),
+          ...(diff.inventoryOnlyChanged.length > 0
+            ? diff.inventoryOnlyChanged
+            : diff.variantsChanged.filter((sku) => {
+                const prev = prevSnapshot?.variants?.[sku];
+                const next = nextSnapshot.variants[sku];
+                return prev && prev.availableQuantity !== next.availableQuantity;
+              })),
+        ]),
+      );
   if (stockUpdates.length > 0) {
     const updates: FaireInventoryUpdate[] = stockUpdates.map((sku) => ({
       sku,
@@ -755,18 +768,27 @@ export async function faireUpdateProduct(
   // envoie via PATCH variant individuel. On pousse les SKU dont le prix a
   // changé (qu'ils aient été classés pricesOnly OU mélangés à un changement
   // structurel) via le batch /product-prices/by-skus.
-  const priceChangedSkus = new Set<string>([
-    ...diff.pricesOnlyChanged,
-    ...diff.variantsChanged.filter((sku) => {
-      const prev = prevSnapshot?.variants?.[sku];
-      const next = nextSnapshot.variants[sku];
-      if (!prev || !next) return false;
-      return (
-        prev.wholesalePriceCents !== next.wholesalePriceCents ||
-        prev.retailPriceCents !== next.retailPriceCents
-      );
-    }),
-  ]);
+  // En resynchro forcée, on pousse les prix de TOUTES les variantes liées
+  // (Faire ignore les prix dans le PATCH variant individuel — on doit donc
+  // passer par /product-prices/by-skus). Sinon, on s'appuie sur le diff.
+  const priceChangedSkus = forceFullSync
+    ? new Set<string>(
+        Object.keys(nextSnapshot.variants).filter((sku) =>
+          faireVariantIdBySku.has(sku),
+        ),
+      )
+    : new Set<string>([
+        ...diff.pricesOnlyChanged,
+        ...diff.variantsChanged.filter((sku) => {
+          const prev = prevSnapshot?.variants?.[sku];
+          const next = nextSnapshot.variants[sku];
+          if (!prev || !next) return false;
+          return (
+            prev.wholesalePriceCents !== next.wholesalePriceCents ||
+            prev.retailPriceCents !== next.retailPriceCents
+          );
+        }),
+      ]);
   if (priceChangedSkus.size > 0) {
     const priceUpdates: FairePriceUpdate[] = [];
     for (const sku of priceChangedSkus) {
