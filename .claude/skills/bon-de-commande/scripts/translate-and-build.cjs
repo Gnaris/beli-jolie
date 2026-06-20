@@ -42,6 +42,7 @@ const CATS = {
   "耳环":          { category: "Boucles d'oreilles", sub: "" },
   "耳钉":          { category: "Boucles d'oreilles", sub: "" },
   "耳骨夹":        { category: "Boucles d'oreilles", sub: "Clips" },
+  "耳夹":          { category: "Boucles d'oreilles", sub: "Clips" },
   "单只耳环":      { category: "Boucles d'oreilles", sub: "À l'unité" },
   "项链":          { category: "Collier",            sub: "" },
   "胸链":          { category: "Collier",            sub: "Collier de dos" },
@@ -121,6 +122,16 @@ const COLORS = {
   "1号红色":        "Rouge",
   "9号粉色":        "Rose",
   "12号蓝色":       "Bleu",
+  // Fournisseur ZC — plating
+  "16K炉内真金":    "Doré",
+  "14K炉内真金":    "Doré",
+  // Fournisseur ZC — sous-couleurs abrégées (colonne 说明)
+  "白":             "Blanc",
+  "粉":             "Rose",
+  "蓝":             "Bleu",
+  "彩":             "Multicolore",
+  "黄":             "Jaune",
+  "绿":             "Vert",
 };
 
 const parsed = JSON.parse(fs.readFileSync(PARSED_PATH, "utf-8"));

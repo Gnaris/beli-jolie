@@ -7,7 +7,7 @@ import PfsMappingSection from "./PfsMappingSection";
 import { detectPfsColorConflicts, formatConflictsMessage } from "@/lib/pfs-color-conflicts";
 import CompletenessChecklist, { computeChecklist } from "./CompletenessChecklist";
 import ProductFormNav from "./ProductFormNav";
-import { createProduct, updateProduct, saveProductTranslations, fetchProductFormAttributes } from "@/app/actions/admin/products";
+import { createProduct, updateProduct, saveProductTranslations, fetchProductFormAttributes, checkProductReferenceAvailable } from "@/app/actions/admin/products";
 
 import { VALID_LOCALES, LOCALE_LABELS, NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
@@ -131,6 +131,8 @@ interface ProductFormProps {
     faireProductId?: string | null;
     /** Couleur principale du produit (refonte : ne dépend plus de la variante isPrimary) */
     primaryColorId?: string | null;
+    /** Sous-catégorie choisie comme étiquette d'export Microstore (null = catégorie principale). */
+    microstoreSubCategoryId?: string | null;
   };
 }
 
@@ -507,6 +509,11 @@ export default function ProductForm({
   const [description,     setDescription]     = useState(initialData?.description     ?? "");
   const [categoryId,      setCategoryId]      = useState(initialData?.categoryId      ?? "");
   const [subCategoryIds,  setSubCategoryIds]  = useState<string[]>(initialData?.subCategoryIds ?? []);
+  // Étiquette envoyée à Microstore : null = catégorie principale (défaut),
+  // sinon id d'une des sous-catégories attribuées au produit.
+  const [microstoreSubCategoryId, setMicrostoreSubCategoryId] = useState<string | null>(
+    initialData?.microstoreSubCategoryId ?? null,
+  );
   const [variants, setVariants] = useState<VariantState[]>(
     initialData?.variants ?? []
   );
@@ -719,8 +726,8 @@ export default function ProductForm({
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
     compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus,
-    manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId,
-  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId]);
+    manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId,
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId]);
 
   // Mirror de buildSnapshot SANS les 4 champs locaux qui ne sont jamais poussés
   // aux marketplaces (mots-clés, sous-catégories, produits similaires, contenu
@@ -1058,6 +1065,14 @@ export default function ProductForm({
   // ── Derived ──────────────────────────────────────────────────────────
   const selectedCategory = localCategories.find((c) => c.id === categoryId);
   const subCategories    = selectedCategory?.subCategories ?? [];
+
+  // Étiquette Microstore : si l'utilisatrice décoche la sous-catégorie choisie,
+  // on retombe automatiquement sur la catégorie principale (null).
+  useEffect(() => {
+    if (microstoreSubCategoryId && !subCategoryIds.includes(microstoreSubCategoryId)) {
+      setMicrostoreSubCategoryId(null);
+    }
+  }, [subCategoryIds, microstoreSubCategoryId]);
 
   // Per-variant field errors for red highlighting (price/weight/stock/sizes)
   const variantErrors = useMemo(() => {
@@ -1474,6 +1489,19 @@ export default function ProductForm({
       return setError("Veuillez sélectionner une catégorie avant d'enregistrer en brouillon.");
     }
 
+    // Pré-check unicité de la référence (Next.js prod masque le message des
+    // throw remontés depuis la server action, donc on vérifie ici pour pouvoir
+    // afficher un message clair).
+    try {
+      const refCheck = await checkProductReferenceAvailable(draftRef, productId ?? undefined);
+      if (!refCheck.available) {
+        return setError("Cette référence est déjà utilisée par un autre produit. Choisissez-en une autre.");
+      }
+    } catch {
+      // En cas d'erreur de la vérification elle-même, on laisse passer : le
+      // throw côté createProduct/updateProduct fera office de filet.
+    }
+
     // ── Téléversement des photos en attente (avant le save) ───────────
     // Les photos joinies au formulaire sont uploadées maintenant, en une
     // seule passe. En cas d'erreur, on bloque le save (les photos déjà
@@ -1499,6 +1527,7 @@ export default function ProductForm({
       description:   description.trim(),
       categoryId,
       subCategoryIds,
+      microstoreSubCategoryId,
       colors: draftVariants.map((v) => {
           const isMultiPack = v.saleType === "PACK" && v.packLines.length > 0;
           const packLinesPayload = isMultiPack
@@ -1649,6 +1678,18 @@ export default function ProductForm({
     const submittedRef = reference.trim().replace(/\s/g, "").toUpperCase();
     const referenceChanged = !initialRef || initialRef !== submittedRef;
     if (referenceChanged) {
+      // Pré-check unicité locale (Next.js prod masque le message des throw
+      // remontés depuis la server action, donc on vérifie ici).
+      try {
+        const refCheck = await checkProductReferenceAvailable(submittedRef, productId ?? undefined);
+        if (!refCheck.available) {
+          setError("Cette référence est déjà utilisée par un autre produit. Choisissez-en une autre.");
+          return;
+        }
+      } catch {
+        // Filet : le throw côté createProduct/updateProduct reste actif.
+      }
+
       const pfsCheck = await runPfsRefCheck(reference, { force: true });
       if (pfsCheck === "exists") {
         setError("Cette référence est déjà utilisée sur Paris Fashion Shop. Choisissez-en une autre.");
@@ -1748,6 +1789,7 @@ export default function ProductForm({
       description:   description.trim(),
       categoryId,
       subCategoryIds,
+      microstoreSubCategoryId,
       colors: variants.map((v) => {
         const isMultiPack = v.saleType === "PACK" && v.packLines.length > 0;
         const packLinesPayload = isMultiPack
@@ -2372,7 +2414,7 @@ export default function ProductForm({
                       className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
                     >+ Créer</button>
                   </div>
-                  <div className={!categoryId ? "rounded-lg ring-1 ring-[#EF4444]" : ""}>
+                  <div className={`relative ${!categoryId ? "rounded-lg ring-1 ring-[#EF4444]" : ""}`}>
                     <CustomSelect
                       value={categoryId}
                       onChange={(v) => { setCategoryId(v); setSubCategoryIds([]); }}
@@ -2385,6 +2427,26 @@ export default function ProductForm({
                       emptyMessage="Aucune catégorie n'est créée"
                       searchable
                     />
+                    {/* Rond radio « étiquette Microstore = catégorie principale ».
+                        Visible dès qu'il existe au moins une sous-catégorie dans
+                        la catégorie (sinon il n'y a rien à choisir). */}
+                    {selectedCategory && subCategories.length > 0 && (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); setMicrostoreSubCategoryId(null); }}
+                        title="Utiliser la catégorie dans la colonne Microstore"
+                        aria-label="Utiliser la catégorie dans la colonne Microstore"
+                        aria-pressed={microstoreSubCategoryId === null}
+                        className={`absolute top-1/2 -translate-y-1/2 right-9 z-10 flex items-center justify-center w-5 h-5 rounded-full border-2 bg-bg-primary transition-colors ${
+                          microstoreSubCategoryId === null ? "border-bg-dark" : "border-border hover:border-bg-dark"
+                        }`}
+                      >
+                        {microstoreSubCategoryId === null && (
+                          <span className="w-2.5 h-2.5 rounded-full bg-bg-dark" />
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -2412,15 +2474,73 @@ export default function ProductForm({
                     <div className="flex flex-wrap gap-2 min-h-[38px] items-start">
                       {subCategories.map((sub) => {
                         const selected = subCategoryIds.includes(sub.id);
+                        const isMicrostoreChoice = microstoreSubCategoryId === sub.id;
                         return (
                           <button key={sub.id} type="button" onClick={() => toggleSubCategory(sub.id)}
-                            className={`px-3 py-1.5 text-sm border rounded-lg transition-colors font-body ${
+                            className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm border rounded-lg transition-colors font-body ${
                               selected ? "bg-bg-dark text-text-inverse border-[#1A1A1A]" : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
                             }`}
-                          >{sub.name}</button>
+                          >
+                            <span>{sub.name}</span>
+                            {/* Rond radio « étiquette Microstore = cette sous-catégorie ».
+                                Toujours visible sur chaque chip. Si la sous-catégorie
+                                n'est pas encore attribuée, cliquer le rond l'attribue
+                                automatiquement (sinon l'étiquette Microstore serait
+                                un id orphelin reset au prochain save). */}
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!selected) {
+                                  setSubCategoryIds((prev) =>
+                                    prev.includes(sub.id) ? prev : [...prev, sub.id],
+                                  );
+                                }
+                                setMicrostoreSubCategoryId(sub.id);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  if (!selected) {
+                                    setSubCategoryIds((prev) =>
+                                      prev.includes(sub.id) ? prev : [...prev, sub.id],
+                                    );
+                                  }
+                                  setMicrostoreSubCategoryId(sub.id);
+                                }
+                              }}
+                              title="Utiliser cette sous-catégorie dans la colonne Microstore"
+                              aria-label="Utiliser cette sous-catégorie dans la colonne Microstore"
+                              aria-pressed={isMicrostoreChoice}
+                              className={`inline-flex items-center justify-center w-4 h-4 rounded-full border-2 transition-colors cursor-pointer ${
+                                selected
+                                  ? isMicrostoreChoice
+                                    ? "border-text-inverse"
+                                    : "border-text-inverse/40 hover:border-text-inverse"
+                                  : isMicrostoreChoice
+                                    ? "border-bg-dark"
+                                    : "border-border hover:border-bg-dark"
+                              }`}
+                            >
+                              {isMicrostoreChoice && (
+                                <span
+                                  className={`w-2 h-2 rounded-full ${
+                                    selected ? "bg-text-inverse" : "bg-bg-dark"
+                                  }`}
+                                />
+                              )}
+                            </span>
+                          </button>
                         );
                       })}
                     </div>
+                  )}
+                  {subCategoryIds.length > 0 && (
+                    <p className="text-[11px] text-text-muted font-body mt-2 leading-snug">
+                      Cliquez sur le rond <span className="inline-block align-middle w-2.5 h-2.5 rounded-full border-2 border-text-muted" /> pour choisir l&apos;étiquette envoyée dans la colonne « Catégorie » de l&apos;export Microstore.
+                    </p>
                   )}
                 </div>
               </div>

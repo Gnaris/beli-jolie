@@ -93,10 +93,16 @@ export function productToMicrostoreRows(
     const prix = variantUnitPriceWithMarkup(v, markup);
     const poidsGrammes = Math.round(Number(v.weight) * 1000);
 
+    // Colonne « Catégorie » : si la cliente a choisi une sous-catégorie comme
+    // étiquette Microstore (radio dans la page produit), on l'utilise. Sinon
+    // on retombe sur le comportement historique (catégorie PFS ou locale).
+    const categoryLabel =
+      p.microstoreCategoryOverride || p.pfsCategoryName || p.categoryName || "";
+
     return [
       p.reference, // 1. Référence
       pickTranslation(p, "fr", "name"), // 2. Nom
-      p.pfsCategoryName || p.categoryName || "", // 3. Catégorie
+      categoryLabel, // 3. Catégorie
       1, // 4. Contenu colis (fixe)
       composition, // 5. Composition matérielle
       ctx.shopName, // 6. Marque

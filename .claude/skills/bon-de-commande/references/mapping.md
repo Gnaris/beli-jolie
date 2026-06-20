@@ -18,6 +18,7 @@ Si elle contient `返单`, le produit existe déjà → à mettre dans la liste 
 | 耳环           | Boucles d'oreilles  | —                    | Boucles d'oreilles standard                   |
 | 耳钉           | Boucles d'oreilles  | —                    | Puce d'oreille (stud) — confirmé 2026-06-12   |
 | 耳骨夹         | Boucles d'oreilles  | Clips                | Confirmé par la cliente le 2026-06-12         |
+| 耳夹           | Boucles d'oreilles  | Clips                | Confirmé 2026-06-18 (idem 耳骨夹)             |
 | 单只耳环       | Boucles d'oreilles  | À l'unité            | Une boucle pour une seule oreille (mono-puce) |
 | 项链           | Collier             | —                    | Collier                                       |
 | 胸链           | Collier             | Collier de dos       | Confirmé par la cliente le 2026-06-12         |
@@ -61,6 +62,14 @@ La colonne `颜色` (« yanse ») indique la couleur.
 | 16K金白色      | Blanc       | Fournisseur E : placage 16K + base blanc          |
 | 16K金蓝色      | Bleu        | Fournisseur E : placage 16K + base bleu           |
 | 16K金粉色      | Rose        | Fournisseur E : placage 16K + base rose           |
+| 16K炉内真金    | Doré        | Fournisseur ZC : placage or 16K (confirmé 2026-06-18) |
+| 14K炉内真金    | Doré        | Fournisseur ZC : placage or 14K (confirmé 2026-06-18) |
+| 白             | Blanc       | Fournisseur ZC : abrégé de 白色 (说明) — 2026-06-18 |
+| 粉             | Rose        | Fournisseur ZC : abrégé de 粉色 (说明) — 2026-06-18 |
+| 蓝             | Bleu        | Fournisseur ZC : abrégé de 蓝色 (说明) — 2026-06-18 |
+| 彩             | Multicolore | Fournisseur ZC : abrégé de 七彩 (说明) — 2026-06-18 |
+| 黄             | Jaune       | Fournisseur ZC : abrégé de 黄色 (à créer — 2026-06-18) |
+| 绿             | Vert        | Fournisseur ZC : abrégé de 绿色 (说明) — 2026-06-18 |
 
 ### Convention fournisseur WF (Weifan) — confirmée 2026-06-12
 
@@ -125,6 +134,7 @@ Les couleurs du fournisseur WF utilisent toutes des préfixes/suffixes :
 | W                      | Piment Rouge Bijoux (红辣椒饰品) | Bon traité 2026-06-13 (10 produits, 6 refs déjà en BDD prod exclues). Format PDF scanné (Excel non fourni) → texte lu via pdf-parse. En-tête `产品图片 / 货号 / 款式 / 颜色 / 数量 / 单价 / 金额 / 箱数`. **Particularité prix** : la colonne 单价 ne correspond PAS au prix de vente — le vrai prix est encodé dans le **dernier segment** de la référence (ex `W125-880-380` → 3,80 €). Toutes les couleurs d'un même produit ont donc le même prix. Couleur **间金** (or entremêlé) = **Bicolore**. Tel fournisseur 13957921131. |
 | J                      | YI WU U.N.K (优妮珂饰品厂)    | Bon traité 2026-06-12 (11 produits). Format **très différent** : pas de colonne 品名/颜色/数量 séparée. Tout empilé dans la cellule **客人条码** au format `<ref-fullRef>\n1.<colorZh>：<qty><unit>\n2.<colorZh>：<qty><unit>...` (séparateur fullwidth `：`, unités 对/条/个). En-têtes attendus : `编号 / 箱号 / 图片 / 客人条码 / 打数 / 单位 / 总数量 / 单价 / 总金额 / 箱规`. Parse-po.cjs **ne gère pas ce format** — utiliser le script ad-hoc dans `C:/Users/Admin/AppData/Local/Temp/parse-J-adhoc.cjs` (à intégrer dans parse-po.cjs comme branche conditionnelle). Catégories absentes du bon → toujours overrides cliente. Couleurs « échantillon » et « n° » : 样色蓝 = Bleu, 白色珍珠 = Blanc, 样色 = Écru, 1号红色 = Rouge, 9号粉色 = Rose, 12号蓝色 = Bleu. |
 | ZK                     | 凯西钢饰 (Kaixi Gangshi) C2-4461 — tél 18606896632 | Bon traité 2026-06-13 (7 produits). Format **sans colonne couleur** (juste 箱号 / 货号 / 图片 / 品名 / 装箱数/PCS / 单价/PCS / 金额 / 箱规). En-tête ligne 4. Alias ajoutés : `装箱数/pcs` (qty), `单价/pcs` (price). Parseur rendu tolérant à l'absence de 颜色 → la cliente fournit les couleurs par produit (et la composition) au moment de la génération, stock réparti à parts égales par couleur. Nouvelle composition vue : **« Laiton:50,Acier inoxydable:50 »** (moitié laiton / moitié inox). |
+| ZC                     | Yachan (雅婵饰品)              | Bon traité 2026-06-18 (44 produits, 74 lignes). Format **deux niveaux de couleur** : colonne `电镀颜色` = plating (16K/14K炉内真金 → Doré, 钢色 → Argent) ; colonne `说明` = sous-couleurs avec qty (« 白143，粉71，蓝50，彩73 » → 4 variantes). Règle confirmée 2026-06-18 : si `说明` rempli avec sous-couleurs, **chaque sous-couleur devient une variante** (qty = chiffre suivant) ; si `说明` vide ou texte non-couleur (« 不滴油 »), 1 variante = couleur de plating. Référence dans la colonne `客户编号` (ZC72-660-300 → ref = ZC72). Catégorie dans `品名`. Parseur dédié : `parse-po-zc.cjs`. Fusion auto Doré 14K + Doré 16K. |
 
 > Ajouter chaque nouveau fournisseur découvert (ZC, etc.).
 

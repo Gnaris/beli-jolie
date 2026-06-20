@@ -52,6 +52,7 @@ function makeProduct(over: Partial<ExportProduct> = {}): ExportProduct {
     pfsFamilyName: null,
     pfsCategoryName: null,
     categoryName: "Colliers",
+    microstoreCategoryOverride: null,
     hsCode: "711719",
     efashionCategorieId: null,
     efashionCategoryPath: null,

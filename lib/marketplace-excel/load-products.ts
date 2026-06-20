@@ -68,6 +68,9 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
             efashionCategorieId: true,
           },
         },
+        // Sous-catégorie choisie comme étiquette d'export Microstore (peut être
+        // null = catégorie principale par défaut).
+        microstoreSubCategory: { select: { name: true } },
         hsCode: { select: { code: true } },
         season: {
           select: { name: true, pfsRef: true, efashionCollectionId: true },
@@ -247,6 +250,7 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
       pfsFamilyName: p.category.pfsFamilyName,
       pfsCategoryName: p.category.pfsCategoryName ?? null,
       categoryName: p.category.name,
+      microstoreCategoryOverride: p.microstoreSubCategory?.name ?? null,
       hsCode: p.hsCode?.code ?? null,
       efashionCategorieId,
       efashionCategoryPath: parseEfashionPath(efashionPath),

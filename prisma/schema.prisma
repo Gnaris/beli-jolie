@@ -174,14 +174,17 @@ model CategoryTranslation {
 
 // Sous-catégorie (ex: Sautoir, Jonc)
 model SubCategory {
-  id           String                   @id @default(cuid())
-  name         String
-  slug         String
-  categoryId   String
-  category     Category                 @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  products     Product[]                @relation("ProductSubCategories")
-  translations SubCategoryTranslation[]
-  createdAt    DateTime                 @default(now())
+  id                 String                   @id @default(cuid())
+  name               String
+  slug               String
+  categoryId         String
+  category           Category                 @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  products           Product[]                @relation("ProductSubCategories")
+  // Inverse de Product.microstoreSubCategory — produits qui ont choisi cette
+  // sous-catégorie comme étiquette d'export Microstore.
+  microstoreProducts Product[]                @relation("ProductMicrostoreSubCategory")
+  translations       SubCategoryTranslation[]
+  createdAt          DateTime                 @default(now())
 
   @@unique([name, categoryId])
 }
@@ -291,17 +294,17 @@ model SeasonTranslation {
 
 // Bibliothèque de compositions (matériaux)
 model Composition {
-  id                  String                   @id @default(cuid())
-  name                String                   @unique
-  pfsCompositionRef   String? // Référence composition PFS (ex: "ACIERINOXYDABLE") — pour reverse sync
+  id                 String                   @id @default(cuid())
+  name               String                   @unique
+  pfsCompositionRef  String? // Référence composition PFS (ex: "ACIERINOXYDABLE") — pour reverse sync
   // eFashion : ID composition (autocomplete via /shootings/get-composition-autocomplete)
-  efashionId          Int?
+  efashionId         Int?
   // Faire : libellé matériau en anglais (ex: "Stainless Steel 316L"). Faire
   // accepte un tableau de chaînes libres dans `materials[]`. Saisi à la main.
-  faireMaterialLabel  String?
-  createdAt           DateTime                 @default(now())
-  products            ProductComposition[]
-  translations        CompositionTranslation[]
+  faireMaterialLabel String?
+  createdAt          DateTime                 @default(now())
+  products           ProductComposition[]
+  translations       CompositionTranslation[]
 }
 
 model CompositionTranslation {
@@ -358,57 +361,61 @@ model ProductTag {
 
 // Produit principal
 model Product {
-  id                     String                @id @default(cuid())
-  reference              String                @unique
-  name                   String
-  description            String                @db.Text
-  categoryId             String
-  category               Category              @relation(fields: [categoryId], references: [id])
-  subCategories          SubCategory[]         @relation("ProductSubCategories")
-  colors                 ProductColor[]
-  colorImages            ProductColorImage[]
-  compositions           ProductComposition[]
-  collections            CollectionProduct[]
-  favorites              Favorite[]
-  tags                   ProductTag[]
-  translations           ProductTranslation[]
-  catalogs               CatalogProduct[]
-  restockAlerts          RestockAlert[]
-  isBestSeller           Boolean               @default(false)
-  status                 ProductStatus         @default(OFFLINE)
-  isIncomplete           Boolean               @default(false) // Produit incomplet (manque prix, poids, images, etc.)
+  id                      String                @id @default(cuid())
+  reference               String                @unique
+  name                    String
+  description             String                @db.Text
+  categoryId              String
+  category                Category              @relation(fields: [categoryId], references: [id])
+  subCategories           SubCategory[]         @relation("ProductSubCategories")
+  // Sous-catégorie choisie pour la colonne "Catégorie" de l'export Microstore.
+  // null = catégorie principale (comportement par défaut).
+  microstoreSubCategoryId String?
+  microstoreSubCategory   SubCategory?          @relation("ProductMicrostoreSubCategory", fields: [microstoreSubCategoryId], references: [id], onDelete: SetNull)
+  colors                  ProductColor[]
+  colorImages             ProductColorImage[]
+  compositions            ProductComposition[]
+  collections             CollectionProduct[]
+  favorites               Favorite[]
+  tags                    ProductTag[]
+  translations            ProductTranslation[]
+  catalogs                CatalogProduct[]
+  restockAlerts           RestockAlert[]
+  isBestSeller            Boolean               @default(false)
+  status                  ProductStatus         @default(OFFLINE)
+  isIncomplete            Boolean               @default(false) // Produit incomplet (manque prix, poids, images, etc.)
   // Produits similaires (M2M self)
-  similarProducts        ProductSimilar[]      @relation("PSim_A")
-  similarTo              ProductSimilar[]      @relation("PSim_B")
+  similarProducts         ProductSimilar[]      @relation("PSim_A")
+  similarTo               ProductSimilar[]      @relation("PSim_B")
   // Composition produit (ensemble → sous-produits)
-  bundleChildren         ProductBundle[]       @relation("Bundle_Parent")
-  bundleParents          ProductBundle[]       @relation("Bundle_Child")
+  bundleChildren          ProductBundle[]       @relation("Bundle_Parent")
+  bundleParents           ProductBundle[]       @relation("Bundle_Child")
   // Dimensions optionnelles (en mm)
-  dimensionLength        Float?
-  dimensionWidth         Float?
-  dimensionHeight        Float?
-  dimensionDiameter      Float?
-  dimensionCircumference Float?
+  dimensionLength         Float?
+  dimensionWidth          Float?
+  dimensionHeight         Float?
+  dimensionDiameter       Float?
+  dimensionCircumference  Float?
   // Code SH (Système Harmonisé) — relation vers la bibliothèque HsCode.
   // SetNull : si le code de la bibliothèque est supprimé, le produit perd
   // simplement son code SH.
-  hsCodeId               String?
-  hsCode                 HsCode?               @relation(fields: [hsCodeId], references: [id], onDelete: SetNull)
-  manufacturingCountryId String?
-  manufacturingCountry   ManufacturingCountry? @relation(fields: [manufacturingCountryId], references: [id], onDelete: SetNull)
-  seasonId               String?
-  season                 Season?               @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  hsCodeId                String?
+  hsCode                  HsCode?               @relation(fields: [hsCodeId], references: [id], onDelete: SetNull)
+  manufacturingCountryId  String?
+  manufacturingCountry    ManufacturingCountry? @relation(fields: [manufacturingCountryId], references: [id], onDelete: SetNull)
+  seasonId                String?
+  season                  Season?               @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   // Couleur principale du produit (vue par défaut côté boutique + default_color PFS).
   // Pointe vers une couleur de la liste des variantes OU des packLines.
-  primaryColorId         String?
-  primaryColor           Color?                @relation("ProductPrimaryColor", fields: [primaryColorId], references: [id], onDelete: SetNull)
-  lowStockThreshold      Int?
-  discountPercent        Decimal?              @db.Decimal(5, 2) // Remise en % (ex: 15.00 = -15%). null = pas de remise
-  views                  ProductView[]
-  promotions             PromotionProduct[]
-  createdAt              DateTime              @default(now())
-  updatedAt              DateTime              @updatedAt
-  lastRefreshedAt        DateTime? // Date du dernier "Rafraîchir" (remet en Nouveauté sans toucher createdAt)
+  primaryColorId          String?
+  primaryColor            Color?                @relation("ProductPrimaryColor", fields: [primaryColorId], references: [id], onDelete: SetNull)
+  lowStockThreshold       Int?
+  discountPercent         Decimal?              @db.Decimal(5, 2) // Remise en % (ex: 15.00 = -15%). null = pas de remise
+  views                   ProductView[]
+  promotions              PromotionProduct[]
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+  lastRefreshedAt         DateTime? // Date du dernier "Rafraîchir" (remet en Nouveauté sans toucher createdAt)
 
   sizeDetailsTu String? // Détail taille unique (ex: "52-56"), champ texte libre envoyé à PFS
 
@@ -774,15 +781,15 @@ model ProductColor {
 // pfsSizeRef: 1 correspondance Paris Fashion Shop par taille, obligatoire au niveau app.
 // Nullable en DB pour permettre la création batch puis mapping différé.
 model Size {
-  id            String              @id @default(cuid())
-  name          String              @unique
-  position      Int                 @default(0)
-  pfsSizeRef    String?
-  variantSizes  VariantSize[]
-  packLineSizes PackColorLineSize[] // Tailles utilisées dans une ligne de PACK multi-couleurs
+  id             String              @id @default(cuid())
+  name           String              @unique
+  position       Int                 @default(0)
+  pfsSizeRef     String?
+  variantSizes   VariantSize[]
+  packLineSizes  PackColorLineSize[] // Tailles utilisées dans une ligne de PACK multi-couleurs
   stockMovements StockMovement[]
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@index([pfsSizeRef])
 }

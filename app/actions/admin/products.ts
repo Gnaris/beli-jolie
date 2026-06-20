@@ -33,6 +33,7 @@ import {
   type PackLineInput,
   type SizeEntryInput,
 } from "@/lib/product-variant-validation";
+import { normalizeMicrostoreSubCategoryId } from "@/lib/microstore-subcategory";
 import { validateOverridesNotMatchingPrincipal } from "@/lib/pfs-color-conflicts";
 import {
   isProtectedSizeName,
@@ -183,6 +184,9 @@ export interface ProductInput {
   description: string;
   categoryId: string;
   subCategoryIds: string[];
+  /** Sous-catégorie à utiliser dans la colonne "Catégorie" de l'export Microstore.
+   *  null/undefined = catégorie principale (comportement par défaut). */
+  microstoreSubCategoryId?: string | null;
   colors: ColorInput[];
   // Couleur principale du produit (déterminée au niveau Product). Si null/undefined,
   // auto-assignation par le serveur depuis la 1ʳᵉ couleur disponible.
@@ -319,6 +323,30 @@ async function assignVariantSkus(
 }
 
 // ─────────────────────────────────────────────
+// Vérifier la disponibilité d'une référence (pré-check non-throw)
+// ─────────────────────────────────────────────
+// Appelée par le formulaire avant createProduct / updateProduct pour afficher
+// un message clair à l'utilisatrice. En production, Next.js masque le message
+// des Error remontés depuis une server action ("An error occurred in the Server
+// Components render…") — d'où ce retour { available } qui n'est pas sanitisé.
+
+export async function checkProductReferenceAvailable(
+  reference: string,
+  excludeProductId?: string,
+): Promise<{ available: boolean }> {
+  await requireAdmin();
+  const ref = reference.trim().toUpperCase();
+  if (!ref) return { available: false };
+  const existing = await prisma.product.findFirst({
+    where: excludeProductId
+      ? { reference: ref, NOT: { id: excludeProductId } }
+      : { reference: ref },
+    select: { id: true },
+  });
+  return { available: !existing };
+}
+
+// ─────────────────────────────────────────────
 // Créer un produit
 // ─────────────────────────────────────────────
 
@@ -400,6 +428,10 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       isIncomplete:  input.isIncomplete ?? false,
       primaryColorId: resolvedPrimaryColorId,
       subCategories: { connect: input.subCategoryIds.map((id) => ({ id })) },
+      microstoreSubCategoryId: normalizeMicrostoreSubCategoryId(
+        input.microstoreSubCategoryId,
+        input.subCategoryIds,
+      ),
       tags:          { create: tagRecords.map((t) => ({ tagId: t.id })) },
       dimensionLength:       input.dimensionLength,
       dimensionWidth:        input.dimensionWidth,
@@ -760,6 +792,10 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
         status:        input.status,
         isIncomplete:  input.isIncomplete ?? false,
         subCategories: { set: input.subCategoryIds.map((id) => ({ id })) },
+        microstoreSubCategoryId: normalizeMicrostoreSubCategoryId(
+          input.microstoreSubCategoryId,
+          input.subCategoryIds,
+        ),
         dimensionLength:       input.dimensionLength,
         dimensionWidth:        input.dimensionWidth,
         dimensionHeight:       input.dimensionHeight,
@@ -1832,6 +1868,12 @@ export async function bulkUpdateProductAttributes(
           input.categoryId !== p.categoryId &&
           input.subCategoryIds === undefined;
 
+        // Si la catégorie change OU les sous-cats sont remplacées, la sous-cat
+        // Microstore peut pointer vers une sous-cat qui n'est plus attribuée :
+        // on réinitialise à null (= catégorie principale par défaut).
+        const needsResetMicrostoreSub =
+          needsResetSubCats || input.subCategoryIds !== undefined;
+
         await tx.product.update({
           where: { id: p.id },
           data: {
@@ -1841,6 +1883,9 @@ export async function bulkUpdateProductAttributes(
             }),
             ...(needsResetSubCats && {
               subCategories: { set: [] },
+            }),
+            ...(needsResetMicrostoreSub && {
+              microstoreSubCategoryId: null,
             }),
           },
         });

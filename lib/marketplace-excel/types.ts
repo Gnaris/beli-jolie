@@ -65,6 +65,12 @@ export interface ExportProduct {
   pfsFamilyName: string | null; // ex: "Bijoux_Fantaisie"
   pfsCategoryName: string | null; // ex: "Bagues", "Colliers" — PFS column 4
   categoryName: string; // local name, fallback when pfsCategoryName is null
+  /** Étiquette à utiliser dans la colonne « Catégorie » de l'export Microstore.
+   *  - Si la cliente a choisi une sous-catégorie comme étiquette Microstore :
+   *    nom de cette sous-catégorie.
+   *  - Sinon (défaut) : null. Le générateur retombe alors sur la catégorie
+   *    principale (cf. generate-microstore.ts). */
+  microstoreCategoryOverride: string | null;
 
   /** Code SH (Système Harmonisé) — pour Ankorstore (douane). */
   hsCode: string | null;

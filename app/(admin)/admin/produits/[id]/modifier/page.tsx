@@ -391,6 +391,7 @@ export default async function ModifierProduitPage({
             efashionReferenceBase: product.efashionReferenceBase,
             faireProductId: product.faireProductId,
             primaryColorId: product.primaryColorId ?? null,
+            microstoreSubCategoryId: product.microstoreSubCategoryId ?? null,
           }}
         />
       </div>
@@ -577,6 +578,7 @@ export default async function ModifierProduitPage({
           efashionReferenceBase: product.efashionReferenceBase,
           faireProductId: product.faireProductId,
           primaryColorId: product.primaryColorId ?? null,
+          microstoreSubCategoryId: product.microstoreSubCategoryId ?? null,
         }}
       />
     </ProductEditWrapper>

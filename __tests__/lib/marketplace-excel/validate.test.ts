@@ -28,6 +28,7 @@ function makeProduct(over: Partial<ExportProduct> = {}): ExportProduct {
     pfsFamilyName: "Bijoux_Fantaisie",
     pfsCategoryName: "Colliers",
     categoryName: "Colliers",
+    microstoreCategoryOverride: null,
     hsCode: "711719",
     efashionCategorieId: 160101,
     efashionCategoryPath: { top: "Accessoires", sub: "Bijoux", leaf: "Colliers" },
