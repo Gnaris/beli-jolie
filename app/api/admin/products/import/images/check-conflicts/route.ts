@@ -6,9 +6,19 @@ import { normalizeColorName } from "@/lib/import-processor";
 import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
-// POST — Check for position conflicts before image import
-// Input: { files: { filename, reference, color, position }[] }
-// Output: { conflicts: { filename, reference, color, position, existingImagePath, availablePositions }[] }
+// POST — Analyse pré-import des images
+//
+// Entrée :  { files: { filename, reference, color, position }[] }
+//
+// Sortie :  {
+//   conflicts:       Conflict[]        (position déjà occupée)
+//   missingColors:   MissingColor[]    (réf trouvée, couleur absente du produit)
+//   missingRefs:     MissingRef[]      (référence inexistante en BDD)
+// }
+//
+// Le composant front répartit ces données dans 3 colonnes :
+// « Succès » (rien à signaler), « À corriger » (conflicts + missingColors),
+// « Introuvable » (missingRefs).
 // ─────────────────────────────────────────────
 
 interface FileEntry {
@@ -27,6 +37,31 @@ interface Conflict {
   availablePositions: number[]; // 1-based
 }
 
+interface AvailableColor {
+  id: string;        // ProductColor.id (variante)
+  colorId: string;   // Color.id
+  name: string;
+  hex: string | null;
+  patternImage: string | null;
+}
+
+interface MissingColor {
+  filename: string;
+  reference: string;
+  color: string;
+  position: number;
+  productId: string;
+  productName: string;
+  availableColors: AvailableColor[];
+}
+
+interface MissingRef {
+  filename: string;
+  reference: string;
+  color: string;
+  position: number;
+}
+
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") {
@@ -38,13 +73,11 @@ export async function POST(req: NextRequest) {
     const files: FileEntry[] = body.files ?? [];
 
     if (files.length === 0) {
-      return NextResponse.json({ conflicts: [] });
+      return NextResponse.json({ conflicts: [], missingColors: [], missingRefs: [] });
     }
 
-    // Collect unique references
     const refs = [...new Set(files.map((f) => f.reference.toUpperCase()))];
 
-    // Load products with their variants + images
     const products = await prisma.product.findMany({
       where: { reference: { in: refs } },
       include: {
@@ -74,23 +107,57 @@ export async function POST(req: NextRequest) {
     }
 
     const conflicts: Conflict[] = [];
+    const missingColors: MissingColor[] = [];
+    const missingRefs: MissingRef[] = [];
 
     for (const file of files) {
       const product = productMap.get(file.reference.toUpperCase());
-      if (!product) continue; // product not found — not a conflict, just an error at import time
+      if (!product) {
+        missingRefs.push({
+          filename: file.filename,
+          reference: file.reference,
+          color: file.color,
+          position: file.position,
+        });
+        continue;
+      }
 
-      // Match color (single color only)
       const fileColorName = normalizeColorName(file.color.trim());
-
       const matchingVariants = product.colors.filter(
-        (pc) => pc.color && normalizeColorName(pc.color.name) === fileColorName
+        (pc) => pc.color && normalizeColorName(pc.color.name) === fileColorName,
       );
 
-      if (matchingVariants.length === 0) continue; // color not found — not a conflict
+      if (matchingVariants.length === 0) {
+        // Couleur introuvable sur ce produit — on liste celles disponibles
+        // (dédupliquées par colorId pour éviter les doublons UNIT/PACK).
+        const seen = new Set<string>();
+        const availableColors: AvailableColor[] = [];
+        for (const pc of product.colors) {
+          if (!pc.color || !pc.colorId) continue;
+          if (seen.has(pc.colorId)) continue;
+          seen.add(pc.colorId);
+          availableColors.push({
+            id: pc.id,
+            colorId: pc.colorId,
+            name: pc.color.name,
+            hex: pc.color.hex ?? null,
+            patternImage: pc.color.patternImage ?? null,
+          });
+        }
+        missingColors.push({
+          filename: file.filename,
+          reference: file.reference,
+          color: file.color,
+          position: file.position,
+          productId: product.id,
+          productName: product.name,
+          availableColors,
+        });
+        continue;
+      }
 
       const matchedVariant = matchingVariants[0];
-      const targetOrder = file.position - 1; // convert 1-based to 0-based
-
+      const targetOrder = file.position - 1;
       const scopeKey = `${product.id}::${matchedVariant.colorId}`;
       const scopeImages = imagesByScope.get(scopeKey) ?? [];
 
@@ -113,12 +180,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ conflicts });
+    return NextResponse.json({ conflicts, missingColors, missingRefs });
   } catch (err) {
     logger.error("[check-conflicts]", { error: err });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Erreur serveur." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

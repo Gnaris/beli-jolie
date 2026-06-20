@@ -225,23 +225,29 @@ export default function ImportHistoryClient({
   // ─────────────────────────────────────────────
 
   function ActionsCell({ job }: { job: ImportJobWithDraft }) {
-    // Note (juin 2026) : l'ancienne page « Corriger les erreurs » a été
-    // supprimée — le récap d'import permet désormais de corriger AVANT validation.
-    // Les jobs anciens qui avaient un brouillon d'erreurs sont affichés en lecture
-    // seule via le détail dépliable.
-
-    if (job.status === "FAILED" && job.errorMessage) {
-      return (
-        <span
-          className="text-sm text-[#EF4444] cursor-help underline decoration-dotted"
-          title={job.errorMessage}
+    return (
+      <div className="flex items-center gap-2">
+        <Link
+          href={`/admin/produits/importer/historique/${job.id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center gap-1 text-sm text-text-primary hover:text-bg-dark font-medium underline-offset-2 hover:underline"
         >
-          Voir l&apos;erreur
-        </span>
-      );
-    }
-
-    return <span className="text-sm text-[#999]">—</span>;
+          Détail
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </Link>
+        {job.status === "FAILED" && job.errorMessage && (
+          <span
+            className="text-sm text-[#EF4444] cursor-help"
+            title={job.errorMessage}
+            aria-label="Erreur du job"
+          >
+            ⚠
+          </span>
+        )}
+      </div>
+    );
   }
 
   // ─────────────────────────────────────────────

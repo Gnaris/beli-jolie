@@ -7,6 +7,11 @@ import Image from "@/components/ui/SmartImage";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
 import ErrorPreviewList from "./ErrorPreviewList";
+import ImportPreviewBoard, {
+  type MissingColorInfo,
+  type MissingRefInfo,
+  type PreviewFile,
+} from "./ImportPreviewBoard";
 
 type Step = "upload" | "preview" | "uploading" | "done";
 type ConflictStrategy = "replace" | "next_available" | "shift";
@@ -87,7 +92,10 @@ function buildPreview(files: File[], previews: string[]): FileSummaryGroup[] {
   return [...groups.values()];
 }
 
-const BATCH_SIZE = 50;
+// Petits lots : un FormData de 50 photos = 150-250 Mo, le navigateur fige le
+// thread principal pendant la sérialisation (Chrome affiche « page ne répond
+// pas »). 5 photos par lot = ~25 Mo, la barre de progression bouge souvent.
+const BATCH_SIZE = 5;
 const STRATEGY_LABELS: Record<ConflictStrategy, string> = {
   replace: "Remplacer l\u2019image existante",
   shift: "D\u00e9caler l\u2019existante \u00e0 la position suivante",
@@ -712,6 +720,8 @@ export default function ImportImagesTab() {
 
   // Conflict state
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
+  const [missingColors, setMissingColors] = useState<MissingColorInfo[]>([]);
+  const [missingRefs, setMissingRefs] = useState<MissingRefInfo[]>([]);
   const [conflictChecked, setConflictChecked] = useState(false);
   const [conflictChecking, setConflictChecking] = useState(false);
   const [defaultStrategy, setDefaultStrategy] = useState<ConflictStrategy>("replace");
@@ -1098,14 +1108,25 @@ export default function ImportImagesTab() {
           return { filename: f.name, reference: p.reference, color: o?.color ?? p.color, position: o?.position ?? p.position };
         })
         .filter((f): f is NonNullable<typeof f> => f !== null);
-      if (parsed.length === 0) { setConflicts([]); setConflictChecked(true); return; }
+      if (parsed.length === 0) {
+        setConflicts([]); setMissingColors([]); setMissingRefs([]);
+        setConflictChecked(true); return;
+      }
       const res = await fetch("/api/admin/products/import/images/check-conflicts", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ files: parsed }),
       });
-      if (res.ok) { const data = await res.json(); setConflicts(data.conflicts ?? []); }
-      else { setConflicts([]); }
-    } catch { setConflicts([]); }
+      if (res.ok) {
+        const data = await res.json();
+        setConflicts(data.conflicts ?? []);
+        setMissingColors(data.missingColors ?? []);
+        setMissingRefs(data.missingRefs ?? []);
+      } else {
+        setConflicts([]); setMissingColors([]); setMissingRefs([]);
+      }
+    } catch {
+      setConflicts([]); setMissingColors([]); setMissingRefs([]);
+    }
     finally { setConflictChecked(true); setConflictChecking(false); }
   };
 
@@ -1137,6 +1158,9 @@ export default function ImportImagesTab() {
       setJobId(createdJobId);
       const batches = Math.ceil(files.length / BATCH_SIZE);
       setTotalBatches(batches); setUploadedBatches(0);
+      // Laisse React peindre "Lot 0/N" avant l'envoi du 1er lot (sinon la
+      // barre reste à 0/0 pendant toute la 1re requête).
+      await new Promise((r) => setTimeout(r, 0));
       for (let i = 0; i < batches; i++) {
         const batchFiles = files.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
         const fd = new FormData();
@@ -1173,9 +1197,56 @@ export default function ImportImagesTab() {
     setUploadedBatches(0); setTotalBatches(0); setJobId(null); setJobStatus(null);
     setJobProgress({ processed: 0, total: 0, success: 0, errors: 0, errorDraftId: null, errorMessage: null });
     setErrorPreview([]); setSuccessImages([]); setErrorRows([]); setProductMarketplaces([]);
-    setConflicts([]); setConflictChecked(false); setPerFileResolutions(new Map());
+    setConflicts([]); setMissingColors([]); setMissingRefs([]);
+    setConflictChecked(false); setPerFileResolutions(new Map());
     setOverrides(new Map()); setEditingPosition(null); closeColorModal();
   };
+
+  /** Retire un fichier de la sélection et recalcule les groupes + conflits. */
+  const removeFile = useCallback((filename: string) => {
+    setFiles((prev) => {
+      const next = prev.filter((f) => f.name !== filename);
+      setPreviews((prevP) => {
+        // Garder l'alignement files[i] ↔ previews[i]
+        const idx = prev.findIndex((f) => f.name === filename);
+        if (idx < 0) return prevP;
+        const np = [...prevP];
+        np.splice(idx, 1);
+        return np;
+      });
+      setPreviewGroups(buildPreview(next, []));
+      return next;
+    });
+    setOverrides((prev) => {
+      const next = new Map(prev);
+      next.delete(filename);
+      return next;
+    });
+    setPerFileResolutions((prev) => {
+      const next = new Map(prev);
+      next.delete(filename);
+      return next;
+    });
+    setConflicts((prev) => prev.filter((c) => c.filename !== filename));
+    setMissingColors((prev) => prev.filter((m) => m.filename !== filename));
+    setMissingRefs((prev) => prev.filter((m) => m.filename !== filename));
+  }, []);
+
+  /** Force la couleur d'un fichier et relance la vérification. */
+  const applyColorOverride = useCallback((filename: string, colorName: string) => {
+    setOverride(filename, { color: colorName });
+    const newOv = new Map(overrides);
+    newOv.set(filename, { ...newOv.get(filename), color: colorName });
+    checkConflicts(newOv);
+  }, [overrides]);
+
+  /** Force la position d'un fichier et relance la vérification. */
+  const applyPositionOverride = useCallback((filename: string, position: number) => {
+    setOverride(filename, { position });
+    const newOv = new Map(overrides);
+    newOv.set(filename, { ...newOv.get(filename), position });
+    checkConflicts(newOv);
+  }, [overrides]);
 
   const invalidCount = files.filter((f) => !parseFilename(f.name)).length;
   const validCount = files.length - invalidCount;
@@ -1280,90 +1351,21 @@ export default function ImportImagesTab() {
       {/* Step: Preview */}
       {step === "preview" && (
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-xl p-4 bg-bg-secondary border border-border">
-              <p className="text-2xl font-bold font-heading">{files.length}</p>
-              <p className="text-xs text-[#666] mt-0.5">Images au total</p>
-            </div>
-            <div className="rounded-xl p-4 bg-green-50 border border-border">
-              <p className="text-2xl font-bold text-green-700 font-heading">{validCount}</p>
-              <p className="text-xs text-[#666] mt-0.5">Noms valides</p>
-            </div>
-            <div className={`rounded-xl p-4 border border-border ${invalidCount > 0 ? "bg-amber-50" : "bg-green-50"}`}>
-              <p className={`text-2xl font-bold font-heading ${invalidCount > 0 ? "text-amber-700" : "text-green-700"}`}>{invalidCount}</p>
-              <p className="text-xs text-[#666] mt-0.5">Noms invalides</p>
-            </div>
-          </div>
-
           {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
 
-          {/* Conflict checking spinner */}
-          {conflictChecking && (
+          {/* Vérification en cours — affiché seulement avant la 1re réponse,
+              pour ne pas masquer le tableau de bord pendant les re-checks. */}
+          {conflictChecking && !conflictChecked && (
             <div className="p-4 bg-bg-secondary border border-border rounded-2xl flex items-center gap-3">
               <svg className="w-5 h-5 text-text-primary animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              <p className="text-sm text-[#666] font-body">Vérification des conflits de position...</p>
+              <p className="text-sm text-[#666] font-body">Analyse des images en cours…</p>
             </div>
           )}
 
-          {/* No conflicts */}
-          {conflictChecked && conflicts.length === 0 && (
-            <div className="p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center gap-3">
-              <svg className="w-5 h-5 text-green-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <p className="text-sm text-green-700 font-body">Aucun conflit de position détecté.</p>
-            </div>
-          )}
-
-          {/* Conflicts panel */}
-          {conflictChecked && conflicts.length > 0 && (
-            <div className="bg-bg-primary border border-amber-200 rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-              <div className="px-6 py-4 bg-amber-50 border-b border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <svg className="w-5 h-5 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                  </svg>
-                  <div>
-                    <p className="text-sm font-semibold text-amber-800 font-heading">{conflicts.length} conflit(s) de position</p>
-                    <p className="text-xs text-amber-600 font-body">Des images existent déjà à ces positions. Choisissez quoi faire.</p>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-amber-700 font-body whitespace-nowrap">Par défaut :</label>
-                    <select value={defaultStrategy} onChange={(e) => setDefaultStrategy(e.target.value as ConflictStrategy)}
-                      className="text-xs border border-amber-300 rounded-lg px-2 py-1.5 bg-bg-primary text-text-primary font-body focus:outline-none focus:ring-1 focus:ring-amber-400">
-                      {Object.entries(STRATEGY_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
-                    </select>
-                  </div>
-                  <p className="text-[10px] text-amber-600 font-body italic max-w-[280px] text-right leading-snug">{STRATEGY_DESCRIPTIONS[defaultStrategy]}</p>
-                </div>
-              </div>
-              <div className="divide-y divide-amber-100 max-h-[400px] overflow-y-auto">
-                {conflicts.map((c) => (
-                  <div key={c.filename} className="px-6 py-3 flex items-center gap-4">
-                    <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-amber-200 bg-amber-50 shrink-0">
-                      <Image src={`/${c.existingImagePath}`} alt="Existante" fill className="object-cover" unoptimized />
-                      <span className="absolute bottom-0 left-0 bg-amber-600/80 text-white text-[8px] px-1">P{c.position}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-text-primary font-medium truncate font-body">{c.filename}</p>
-                      <p className="text-[10px] text-[#666] font-body">{c.reference} · {c.color} · Position {c.position}</p>
-                    </div>
-                    <select value={getSelectValue(c.filename)} onChange={(e) => updatePerFileResolution(c.filename, e.target.value)}
-                      className="text-xs border border-border rounded-lg px-2 py-1.5 bg-bg-primary text-text-primary font-body focus:outline-none focus:ring-1 focus:ring-[#1A1A1A] min-w-[220px]">
-                      {Object.entries(STRATEGY_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
-                    </select>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Within-import duplicates warning */}
+          {/* Doublons à l'intérieur du même import */}
           {importDuplicates.size > 0 && (
             <div className="p-4 bg-orange-50 border border-orange-200 rounded-2xl flex items-center gap-3">
               <svg className="w-5 h-5 text-orange-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1375,130 +1377,34 @@ export default function ImportImagesTab() {
             </div>
           )}
 
-          {/* File groups */}
-          <div className="space-y-4">
-            {previewGroups.slice(0, 20).map((group, gi) => (
-              <div key={gi} className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-                <div className="px-6 py-3 bg-bg-secondary border-b border-border flex items-center gap-3">
-                  <span className="font-mono text-sm font-semibold text-text-primary">{group.reference}</span>
-                  <span className="text-xs text-[#666]">{group.files.length} image(s)</span>
-                  {group.files.some((f) => !f.valid) && <span className="ml-auto text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">noms invalides</span>}
-                </div>
-                <div className="grid grid-cols-[64px_1fr_1fr_80px_auto] gap-3 items-center px-4 py-2 bg-[#FAFAFA] border-b border-border-light text-xs font-medium text-[#999] uppercase tracking-wide">
-                  <div>Aperçu</div><div>Fichier</div><div>Couleur</div><div>Position</div><div>Statut</div>
-                </div>
-                <div className="divide-y divide-[#F5F5F5]">
-                  {group.files.map((file, fi) => {
-                    const hasConflict = conflicts.some((cc) => cc.filename === file.name);
-                    const hasDupe = importDuplicates.has(file.name);
-                    const eff = getEffectiveValues(file);
-                    const hasOverride = overrides.has(file.name);
-                    const isEditingPos = editingPosition === file.name;
-                    return (
-                      <div key={fi}>
-                        <div className={`grid grid-cols-[64px_1fr_1fr_80px_auto] gap-3 items-center px-4 py-3 ${hasConflict ? "bg-amber-50/50" : ""}`}>
-                          <div className="relative w-14 h-14 rounded-lg overflow-hidden border border-border bg-bg-secondary">
-                            <Image src={file.url} alt={file.name} fill className="object-cover" unoptimized />
-                          </div>
-                          <p className="text-xs text-[#444] break-all leading-tight">{file.name}</p>
-                          {/* Color — clickable to edit */}
-                          <div className="flex items-center gap-1">
-                            <p className={`text-xs ${file.valid ? "text-text-primary font-medium" : "text-red-500 italic"}`}>
-                              {eff.color || "—"}
-                              {hasOverride && overrides.get(file.name)?.color && (
-                                <span className="ml-1 text-[10px] text-blue-600">(modifié)</span>
-                              )}
-                            </p>
-                            {file.valid && group.reference !== "(référence inconnue)" && (
-                              <button
-                                onClick={() => {
-                                  openColorModal(file.name, group.reference);
-                                  setEditingPosition(null);
-                                }}
-                                className="p-0.5 text-[#999] hover:text-text-primary transition-colors"
-                                title="Modifier la couleur"
-                              >
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                              </button>
-                            )}
-                          </div>
-                          {/* Position — clickable to edit */}
-                          <div className="flex items-center gap-1">
-                            {isEditingPos ? (
-                              <div className="relative" ref={(el) => {
-                                if (el) {
-                                  const handler = (e: MouseEvent) => {
-                                    if (!el.contains(e.target as Node)) {
-                                      setEditingPosition(null);
-                                      document.removeEventListener("mousedown", handler);
-                                    }
-                                  };
-                                  document.addEventListener("mousedown", handler);
-                                }
-                              }}>
-                                <button type="button" className="flex items-center gap-1 px-2 py-1 text-xs font-medium border border-[#1A1A1A] rounded-md bg-bg-primary text-text-primary min-w-[42px] justify-center">
-                                  {eff.position}
-                                  <svg className="w-3 h-3 text-[#999]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                                </button>
-                                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 flex flex-row bg-bg-primary border border-border rounded-lg shadow-[0_4px_16px_rgba(0,0,0,0.12)] overflow-hidden">
-                                  {[1, 2, 3, 4, 5].map((p) => (
-                                    <button
-                                      key={p}
-                                      type="button"
-                                      onClick={() => {
-                                        setOverride(file.name, { position: p });
-                                        setEditingPosition(null);
-                                        const newOv = new Map(overrides);
-                                        newOv.set(file.name, { ...newOv.get(file.name), position: p });
-                                        checkConflicts(newOv);
-                                      }}
-                                      className={`w-8 h-8 text-xs text-center transition-colors cursor-pointer ${
-                                        p === eff.position
-                                          ? "bg-bg-dark text-text-inverse font-semibold"
-                                          : "text-[#666] hover:bg-bg-secondary hover:text-text-primary"
-                                      }`}
-                                    >
-                                      {p}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : (
-                              <>
-                                <p className={`text-xs ${file.valid ? "text-text-primary font-medium" : "text-red-500 italic"}`}>
-                                  {eff.position > 0 ? eff.position : "—"}
-                                  {hasOverride && overrides.get(file.name)?.position && (
-                                    <span className="ml-1 text-[10px] text-blue-600">(modifié)</span>
-                                  )}
-                                </p>
-                                {file.valid && (
-                                  <button
-                                    onClick={() => { setEditingPosition(file.name); closeColorModal(); }}
-                                    className="p-0.5 text-[#999] hover:text-text-primary transition-colors"
-                                    title="Modifier la position"
-                                  >
-                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                                  </button>
-                                )}
-                              </>
-                            )}
-                          </div>
-                          <div>
-                            {hasDupe ? <span className="text-xs text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">Doublon</span>
-                              : hasConflict ? <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">Conflit</span>
-                              : file.valid ? <span className="text-xs text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">Valide</span>
-                              : <span className="text-xs text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">Format</span>}
-                          </div>
-                        </div>
-                        {/* Color edit panel removed — handled by modal */}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-            {previewGroups.length > 20 && <p className="text-sm text-[#999] text-center">… et {previewGroups.length - 20} autres références</p>}
-          </div>
+          {/* Tableau de bord 3 colonnes : Succès / À corriger / Introuvable */}
+          {conflictChecked && (
+            <ImportPreviewBoard
+              files={files.map((f, idx): PreviewFile => {
+                const parsed = parseFilename(f.name);
+                return {
+                  name: f.name,
+                  url: previews[idx] ?? "",
+                  color: parsed?.color ?? "—",
+                  position: parsed?.position ?? 0,
+                  valid: !!parsed,
+                  reference: parsed?.reference ?? "",
+                };
+              })}
+              conflicts={conflicts}
+              missingColors={missingColors}
+              missingRefs={missingRefs}
+              overrides={overrides}
+              perFileResolutions={perFileResolutions}
+              defaultStrategy={defaultStrategy}
+              onDefaultStrategyChange={setDefaultStrategy}
+              onResolutionChange={(filename, strategy) => updatePerFileResolution(filename, strategy)}
+              onColorOverride={applyColorOverride}
+              onOpenColorModal={openColorModal}
+              onPositionOverride={applyPositionOverride}
+              onRemoveFile={removeFile}
+            />
+          )}
 
           <div className="flex items-center justify-between">
             <button onClick={reset} className="btn-secondary">← Changer les images</button>
