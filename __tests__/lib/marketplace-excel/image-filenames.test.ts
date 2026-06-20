@@ -31,20 +31,19 @@ describe("efashionImageFileName", () => {
 });
 
 describe("microstoreImageFileName", () => {
-  it("ajoute +1 supplémentaire sur l'index (`<N+1>`)", () => {
-    // Si order BDD = 1, position PFS = 2, position Microstore = 3.
-    expect(microstoreImageFileName("A2270", "Doré", 1)).toBe("A2270 Doré 3.JPG");
-    expect(microstoreImageFileName("E803", "Argent", 0)).toBe("E803 Argent 2.JPG");
+  it("formate `<ref> <couleur> <N>.JPG` avec N commençant à 1", () => {
+    expect(microstoreImageFileName("A2270", "Doré", 1)).toBe("A2270 Doré 2.JPG");
+    expect(microstoreImageFileName("E803", "Argent", 0)).toBe("E803 Argent 1.JPG");
   });
 
   it("remplace `Brun` ou `brun` par `Marron` (mot entier)", () => {
-    expect(microstoreImageFileName("X", "Brun", 0)).toBe("X Marron 2.JPG");
-    expect(microstoreImageFileName("X", "brun", 0)).toBe("X Marron 2.JPG");
+    expect(microstoreImageFileName("X", "Brun", 0)).toBe("X Marron 1.JPG");
+    expect(microstoreImageFileName("X", "brun", 0)).toBe("X Marron 1.JPG");
     // « brunâtre » ne contient pas le mot « brun » seul → pas remplacé
-    expect(microstoreImageFileName("X", "brunâtre", 0)).toBe("X brunâtre 2.JPG");
+    expect(microstoreImageFileName("X", "brunâtre", 0)).toBe("X brunâtre 1.JPG");
   });
 
   it("préserve `Brun Foncé` ? non — seul `Brun` est un mot entier", () => {
-    expect(microstoreImageFileName("X", "Brun Foncé", 0)).toBe("X Marron Foncé 2.JPG");
+    expect(microstoreImageFileName("X", "Brun Foncé", 0)).toBe("X Marron Foncé 1.JPG");
   });
 });

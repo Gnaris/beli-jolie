@@ -61,6 +61,13 @@ describe("extractFiltersQueryString", () => {
     expect(extracted.get("pfsLink")).toBe("linked");
     expect(extracted.get("ankorsLink")).toBe("unlinked");
   });
+
+  it("garde le filtre syncRequired (synchronisation marketplace nécessaire)", () => {
+    const extracted = new URLSearchParams(
+      extractFiltersQueryString("syncRequired=any"),
+    );
+    expect(extracted.get("syncRequired")).toBe("any");
+  });
 });
 
 describe("hasAnyFilter", () => {

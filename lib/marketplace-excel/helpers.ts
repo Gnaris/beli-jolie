@@ -8,10 +8,9 @@
  *
  *   PFS         : "<ref> <couleur> <N>.JPG"      → espaces, accents, .JPG majuscule
  *   Efashion    : "<ref>-<couleur>-<N>.JPG"      → tirets, accents, .JPG majuscule
- *   Microstore  : "<ref> <couleur> <N+1>.JPG"   + remplace "brun" par "Marron"
+ *   Microstore  : "<ref> <couleur> <N>.JPG"     + remplace "brun" par "Marron"
  *
- * `N` commence à 1 (= `order` BDD + 1). Pour Microstore on incrémente encore d'un
- * cran, comme le fait le script `getMicrostoreName` officiel.
+ * `N` commence à 1 (= `order` BDD + 1) pour les trois marketplaces.
  */
 
 import type { ExportProduct } from "./types";
@@ -89,11 +88,8 @@ export function efashionImageFileName(
 // ─── Microstore ─────────────────────────────────────────────────────────────
 
 /**
- * Build a Microstore image filename : `<reference> <couleur> <position+1>.JPG`,
+ * Build a Microstore image filename : `<reference> <couleur> <position>.JPG`,
  * avec « brun » → « Marron » (convention Microstore officielle).
- *
- * L'incrément +1 supplémentaire reproduit le comportement du script
- * `getMicrostoreName` de la cliente, qui décale les positions d'un cran.
  */
 export function microstoreImageFileName(
   reference: string,
@@ -102,5 +98,5 @@ export function microstoreImageFileName(
 ): string {
   const refPart = cleanReference(reference);
   const colorPart = brunToMarron(cleanColor(variantLabel || "x"));
-  return `${refPart} ${colorPart} ${imageIdx + 2}.JPG`;
+  return `${refPart} ${colorPart} ${imageIdx + 1}.JPG`;
 }
