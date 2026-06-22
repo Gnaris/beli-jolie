@@ -269,7 +269,7 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     unitPrice: num(raw["unit_price"] ?? raw["unit_price *"] ?? raw["prix"] ?? raw["price"] ?? raw["Prix unitaire *"]) ?? 0,
     packQuantity: int(raw["pack_qty"] ?? raw["pack_quantity"] ?? raw["quantite_pack"] ?? raw["Qté pack"]),
     stock: int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"] ?? raw["Stock *"]) ?? 0,
-    weight: num(raw["weight_g"] ?? raw["poids_g"] ?? raw["poids"] ?? raw["Poids (g)"]) ?? undefined,
+    weight: num(raw["weight_kg"] ?? raw["poids_kg"] ?? raw["poids"] ?? raw["Poids (kg)"] ?? raw["Poids (kg) *"]) ?? undefined,
     discountPercent: num(raw["discount_percent"] ?? raw["remise_percent"] ?? raw["Remise %"] ?? raw["discount_value"] ?? raw["remise_valeur"] ?? raw["Valeur remise"]),
     size: str(raw["size"] ?? raw["size *"] ?? raw["taille"] ?? raw["Taille"] ?? raw["Taille *"]) || undefined,
     tags: str(raw["tags"] ?? raw["Tags"]) || undefined,
@@ -337,7 +337,7 @@ export function parseExcel(buffer: Buffer): ProductImportRow[] {
 
 /** Validate a single variant row. Product-level fields (name, category) are
  *  checked separately after grouping, so only variant-level fields are validated here. */
-function validateVariantRow(row: ProductImportRow): string[] {
+export function validateVariantRow(row: ProductImportRow): string[] {
   const errors: string[] = [];
   if (!row.reference) errors.push("Référence manquante.");
   if (!row.color) errors.push("Couleur manquante.");
@@ -345,6 +345,7 @@ function validateVariantRow(row: ProductImportRow): string[] {
   if (!row.size) errors.push("Taille obligatoire.");
   if (!row.unitPrice || row.unitPrice <= 0) errors.push("Prix unitaire invalide.");
   if (row.stock == null || row.stock < 0) errors.push("Stock invalide.");
+  if (row.weight == null || row.weight <= 0) errors.push("Poids (kg) obligatoire.");
   // Validate size format for PACK
   if (row.saleType === "PACK" && row.size) {
     const parsed = parseSizeField(row.size, "PACK");
@@ -829,7 +830,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                         const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
                         return totalQty > 0 ? Math.round(row.unitPrice * totalQty * 100) / 100 : row.unitPrice;
                       })(),
-                      weight: row.weight ? row.weight / 1000 : 0.1,
+                      weight: row.weight ?? 0,
                       stock: row.stock,
                       isPrimary,
                       saleType: row.saleType,

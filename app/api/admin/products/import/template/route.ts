@@ -104,7 +104,7 @@ const VARIANT_COLUMNS: ColumnDef[] = [
   { key: "discount_type", header: "Type remise", width: 15, required: false, description: "PERCENT (seul type supporté)", example: "PERCENT" },
   { key: "discount_value", header: "Valeur remise", width: 15, required: false, description: "Valeur de la remise en %", example: "10" },
   // — Logistique —
-  { key: "weight_g", header: "Poids (g)", width: 12, required: false, description: "Poids en grammes", example: "30" },
+  { key: "weight_kg", header: "Poids (kg) *", width: 12, required: true, description: "Poids en kilogrammes", example: "0.030" },
 ];
 
 const COLUMNS: ColumnDef[] = [...PRODUCT_COLUMNS, ...VARIANT_COLUMNS];

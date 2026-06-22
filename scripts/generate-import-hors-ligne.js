@@ -59,7 +59,7 @@ const VARIANT_COLUMNS = [
   { key: "pack_qty", header: "Qté pack", width: 12, required: false, example: "" },
   { key: "discount_type", header: "Type remise", width: 15, required: false, example: "PERCENT" },
   { key: "discount_value", header: "Valeur remise", width: 15, required: false, example: "10" },
-  { key: "weight_g", header: "Poids (g)", width: 12, required: false, example: "30" },
+  { key: "weight_kg", header: "Poids (kg) *", width: 12, required: true, example: "0.030" },
 ];
 
 const COLUMNS = [...PRODUCT_COLUMNS, ...VARIANT_COLUMNS];

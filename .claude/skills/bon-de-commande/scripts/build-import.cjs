@@ -93,7 +93,7 @@ const VARIANT_COLUMNS = [
   { key: "pack_qty", header: "Qté pack", width: 12, required: false, example: "" },
   { key: "discount_type", header: "Type remise", width: 15, required: false, example: "PERCENT" },
   { key: "discount_value", header: "Valeur remise", width: 15, required: false, example: "10" },
-  { key: "weight_g", header: "Poids (g)", width: 12, required: false, example: "30" },
+  { key: "weight_kg", header: "Poids (kg) *", width: 12, required: true, example: "0.030" },
 ];
 
 const COLUMNS = [...PRODUCT_COLUMNS, ...VARIANT_COLUMNS];
@@ -192,7 +192,7 @@ async function main() {
         pack_qty: v.pack_qty || "",
         discount_type: v.discount_type || "",
         discount_value: v.discount_value || "",
-        weight_g: v.weight_g || "",
+        weight_kg: v.weight_kg || "",
       });
     });
   }
@@ -306,7 +306,7 @@ async function main() {
         vertical: "middle",
         wrapText: col.key === "description",
         horizontal: [
-          "sale_type", "unit_price", "pack_qty", "stock", "weight_g",
+          "sale_type", "unit_price", "pack_qty", "stock", "weight_kg",
           "discount_type", "discount_value", "size", "best_seller",
           "dimension_length", "dimension_width", "dimension_height",
           "dimension_diameter", "dimension_circumference",

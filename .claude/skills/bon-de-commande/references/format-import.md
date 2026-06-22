@@ -50,7 +50,7 @@ Référence : `scripts/generate-import-hors-ligne.js` à la racine du projet.
 | `pack_qty`       | Qté pack         | non         |         |
 | `discount_type`  | Type remise      | non         | PERCENT |
 | `discount_value` | Valeur remise    | non         | 10      |
-| `weight_g`       | Poids (g)        | non         | 30      |
+| `weight_kg`      | Poids (kg) *     | oui         | 0.030   |
 
 ## Règles de validation Excel (data validation)
 
