@@ -22,6 +22,8 @@ interface CheckItem {
   label: string;
   done: boolean;
   detail?: string;
+  /** Si vrai, affiche le `detail` même quand `done=true`, en couleur d'alerte. */
+  detailIsWarning?: boolean;
 }
 
 function computeChecklist(input: ChecklistInput): CheckItem[] {
@@ -141,34 +143,42 @@ function computeChecklist(input: ChecklistInput): CheckItem[] {
       done: allSizesOk,
     });
 
-    // 11. All variant groups have images (including multi-color pack line colors)
+    // 11. Au moins une couleur a au moins une image. Les couleurs sans image
+    //     sont autorisées : elles seront masquées côté public et ignorées sur
+    //     les marketplaces (le bandeau d'alerte du form le rappelle).
     const checkedGroupKeys = new Set<string>();
-    let missingImageCount = 0;
+    let groupsTotal = 0;
+    let groupsWithImage = 0;
     for (const v of input.variants) {
       if (isMultiColorPack(v)) {
-        // Check each pack line color individually
         for (const line of v.packLines) {
           if (!line.colorId || checkedGroupKeys.has(line.colorId)) continue;
           checkedGroupKeys.add(line.colorId);
+          groupsTotal++;
           const ci = input.colorImages.find((c) => c.groupKey === line.colorId);
-          if (!ci || ci.imagePreviews.length === 0) missingImageCount++;
+          if (ci && ci.imagePreviews.length > 0) groupsWithImage++;
         }
       } else {
         const gk = imageGroupKeyFromVariant(v);
         if (checkedGroupKeys.has(gk)) continue;
         checkedGroupKeys.add(gk);
+        groupsTotal++;
         const ci = input.colorImages.find((c) => c.groupKey === gk);
-        if (!ci || ci.imagePreviews.length === 0) missingImageCount++;
+        if (ci && ci.imagePreviews.length > 0) groupsWithImage++;
       }
     }
+    const missingImageCount = groupsTotal - groupsWithImage;
     items.push({
       key: "images",
-      label: "Images par couleur",
-      done: missingImageCount === 0,
+      label: "Au moins une couleur avec image",
+      done: groupsWithImage > 0,
       detail:
-        missingImageCount > 0
-          ? `${missingImageCount} couleur(s) sans image`
-          : undefined,
+        groupsWithImage === 0
+          ? "aucune image"
+          : missingImageCount > 0
+            ? `${missingImageCount} couleur(s) sans image, sera masquée`
+            : undefined,
+      detailIsWarning: groupsWithImage > 0 && missingImageCount > 0,
     });
   }
 
@@ -316,8 +326,14 @@ export default function CompletenessChecklist({
                 >
                   {item.label}
                 </span>
-                {item.detail && !item.done && (
-                  <span className="text-[10px] text-[#EF4444] font-body">
+                {item.detail && (!item.done || item.detailIsWarning) && (
+                  <span
+                    className={`text-[10px] font-body ${
+                      item.done && item.detailIsWarning
+                        ? "text-[#F59E0B]"
+                        : "text-[#EF4444]"
+                    }`}
+                  >
                     ({item.detail})
                   </span>
                 )}

@@ -12,13 +12,13 @@ describe("applyMissingImageDowngrade", () => {
     expect(result.missingColorIds).toEqual([]);
   });
 
-  it("force OFFLINE quand une couleur n'a aucune image", () => {
+  it("garde ONLINE quand au moins une couleur a une image (les autres seront masquées côté visiteur)", () => {
     const result = applyMissingImageDowngrade(
       "ONLINE",
       ["argent", "dore"],
       ["argent"],
     );
-    expect(result.status).toBe("OFFLINE");
+    expect(result.status).toBe("ONLINE");
     expect(result.missingColorIds).toEqual(["dore"]);
   });
 
@@ -32,7 +32,7 @@ describe("applyMissingImageDowngrade", () => {
     expect(result.missingColorIds.sort()).toEqual(["argent", "dore"]);
   });
 
-  it("ne touche pas à OFFLINE même si des couleurs manquent (statut PFS = OFFLINE)", () => {
+  it("ne touche pas à OFFLINE et signale toujours les couleurs manquantes (statut PFS = OFFLINE)", () => {
     // Le produit est déjà hors ligne côté PFS (DRAFT, ARCHIVED…), on conserve.
     const result = applyMissingImageDowngrade(
       "OFFLINE",
@@ -64,5 +64,15 @@ describe("applyMissingImageDowngrade", () => {
     );
     expect(result.status).toBe("OFFLINE");
     expect(result.missingColorIds).toEqual(["dore"]);
+  });
+
+  it("garde ONLINE pour un produit à 3 couleurs dont une seule a une image", () => {
+    const result = applyMissingImageDowngrade(
+      "ONLINE",
+      ["argent", "dore", "rose"],
+      ["argent"],
+    );
+    expect(result.status).toBe("ONLINE");
+    expect(result.missingColorIds.sort()).toEqual(["dore", "rose"]);
   });
 });

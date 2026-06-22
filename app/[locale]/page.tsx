@@ -128,19 +128,23 @@ function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string,
       name:      p.name,
       reference: p.reference,
       category:  p.category.name,
-      colors:    [...colorMap.values()].map((c) => ({
-        id:              c.colorId,
-        groupKey:        c.groupKey,
-        hex:             c.hex,
-        patternImage:    c.patternImage,
-        name:            c.name,
-        firstImage:      imageMap.get(p.id)?.get(c.colorId) ?? null,
-        unitPrice:       c.unitPrice,
-        discountedPrice: c.discountedPrice,
-        hasDiscount:     c.hasDiscount,
-        isPrimary:       c.isPrimary,
-        variants:        c.variants,
-      })),
+      // Masque les couleurs sans aucune image (cohérent avec la fiche produit
+      // et les push marketplaces).
+      colors:    [...colorMap.values()]
+        .map((c) => ({
+          id:              c.colorId,
+          groupKey:        c.groupKey,
+          hex:             c.hex,
+          patternImage:    c.patternImage,
+          name:            c.name,
+          firstImage:      imageMap.get(p.id)?.get(c.colorId) ?? null,
+          unitPrice:       c.unitPrice,
+          discountedPrice: c.discountedPrice,
+          hasDiscount:     c.hasDiscount,
+          isPrimary:       c.isPrimary,
+          variants:        c.variants,
+        }))
+        .filter((c) => c.firstImage != null),
     };
   });
 }

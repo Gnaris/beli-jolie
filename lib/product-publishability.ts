@@ -88,18 +88,20 @@ export function evaluateProductPublishability(
   if (product.variants.length === 0) {
     reasons.push("Au moins une variante de couleur est requise");
   } else {
-    // Image par couleur : on déduplique par colorId (toutes les variantes d'une
-    // même couleur partagent le même jeu d'images).
+    // Le produit est publiable dès qu'au moins une couleur a une image.
+    // Les couleurs sans image ne bloquent plus : elles seront masquées côté
+    // public et ignorées côté push marketplaces (cf. lib/variant-image-coverage).
     const checkedColorIds = new Set<string>();
+    let anyColorHasImage = false;
     for (const v of product.variants) {
       if (!v.colorId) continue;
       if (checkedColorIds.has(v.colorId)) continue;
       checkedColorIds.add(v.colorId);
       const count = product.imageCountByColorId[v.colorId] ?? 0;
-      if (count === 0) {
-        const label = v.colorName || "variante pack";
-        reasons.push(`Variante "${label}" : aucune image`);
-      }
+      if (count > 0) anyColorHasImage = true;
+    }
+    if (!anyColorHasImage && checkedColorIds.size > 0) {
+      reasons.push("Aucune couleur n'a d'image — il en faut au moins une");
     }
 
     for (const v of product.variants) {

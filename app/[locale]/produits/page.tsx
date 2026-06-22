@@ -104,7 +104,10 @@ function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, str
       if (primaryColorId != null && v.colorId === primaryColorId) cd.isPrimary = true;
       cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: (v.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0 });
     }
-    return { ...p, colors: [...colorMap.values()] };
+    // Masque les couleurs sans aucune image — cohérent avec la fiche produit
+    // et le push marketplaces : une variante sans photo n'est jamais montrée.
+    const visibleColors = [...colorMap.values()].filter((cd) => cd.firstImage != null);
+    return { ...p, colors: visibleColors };
   });
 }
 

@@ -184,7 +184,9 @@ export default async function FavorisPage({ searchParams }: PageProps) {
       if (isPrimaryColor) cd.isPrimary = true;
       cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: ((v as any).variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0 });
     }
-    return { ...fav, product: { ...p, colors: [...colorMap.values()] } };
+    // Masque les couleurs sans aucune image (cohérent avec la fiche produit).
+    const visibleColors = [...colorMap.values()].filter((cd) => cd.firstImage != null);
+    return { ...fav, product: { ...p, colors: visibleColors } };
   });
 
   const now = Date.now();

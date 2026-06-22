@@ -115,9 +115,12 @@ export function pfsStatusToBjStatus(
 }
 
 /**
- * Force OFFLINE quand au moins une couleur du produit n'a aucune image
- * téléchargée. Cohérent avec la règle de validation du formulaire admin :
- * un produit en ligne doit avoir au moins une photo par couleur.
+ * Force OFFLINE uniquement quand AUCUNE couleur du produit n'a la moindre
+ * image téléchargée. Cohérent avec la règle de validation du formulaire admin :
+ * un produit peut être en ligne tant qu'au moins une couleur a une image — les
+ * autres couleurs sont masquées côté public et ignorées côté push marketplaces.
+ * `missingColorIds` reste renseigné pour informer l'utilisateur des couleurs
+ * sans image (warning), même quand le statut n'est pas dégradé.
  */
 export function applyMissingImageDowngrade(
   initialStatus: "ONLINE" | "OFFLINE",
@@ -127,7 +130,8 @@ export function applyMissingImageDowngrade(
   const wanted = new Set(variantColorIds);
   const have = new Set(imageColorIds);
   const missing = [...wanted].filter((cid) => !have.has(cid));
-  if (initialStatus === "ONLINE" && missing.length > 0) {
+  const noneHasImage = wanted.size > 0 && missing.length === wanted.size;
+  if (initialStatus === "ONLINE" && noneHasImage) {
     return { status: "OFFLINE", missingColorIds: missing };
   }
   return { status: initialStatus, missingColorIds: missing };
@@ -1598,7 +1602,16 @@ export async function approveAndImportPfsProduct(
       .map((cid) => colorNameMap.get(cid) ?? cid)
       .join(", ");
     warnings.push(
-      `Produit basculé en OFFLINE car ${colorsMissingImages.length} couleur(s) sans image : ${missingNames}`,
+      `Produit basculé en OFFLINE car aucune couleur n'a d'image : ${missingNames}`,
+    );
+  } else if (colorsMissingImages.length > 0) {
+    // Statut conservé mais certaines couleurs n'ont pas d'image → elles seront
+    // masquées côté visiteur et ignorées sur les marketplaces.
+    const missingNames = colorsMissingImages
+      .map((cid) => colorNameMap.get(cid) ?? cid)
+      .join(", ");
+    warnings.push(
+      `${colorsMissingImages.length} couleur(s) sans image (masquée(s) côté visiteur et ignorée(s) sur les marketplaces) : ${missingNames}`,
     );
   }
 

@@ -1243,17 +1243,20 @@ export default function ProductForm({
     if (variants.length === 0) {
       errors.push("Au moins une variante de couleur est requise");
     } else {
-      // Every variant must have at least one image (deduplicate by groupKey)
+      // Le produit est publiable dès qu'au moins une couleur a une image.
+      // Les couleurs sans image seront masquées côté public et ignorées sur
+      // les marketplaces (bandeau d'alerte rappelé dans le form).
       const checkedGroupKeys = new Set<string>();
+      let anyColorHasImage = false;
       for (const v of variants) {
         const gk = imageGroupKeyFromVariant(v);
         if (checkedGroupKeys.has(gk)) continue;
         checkedGroupKeys.add(gk);
         const ci = colorImages.find((c) => c.groupKey === gk);
-        if (!ci || ci.imagePreviews.length === 0) {
-          const label = v.colorName || "variante pack";
-          errors.push(`Variante "${label}" : aucune image`);
-        }
+        if (ci && ci.imagePreviews.length > 0) anyColorHasImage = true;
+      }
+      if (!anyColorHasImage && checkedGroupKeys.size > 0) {
+        errors.push("Aucune couleur n'a d'image — il en faut au moins une");
       }
       // Variant-level completeness
       for (const v of variants) {
@@ -2816,6 +2819,75 @@ export default function ProductForm({
               Au moins une variante de couleur est obligatoire pour créer le produit.
             </p>
           )}
+
+          {(() => {
+            // Bandeau d'alerte : liste les couleurs sans aucune image. Elles
+            // restent autorisées mais seront masquées côté public et ignorées
+            // sur les marketplaces tant qu'une image n'y sera pas ajoutée.
+            // (Si AUCUNE couleur n'a d'image, la checklist signale déjà
+            // l'erreur bloquante — on n'affiche pas le bandeau dans ce cas.)
+            const seen = new Set<string>();
+            const missingLabels: string[] = [];
+            let anyHasImage = false;
+            for (const v of variants) {
+              if (isMultiColorPack(v)) {
+                for (const line of v.packLines) {
+                  if (!line.colorId || seen.has(line.colorId)) continue;
+                  seen.add(line.colorId);
+                  const ci = colorImages.find((c) => c.groupKey === line.colorId);
+                  if (ci && ci.imagePreviews.length > 0) {
+                    anyHasImage = true;
+                  } else {
+                    missingLabels.push(line.colorName || "couleur sans nom");
+                  }
+                }
+              } else {
+                const gk = imageGroupKeyFromVariant(v);
+                if (seen.has(gk)) continue;
+                seen.add(gk);
+                const ci = colorImages.find((c) => c.groupKey === gk);
+                if (ci && ci.imagePreviews.length > 0) {
+                  anyHasImage = true;
+                } else {
+                  missingLabels.push(v.colorName || "couleur sans nom");
+                }
+              }
+            }
+            if (!anyHasImage || missingLabels.length === 0) return null;
+            const plural = missingLabels.length > 1;
+            return (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex gap-3 items-start">
+                <svg
+                  className="w-5 h-5 text-amber-600 shrink-0 mt-0.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z"
+                  />
+                </svg>
+                <div className="text-[13px] font-body text-amber-900 leading-relaxed">
+                  <p className="font-semibold mb-0.5">
+                    {missingLabels.length} couleur{plural ? "s" : ""} sans image
+                  </p>
+                  <p>
+                    {plural ? "Les couleurs " : "La couleur "}
+                    <span className="font-semibold">
+                      {missingLabels.join(", ")}
+                    </span>{" "}
+                    {plural ? "seront masquées" : "sera masquée"} sur le site et{" "}
+                    {plural ? "ignorées" : "ignorée"} lors des envois aux marketplaces
+                    (PFS, Ankorstore, eFashion) tant qu'aucune image n'y sera ajoutée.
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
 
           <ColorVariantManager
             variants={variants}

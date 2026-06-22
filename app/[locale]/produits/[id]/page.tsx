@@ -222,21 +222,10 @@ export default async function ProduitDetailPage({ params }: PageProps) {
       : Promise.resolve(null),
   ]);
 
-  // Filter out OOS variants if config says so
-  const showOosVariants = stockVariantsConfig?.value !== "false";
-  const filteredColors = showOosVariants
-    ? product.colors
-    : product.colors.filter((pc) => pc.stock > 0);
-
-  // Couleur principale via helper (Product.primaryColorId + fallback isPrimary).
-  const primaryColorIdResolved = getProductPrimaryColorId({
-    primaryColorId: product.primaryColorId,
-    colors: product.colors,
-  });
-
-  // Build variant group keys: colorId
+  // Build variant group keys: colorId (sur TOUTES les variantes — sert au
+  // filtrage "couleur sans image" ci-dessous).
   const pcGroupKeys = new Map<string, string>();
-  for (const pc of filteredColors) {
+  for (const pc of product.colors) {
     const gk = pc.colorId
       ? pc.colorId
       : `pack::${pc.id}`; // PACK variants get a unique key per variant
@@ -250,6 +239,27 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     if (!imagesByGroup.has(gk)) imagesByGroup.set(gk, []);
     imagesByGroup.get(gk)!.push({ path: img.path, order: img.order });
   }
+
+  // Masquage automatique des couleurs sans aucune image — côté visiteur, une
+  // variante sans photo n'a pas de carte à afficher. Cohérent avec les push
+  // marketplaces qui ignorent aussi ces couleurs (lib/variant-image-coverage).
+  const colorsWithImages = product.colors.filter((pc) => {
+    const gk = pcGroupKeys.get(pc.id);
+    return gk ? imagesByGroup.has(gk) : false;
+  });
+
+  // Filter out OOS variants if config says so
+  const showOosVariants = stockVariantsConfig?.value !== "false";
+  const filteredColors = showOosVariants
+    ? colorsWithImages
+    : colorsWithImages.filter((pc) => pc.stock > 0);
+
+  // Couleur principale via helper (Product.primaryColorId + fallback isPrimary).
+  const primaryColorIdResolved = getProductPrimaryColorId({
+    primaryColorId: product.primaryColorId,
+    colors: product.colors,
+  });
+
   for (const imgs of imagesByGroup.values()) imgs.sort((a, b) => a.order - b.order);
   // Deduplicate images with same path across variants in the same group
   const colorImagesForDetail = [...imagesByGroup.entries()].map(([gk, imgs]) => {

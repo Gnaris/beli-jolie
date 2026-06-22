@@ -184,7 +184,9 @@ export default async function CollectionDetailPage({ params }: PageProps) {
                   if (isPrimaryColor) cd.isPrimary = true;
                   cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: ((v as any).variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0 });
                 }
-                const colors = [...colorMap.values()];
+                // Masque les couleurs sans aucune image (cohérent avec la
+                // fiche produit et les push marketplaces).
+                const colors = [...colorMap.values()].filter((cd) => cd.firstImage != null);
 
                 return (
                   <ProductCard

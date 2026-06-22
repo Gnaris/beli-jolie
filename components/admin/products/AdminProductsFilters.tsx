@@ -12,6 +12,20 @@ import {
 
 const PRESET_PER_PAGE = [20, 30, 50, 100];
 
+// Parse une query string `q=REF1,REF2,REF3` en liste de termes nettoyés.
+export function parseQuery(raw: string): string[] {
+  return raw.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
+}
+
+// Décide s'il faut relancer la recherche après retrait d'un badge. On ne le
+// fait que si le terme retiré faisait effectivement partie de l'URL courante :
+// retirer un badge ajouté localement mais pas encore appliqué ne doit pas
+// déclencher de navigation.
+export function shouldRefetchAfterBadgeRemove(removed: string | undefined, urlQ: string): boolean {
+  if (removed === undefined) return false;
+  return parseQuery(urlQ).includes(removed);
+}
+
 interface SubCategoryOption { id: string; name: string }
 interface CategoryOption { id: string; name: string; subCategories?: SubCategoryOption[] }
 interface TagOption { id: string; name: string }
@@ -57,8 +71,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const perPage      = searchParams.get("perPage")    ?? "20";
 
   // Parse "REF1,REF2,REF3" → ["REF1", "REF2", "REF3"]
-  const parseQ = (raw: string): string[] =>
-    raw.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
+  const parseQ = (raw: string): string[] => parseQuery(raw);
 
   // Local state for all text/number/date inputs (not applied until button click)
   const [localTerms, setLocalTerms]       = useState<string[]>(parseQ(urlQ));
@@ -140,13 +153,16 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   );
 
   // Apply all local filter values at once. Optionally accept a "pending draft"
-  // so the user doesn't have to press Enter twice (one to badge, one to search).
-  const applyFilters = useCallback((pendingDraft?: string) => {
+  // so the user doesn't have to press Enter twice (one to badge, one to search),
+  // or an explicit list of terms (used when removing a badge to avoid waiting
+  // for the async state update).
+  const applyFilters = useCallback((opts?: { pendingDraft?: string; termsOverride?: string[] }) => {
     const params = new URLSearchParams(searchParams.toString());
-    const draftTrimmed = (pendingDraft ?? "").trim();
-    const terms = draftTrimmed && !localTerms.includes(draftTrimmed)
-      ? [...localTerms, draftTrimmed]
-      : localTerms;
+    const draftTrimmed = (opts?.pendingDraft ?? "").trim();
+    const baseTerms = opts?.termsOverride ?? localTerms;
+    const terms = draftTrimmed && !baseTerms.includes(draftTrimmed)
+      ? [...baseTerms, draftTrimmed]
+      : baseTerms;
 
     const updates: Record<string, string> = {
       q: terms.join(","),
@@ -179,9 +195,17 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
     return true;
   }, [draft, localTerms]);
 
+  // Retire un badge. Si ce badge faisait partie de la recherche en cours (URL),
+  // relance automatiquement la recherche avec la liste mise à jour pour éviter
+  // un clic supplémentaire sur "Rechercher".
   const removeTerm = useCallback((idx: number) => {
-    setLocalTerms((prev) => prev.filter((_, i) => i !== idx));
-  }, []);
+    const removed = localTerms[idx];
+    const next = localTerms.filter((_, i) => i !== idx);
+    setLocalTerms(next);
+    if (shouldRefetchAfterBadgeRemove(removed, urlQ)) {
+      applyFilters({ termsOverride: next });
+    }
+  }, [localTerms, urlQ, applyFilters]);
 
   // Copie le texte du badge dans le presse-papier et bascule l'icône en "check" 1.2s.
   const copyTerm = useCallback(async (term: string, idx: number) => {
@@ -214,7 +238,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
       if (draft.trim().length > 0) {
         const v = draft.trim();
         commitDraft();
-        applyFilters(v);
+        applyFilters({ pendingDraft: v });
       } else {
         applyFilters();
       }

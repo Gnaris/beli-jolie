@@ -118,26 +118,43 @@ describe("evaluateProductPublishability", () => {
     expect(res.reasons).toContain("Au moins une variante de couleur est requise");
   });
 
-  it("signale une variante sans image", () => {
+  it("signale uniquement quand aucune couleur n'a d'image", () => {
     const res = evaluateProductPublishability(
       makeProduct({ imageCountByColorId: { "color-1": 0 } }),
     );
     expect(res.eligible).toBe(false);
-    expect(res.reasons.some((r) => r.includes("aucune image"))).toBe(true);
+    expect(
+      res.reasons.some((r) =>
+        r.includes("Aucune couleur n'a d'image"),
+      ),
+    ).toBe(true);
   });
 
-  it("ne dédoublonne pas l'erreur d'image quand 2 variantes partagent la même couleur", () => {
+  it("accepte un produit dont seule UNE des couleurs a des images (les autres sont silencieusement ignorées)", () => {
+    const res = evaluateProductPublishability(
+      makeProduct({
+        variants: [
+          makeVariant({ id: "v1", colorId: "color-1", colorName: "Doré" }),
+          makeVariant({ id: "v2", colorId: "color-2", colorName: "Argenté" }),
+        ],
+        imageCountByColorId: { "color-1": 2, "color-2": 0 },
+      }),
+    );
+    expect(res.eligible).toBe(true);
+    expect(res.reasons).toEqual([]);
+  });
+
+  it("ne bloque pas quand 2 variantes partagent la même couleur et qu'elle a au moins une image", () => {
     const res = evaluateProductPublishability(
       makeProduct({
         variants: [
           makeVariant({ id: "v1", colorId: "color-1", saleType: "UNIT" }),
           makeVariant({ id: "v2", colorId: "color-1", saleType: "PACK", packQuantity: 5 }),
         ],
-        imageCountByColorId: { "color-1": 0 },
+        imageCountByColorId: { "color-1": 1 },
       }),
     );
-    const imageErrors = res.reasons.filter((r) => r.includes("aucune image"));
-    expect(imageErrors.length).toBe(1);
+    expect(res.eligible).toBe(true);
   });
 
   it("signale un poids invalide", () => {
