@@ -508,7 +508,7 @@ export async function GET() {
   const legendStart = Math.max(...refColumns.map((rc) => REF_DATA_START_ROW + rc.values.length)) + 2;
   refSheet.mergeCells(`A${legendStart}:${refLastCol}${legendStart}`);
   const legendCell = refSheet.getCell(`A${legendStart}`);
-  legendCell.value = "💡  Astuce  —  La feuille Produits propose des listes déroulantes sur Catégorie, Sous-catégorie (filtrée par la catégorie choisie, valeur unique obligatoirement dans la liste), Tags, Couleur, Couleur principale, Pays, Saison et Code SH. Pour les colonnes multi-valeurs (tags, composition, taille PACK), plusieurs valeurs séparées par des virgules sont autorisées. Si une catégorie n'a pas de sous-catégorie en base, la cellule Sous-catégorie correspondante est verrouillée — laissez-la vide. La colonne B ci-contre liste sur chaque ligne les sous-catégories rattachées à la catégorie de la colonne A.";
+  legendCell.value = "💡  Astuce  —  La feuille Produits propose des listes déroulantes sur Catégorie, Sous-catégorie (filtrée par la catégorie choisie, valeur unique obligatoirement dans la liste), Tags, Taille, Couleur, Couleur principale, Pays, Saison et Code SH. Pour les colonnes multi-valeurs (tags, composition, taille PACK), plusieurs valeurs séparées par des virgules sont autorisées — pour Taille au format « taille:qté » (ex : S:2,M:3). Si une catégorie n'a pas de sous-catégorie en base, la cellule Sous-catégorie correspondante est verrouillée — laissez-la vide. La colonne B ci-contre liste sur chaque ligne les sous-catégories rattachées à la catégorie de la colonne A.";
   legendCell.font = { name: "Calibri", size: 10, italic: true, color: { argb: COLORS.refLegendText } };
   legendCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.refLegendBg } };
   legendCell.alignment = { horizontal: "left", vertical: "middle", wrapText: true, indent: 1 };
@@ -598,6 +598,37 @@ export async function GET() {
           promptTitle: "Tags",
           prompt:
             "Cliquez sur la flèche pour voir les tags existants. Pour en saisir plusieurs, tapez-les séparés par des virgules.",
+        };
+      }
+    }
+  }
+
+  // ── Tailles : flat dropdown (saisie libre pour le format PACK) ──
+  // UNIT  : une seule taille (« M », « 42 »)
+  // PACK  : format « taille:qté » séparé par des virgules (« S:2,M:3,L:1 »)
+  // Le dropdown sert d'aide-mémoire à l'orthographe ; la saisie libre
+  // reste autorisée pour le format PACK.
+  const sizeCol = findCol("size");
+  if (sizeNames.length === 0) {
+    attachEmptyOnly(
+      sizeCol,
+      "Aucune taille disponible",
+      "Aucune taille n'est définie en base. Ajoutez-en d'abord depuis l'admin (Produits › Tailles) avant d'utiliser cette colonne.",
+    );
+  } else {
+    const sizesFormula = buildRangeFormula("F", sizeNames.length);
+    if (sizesFormula) {
+      for (let r = dataStartRow; r <= dataEndRow; r++) {
+        ws.getCell(r, sizeCol).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [sizesFormula],
+          // multi-valeur / format PACK autorisé → saisie libre non bloquée
+          showErrorMessage: false,
+          showInputMessage: true,
+          promptTitle: "Taille",
+          prompt:
+            "UNIT : choisissez une taille dans la liste. PACK : tapez les tailles avec quantités au format « taille:qté » séparées par des virgules (ex : S:2,M:3,L:1).",
         };
       }
     }

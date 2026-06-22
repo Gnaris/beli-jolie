@@ -337,6 +337,34 @@ export function parseExcel(buffer: Buffer): ProductImportRow[] {
 
 /** Validate a single variant row. Product-level fields (name, category) are
  *  checked separately after grouping, so only variant-level fields are validated here. */
+/**
+ * Trouve les doublons de variantes (même couleur × même type de vente) dans un
+ * groupe de lignes appartenant à la même référence.
+ *
+ * Pourquoi : une combinaison (couleur, saleType) doit correspondre à un seul
+ * ProductColor en base. Si la même paire apparaît sur deux lignes (cas typique :
+ * un bloc de variantes recopié par erreur en bas de l'Excel), l'import crée
+ * deux ProductColors identiques puis la création des VariantSize bute sur la
+ * contrainte `VariantSize_productColorId_sizeId_key`.
+ */
+export function findDuplicateVariantKeys(
+  rows: Pick<ProductImportRow, "color" | "saleType">[],
+): string[] {
+  const seen = new Set<string>();
+  const dupes = new Set<string>();
+  for (const row of rows) {
+    const colorNorm = normalizeColorName(row.color || "");
+    if (!colorNorm) continue;
+    const key = `${colorNorm}|${row.saleType}`;
+    if (seen.has(key)) {
+      dupes.add(`${(row.color || "").trim()} / ${row.saleType}`);
+    } else {
+      seen.add(key);
+    }
+  }
+  return [...dupes];
+}
+
 export function validateVariantRow(row: ProductImportRow): string[] {
   const errors: string[] = [];
   if (!row.reference) errors.push("Référence manquante.");
@@ -454,6 +482,12 @@ export async function processProductImport(jobId: string, maxProducts?: number):
       if (!first.manufacturingCountry) productErrors.push("Pays de fabrication manquant.");
       if (!first.season) productErrors.push("Saison manquante.");
       if (groupRows.length === 0) productErrors.push("Au moins une variante requise.");
+      const dupes = findDuplicateVariantKeys(groupRows);
+      if (dupes.length > 0) {
+        productErrors.push(
+          `Variante en doublon : ${dupes.join(", ")}. Chaque combinaison couleur × type de vente doit apparaître une seule fois pour cette référence.`,
+        );
+      }
 
       if (productErrors.length > 0) {
         for (const row of groupRows) {

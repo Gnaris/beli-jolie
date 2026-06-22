@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { normalizeColorName } from "@/lib/import-processor";
+import { normalizeColorName, findDuplicateVariantKeys } from "@/lib/import-processor";
 import * as XLSX from "xlsx";
 import { logger } from "@/lib/logger";
 
@@ -420,6 +420,12 @@ export async function POST(req: NextRequest) {
       if (!primaryColorValid) productErrors.push(`Couleur principale "${firstRow.primaryColor}" introuvable parmi les variantes.`);
       if (tailleUniqueDetailsMissing) productErrors.push(`Détail taille unique manquant.`);
       if (referenceExists) productErrors.push(`La référence "${ref}" existe déjà.`);
+      const duplicateVariants = findDuplicateVariantKeys(groupRows);
+      if (duplicateVariants.length > 0) {
+        productErrors.push(
+          `Variante en doublon : ${duplicateVariants.join(", ")}. Chaque combinaison couleur × type de vente doit apparaître une seule fois pour cette référence.`,
+        );
+      }
 
       const variantErrors = variants.flatMap((v) => v.errors);
       const totalErrors = productErrors.length + variantErrors.length;

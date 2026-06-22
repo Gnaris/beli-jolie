@@ -158,15 +158,11 @@ describe("Modèle Excel d'import — feuille « Valeurs autorisées » & dropdow
       expect(SRC).toMatch(/attachListValidation\(findCol\("color"\),[^)]*false/);
     });
 
-    it("NE pose PAS de dropdown simple sur les colonnes multi-valeurs restantes (tags, composition, size)", () => {
-      // Excel ne sait pas faire de multi-select dans une cellule.
-      // Pour sub_categories, on utilise un dropdown DÉPENDANT (INDIRECT)
-      // testé plus bas — la cellule reste en saisie libre via
-      // `showErrorMessage: false`, mais propose les sous-catégories de la
-      // catégorie choisie.
-      for (const key of ["tags", "composition", "size"]) {
-        expect(SRC).not.toMatch(new RegExp(`attachListValidation\\(findCol\\("${key}"\\)`));
-      }
+    it("NE pose PAS de dropdown sur composition (format matière:% trop spécifique)", () => {
+      // Composition reste en saisie libre — le format « Coton:80,Polyester:20 »
+      // ne se prête pas à un dropdown. Tags, Size et sub_categories ont
+      // maintenant leurs propres validations (testées plus bas).
+      expect(SRC).not.toMatch(/attachListValidation\(findCol\("composition"\)/);
     });
 
     it("pose un dropdown DÉPENDANT sur sub_categories via INDIRECT + named ranges (feuille _lookup cachée)", () => {
@@ -230,6 +226,20 @@ describe("Modèle Excel d'import — feuille « Valeurs autorisées » & dropdow
       expect(SRC).toMatch(/type:\s*"textLength"/);
       expect(SRC).toMatch(/operator:\s*"equal"/);
       expect(SRC).toMatch(/formulae:\s*\[0\]/);
+    });
+
+    it("pose un dropdown sur Taille pointant vers la colonne F de « Valeurs autorisées » (saisie libre pour format PACK)", () => {
+      // UNIT : une seule taille, picking depuis la liste.
+      // PACK : format « taille:qté » → saisie libre (showErrorMessage: false).
+      expect(SRC).toMatch(/findCol\("size"\)/);
+      expect(SRC).toMatch(/sizesFormula\s*=\s*buildRangeFormula\("F",/);
+      expect(SRC).toMatch(/promptTitle:\s*"Taille"/);
+    });
+
+    it("bloque la colonne Taille si 0 taille en BDD", () => {
+      expect(SRC).toMatch(/sizeNames\.length\s*===\s*0/);
+      expect(SRC).toMatch(/Aucune taille disponible/);
+      expect(SRC).toMatch(/attachEmptyOnly\(\s*sizeCol/);
     });
 
     it("affiche un message d'erreur clair quand la valeur n'existe pas", () => {
