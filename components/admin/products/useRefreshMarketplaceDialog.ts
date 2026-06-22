@@ -28,6 +28,9 @@ export interface RefreshableProduct {
   status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
   isIncomplete: boolean;
   wasImported: boolean;
+  /** Verrou manuel : si true, le produit est traité comme inéligible
+   *  au rafraîchissement (priorité sur le statut). */
+  locked?: boolean;
 }
 
 export interface UseRefreshMarketplaceDialogOptions {
@@ -65,6 +68,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
           status: p.status,
           isIncomplete: p.isIncomplete,
           wasImported: p.wasImported,
+          locked: p.locked,
         });
         if (reason) {
           ineligible.push({ ...p, reason });

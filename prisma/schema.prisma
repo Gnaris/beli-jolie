@@ -384,6 +384,10 @@ model Product {
   isBestSeller            Boolean               @default(false)
   status                  ProductStatus         @default(OFFLINE)
   isIncomplete            Boolean               @default(false) // Produit incomplet (manque prix, poids, images, etc.)
+  // Verrou manuel : quand true, le bouton « Rafraîchir » est désactivé pour ce
+  // produit (boutique + marketplaces). Sert à protéger une fiche fragile ou en
+  // attente d'arbitrage commercial. Indépendant du statut et des syncs.
+  locked                  Boolean               @default(false)
   // Produits similaires (M2M self)
   similarProducts         ProductSimilar[]      @relation("PSim_A")
   similarTo               ProductSimilar[]      @relation("PSim_B")

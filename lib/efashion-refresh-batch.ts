@@ -137,6 +137,7 @@ export async function efashionRefreshProductsBatch(
       select: {
         id: true,
         reference: true,
+        locked: true,
         efashionReferenceBase: true,
         colors: {
           select: {
@@ -149,6 +150,14 @@ export async function efashionRefreshProductsBatch(
     });
     if (!product) {
       results.push({ productId, success: false, error: "Produit introuvable." });
+      continue;
+    }
+    if (product.locked) {
+      results.push({
+        productId,
+        success: false,
+        error: "Produit verrouillé : rafraîchissement bloqué.",
+      });
       continue;
     }
     if (!product.efashionReferenceBase) {

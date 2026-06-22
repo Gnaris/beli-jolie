@@ -3,20 +3,23 @@
 /**
  * Tableau de bord pré-import en 3 colonnes :
  *
- *   ┌──────────────┬──────────────┬──────────────┐
- *   │   Succès     │  À corriger  │  Introuvable │
- *   │   (prêt)     │  (action)    │   (ignorés)  │
- *   └──────────────┴──────────────┴──────────────┘
+ *   ┌──────────────┬──────────────┬──────────────────────────────┐
+ *   │   Succès     │  À corriger  │  Introuvable                 │
+ *   │   (prêt)     │  (action)    │  ├─ Format incorrect         │
+ *   │              │              │  └─ Référence inexistante    │
+ *   └──────────────┴──────────────┴──────────────────────────────┘
  *
  * - Succès      : référence trouvée + couleur trouvée + position libre.
  * - À corriger  : référence trouvée mais couleur absente du produit OU
  *                 position déjà occupée. Actions inline : choisir une
- *                 couleur du produit, choisir une stratégie de conflit,
- *                 modifier la position.
- * - Introuvable : format de nom invalide OU référence absente de la BDD.
- *                 Bouton « retirer de l'import » (les fichiers restent
- *                 dans la sélection mais sont visuellement séparés ; ils
- *                 partiront en erreur côté serveur si on les garde).
+ *                 couleur du produit (parmi celles déjà sur la fiche),
+ *                 choisir une stratégie de conflit, modifier la position.
+ * - Introuvable : deux sous-sections distinctes —
+ *                 (a) Format incorrect → nom de fichier ne respecte pas
+ *                     « {reference} {couleur} {position} » (ou avec
+ *                     underscores).
+ *                 (b) Référence inexistante → format OK mais aucune fiche
+ *                     produit ne porte cette référence en BDD.
  *
  * Le composant reste purement présentationnel : tous les états et
  * actions sont passés en props depuis ImportImagesTab.tsx (qui détient
@@ -93,8 +96,6 @@ interface Props {
   onResolutionChange: (filename: string, strategy: ConflictStrategy) => void;
   /** Force la couleur (et invalide la précédente) sur un fichier. */
   onColorOverride: (filename: string, colorName: string) => void;
-  /** Ouvre la modale complète de sélection de couleur (recherche, création). */
-  onOpenColorModal: (filename: string, reference: string) => void;
   /** Modifie la position cible d'un fichier (1-10). */
   onPositionOverride: (filename: string, position: number) => void;
   /** Retire un fichier de la liste à importer. */
@@ -123,7 +124,6 @@ export default function ImportPreviewBoard({
   onDefaultStrategyChange,
   onResolutionChange,
   onColorOverride,
-  onOpenColorModal,
   onPositionOverride,
   onRemoveFile,
 }: Props) {
@@ -337,23 +337,12 @@ export default function ImportPreviewBoard({
                           <span className="text-text-primary">{c.name}</span>
                         </button>
                       ))}
-                      <button
-                        type="button"
-                        onClick={() => onOpenColorModal(file.name, file.reference)}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-dashed border-amber-300 hover:border-amber-500 hover:bg-amber-50 transition-all text-[11px] font-body text-amber-700"
-                      >
-                        + Autre couleur…
-                      </button>
                     </div>
                   ) : (
                     <div className="pl-[60px]">
-                      <button
-                        type="button"
-                        onClick={() => onOpenColorModal(file.name, file.reference)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 border border-amber-300 text-[11px] font-body text-amber-800 font-medium"
-                      >
-                        Ce produit n&apos;a aucune couleur — en créer une
-                      </button>
+                      <p className="text-[11px] text-amber-700 font-body italic leading-snug">
+                        Ce produit n&apos;a aucune couleur enregistrée. Ajoutez-en une depuis la fiche produit puis réimportez l&apos;image.
+                      </p>
                     </div>
                   )}
                 </li>
@@ -449,54 +438,85 @@ export default function ImportPreviewBoard({
           {notFoundCount === 0 ? (
             <EmptyState label="Tous les fichiers ont une référence connue." />
           ) : (
-            <ul className="divide-y divide-rose-50">
-              {/* Format invalide */}
-              {buckets.notFoundFormat.map((f) => (
-                <li key={`fmt-${f.name}`} className="px-5 py-3 flex items-start gap-3">
-                  <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-rose-100 bg-bg-secondary shrink-0">
-                    <Image src={f.url} alt={f.name} fill className="object-cover" unoptimized />
+            <div className="divide-y divide-rose-100">
+              {/* ─── Sous-section : Format incorrect ─────────────────── */}
+              {buckets.notFoundFormat.length > 0 && (
+                <section>
+                  <div className="px-5 py-2.5 bg-rose-50/60 flex items-center gap-2 sticky top-0 z-10 backdrop-blur-sm border-b border-rose-100">
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-rose-100 border border-rose-200 text-[10px] font-body font-semibold uppercase tracking-[0.14em] text-rose-800">
+                      <span className="w-1 h-1 rounded-full bg-rose-500" />
+                      Format incorrect
+                    </span>
+                    <span className="text-[10px] font-body text-rose-700 tabular-nums">
+                      · {buckets.notFoundFormat.length} fichier{buckets.notFoundFormat.length > 1 ? "s" : ""}
+                    </span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[11px] text-text-primary font-body truncate font-medium">{f.name}</p>
-                    <p className="text-[11px] text-rose-700 font-body mt-1 leading-snug">
-                      Nom invalide. Format attendu :{" "}
-                      <code className="px-1 rounded bg-rose-50 border border-rose-100 text-rose-800">REFERENCE COULEUR POSITION.jpg</code>
-                    </p>
+                  <ul className="divide-y divide-rose-50">
+                    {buckets.notFoundFormat.map((f) => (
+                      <li key={`fmt-${f.name}`} className="px-5 py-3 flex items-start gap-3">
+                        <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-rose-100 bg-bg-secondary shrink-0">
+                          <Image src={f.url} alt={f.name} fill className="object-cover" unoptimized />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] text-text-primary font-body truncate font-medium">{f.name}</p>
+                          <p className="text-[11px] text-rose-700 font-body mt-1 leading-snug">
+                            Nom invalide. Format attendu :{" "}
+                            <code className="px-1 rounded bg-rose-50 border border-rose-100 text-rose-800">REFERENCE COULEUR POSITION.jpg</code>
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveFile(f.name)}
+                          className="text-[10px] text-text-muted hover:text-red-600 font-body shrink-0"
+                        >
+                          Retirer
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {/* ─── Sous-section : Référence inexistante ────────────── */}
+              {buckets.notFoundRef.length > 0 && (
+                <section>
+                  <div className="px-5 py-2.5 bg-rose-50/60 flex items-center gap-2 sticky top-0 z-10 backdrop-blur-sm border-b border-rose-100">
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-rose-100 border border-rose-200 text-[10px] font-body font-semibold uppercase tracking-[0.14em] text-rose-800">
+                      <span className="w-1 h-1 rounded-full bg-rose-500" />
+                      Référence inexistante
+                    </span>
+                    <span className="text-[10px] font-body text-rose-700 tabular-nums">
+                      · {buckets.notFoundRef.length} fichier{buckets.notFoundRef.length > 1 ? "s" : ""}
+                    </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onRemoveFile(f.name)}
-                    className="text-[10px] text-text-muted hover:text-red-600 font-body shrink-0"
-                  >
-                    Retirer
-                  </button>
-                </li>
-              ))}
-              {/* Référence inconnue */}
-              {buckets.notFoundRef.map(({ file }) => (
-                <li key={`nref-${file.name}`} className="px-5 py-3 flex items-start gap-3">
-                  <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-rose-100 bg-bg-secondary shrink-0">
-                    <Image src={file.url} alt={file.name} fill className="object-cover" unoptimized />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[11px] text-text-primary font-body truncate font-medium">{file.name}</p>
-                    <p className="text-[10px] text-text-muted font-body mt-0.5">
-                      Référence cherchée : <span className="font-mono font-semibold">{file.reference}</span>
-                    </p>
-                    <p className="text-[11px] text-rose-700 font-body mt-1 leading-snug">
-                      Aucun produit ne porte cette référence en BDD.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onRemoveFile(file.name)}
-                    className="text-[10px] text-text-muted hover:text-red-600 font-body shrink-0"
-                  >
-                    Retirer
-                  </button>
-                </li>
-              ))}
-            </ul>
+                  <ul className="divide-y divide-rose-50">
+                    {buckets.notFoundRef.map(({ file }) => (
+                      <li key={`nref-${file.name}`} className="px-5 py-3 flex items-start gap-3">
+                        <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-rose-100 bg-bg-secondary shrink-0">
+                          <Image src={file.url} alt={file.name} fill className="object-cover" unoptimized />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] text-text-primary font-body truncate font-medium">{file.name}</p>
+                          <p className="text-[10px] text-text-muted font-body mt-0.5">
+                            Référence cherchée : <span className="font-mono font-semibold">{file.reference}</span>
+                          </p>
+                          <p className="text-[11px] text-rose-700 font-body mt-1 leading-snug">
+                            Aucun produit ne porte cette référence en BDD.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveFile(file.name)}
+                          className="text-[10px] text-text-muted hover:text-red-600 font-body shrink-0"
+                        >
+                          Retirer
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
           )}
         </div>
       </div>

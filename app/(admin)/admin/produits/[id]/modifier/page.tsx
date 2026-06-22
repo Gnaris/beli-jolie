@@ -8,6 +8,7 @@ import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapp
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 import { DraftPageWrapper, DraftPageToggle } from "./DraftPageWrapper";
 import { ProductEditRefreshButton } from "@/components/admin/products/ProductEditRefreshButton";
+import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle";
 import { MarketplaceStatusButtons } from "@/components/admin/products/MarketplaceStatusButtons";
 import ProductStatsModal from "@/components/admin/products/ProductStatsModal";
 import {
@@ -477,6 +478,10 @@ export default async function ModifierProduitPage({
                 productName={product.name}
                 reference={product.reference}
               />
+              <ProductLockToggle
+                productId={product.id}
+                initialLocked={product.locked}
+              />
               <ProductEditRefreshButton
                 productId={product.id}
                 reference={product.reference}
@@ -485,6 +490,7 @@ export default async function ModifierProduitPage({
                 status={product.status}
                 isIncomplete={product.isIncomplete}
                 wasImported={wasImported}
+                locked={product.locked}
                 hasPfsConfig={hasPfsConfig}
                 hasAnkorstoreConfig={hasAnkorstoreConfig}
                 ankorstoreEnabled={ankorstoreEnabled}

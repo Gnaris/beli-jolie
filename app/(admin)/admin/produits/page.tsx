@@ -284,6 +284,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     efashionLink = "",
     syncRequired = "",
     hsCodeId = "",
+    locked = "",
   } = params;
 
   const exactRef   = exactRefParam === "1";
@@ -319,6 +320,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     efashionLink,
     syncRequired,
     hsCodeId,
+    locked,
     productIdsIn,
   });
 
@@ -439,6 +441,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     name:            p.name,
     status:          p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
     isIncomplete:    p.isIncomplete,
+    locked:          p.locked,
     categoryName:    p.category.name,
     subCategoryName: p.subCategories[0]?.name ?? null,
     createdAt:       p.createdAt.toISOString(),

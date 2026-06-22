@@ -24,10 +24,6 @@ export default async function ImportJobDetailPage({ params }: PageProps) {
   const job = await prisma.importJob.findUnique({ where: { id } });
   if (!job || job.adminId !== session.user.id) notFound();
 
-  const draft = job.errorDraftId
-    ? await prisma.importDraft.findUnique({ where: { id: job.errorDraftId } })
-    : null;
-
   const data: ImportJobDetailData = {
     id: job.id,
     type: job.type as "PRODUCTS" | "IMAGES",
@@ -41,14 +37,6 @@ export default async function ImportJobDetailPage({ params }: PageProps) {
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
     resultDetails: (job.resultDetails ?? null) as ImportJobDetailData["resultDetails"],
-    draft: draft
-      ? {
-          id: draft.id,
-          status: draft.status,
-          errorRows: draft.errorRows,
-          rows: (draft.rows ?? []) as Record<string, unknown>[],
-        }
-      : null,
   };
 
   return <ImportJobDetailClient data={data} />;

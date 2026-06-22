@@ -68,6 +68,7 @@ export async function refreshProductOnMarketplaces(
       name: true,
       status: true,
       isIncomplete: true,
+      locked: true,
       pfsProductId: true,
     },
   });
@@ -76,13 +77,14 @@ export async function refreshProductOnMarketplaces(
     throw new Error("Produit introuvable.");
   }
 
-  // Garde-fou statut : un produit Archivé / Hors ligne / Brouillon / SYNCING
-  // ne peut pas être rafraîchi. Vérif locale pour défense en profondeur même
-  // si l'UI a déjà filtré côté client.
+  // Garde-fou statut : un produit Archivé / Hors ligne / Brouillon / SYNCING /
+  // Verrouillé ne peut pas être rafraîchi. Vérif locale pour défense en
+  // profondeur même si l'UI a déjà filtré côté client.
   const ineligibility = getRefreshIneligibilityReason({
     status: product.status,
     isIncomplete: product.isIncomplete,
     wasImported: !!product.pfsProductId,
+    locked: product.locked,
   });
   if (ineligibility) {
     throw new Error(

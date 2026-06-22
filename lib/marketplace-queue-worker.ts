@@ -7,7 +7,7 @@
  * Architecture :
  *  - Loop d'1 seconde (`POLL_MS`) qui scan la table à chaque tick
  *  - Au premier démarrage : sweep des jobs `IN_PROGRESS` orphelins (process tué)
- *  - Concurrence : 5 jobs total en vol, dont au plus 1 Ankorstore
+ *  - Concurrence : 5 jobs total en vol, dont au plus 3 Ankorstore
  *    (Ankorstore comptabilise IN_PROGRESS + AWAITING_CALLBACK)
  *  - Réconciliation : pour les jobs `AWAITING_CALLBACK` Ankorstore, on suit la
  *    dernière `AnkorstoreOperation` du produit (qui chaîne automatiquement
@@ -23,7 +23,7 @@ import { emitProductEvent } from "@/lib/product-events";
 
 const POLL_MS = 1000;
 const TOTAL_CONCURRENCY = 5;
-const ANKORSTORE_CONCURRENCY = 1;
+const ANKORSTORE_CONCURRENCY = 3;
 
 const STARTUP_GUARD = Symbol.for("beliandjolie.marketplaceQueueWorker.started");
 const g = globalThis as Record<symbol, unknown>;
@@ -76,7 +76,7 @@ export function startMarketplaceQueueWorker(): void {
     });
   }, POLL_MS);
 
-  logger.info("[Marketplace Queue] Worker démarré (poll 1s, 5 slots, 1 Ankorstore)");
+  logger.info("[Marketplace Queue] Worker démarré (poll 1s, 5 slots, 3 Ankorstore)");
 }
 
 async function runStartupSweep(): Promise<void> {
@@ -235,6 +235,28 @@ async function startQueued(): Promise<void> {
 async function processJob(jobId: string): Promise<void> {
   const job = await prisma.marketplaceRefreshJob.findUnique({ where: { id: jobId } });
   if (!job) return;
+
+  // Garde-fou verrou : un produit verrouillé entre l'enqueue et le traitement
+  // ne doit pas être rafraîchi. Couvre les 4 marketplaces (PFS / Ankor /
+  // eFashion / Faire) en un seul point — défense en profondeur du guard UI.
+  if (job.mode === "REFRESH") {
+    const lockState = await prisma.product.findUnique({
+      where: { id: job.productId },
+      select: { locked: true },
+    });
+    if (lockState?.locked) {
+      await prisma.marketplaceRefreshJob.update({
+        where: { id: jobId },
+        data: {
+          status: "FAILED",
+          errorMessage: "Produit verrouillé : rafraîchissement bloqué.",
+          completedAt: new Date(),
+        },
+      });
+      revalidateProductPaths(job.productId);
+      return;
+    }
+  }
 
   try {
     const payload = job.payload as unknown as QueueJobPayload;

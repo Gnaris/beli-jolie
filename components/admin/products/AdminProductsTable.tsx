@@ -20,6 +20,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
+import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
 import { useEfashionShootingBatch } from "@/components/admin/products/EfashionShootingBatchContext";
 import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
@@ -680,6 +681,8 @@ interface AdminProduct {
   name: string;
   status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
   isIncomplete: boolean;
+  /** Verrou manuel : si true, désactive le bouton « Rafraîchir ». */
+  locked: boolean;
   categoryName: string;
   subCategoryName: string | null;
   createdAt: string;
@@ -1825,6 +1828,13 @@ function ProductRow({
                 </svg>
               )}
             </button>
+            <span onClick={(e) => e.stopPropagation()} className="inline-flex">
+              <ProductLockToggle
+                productId={product.id}
+                initialLocked={product.locked}
+                variant="icon"
+              />
+            </span>
           </div>
         </td>
 
@@ -2094,6 +2104,7 @@ function ProductRow({
                       status: product.status,
                       isIncomplete: product.isIncomplete,
                       wasImported: !!product.pfsProductId,
+                      locked: product.locked,
                     });
                   } finally {
                     setRefreshing(false);
@@ -3994,6 +4005,7 @@ export default function AdminProductsTable({
                   status: p.status,
                   isIncomplete: p.isIncomplete,
                   wasImported: !!p.pfsProductId,
+                  locked: p.locked,
                 }));
               await refreshBulk(selectedProducts);
             }}

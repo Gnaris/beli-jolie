@@ -330,6 +330,25 @@ describe("buildAdminProductsWhere", () => {
     ]);
   });
 
+  it("locked='1' restreint à Product.locked=true", () => {
+    expect(buildAdminProductsWhere({ locked: "1" }).locked).toBe(true);
+  });
+
+  it("ignore locked pour toute autre valeur que '1'", () => {
+    expect(buildAdminProductsWhere({ locked: "" }).locked).toBeUndefined();
+    expect(buildAdminProductsWhere({ locked: "0" }).locked).toBeUndefined();
+    expect(buildAdminProductsWhere({ locked: "true" }).locked).toBeUndefined();
+  });
+
+  it("locked combiné avec d'autres filtres : les contraintes coexistent", () => {
+    const where = buildAdminProductsWhere({ locked: "1", cat: "c1", status: "ONLINE" });
+    expect(where).toMatchObject({
+      locked: true,
+      categoryId: "c1",
+      status: "ONLINE",
+    });
+  });
+
   it("combines all three marketplace filters without clobbering each other", () => {
     const where = buildAdminProductsWhere({
       pfsLink: "linked",

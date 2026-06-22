@@ -1330,6 +1330,37 @@ export async function toggleBestSeller(productId: string, isBestSeller: boolean)
 }
 
 // ─────────────────────────────────────────────
+// Verrouillage manuel — bloque le bouton « Rafraîchir » (boutique +
+// marketplaces). Indépendant du statut : un produit ONLINE complet peut
+// être verrouillé pour protéger sa fiche d'un refresh accidentel.
+// ─────────────────────────────────────────────
+
+export async function toggleProductLock(
+  productId: string,
+  locked: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  await requireAdmin();
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { locked: true },
+  });
+  if (!product) return { success: false, error: "Produit introuvable." };
+  if (product.locked === locked) return { success: true };
+
+  await prisma.product.update({
+    where: { id: productId },
+    data: { locked },
+  });
+
+  revalidatePath("/admin/produits");
+  revalidatePath(`/admin/produits/${productId}/modifier`);
+  revalidateTag("products", "default");
+
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
 // Supprimer un produit — suppression définitive si jamais vendu,
 // sinon archivage (obligation légale 10 ans + historique commandes)
 // ─────────────────────────────────────────────

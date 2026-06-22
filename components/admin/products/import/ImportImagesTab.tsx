@@ -1400,7 +1400,6 @@ export default function ImportImagesTab() {
               onDefaultStrategyChange={setDefaultStrategy}
               onResolutionChange={(filename, strategy) => updatePerFileResolution(filename, strategy)}
               onColorOverride={applyColorOverride}
-              onOpenColorModal={openColorModal}
               onPositionOverride={applyPositionOverride}
               onRemoveFile={removeFile}
             />

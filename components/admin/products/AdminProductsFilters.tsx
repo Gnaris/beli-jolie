@@ -68,6 +68,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlEfashionLink = searchParams.get("efashionLink") ?? "";
   const urlSyncRequired = searchParams.get("syncRequired") ?? "";
   const urlHsCodeId  = searchParams.get("hsCodeId")   ?? "";
+  const urlLocked    = searchParams.get("locked")     ?? "";
   const perPage      = searchParams.get("perPage")    ?? "20";
 
   // Parse "REF1,REF2,REF3" → ["REF1", "REF2", "REF3"]
@@ -125,7 +126,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   }, [searchParams, router]);
 
   const localQ = localTerms.join(",");
-  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlSyncRequired || urlHsCodeId);
+  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlSyncRequired || urlHsCodeId || urlLocked);
   const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
   const [filtersOpen, setFiltersOpen] = useState(hasFilters);
@@ -576,6 +577,18 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   options={[
                     { value: "", label: "Tous" },
                     { value: "1", label: "Best-sellers uniquement" },
+                  ]}
+                  size="sm"
+                  searchable
+                />
+              </FilterField>
+              <FilterField label="Verrouillage">
+                <CustomSelect
+                  value={urlLocked}
+                  onChange={(v) => navigate({ locked: v || null })}
+                  options={[
+                    { value: "", label: "Tous" },
+                    { value: "1", label: "Verrouillés uniquement" },
                   ]}
                   size="sm"
                   searchable

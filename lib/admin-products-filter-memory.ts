@@ -35,6 +35,7 @@ export const ADMIN_PRODUCTS_FILTER_KEYS = [
   "efashionLink",
   "syncRequired",
   "hsCodeId",
+  "locked",
   "page",
   "perPage",
 ] as const;

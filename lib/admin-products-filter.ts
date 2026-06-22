@@ -68,6 +68,13 @@ export interface AdminProductsFilterParams {
    */
   hsCodeId?: string;
   /**
+   * Filtre « Verrouillé » : ne retient que les produits avec le verrou manuel
+   * activé (Product.locked = true).
+   *   - "1" = filtre actif
+   *   - "" (ou absent) = pas de filtre
+   */
+  locked?: string;
+  /**
    * Liste des productId à retenir (intersection). Quand le filtre
    * « variantes sans image » est actif, on précalcule les IDs côté serveur
    * via une requête SQL et on les passe ici. `null`/undefined = filtre inactif,
@@ -248,6 +255,10 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
         ],
       },
     ];
+  }
+
+  if (params.locked === "1") {
+    where.locked = true;
   }
 
   if (params.hsCodeId === "__none__") {

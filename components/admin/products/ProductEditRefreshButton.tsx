@@ -11,6 +11,7 @@ export function ProductEditRefreshButton({
   status,
   isIncomplete,
   wasImported,
+  locked = false,
   hasPfsConfig = true,
   hasAnkorstoreConfig = false,
   ankorstoreEnabled = false,
@@ -26,6 +27,7 @@ export function ProductEditRefreshButton({
   status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
   isIncomplete: boolean;
   wasImported: boolean;
+  locked?: boolean;
   hasPfsConfig?: boolean;
   hasAnkorstoreConfig?: boolean;
   ankorstoreEnabled?: boolean;
@@ -44,6 +46,28 @@ export function ProductEditRefreshButton({
     showEfashion,
     showFaire,
   });
+
+  if (locked) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        className="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-text-muted bg-bg-secondary border border-border rounded-xl font-body shadow-sm opacity-60 cursor-not-allowed"
+        title="Ce produit est verrouillé — rafraîchissement désactivé"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
+          />
+        </svg>
+        Verrouillé
+      </button>
+    );
+  }
 
   return (
     <button

@@ -1,23 +1,19 @@
 "use client";
 
 /**
- * Page détail d'un import (succès + erreurs)
+ * Page détail d'un import (succès uniquement)
  *
- * - Filtres : Tous / Succès / Erreurs (3 chips)
  * - Recherche : par référence ou nom de fichier
- * - Affiche les images réussies (avec ref + couleur + position)
- * - Affiche les erreurs (avec raison + actions de correction inline)
+ * - Affiche les images / produits réussis
  *
- * Pour les images en erreur avec « couleur introuvable », propose la liste
- * des couleurs disponibles en chips cliquables → PATCH /draft/[id] avec
- * colorId pour réimporter l'image.
+ * La section « À corriger » a été retirée : les erreurs ne sont plus
+ * rejouables depuis cette page. Le compteur d'erreurs reste affiché
+ * dans le bandeau d'en-tête à titre informatif uniquement.
  */
 
-import { useMemo, useState, useTransition, useCallback } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "@/components/ui/SmartImage";
-import ColorSwatch from "@/components/ui/ColorSwatch";
-import { useToast } from "@/components/ui/Toast";
 
 export interface ImportJobDetailData {
   id: string;
@@ -48,22 +44,7 @@ export interface ImportJobDetailData {
       variants?: { color: string; saleType: string; unitPrice: number; stock: number; packQuantity?: number | null }[];
     }[];
   } | null;
-  draft: {
-    id: string;
-    status: string;
-    errorRows: number;
-    rows: Record<string, unknown>[];
-  } | null;
 }
-
-interface AvailableColorEntry {
-  id: string;
-  name: string;
-  hex?: string | null;
-  patternImage?: string | null;
-}
-
-type Filter = "all" | "success" | "errors";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -83,23 +64,16 @@ function statusLabel(status: string): { label: string; classes: string } {
 }
 
 export default function ImportJobDetailClient({ data }: { data: ImportJobDetailData }) {
-  const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
-  const [draftRows, setDraftRows] = useState(data.draft?.rows ?? []);
-  const [draftId, setDraftId] = useState(data.draft?.id ?? null);
-  const [removingIdx, setRemovingIdx] = useState<number | null>(null);
-  const [, startTransition] = useTransition();
-  const { toast } = useToast();
 
   const status = statusLabel(data.status);
   const isImages = data.type === "IMAGES";
   const successList = isImages ? (data.resultDetails?.images ?? []) : (data.resultDetails?.products ?? []);
 
-  // ── Filtrage par texte + onglet ─────────────────────────────────
+  // ── Filtrage par texte ─────────────────────────────────────────
   const q = query.trim().toLowerCase();
 
   const filteredSuccess = useMemo(() => {
-    if (filter === "errors") return [];
     if (!q) return successList;
     if (isImages) {
       const list = successList as { filename: string; reference: string; color: string }[];
@@ -113,88 +87,7 @@ export default function ImportJobDetailClient({ data }: { data: ImportJobDetailD
     return list.filter((p) =>
       p.reference.toLowerCase().includes(q) || p.name.toLowerCase().includes(q),
     );
-  }, [filter, q, successList, isImages]);
-
-  const filteredErrors = useMemo(() => {
-    if (filter === "success") return [];
-    if (!q) return draftRows;
-    return draftRows.filter((r) => {
-      const ref = String(r.reference ?? "").toLowerCase();
-      const fn = String(r.filename ?? r.name ?? "").toLowerCase();
-      const col = String(r.color ?? "").toLowerCase();
-      return ref.includes(q) || fn.includes(q) || col.includes(q);
-    });
-  }, [filter, q, draftRows]);
-
-  // ── Action : assigner une couleur à une ligne en erreur ─────────
-  const assignColor = useCallback((rowIndex: number, colorId: string) => {
-    if (!draftId) return;
-    setRemovingIdx(rowIndex);
-    startTransition(async () => {
-      try {
-        const res = await fetch(`/api/admin/products/import/draft/${draftId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rowIndex, colorId }),
-        });
-        const result = await res.json();
-        if (result.ok) {
-          setDraftRows((prev) => prev.filter((_, i) => i !== rowIndex));
-          toast({ type: "success", title: "Image réimportée." });
-        } else {
-          toast({ type: "error", title: result.errors?.[0] ?? "Erreur lors de la réassignation." });
-        }
-      } catch {
-        toast({ type: "error", title: "Erreur réseau." });
-      } finally {
-        setRemovingIdx(null);
-      }
-    });
-  }, [draftId, toast]);
-
-  // ── Action : retirer une ligne du brouillon ─────────────────────
-  const dismissRow = useCallback((rowIndex: number) => {
-    if (!draftId) return;
-    setRemovingIdx(rowIndex);
-    startTransition(async () => {
-      try {
-        const res = await fetch(`/api/admin/products/import/draft/${draftId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rowIndex, dismiss: true }),
-        });
-        const result = await res.json();
-        if (result.ok) {
-          setDraftRows((prev) => prev.filter((_, i) => i !== rowIndex));
-          toast({ type: "success", title: "Ligne retirée." });
-        } else {
-          toast({ type: "error", title: "Erreur lors du retrait." });
-        }
-      } catch {
-        toast({ type: "error", title: "Erreur réseau." });
-      } finally {
-        setRemovingIdx(null);
-      }
-    });
-  }, [draftId, toast]);
-
-  // Si le brouillon est vide après corrections, on peut le supprimer côté serveur
-  const cleanupDraft = useCallback(async () => {
-    if (!draftId || draftRows.length > 0) return;
-    try {
-      await fetch(`/api/admin/products/import/draft/${draftId}`, { method: "DELETE" });
-      setDraftId(null);
-    } catch {
-      /* silent */
-    }
-  }, [draftId, draftRows.length]);
-
-  // Auto-cleanup quand toutes les erreurs sont résolues
-  useMemo(() => {
-    if (draftId && draftRows.length === 0) {
-      cleanupDraft();
-    }
-  }, [draftRows.length, draftId, cleanupDraft]);
+  }, [q, successList, isImages]);
 
   return (
     <div className="space-y-5">
@@ -246,19 +139,14 @@ export default function ImportJobDetailClient({ data }: { data: ImportJobDetailD
             <div className="grid grid-cols-3 gap-2 sm:gap-3 shrink-0 w-full md:w-auto">
               <KpiTile label="Au total" value={data.totalItems} accent="slate" />
               <KpiTile label="Succès" value={data.successItems} accent="emerald" />
-              <KpiTile label="Erreurs" value={draftRows.length || data.errorItems} accent={draftRows.length > 0 || data.errorItems > 0 ? "rose" : "slate"} />
+              <KpiTile label="Erreurs" value={data.errorItems} accent={data.errorItems > 0 ? "rose" : "slate"} />
             </div>
           </div>
         </div>
       </div>
 
-      {/* ─── Barre d'outils : onglets + search ──────────────────── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <FilterChip current={filter} value="all" onClick={setFilter} count={successList.length + draftRows.length}>Tous</FilterChip>
-          <FilterChip current={filter} value="success" onClick={setFilter} count={successList.length} variant="emerald">Succès</FilterChip>
-          <FilterChip current={filter} value="errors" onClick={setFilter} count={draftRows.length} variant="rose">À corriger</FilterChip>
-        </div>
+      {/* ─── Barre d'outils : recherche ──────────────────────────── */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
         <div className="flex items-center gap-2 bg-bg-primary border border-border px-3 py-2 rounded-xl sm:w-[320px]">
           <svg className="w-4 h-4 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
@@ -281,52 +169,22 @@ export default function ImportJobDetailClient({ data }: { data: ImportJobDetailD
       </div>
 
       {/* ─── Section : Succès ───────────────────────────────────── */}
-      {filter !== "errors" && (
-        <SectionCard
-          accent="emerald"
-          title={isImages ? "Images importées" : "Produits créés"}
-          count={filteredSuccess.length}
-          empty={filteredSuccess.length === 0 ? (q ? "Aucun succès ne correspond à la recherche." : "Aucun élément n'a été importé.") : null}
-        >
-          {isImages ? (
-            <ImageSuccessList
-              items={filteredSuccess as NonNullable<NonNullable<ImportJobDetailData["resultDetails"]>["images"]>}
-            />
-          ) : (
-            <ProductSuccessList
-              items={filteredSuccess as NonNullable<NonNullable<ImportJobDetailData["resultDetails"]>["products"]>}
-            />
-          )}
-        </SectionCard>
-      )}
-
-      {/* ─── Section : Erreurs ──────────────────────────────────── */}
-      {filter !== "success" && (
-        <SectionCard
-          accent="rose"
-          title="À corriger"
-          count={filteredErrors.length}
-          empty={filteredErrors.length === 0 ? (q ? "Aucune erreur ne correspond à la recherche." : "Aucune erreur à corriger.") : null}
-        >
-          <ul className="divide-y divide-rose-50">
-            {filteredErrors.map((row, idxInFiltered) => {
-              // Trouve l'index réel dans draftRows pour les actions PATCH
-              const rowIndex = draftRows.indexOf(row);
-              return (
-                <ErrorRow
-                  key={`${row.filename ?? row.reference ?? "x"}-${rowIndex}`}
-                  row={row}
-                  rowIndex={rowIndex}
-                  isImages={isImages}
-                  busy={removingIdx === rowIndex}
-                  onAssignColor={assignColor}
-                  onDismiss={dismissRow}
-                />
-              );
-            })}
-          </ul>
-        </SectionCard>
-      )}
+      <SectionCard
+        accent="emerald"
+        title={isImages ? "Images importées" : "Produits créés"}
+        count={filteredSuccess.length}
+        empty={filteredSuccess.length === 0 ? (q ? "Aucun succès ne correspond à la recherche." : "Aucun élément n'a été importé.") : null}
+      >
+        {isImages ? (
+          <ImageSuccessList
+            items={filteredSuccess as NonNullable<NonNullable<ImportJobDetailData["resultDetails"]>["images"]>}
+          />
+        ) : (
+          <ProductSuccessList
+            items={filteredSuccess as NonNullable<NonNullable<ImportJobDetailData["resultDetails"]>["products"]>}
+          />
+        )}
+      </SectionCard>
     </div>
   );
 }
@@ -355,46 +213,6 @@ function KpiTile({
   );
 }
 
-function FilterChip({
-  current,
-  value,
-  onClick,
-  count,
-  children,
-  variant,
-}: {
-  current: Filter;
-  value: Filter;
-  onClick: (v: Filter) => void;
-  count: number;
-  children: React.ReactNode;
-  variant?: "emerald" | "rose";
-}) {
-  const isActive = current === value;
-  const baseInactive = "bg-bg-primary text-text-secondary border-border hover:border-text-secondary";
-  const activeVariant =
-    variant === "emerald" ? "bg-emerald-700 text-white border-emerald-700 shadow-sm" :
-    variant === "rose" ? "bg-rose-700 text-white border-rose-700 shadow-sm" :
-    "bg-bg-dark text-text-inverse border-bg-dark shadow-sm";
-
-  return (
-    <button
-      type="button"
-      onClick={() => onClick(value)}
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[12px] font-body font-medium transition-all ${
-        isActive ? activeVariant : baseInactive
-      }`}
-    >
-      {children}
-      <span className={`text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-full ${
-        isActive ? "bg-white/20" : "bg-bg-secondary"
-      }`}>
-        {count}
-      </span>
-    </button>
-  );
-}
-
 function SectionCard({
   accent,
   title,
@@ -402,7 +220,7 @@ function SectionCard({
   empty,
   children,
 }: {
-  accent: "emerald" | "rose";
+  accent: "emerald";
   title: string;
   count: number;
   empty: string | null;
@@ -410,7 +228,6 @@ function SectionCard({
 }) {
   const styles = {
     emerald: { border: "border-emerald-200", bar: "from-emerald-400 to-emerald-600", chip: "bg-emerald-100/80 border-emerald-200 text-emerald-800", chipDot: "bg-emerald-500", halo: "bg-emerald-300/30" },
-    rose: { border: "border-rose-200", bar: "from-rose-400 to-rose-600", chip: "bg-rose-100/80 border-rose-200 text-rose-800", chipDot: "bg-rose-500", halo: "bg-rose-300/30" },
   }[accent];
 
   return (
@@ -509,86 +326,3 @@ function ProductSuccessList({
   );
 }
 
-function ErrorRow({
-  row,
-  rowIndex,
-  isImages,
-  busy,
-  onAssignColor,
-  onDismiss,
-}: {
-  row: Record<string, unknown>;
-  rowIndex: number;
-  isImages: boolean;
-  busy: boolean;
-  onAssignColor: (rowIndex: number, colorId: string) => void;
-  onDismiss: (rowIndex: number) => void;
-}) {
-  const filename = String(row.filename ?? row.name ?? "—");
-  const reference = String(row.reference ?? "—");
-  const color = String(row.color ?? "—");
-  const position = row.position != null ? Number(row.position) : null;
-  const errors = Array.isArray(row.errors) ? (row.errors as string[]) : [];
-  const tempPath = row.tempPath ? String(row.tempPath) : null;
-  const availableColors = Array.isArray(row.availableColors)
-    ? (row.availableColors as AvailableColorEntry[])
-    : [];
-
-  return (
-    <li className="px-5 py-3 space-y-2">
-      <div className="flex items-start gap-3">
-        {tempPath ? (
-          <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-rose-100 bg-bg-secondary shrink-0">
-            <Image src={`/${tempPath}`} alt={filename} fill className="object-cover" unoptimized />
-          </div>
-        ) : (
-          <div className="w-12 h-12 rounded-lg border border-rose-100 bg-rose-50 shrink-0 flex items-center justify-center">
-            <svg className="w-5 h-5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-          </div>
-        )}
-        <div className="flex-1 min-w-0">
-          <p className="text-[12px] text-text-primary font-body font-medium truncate">{filename}</p>
-          <p className="text-[11px] text-text-muted font-body mt-0.5">
-            <span className="font-mono">{reference}</span>
-            {isImages && color !== "—" && <> · {color}</>}
-            {position != null && <> · position {position}</>}
-          </p>
-          {errors.map((err, i) => (
-            <p key={i} className="text-[11px] text-rose-700 font-body mt-1 leading-snug">{err}</p>
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={() => onDismiss(rowIndex)}
-          disabled={busy}
-          className="text-[10px] text-text-muted hover:text-rose-600 font-body shrink-0 disabled:opacity-50"
-        >
-          Retirer
-        </button>
-      </div>
-      {availableColors.length > 0 && isImages && (
-        <div className="pl-[60px]">
-          <p className="text-[10px] text-text-muted font-body uppercase tracking-wider font-semibold mb-1.5">
-            Couleurs disponibles sur le produit
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {availableColors.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => onAssignColor(rowIndex, c.id)}
-                disabled={busy}
-                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-bg-primary border border-rose-200 hover:border-rose-500 hover:shadow-sm transition-all text-[11px] font-body disabled:opacity-50"
-              >
-                <ColorSwatch hex={c.hex ?? "#9CA3AF"} patternImage={c.patternImage ?? null} size={14} rounded="full" />
-                <span className="text-text-primary">{c.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </li>
-  );
-}
