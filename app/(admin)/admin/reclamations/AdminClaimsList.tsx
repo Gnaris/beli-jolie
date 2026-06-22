@@ -85,7 +85,7 @@ export default function AdminClaimsList({ initialClaims }: { initialClaims: Clai
         <p className="text-sm text-text-muted font-body py-8 text-center">Chargement...</p>
       ) : filtered.length === 0 ? (
         <div className="bg-bg-primary border border-border rounded-2xl p-8 text-center">
-          <p className="text-text-muted font-body">Aucune reclamation.</p>
+          <p className="text-text-muted font-body">Aucune demande.</p>
         </div>
       ) : (
         <div className="border border-border rounded-2xl overflow-hidden">

@@ -83,7 +83,7 @@ export default function AdminClaimActions({ claimId, status, adminNote: initialN
               className="flex-1 px-3 py-2 text-sm font-body bg-[#22C55E] text-white rounded-lg hover:bg-[#16A34A] disabled:opacity-40">
               Accepter
             </button>
-            <button onClick={async () => { if (await confirm({ title: "Refuser", message: "Refuser cette réclamation ?" })) handleStatusChange("REJECTED"); }} disabled={isPending}
+            <button onClick={async () => { if (await confirm({ title: "Refuser", message: "Refuser cette demande ?" })) handleStatusChange("REJECTED"); }} disabled={isPending}
               className="flex-1 px-3 py-2 text-sm font-body bg-[#EF4444] text-white rounded-lg hover:bg-[#DC2626] disabled:opacity-40">
               Refuser
             </button>
@@ -138,7 +138,7 @@ export default function AdminClaimActions({ claimId, status, adminNote: initialN
       {status === "CLOSED" && (
         <button onClick={() => handleStatusChange("OPEN")} disabled={isPending}
           className="w-full px-4 py-2 text-sm font-body bg-[#1A1A1A] text-white rounded-lg hover:bg-[#333] disabled:opacity-40 transition-colors">
-          Rouvrir la réclamation
+          Rouvrir la demande
         </button>
       )}
 

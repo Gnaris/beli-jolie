@@ -73,7 +73,7 @@ export default function AdminClaimView({ claim }: { claim: ClaimWithConversation
       />
       {claim.status === "CLOSED" ? (
         <div className="border-t border-border px-4 py-3 text-center">
-          <p className="text-sm text-text-muted font-body">Réclamation clôturée — rouvrez-la pour écrire.</p>
+          <p className="text-sm text-text-muted font-body">Demande clôturée — rouvrez-la pour écrire.</p>
         </div>
       ) : (
         <MessageInput onSend={handleSend} />

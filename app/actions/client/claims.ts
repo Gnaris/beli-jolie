@@ -28,7 +28,7 @@ export async function createClaim(input: CreateClaimInput) {
   }
 
   if (input.type === "ORDER_CLAIM" && !input.orderId) {
-    return { success: false, error: "La commande est obligatoire pour une reclamation liee." };
+    return { success: false, error: "La commande est obligatoire pour une demande liée." };
   }
 
   if (input.orderId) {
@@ -70,7 +70,7 @@ export async function createClaim(input: CreateClaimInput) {
 
     await createConversation({
       type: "CLAIM",
-      subject: `Reclamation ${reference}`,
+      subject: `Service Client — ${reference}`,
       userId: session.user.id,
       claimId: claim.id,
       initialMessage: input.description.trim(),
@@ -94,7 +94,7 @@ export async function createClaim(input: CreateClaimInput) {
     revalidateTag("claims", "default");
     return { success: true, claimId: claim.id };
   } catch {
-    return { success: false, error: "Erreur lors de la creation de la reclamation." };
+    return { success: false, error: "Erreur lors de l'envoi de la demande." };
   }
 }
 

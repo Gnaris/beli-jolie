@@ -146,10 +146,8 @@ export default async function ClientDetailPage({
   const totalSpent = orders.reduce((s, o) => s + Number(o.totalTTC), 0);
   const cartItemCount = cart?.items.length ?? 0;
   const cartTotal = (cart?.items ?? []).reduce((sum, item) => {
-    const v = item.variant;
-    const p = Number(v.unitPrice);
-    const isPk = v.saleType === "PACK";
-    return sum + (isPk ? p * (v.packQuantity ?? 1) * item.quantity : p * item.quantity);
+    // unitPrice en BDD = prix total déjà calculé (UNIT = prix unité, PACK = prix total du pack)
+    return sum + Number(item.variant.unitPrice) * item.quantity;
   }, 0);
 
   // Serialize cart items for client modal

@@ -486,10 +486,10 @@ export async function notifyAdminNewClaim(params: {
   await sendMail({
     fromName: shopName || "Boutique",
     to: notifyEmail,
-    subject: `Nouvelle réclamation ${claimReference} — ${clientCompany}`,
+    subject: `Nouvelle demande (Service Client) ${claimReference} — ${clientCompany}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-        <h2 style="color:#1A1A1A;">Nouvelle réclamation</h2>
+        <h2 style="color:#1A1A1A;">Nouvelle demande — Service Client</h2>
         <table style="width:100%;border-collapse:collapse;margin:16px 0;">
           <tr><td style="padding:8px;font-weight:bold;">Référence</td><td style="padding:8px;">${escapeHtml(claimReference)}</td></tr>
           <tr><td style="padding:8px;font-weight:bold;">Client</td><td style="padding:8px;">${escapeHtml(clientName)} (${escapeHtml(clientCompany)})</td></tr>
@@ -500,7 +500,7 @@ export async function notifyAdminNewClaim(params: {
         </div>
         <a href="${baseUrl}/admin/reclamations/${claimId}"
            style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
-          Examiner la réclamation
+          Examiner la demande
         </a>
       </div>
     `,
@@ -536,15 +536,15 @@ export async function notifyClientClaimUpdate(params: {
   await sendMail({
     fromName: shopName || "Boutique",
     to: clientEmail,
-    subject: `Réclamation ${claimReference} — ${statusLabels[newStatus] || newStatus}`,
+    subject: `Demande (Service Client) ${claimReference} — ${statusLabels[newStatus] || newStatus}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
         <h2 style="color:#1A1A1A;">Bonjour ${escapeHtml(clientName)},</h2>
-        <p>Votre réclamation <strong>${escapeHtml(claimReference)}</strong> est maintenant <strong>${statusLabels[newStatus] || newStatus}</strong>.</p>
+        <p>Votre demande <strong>${escapeHtml(claimReference)}</strong> est maintenant <strong>${statusLabels[newStatus] || newStatus}</strong>.</p>
         ${message ? `<div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;"><p style="margin:0;">${escapeHtml(message)}</p></div>` : ''}
         <a href="${baseUrl}/fr/espace-pro/reclamations/${claimId}"
            style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
-          Voir la réclamation
+          Voir la demande
         </a>
       </div>
     `,

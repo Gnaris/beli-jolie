@@ -9,7 +9,7 @@ import ClaimTimeline from "@/components/client/claims/ClaimTimeline";
 import AdminClaimView from "./AdminClaimView";
 import AdminClaimActions from "./AdminClaimActions";
 
-export const metadata = { title: "Reclamation — Admin" };
+export const metadata = { title: "Demande — Admin" };
 
 export default async function AdminClaimDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
@@ -38,7 +38,7 @@ export default async function AdminClaimDetailPage({ params }: { params: Promise
   return (
     <div className="space-y-4">
       <Link href="/admin/reclamations" className="text-sm text-text-muted hover:text-text-primary font-body transition-colors">
-        &larr; Retour aux reclamations
+        &larr; Retour au service client
       </Link>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

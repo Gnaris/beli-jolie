@@ -81,7 +81,7 @@ export async function updateClaimStatus(claimId: string, newStatus: string, mess
     include: { user: { select: { email: true, firstName: true } }, conversation: true },
   });
 
-  if (!claim) return { success: false, error: "Reclamation introuvable." };
+  if (!claim) return { success: false, error: "Demande introuvable." };
 
   if (!canTransition(claim.status, newStatus)) {
     return { success: false, error: `Transition ${claim.status} -> ${newStatus} non autorisee.` };
@@ -131,14 +131,14 @@ export async function setClaimResolution(
   resolution: "NONE" | "REFUND" | "CREDIT" | "RESHIP",
   params: { amount?: number; message?: string }
 ) {
-  await requireAdmin();
+  const session = await requireAdmin();
 
   const claim = await prisma.claim.findUnique({
     where: { id: claimId },
     include: { user: true, conversation: true },
   });
 
-  if (!claim) return { success: false, error: "Reclamation introuvable." };
+  if (!claim) return { success: false, error: "Demande introuvable." };
 
   const updateData: Record<string, unknown> = { resolution };
 
@@ -155,10 +155,55 @@ export async function setClaimResolution(
     updateData.refundAmount = params.amount;
   }
 
+  // NONE/CREDIT = action immédiate côté plateforme → RESOLVED.
+  // REFUND/RESHIP = action admin restante (virement, expédition) → RESOLUTION_PENDING.
+  const targetStatus =
+    resolution === "NONE" || resolution === "CREDIT"
+      ? "RESOLVED"
+      : "RESOLUTION_PENDING";
+
+  const statusChanged =
+    claim.status !== targetStatus && canTransition(claim.status, targetStatus);
+  if (statusChanged) {
+    updateData.status = targetStatus;
+  }
+
   await prisma.claim.update({
     where: { id: claimId },
     data: updateData,
   });
+
+  if (statusChanged) {
+    if (params.message?.trim() && claim.conversation) {
+      await addMessage({
+        conversationId: claim.conversation.id,
+        senderId: session.user.id,
+        senderRole: "ADMIN",
+        content: params.message.trim(),
+      });
+    }
+
+    notifyClientClaimUpdate({
+      clientEmail: claim.user.email,
+      clientName: claim.user.firstName,
+      claimReference: claim.reference,
+      newStatus: targetStatus,
+      message: params.message,
+      claimId,
+    }).catch((err) =>
+      logger.error("[admin/claims] Email client demande échoué", {
+        error: err,
+      }),
+    );
+
+    emitChatEvent({
+      type: "CLAIM_STATUS_CHANGED",
+      conversationId: claim.conversation?.id || "",
+      userId: claim.userId,
+      targetRole: "CLIENT",
+      claimData: { claimId, newStatus: targetStatus },
+    });
+  }
 
   revalidateTag("claims", "default");
   return { success: true };
