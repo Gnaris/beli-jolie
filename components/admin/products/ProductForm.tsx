@@ -644,6 +644,26 @@ export default function ProductForm({
     updateHeader({ productStatus, stockState: headerStockState });
   }, [productStatus, headerStockState, updateHeader]);
   const wasImported = !!initialData?.pfsProductId;
+  /** Brouillon non lié : produit Hors ligne sans aucun ID marketplace côté Product
+   *  ni côté ProductColor. Tant qu'aucune marketplace n'a vu le produit, on peut
+   *  encore corriger la couleur d'une variante UNIT existante sans devoir la
+   *  supprimer/recréer. Pack et multi-couleurs restent verrouillés (composition
+   *  liée aux tailles). */
+  const allowColorEditExistingVariants = useMemo(() => {
+    const status = initialData?.status ?? "OFFLINE";
+    if (status !== "OFFLINE") return false;
+    if (initialData?.pfsProductId) return false;
+    if (initialData?.ankorsProductId) return false;
+    if (initialData?.efashionReferenceBase) return false;
+    if (initialData?.faireProductId) return false;
+    return true;
+  }, [
+    initialData?.status,
+    initialData?.pfsProductId,
+    initialData?.ankorsProductId,
+    initialData?.efashionReferenceBase,
+    initialData?.faireProductId,
+  ]);
   useEffect(() => {
     // Completeness depends on many fields — separate effect.
     // Imported products are never shown as drafts.
@@ -2905,6 +2925,7 @@ export default function ProductForm({
             sizeDetailsTu={sizeDetailsTu}
             primaryColorId={primaryColorId}
             onChangePrimaryColorId={setPrimaryColorId}
+            allowColorEdit={allowColorEditExistingVariants}
           />
 
           {/* ── Mapping Paris Fashion Shop par variante ── */}

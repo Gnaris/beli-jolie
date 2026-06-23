@@ -380,9 +380,16 @@ export function validateVariantRow(row: ProductImportRow): string[] {
     if (parsed.length === 0) errors.push("Format de taille invalide pour PACK (ex: S:2,M:3,L:1).");
     const totalQty = parsed.reduce((sum, e) => sum + e.quantity, 0);
     if (totalQty < 1) errors.push("La quantité totale du pack doit être ≥ 1.");
-    // packQuantity is auto-computed from sizes, no longer required in file
   } else if (row.saleType === "PACK" && !row.size) {
     // Already caught by "Taille obligatoire" above
+  }
+  // « Qté pack » est obligatoire pour les variantes PACK : la cliente a perdu
+  // des données en laissant la cellule vide (défaut implicite à 1 ⇒ paquet d'1
+  // pièce). Refus net si manquant ou ≤ 0. La taille « S:2,M:3 » n'est plus
+  // une alternative — cette colonne est la source de vérité pour le nombre
+  // de pièces par paquet.
+  if (row.saleType === "PACK" && (row.packQuantity == null || row.packQuantity <= 0)) {
+    errors.push("Qté pack obligatoire pour un PACK (nombre de pièces dans un paquet).");
   }
 
   return errors;
@@ -856,25 +863,21 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                     const isPrimary = primaryColorNorm
                       ? normalizeColorName(mainColor.name) === primaryColorNorm
                       : ci === 0;
+                    // PACK : la colonne « Qté pack » est désormais la source de
+                    // vérité (validée obligatoire dans validateVariantRow).
+                    // unitPrice stocké = prix unitaire × Qté pack (= prix total
+                    // d'un paquet, conformément au modèle PACK mono-couleur).
+                    const packQty = isPack ? (row.packQuantity ?? 1) : null;
                     return {
                       colorId: mainColor.id,
-                      unitPrice: (() => {
-                        if (!isPack) return row.unitPrice;
-                        const sizeEntries = parseSizeField(row.size, "PACK");
-                        const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
-                        return totalQty > 0 ? Math.round(row.unitPrice * totalQty * 100) / 100 : row.unitPrice;
-                      })(),
+                      unitPrice: isPack
+                        ? Math.round(row.unitPrice * (packQty ?? 1) * 100) / 100
+                        : row.unitPrice,
                       weight: row.weight ?? 0,
                       stock: row.stock,
                       isPrimary,
                       saleType: row.saleType,
-                      packQuantity: isPack
-                        ? (() => {
-                            const sizeEntries = parseSizeField(row.size, "PACK");
-                            const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
-                            return totalQty > 0 ? totalQty : (row.packQuantity ?? null);
-                          })()
-                        : null,
+                      packQuantity: packQty,
                     };
                   });
                 })(),
@@ -894,7 +897,21 @@ export async function processProductImport(jobId: string, maxProducts?: number):
               const pc = product.colors.find((c) => c.colorId === mainColor.id && c.saleType === row.saleType);
               if (!pc) continue;
 
-              for (const entry of sizeEntries) {
+              // PACK : si la cliente n'a précisé aucun « :qté » par taille
+              // (toutes les tailles sont des noms bruts type « Taille unique »),
+              // la quantité provient de la colonne « Qté pack ». Cas typique :
+              // size = "Taille unique" + Qté pack = 12 → la seule VariantSize
+              // récupère quantity = 12.
+              // Sinon (au moins un « S:2 » explicite), on garde les quantités
+              // parsées par taille.
+              const hasExplicitQty = row.saleType === "PACK"
+                ? row.size.split(",").some((part) => part.includes(":"))
+                : true;
+              const entriesToWrite = row.saleType === "PACK" && !hasExplicitQty && sizeEntries.length === 1
+                ? [{ name: sizeEntries[0].name, quantity: row.packQuantity ?? 1 }]
+                : sizeEntries;
+
+              for (const entry of entriesToWrite) {
                 const sizeEntity = await prisma.size.upsert({
                   where: { name: entry.name },
                   create: { name: entry.name },

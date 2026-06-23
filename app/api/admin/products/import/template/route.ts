@@ -152,7 +152,7 @@ const VARIANT_COLUMNS: ColumnDef[] = [
   // — Prix & stock —
   { key: "unit_price", header: "Prix unitaire *", width: 15, required: true, description: "Prix HT en euros", example: "12.50" },
   { key: "stock", header: "Stock *", width: 10, required: true, description: "Quantité en stock", example: "200" },
-  { key: "pack_qty", header: "Qté pack", width: 12, required: false, description: "Auto-calculé depuis les tailles si PACK", example: "" },
+  { key: "pack_qty", header: "Qté pack", width: 12, required: false, description: "Obligatoire si PACK : nombre de pièces dans un paquet (ex : 12). Laissez vide pour UNIT.", example: "12" },
   { key: "discount_type", header: "Type remise", width: 15, required: false, description: "PERCENT (seul type supporté)", example: "PERCENT" },
   { key: "discount_value", header: "Valeur remise", width: 15, required: false, description: "Valeur de la remise en %", example: "10" },
   // — Logistique —
@@ -402,6 +402,22 @@ export async function GET() {
   const dataEndRow = 200;
   const findCol = (key: string) => COLUMNS.findIndex((c) => c.key === key) + 1;
 
+  // ── Style par défaut des cellules de données (toutes lignes 5 → 200) ──
+  // Centrage horizontal + vertical, retour à la ligne automatique, police
+  // Calibri 11 noire sur fond blanc. Forcer ces propriétés sur chaque
+  // cellule garantit un rendu homogène quand la cliente saisit du contenu.
+  // Note : Excel pose la limite du « collage avec format source » — un copier
+  // venu d'ailleurs amène SA mise en forme. L'astuce conseillée à la cliente
+  // est « Coller spécial → Valeurs uniquement » (Ctrl+Shift+V).
+  for (let r = dataStartRow; r <= dataEndRow; r++) {
+    for (let c = 1; c <= COLUMNS.length; c++) {
+      const cell = ws.getCell(r, c);
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      cell.font = { name: "Calibri", size: 11, color: { argb: COLORS.ink } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.white } };
+    }
+  }
+
   const saleTypeCol = findCol("sale_type");
   for (let r = dataStartRow; r <= dataEndRow; r++) {
     ws.getCell(r, saleTypeCol).dataValidation = {
@@ -499,7 +515,7 @@ export async function GET() {
         pattern: "solid",
         fgColor: { argb: idx % 2 === 0 ? palette.zebraEven : palette.zebraOdd },
       };
-      cell.alignment = { horizontal: "left", vertical: "middle", wrapText: true, indent: 1 };
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
       cell.border = BORDER_THIN;
     });
   });
@@ -508,7 +524,7 @@ export async function GET() {
   const legendStart = Math.max(...refColumns.map((rc) => REF_DATA_START_ROW + rc.values.length)) + 2;
   refSheet.mergeCells(`A${legendStart}:${refLastCol}${legendStart}`);
   const legendCell = refSheet.getCell(`A${legendStart}`);
-  legendCell.value = "💡  Astuce  —  La feuille Produits propose des listes déroulantes sur Catégorie, Sous-catégorie (filtrée par la catégorie choisie, valeur unique obligatoirement dans la liste), Tags, Taille, Couleur, Couleur principale, Pays, Saison et Code SH. Pour les colonnes multi-valeurs (tags, composition, taille PACK), plusieurs valeurs séparées par des virgules sont autorisées — pour Taille au format « taille:qté » (ex : S:2,M:3). Si une catégorie n'a pas de sous-catégorie en base, la cellule Sous-catégorie correspondante est verrouillée — laissez-la vide. La colonne B ci-contre liste sur chaque ligne les sous-catégories rattachées à la catégorie de la colonne A.";
+  legendCell.value = "💡  Astuce  —  La feuille Produits propose des listes déroulantes sur Catégorie, Sous-catégorie (filtrée par la catégorie choisie, valeur unique obligatoirement dans la liste), Tags, Taille, Couleur, Couleur principale, Pays, Saison et Code SH. Pour les colonnes multi-valeurs (tags, composition, taille PACK), plusieurs valeurs séparées par des virgules sont autorisées — pour Taille au format « taille:qté » (ex : S:2,M:3). Si une catégorie n'a pas de sous-catégorie en base, la cellule Sous-catégorie correspondante est verrouillée — laissez-la vide. La colonne B ci-contre liste sur chaque ligne les sous-catégories rattachées à la catégorie de la colonne A.  ✂️  Collage depuis un autre fichier : utilisez « Coller spécial → Valeurs uniquement » (Ctrl+Shift+V) pour conserver la mise en forme du modèle.";
   legendCell.font = { name: "Calibri", size: 10, italic: true, color: { argb: COLORS.refLegendText } };
   legendCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.refLegendBg } };
   legendCell.alignment = { horizontal: "left", vertical: "middle", wrapText: true, indent: 1 };
@@ -741,6 +757,33 @@ export async function GET() {
             bgColor: { argb: COLORS.inheritedBg },
           },
           font: { color: { argb: COLORS.inheritedText } },
+        },
+      },
+    ],
+  });
+
+  // ── Surlignage rouge clair de la cellule « Qté pack » quand vide ──
+  // Sur les variantes PACK, la colonne Qté pack est obligatoire (validée
+  // côté import). On signale visuellement les cellules manquantes en rouge
+  // clair pour éviter à la cliente d'attendre l'erreur d'import.
+  const saleTypeColLetter = colLetter(findCol("sale_type") - 1);
+  const packQtyColLetter = colLetter(findCol("pack_qty") - 1);
+  ws.addConditionalFormatting({
+    ref: `${packQtyColLetter}${dataStartRow}:${packQtyColLetter}${dataEndRow}`,
+    rules: [
+      {
+        type: "expression",
+        priority: 2,
+        formulae: [
+          `AND($${saleTypeColLetter}${dataStartRow}="PACK",ISBLANK($${packQtyColLetter}${dataStartRow}))`,
+        ],
+        style: {
+          fill: {
+            type: "pattern",
+            pattern: "solid",
+            bgColor: { argb: COLORS.requiredBg },
+          },
+          font: { color: { argb: COLORS.requiredText }, bold: true },
         },
       },
     ],

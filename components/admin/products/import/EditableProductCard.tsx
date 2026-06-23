@@ -660,6 +660,21 @@ export default function EditableProductCard({
                             min={0}
                           />
                         </div>
+                        {String(variantValue(idx, "saleType", "saleType") ?? "UNIT") === "PACK" && (
+                          <div>
+                            <FieldLabel
+                              label="Qté par paquet"
+                              required
+                              hint="Nombre de pièces dans un paquet (ex : 12)"
+                            />
+                            <NumberField
+                              value={Number(variantValue(idx, "packQuantity", "packQuantity")) || null}
+                              onChange={(val) => patchVariant(idx, { packQuantity: val ?? null })}
+                              step={1}
+                              min={1}
+                            />
+                          </div>
+                        )}
                       </div>
 
                       {hasError && (

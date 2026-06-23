@@ -852,6 +852,18 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     // Cf. UI : ColorVariantManager (LOCKED_VARIANT_TOOLTIP).
     const existingByDbId = new Map(existingVariants.map((v) => [v.id, v]));
 
+    // Brouillon non publié : pour un produit Hors ligne jamais lié à aucune
+    // marketplace, on autorise la correction de la couleur d'une variante UNIT
+    // existante (la composition tailles et le saleType restent figés). Idem côté
+    // UI dans ColorVariantManager (prop `allowColorEdit`).
+    const productUnlinkedDraft =
+      !!oldProduct &&
+      oldProduct.status === "OFFLINE" &&
+      !oldProduct.pfsProductId &&
+      !oldProduct.ankorsProductId &&
+      !oldProduct.efashionReferenceBase &&
+      !oldProduct.faireProductId;
+
     // IDs that must be kept (those with dbId provided)
     const submittedDbIds = input.colors
       .filter((c) => c.dbId)
@@ -921,12 +933,20 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
           // Cas anormal : un dbId envoyé qui n'existe pas en base. On ignore par sécurité.
           continue;
         }
+        // Exception : sur brouillon non lié, la couleur d'une variante UNIT
+        // peut être corrigée — pas de composition tailles couplée à la couleur,
+        // donc pas de risque de cassure. saleType et packQuantity restent figés.
+        const allowColorChange =
+          productUnlinkedDraft &&
+          existing.saleType === "UNIT" &&
+          !!colorInput.colorId &&
+          colorInput.colorId !== existing.colorId;
         await tx.productColor.update({
           where: { id: colorInput.dbId },
           data: {
-            // colorId / saleType / packQuantity : valeurs verrouillées, on garde
-            // ce que la base contient et on ignore le client.
-            colorId:             existing.colorId,
+            // colorId : verrouillé sauf brouillon non publié + UNIT.
+            colorId:             allowColorChange ? colorInput.colorId : existing.colorId,
+            // saleType / packQuantity : toujours verrouillés.
             saleType:            existing.saleType,
             packQuantity:        existing.packQuantity,
             // Champs librement modifiables :

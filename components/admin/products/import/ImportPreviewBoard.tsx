@@ -26,7 +26,8 @@
  * l'état métier et les hooks).
  */
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import Image from "@/components/ui/SmartImage";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 
@@ -182,6 +183,52 @@ export default function ImportPreviewBoard({
   const effectivePosition = (file: PreviewFile) =>
     overrides.get(file.name)?.position ?? file.position;
 
+  // ─── États collapse + lightbox ───────────────────────────────────
+  const [closedOkRefs, setClosedOkRefs] = useState<Set<string>>(new Set());
+  const [notFoundClosed, setNotFoundClosed] = useState<{ format: boolean; ref: boolean }>({ format: false, ref: false });
+  const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
+
+  const hasFormat = buckets.notFoundFormat.length > 0;
+  const hasRef = buckets.notFoundRef.length > 0;
+
+  const allOkClosed = okGroups.length > 0 && okGroups.every(([r]) => closedOkRefs.has(r));
+  const toggleAllOk = () => {
+    if (allOkClosed) {
+      setClosedOkRefs(new Set());
+    } else {
+      setClosedOkRefs(new Set(okGroups.map(([r]) => r)));
+    }
+  };
+  const toggleOkRef = (ref: string) => {
+    setClosedOkRefs((prev) => {
+      const next = new Set(prev);
+      if (next.has(ref)) next.delete(ref);
+      else next.add(ref);
+      return next;
+    });
+  };
+
+  const allNotFoundClosed =
+    (hasFormat || hasRef) &&
+    (!hasFormat || notFoundClosed.format) &&
+    (!hasRef || notFoundClosed.ref);
+  const toggleAllNotFound = () => {
+    if (allNotFoundClosed) {
+      setNotFoundClosed({ format: false, ref: false });
+    } else {
+      setNotFoundClosed({ format: hasFormat, ref: hasRef });
+    }
+  };
+
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightbox(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       {/* ═══════════════════════════════════════════════════════════
@@ -200,9 +247,20 @@ export default function ImportPreviewBoard({
               {buckets.ok.length}
             </span>
           </div>
-          <p className="text-[11px] text-text-muted font-body mt-2 leading-relaxed">
-            Référence, couleur et position OK. Ces images partent telles quelles.
-          </p>
+          <div className="flex items-start justify-between gap-3 mt-2">
+            <p className="text-[11px] text-text-muted font-body leading-relaxed flex-1">
+              Référence, couleur et position OK. Ces images partent telles quelles.
+            </p>
+            {okGroups.length > 0 && (
+              <button
+                type="button"
+                onClick={toggleAllOk}
+                className="shrink-0 text-[11px] px-2.5 py-1 rounded-full bg-bg-primary border border-emerald-200 text-emerald-800 font-body font-medium hover:border-emerald-500 hover:bg-emerald-50/60 transition-colors"
+              >
+                {allOkClosed ? "Tout ouvrir" : "Tout fermer"}
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="relative flex-1 overflow-y-auto max-h-[560px]">
@@ -210,32 +268,54 @@ export default function ImportPreviewBoard({
             <EmptyState label="Aucune image prête pour l'instant." />
           ) : (
             <div className="divide-y divide-emerald-50">
-              {okGroups.map(([ref, group]) => (
-                <details key={ref} open className="group">
-                  <summary className="px-5 py-2.5 bg-emerald-50/40 cursor-pointer flex items-center gap-2 select-none hover:bg-emerald-50/70 transition-colors">
-                    <svg className="w-3.5 h-3.5 text-emerald-600 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
-                    <span className="font-mono text-xs font-semibold text-text-primary">{ref}</span>
-                    <span className="text-[10px] text-text-muted font-body">
-                      · {group.length} image{group.length > 1 ? "s" : ""}
-                    </span>
-                  </summary>
-                  <ul className="divide-y divide-emerald-50/60">
-                    {group.map((f) => (
-                      <li key={f.name} className="px-5 py-2 flex items-center gap-3">
-                        <div className="relative w-10 h-10 rounded-lg overflow-hidden border border-emerald-100 bg-bg-secondary shrink-0">
-                          <Image src={f.url} alt={f.name} fill className="object-cover" unoptimized />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] text-text-secondary font-body truncate">{f.name}</p>
-                          <p className="text-[10px] text-text-muted font-body mt-0.5">
-                            {effectiveColor(f)} · Position {effectivePosition(f)}
-                          </p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              ))}
+              {okGroups.map(([ref, group]) => {
+                const isClosed = closedOkRefs.has(ref);
+                return (
+                  <div key={ref}>
+                    <button
+                      type="button"
+                      onClick={() => toggleOkRef(ref)}
+                      className="w-full px-5 py-2.5 bg-emerald-50/40 cursor-pointer flex items-center gap-2 select-none hover:bg-emerald-50/70 transition-colors text-left"
+                      aria-expanded={!isClosed}
+                    >
+                      <svg
+                        className={`w-3.5 h-3.5 text-emerald-600 transition-transform ${isClosed ? "" : "rotate-90"}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                      </svg>
+                      <span className="font-mono text-xs font-semibold text-text-primary">{ref}</span>
+                      <span className="text-[10px] text-text-muted font-body">
+                        · {group.length} image{group.length > 1 ? "s" : ""}
+                      </span>
+                    </button>
+                    {!isClosed && (
+                      <ul className="divide-y divide-emerald-50/60">
+                        {group.map((f) => (
+                          <li key={f.name} className="px-5 py-2 flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setLightbox({ url: f.url, name: f.name })}
+                              className="relative w-10 h-10 rounded-lg overflow-hidden border border-emerald-100 bg-bg-secondary shrink-0 cursor-zoom-in hover:ring-2 hover:ring-emerald-400 transition-all"
+                              aria-label={`Agrandir ${f.name}`}
+                            >
+                              <Image src={f.url} alt={f.name} fill className="object-cover" unoptimized />
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[11px] text-text-secondary font-body truncate">{f.name}</p>
+                              <p className="text-[10px] text-text-muted font-body mt-0.5">
+                                {effectiveColor(f)} · Position {effectivePosition(f)}
+                              </p>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -301,9 +381,14 @@ export default function ImportPreviewBoard({
               {buckets.toFixMissingColor.map(({ file, missing }) => (
                 <li key={`mc-${file.name}`} className="px-5 py-3 space-y-2">
                   <div className="flex items-start gap-3">
-                    <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-amber-100 bg-bg-secondary shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setLightbox({ url: file.url, name: file.name })}
+                      className="relative w-12 h-12 rounded-lg overflow-hidden border border-amber-100 bg-bg-secondary shrink-0 cursor-zoom-in hover:ring-2 hover:ring-amber-400 transition-all"
+                      aria-label={`Agrandir ${file.name}`}
+                    >
                       <Image src={file.url} alt={file.name} fill className="object-cover" unoptimized />
-                    </div>
+                    </button>
                     <div className="flex-1 min-w-0">
                       <p className="text-[11px] text-text-primary font-body truncate font-medium">
                         {file.name}
@@ -355,13 +440,27 @@ export default function ImportPreviewBoard({
                   <li key={`cf-${file.name}`} className="px-5 py-3 space-y-2">
                     <div className="flex items-start gap-3">
                       <div className="relative shrink-0">
-                        <div className="w-12 h-12 rounded-lg overflow-hidden border border-amber-100 bg-bg-secondary">
-                          <Image src={file.url} alt={file.name} fill className="object-cover" unoptimized />
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setLightbox({ url: file.url, name: file.name })}
+                          className="w-12 h-12 rounded-lg overflow-hidden border border-amber-100 bg-bg-secondary cursor-zoom-in hover:ring-2 hover:ring-amber-400 transition-all"
+                          aria-label={`Agrandir ${file.name}`}
+                        >
+                          <div className="relative w-full h-full">
+                            <Image src={file.url} alt={file.name} fill className="object-cover" unoptimized />
+                          </div>
+                        </button>
                         {/* Pile : ancienne image en arrière-plan, nouvelle au-dessus */}
-                        <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-md overflow-hidden border border-amber-300 bg-amber-50 ring-2 ring-bg-primary">
-                          <Image src={`/${conflict.existingImagePath}`} alt="existante" fill className="object-cover" unoptimized />
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setLightbox({ url: `/${conflict.existingImagePath}`, name: "Image existante" })}
+                          className="absolute -bottom-1 -right-1 w-7 h-7 rounded-md overflow-hidden border border-amber-300 bg-amber-50 ring-2 ring-bg-primary cursor-zoom-in hover:ring-amber-500 transition-all"
+                          aria-label="Agrandir l'image existante"
+                        >
+                          <div className="relative w-full h-full">
+                            <Image src={`/${conflict.existingImagePath}`} alt="existante" fill className="object-cover" unoptimized />
+                          </div>
+                        </button>
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-[11px] text-text-primary font-body truncate font-medium">
@@ -429,9 +528,20 @@ export default function ImportPreviewBoard({
               {notFoundCount}
             </span>
           </div>
-          <p className="text-[11px] text-text-muted font-body mt-2 leading-relaxed">
-            Fichiers mal nommés ou références qui n&apos;existent pas. Renommez et réimportez, ou retirez-les.
-          </p>
+          <div className="flex items-start justify-between gap-3 mt-2">
+            <p className="text-[11px] text-text-muted font-body leading-relaxed flex-1">
+              Fichiers mal nommés ou références qui n&apos;existent pas. Renommez et réimportez, ou retirez-les.
+            </p>
+            {(hasFormat || hasRef) && (
+              <button
+                type="button"
+                onClick={toggleAllNotFound}
+                className="shrink-0 text-[11px] px-2.5 py-1 rounded-full bg-bg-primary border border-rose-200 text-rose-800 font-body font-medium hover:border-rose-500 hover:bg-rose-50/60 transition-colors"
+              >
+                {allNotFoundClosed ? "Tout ouvrir" : "Tout fermer"}
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="relative flex-1 overflow-y-auto max-h-[560px]">
@@ -440,9 +550,22 @@ export default function ImportPreviewBoard({
           ) : (
             <div className="divide-y divide-rose-100">
               {/* ─── Sous-section : Format incorrect ─────────────────── */}
-              {buckets.notFoundFormat.length > 0 && (
+              {hasFormat && (
                 <section>
-                  <div className="px-5 py-2.5 bg-rose-50/60 flex items-center gap-2 sticky top-0 z-10 backdrop-blur-sm border-b border-rose-100">
+                  <button
+                    type="button"
+                    onClick={() => setNotFoundClosed((s) => ({ ...s, format: !s.format }))}
+                    className="w-full px-5 py-2.5 bg-rose-50/60 flex items-center gap-2 sticky top-0 z-10 backdrop-blur-sm border-b border-rose-100 hover:bg-rose-50 transition-colors text-left"
+                    aria-expanded={!notFoundClosed.format}
+                  >
+                    <svg
+                      className={`w-3.5 h-3.5 text-rose-600 transition-transform ${notFoundClosed.format ? "" : "rotate-90"}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                    </svg>
                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-rose-100 border border-rose-200 text-[10px] font-body font-semibold uppercase tracking-[0.14em] text-rose-800">
                       <span className="w-1 h-1 rounded-full bg-rose-500" />
                       Format incorrect
@@ -450,37 +573,57 @@ export default function ImportPreviewBoard({
                     <span className="text-[10px] font-body text-rose-700 tabular-nums">
                       · {buckets.notFoundFormat.length} fichier{buckets.notFoundFormat.length > 1 ? "s" : ""}
                     </span>
-                  </div>
-                  <ul className="divide-y divide-rose-50">
-                    {buckets.notFoundFormat.map((f) => (
-                      <li key={`fmt-${f.name}`} className="px-5 py-3 flex items-start gap-3">
-                        <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-rose-100 bg-bg-secondary shrink-0">
-                          <Image src={f.url} alt={f.name} fill className="object-cover" unoptimized />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] text-text-primary font-body truncate font-medium">{f.name}</p>
-                          <p className="text-[11px] text-rose-700 font-body mt-1 leading-snug">
-                            Nom invalide. Format attendu :{" "}
-                            <code className="px-1 rounded bg-rose-50 border border-rose-100 text-rose-800">REFERENCE COULEUR POSITION.jpg</code>
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => onRemoveFile(f.name)}
-                          className="text-[10px] text-text-muted hover:text-red-600 font-body shrink-0"
-                        >
-                          Retirer
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  </button>
+                  {!notFoundClosed.format && (
+                    <ul className="divide-y divide-rose-50">
+                      {buckets.notFoundFormat.map((f) => (
+                        <li key={`fmt-${f.name}`} className="px-5 py-3 flex items-start gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setLightbox({ url: f.url, name: f.name })}
+                            className="relative w-12 h-12 rounded-lg overflow-hidden border border-rose-100 bg-bg-secondary shrink-0 cursor-zoom-in hover:ring-2 hover:ring-rose-400 transition-all"
+                            aria-label={`Agrandir ${f.name}`}
+                          >
+                            <Image src={f.url} alt={f.name} fill className="object-cover" unoptimized />
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] text-text-primary font-body truncate font-medium">{f.name}</p>
+                            <p className="text-[11px] text-rose-700 font-body mt-1 leading-snug">
+                              Nom invalide. Format attendu :{" "}
+                              <code className="px-1 rounded bg-rose-50 border border-rose-100 text-rose-800">REFERENCE COULEUR POSITION.jpg</code>
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onRemoveFile(f.name)}
+                            className="text-[10px] text-text-muted hover:text-red-600 font-body shrink-0"
+                          >
+                            Retirer
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </section>
               )}
 
               {/* ─── Sous-section : Référence inexistante ────────────── */}
-              {buckets.notFoundRef.length > 0 && (
+              {hasRef && (
                 <section>
-                  <div className="px-5 py-2.5 bg-rose-50/60 flex items-center gap-2 sticky top-0 z-10 backdrop-blur-sm border-b border-rose-100">
+                  <button
+                    type="button"
+                    onClick={() => setNotFoundClosed((s) => ({ ...s, ref: !s.ref }))}
+                    className="w-full px-5 py-2.5 bg-rose-50/60 flex items-center gap-2 sticky top-0 z-10 backdrop-blur-sm border-b border-rose-100 hover:bg-rose-50 transition-colors text-left"
+                    aria-expanded={!notFoundClosed.ref}
+                  >
+                    <svg
+                      className={`w-3.5 h-3.5 text-rose-600 transition-transform ${notFoundClosed.ref ? "" : "rotate-90"}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                    </svg>
                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-rose-100 border border-rose-200 text-[10px] font-body font-semibold uppercase tracking-[0.14em] text-rose-800">
                       <span className="w-1 h-1 rounded-full bg-rose-500" />
                       Référence inexistante
@@ -488,38 +631,84 @@ export default function ImportPreviewBoard({
                     <span className="text-[10px] font-body text-rose-700 tabular-nums">
                       · {buckets.notFoundRef.length} fichier{buckets.notFoundRef.length > 1 ? "s" : ""}
                     </span>
-                  </div>
-                  <ul className="divide-y divide-rose-50">
-                    {buckets.notFoundRef.map(({ file }) => (
-                      <li key={`nref-${file.name}`} className="px-5 py-3 flex items-start gap-3">
-                        <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-rose-100 bg-bg-secondary shrink-0">
-                          <Image src={file.url} alt={file.name} fill className="object-cover" unoptimized />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] text-text-primary font-body truncate font-medium">{file.name}</p>
-                          <p className="text-[10px] text-text-muted font-body mt-0.5">
-                            Référence cherchée : <span className="font-mono font-semibold">{file.reference}</span>
-                          </p>
-                          <p className="text-[11px] text-rose-700 font-body mt-1 leading-snug">
-                            Aucun produit ne porte cette référence en BDD.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => onRemoveFile(file.name)}
-                          className="text-[10px] text-text-muted hover:text-red-600 font-body shrink-0"
-                        >
-                          Retirer
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  </button>
+                  {!notFoundClosed.ref && (
+                    <ul className="divide-y divide-rose-50">
+                      {buckets.notFoundRef.map(({ file }) => (
+                        <li key={`nref-${file.name}`} className="px-5 py-3 flex items-start gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setLightbox({ url: file.url, name: file.name })}
+                            className="relative w-12 h-12 rounded-lg overflow-hidden border border-rose-100 bg-bg-secondary shrink-0 cursor-zoom-in hover:ring-2 hover:ring-rose-400 transition-all"
+                            aria-label={`Agrandir ${file.name}`}
+                          >
+                            <Image src={file.url} alt={file.name} fill className="object-cover" unoptimized />
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] text-text-primary font-body truncate font-medium">{file.name}</p>
+                            <p className="text-[10px] text-text-muted font-body mt-0.5">
+                              Référence cherchée : <span className="font-mono font-semibold">{file.reference}</span>
+                            </p>
+                            <p className="text-[11px] text-rose-700 font-body mt-1 leading-snug">
+                              Aucun produit ne porte cette référence en BDD.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onRemoveFile(file.name)}
+                            className="text-[10px] text-text-muted hover:text-red-600 font-body shrink-0"
+                          >
+                            Retirer
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </section>
               )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Lightbox image en grand */}
+      {lightbox && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-6"
+            onClick={() => setLightbox(null)}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Aperçu de ${lightbox.name}`}
+          >
+            <div className="absolute inset-0 bg-black/85 backdrop-blur-sm" />
+            <div
+              className="relative max-w-[92vw] max-h-[92vh] flex flex-col items-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={lightbox.url}
+                alt={lightbox.name}
+                className="max-w-[92vw] max-h-[85vh] rounded-xl shadow-2xl object-contain bg-bg-secondary"
+              />
+              <p className="mt-3 px-3 py-1.5 bg-black/60 text-white text-xs font-body rounded-lg max-w-full truncate">
+                {lightbox.name}
+              </p>
+              <button
+                type="button"
+                onClick={() => setLightbox(null)}
+                className="absolute -top-3 -right-3 w-9 h-9 flex items-center justify-center rounded-full bg-bg-primary text-text-primary shadow-lg hover:bg-bg-secondary transition-colors"
+                aria-label="Fermer l'aperçu"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

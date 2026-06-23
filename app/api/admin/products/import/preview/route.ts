@@ -387,6 +387,11 @@ export async function POST(req: NextRequest) {
           }, 0);
           if (totalQty < 1) errors.push("Quantité totale du pack invalide.");
         }
+        // « Qté pack » obligatoire pour un PACK (source de vérité pour le
+        // nombre de pièces par paquet — voir lib/import-processor.ts).
+        if (row.saleType === "PACK" && (row.packQuantity == null || row.packQuantity <= 0)) {
+          errors.push("Qté pack obligatoire pour un PACK (nombre de pièces dans un paquet).");
+        }
 
         return {
           color: row.color,

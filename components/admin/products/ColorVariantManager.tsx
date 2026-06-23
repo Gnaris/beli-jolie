@@ -120,6 +120,11 @@ interface Props {
   primaryColorId: string | null;
   /** Callback pour changer la couleur principale via la modale d'images. */
   onChangePrimaryColorId: (colorId: string) => void;
+  /** Brouillon non lié à aucune marketplace : la couleur des variantes UNIT
+   *  existantes (dbId) reste éditable, pour qu'on puisse corriger une couleur
+   *  sans devoir supprimer/recréer la variante. Pack et multi-couleurs restent
+   *  verrouillés (composition liée aux tailles). */
+  allowColorEdit?: boolean;
 }
 
 // ─────────────────────────────────────────────
@@ -131,9 +136,22 @@ interface Props {
 // ─────────────────────────────────────────────
 const LOCKED_VARIANT_TOOLTIP =
   "Cette variante est déjà enregistrée. Pour changer la couleur, le type ou les tailles, supprimez-la puis recréez-en une nouvelle.";
+const COLOR_UNLOCKED_TOOLTIP =
+  "Brouillon non publié : la couleur peut être corrigée directement, pas besoin de recréer la variante.";
 
 function isVariantLocked(v: VariantState): boolean {
   return !!v.dbId;
+}
+
+/** Retourne true si le sélecteur de couleur doit rester éditable, même si la
+ *  variante est verrouillée par ailleurs (dbId présent). Cas autorisé : produit
+ *  brouillon non publié sur aucune marketplace ET variante UNIT mono-couleur. */
+export function canEditVariantColor(v: VariantState, allowColorEdit = false): boolean {
+  if (!isVariantLocked(v)) return true;
+  if (!allowColorEdit) return false;
+  // Pack et multi-couleurs : la composition vit dans packLines, on ne touche pas.
+  if (v.saleType !== "UNIT") return false;
+  return true;
 }
 
 // ─────────────────────────────────────────────
@@ -397,8 +415,23 @@ export function isVariantOutOfStock(v: Pick<VariantState, "stock">): boolean {
   return v.stock.trim() !== "" && Number(v.stock) === 0;
 }
 
-interface BulkEditState { unitPrice: string; weight: string; stock: string; }
+export interface BulkEditState { unitPrice: string; weight: string; stock: string; }
 function defaultBulkEdit(): BulkEditState { return { unitPrice: "", weight: "", stock: "" }; }
+
+/**
+ * Applique en direct la valeur d'un champ d'édition en masse (prix/poids/stock) aux variantes sélectionnées.
+ * Renvoie la nouvelle liste de variantes (ou la liste d'origine si rien à appliquer).
+ * Une valeur vide n'écrase pas les variantes (sécurité : permet à l'utilisateur d'effacer le champ sans perte).
+ */
+export function applyBulkFieldToVariants<T extends VariantState>(
+  variants: T[],
+  selectedIds: Set<string>,
+  field: keyof BulkEditState,
+  value: string,
+): T[] {
+  if (value === "" || selectedIds.size === 0) return variants;
+  return variants.map((v) => selectedIds.has(v.tempId) ? { ...v, [field]: value } : v);
+}
 
 // ─────────────────────────────────────────────
 // SingleColorSelect — modale pour choisir UNE couleur
@@ -1704,6 +1737,7 @@ export default function ColorVariantManager({
   onChange, onChangeImages, onQuickCreateColor, onColorAdded, onSizeAdded,
   variantErrors, productReference, sizeDetailsTu,
   primaryColorId, onChangePrimaryColorId,
+  allowColorEdit = false,
 }: Props) {
   /** Formate "Taille Unique"/"TU" → "TU 52-56" si sizeDetailsTu renseigné */
   const fmtSize = (name: string) => {
@@ -1859,7 +1893,21 @@ export default function ColorVariantManager({
       updateVariant(tempId, { colorId: "", colorName: "", colorHex: "#9CA3AF" });
       return;
     }
-    onChange(variants.map((v) => {
+    // Renommage d'une couleur sur variante existante (cas brouillon non lié) :
+    // on déplace aussi le groupe d'images attaché à l'ancienne couleur vers la
+    // nouvelle, à condition que (a) aucune autre variante ne référence encore
+    // l'ancienne, (b) la nouvelle n'ait pas déjà des images chargées. Sinon on
+    // laisse intact pour ne rien écraser.
+    const current = variants.find((v) => v.tempId === tempId);
+    const oldColorId = current?.colorId ?? "";
+    const newColorId = color.colorId;
+    const isColorRename =
+      !!current?.dbId &&
+      current.saleType === "UNIT" &&
+      !!oldColorId &&
+      oldColorId !== newColorId;
+
+    const nextVariants = variants.map((v) => {
       if (v.tempId !== tempId) return v;
       let next: VariantState = { ...v, colorId: color.colorId, colorName: color.colorName, colorHex: color.colorHex };
       if (isVariantPristine(v)) {
@@ -1867,7 +1915,29 @@ export default function ColorVariantManager({
         if (donor) next = applyDonorAutofill(next, donor, uid);
       }
       return next;
-    }));
+    });
+    onChange(nextVariants);
+
+    if (isColorRename) {
+      const otherUsesOld = nextVariants.some((v) =>
+        v.tempId !== tempId &&
+        (v.colorId === oldColorId || v.packLines.some((pl) => pl.colorId === oldColorId)),
+      );
+      const oldImageEntry = colorImages.find((c) => c.groupKey === oldColorId);
+      const newImageEntry = colorImages.find((c) => c.groupKey === newColorId);
+      const newHasImages = !!newImageEntry && newImageEntry.imagePreviews.length > 0;
+      if (oldImageEntry && !otherUsesOld && !newHasImages) {
+        const renamed: ColorImageState = {
+          ...oldImageEntry,
+          groupKey: newColorId,
+          colorId: newColorId,
+          colorName: color.colorName,
+          colorHex: color.colorHex,
+        };
+        const filtered = colorImages.filter((c) => c.groupKey !== oldColorId && c.groupKey !== newColorId);
+        onChangeImages([...filtered, renamed]);
+      }
+    }
   }
 
   /** PACK : la cellule Couleur est multi-select. Chaque couleur choisie devient une packLine.
@@ -1948,17 +2018,10 @@ export default function ColorVariantManager({
     updateVariant(variantTempId, patch);
   }
 
-  function applyBulk() {
-    if (selectedIds.size === 0) return;
-    onChange(variants.map((v) => {
-      if (!selectedIds.has(v.tempId)) return v;
-      const patch: Partial<VariantState> = {};
-      if (bulkEdit.unitPrice !== "") patch.unitPrice = bulkEdit.unitPrice;
-      if (bulkEdit.weight !== "") patch.weight = bulkEdit.weight;
-      if (bulkEdit.stock !== "") patch.stock = bulkEdit.stock;
-      return { ...v, ...patch };
-    }));
-    setBulkEdit(defaultBulkEdit());
+  function applyBulkField(field: keyof BulkEditState, value: string) {
+    setBulkEdit((b) => ({ ...b, [field]: value }));
+    const next = applyBulkFieldToVariants(variants, selectedIds, field, value);
+    if (next !== variants) onChange(next);
   }
 
   // Groupe les variantes par couleur (ordre de première apparition) sans séparer
@@ -2073,16 +2136,11 @@ export default function ColorVariantManager({
               {showBulkRow && (
                 <div className="flex items-center gap-1.5">
                   <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice}
-                    onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
+                    onChange={(e) => applyBulkField("unitPrice", e.target.value)}
                     className="w-16 border border-[#86EFAC] bg-bg-primary px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body" />
                   <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock}
-                    onChange={(e) => setBulkEdit((b) => ({ ...b, stock: e.target.value }))}
+                    onChange={(e) => applyBulkField("stock", e.target.value)}
                     className="w-14 border border-[#86EFAC] bg-bg-primary px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body" />
-                  <button type="button" onClick={applyBulk} className="p-1 rounded text-[#16A34A] hover:bg-[#DCFCE7] transition-colors">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
-                  </button>
                   <div className="relative" ref={bulkActionRef}>
                     <button type="button" onClick={() => setBulkActionOpen(!bulkActionOpen)}
                       className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
@@ -2113,6 +2171,7 @@ export default function ColorVariantManager({
               const imgEntry = colorImages.find((c) => c.groupKey === imgGk);
               const imgCount = imgEntry?.imagePreviews.length ?? 0;
               const locked = isVariantLocked(v);
+              const canEditColor = canEditVariantColor(v, allowColorEdit);
               return (
                 <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isVariantOutOfStock(v) ? "bg-[#FEE2E2]" : isSelected ? "bg-[#F0FDF4]" : ""}`}>
                   <div className="flex items-center gap-2">
@@ -2220,7 +2279,7 @@ export default function ColorVariantManager({
                       ) : null;
                     })()}
 
-                    {locked ? (
+                    {(locked && !canEditColor) ? (
                       <div className="flex items-center gap-1.5 px-2 py-1.5 bg-bg-secondary rounded-md min-h-[32px]" title={LOCKED_VARIANT_TOOLTIP}>
                         {v.saleType === "PACK" && v.packLines.length > 0 ? (
                           <span className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
@@ -2247,7 +2306,7 @@ export default function ColorVariantManager({
                         )}
                       </div>
                     ) : (
-                    <div>
+                    <div title={locked && canEditColor ? COLOR_UNLOCKED_TOOLTIP : undefined}>
                     {v.saleType === "PACK" ? (
                       <MultiColorSelect
                         selected={v.packLines.length > 0
@@ -2345,6 +2404,7 @@ export default function ColorVariantManager({
               const imgEntry = colorImages.find((c) => c.groupKey === imgGk);
               const imgCount = imgEntry?.imagePreviews.length ?? 0;
               const locked = isVariantLocked(v);
+              const canEditColor = canEditVariantColor(v, allowColorEdit);
               return (
                 <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isVariantOutOfStock(v) ? "bg-[#FEE2E2]" : isSelected ? "bg-[#EFF6FF]" : ""}`}>
                   <div className="flex items-center gap-2">
@@ -2452,7 +2512,7 @@ export default function ColorVariantManager({
                       ) : null;
                     })()}
 
-                    {locked ? (
+                    {(locked && !canEditColor) ? (
                       <div className="flex items-center gap-1.5 px-2 py-1.5 bg-bg-secondary rounded-md min-h-[32px]" title={LOCKED_VARIANT_TOOLTIP}>
                         {v.saleType === "PACK" && v.packLines.length > 0 ? (
                           <span className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
@@ -2479,7 +2539,7 @@ export default function ColorVariantManager({
                         )}
                       </div>
                     ) : (
-                    <div>
+                    <div title={locked && canEditColor ? COLOR_UNLOCKED_TOOLTIP : undefined}>
                     {v.saleType === "PACK" ? (
                       <MultiColorSelect
                         selected={v.packLines.length > 0
@@ -2599,21 +2659,21 @@ export default function ColorVariantManager({
                   <td className="px-1 py-1.5" />
                   <td className="px-1 py-1.5">
                     <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock} disabled={!showBulkRow}
-                      onChange={(e) => setBulkEdit((b) => ({ ...b, stock: e.target.value }))}
+                      onChange={(e) => applyBulkField("stock", e.target.value)}
                       className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
                         showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
                       }`} />
                   </td>
                   <td className="px-1 py-1.5">
                     <input type="number" min="0" step="0.001" placeholder="Poids" value={bulkEdit.weight} disabled={!showBulkRow}
-                      onChange={(e) => setBulkEdit((b) => ({ ...b, weight: e.target.value }))}
+                      onChange={(e) => applyBulkField("weight", e.target.value)}
                       className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
                         showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
                       }`} />
                   </td>
                   <td className="px-1 py-1.5">
                     <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice} disabled={!showBulkRow}
-                      onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
+                      onChange={(e) => applyBulkField("unitPrice", e.target.value)}
                       className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
                         showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
                       }`} />
@@ -2621,13 +2681,6 @@ export default function ColorVariantManager({
                   <td className="px-1 py-1.5" />
                   <td className="px-1 py-1.5 text-center">
                     <div className="flex items-center justify-center gap-1">
-                      <button type="button" onClick={applyBulk} disabled={!showBulkRow}
-                        title="Appliquer en masse"
-                        className={`p-1 rounded transition-colors ${showBulkRow ? "text-[#16A34A] hover:bg-[#DCFCE7]" : "text-[#D1D5DB] cursor-not-allowed"}`}>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                        </svg>
-                      </button>
                       {showBulkRow && (
                         <div className="relative" ref={bulkActionRef}>
                           <button type="button" onClick={() => setBulkActionOpen(!bulkActionOpen)}
@@ -2662,6 +2715,7 @@ export default function ColorVariantManager({
                   const imgCountD = imgEntryD?.imagePreviews.length ?? 0;
                   const dimCls = v.disabled ? " opacity-50" : "";
                   const lockedD = isVariantLocked(v);
+                  const canEditColorD = canEditVariantColor(v, allowColorEdit);
                   return (
                     <tr key={v.tempId}
                       className={`border-b border-border-light last:border-b-0 transition-colors ${
@@ -2712,7 +2766,7 @@ export default function ColorVariantManager({
                         )}
                       </td>
                       <td className={`px-2 py-2${dimCls}`}>
-                        {lockedD ? (
+                        {(lockedD && !canEditColorD) ? (
                           <div className="flex items-center gap-1.5 px-2 py-1.5 bg-bg-secondary rounded-md min-h-[32px]" title={LOCKED_VARIANT_TOOLTIP}>
                             {v.saleType === "PACK" && v.packLines.length > 0 ? (
                               <span className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
@@ -2739,7 +2793,7 @@ export default function ColorVariantManager({
                             )}
                           </div>
                         ) : (
-                        <div>
+                        <div title={lockedD && canEditColorD ? COLOR_UNLOCKED_TOOLTIP : undefined}>
                         {v.saleType === "PACK" ? (
                           <MultiColorSelect
                             selected={v.packLines.length > 0
@@ -2868,6 +2922,7 @@ export default function ColorVariantManager({
                   const imgCountD = imgEntryD?.imagePreviews.length ?? 0;
                   const dimCls = v.disabled ? " opacity-50" : "";
                   const lockedD = isVariantLocked(v);
+                  const canEditColorD = canEditVariantColor(v, allowColorEdit);
                   return (
                     <tr key={v.tempId}
                       className={`border-b border-border-light last:border-b-0 transition-colors ${
@@ -2918,7 +2973,7 @@ export default function ColorVariantManager({
                         )}
                       </td>
                       <td className={`px-2 py-2${dimCls}`}>
-                        {lockedD ? (
+                        {(lockedD && !canEditColorD) ? (
                           <div className="flex items-center gap-1.5 px-2 py-1.5 bg-bg-secondary rounded-md min-h-[32px]" title={LOCKED_VARIANT_TOOLTIP}>
                             {v.saleType === "PACK" && v.packLines.length > 0 ? (
                               <span className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
@@ -2945,7 +3000,7 @@ export default function ColorVariantManager({
                             )}
                           </div>
                         ) : (
-                        <div>
+                        <div title={lockedD && canEditColorD ? COLOR_UNLOCKED_TOOLTIP : undefined}>
                         {v.saleType === "PACK" ? (
                           <MultiColorSelect
                             selected={v.packLines.length > 0
