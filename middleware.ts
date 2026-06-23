@@ -65,6 +65,37 @@ async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
 }
 
 /**
+ * Liste des chemins qui ignorent l'auto-maintenance.
+ *
+ * Le webhook Ankorstore (et tout `/api/webhooks/*`) doit pouvoir ACK son
+ * callback même quand `/api/site-status` retourne `maintenance: true`. Sinon
+ * le middleware redirige le POST en 307 vers `/maintenance` ; les émetteurs
+ * (Guzzle côté Ankorstore, Stripe webhook, …) ne suivent pas la redirection
+ * POST et l'opération reste figée en PENDING côté BDD (callback perdu).
+ */
+export function isMaintenanceBypassed(pathname: string, rest: string): boolean {
+  return (
+    pathname === "/maintenance" ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/api/site-status") ||
+    rest.startsWith("/connexion") ||
+    rest.startsWith("/inscription") ||
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/internal") ||
+    pathname.startsWith("/api/cart") ||
+    pathname.startsWith("/api/webhooks") ||
+    rest.startsWith("/mentions-legales") ||
+    rest.startsWith("/cgv") ||
+    rest.startsWith("/cgu") ||
+    rest.startsWith("/confidentialite") ||
+    rest.startsWith("/cookies") ||
+    pathname.startsWith("/api/legal") ||
+    rest.startsWith("/catalogue")
+  );
+}
+
+/**
  * Middleware combiné :
  * 1. Routes système (admin, api, maintenance, sitemap…) → pas de locale, auth classique
  * 2. Routes publiques → préfixe locale obligatoire (/fr/, /en/, etc.). next-intl gère la
@@ -128,25 +159,7 @@ export async function middleware(request: NextRequest) {
   const { locale, rest } = stripLocale(pathname);
 
   // ── Maintenance ───────────────────────────────────────────────────────────
-  const bypassMaintenance =
-    pathname === "/maintenance" ||
-    pathname.startsWith("/admin") ||
-    pathname.startsWith("/api/site-status") ||
-    rest.startsWith("/connexion") ||
-    rest.startsWith("/inscription") ||
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/api/internal") ||
-    pathname.startsWith("/api/cart") ||
-    rest.startsWith("/mentions-legales") ||
-    rest.startsWith("/cgv") ||
-    rest.startsWith("/cgu") ||
-    rest.startsWith("/confidentialite") ||
-    rest.startsWith("/cookies") ||
-    pathname.startsWith("/api/legal") ||
-    rest.startsWith("/catalogue");
-
-  if (!bypassMaintenance) {
+  if (!isMaintenanceBypassed(pathname, rest)) {
     const inMaintenance = await getMaintenanceStatus(request.url);
     if (inMaintenance && !isAdmin) {
       return NextResponse.redirect(new URL("/maintenance", request.url));
