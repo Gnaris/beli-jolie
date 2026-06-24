@@ -100,114 +100,17 @@ interface ErrorRow {
   tempPath: string;
   errors: string[];
 }
-interface ProductMarketplaceInfo {
-  productId: string;
-  reference: string;
-  name: string;
-  imageCount: number;
-  coverPath: string;
-  linkedTo: { pfs: boolean; ankorstore: boolean; efashion: boolean };
-}
 interface DoneScreenProps {
   jobStatus: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | null;
   jobProgress: { processed: number; total: number; success: number; errors: number; errorDraftId: string | null; errorMessage: string | null };
   successImages: SuccessImage[];
   errorRows: ErrorRow[];
-  productMarketplaces: ProductMarketplaceInfo[];
   errorPreviewFallback: Array<{ label: string; sublabel?: string; errors: string[] }>;
   onReset: () => void;
   onSeeProducts: () => void;
 }
 
-function DoneScreen({ jobStatus, jobProgress, successImages, errorRows, productMarketplaces, errorPreviewFallback, onReset, onSeeProducts }: DoneScreenProps) {
-  // Push marketplaces state
-  const linkedProducts = useMemo(
-    () => productMarketplaces.filter((p) => p.linkedTo.pfs || p.linkedTo.ankorstore || p.linkedTo.efashion),
-    [productMarketplaces],
-  );
-  const [pushModalOpen, setPushModalOpen] = useState(false);
-  const [pushSelection, setPushSelection] = useState<Map<string, { pfs: boolean; ankorstore: boolean; efashion: boolean }>>(new Map());
-  const [pushing, setPushing] = useState(false);
-  const [pushResults, setPushResults] = useState<Array<{ productId: string; success: boolean; messages: string[] }> | null>(null);
-  const [pushDismissed, setPushDismissed] = useState(false);
-
-  // Auto-open modal first time the COMPLETED screen shows up with linked products
-  useEffect(() => {
-    if (jobStatus !== "COMPLETED") return;
-    if (linkedProducts.length === 0) return;
-    if (pushDismissed || pushResults) return;
-    if (pushModalOpen) return;
-    // Initialize selection : tout coché par défaut
-    const initial = new Map<string, { pfs: boolean; ankorstore: boolean; efashion: boolean }>();
-    for (const p of linkedProducts) {
-      initial.set(p.productId, { ...p.linkedTo });
-    }
-    setPushSelection(initial);
-    setPushModalOpen(true);
-  }, [jobStatus, linkedProducts, pushDismissed, pushResults, pushModalOpen]);
-
-  const toggleSelection = (productId: string, marketplace: "pfs" | "ankorstore" | "efashion") => {
-    setPushSelection((prev) => {
-      const next = new Map(prev);
-      const current = next.get(productId) ?? { pfs: false, ankorstore: false, efashion: false };
-      next.set(productId, { ...current, [marketplace]: !current[marketplace] });
-      return next;
-    });
-  };
-
-  const toggleAllForProduct = (productId: string, checked: boolean) => {
-    setPushSelection((prev) => {
-      const next = new Map(prev);
-      const product = linkedProducts.find((p) => p.productId === productId);
-      if (!product) return next;
-      next.set(productId, {
-        pfs: checked && product.linkedTo.pfs,
-        ankorstore: checked && product.linkedTo.ankorstore,
-        efashion: checked && product.linkedTo.efashion,
-      });
-      return next;
-    });
-  };
-
-  const totalSelected = useMemo(() => {
-    let n = 0;
-    for (const sel of pushSelection.values()) {
-      if (sel.pfs || sel.ankorstore || sel.efashion) n++;
-    }
-    return n;
-  }, [pushSelection]);
-
-  const launchPush = async () => {
-    setPushing(true);
-    try {
-      const items: Array<{ productId: string; marketplaces: Array<"pfs" | "ankorstore" | "efashion"> }> = [];
-      for (const [productId, sel] of pushSelection.entries()) {
-        const marketplaces: Array<"pfs" | "ankorstore" | "efashion"> = [];
-        if (sel.pfs) marketplaces.push("pfs");
-        if (sel.ankorstore) marketplaces.push("ankorstore");
-        if (sel.efashion) marketplaces.push("efashion");
-        if (marketplaces.length > 0) items.push({ productId, marketplaces });
-      }
-      if (items.length === 0) { setPushModalOpen(false); setPushDismissed(true); return; }
-      const res = await fetch("/api/admin/products/import/images/push-marketplaces", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
-      });
-      const data = await res.json();
-      if (Array.isArray(data.results)) setPushResults(data.results);
-      setPushModalOpen(false);
-    } catch (err) {
-      console.error("[push-marketplaces]", err);
-    } finally {
-      setPushing(false);
-    }
-  };
-
-  const dismissPushModal = () => {
-    setPushModalOpen(false);
-    setPushDismissed(true);
-  };
+function DoneScreen({ jobStatus, jobProgress, successImages, errorRows, errorPreviewFallback, onReset, onSeeProducts }: DoneScreenProps) {
   // Group successful imports by product reference
   const productGroups = useMemo(() => {
     const map = new Map<string, {
@@ -475,176 +378,11 @@ function DoneScreen({ jobStatus, jobProgress, successImages, errorRows, productM
         </div>
       </div>
 
-      {/* Marketplace push — info / results banner */}
-      {linkedProducts.length > 0 && (pushResults || pushDismissed) && (
-        <div className={`rounded-2xl p-5 border ${pushResults ? "bg-blue-50/60 border-blue-200" : "bg-amber-50/60 border-amber-200"}`}>
-          <div className="flex items-start gap-3">
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${pushResults ? "bg-blue-100" : "bg-amber-100"}`}>
-              {pushResults ? (
-                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-              ) : (
-                <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              {pushResults ? (
-                <>
-                  <h3 className="text-sm font-semibold text-blue-900 font-heading">Push sur marketplaces lancé</h3>
-                  <p className="text-xs text-blue-700 font-body mt-0.5">
-                    {pushResults.filter((r) => r.success).length} produit{pushResults.filter((r) => r.success).length > 1 ? "s" : ""} OK
-                    {pushResults.filter((r) => !r.success).length > 0 && ` · ${pushResults.filter((r) => !r.success).length} avec erreurs`}
-                  </p>
-                  {pushResults.filter((r) => !r.success).length > 0 && (
-                    <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
-                      {pushResults.filter((r) => !r.success).map((r) => (
-                        <p key={r.productId} className="text-[11px] text-red-700 font-body">
-                          {r.messages.join(" · ")}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <h3 className="text-sm font-semibold text-amber-900 font-heading">Push reporté à plus tard</h3>
-                  <p className="text-xs text-amber-700 font-body mt-0.5">
-                    Les produits liés sont marqués « Synchronisation nécessaire » dans la liste des produits. Vous pourrez les pousser depuis leur fiche quand vous voulez.
-                  </p>
-                  <button
-                    onClick={() => { setPushDismissed(false); setPushModalOpen(true); }}
-                    className="mt-2 text-xs text-amber-900 font-semibold hover:underline font-body"
-                  >
-                    Ouvrir la modale push
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Actions */}
       <div className="flex flex-col sm:flex-row items-center justify-end gap-3">
         <button onClick={onReset} className="btn-secondary text-sm w-full sm:w-auto">Nouvel import</button>
         <button onClick={onSeeProducts} className="btn-primary text-sm w-full sm:w-auto">Voir les produits</button>
       </div>
-
-      {/* Push marketplaces modal */}
-      {pushModalOpen && (
-        <div className="fixed inset-0 z-[9000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-[2px]" onClick={dismissPushModal}>
-          <div
-            className="relative bg-bg-primary rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden"
-            style={{ maxHeight: "min(90vh, 780px)" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="px-6 py-5 border-b border-border shrink-0 bg-gradient-to-br from-blue-50/40 to-bg-primary">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
-                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-base font-semibold text-text-primary font-heading">Pousser sur les marketplaces ?</h3>
-                  <p className="text-sm text-text-muted font-body mt-1">
-                    {linkedProducts.length} produit{linkedProducts.length > 1 ? "s" : ""} parmi vos imports {linkedProducts.length > 1 ? "sont liés" : "est lié"} à au moins une marketplace.
-                    Cochez ce que vous voulez pousser maintenant.
-                  </p>
-                </div>
-                <button onClick={dismissPushModal} className="w-8 h-8 flex items-center justify-center hover:bg-bg-secondary rounded-lg transition-colors shrink-0" aria-label="Fermer">
-                  <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-              </div>
-            </div>
-
-            {/* Product list */}
-            <div className="flex-1 overflow-y-auto divide-y divide-border-light">
-              {linkedProducts.map((p) => {
-                const sel = pushSelection.get(p.productId) ?? { pfs: false, ankorstore: false, efashion: false };
-                const someSelected = sel.pfs || sel.ankorstore || sel.efashion;
-                const allLinkedSelected =
-                  (!p.linkedTo.pfs || sel.pfs) &&
-                  (!p.linkedTo.ankorstore || sel.ankorstore) &&
-                  (!p.linkedTo.efashion || sel.efashion);
-                return (
-                  <div key={p.productId} className="px-5 py-3 flex items-center gap-4">
-                    <input
-                      type="checkbox"
-                      checked={allLinkedSelected}
-                      onChange={(e) => toggleAllForProduct(p.productId, e.target.checked)}
-                      className="w-4 h-4 accent-bg-dark shrink-0"
-                      aria-label={`Tout pour ${p.reference}`}
-                    />
-                    <div className="relative w-11 h-11 rounded-lg overflow-hidden border border-border bg-bg-secondary shrink-0">
-                      {p.coverPath ? (
-                        <Image src={`/${p.coverPath}`} alt={p.reference} fill className="object-cover" unoptimized />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-text-muted">
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-mono text-sm font-semibold text-text-primary">{p.reference}</p>
-                      <p className="text-xs text-text-muted truncate font-body">{p.name} · +{p.imageCount} image{p.imageCount > 1 ? "s" : ""}</p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {p.linkedTo.pfs && (
-                        <button
-                          type="button"
-                          onClick={() => toggleSelection(p.productId, "pfs")}
-                          className={`text-[11px] px-2.5 py-1 rounded-full border font-body font-medium transition-colors ${
-                            sel.pfs ? "bg-bg-dark text-text-inverse border-bg-dark" : "bg-bg-primary text-text-secondary border-border hover:border-text-secondary"
-                          }`}
-                        >
-                          PFS
-                        </button>
-                      )}
-                      {p.linkedTo.ankorstore && (
-                        <button
-                          type="button"
-                          onClick={() => toggleSelection(p.productId, "ankorstore")}
-                          className={`text-[11px] px-2.5 py-1 rounded-full border font-body font-medium transition-colors ${
-                            sel.ankorstore ? "bg-bg-dark text-text-inverse border-bg-dark" : "bg-bg-primary text-text-secondary border-border hover:border-text-secondary"
-                          }`}
-                        >
-                          Ankorstore
-                        </button>
-                      )}
-                      {p.linkedTo.efashion && (
-                        <button
-                          type="button"
-                          onClick={() => toggleSelection(p.productId, "efashion")}
-                          className={`text-[11px] px-2.5 py-1 rounded-full border font-body font-medium transition-colors ${
-                            sel.efashion ? "bg-bg-dark text-text-inverse border-bg-dark" : "bg-bg-primary text-text-secondary border-border hover:border-text-secondary"
-                          }`}
-                        >
-                          eFashion
-                        </button>
-                      )}
-                    </div>
-                    {!someSelected && (
-                      <span className="text-[10px] text-text-muted font-body italic shrink-0">non poussé</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-border bg-bg-secondary/30 shrink-0 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <p className="text-xs text-text-muted font-body">
-                {totalSelected} produit{totalSelected > 1 ? "s" : ""} sélectionné{totalSelected > 1 ? "s" : ""}
-              </p>
-              <div className="flex gap-2 w-full sm:w-auto">
-                <button onClick={dismissPushModal} disabled={pushing} className="btn-secondary text-xs flex-1 sm:flex-none">Plus tard</button>
-                <button onClick={launchPush} disabled={pushing || totalSelected === 0} className="btn-primary text-xs flex-1 sm:flex-none">
-                  {pushing ? "Push en cours..." : `Pousser ${totalSelected > 0 ? `(${totalSelected})` : ""}`}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -681,16 +419,6 @@ export default function ImportImagesTab() {
     tempPath: string;
     errors: string[];
   }>>([]);
-  // Marketplace push state (post-import)
-  const [productMarketplaces, setProductMarketplaces] = useState<Array<{
-    productId: string;
-    reference: string;
-    name: string;
-    imageCount: number;
-    coverPath: string;
-    linkedTo: { pfs: boolean; ankorstore: boolean; efashion: boolean };
-  }>>([]);
-
   // Conflict state
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
   const [missingColors, setMissingColors] = useState<MissingColorInfo[]>([]);
@@ -1005,7 +733,6 @@ export default function ImportImagesTab() {
         setJobProgress({ processed: job.processedItems, total: job.totalItems, success: job.successItems, errors: job.errorItems, errorDraftId: job.errorDraftId, errorMessage: job.errorMessage });
         if (job.resultDetails?.errorPreview) setErrorPreview(job.resultDetails.errorPreview);
         if (Array.isArray(job.resultDetails?.images)) setSuccessImages(job.resultDetails.images);
-        if (Array.isArray(job.resultDetails?.products)) setProductMarketplaces(job.resultDetails.products);
       } catch { /* retry */ }
     }, 3000);
     return () => clearInterval(interval);
@@ -1216,7 +943,7 @@ export default function ImportImagesTab() {
     setFiles([]); setPreviews([]); setStep("upload"); setError(null);
     setUploadedBatches(0); setTotalBatches(0); setJobId(null); setJobStatus(null);
     setJobProgress({ processed: 0, total: 0, success: 0, errors: 0, errorDraftId: null, errorMessage: null });
-    setErrorPreview([]); setSuccessImages([]); setErrorRows([]); setProductMarketplaces([]);
+    setErrorPreview([]); setSuccessImages([]); setErrorRows([]);
     setConflicts([]); setMissingColors([]); setMissingRefs([]);
     setConflictChecked(false); setPerFileResolutions(new Map());
     setOverrides(new Map()); setEditingPosition(null); closeColorModal();
@@ -1444,7 +1171,6 @@ export default function ImportImagesTab() {
           jobProgress={jobProgress}
           successImages={successImages}
           errorRows={errorRows}
-          productMarketplaces={productMarketplaces}
           errorPreviewFallback={errorPreview}
           onReset={reset}
           onSeeProducts={() => router.push("/admin/produits")}
