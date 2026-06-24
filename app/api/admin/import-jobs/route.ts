@@ -40,6 +40,26 @@ export async function POST(req: NextRequest) {
       const tempDirAbsolute = path.join(process.cwd(), tempDirRelative);
       await mkdir(tempDirAbsolute, { recursive: true });
 
+      // Résolutions de conflits + overrides (couleurs/positions modifiées en preview)
+      // sont écrites tout de suite dans tempDir car les batches traitent en live et
+      // ont besoin de ces décisions dès le 1er fichier.
+      const resolutionsJson = formData.get("resolutions") as string | null;
+      if (resolutionsJson) {
+        try {
+          JSON.parse(resolutionsJson); // valide
+          await writeFile(path.join(tempDirAbsolute, "_resolutions.json"), resolutionsJson, "utf-8");
+        } catch {
+          // JSON invalide → on ignore, stratégie par défaut s'appliquera
+        }
+      }
+      const overridesJson = formData.get("overrides") as string | null;
+      if (overridesJson) {
+        try {
+          JSON.parse(overridesJson);
+          await writeFile(path.join(tempDirAbsolute, "_overrides.json"), overridesJson, "utf-8");
+        } catch { /* idem */ }
+      }
+
       const job = await prisma.importJob.create({
         data: {
           type: "IMAGES",

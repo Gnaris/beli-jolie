@@ -14,6 +14,17 @@ export type SaleTypeKey = "UNIT" | "PACK";
 
 export type MarketplaceKey = "pfs" | "efashion" | "microstore" | "ankorstore";
 
+/**
+ * Choix du contenu inclus dans l'export marketplace :
+ *  - "both"        : Excel + images (comportement historique, défaut)
+ *  - "excel-only"  : uniquement le(s) fichier(s) Excel
+ *  - "images-only" : uniquement les images
+ *
+ * Ankorstore : "images-only" n'a pas de sens (images via URL), refusé côté
+ * orchestrator + API et désactivé dans l'UI.
+ */
+export type ExportMode = "both" | "excel-only" | "images-only";
+
 export interface ExportVariantSize {
   name: string;
   quantity: number;

@@ -1,23 +1,55 @@
 "use client";
 
 import type { PreviewState } from "./MarketplaceExportButton";
+import type { ExportMode } from "@/lib/marketplace-excel/types";
 
 interface Props {
   preview: PreviewState;
   isDownloading: boolean;
+  mode: ExportMode;
+  onModeChange: (mode: ExportMode) => void;
   onCancel: () => void;
   onConfirm: () => void;
 }
 
+interface ModeOption {
+  value: ExportMode;
+  label: string;
+  hint: string;
+}
+
+const MODE_OPTIONS: ModeOption[] = [
+  {
+    value: "both",
+    label: "Fiche produit + images",
+    hint: "Le fichier Excel et toutes les photos dans un ZIP.",
+  },
+  {
+    value: "excel-only",
+    label: "Fiche produit uniquement",
+    hint: "Seulement le fichier Excel, sans les photos.",
+  },
+  {
+    value: "images-only",
+    label: "Images uniquement",
+    hint: "Seulement les photos, dans un ZIP, sans Excel.",
+  },
+];
+
 export default function MarketplaceExportPreviewModal({
   preview,
   isDownloading,
+  mode,
+  onModeChange,
   onCancel,
   onConfirm,
 }: Props) {
   const eligibleCount = preview.eligible.length;
   const ignoredCount = preview.ignored.length;
   const canConfirm = eligibleCount > 0 && !isDownloading;
+  // Ankorstore ne supporte pas l'export d'images seules : les photos sont
+  // récupérées via les URLs du site une fois l'Excel importé.
+  const ankorstoreImagesDisabled = preview.marketplace === "ankorstore";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -55,6 +87,55 @@ export default function MarketplaceExportPreviewModal({
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
+          {eligibleCount > 0 && (
+            <div className="rounded-lg border border-border bg-bg-secondary/30 p-4">
+              <p className="text-xs font-body font-semibold uppercase tracking-[0.12em] text-text-secondary mb-3">
+                Que voulez-vous exporter ?
+              </p>
+              <div className="space-y-2">
+                {MODE_OPTIONS.map((opt) => {
+                  const disabled =
+                    isDownloading ||
+                    (opt.value === "images-only" && ankorstoreImagesDisabled);
+                  const checked = mode === opt.value;
+                  return (
+                    <label
+                      key={opt.value}
+                      className={`flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors ${
+                        disabled
+                          ? "opacity-50 cursor-not-allowed border-border bg-bg-tertiary/30"
+                          : checked
+                            ? "border-bg-dark bg-bg-primary"
+                            : "border-border bg-bg-primary hover:bg-bg-secondary/40"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="export-mode"
+                        value={opt.value}
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={() => onModeChange(opt.value)}
+                        className="mt-0.5 accent-bg-dark"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-body font-semibold text-text-primary">
+                          {opt.label}
+                        </p>
+                        <p className="text-xs font-body text-text-secondary mt-0.5">
+                          {opt.hint}
+                          {opt.value === "images-only" && ankorstoreImagesDisabled
+                            ? " Indisponible pour Ankorstore : les photos sont récupérées via les URLs du site."
+                            : ""}
+                        </p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {eligibleCount > 0 && (
             <div className="rounded-lg border border-success/30 bg-success/5 p-4">
               <p className="text-sm font-body font-semibold text-success">

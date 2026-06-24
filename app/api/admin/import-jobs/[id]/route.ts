@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { writeFile, mkdir, readdir } from "fs/promises";
+import { writeFile, mkdir } from "fs/promises";
 import { logger } from "@/lib/logger";
 
 // Large uploads: Next.js App Router (self-hosted) has no body size limit by default.
 // If behind a reverse proxy, configure its limit to at least 300MB for image batches.
 import path from "path";
-import { processImageImport } from "@/lib/import-processor";
-import { writeFile as writeFileAsync } from "fs/promises";
+import { processImageBatch, finalizeImageImport } from "@/lib/import-processor";
+import { readdir, writeFile as writeFileAsync } from "fs/promises";
 
 // ─────────────────────────────────────────────
 // GET — Get job progress
@@ -70,51 +70,59 @@ export async function POST(
     return NextResponse.json({ ok: true });
   }
 
-  // ── Action: start processing ──
-  if (action === "start") {
+  // ── Action: finalize (anciennement « start ») ──
+  // Appelée par le client après le dernier lot pour clôturer le job :
+  // crée le brouillon d'erreurs, pose les flags marketplaces, marque COMPLETED.
+  if (action === "start" || action === "finalize") {
     if (job.type !== "IMAGES" || !job.tempDir) {
       return NextResponse.json({ error: "Job invalide." }, { status: 400 });
     }
     if (job.status !== "UPLOADING") {
-      return NextResponse.json({ error: "Le job n'est pas en attente d'upload." }, { status: 400 });
+      return NextResponse.json({ error: "Le job n'est pas en attente de clôture." }, { status: 400 });
     }
 
-    // Resolve relative tempDir to absolute
-    const tempDirAbs = path.resolve(process.cwd(), job.tempDir);
-
-    // Count total files
     try {
-      const files = await readdir(tempDirAbs);
+      // Compat front-end legacy : si des images sont restées non traitées
+      // dans tempDir (= front-end qui n'envoyait pas le batch processing en
+      // live), on les traite ici en chunks avant de finaliser.
+      const tempDirAbs = path.resolve(process.cwd(), job.tempDir);
       const allowedExts = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
-      const imageCount = files.filter((f) => allowedExts.includes(path.extname(f).toLowerCase())).length;
+      try {
+        const files = await readdir(tempDirAbs);
+        const pending = files.filter((f) => allowedExts.includes(path.extname(f).toLowerCase()));
 
-      // Write conflict resolutions file if provided
-      const resolutionsJson = formData.get("resolutions") as string | null;
-      if (resolutionsJson) {
-        const resPath = path.join(tempDirAbs, "_resolutions.json");
-        await writeFileAsync(resPath, resolutionsJson, "utf-8");
+        // Écrit les résolutions/overrides s'ils ont été passés par le front-end legacy
+        const resolutionsJson = formData.get("resolutions") as string | null;
+        if (resolutionsJson) {
+          await writeFileAsync(path.join(tempDirAbs, "_resolutions.json"), resolutionsJson, "utf-8");
+        }
+        const overridesJson = formData.get("overrides") as string | null;
+        if (overridesJson) {
+          await writeFileAsync(path.join(tempDirAbs, "_overrides.json"), overridesJson, "utf-8");
+        }
+
+        if (pending.length > 0) {
+          // S'assure que totalItems reflète bien tout ce qu'on s'apprête à traiter
+          await prisma.importJob.update({
+            where: { id },
+            data: { status: "PROCESSING", totalItems: pending.length },
+          });
+          const CHUNK = 20;
+          for (let i = 0; i < pending.length; i += CHUNK) {
+            await processImageBatch(id, pending.slice(i, i + CHUNK));
+          }
+        } else {
+          await prisma.importJob.update({ where: { id }, data: { status: "PROCESSING" } });
+        }
+      } catch {
+        // tempDir absent → on finalise sans rien traiter
+        await prisma.importJob.update({ where: { id }, data: { status: "PROCESSING" } });
       }
 
-      // Write file overrides (position/color changes) if provided
-      const overridesJson = formData.get("overrides") as string | null;
-      if (overridesJson) {
-        const ovPath = path.join(tempDirAbs, "_overrides.json");
-        await writeFileAsync(ovPath, overridesJson, "utf-8");
-      }
-
-      await prisma.importJob.update({
-        where: { id },
-        data: { totalItems: imageCount, status: "PENDING" },
-      });
-
-      // Fire-and-forget
-      processImageImport(id).catch((err) => {
-        logger.error("[import-jobs] Image processing error", { error: err });
-      });
-
-      return NextResponse.json({ ok: true, totalImages: imageCount });
+      await finalizeImageImport(id);
+      return NextResponse.json({ ok: true });
     } catch (err) {
-      logger.error("[import-jobs] Start error", { error: err });
+      logger.error("[import-jobs] Finalize error", { error: err });
       return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
     }
   }
@@ -141,6 +149,7 @@ export async function POST(
   try {
     await mkdir(uploadDirAbs, { recursive: true });
     let saved = 0;
+    const batchFilenames: string[] = [];
 
     for (const file of files) {
       if (file.size > MAX_IMAGE_SIZE) continue;
@@ -151,18 +160,43 @@ export async function POST(
       const bytes = Buffer.from(await file.arrayBuffer());
       await writeFile(destPath, bytes);
       saved++;
+      batchFilenames.push(file.name);
     }
 
-    // Update total count
-    const allFiles = await readdir(uploadDirAbs);
-    const totalImages = allFiles.filter((f) => allowedExts.includes(path.extname(f).toLowerCase())).length;
-
+    // Incrémente totalItems du nombre de fichiers reçus dans CE lot. Pas un
+    // recount du dossier — les fichiers traités sont supprimés au fil de
+    // l'eau, donc relire le dossier ferait osciller le compteur.
     await prisma.importJob.update({
       where: { id },
-      data: { totalItems: totalImages },
+      data: { totalItems: { increment: saved } },
     });
 
-    return NextResponse.json({ saved, totalImages });
+    // ─── Traitement live : range les photos dès qu'elles arrivent ───
+    let batchResult = { processed: 0, success: 0, errors: 0 };
+    if (batchFilenames.length > 0) {
+      try {
+        batchResult = await processImageBatch(id, batchFilenames);
+      } catch (err) {
+        logger.error("[import-jobs] Batch processing error", { error: err });
+        // On ne renvoie pas 500 : l'upload du fichier a réussi, le processing
+        // a planté. Mieux vaut laisser le client envoyer le lot suivant que
+        // de bloquer tout l'import.
+      }
+    }
+
+    // Relit le total réel après l'increment pour le retourner au client.
+    const updated = await prisma.importJob.findUnique({
+      where: { id },
+      select: { totalItems: true },
+    });
+
+    return NextResponse.json({
+      saved,
+      totalImages: updated?.totalItems ?? saved,
+      processed: batchResult.processed,
+      success: batchResult.success,
+      errors: batchResult.errors,
+    });
   } catch (err) {
     logger.error("[import-jobs] Upload batch error", { error: err });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });

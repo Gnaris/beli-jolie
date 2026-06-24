@@ -131,8 +131,15 @@ export default function ImportProgressWidget() {
     title = "Envoi des images interrompu";
     detail = "Vous avez quitté la page d'envoi. Revenez pour relancer.";
   } else if (job.status === "UPLOADING") {
-    title = "Envoi des images au serveur…";
-    detail = total > 0 ? `${total} fichier(s) reçu(s)` : "En cours…";
+    title = "Import images en cours…";
+    // Mode live : chaque lot est rangé dès son arrivée, donc processed bouge
+    // pendant la phase UPLOADING. On affiche "X/Y rangée(s)" comme pour
+    // PROCESSING pour que la cliente voie la progression réelle.
+    if (processed > 0 && total > 0) {
+      detail = `${processed}/${total} rangée(s)${job.errorItems > 0 ? ` · ${job.errorItems} erreur(s)` : ""}`;
+    } else {
+      detail = total > 0 ? `${total} fichier(s) reçu(s)` : "En cours…";
+    }
   } else if (job.status === "PENDING") {
     title = isImages ? "Import images en attente" : "Import produits en attente";
     detail = "Le serveur va démarrer…";

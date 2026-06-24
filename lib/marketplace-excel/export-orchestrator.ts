@@ -11,7 +11,12 @@
  * comportement du script `processArchives` de la cliente.
  */
 
-import type { MarketplaceKey, MarketplaceEligibility, ExportProduct } from "./types";
+import type {
+  MarketplaceKey,
+  MarketplaceEligibility,
+  ExportProduct,
+  ExportMode,
+} from "./types";
 import { loadExportContext, loadExportProducts } from "./load-products";
 import { validateProductsForMarketplace } from "./validate";
 import { generatePfsExcelFiles } from "./generate-pfs";
@@ -84,11 +89,26 @@ export async function previewMarketplaceExport(
 
 /**
  * Run the full export : validate, generate Excel(s), prepare images, build ZIP.
+ *
+ * `mode` détermine ce qui est inclus :
+ *  - "both"        : Excel + images (défaut)
+ *  - "excel-only"  : Excel sans images — dossier `images/` absent
+ *  - "images-only" : ZIP contenant uniquement le dossier `images/`
+ *
+ * Ankorstore + "images-only" : combinaison non autorisée (les images
+ * Ankorstore sont consommées via URL, jamais bundlées).
  */
 export async function runMarketplaceExport(
   marketplace: MarketplaceKey,
   productIds: string[],
+  mode: ExportMode = "both",
 ): Promise<MarketplaceExportResult> {
+  if (marketplace === "ankorstore" && mode === "images-only") {
+    throw new Error(
+      "Ankorstore ne supporte pas l'export d'images seules : les images sont récupérées via les URLs du site.",
+    );
+  }
+
   const [products, ctx] = await Promise.all([
     loadExportProducts(productIds),
     loadExportContext(),
@@ -111,29 +131,38 @@ export async function runMarketplaceExport(
       label,
       today,
       results,
+      mode,
     });
   }
 
   // ─── Efashion / Microstore / Ankorstore : flux standard ─────────────────
+  const includeExcel = mode !== "images-only";
+  const includeImages = mode !== "excel-only";
+
   let excelFiles: ExcelFile[] = [];
   let images: PreparedImage[] | undefined;
 
   switch (marketplace) {
     case "efashion":
-      excelFiles = await generateEfashionExcelFiles(eligibleProducts, ctx);
-      images = await prepareImagesForEfashion(eligibleProducts);
+      if (includeExcel) excelFiles = await generateEfashionExcelFiles(eligibleProducts, ctx);
+      if (includeImages) images = await prepareImagesForEfashion(eligibleProducts);
       break;
     case "microstore":
-      excelFiles = await generateMicrostoreExcelFiles(eligibleProducts, ctx);
-      images = await prepareImagesForMicrostore(eligibleProducts);
+      if (includeExcel) excelFiles = await generateMicrostoreExcelFiles(eligibleProducts, ctx);
+      if (includeImages) images = await prepareImagesForMicrostore(eligibleProducts);
       break;
     case "ankorstore":
+      // `images-only` est déjà refusé en début de fonction. Reste : both/excel-only,
+      // tous deux n'incluent jamais d'images (URLs only).
       excelFiles = await generateAnkorstoreExcelFiles(eligibleProducts, ctx);
-      images = undefined; // URLs only, no bundled images
+      images = undefined;
       break;
   }
 
   const noImages = !images || images.length === 0;
+
+  // Excel direct si pas d'images ET un seul fichier Excel (cas usuel
+  // efashion/microstore/ankorstore en mode excel-only ou both sans images).
   if (excelFiles.length === 1 && noImages) {
     const onlyExcel = excelFiles[0]!;
     return {
@@ -148,13 +177,14 @@ export async function runMarketplaceExport(
   }
 
   const zip = await buildMarketplaceZip({ excelFiles, images });
+  const suffix = mode === "images-only" ? "_images" : mode === "excel-only" ? "_excel" : "";
 
   return {
     marketplace,
     marketplaceLabel: label,
     outputType: "zip",
     fileBuffer: zip,
-    filename: `${baseName}_${today}.zip`,
+    filename: `${baseName}${suffix}_${today}.zip`,
     eligible: results.filter((r) => r.eligible),
     ignored: results.filter((r) => !r.eligible),
   };
@@ -169,6 +199,7 @@ interface PfsExportArgs {
   label: string;
   today: string;
   results: MarketplaceEligibility[];
+  mode: ExportMode;
 }
 
 interface PfsImagePart {
@@ -245,20 +276,27 @@ async function bundlePfsImagesIntoParts(
  *   }
  */
 async function runPfsExport(args: PfsExportArgs): Promise<MarketplaceExportResult> {
-  const { products, ctx, baseName, label, today, results } = args;
+  const { products, ctx, baseName, label, today, results, mode } = args;
+  const includeExcel = mode !== "images-only";
+  const includeImages = mode !== "excel-only";
 
   // Enrichit les produits avec les traductions EN/ES/DE/IT à la volée — pas
   // d'écriture en base, c'est uniquement en mémoire pour cet export. Le site
   // reste FR + EN. L'API PFS renvoie toutes les langues en 1 seul appel par
   // texte. Cf. lib/marketplace-excel/enrich-translations-pfs.ts.
-  const translatedProducts = await enrichProductsWithPfsTranslations(products);
+  //
+  // En mode images-only on n'a besoin d'aucune traduction (les images sont
+  // nommées d'après la référence locale, indépendantes de la langue).
+  const translatedProducts = includeExcel
+    ? await enrichProductsWithPfsTranslations(products)
+    : products;
 
   const [excelFiles, allImages] = await Promise.all([
-    generatePfsExcelFiles(translatedProducts, ctx),
-    prepareImagesForPfs(translatedProducts),
+    includeExcel ? generatePfsExcelFiles(translatedProducts, ctx) : Promise.resolve([] as ExcelFile[]),
+    includeImages ? prepareImagesForPfs(translatedProducts) : Promise.resolve([] as PreparedImage[]),
   ]);
 
-  const imageParts = await bundlePfsImagesIntoParts(allImages);
+  const imageParts = includeImages ? await bundlePfsImagesIntoParts(allImages) : [];
 
   const zip = new JSZip();
 
@@ -284,12 +322,14 @@ async function runPfsExport(args: PfsExportArgs): Promise<MarketplaceExportResul
     compressionOptions: { level: 6 },
   });
 
+  const suffix = mode === "images-only" ? "_images" : mode === "excel-only" ? "_excel" : "";
+
   return {
     marketplace: "pfs",
     marketplaceLabel: label,
     outputType: "zip",
     fileBuffer: buffer,
-    filename: `${baseName}_${today}.zip`,
+    filename: `${baseName}${suffix}_${today}.zip`,
     eligible: results.filter((r) => r.eligible),
     ignored: results.filter((r) => !r.eligible),
   };

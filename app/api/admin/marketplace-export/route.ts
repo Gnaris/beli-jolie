@@ -25,6 +25,7 @@ export const runtime = "nodejs";
 const BodySchema = z.object({
   marketplace: z.enum(["pfs", "efashion", "microstore", "ankorstore"]),
   productIds: z.array(z.string().min(1)).min(1),
+  mode: z.enum(["both", "excel-only", "images-only"]).optional().default("both"),
 });
 
 export async function POST(req: NextRequest) {
@@ -48,10 +49,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (parsed.data.marketplace === "ankorstore" && parsed.data.mode === "images-only") {
+    return NextResponse.json(
+      {
+        error:
+          "Ankorstore ne supporte pas l'export d'images seules : les images sont récupérées via les URLs du site.",
+      },
+      { status: 400 },
+    );
+  }
+
   try {
     const result = await runMarketplaceExport(
       parsed.data.marketplace,
       parsed.data.productIds,
+      parsed.data.mode,
     );
 
     const ignoredCount = result.ignored.length;

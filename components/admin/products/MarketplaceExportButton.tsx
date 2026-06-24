@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect, useRef, useLayoutEffect } from "rea
 import { createPortal } from "react-dom";
 import { previewMarketplaceExportAction } from "@/app/actions/admin/marketplace-export";
 import { useToast } from "@/components/ui/Toast";
-import type { MarketplaceKey } from "@/lib/marketplace-excel/types";
+import type { MarketplaceKey, ExportMode } from "@/lib/marketplace-excel/types";
 import MarketplaceExportPreviewModal from "./MarketplaceExportPreviewModal";
 
 interface MarketplaceOption {
@@ -36,6 +36,7 @@ export default function MarketplaceExportButton({ productIds, disabled, onExport
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [mode, setMode] = useState<ExportMode>("both");
   const [isLoadingPreview, startPreview] = useTransition();
   const [isDownloading, setIsDownloading] = useState(false);
   const toast = useToast();
@@ -80,6 +81,9 @@ export default function MarketplaceExportButton({ productIds, disabled, onExport
 
   function handlePickMarketplace(marketplace: MarketplaceKey) {
     setMenuOpen(false);
+    // Reset du mode à chaque nouvelle sélection de marketplace : Ankorstore
+    // n'a pas le choix "images-only", donc on repart toujours sur "both".
+    setMode("both");
     startPreview(async () => {
       const result = await previewMarketplaceExportAction(marketplace, productIds);
       if (!result.success) {
@@ -105,6 +109,7 @@ export default function MarketplaceExportButton({ productIds, disabled, onExport
         body: JSON.stringify({
           marketplace: preview.marketplace,
           productIds: preview.eligible.map((e) => e.productId),
+          mode,
         }),
       });
       if (!res.ok) {
@@ -187,6 +192,8 @@ export default function MarketplaceExportButton({ productIds, disabled, onExport
         <MarketplaceExportPreviewModal
           preview={preview}
           isDownloading={isDownloading}
+          mode={mode}
+          onModeChange={setMode}
           onCancel={() => setPreview(null)}
           onConfirm={handleConfirmExport}
         />

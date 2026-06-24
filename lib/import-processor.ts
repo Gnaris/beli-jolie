@@ -13,7 +13,7 @@
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import * as XLSX from "xlsx";
-import { readFile, readdir, mkdir } from "fs/promises";
+import { readFile, readdir, mkdir, writeFile, unlink, copyFile } from "fs/promises";
 import { processProductImage } from "@/lib/image-processor";
 import { productImageDir, productImageBaseName } from "@/lib/storage";
 import { emitProductEvent } from "@/lib/product-events";
@@ -1397,88 +1397,123 @@ export async function placeImageInVariant(opts: {
 
 const IMAGE_BATCH_SIZE = 20;
 
-export async function processImageImport(jobId: string): Promise<void> {
+// ─────────────────────────────────────────────
+// Image import — état persisté entre les lots
+// ─────────────────────────────────────────────
+//
+// Le flux nouveau (live import) traite chaque lot HTTP dès qu'il arrive sur le
+// serveur, plutôt que d'attendre la fin de l'upload. Comme chaque lot tourne
+// dans un handler HTTP séparé, on doit persister l'état accumulé (images
+// rangées + erreurs) sur disque pour le ré-utiliser au lot suivant.
+//
+// Le fichier vit dans tempDir/_state.json. Les batches arrivent en série
+// côté client (await fetch dans une boucle), donc pas de risque de
+// concurrence sur ce fichier.
+
+interface ImportedImage {
+  filename: string;
+  reference: string;
+  color: string;
+  position: number;
+  imagePath: string;
+  productId: string;
+}
+
+interface ImageImportState {
+  errorRows: ImageDraftRow[];
+  importedImages: ImportedImage[];
+}
+
+async function loadImageImportState(tempDirFull: string): Promise<ImageImportState> {
   try {
-    const job = await prisma.importJob.findUnique({ where: { id: jobId } });
-    if (!job || !job.tempDir) throw new Error("Job introuvable ou tempDir manquant.");
+    const statePath = path.join(tempDirFull, "_state.json");
+    const raw = await readFile(statePath, "utf-8");
+    const parsed = JSON.parse(raw) as ImageImportState;
+    return {
+      errorRows: Array.isArray(parsed.errorRows) ? parsed.errorRows : [],
+      importedImages: Array.isArray(parsed.importedImages) ? parsed.importedImages : [],
+    };
+  } catch {
+    return { errorRows: [], importedImages: [] };
+  }
+}
 
-    await prisma.importJob.update({ where: { id: jobId }, data: { status: "PROCESSING" } });
+async function saveImageImportState(tempDirFull: string, state: ImageImportState): Promise<void> {
+  const statePath = path.join(tempDirFull, "_state.json");
+  await writeFile(statePath, JSON.stringify(state), "utf-8");
+}
 
-    // Resolve relative tempDir to absolute (tempDir stored as relative in DB)
-    const tempDirFull = path.resolve(process.cwd(), job.tempDir);
-    const allFiles = await readdir(tempDirFull);
-    const allowedExts = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
-    const imageFiles = allFiles.filter((f) => allowedExts.includes(path.extname(f).toLowerCase()));
+async function loadImageImportResolutions(tempDirFull: string): Promise<{
+  resolutions: ConflictResolutions;
+  perFileMap: Map<string, ConflictResolution>;
+  fileOverrides: Record<string, { position?: number; color?: string }>;
+}> {
+  let resolutions: ConflictResolutions = { defaultStrategy: "replace", perFile: [] };
+  try {
+    const resPath = path.join(tempDirFull, "_resolutions.json");
+    resolutions = JSON.parse(await readFile(resPath, "utf-8"));
+  } catch { /* default */ }
 
-    // Load conflict resolutions if present
-    let resolutions: ConflictResolutions = { defaultStrategy: "replace", perFile: [] };
-    try {
-      const resPath = path.join(tempDirFull, "_resolutions.json");
-      const resData = await readFile(resPath, "utf-8");
-      resolutions = JSON.parse(resData);
-    } catch {
-      // No resolutions file — default to "replace"
-    }
-    const perFileMap = new Map(resolutions.perFile.map((r) => [r.filename, r]));
+  let fileOverrides: Record<string, { position?: number; color?: string }> = {};
+  try {
+    const ovPath = path.join(tempDirFull, "_overrides.json");
+    fileOverrides = JSON.parse(await readFile(ovPath, "utf-8"));
+  } catch { /* none */ }
 
-    // Load file overrides (position/color changes from preview editing)
-    let fileOverrides: Record<string, { position?: number; color?: string }> = {};
-    try {
-      const ovPath = path.join(tempDirFull, "_overrides.json");
-      const ovData = await readFile(ovPath, "utf-8");
-      fileOverrides = JSON.parse(ovData);
-    } catch {
-      // No overrides file
-    }
+  const perFileMap = new Map(resolutions.perFile.map((r) => [r.filename, r]));
+  return { resolutions, perFileMap, fileOverrides };
+}
 
-    await prisma.importJob.update({
-      where: { id: jobId },
-      data: { totalItems: imageFiles.length },
-    });
+/**
+ * Traite un lot de fichiers déjà déposés dans tempDir. Appelé par l'API batch
+ * upload pour ranger les photos en live, plutôt que d'attendre la fin de
+ * l'envoi de tous les lots.
+ *
+ * Lit les `_resolutions.json` et `_overrides.json` (écrits à la création du
+ * job) et persiste l'état dans `_state.json`. Met à jour les compteurs et
+ * l'aperçu du job au passage.
+ *
+ * @param jobId           id du job IMAGES (status doit être UPLOADING ou PROCESSING)
+ * @param batchFilenames  noms de base des fichiers du lot (déjà saved dans tempDir)
+ */
+export async function processImageBatch(
+  jobId: string,
+  batchFilenames: string[],
+): Promise<{ processed: number; success: number; errors: number }> {
+  const job = await prisma.importJob.findUnique({ where: { id: jobId } });
+  if (!job || !job.tempDir) throw new Error("Job introuvable ou tempDir manquant.");
 
-    // Parse all filenames
-    const validFiles: ImageFileInfo[] = [];
-    const errorRows: ImageDraftRow[] = [];
+  const tempDirFull = path.resolve(process.cwd(), job.tempDir);
+  const { resolutions, perFileMap, fileOverrides } = await loadImageImportResolutions(tempDirFull);
+  const state = await loadImageImportState(tempDirFull);
 
-    for (const filename of imageFiles) {
-      const parsed = parseImageFilename(filename);
-      if (!parsed) {
-        errorRows.push({
-          filename,
-          reference: "",
-          color: "",
-          position: 0,
-          tempPath: "", // will be set when copying to public error dir
-          errors: ['Nom de fichier invalide. Format attendu : "REFERENCE COULEUR POSITION.ext" (multi-couleur : "REF Doré,Rouge,Noir 1.jpg")'],
-        });
-        continue;
-      }
-      const ov = fileOverrides[filename];
-      validFiles.push({
+  // Parse filenames
+  const validFiles: ImageFileInfo[] = [];
+  for (const filename of batchFilenames) {
+    const parsed = parseImageFilename(filename);
+    if (!parsed) {
+      state.errorRows.push({
         filename,
-        reference: parsed.reference,
-        color: ov?.color ?? parsed.color,
-        position: ov?.position ?? parsed.position,
-        positionOverridden: ov?.position != null,
-        filePath: path.join(tempDirFull, filename),
+        reference: "",
+        color: "",
+        position: 0,
+        tempPath: "",
+        errors: ['Nom de fichier invalide. Format attendu : "REFERENCE COULEUR POSITION.ext" (multi-couleur : "REF Doré,Rouge,Noir 1.jpg")'],
       });
+      continue;
     }
+    const ov = fileOverrides[filename];
+    validFiles.push({
+      filename,
+      reference: parsed.reference,
+      color: ov?.color ?? parsed.color,
+      position: ov?.position ?? parsed.position,
+      positionOverridden: ov?.position != null,
+      filePath: path.join(tempDirFull, filename),
+    });
+  }
 
-    // Expose parse errors immediately so the UI can show them during processing
-    if (errorRows.length > 0) {
-      await prisma.importJob.update({
-        where: { id: jobId },
-        data: {
-          errorItems: errorRows.length,
-          resultDetails: {
-            type: "IMAGES",
-            errorPreview: buildImageErrorPreview(errorRows),
-          } as unknown as import("@prisma/client").Prisma.JsonObject,
-        },
-      });
-    }
-
-    // Pre-load products for all references in files
+  if (validFiles.length > 0) {
     const fileRefs = [...new Set(validFiles.map((f) => f.reference))];
     const products = await prisma.product.findMany({
       where: { reference: { in: fileRefs } },
@@ -1486,310 +1521,290 @@ export async function processImageImport(jobId: string): Promise<void> {
     });
     const productMap = new Map(products.map((p) => [p.reference.toUpperCase(), p]));
 
-    // Load ALL product references from DB for error suggestions
-    const allDbProducts = await prisma.product.findMany({
-      select: { reference: true },
-      orderBy: { reference: "asc" },
-      take: 500,
-    });
-    const allDbRefs = allDbProducts.map((p) => p.reference);
+    // List of all DB refs only fetched if needed (1 ref miss is enough)
+    let allDbRefsCache: string[] | null = null;
+    const getAllDbRefs = async () => {
+      if (allDbRefsCache) return allDbRefsCache;
+      const all = await prisma.product.findMany({
+        select: { reference: true },
+        orderBy: { reference: "asc" },
+        take: 500,
+      });
+      allDbRefsCache = all.map((p) => p.reference);
+      return allDbRefsCache;
+    };
 
-    let successCount = 0;
-    let processedCount = 0;
-
-    // Tracks positions (0-based) already assigned during this job, per
-    // (productId, colorId) scope — c'est la portée de la contrainte unique
-    // en BDD, pas le productColorId. Clé = `${productId}::${colorId}`.
-    const assignedOrdersByVariant = new Map<string, Set<number>>();
-
-    // Collect detailed results for history display
-    const importedImages: {
-      filename: string;
-      reference: string;
-      color: string;
-      position: number;
-      imagePath: string;
-      productId: string;
-    }[] = [];
-
-    // Process in batches
-    for (let i = 0; i < validFiles.length; i += IMAGE_BATCH_SIZE) {
-      const batch = validFiles.slice(i, i + IMAGE_BATCH_SIZE);
-
-      for (const file of batch) {
-        const product = productMap.get(file.reference);
-
-        if (!product) {
-          errorRows.push({
-            filename: file.filename,
-            reference: file.reference,
-            color: file.color,
-            position: file.position,
-            tempPath: "", // will be set when copying to public error dir
-            errors: [`Référence "${file.reference}" introuvable.`],
-            // Provide actual DB product references so frontend can propose alternatives
-            availableRefs: allDbRefs,
-          });
-          processedCount++;
-          continue;
-        }
-
-        // Match color — file ne contient qu'une couleur par variante
-        const fileColor = normalizeColorName(file.color.trim());
-        const matchingVariants = product.colors.filter(
-          (pc) => pc.color && normalizeColorName(pc.color.name) === fileColor
-        );
-
-        if (matchingVariants.length === 0) {
-          const availableColors = product.colors.map((pc) => ({
-            id: pc.id,
-            name: pc.color?.name ?? "",
-            hex: pc.color?.hex ?? "#9CA3AF",
-            patternImage: pc.color?.patternImage ?? null,
-            saleType: pc.saleType,
-          }));
-
-          errorRows.push({
-            filename: file.filename,
-            reference: file.reference,
-            color: file.color,
-            position: file.position,
-            tempPath: "", // will be set when copying to public error dir
-            errors: [`Couleur "${file.color}" introuvable sur "${file.reference}".`],
-            productId: product.id,
-            availableColors,
-          });
-          processedCount++;
-          continue;
-        }
-
-        const matchedVariant = matchingVariants[0];
-
-        // ─── Placement de l'image via le helper centralisé ───
-        // Tous les conflits (compaction + résolution) sont gérés dans
-        // placeImageInVariant. Si une exception est levée, on tombe dans le
-        // catch ci-dessous et on ajoute aux errorRows sans interrompre.
-        try {
-          const perFileRes = perFileMap.get(file.filename);
-          const strategy: ConflictStrategy = perFileRes?.strategy ?? resolutions.defaultStrategy;
-          // Scope = couple (productId, colorId), car c'est la portée réelle
-          // de la contrainte unique en BDD.
-          const scopeKey = `${product.id}::${matchedVariant.colorId ?? ""}`;
-          const assignedHere = assignedOrdersByVariant.get(scopeKey);
-
-          const { finalOrder } = await placeImageInVariant({
-            prismaClient: prisma,
-            productId: product.id,
-            colorId: matchedVariant.colorId ?? "",
-            requestedPosition: file.position,
-            positionOverridden: file.positionOverridden,
-            strategy,
-            assignedOrdersInJob: assignedHere,
-          });
-
-          // Nouveau rangement : public/uploads/produits/{ref}/{ref}-{couleur}-{n}-{stamp}.webp
-          const productDir = productImageDir(file.reference);
-          const stamp = Date.now().toString(36);
-          const safeFilename = `${productImageBaseName(file.reference, file.color, file.position)}-${stamp}`;
-          const imageBuffer = await readFile(file.filePath);
-          const result = await processProductImage(imageBuffer, productDir, safeFilename);
-
-          // Clean up temp file
-          const { unlink } = await import("fs/promises");
-          await unlink(file.filePath).catch(() => {});
-
-          const imagePath = result.dbPath;
-
-          await prisma.productColorImage.create({
-            data: {
-              productId: product.id,
-              colorId: matchedVariant.colorId ?? "",
-              productColorId: matchedVariant.id,
-              path: imagePath,
-              order: finalOrder,
-            },
-          });
-
-          // Reserve this position so subsequent images in the same job don't
-          // compact onto it. Clé = scope (productId, colorId).
-          const existingAssigned = assignedOrdersByVariant.get(scopeKey);
-          if (existingAssigned) {
-            existingAssigned.add(finalOrder);
-          } else {
-            assignedOrdersByVariant.set(scopeKey, new Set([finalOrder]));
-          }
-
-          successCount++;
-          processedCount++;
-
-          importedImages.push({
-            filename: file.filename,
-            reference: file.reference,
-            color: file.color,
-            position: finalOrder + 1,
-            imagePath,
-            productId: product.id,
-          });
-        } catch (placementErr) {
-          // Ne PAS interrompre : on continue avec les autres fichiers.
-          logger.error("[import-processor] Placement échoué", { error: placementErr, filename: file.filename });
-          errorRows.push({
-            filename: file.filename,
-            reference: file.reference,
-            color: file.color,
-            position: file.position,
-            tempPath: "",
-            errors: [placementErr instanceof Error ? placementErr.message : "Erreur lors du placement de l'image."],
-            productId: product.id,
-          });
-          processedCount++;
-        }
+    for (const file of validFiles) {
+      const product = productMap.get(file.reference);
+      if (!product) {
+        state.errorRows.push({
+          filename: file.filename,
+          reference: file.reference,
+          color: file.color,
+          position: file.position,
+          tempPath: "",
+          errors: [`Référence "${file.reference}" introuvable.`],
+          availableRefs: await getAllDbRefs(),
+        });
+        continue;
       }
 
-      // Update progress
-      await prisma.importJob.update({
-        where: { id: jobId },
-        data: {
-          processedItems: processedCount + errorRows.length,
-          successItems: successCount,
-          errorItems: errorRows.length,
-          resultDetails: {
-            type: "IMAGES",
-            errorPreview: buildImageErrorPreview(errorRows),
-          } as unknown as import("@prisma/client").Prisma.JsonObject,
-        },
-      });
+      const fileColor = normalizeColorName(file.color.trim());
+      const matchingVariants = product.colors.filter(
+        (pc) => pc.color && normalizeColorName(pc.color.name) === fileColor,
+      );
 
-      // Breathe
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+      if (matchingVariants.length === 0) {
+        const availableColors = product.colors.map((pc) => ({
+          id: pc.id,
+          name: pc.color?.name ?? "",
+          hex: pc.color?.hex ?? "#9CA3AF",
+          patternImage: pc.color?.patternImage ?? null,
+          saleType: pc.saleType,
+        }));
 
-    // Also count parse errors in processed
-    processedCount += errorRows.length - (errorRows.length - validFiles.filter(() => true).length);
-
-    // Create draft for errors
-    let errorDraftId: string | undefined;
-    if (errorRows.length > 0) {
-      // Move error images to a permanent temp dir (not the upload temp)
-      const errorTempDirName = `import_errors_${Date.now()}`;
-      const errorTempDirPublic = `uploads/temp/${errorTempDirName}`;
-      const errorTempDirFull = path.join(process.cwd(), "public", errorTempDirPublic);
-      await mkdir(errorTempDirFull, { recursive: true });
-
-      // Copy error images from private temp dir to public error dir for previews
-      const { copyFile } = await import("fs/promises");
-      for (const row of errorRows) {
-        const srcFull = path.join(tempDirFull, row.filename);
-        const destFull = path.join(errorTempDirFull, row.filename);
-        try {
-          await copyFile(srcFull, destFull);
-          row.tempPath = `${errorTempDirPublic}/${row.filename}`;
-        } catch {
-          // File may have been moved already (successfully processed then failed later)
-          row.tempPath = "";
-        }
+        state.errorRows.push({
+          filename: file.filename,
+          reference: file.reference,
+          color: file.color,
+          position: file.position,
+          tempPath: "",
+          errors: [`Couleur "${file.color}" introuvable sur "${file.reference}".`],
+          productId: product.id,
+          availableColors,
+        });
+        continue;
       }
 
-      const draft = await prisma.importDraft.create({
-        data: {
-          type: "IMAGES",
-          filename: `${imageFiles.length} image(s)`,
-          totalRows: imageFiles.length,
-          successRows: successCount,
-          errorRows: errorRows.length,
-          rows: errorRows as unknown as import("@prisma/client").Prisma.JsonArray,
-          tempDir: errorTempDirPublic,
-          adminId: job.adminId,
-        },
-      });
-      errorDraftId = draft.id;
-    }
+      const matchedVariant = matchingVariants[0];
+      try {
+        const perFileRes = perFileMap.get(file.filename);
+        const strategy: ConflictStrategy = perFileRes?.strategy ?? resolutions.defaultStrategy;
 
-    // ─────────────────────────────────────────────
-    // Post-import : flags marketplace & résumé produits
-    //
-    // Pour chaque produit qui a reçu au moins une image, on relit les IDs
-    // marketplace pour savoir où il est lié. Si lié, on pose le flag
-    // *SyncRequired = true (sera reset automatiquement si la cliente
-    // déclenche un push depuis la modale). Si non lié, on ne fait rien
-    // (cas brouillon = upload seul, conformément à la specs).
-    // ─────────────────────────────────────────────
-    const touchedProductIds = [...new Set(importedImages.map((i) => i.productId))];
-    const productMarketplaces: Array<{
-      productId: string;
-      reference: string;
-      name: string;
-      imageCount: number;
-      coverPath: string;
-      linkedTo: { pfs: boolean; ankorstore: boolean; efashion: boolean };
-    }> = [];
-
-    if (touchedProductIds.length > 0) {
-      // Recevoir des images via l'import en masse est une modification du
-      // produit du point de vue de l'admin : on bump `updatedAt` pour que
-      // ces fiches remontent dans le tri « Modifié récemment d'abord ».
-      // Sans ce coup de pouce, seul Product.update() bump le timestamp, et
-      // l'écriture de ProductColorImage seule laisserait la date figée.
-      await bumpProductsUpdatedAt(prisma, touchedProductIds);
-
-      const linkedProducts = await prisma.product.findMany({
-        where: { id: { in: touchedProductIds } },
-        select: {
-          id: true,
-          reference: true,
-          name: true,
-          pfsProductId: true,
-          ankorsProductId: true,
-          efashionReferenceBase: true,
-        },
-      });
-
-      for (const p of linkedProducts) {
-        const linkedTo = {
-          pfs: !!p.pfsProductId,
-          ankorstore: !!p.ankorsProductId,
-          efashion: !!p.efashionReferenceBase,
-        };
-        const images = importedImages.filter((i) => i.productId === p.id);
-        productMarketplaces.push({
-          productId: p.id,
-          reference: p.reference,
-          name: p.name,
-          imageCount: images.length,
-          coverPath: images[0]?.imagePath ?? "",
-          linkedTo,
+        const { finalOrder } = await placeImageInVariant({
+          prismaClient: prisma,
+          productId: product.id,
+          colorId: matchedVariant.colorId ?? "",
+          requestedPosition: file.position,
+          positionOverridden: file.positionOverridden,
+          strategy,
+          // Pas de réservation in-memory : placeImageInVariant relit la BDD à
+          // chaque appel, et les photos rangées dans les lots précédents y
+          // sont déjà committées.
         });
 
-        // Pose les flags si le produit est lié à au moins une marketplace.
-        const flagPatch: { pfsSyncRequired?: true; ankorsSyncRequired?: true; efashionSyncRequired?: true } = {};
-        if (linkedTo.pfs) flagPatch.pfsSyncRequired = true;
-        if (linkedTo.ankorstore) flagPatch.ankorsSyncRequired = true;
-        if (linkedTo.efashion) flagPatch.efashionSyncRequired = true;
-        if (Object.keys(flagPatch).length > 0) {
-          await prisma.product.update({ where: { id: p.id }, data: flagPatch }).catch((e) => {
-            logger.error("[import-processor] Échec pose du flag SyncRequired", { error: e, productId: p.id });
-          });
-        }
+        const productDir = productImageDir(file.reference);
+        const stamp = Date.now().toString(36);
+        const safeFilename = `${productImageBaseName(file.reference, file.color, file.position)}-${stamp}`;
+        const imageBuffer = await readFile(file.filePath);
+        const result = await processProductImage(imageBuffer, productDir, safeFilename);
+
+        await unlink(file.filePath).catch(() => {});
+
+        await prisma.productColorImage.create({
+          data: {
+            productId: product.id,
+            colorId: matchedVariant.colorId ?? "",
+            productColorId: matchedVariant.id,
+            path: result.dbPath,
+            order: finalOrder,
+          },
+        });
+
+        state.importedImages.push({
+          filename: file.filename,
+          reference: file.reference,
+          color: file.color,
+          position: finalOrder + 1,
+          imagePath: result.dbPath,
+          productId: product.id,
+        });
+      } catch (placementErr) {
+        logger.error("[import-processor] Placement échoué", { error: placementErr, filename: file.filename });
+        state.errorRows.push({
+          filename: file.filename,
+          reference: file.reference,
+          color: file.color,
+          position: file.position,
+          tempPath: "",
+          errors: [placementErr instanceof Error ? placementErr.message : "Erreur lors du placement de l'image."],
+          productId: product.id,
+        });
+      }
+    }
+  }
+
+  await saveImageImportState(tempDirFull, state);
+
+  await prisma.importJob.update({
+    where: { id: jobId },
+    data: {
+      processedItems: state.importedImages.length + state.errorRows.length,
+      successItems: state.importedImages.length,
+      errorItems: state.errorRows.length,
+      resultDetails: {
+        type: "IMAGES",
+        images: state.importedImages,
+        errorPreview: buildImageErrorPreview(state.errorRows),
+      } as unknown as import("@prisma/client").Prisma.JsonObject,
+    },
+  });
+
+  return {
+    processed: state.importedImages.length + state.errorRows.length,
+    success: state.importedImages.length,
+    errors: state.errorRows.length,
+  };
+}
+
+/**
+ * Clôt un import IMAGES : crée le brouillon d'erreurs (si besoin), pose les
+ * flags marketplace, bump `updatedAt` des produits touchés, passe le job en
+ * COMPLETED. Appelé une fois que tous les lots ont été traités via
+ * `processImageBatch`.
+ */
+export async function finalizeImageImport(jobId: string): Promise<void> {
+  const job = await prisma.importJob.findUnique({ where: { id: jobId } });
+  if (!job || !job.tempDir) throw new Error("Job introuvable ou tempDir manquant.");
+
+  const tempDirFull = path.resolve(process.cwd(), job.tempDir);
+  const state = await loadImageImportState(tempDirFull);
+
+  // ─── Brouillon d'erreurs ───
+  let errorDraftId: string | undefined;
+  if (state.errorRows.length > 0) {
+    const errorTempDirName = `import_errors_${Date.now()}`;
+    const errorTempDirPublic = `uploads/temp/${errorTempDirName}`;
+    const errorTempDirFull = path.join(process.cwd(), "public", errorTempDirPublic);
+    await mkdir(errorTempDirFull, { recursive: true });
+
+    for (const row of state.errorRows) {
+      const srcFull = path.join(tempDirFull, row.filename);
+      const destFull = path.join(errorTempDirFull, row.filename);
+      try {
+        await copyFile(srcFull, destFull);
+        row.tempPath = `${errorTempDirPublic}/${row.filename}`;
+      } catch {
+        row.tempPath = "";
       }
     }
 
-    await prisma.importJob.update({
-      where: { id: jobId },
+    const totalFiles = state.errorRows.length + state.importedImages.length;
+    const draft = await prisma.importDraft.create({
       data: {
-        status: "COMPLETED",
-        processedItems: imageFiles.length,
-        successItems: successCount,
-        errorItems: errorRows.length,
-        errorDraftId,
-        resultDetails: {
-          type: "IMAGES",
-          images: importedImages,
-          errorPreview: buildImageErrorPreview(errorRows),
-          products: productMarketplaces,
-        } as unknown as import("@prisma/client").Prisma.JsonObject,
+        type: "IMAGES",
+        filename: `${totalFiles} image(s)`,
+        totalRows: totalFiles,
+        successRows: state.importedImages.length,
+        errorRows: state.errorRows.length,
+        rows: state.errorRows as unknown as import("@prisma/client").Prisma.JsonArray,
+        tempDir: errorTempDirPublic,
+        adminId: job.adminId,
+      },
+    });
+    errorDraftId = draft.id;
+  }
+
+  // ─── Post-import : flags marketplace + bump updatedAt ───
+  const touchedProductIds = [...new Set(state.importedImages.map((i) => i.productId))];
+  const productMarketplaces: Array<{
+    productId: string;
+    reference: string;
+    name: string;
+    imageCount: number;
+    coverPath: string;
+    linkedTo: { pfs: boolean; ankorstore: boolean; efashion: boolean };
+  }> = [];
+
+  if (touchedProductIds.length > 0) {
+    await bumpProductsUpdatedAt(prisma, touchedProductIds);
+    const linkedProducts = await prisma.product.findMany({
+      where: { id: { in: touchedProductIds } },
+      select: {
+        id: true,
+        reference: true,
+        name: true,
+        pfsProductId: true,
+        ankorsProductId: true,
+        efashionReferenceBase: true,
       },
     });
 
+    for (const p of linkedProducts) {
+      const linkedTo = {
+        pfs: !!p.pfsProductId,
+        ankorstore: !!p.ankorsProductId,
+        efashion: !!p.efashionReferenceBase,
+      };
+      const images = state.importedImages.filter((i) => i.productId === p.id);
+      productMarketplaces.push({
+        productId: p.id,
+        reference: p.reference,
+        name: p.name,
+        imageCount: images.length,
+        coverPath: images[0]?.imagePath ?? "",
+        linkedTo,
+      });
+
+      const flagPatch: { pfsSyncRequired?: true; ankorsSyncRequired?: true; efashionSyncRequired?: true } = {};
+      if (linkedTo.pfs) flagPatch.pfsSyncRequired = true;
+      if (linkedTo.ankorstore) flagPatch.ankorsSyncRequired = true;
+      if (linkedTo.efashion) flagPatch.efashionSyncRequired = true;
+      if (Object.keys(flagPatch).length > 0) {
+        await prisma.product.update({ where: { id: p.id }, data: flagPatch }).catch((e) => {
+          logger.error("[import-processor] Échec pose du flag SyncRequired", { error: e, productId: p.id });
+        });
+      }
+    }
+  }
+
+  await prisma.importJob.update({
+    where: { id: jobId },
+    data: {
+      status: "COMPLETED",
+      processedItems: state.errorRows.length + state.importedImages.length,
+      successItems: state.importedImages.length,
+      errorItems: state.errorRows.length,
+      errorDraftId,
+      resultDetails: {
+        type: "IMAGES",
+        images: state.importedImages,
+        errorPreview: buildImageErrorPreview(state.errorRows),
+        products: productMarketplaces,
+      } as unknown as import("@prisma/client").Prisma.JsonObject,
+    },
+  });
+}
+
+/**
+ * Point d'entrée legacy : prend tous les fichiers présents dans tempDir et les
+ * traite en chunks via le nouveau pipeline (processImageBatch + finalize).
+ * Conservé pour les appels existants (re-run manuel, tests d'intégration).
+ */
+export async function processImageImport(jobId: string): Promise<void> {
+  try {
+    const job = await prisma.importJob.findUnique({ where: { id: jobId } });
+    if (!job || !job.tempDir) throw new Error("Job introuvable ou tempDir manquant.");
+
+    await prisma.importJob.update({ where: { id: jobId }, data: { status: "PROCESSING" } });
+
+    const tempDirFull = path.resolve(process.cwd(), job.tempDir);
+    const allFiles = await readdir(tempDirFull);
+    const allowedExts = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+    const imageFiles = allFiles.filter((f) => allowedExts.includes(path.extname(f).toLowerCase()));
+
+    await prisma.importJob.update({
+      where: { id: jobId },
+      data: { totalItems: imageFiles.length },
+    });
+
+    for (let i = 0; i < imageFiles.length; i += IMAGE_BATCH_SIZE) {
+      const chunk = imageFiles.slice(i, i + IMAGE_BATCH_SIZE);
+      await processImageBatch(jobId, chunk);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    await finalizeImageImport(jobId);
   } catch (err) {
     logger.error(`[import-processor] Image job ${jobId} failed`, { error: err });
     await prisma.importJob.update({

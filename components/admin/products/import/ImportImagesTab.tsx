@@ -13,7 +13,7 @@ import ImportPreviewBoard, {
   type PreviewFile,
 } from "./ImportPreviewBoard";
 
-type Step = "upload" | "preview" | "uploading" | "done";
+type Step = "upload" | "preview" | "done";
 type ConflictStrategy = "replace" | "next_available" | "shift";
 
 interface FileSummaryGroup {
@@ -1054,11 +1054,12 @@ export default function ImportImagesTab() {
     return () => { cancelled = true; };
   }, [jobStatus, jobProgress.errorDraftId]);
 
-  // Warn before navigating/closing during browser-driven upload — if she
-  // leaves now, the upload aborts and the job is left orphaned UPLOADING.
-  // (Server-side PROCESSING is immune to navigation, no warning needed.)
+  // Warn before navigating/closing pendant que l'envoi des lots est encore en
+  // cours. En mode "live import", on est déjà sur l'écran "done" pendant
+  // l'envoi, donc on conditionne sur uploadedBatches < totalBatches plutôt
+  // que sur un step dédié.
   useEffect(() => {
-    if (step !== "uploading") return;
+    if (step !== "done") return;
     if (totalBatches === 0 || uploadedBatches >= totalBatches) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
@@ -1146,43 +1147,76 @@ export default function ImportImagesTab() {
 
   const handleSubmit = async () => {
     if (files.length === 0) return;
-    setLoading(true); setError(null); setStep("uploading");
+    setLoading(true); setError(null);
     try {
+      // ─── 1) Création du job AVEC les décisions de la preview ───
+      // Les résolutions de conflit + les overrides (couleur/position modifiées
+      // dans la preview) sont envoyées dès la création : ainsi le backend
+      // peut traiter chaque lot dès qu'il arrive, sans attendre la fin de
+      // l'envoi pour connaître les décisions.
       const createFd = new FormData();
       createFd.append("type", "IMAGES");
       createFd.append("file", new Blob(), "placeholder");
+      if (conflicts.length > 0) {
+        createFd.append("resolutions", JSON.stringify({ defaultStrategy, perFile: [...perFileResolutions.values()] }));
+      }
+      if (overrides.size > 0) {
+        const ovObj: Record<string, FileOverride> = {};
+        overrides.forEach((v, k) => { ovObj[k] = v; });
+        createFd.append("overrides", JSON.stringify(ovObj));
+      }
       const createRes = await fetch("/api/admin/import-jobs", { method: "POST", body: createFd });
       const createData = await createRes.json();
-      if (!createRes.ok) { setError(createData.error ?? "Erreur."); setStep("preview"); return; }
+      if (!createRes.ok) { setError(createData.error ?? "Erreur."); return; }
       const createdJobId = createData.jobId as string;
       setJobId(createdJobId);
+
+      // ─── 2) Bascule sur l'écran de progression live ───
+      // Plus d'écran « envoi » distinct : le compteur "X/Y rangées" se met à
+      // jour au fil des réponses de lots. DoneScreen affiche le mode
+      // "Traitement en cours" tant que jobStatus ≠ COMPLETED.
       const batches = Math.ceil(files.length / BATCH_SIZE);
       setTotalBatches(batches); setUploadedBatches(0);
-      // Laisse React peindre "Lot 0/N" avant l'envoi du 1er lot (sinon la
-      // barre reste à 0/0 pendant toute la 1re requête).
+      setJobStatus("PROCESSING");
+      setJobProgress({ processed: 0, total: files.length, success: 0, errors: 0, errorDraftId: null, errorMessage: null });
+      setStep("done");
       await new Promise((r) => setTimeout(r, 0));
+
+      // ─── 3) Boucle batch : chaque lot est rangé dès l'arrivée ───
       for (let i = 0; i < batches; i++) {
         const batchFiles = files.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
         const fd = new FormData();
         for (const f of batchFiles) fd.append("images", f);
         const res = await fetch(`/api/admin/import-jobs/${createdJobId}`, { method: "POST", body: fd });
-        if (!res.ok) { const data = await res.json(); setError(data.error ?? `Erreur batch ${i + 1}.`); setStep("preview"); setLoading(false); return; }
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error ?? `Erreur lot ${i + 1}.`);
+          setLoading(false);
+          return;
+        }
+        const data = await res.json();
         setUploadedBatches(i + 1);
+        // Le serveur renvoie l'état courant (cumul de tous les lots déjà traités)
+        setJobProgress((prev) => ({
+          ...prev,
+          processed: typeof data.processed === "number" ? data.processed : prev.processed,
+          total: typeof data.totalImages === "number" ? data.totalImages : prev.total,
+          success: typeof data.success === "number" ? data.success : prev.success,
+          errors: typeof data.errors === "number" ? data.errors : prev.errors,
+        }));
       }
-      const startFd = new FormData();
-      startFd.append("action", "start");
-      if (conflicts.length > 0) {
-        startFd.append("resolutions", JSON.stringify({ defaultStrategy, perFile: [...perFileResolutions.values()] }));
+
+      // ─── 4) Clôture : crée le brouillon d'erreurs + pose les flags marketplaces ───
+      const finalizeFd = new FormData();
+      finalizeFd.append("action", "finalize");
+      const finalizeRes = await fetch(`/api/admin/import-jobs/${createdJobId}`, { method: "POST", body: finalizeFd });
+      if (!finalizeRes.ok) {
+        const data = await finalizeRes.json().catch(() => ({}));
+        setError(data.error ?? "Erreur lors de la clôture.");
+        setLoading(false);
+        return;
       }
-      // Send file overrides (position/color changes)
-      if (overrides.size > 0) {
-        const ovObj: Record<string, FileOverride> = {};
-        overrides.forEach((v, k) => { ovObj[k] = v; });
-        startFd.append("overrides", JSON.stringify(ovObj));
-      }
-      const startRes = await fetch(`/api/admin/import-jobs/${createdJobId}`, { method: "POST", body: startFd });
-      if (!startRes.ok) { const data = await startRes.json(); setError(data.error ?? "Erreur."); setStep("preview"); setLoading(false); return; }
-      setStep("done");
+      // Le polling existant (useEffect step="done") récupère le détail final.
     } catch (err) {
       console.error("[ImportImagesTab] handleSubmit error", err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -1304,8 +1338,8 @@ export default function ImportImagesTab() {
       {/* Step indicator \u2014 refined */}
       <div className="flex items-center gap-2 sm:gap-3 text-sm overflow-x-auto pb-1">
         {(["upload", "preview", "done"] as const).map((s, i) => {
-          const isCurrent = step === s || (step === "uploading" && s === "preview");
-          const isDone = step === "done" || (step === "uploading" && s === "upload") || (step === "preview" && s === "upload");
+          const isCurrent = step === s;
+          const isDone = step === "done" || (step === "preview" && s === "upload");
           return (
             <div key={s} className="flex items-center gap-2 sm:gap-3 shrink-0">
               {i > 0 && <div className={`w-6 sm:w-10 h-px transition-colors ${isDone || isCurrent ? "bg-text-primary/30" : "bg-border"}`} />}
@@ -1417,34 +1451,7 @@ export default function ImportImagesTab() {
         </div>
       )}
 
-      {/* Step: Uploading */}
-      {step === "uploading" && (
-        <div className="bg-bg-primary border border-border rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)] space-y-6">
-          <div className="text-center">
-            <div className="w-16 h-16 bg-bg-secondary rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-text-primary animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            </div>
-            <p className="text-lg font-semibold font-heading text-text-primary">Envoi des images au serveur</p>
-            <p className="text-sm text-[#666] mt-1 font-body">Ne fermez pas cette page pendant l&apos;envoi. Le traitement continuera en arrière-plan.</p>
-          </div>
-          <div>
-            <div className="flex items-center justify-between text-sm text-[#666] mb-2">
-              <span>Lot {uploadedBatches}/{totalBatches}</span>
-              <span>{totalBatches > 0 ? Math.round((uploadedBatches / totalBatches) * 100) : 0}%</span>
-            </div>
-            <div className="w-full h-3 bg-[#F0F0F0] rounded-full overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${totalBatches > 0 ? (uploadedBatches / totalBatches) * 100 : 0}%`, background: "linear-gradient(90deg, #1A1A1A, #444)" }} />
-            </div>
-            <p className="text-xs text-[#999] mt-2 text-center">{Math.min(uploadedBatches * BATCH_SIZE, files.length)} / {files.length} images envoyées</p>
-          </div>
-          {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
-        </div>
-      )}
-
-      {/* Step: Done */}
+      {/* Step: Done — écran unique pour l'envoi live + le résultat final */}
       {step === "done" && (
         <DoneScreen
           jobStatus={jobStatus}

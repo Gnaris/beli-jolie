@@ -23,7 +23,7 @@ import { emitProductEvent } from "@/lib/product-events";
 
 const POLL_MS = 1000;
 const TOTAL_CONCURRENCY = 5;
-const ANKORSTORE_CONCURRENCY = 3;
+const ANKORSTORE_CONCURRENCY = 1;
 
 const STARTUP_GUARD = Symbol.for("beliandjolie.marketplaceQueueWorker.started");
 const g = globalThis as Record<symbol, unknown>;
@@ -76,7 +76,7 @@ export function startMarketplaceQueueWorker(): void {
     });
   }, POLL_MS);
 
-  logger.info("[Marketplace Queue] Worker démarré (poll 1s, 5 slots, 3 Ankorstore)");
+  logger.info("[Marketplace Queue] Worker démarré (poll 1s, 5 slots, 1 Ankorstore)");
 }
 
 async function runStartupSweep(): Promise<void> {
