@@ -192,8 +192,14 @@ interface PageProps {
     missingImages?: string;
     pfsLink?: string;
     ankorsLink?: string;
+    efashionLink?: string;
     syncRequired?: string;
     hsCodeId?: string;
+    locked?: string;
+    pfsExportedAt?: string;
+    efashionExportedAt?: string;
+    microstoreExportedAt?: string;
+    ankorstoreExportedAt?: string;
   }>;
 }
 
@@ -285,6 +291,10 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     syncRequired = "",
     hsCodeId = "",
     locked = "",
+    pfsExportedAt = "",
+    efashionExportedAt = "",
+    microstoreExportedAt = "",
+    ankorstoreExportedAt = "",
   } = params;
 
   const exactRef   = exactRefParam === "1";
@@ -324,6 +334,10 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     syncRequired,
     hsCodeId,
     locked,
+    pfsExportedAt,
+    efashionExportedAt,
+    microstoreExportedAt,
+    ankorstoreExportedAt,
     productIdsIn,
     productIdsNotIn,
   });
@@ -459,6 +473,10 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     ankorsSyncRequired:   p.ankorsSyncRequired,
     efashionSyncRequired: p.efashionSyncRequired,
     faireSyncRequired:    p.faireSyncRequired,
+    pfsLastExportedAt:        p.pfsLastExportedAt        ? p.pfsLastExportedAt.toISOString()        : null,
+    efashionLastExportedAt:   p.efashionLastExportedAt   ? p.efashionLastExportedAt.toISOString()   : null,
+    microstoreLastExportedAt: p.microstoreLastExportedAt ? p.microstoreLastExportedAt.toISOString() : null,
+    ankorstoreLastExportedAt: p.ankorstoreLastExportedAt ? p.ankorstoreLastExportedAt.toISOString() : null,
     colors:          p.colors.map((c) => ({
       id:                c.id,
       colorId:           c.colorId ?? "",

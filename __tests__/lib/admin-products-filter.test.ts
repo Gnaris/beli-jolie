@@ -371,6 +371,123 @@ describe("buildAdminProductsWhere", () => {
     });
   });
 
+  describe("Dernier export marketplace", () => {
+    const NOW = new Date("2026-06-24T12:00:00Z");
+
+    it("ignore les filtres vides (par défaut)", () => {
+      const where = buildAdminProductsWhere({
+        pfsExportedAt: "",
+        efashionExportedAt: "",
+        microstoreExportedAt: "",
+        ankorstoreExportedAt: "",
+        now: NOW,
+      });
+      expect(where.AND).toBeUndefined();
+    });
+
+    it("pfsExportedAt='never' filtre sur pfsLastExportedAt IS NULL", () => {
+      const where = buildAdminProductsWhere({ pfsExportedAt: "never", now: NOW });
+      expect(where.AND).toEqual([{ pfsLastExportedAt: null }]);
+    });
+
+    it("efashionExportedAt='never' filtre sur efashionLastExportedAt IS NULL", () => {
+      const where = buildAdminProductsWhere({ efashionExportedAt: "never", now: NOW });
+      expect(where.AND).toEqual([{ efashionLastExportedAt: null }]);
+    });
+
+    it("microstoreExportedAt='never' filtre sur microstoreLastExportedAt IS NULL", () => {
+      const where = buildAdminProductsWhere({ microstoreExportedAt: "never", now: NOW });
+      expect(where.AND).toEqual([{ microstoreLastExportedAt: null }]);
+    });
+
+    it("ankorstoreExportedAt='never' filtre sur ankorstoreLastExportedAt IS NULL", () => {
+      const where = buildAdminProductsWhere({ ankorstoreExportedAt: "never", now: NOW });
+      expect(where.AND).toEqual([{ ankorstoreLastExportedAt: null }]);
+    });
+
+    it("lt7d : retient les produits exportés dans les 7 derniers jours (gte cutoff)", () => {
+      const where = buildAdminProductsWhere({ pfsExportedAt: "lt7d", now: NOW });
+      const cutoff = new Date(NOW);
+      cutoff.setDate(cutoff.getDate() - 7);
+      expect(where.AND).toEqual([{ pfsLastExportedAt: { gte: cutoff } }]);
+    });
+
+    it("lt30d : retient les produits exportés dans les 30 derniers jours", () => {
+      const where = buildAdminProductsWhere({ pfsExportedAt: "lt30d", now: NOW });
+      const cutoff = new Date(NOW);
+      cutoff.setDate(cutoff.getDate() - 30);
+      expect(where.AND).toEqual([{ pfsLastExportedAt: { gte: cutoff } }]);
+    });
+
+    it("gt30d : retient les produits exportés il y a plus de 30 jours (lt cutoff)", () => {
+      const where = buildAdminProductsWhere({ pfsExportedAt: "gt30d", now: NOW });
+      const cutoff = new Date(NOW);
+      cutoff.setDate(cutoff.getDate() - 30);
+      expect(where.AND).toEqual([{ pfsLastExportedAt: { lt: cutoff } }]);
+    });
+
+    it("gt90d : retient les produits exportés il y a plus de 90 jours", () => {
+      const where = buildAdminProductsWhere({ pfsExportedAt: "gt90d", now: NOW });
+      const cutoff = new Date(NOW);
+      cutoff.setDate(cutoff.getDate() - 90);
+      expect(where.AND).toEqual([{ pfsLastExportedAt: { lt: cutoff } }]);
+    });
+
+    it("ignore les valeurs inconnues", () => {
+      const where = buildAdminProductsWhere({ pfsExportedAt: "bidon", now: NOW });
+      expect(where.AND).toBeUndefined();
+    });
+
+    it("combine les 4 filtres marketplace en AND", () => {
+      const where = buildAdminProductsWhere({
+        pfsExportedAt: "never",
+        efashionExportedAt: "lt7d",
+        microstoreExportedAt: "gt30d",
+        ankorstoreExportedAt: "lt30d",
+        now: NOW,
+      });
+      const c7  = new Date(NOW); c7.setDate(c7.getDate() - 7);
+      const c30 = new Date(NOW); c30.setDate(c30.getDate() - 30);
+      expect(where.AND).toEqual([
+        { pfsLastExportedAt: null },
+        { efashionLastExportedAt: { gte: c7 } },
+        { microstoreLastExportedAt: { lt: c30 } },
+        { ankorstoreLastExportedAt: { gte: c30 } },
+      ]);
+    });
+
+    it("se combine avec d'autres filtres (status, cat) sans écraser le AND", () => {
+      const where = buildAdminProductsWhere({
+        status: "ONLINE",
+        cat: "c1",
+        ankorstoreExportedAt: "never",
+        now: NOW,
+      });
+      expect(where).toMatchObject({ status: "ONLINE", categoryId: "c1" });
+      expect(where.AND).toEqual([{ ankorstoreLastExportedAt: null }]);
+    });
+
+    it("coexiste avec syncRequired et pfsLink (AND empilé)", () => {
+      const where = buildAdminProductsWhere({
+        pfsLink: "linked",
+        syncRequired: "1",
+        pfsExportedAt: "never",
+        now: NOW,
+      });
+      expect(where.AND).toEqual([
+        { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
+        {
+          OR: [
+            { pfsSyncRequired: true },
+            { ankorsSyncRequired: true },
+            { efashionSyncRequired: true },
+          ],
+        },
+        { pfsLastExportedAt: null },
+      ]);
+    });
+  });
+
   it("combines all three marketplace filters without clobbering each other", () => {
     const where = buildAdminProductsWhere({
       pfsLink: "linked",

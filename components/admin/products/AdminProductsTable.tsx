@@ -698,6 +698,12 @@ interface AdminProduct {
   ankorsSyncRequired: boolean;
   efashionSyncRequired: boolean;
   faireSyncRequired: boolean;
+  /** Dates du dernier export Excel/ZIP réussi par marketplace (null = jamais
+   *  exporté). Affichées en petite ligne sous chaque badge marketplace. */
+  pfsLastExportedAt: string | null;
+  efashionLastExportedAt: string | null;
+  microstoreLastExportedAt: string | null;
+  ankorstoreLastExportedAt: string | null;
   colors: ColorVariant[];
   translations: ProductTranslation[];
 }
@@ -1358,6 +1364,50 @@ export function formatRelativeDate(iso: string, now: Date = new Date()): string 
 }
 
 /**
+ * Petite ligne « Exporté il y a Xj » / « Jamais exporté » sous un badge
+ * marketplace. Si `lastExportedAt` est fourni, l'icône reprend l'accent du
+ * badge (vert tendre = récent). Sinon, gris italique discret.
+ *
+ * Volontairement compact pour ne pas alourdir le tableau : on cible la même
+ * hauteur de ligne que le badge sync-required (~16px).
+ */
+export function MarketplaceExportedAtChip({
+  lastExportedAt,
+  marketplaceLabel,
+}: {
+  lastExportedAt: string | null;
+  marketplaceLabel: string;
+}) {
+  if (!lastExportedAt) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[10px] font-body italic text-text-muted/80 whitespace-nowrap"
+        title={`Jamais exporté vers ${marketplaceLabel} depuis l'admin.`}
+      >
+        <svg className="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+        Jamais exporté
+      </span>
+    );
+  }
+  const longFmt = new Date(lastExportedAt).toLocaleString("fr-FR", {
+    day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] font-body font-medium text-emerald-700 whitespace-nowrap"
+      title={`Dernier export vers ${marketplaceLabel} le ${longFmt}.`}
+    >
+      <svg className="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+      </svg>
+      Exporté <span className="tabular-nums">{formatRelativeDate(lastExportedAt)}</span>
+    </span>
+  );
+}
+
+/**
  * Considère que `updatedAt` reflète une "vraie" modification ultérieure à la
  * création — Prisma met `updatedAt = createdAt` à l'insert, donc on tolère
  * une fenêtre de 60s pour absorber les race-conditions internes (catégorie
@@ -1987,59 +2037,99 @@ function ProductRow({
             </div>
           ) : (
             <div className="flex flex-col gap-1.5 items-start">
-              <MarketplaceBadge
-                published={!!product.pfsProductId}
-                publishing={isPfsPublishing}
-                syncRequired={product.pfsSyncRequired && !isPfsPublishing}
-                onPublishClick={
-                  eligibility.canPublishPfs && !isPfsPublishing
-                    ? () => { void handlePublishPfs(); }
-                    : undefined
-                }
-                onLinkClick={
-                  // On expose le bouton "Lier" seulement quand PFS est configuré,
-                  // que le produit n'est pas déjà lié, et qu'aucune publication
-                  // n'est en cours (même grammaire que Ankorstore/eFashion).
-                  hasPfsConfig && !product.pfsProductId && !isPfsPublishing
-                    ? () => setLinkPfsOpen(true)
-                    : undefined
-                }
-                onSyncClick={handleSyncPfs}
-              />
-              <AnkorstoreBadge
-                published={!!product.ankorsProductId}
-                publishing={isAnkorstorePublishing}
-                syncRequired={product.ankorsSyncRequired && !isAnkorstorePublishing}
-                onPublishClick={
-                  eligibility.canPublishAnkorstore && !isAnkorstorePublishing
-                    ? () => { void handlePublishAnkorstore(); }
-                    : undefined
-                }
-                onLinkClick={
-                  showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing
-                    ? () => setLinkAkOpen(true)
-                    : undefined
-                }
-                onSyncClick={handleSyncAnkorstore}
-              />
-              {showEfashion && (
-                <EfashionBadge
-                  linked={efashionLinked}
-                  publishing={isEfashionPublishing}
-                  syncRequired={product.efashionSyncRequired && !isEfashionPublishing}
+              <div className="flex flex-col gap-0.5 items-start">
+                <MarketplaceBadge
+                  published={!!product.pfsProductId}
+                  publishing={isPfsPublishing}
+                  syncRequired={product.pfsSyncRequired && !isPfsPublishing}
                   onPublishClick={
-                    eligibility.canPublishEfashion && !isEfashionPublishing
-                      ? () => { void handlePublishEfashion(); }
+                    eligibility.canPublishPfs && !isPfsPublishing
+                      ? () => { void handlePublishPfs(); }
                       : undefined
                   }
                   onLinkClick={
-                    showEfashion && !efashionLinked && !isEfashionPublishing
-                      ? () => setLinkEfOpen(true)
+                    // On expose le bouton "Lier" seulement quand PFS est configuré,
+                    // que le produit n'est pas déjà lié, et qu'aucune publication
+                    // n'est en cours (même grammaire que Ankorstore/eFashion).
+                    hasPfsConfig && !product.pfsProductId && !isPfsPublishing
+                      ? () => setLinkPfsOpen(true)
                       : undefined
                   }
-                  onSyncClick={handleSyncEfashion}
+                  onSyncClick={handleSyncPfs}
                 />
+                <MarketplaceExportedAtChip
+                  lastExportedAt={product.pfsLastExportedAt}
+                  marketplaceLabel="Paris Fashion Shop"
+                />
+              </div>
+              <div className="flex flex-col gap-0.5 items-start">
+                <AnkorstoreBadge
+                  published={!!product.ankorsProductId}
+                  publishing={isAnkorstorePublishing}
+                  syncRequired={product.ankorsSyncRequired && !isAnkorstorePublishing}
+                  onPublishClick={
+                    eligibility.canPublishAnkorstore && !isAnkorstorePublishing
+                      ? () => { void handlePublishAnkorstore(); }
+                      : undefined
+                  }
+                  onLinkClick={
+                    showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing
+                      ? () => setLinkAkOpen(true)
+                      : undefined
+                  }
+                  onSyncClick={handleSyncAnkorstore}
+                />
+                <MarketplaceExportedAtChip
+                  lastExportedAt={product.ankorstoreLastExportedAt}
+                  marketplaceLabel="Ankorstore"
+                />
+              </div>
+              {showEfashion && (
+                <div className="flex flex-col gap-0.5 items-start">
+                  <EfashionBadge
+                    linked={efashionLinked}
+                    publishing={isEfashionPublishing}
+                    syncRequired={product.efashionSyncRequired && !isEfashionPublishing}
+                    onPublishClick={
+                      eligibility.canPublishEfashion && !isEfashionPublishing
+                        ? () => { void handlePublishEfashion(); }
+                        : undefined
+                    }
+                    onLinkClick={
+                      showEfashion && !efashionLinked && !isEfashionPublishing
+                        ? () => setLinkEfOpen(true)
+                        : undefined
+                    }
+                    onSyncClick={handleSyncEfashion}
+                  />
+                  <MarketplaceExportedAtChip
+                    lastExportedAt={product.efashionLastExportedAt}
+                    marketplaceLabel="eFashion"
+                  />
+                </div>
               )}
+              {!showEfashion && (
+                <div className="flex flex-col gap-0.5 items-start">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-secondary border border-border">
+                    eFashion
+                  </span>
+                  <MarketplaceExportedAtChip
+                    lastExportedAt={product.efashionLastExportedAt}
+                    marketplaceLabel="eFashion"
+                  />
+                </div>
+              )}
+              {/* Microstore : pas de badge "lié" (export Excel uniquement), seulement la trace
+                  de la dernière vente Excel. Toujours affiché pour la cohérence avec le filtre. */}
+              <div className="flex flex-col gap-0.5 items-start">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-secondary border border-border">
+                  Microstore
+                </span>
+                <MarketplaceExportedAtChip
+                  lastExportedAt={product.microstoreLastExportedAt}
+                  marketplaceLabel="Microstore"
+                />
+              </div>
               {showFaire && (
                 <FaireBadge
                   published={!!product.faireProductId}
@@ -4033,6 +4123,7 @@ export default function AdminProductsTable({
           <MarketplaceExportButton
             productIds={Array.from(selectedIds)}
             disabled={isPending}
+            onExported={() => router.refresh()}
           />
           <button
             type="button"

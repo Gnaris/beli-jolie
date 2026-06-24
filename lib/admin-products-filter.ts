@@ -10,6 +10,20 @@ export type AdminProductsRefreshValue =
   | "modifiedDesc"
   | "modifiedAsc";
 
+/**
+ * Valeurs possibles pour les filtres "Dernier export marketplace" — un filtre
+ * par marketplace (PFS, eFashion, Microstore, Ankorstore). On expose volontairement
+ * une grille à 5 paliers (jamais → > 90j) plutôt qu'un date-picker : la cliente
+ * raisonne en "il y a longtemps" plus qu'en date précise.
+ */
+export type AdminProductsExportedValue =
+  | ""
+  | "never"
+  | "lt7d"
+  | "lt30d"
+  | "gt30d"
+  | "gt90d";
+
 export interface AdminProductsFilterParams {
   q?: string;
   exactRef?: boolean;
@@ -60,6 +74,15 @@ export interface AdminProductsFilterParams {
    */
   syncRequired?: string;
   /**
+   * Filtres « Dernier export marketplace » — un par marketplace. Les bornes 7j /
+   * 30j / 90j sont relatives à `params.now` (override possible côté tests).
+   * Vide ou absent = pas de filtre. Voir `AdminProductsExportedValue`.
+   */
+  pfsExportedAt?: string;
+  efashionExportedAt?: string;
+  microstoreExportedAt?: string;
+  ankorstoreExportedAt?: string;
+  /**
    * Filtre sur le code SH (douanier) du produit, désormais en relation
    * avec la bibliothèque HsCode :
    *   - `""`         = pas de filtre (tous)
@@ -92,6 +115,45 @@ export interface AdminProductsFilterParams {
 }
 
 const RECENT_REFRESH_DAYS = 30;
+
+const EXPORT_FIELD_BY_MARKETPLACE = {
+  pfs:        "pfsLastExportedAt",
+  efashion:   "efashionLastExportedAt",
+  microstore: "microstoreLastExportedAt",
+  ankorstore: "ankorstoreLastExportedAt",
+} as const;
+
+type ExportMarketplaceKey = keyof typeof EXPORT_FIELD_BY_MARKETPLACE;
+
+/**
+ * Construit la clause Prisma pour un filtre « Dernier export » d'une marketplace.
+ * Retourne `null` si le filtre est inactif (chaîne vide ou valeur inconnue) — le
+ * caller doit alors ne rien ajouter au WHERE.
+ *
+ * Garde la logique strictement déclarative : `never` = `IS NULL`, `lt*` = exporté
+ * récemment, `gt*` = exporté il y a longtemps (et donc forcément pas NULL).
+ */
+function buildExportedAtClause(
+  marketplace: ExportMarketplaceKey,
+  value: string | undefined,
+  now: Date,
+): Prisma.ProductWhereInput | null {
+  if (!value) return null;
+  const field = EXPORT_FIELD_BY_MARKETPLACE[marketplace];
+  const cutoff = (days: number) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() - days);
+    return d;
+  };
+  switch (value) {
+    case "never":  return { [field]: null };
+    case "lt7d":   return { [field]: { gte: cutoff(7) } };
+    case "lt30d":  return { [field]: { gte: cutoff(30) } };
+    case "gt30d":  return { [field]: { lt: cutoff(30) } };
+    case "gt90d":  return { [field]: { lt: cutoff(90) } };
+    default:       return null;
+  }
+}
 
 export function buildAdminProductsWhere(params: AdminProductsFilterParams): Prisma.ProductWhereInput {
   const where: Prisma.ProductWhereInput = {};
@@ -260,6 +322,20 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
           { efashionSyncRequired: true },
         ],
       },
+    ];
+  }
+
+  // Filtres « Dernier export marketplace » — additifs (AND entre marketplaces).
+  const exportClauses = [
+    buildExportedAtClause("pfs", params.pfsExportedAt, now),
+    buildExportedAtClause("efashion", params.efashionExportedAt, now),
+    buildExportedAtClause("microstore", params.microstoreExportedAt, now),
+    buildExportedAtClause("ankorstore", params.ankorstoreExportedAt, now),
+  ].filter((c): c is Prisma.ProductWhereInput => c !== null);
+  if (exportClauses.length > 0) {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      ...exportClauses,
     ];
   }
 

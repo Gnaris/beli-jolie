@@ -69,7 +69,22 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlSyncRequired = searchParams.get("syncRequired") ?? "";
   const urlHsCodeId  = searchParams.get("hsCodeId")   ?? "";
   const urlLocked    = searchParams.get("locked")     ?? "";
+  const urlPfsExportedAt        = searchParams.get("pfsExportedAt")        ?? "";
+  const urlEfashionExportedAt   = searchParams.get("efashionExportedAt")   ?? "";
+  const urlMicrostoreExportedAt = searchParams.get("microstoreExportedAt") ?? "";
+  const urlAnkorstoreExportedAt = searchParams.get("ankorstoreExportedAt") ?? "";
   const perPage      = searchParams.get("perPage")    ?? "20";
+
+  // Options communes aux 4 dropdowns "Dernier export …". Centralisé pour rester
+  // cohérent avec les libellés générés ailleurs (badges, tooltip).
+  const EXPORTED_AT_OPTIONS = [
+    { value: "",       label: "Tous" },
+    { value: "never",  label: "Jamais exporté" },
+    { value: "lt7d",   label: "Exporté il y a < 7j" },
+    { value: "lt30d",  label: "Exporté il y a < 30j" },
+    { value: "gt30d",  label: "Exporté il y a > 30j" },
+    { value: "gt90d",  label: "Exporté il y a > 90j" },
+  ];
 
   // Parse "REF1,REF2,REF3" → ["REF1", "REF2", "REF3"]
   const parseQ = (raw: string): string[] => parseQuery(raw);
@@ -126,7 +141,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   }, [searchParams, router]);
 
   const localQ = localTerms.join(",");
-  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlSyncRequired || urlHsCodeId || urlLocked);
+  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlSyncRequired || urlHsCodeId || urlLocked || urlPfsExportedAt || urlEfashionExportedAt || urlMicrostoreExportedAt || urlAnkorstoreExportedAt);
   const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
   const [filtersOpen, setFiltersOpen] = useState(hasFilters);
@@ -688,54 +703,55 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
               </FilterField>
             </FilterColumn>
 
-            {/* Colonne : Marketplaces (visible uniquement si au moins une est configurée) */}
-            {(hasPfsConfig || hasAnkorstoreConfig || hasEfashionConfig) && (
-              <FilterColumn title="Marketplaces">
-                {hasPfsConfig && (
-                  <FilterField label="Lien Paris Fashion Shop">
-                    <CustomSelect
-                      value={urlPfsLink}
-                      onChange={(v) => navigate({ pfsLink: v || null })}
-                      options={[
-                        { value: "", label: "Tous" },
-                        { value: "linked", label: "Lié à PFS" },
-                        { value: "unlinked", label: "Non lié à PFS" },
-                      ]}
-                      size="sm"
-                      searchable
-                    />
-                  </FilterField>
-                )}
-                {hasAnkorstoreConfig && (
-                  <FilterField label="Lien Ankorstore">
-                    <CustomSelect
-                      value={urlAnkorsLink}
-                      onChange={(v) => navigate({ ankorsLink: v || null })}
-                      options={[
-                        { value: "", label: "Tous" },
-                        { value: "linked", label: "Lié à Ankorstore" },
-                        { value: "unlinked", label: "Non lié à Ankorstore" },
-                      ]}
-                      size="sm"
-                      searchable
-                    />
-                  </FilterField>
-                )}
-                {hasEfashionConfig && (
-                  <FilterField label="Lien eFashion Paris">
-                    <CustomSelect
-                      value={urlEfashionLink}
-                      onChange={(v) => navigate({ efashionLink: v || null })}
-                      options={[
-                        { value: "", label: "Tous" },
-                        { value: "linked", label: "Lié à eFashion" },
-                        { value: "unlinked", label: "Non lié à eFashion" },
-                      ]}
-                      size="sm"
-                      searchable
-                    />
-                  </FilterField>
-                )}
+            {/* Colonne : Marketplaces — toujours visible car le filtre « Dernier
+                export » concerne aussi Microstore (purement Excel, pas de config). */}
+            <FilterColumn title="Marketplaces">
+              {hasPfsConfig && (
+                <FilterField label="Lien Paris Fashion Shop">
+                  <CustomSelect
+                    value={urlPfsLink}
+                    onChange={(v) => navigate({ pfsLink: v || null })}
+                    options={[
+                      { value: "", label: "Tous" },
+                      { value: "linked", label: "Lié à PFS" },
+                      { value: "unlinked", label: "Non lié à PFS" },
+                    ]}
+                    size="sm"
+                    searchable
+                  />
+                </FilterField>
+              )}
+              {hasAnkorstoreConfig && (
+                <FilterField label="Lien Ankorstore">
+                  <CustomSelect
+                    value={urlAnkorsLink}
+                    onChange={(v) => navigate({ ankorsLink: v || null })}
+                    options={[
+                      { value: "", label: "Tous" },
+                      { value: "linked", label: "Lié à Ankorstore" },
+                      { value: "unlinked", label: "Non lié à Ankorstore" },
+                    ]}
+                    size="sm"
+                    searchable
+                  />
+                </FilterField>
+              )}
+              {hasEfashionConfig && (
+                <FilterField label="Lien eFashion Paris">
+                  <CustomSelect
+                    value={urlEfashionLink}
+                    onChange={(v) => navigate({ efashionLink: v || null })}
+                    options={[
+                      { value: "", label: "Tous" },
+                      { value: "linked", label: "Lié à eFashion" },
+                      { value: "unlinked", label: "Non lié à eFashion" },
+                    ]}
+                    size="sm"
+                    searchable
+                  />
+                </FilterField>
+              )}
+              {(hasPfsConfig || hasAnkorstoreConfig || hasEfashionConfig) && (
                 <FilterField label="Synchronisation">
                   <CustomSelect
                     value={urlSyncRequired}
@@ -748,8 +764,46 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                     searchable
                   />
                 </FilterField>
-              </FilterColumn>
-            )}
+              )}
+
+              {/* ─── Dernier export ─ 1 dropdown par marketplace ─────────────── */}
+              <FilterField label="Dernier export Paris Fashion Shop">
+                <CustomSelect
+                  value={urlPfsExportedAt}
+                  onChange={(v) => navigate({ pfsExportedAt: v || null })}
+                  options={EXPORTED_AT_OPTIONS}
+                  size="sm"
+                  searchable
+                />
+              </FilterField>
+              <FilterField label="Dernier export eFashion">
+                <CustomSelect
+                  value={urlEfashionExportedAt}
+                  onChange={(v) => navigate({ efashionExportedAt: v || null })}
+                  options={EXPORTED_AT_OPTIONS}
+                  size="sm"
+                  searchable
+                />
+              </FilterField>
+              <FilterField label="Dernier export Microstore">
+                <CustomSelect
+                  value={urlMicrostoreExportedAt}
+                  onChange={(v) => navigate({ microstoreExportedAt: v || null })}
+                  options={EXPORTED_AT_OPTIONS}
+                  size="sm"
+                  searchable
+                />
+              </FilterField>
+              <FilterField label="Dernier export Ankorstore">
+                <CustomSelect
+                  value={urlAnkorstoreExportedAt}
+                  onChange={(v) => navigate({ ankorstoreExportedAt: v || null })}
+                  options={EXPORTED_AT_OPTIONS}
+                  size="sm"
+                  searchable
+                />
+              </FilterField>
+            </FilterColumn>
           </div>
 
           {/* Rechercher button */}

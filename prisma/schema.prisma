@@ -474,6 +474,14 @@ model Product {
   efashionSyncRequired Boolean @default(false)
   faireSyncRequired    Boolean @default(false)
 
+  // Dernier export Excel/ZIP réussi depuis /admin/produits → bouton « Exporter ».
+  // Mis à jour automatiquement quand la cliente télécharge l'export ; null = jamais
+  // exporté. Microstore n'a pas d'identifiant produit, ce champ est la seule trace.
+  pfsLastExportedAt        DateTime?
+  efashionLastExportedAt   DateTime?
+  microstoreLastExportedAt DateTime?
+  ankorstoreLastExportedAt DateTime?
+
   // Performance indexes for 78k+ products
   @@index([status, createdAt]) // catalog listing (default sort)
   @@index([status, updatedAt]) // "new" filter sort
@@ -490,6 +498,10 @@ model Product {
   @@index([efashionReferenceBase])
   @@index([faireProductId])
   @@index([primaryColorId])
+  @@index([pfsLastExportedAt])
+  @@index([efashionLastExportedAt])
+  @@index([microstoreLastExportedAt])
+  @@index([ankorstoreLastExportedAt])
 }
 
 // ─────────────────────────────────────────────

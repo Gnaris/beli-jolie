@@ -18,6 +18,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { z } from "zod";
 import { runMarketplaceExport } from "@/lib/marketplace-excel/export-orchestrator";
+import { recordMarketplaceExport } from "@/lib/marketplace-export-tracking";
 import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
@@ -71,6 +72,18 @@ export async function POST(req: NextRequest) {
     logger.info(
       `[marketplace-export] ${result.marketplace} : ${eligibleCount} OK, ${ignoredCount} ignorés (${result.outputType.toUpperCase()} ${result.fileBuffer.length} bytes)`,
     );
+
+    // Horodate les produits éligibles → la liste admin pourra afficher
+    // "Exporté il y a 3j" et le filtre "Jamais exporté" pourra les exclure.
+    // Une erreur d'écriture ne doit pas faire échouer le téléchargement.
+    try {
+      await recordMarketplaceExport(
+        result.marketplace,
+        result.eligible.map((e) => e.productId),
+      );
+    } catch (err) {
+      logger.error("[marketplace-export] tracking lastExportedAt failed", { error: err });
+    }
 
     const contentType =
       result.outputType === "xlsx"
