@@ -309,6 +309,14 @@ export default function ImportPreviewBoard({
                                 {effectiveColor(f)} · Position {effectivePosition(f)}
                               </p>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => onRemoveFile(f.name)}
+                              className="text-[10px] text-text-muted hover:text-red-600 font-body shrink-0"
+                              title="Retirer cette image de l'import"
+                            >
+                              Retirer
+                            </button>
                           </li>
                         ))}
                       </ul>
