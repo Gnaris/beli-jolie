@@ -294,11 +294,14 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   const maxPrice    = maxPriceParam ? parseFloat(maxPriceParam) : null;
   const stockBelow  = stockBelowParam ? parseInt(stockBelowParam) : null;
 
-  // Filtre « au moins une variante sans image » : précalculer les productId
-  // côté SQL puis les passer au where builder en restriction d'IDs.
-  const productIdsIn = missingImages === "1"
+  // Filtre images :
+  //   "1" → au moins une variante sans image (intersection sur les IDs trouvés)
+  //   "0" → toutes les variantes ont au moins une image (exclusion de ces IDs)
+  const missingImageIds = missingImages === "1" || missingImages === "0"
     ? await findProductIdsWithMissingVariantImages(prisma)
     : null;
+  const productIdsIn = missingImages === "1" ? missingImageIds : null;
+  const productIdsNotIn = missingImages === "0" ? missingImageIds : null;
 
   const where = buildAdminProductsWhere({
     q,
@@ -322,6 +325,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     hsCodeId,
     locked,
     productIdsIn,
+    productIdsNotIn,
   });
 
   const [

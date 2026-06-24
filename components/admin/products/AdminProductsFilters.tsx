@@ -601,6 +601,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   options={[
                     { value: "", label: "Toutes" },
                     { value: "1", label: "Au moins une variante sans image" },
+                    { value: "0", label: "Toutes les variantes ont au moins une image" },
                   ]}
                   size="sm"
                   searchable

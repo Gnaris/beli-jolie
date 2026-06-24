@@ -81,6 +81,12 @@ export interface AdminProductsFilterParams {
    * `[]` = aucun produit ne correspond.
    */
   productIdsIn?: string[] | null;
+  /**
+   * Liste des productId à exclure. Utilisé pour le filtre inverse
+   * « toutes les variantes ont au moins une image » : on reprend les IDs
+   * « avec au moins une variante sans image » et on les met en `notIn`.
+   */
+  productIdsNotIn?: string[] | null;
   /** Reference date for "recent" refresh window (defaults to now). Tests inject a fixed value. */
   now?: Date;
 }
@@ -271,7 +277,11 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
   }
 
   if (params.productIdsIn) {
-    where.id = { in: params.productIdsIn };
+    where.id = { ...(where.id as object | undefined), in: params.productIdsIn };
+  }
+
+  if (params.productIdsNotIn) {
+    where.id = { ...(where.id as object | undefined), notIn: params.productIdsNotIn };
   }
 
   return where;

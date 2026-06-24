@@ -204,6 +204,28 @@ describe("buildAdminProductsWhere", () => {
     });
   });
 
+  it("excludes the given productIdsNotIn list when provided", () => {
+    const where = buildAdminProductsWhere({ productIdsNotIn: ["p1", "p2"] });
+    expect(where.id).toEqual({ notIn: ["p1", "p2"] });
+  });
+
+  it("sets where.id with empty notIn when productIdsNotIn is an empty array", () => {
+    const where = buildAdminProductsWhere({ productIdsNotIn: [] });
+    expect(where.id).toEqual({ notIn: [] });
+  });
+
+  it("does not set where.id when productIdsNotIn is null or undefined", () => {
+    expect(buildAdminProductsWhere({ productIdsNotIn: null }).id).toBeUndefined();
+  });
+
+  it("combines productIdsIn and productIdsNotIn on where.id without clobbering", () => {
+    const where = buildAdminProductsWhere({
+      productIdsIn: ["p1", "p2"],
+      productIdsNotIn: ["p3"],
+    });
+    expect(where.id).toEqual({ in: ["p1", "p2"], notIn: ["p3"] });
+  });
+
   it("requires both product and all UNIT colors to be linked when pfsLink=linked", () => {
     const where = buildAdminProductsWhere({ pfsLink: "linked" });
     expect(where.pfsProductId).toEqual({ not: null });
