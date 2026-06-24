@@ -73,6 +73,12 @@ export async function POST(
   // ── Action: finalize (anciennement « start ») ──
   // Appelée par le client après le dernier lot pour clôturer le job :
   // crée le brouillon d'erreurs, pose les flags marketplaces, marque COMPLETED.
+  //
+  // Le travail tourne en arrière-plan : la fermeture/changement de page côté
+  // client interrompait la requête (HTTP 499) avant que le serveur pose le
+  // statut COMPLETED, laissant le job bloqué en UPLOADING. Désormais on
+  // bascule en PROCESSING et on retourne immédiatement ; le serveur termine
+  // seul même si le navigateur ferme la connexion. L'UI poll l'état via GET.
   if (action === "start" || action === "finalize") {
     if (job.type !== "IMAGES" || !job.tempDir) {
       return NextResponse.json({ error: "Job invalide." }, { status: 400 });
@@ -81,50 +87,57 @@ export async function POST(
       return NextResponse.json({ error: "Le job n'est pas en attente de clôture." }, { status: 400 });
     }
 
-    try {
-      // Compat front-end legacy : si des images sont restées non traitées
-      // dans tempDir (= front-end qui n'envoyait pas le batch processing en
-      // live), on les traite ici en chunks avant de finaliser.
-      const tempDirAbs = path.resolve(process.cwd(), job.tempDir);
-      const allowedExts = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+    // Extraction synchrone du formData avant le retour (les .get() seront
+    // indispos après le return — formData est lié à la requête HTTP).
+    const tempDirAbs = path.resolve(process.cwd(), job.tempDir);
+    const resolutionsJson = formData.get("resolutions") as string | null;
+    const overridesJson = formData.get("overrides") as string | null;
+
+    // Marque PROCESSING tout de suite pour que l'UI voie l'état correct.
+    await prisma.importJob.update({ where: { id }, data: { status: "PROCESSING" } });
+
+    void (async () => {
       try {
-        const files = await readdir(tempDirAbs);
-        const pending = files.filter((f) => allowedExts.includes(path.extname(f).toLowerCase()));
+        const allowedExts = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+        try {
+          const files = await readdir(tempDirAbs);
+          const pending = files.filter((f) => allowedExts.includes(path.extname(f).toLowerCase()));
 
-        // Écrit les résolutions/overrides s'ils ont été passés par le front-end legacy
-        const resolutionsJson = formData.get("resolutions") as string | null;
-        if (resolutionsJson) {
-          await writeFileAsync(path.join(tempDirAbs, "_resolutions.json"), resolutionsJson, "utf-8");
-        }
-        const overridesJson = formData.get("overrides") as string | null;
-        if (overridesJson) {
-          await writeFileAsync(path.join(tempDirAbs, "_overrides.json"), overridesJson, "utf-8");
-        }
-
-        if (pending.length > 0) {
-          // S'assure que totalItems reflète bien tout ce qu'on s'apprête à traiter
-          await prisma.importJob.update({
-            where: { id },
-            data: { status: "PROCESSING", totalItems: pending.length },
-          });
-          const CHUNK = 20;
-          for (let i = 0; i < pending.length; i += CHUNK) {
-            await processImageBatch(id, pending.slice(i, i + CHUNK));
+          if (resolutionsJson) {
+            await writeFileAsync(path.join(tempDirAbs, "_resolutions.json"), resolutionsJson, "utf-8");
           }
-        } else {
-          await prisma.importJob.update({ where: { id }, data: { status: "PROCESSING" } });
-        }
-      } catch {
-        // tempDir absent → on finalise sans rien traiter
-        await prisma.importJob.update({ where: { id }, data: { status: "PROCESSING" } });
-      }
+          if (overridesJson) {
+            await writeFileAsync(path.join(tempDirAbs, "_overrides.json"), overridesJson, "utf-8");
+          }
 
-      await finalizeImageImport(id);
-      return NextResponse.json({ ok: true });
-    } catch (err) {
-      logger.error("[import-jobs] Finalize error", { error: err });
-      return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
-    }
+          if (pending.length > 0) {
+            await prisma.importJob.update({
+              where: { id },
+              data: { totalItems: pending.length },
+            });
+            const CHUNK = 20;
+            for (let i = 0; i < pending.length; i += CHUNK) {
+              await processImageBatch(id, pending.slice(i, i + CHUNK));
+            }
+          }
+        } catch {
+          // tempDir absent → on finalise sans rien traiter
+        }
+
+        await finalizeImageImport(id);
+      } catch (err) {
+        logger.error("[import-jobs] Background finalize error", { error: err, jobId: id });
+        await prisma.importJob.update({
+          where: { id },
+          data: {
+            status: "FAILED",
+            errorMessage: err instanceof Error ? err.message : "Erreur lors de la clôture.",
+          },
+        }).catch(() => { /* best-effort */ });
+      }
+    })();
+
+    return NextResponse.json({ ok: true, queued: true });
   }
 
   // ── Action: upload image batch ──
