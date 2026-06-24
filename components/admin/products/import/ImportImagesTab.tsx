@@ -12,6 +12,7 @@ import ImportPreviewBoard, {
   type MissingRefInfo,
   type PreviewFile,
 } from "./ImportPreviewBoard";
+import { partitionImportableImages, parseImageFilename as parseFilename } from "@/lib/import-images-filter";
 
 type Step = "upload" | "preview" | "done";
 type ConflictStrategy = "replace" | "next_available" | "shift";
@@ -46,34 +47,6 @@ interface VariantOption {
   hex: string;
   patternImage?: string | null;
   colorNames: string; // Comma-separated for filename convention
-}
-
-function parseFilename(filename: string): { reference: string; color: string; position: number } | null {
-  const extIdx = filename.lastIndexOf(".");
-  const base = extIdx >= 0 ? filename.slice(0, extIdx) : filename;
-  let reference: string;
-  let color: string;
-  let positionStr: string;
-  if (base.includes("_")) {
-    const firstUnderscore = base.indexOf("_");
-    const lastUnderscore = base.lastIndexOf("_");
-    if (firstUnderscore === lastUnderscore) return null;
-    reference = base.slice(0, firstUnderscore);
-    color = base.slice(firstUnderscore + 1, lastUnderscore);
-    positionStr = base.slice(lastUnderscore + 1);
-  } else {
-    const parts = base.split(" ").filter(Boolean);
-    if (parts.length < 3) return null;
-    reference = parts[0];
-    positionStr = parts[parts.length - 1];
-    color = parts.slice(1, parts.length - 1).join(" ");
-  }
-  const position = parseInt(positionStr, 10);
-  if (isNaN(position) || position < 1 || position > 10) return null;
-  reference = reference.trim().toUpperCase();
-  color = color.trim();
-  if (!reference || !color) return null;
-  return { reference, color, position };
 }
 
 function buildPreview(files: File[], previews: string[]): FileSummaryGroup[] {
@@ -1149,6 +1122,19 @@ export default function ImportImagesTab() {
     if (files.length === 0) return;
     setLoading(true); setError(null);
     try {
+      // ─── 0) Ignore silencieusement les introuvables ───
+      // Les fichiers dont le nom est invalide ou dont la référence n'existe
+      // pas en BDD sont retirés du lot avant envoi. Demandé par la cliente :
+      // pas besoin de les compter en erreur, juste les ignorer.
+      const { toImport: filesToImport } = partitionImportableImages(
+        files,
+        missingRefs.map((m) => m.filename),
+      );
+      if (filesToImport.length === 0) {
+        setError("Aucune image à importer (toutes ont un nom invalide ou une référence inconnue).");
+        return;
+      }
+
       // ─── 1) Création du job AVEC les décisions de la preview ───
       // Les résolutions de conflit + les overrides (couleur/position modifiées
       // dans la preview) sont envoyées dès la création : ainsi le backend
@@ -1175,16 +1161,16 @@ export default function ImportImagesTab() {
       // Plus d'écran « envoi » distinct : le compteur "X/Y rangées" se met à
       // jour au fil des réponses de lots. DoneScreen affiche le mode
       // "Traitement en cours" tant que jobStatus ≠ COMPLETED.
-      const batches = Math.ceil(files.length / BATCH_SIZE);
+      const batches = Math.ceil(filesToImport.length / BATCH_SIZE);
       setTotalBatches(batches); setUploadedBatches(0);
       setJobStatus("PROCESSING");
-      setJobProgress({ processed: 0, total: files.length, success: 0, errors: 0, errorDraftId: null, errorMessage: null });
+      setJobProgress({ processed: 0, total: filesToImport.length, success: 0, errors: 0, errorDraftId: null, errorMessage: null });
       setStep("done");
       await new Promise((r) => setTimeout(r, 0));
 
       // ─── 3) Boucle batch : chaque lot est rangé dès l'arrivée ───
       for (let i = 0; i < batches; i++) {
-        const batchFiles = files.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
+        const batchFiles = filesToImport.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
         const fd = new FormData();
         for (const f of batchFiles) fd.append("images", f);
         const res = await fetch(`/api/admin/import-jobs/${createdJobId}`, { method: "POST", body: fd });

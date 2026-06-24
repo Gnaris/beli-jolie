@@ -538,7 +538,7 @@ export default function ImportPreviewBoard({
           </div>
           <div className="flex items-start justify-between gap-3 mt-2">
             <p className="text-[11px] text-text-muted font-body leading-relaxed flex-1">
-              Fichiers mal nommés ou références qui n&apos;existent pas. Renommez et réimportez, ou retirez-les.
+              Fichiers mal nommés ou références qui n&apos;existent pas. <strong className="text-rose-700">Ignorés au lancement</strong> — renommez-les pour les inclure.
             </p>
             {(hasFormat || hasRef) && (
               <button
