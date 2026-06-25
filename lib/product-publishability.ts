@@ -9,6 +9,8 @@
  * Prisma (avec ses relations).
  */
 
+import { getAnkorstoreReferenceSuffixLength } from "@/lib/ankorstore-description";
+
 export const DESCRIPTION_MIN_CHARS = 30;
 
 export interface PublishabilitySize {
@@ -71,8 +73,14 @@ export function evaluateProductPublishability(
   const descLen = product.description.trim().length;
   if (descLen === 0) {
     reasons.push("Description manquante");
-  } else if (descLen < DESCRIPTION_MIN_CHARS) {
-    reasons.push(`Description trop courte (${DESCRIPTION_MIN_CHARS} caractères minimum)`);
+  } else {
+    // Aligné sur le formulaire produit : la ligne « Référence produit : … »
+    // est appendée automatiquement à la description envoyée à Ankorstore,
+    // donc on compte sa longueur dans le minimum de 30 caractères.
+    const effectiveLen = descLen + getAnkorstoreReferenceSuffixLength(product.reference);
+    if (effectiveLen < DESCRIPTION_MIN_CHARS) {
+      reasons.push(`Description trop courte (${DESCRIPTION_MIN_CHARS} caractères minimum)`);
+    }
   }
 
   if (!product.categoryId) reasons.push("Catégorie non sélectionnée");

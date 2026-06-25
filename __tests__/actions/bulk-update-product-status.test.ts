@@ -166,11 +166,13 @@ describe("bulkUpdateProductStatus (ONLINE)", () => {
   });
 
   it("refuse un produit réellement incomplet (description trop courte) avec la vraie raison", async () => {
+    // Description "x" (1 char) + référence "REF-1" (suffix « \n\nRéférence produit : REF-1 » = 27 chars)
+    // → total effectif = 28 < 30 → trop courte.
     findManyMock.mockResolvedValueOnce([
       makeCompleteProduct({
         id: "p1",
         isIncomplete: true,
-        description: "trop court",
+        description: "x",
       }),
     ]);
 

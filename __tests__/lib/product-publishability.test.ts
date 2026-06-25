@@ -71,12 +71,26 @@ describe("evaluateProductPublishability", () => {
     expect(res.reasons).toContain("Description manquante");
   });
 
-  it("signale une description trop courte", () => {
-    const res = evaluateProductPublishability(makeProduct({ description: "Trop court" }));
+  it("signale une description trop courte (en incluant la ligne référence ajoutée à Ankorstore)", () => {
+    // Description 4 chars + référence "A" (suffix « \n\nRéférence produit : A » = 23 chars)
+    // → total effectif = 27 < 30 → trop courte.
+    const res = evaluateProductPublishability(
+      makeProduct({ description: "Trop", reference: "A" }),
+    );
     expect(res.eligible).toBe(false);
     expect(
       res.reasons.some((r) => r.includes(`${DESCRIPTION_MIN_CHARS} caractères minimum`)),
     ).toBe(true);
+  });
+
+  it("accepte une description courte si la ligne référence ajoutée par Ankorstore complète le minimum", () => {
+    // Description "Collier en acier inoxydable" (27 chars) + référence "K65"
+    // (suffix « \n\nRéférence produit : K65 » = 25 chars) → total effectif = 52 ≥ 30.
+    const res = evaluateProductPublishability(
+      makeProduct({ description: "Collier en acier inoxydable", reference: "K65" }),
+    );
+    expect(res.eligible).toBe(true);
+    expect(res.reasons).toEqual([]);
   });
 
   it("signale une catégorie manquante", () => {
