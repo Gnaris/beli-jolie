@@ -699,7 +699,8 @@ interface AdminProduct {
   efashionSyncRequired: boolean;
   faireSyncRequired: boolean;
   /** Dates du dernier export Excel/ZIP réussi par marketplace (null = jamais
-   *  exporté). Affichées en petite ligne sous chaque badge marketplace. */
+   *  exporté). Affichées dans la colonne « Dates » avec une puce d'initiales
+   *  par marketplace — visibles aussi pour les brouillons. */
   pfsLastExportedAt: string | null;
   efashionLastExportedAt: string | null;
   microstoreLastExportedAt: string | null;
@@ -1364,45 +1365,64 @@ export function formatRelativeDate(iso: string, now: Date = new Date()): string 
 }
 
 /**
- * Petite ligne « Exporté il y a Xj » / « Jamais exporté » sous un badge
- * marketplace. Si `lastExportedAt` est fourni, l'icône reprend l'accent du
- * badge (vert tendre = récent). Sinon, gris italique discret.
- *
- * Volontairement compact pour ne pas alourdir le tableau : on cible la même
- * hauteur de ligne que le badge sync-required (~16px).
+ * Tooltip détaillé affiché au survol d'une puce d'export marketplace.
+ * Extrait en fonction pure pour pouvoir être couvert par Vitest sans
+ * dépendance à testing-library.
  */
-export function MarketplaceExportedAtChip({
+export function formatExportTooltip(
+  lastExportedAt: string | null,
+  marketplaceLabel: string,
+): string {
+  if (!lastExportedAt) {
+    return `Jamais exporté vers ${marketplaceLabel} depuis l'admin.`;
+  }
+  const d = new Date(lastExportedAt);
+  if (Number.isNaN(d.getTime())) {
+    return `Jamais exporté vers ${marketplaceLabel} depuis l'admin.`;
+  }
+  const longFmt = d.toLocaleString("fr-FR", {
+    day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+  return `Dernier export vers ${marketplaceLabel} le ${longFmt}.`;
+}
+
+/**
+ * Mini-puce « initiale colorée + date d'export » utilisée dans la cellule
+ * Dates pour montrer d'un coup d'œil quand chaque marketplace a reçu sa
+ * dernière diffusion (export Excel/ZIP). Visible aussi pour les produits en
+ * brouillon — c'est tout l'intérêt par rapport aux badges marketplace.
+ *
+ * Si `lastExportedAt` est null, on garde la ligne (avec « — » discret) pour
+ * que la liste reste lisible en colonnes alignées, plutôt qu'un trou variable.
+ */
+export function MarketplaceExportLine({
+  initials,
+  initialsClass,
   lastExportedAt,
   marketplaceLabel,
 }: {
+  initials: string;
+  /** Tailwind classes pour la pastille d'initiales (bg + text + border). */
+  initialsClass: string;
   lastExportedAt: string | null;
   marketplaceLabel: string;
 }) {
-  if (!lastExportedAt) {
-    return (
-      <span
-        className="inline-flex items-center gap-1 text-[10px] font-body italic text-text-muted/80 whitespace-nowrap"
-        title={`Jamais exporté vers ${marketplaceLabel} depuis l'admin.`}
-      >
-        <svg className="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8} aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-        </svg>
-        Jamais exporté
-      </span>
-    );
-  }
-  const longFmt = new Date(lastExportedAt).toLocaleString("fr-FR", {
-    day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
-  });
   return (
     <span
-      className="inline-flex items-center gap-1 text-[10px] font-body font-medium text-emerald-700 whitespace-nowrap"
-      title={`Dernier export vers ${marketplaceLabel} le ${longFmt}.`}
+      className="inline-flex items-center gap-1.5 text-[11px] font-body whitespace-nowrap"
+      title={formatExportTooltip(lastExportedAt, marketplaceLabel)}
     >
-      <svg className="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-      </svg>
-      Exporté <span className="tabular-nums">{formatRelativeDate(lastExportedAt)}</span>
+      <span
+        className={`inline-flex items-center justify-center min-w-[24px] h-[15px] px-1 rounded text-[9px] font-bold tracking-tight border ${initialsClass}`}
+        aria-hidden="true"
+      >
+        {initials}
+      </span>
+      {lastExportedAt ? (
+        <span className="tabular-nums text-text-secondary">{formatRelativeDate(lastExportedAt)}</span>
+      ) : (
+        <span className="text-text-muted/70">—</span>
+      )}
     </span>
   );
 }
@@ -1424,10 +1444,18 @@ function ProductDatesCell({
   createdAt,
   updatedAt,
   lastRefreshedAt,
+  pfsLastExportedAt,
+  ankorstoreLastExportedAt,
+  efashionLastExportedAt,
+  microstoreLastExportedAt,
 }: {
   createdAt: string;
   updatedAt: string;
   lastRefreshedAt: string | null;
+  pfsLastExportedAt: string | null;
+  ankorstoreLastExportedAt: string | null;
+  efashionLastExportedAt: string | null;
+  microstoreLastExportedAt: string | null;
 }) {
   const showUpdated = wasMeaningfullyUpdated(createdAt, updatedAt);
   const longFmt = (iso: string) =>
@@ -1440,7 +1468,7 @@ function ProductDatesCell({
     });
 
   return (
-    <div className="flex flex-col gap-1 min-w-[110px]">
+    <div className="flex flex-col gap-1 min-w-[130px]">
       {/* Créé */}
       <span
         className="inline-flex items-center gap-1.5 text-[11px] font-body text-text-muted whitespace-nowrap"
@@ -1475,6 +1503,36 @@ function ProductDatesCell({
           <span className="tabular-nums">{formatRelativeDate(lastRefreshedAt)}</span>
         </span>
       )}
+      {/* Dernier export marketplace — séparateur fin pour distinguer les dates
+          « cycle de vie » (créé/modifié/rafraîchi) des dates « diffusion ».
+          Visible même pour les brouillons : on garde une trace des exports
+          même quand le produit n'est plus lié aux marketplaces. */}
+      <div className="mt-0.5 pt-1.5 border-t border-border-light flex flex-col gap-0.5">
+        <MarketplaceExportLine
+          initials="PFS"
+          initialsClass="bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
+          lastExportedAt={pfsLastExportedAt}
+          marketplaceLabel="Paris Fashion Shop"
+        />
+        <MarketplaceExportLine
+          initials="AK"
+          initialsClass="bg-sky-50 text-sky-700 border-sky-200"
+          lastExportedAt={ankorstoreLastExportedAt}
+          marketplaceLabel="Ankorstore"
+        />
+        <MarketplaceExportLine
+          initials="EF"
+          initialsClass="bg-violet-50 text-violet-700 border-violet-200"
+          lastExportedAt={efashionLastExportedAt}
+          marketplaceLabel="eFashion"
+        />
+        <MarketplaceExportLine
+          initials="MS"
+          initialsClass="bg-amber-50 text-amber-700 border-amber-200"
+          lastExportedAt={microstoreLastExportedAt}
+          marketplaceLabel="Microstore"
+        />
+      </div>
     </div>
   );
 }
@@ -2037,99 +2095,63 @@ function ProductRow({
             </div>
           ) : (
             <div className="flex flex-col gap-1.5 items-start">
-              <div className="flex flex-col gap-0.5 items-start">
-                <MarketplaceBadge
-                  published={!!product.pfsProductId}
-                  publishing={isPfsPublishing}
-                  syncRequired={product.pfsSyncRequired && !isPfsPublishing}
+              <MarketplaceBadge
+                published={!!product.pfsProductId}
+                publishing={isPfsPublishing}
+                syncRequired={product.pfsSyncRequired && !isPfsPublishing}
+                onPublishClick={
+                  eligibility.canPublishPfs && !isPfsPublishing
+                    ? () => { void handlePublishPfs(); }
+                    : undefined
+                }
+                onLinkClick={
+                  // On expose le bouton "Lier" seulement quand PFS est configuré,
+                  // que le produit n'est pas déjà lié, et qu'aucune publication
+                  // n'est en cours (même grammaire que Ankorstore/eFashion).
+                  hasPfsConfig && !product.pfsProductId && !isPfsPublishing
+                    ? () => setLinkPfsOpen(true)
+                    : undefined
+                }
+                onSyncClick={handleSyncPfs}
+              />
+              <AnkorstoreBadge
+                published={!!product.ankorsProductId}
+                publishing={isAnkorstorePublishing}
+                syncRequired={product.ankorsSyncRequired && !isAnkorstorePublishing}
+                onPublishClick={
+                  eligibility.canPublishAnkorstore && !isAnkorstorePublishing
+                    ? () => { void handlePublishAnkorstore(); }
+                    : undefined
+                }
+                onLinkClick={
+                  showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing
+                    ? () => setLinkAkOpen(true)
+                    : undefined
+                }
+                onSyncClick={handleSyncAnkorstore}
+              />
+              {showEfashion ? (
+                <EfashionBadge
+                  linked={efashionLinked}
+                  publishing={isEfashionPublishing}
+                  syncRequired={product.efashionSyncRequired && !isEfashionPublishing}
                   onPublishClick={
-                    eligibility.canPublishPfs && !isPfsPublishing
-                      ? () => { void handlePublishPfs(); }
+                    eligibility.canPublishEfashion && !isEfashionPublishing
+                      ? () => { void handlePublishEfashion(); }
                       : undefined
                   }
                   onLinkClick={
-                    // On expose le bouton "Lier" seulement quand PFS est configuré,
-                    // que le produit n'est pas déjà lié, et qu'aucune publication
-                    // n'est en cours (même grammaire que Ankorstore/eFashion).
-                    hasPfsConfig && !product.pfsProductId && !isPfsPublishing
-                      ? () => setLinkPfsOpen(true)
+                    showEfashion && !efashionLinked && !isEfashionPublishing
+                      ? () => setLinkEfOpen(true)
                       : undefined
                   }
-                  onSyncClick={handleSyncPfs}
+                  onSyncClick={handleSyncEfashion}
                 />
-                <MarketplaceExportedAtChip
-                  lastExportedAt={product.pfsLastExportedAt}
-                  marketplaceLabel="Paris Fashion Shop"
-                />
-              </div>
-              <div className="flex flex-col gap-0.5 items-start">
-                <AnkorstoreBadge
-                  published={!!product.ankorsProductId}
-                  publishing={isAnkorstorePublishing}
-                  syncRequired={product.ankorsSyncRequired && !isAnkorstorePublishing}
-                  onPublishClick={
-                    eligibility.canPublishAnkorstore && !isAnkorstorePublishing
-                      ? () => { void handlePublishAnkorstore(); }
-                      : undefined
-                  }
-                  onLinkClick={
-                    showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing
-                      ? () => setLinkAkOpen(true)
-                      : undefined
-                  }
-                  onSyncClick={handleSyncAnkorstore}
-                />
-                <MarketplaceExportedAtChip
-                  lastExportedAt={product.ankorstoreLastExportedAt}
-                  marketplaceLabel="Ankorstore"
-                />
-              </div>
-              {showEfashion && (
-                <div className="flex flex-col gap-0.5 items-start">
-                  <EfashionBadge
-                    linked={efashionLinked}
-                    publishing={isEfashionPublishing}
-                    syncRequired={product.efashionSyncRequired && !isEfashionPublishing}
-                    onPublishClick={
-                      eligibility.canPublishEfashion && !isEfashionPublishing
-                        ? () => { void handlePublishEfashion(); }
-                        : undefined
-                    }
-                    onLinkClick={
-                      showEfashion && !efashionLinked && !isEfashionPublishing
-                        ? () => setLinkEfOpen(true)
-                        : undefined
-                    }
-                    onSyncClick={handleSyncEfashion}
-                  />
-                  <MarketplaceExportedAtChip
-                    lastExportedAt={product.efashionLastExportedAt}
-                    marketplaceLabel="eFashion"
-                  />
-                </div>
-              )}
-              {!showEfashion && (
-                <div className="flex flex-col gap-0.5 items-start">
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-secondary border border-border">
-                    eFashion
-                  </span>
-                  <MarketplaceExportedAtChip
-                    lastExportedAt={product.efashionLastExportedAt}
-                    marketplaceLabel="eFashion"
-                  />
-                </div>
-              )}
-              {/* Microstore : pas de badge "lié" (export Excel uniquement), seulement la trace
-                  de la dernière vente Excel. Toujours affiché pour la cohérence avec le filtre. */}
-              <div className="flex flex-col gap-0.5 items-start">
+              ) : (
                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-secondary border border-border">
-                  Microstore
+                  eFashion
                 </span>
-                <MarketplaceExportedAtChip
-                  lastExportedAt={product.microstoreLastExportedAt}
-                  marketplaceLabel="Microstore"
-                />
-              </div>
+              )}
               {showFaire && (
                 <FaireBadge
                   published={!!product.faireProductId}
@@ -2147,13 +2169,19 @@ function ProductRow({
           )}
         </td>
 
-        {/* Dates — Créé / Modifié / Rafraîchi sur 3 lignes, ligne masquée si
-            l'info est vide ou égale à la création (évite le bruit visuel). */}
+        {/* Dates — Créé / Modifié / Rafraîchi sur 3 lignes (lignes masquées si
+            vides ou égales à la création), puis bloc « Dernier export par
+            marketplace » (4 puces PFS / AK / EF / MS). Visible aussi pour les
+            brouillons : on garde la trace des exports même hors marketplaces. */}
         <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
           <ProductDatesCell
             createdAt={product.createdAt}
             updatedAt={product.updatedAt}
             lastRefreshedAt={product.lastRefreshedAt}
+            pfsLastExportedAt={product.pfsLastExportedAt}
+            ankorstoreLastExportedAt={product.ankorstoreLastExportedAt}
+            efashionLastExportedAt={product.efashionLastExportedAt}
+            microstoreLastExportedAt={product.microstoreLastExportedAt}
           />
         </td>
 

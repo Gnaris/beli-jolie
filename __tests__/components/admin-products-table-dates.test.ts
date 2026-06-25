@@ -11,6 +11,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  formatExportTooltip,
   formatRelativeDate,
   wasMeaningfullyUpdated,
 } from "@/components/admin/products/AdminProductsTable";
@@ -85,5 +86,29 @@ describe("wasMeaningfullyUpdated", () => {
   it("retourne false sur input invalide", () => {
     expect(wasMeaningfullyUpdated("oups", "2026-06-12T10:00:00.000Z")).toBe(false);
     expect(wasMeaningfullyUpdated("2026-06-12T10:00:00.000Z", "oups")).toBe(false);
+  });
+});
+
+describe("formatExportTooltip", () => {
+  it("retourne 'Jamais exporté…' quand la date est null", () => {
+    expect(formatExportTooltip(null, "Paris Fashion Shop")).toBe(
+      "Jamais exporté vers Paris Fashion Shop depuis l'admin.",
+    );
+  });
+
+  it("inclut le libellé de la marketplace et la date au format FR longue", () => {
+    const out = formatExportTooltip("2026-06-12T10:30:00.000Z", "Ankorstore");
+    expect(out).toMatch(/^Dernier export vers Ankorstore le /);
+    // On vérifie la présence du jour, mois en français long, année et heure
+    expect(out).toMatch(/12/);
+    expect(out).toMatch(/juin/);
+    expect(out).toMatch(/2026/);
+    expect(out).toMatch(/\.$/);
+  });
+
+  it("tombe sur 'Jamais exporté…' si la date est invalide (défense)", () => {
+    expect(formatExportTooltip("pas une date", "eFashion")).toBe(
+      "Jamais exporté vers eFashion depuis l'admin.",
+    );
   });
 });
