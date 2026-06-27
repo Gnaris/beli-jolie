@@ -47,9 +47,10 @@ export default function MarketplaceExportPreviewModal({
   const eligibleCount = preview.eligible.length;
   const ignoredCount = preview.ignored.length;
   const canConfirm = eligibleCount > 0 && !isDownloading;
-  // Ankorstore ne supporte pas l'export d'images seules : les photos sont
-  // récupérées via les URLs du site une fois l'Excel importé.
-  const ankorstoreImagesDisabled = preview.marketplace === "ankorstore";
+  // Ankorstore et Faire ne supportent pas l'export d'images seules : les
+  // photos sont récupérées via les URLs du site une fois l'Excel importé.
+  const imagesOnlyDisabled =
+    preview.marketplace === "ankorstore" || preview.marketplace === "faire";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -96,7 +97,7 @@ export default function MarketplaceExportPreviewModal({
                 {MODE_OPTIONS.map((opt) => {
                   const disabled =
                     isDownloading ||
-                    (opt.value === "images-only" && ankorstoreImagesDisabled);
+                    (opt.value === "images-only" && imagesOnlyDisabled);
                   const checked = mode === opt.value;
                   return (
                     <label
@@ -124,8 +125,8 @@ export default function MarketplaceExportPreviewModal({
                         </p>
                         <p className="text-xs font-body text-text-secondary mt-0.5">
                           {opt.hint}
-                          {opt.value === "images-only" && ankorstoreImagesDisabled
-                            ? " Indisponible pour Ankorstore : les photos sont récupérées via les URLs du site."
+                          {opt.value === "images-only" && imagesOnlyDisabled
+                            ? " Indisponible pour cette marketplace : les photos sont récupérées via les URLs du site."
                             : ""}
                         </p>
                       </div>

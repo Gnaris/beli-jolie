@@ -481,6 +481,7 @@ model Product {
   efashionLastExportedAt   DateTime?
   microstoreLastExportedAt DateTime?
   ankorstoreLastExportedAt DateTime?
+  faireLastExportedAt      DateTime?
 
   // Performance indexes for 78k+ products
   @@index([status, createdAt]) // catalog listing (default sort)
@@ -502,6 +503,7 @@ model Product {
   @@index([efashionLastExportedAt])
   @@index([microstoreLastExportedAt])
   @@index([ankorstoreLastExportedAt])
+  @@index([faireLastExportedAt])
 }
 
 // ─────────────────────────────────────────────

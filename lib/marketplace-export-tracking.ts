@@ -19,6 +19,7 @@ const MARKETPLACE_FIELD = {
   efashion:   "efashionLastExportedAt",
   microstore: "microstoreLastExportedAt",
   ankorstore: "ankorstoreLastExportedAt",
+  faire:      "faireLastExportedAt",
 } as const satisfies Record<MarketplaceKey, string>;
 
 export async function recordMarketplaceExport(

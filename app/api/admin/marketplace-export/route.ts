@@ -24,7 +24,7 @@ import { logger } from "@/lib/logger";
 export const runtime = "nodejs";
 
 const BodySchema = z.object({
-  marketplace: z.enum(["pfs", "efashion", "microstore", "ankorstore"]),
+  marketplace: z.enum(["pfs", "efashion", "microstore", "ankorstore", "faire"]),
   productIds: z.array(z.string().min(1)).min(1),
   mode: z.enum(["both", "excel-only", "images-only"]).optional().default("both"),
 });
@@ -55,6 +55,15 @@ export async function POST(req: NextRequest) {
       {
         error:
           "Ankorstore ne supporte pas l'export d'images seules : les images sont récupérées via les URLs du site.",
+      },
+      { status: 400 },
+    );
+  }
+  if (parsed.data.marketplace === "faire" && parsed.data.mode === "images-only") {
+    return NextResponse.json(
+      {
+        error:
+          "Faire ne supporte pas l'export d'images seules : les images sont récupérées via les URLs du site.",
       },
       { status: 400 },
     );

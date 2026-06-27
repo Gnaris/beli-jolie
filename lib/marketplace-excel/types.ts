@@ -12,7 +12,7 @@ import type {
 
 export type SaleTypeKey = "UNIT" | "PACK";
 
-export type MarketplaceKey = "pfs" | "efashion" | "microstore" | "ankorstore";
+export type MarketplaceKey = "pfs" | "efashion" | "microstore" | "ankorstore" | "faire";
 
 /**
  * Choix du contenu inclus dans l'export marketplace :
@@ -151,4 +151,5 @@ export const MARKETPLACE_LIMITS: Record<MarketplaceKey, number | null> = {
   efashion: 60,
   microstore: null, // pas de limite
   ankorstore: null, // pas de limite
+  faire: null, // pas de limite communiquée
 };

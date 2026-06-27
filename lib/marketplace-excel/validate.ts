@@ -112,6 +112,43 @@ function validateAnkorstore(p: ExportProduct): string[] {
   return missing;
 }
 
+/**
+ * Faire (Excel) : conditions pour qu'un produit puisse partir dans le fichier
+ * d'import Faire. On exporte uniquement les variantes UNIT (les packs ne sont
+ * pas pertinents côté Faire).
+ *
+ * Champs vraiment obligatoires côté modèle Faire :
+ *  - nom produit (≤ 60 caractères)
+ *  - méthode de vente (toujours « Par article » pour UNIT)
+ *  - quantité minimum (1)
+ *  - prix EUR wholesale + retail
+ *  - au moins 1 image
+ *
+ * Champs « Facultatifs » mais qu'on remplit si présents : pays d'origine,
+ * code SH (recommandé pour les expéditions internationales mais non bloquant
+ * à l'import), composition, dimensions. Pour ces champs on N'INTERROMPT PAS
+ * l'export — la case reste vide dans le xlsx et la cliente complète après
+ * dans le portail Faire si besoin.
+ */
+function validateFaire(p: ExportProduct): string[] {
+  const unitOnly = withUnitVariantsOnly(p);
+  const missing: string[] = [];
+  const productName = p.translations["fr"]?.name || p.name || "";
+  if (!productName.trim()) missing.push("nom produit manquant");
+  if (productName.length > 60)
+    missing.push("nom produit trop long (max 60 caractères côté Faire)");
+  if (unitOnly.variants.length === 0) {
+    missing.push("aucune variante à l'unité (les packs ne sont pas exportés vers Faire)");
+  } else {
+    if (!allVariantsHavePrice(unitOnly)) missing.push("au moins une variante sans prix");
+    if (!allVariantsHaveWeight(unitOnly)) missing.push("au moins une variante sans poids");
+    if (!anyVariantHasImage(p)) {
+      missing.push("aucune image (Faire en exige au moins une par produit)");
+    }
+  }
+  return missing;
+}
+
 /** Run validation for a list of products on one marketplace. */
 export function validateProductsForMarketplace(
   products: ExportProduct[],
@@ -124,7 +161,9 @@ export function validateProductsForMarketplace(
         ? validateEfashion
         : marketplace === "microstore"
           ? validateMicrostore
-          : validateAnkorstore;
+          : marketplace === "ankorstore"
+            ? validateAnkorstore
+            : validateFaire;
 
   return products.map((p) => {
     const missing = validator(p);

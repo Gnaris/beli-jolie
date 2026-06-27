@@ -7,6 +7,7 @@ const generatePfsExcelFiles = vi.fn();
 const generateEfashionExcelFiles = vi.fn();
 const generateMicrostoreExcelFiles = vi.fn();
 const generateAnkorstoreExcelFiles = vi.fn();
+const generateFaireExcelFiles = vi.fn();
 const enrichProductsWithPfsTranslations = vi.fn();
 const prepareImagesForPfs = vi.fn();
 const prepareImagesForEfashion = vi.fn();
@@ -30,6 +31,9 @@ vi.mock("@/lib/marketplace-excel/generate-microstore", () => ({
 }));
 vi.mock("@/lib/marketplace-excel/generate-ankorstore", () => ({
   generateAnkorstoreExcelFiles: (...a: unknown[]) => generateAnkorstoreExcelFiles(...a),
+}));
+vi.mock("@/lib/marketplace-excel/generate-faire", () => ({
+  generateFaireExcelFiles: (...a: unknown[]) => generateFaireExcelFiles(...a),
 }));
 vi.mock("@/lib/marketplace-excel/enrich-translations-pfs", () => ({
   enrichProductsWithPfsTranslations: (...a: unknown[]) => enrichProductsWithPfsTranslations(...a),
@@ -61,6 +65,7 @@ beforeEach(() => {
   generateEfashionExcelFiles.mockResolvedValue([FAKE_EXCEL]);
   generateMicrostoreExcelFiles.mockResolvedValue([FAKE_EXCEL]);
   generateAnkorstoreExcelFiles.mockResolvedValue([FAKE_EXCEL]);
+  generateFaireExcelFiles.mockResolvedValue([FAKE_EXCEL]);
   enrichProductsWithPfsTranslations.mockImplementation(async (p: unknown[]) => p);
   prepareImagesForPfs.mockResolvedValue([FAKE_IMAGE]);
   prepareImagesForEfashion.mockResolvedValue([FAKE_IMAGE]);
@@ -122,6 +127,12 @@ describe("runMarketplaceExport — mode images-only", () => {
       runMarketplaceExport("ankorstore", ["p1"], "images-only"),
     ).rejects.toThrow(/Ankorstore/);
   });
+
+  it("faire : refusé (les images sont récupérées par URL)", async () => {
+    await expect(
+      runMarketplaceExport("faire", ["p1"], "images-only"),
+    ).rejects.toThrow(/Faire/);
+  });
 });
 
 describe("runMarketplaceExport — mode both (défaut)", () => {
@@ -148,5 +159,15 @@ describe("runMarketplaceExport — mode both (défaut)", () => {
     expect(prepareImagesForMicrostore).not.toHaveBeenCalled();
     expect(prepareImagesForPfs).not.toHaveBeenCalled();
     expect(out.outputType).toBe("xlsx");
+  });
+
+  it("faire : Excel direct, jamais d'images bundlées (URLs only)", async () => {
+    const out = await runMarketplaceExport("faire", ["p1"], "both");
+    expect(generateFaireExcelFiles).toHaveBeenCalledOnce();
+    expect(prepareImagesForEfashion).not.toHaveBeenCalled();
+    expect(prepareImagesForMicrostore).not.toHaveBeenCalled();
+    expect(prepareImagesForPfs).not.toHaveBeenCalled();
+    expect(out.outputType).toBe("xlsx");
+    expect(out.filename).toMatch(/^faire_/);
   });
 });

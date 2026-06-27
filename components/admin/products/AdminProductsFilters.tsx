@@ -73,6 +73,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlEfashionExportedAt   = searchParams.get("efashionExportedAt")   ?? "";
   const urlMicrostoreExportedAt = searchParams.get("microstoreExportedAt") ?? "";
   const urlAnkorstoreExportedAt = searchParams.get("ankorstoreExportedAt") ?? "";
+  const urlFaireExportedAt      = searchParams.get("faireExportedAt")      ?? "";
   const perPage      = searchParams.get("perPage")    ?? "20";
 
   // Options communes aux 4 dropdowns "Dernier export …". Centralisé pour rester
@@ -798,6 +799,15 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 <CustomSelect
                   value={urlAnkorstoreExportedAt}
                   onChange={(v) => navigate({ ankorstoreExportedAt: v || null })}
+                  options={EXPORTED_AT_OPTIONS}
+                  size="sm"
+                  searchable
+                />
+              </FilterField>
+              <FilterField label="Dernier export Faire">
+                <CustomSelect
+                  value={urlFaireExportedAt}
+                  onChange={(v) => navigate({ faireExportedAt: v || null })}
                   options={EXPORTED_AT_OPTIONS}
                   size="sm"
                   searchable

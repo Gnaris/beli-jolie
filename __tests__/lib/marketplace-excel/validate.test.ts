@@ -246,4 +246,70 @@ describe("validateProductsForMarketplace", () => {
       expect(res[0]!.missing.some((m) => m.includes("image"))).toBe(true);
     });
   });
+
+  describe("Faire", () => {
+    it("accepte un produit avec nom, code SH, pays, compo, image, prix, poids", () => {
+      const res = validateProductsForMarketplace([makeProduct()], "faire");
+      expect(res[0]!.eligible).toBe(true);
+    });
+
+    it("accepte sans code SH (facultatif côté modèle Faire ; la case reste vide)", () => {
+      const res = validateProductsForMarketplace(
+        [makeProduct({ hsCode: null })],
+        "faire",
+      );
+      expect(res[0]!.eligible).toBe(true);
+    });
+
+    it("accepte sans pays d'origine (case made_in_country facultative)", () => {
+      const res = validateProductsForMarketplace(
+        [makeProduct({ manufacturingCountryName: null })],
+        "faire",
+      );
+      expect(res[0]!.eligible).toBe(true);
+    });
+
+    it("refuse un nom > 60 caractères (limite Faire)", () => {
+      const longName = "A".repeat(70);
+      const res = validateProductsForMarketplace(
+        [
+          makeProduct({
+            name: longName,
+            translations: { fr: { name: longName, description: "x" } },
+          }),
+        ],
+        "faire",
+      );
+      expect(res[0]!.eligible).toBe(false);
+      expect(res[0]!.missing.some((m) => m.includes("trop long"))).toBe(true);
+    });
+
+    it("refuse un produit avec uniquement des PACK (Faire exclut les packs)", () => {
+      const res = validateProductsForMarketplace(
+        [
+          makeProduct({
+            variants: [makeVariant({ saleType: "PACK", packQuantity: 12 })],
+          }),
+        ],
+        "faire",
+      );
+      expect(res[0]!.eligible).toBe(false);
+      expect(res[0]!.missing.some((m) => m.includes("unité"))).toBe(true);
+    });
+
+    it("refuse sans aucune image (Faire exige au moins une photo)", () => {
+      const res = validateProductsForMarketplace(
+        [
+          makeProduct({
+            variants: [
+              makeVariant({ variantId: "v1", imagePaths: [] }),
+            ],
+          }),
+        ],
+        "faire",
+      );
+      expect(res[0]!.eligible).toBe(false);
+      expect(res[0]!.missing.some((m) => m.includes("image"))).toBe(true);
+    });
+  });
 });

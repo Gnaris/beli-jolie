@@ -23,6 +23,7 @@ import { generatePfsExcelFiles } from "./generate-pfs";
 import { generateEfashionExcelFiles } from "./generate-efashion";
 import { generateMicrostoreExcelFiles } from "./generate-microstore";
 import { generateAnkorstoreExcelFiles } from "./generate-ankorstore";
+import { generateFaireExcelFiles } from "./generate-faire";
 import { enrichProductsWithPfsTranslations } from "./enrich-translations-pfs";
 import {
   prepareImagesForPfs,
@@ -38,6 +39,7 @@ const FOLDER_NAMES: Record<MarketplaceKey, string> = {
   efashion: "efashion",
   microstore: "microstore",
   ankorstore: "ankorstore",
+  faire: "faire",
 };
 
 const LABELS: Record<MarketplaceKey, string> = {
@@ -45,6 +47,7 @@ const LABELS: Record<MarketplaceKey, string> = {
   efashion: "Efashion",
   microstore: "Microstore",
   ankorstore: "Ankorstore",
+  faire: "Faire",
 };
 
 /** PFS impose 15 Mo max par paquet d'images uploadé. Le script de la cliente
@@ -108,6 +111,11 @@ export async function runMarketplaceExport(
       "Ankorstore ne supporte pas l'export d'images seules : les images sont récupérées via les URLs du site.",
     );
   }
+  if (marketplace === "faire" && mode === "images-only") {
+    throw new Error(
+      "Faire ne supporte pas l'export d'images seules : les images sont récupérées via les URLs du site.",
+    );
+  }
 
   const [products, ctx] = await Promise.all([
     loadExportProducts(productIds),
@@ -155,6 +163,13 @@ export async function runMarketplaceExport(
       // `images-only` est déjà refusé en début de fonction. Reste : both/excel-only,
       // tous deux n'incluent jamais d'images (URLs only).
       excelFiles = await generateAnkorstoreExcelFiles(eligibleProducts, ctx);
+      images = undefined;
+      break;
+    case "faire":
+      // Idem Ankorstore : Faire récupère les images via les URLs publiques
+      // pointées par la colonne `product_images` (cf. generate-faire.ts).
+      // `images-only` déjà refusé en début de fonction.
+      excelFiles = await generateFaireExcelFiles(eligibleProducts, ctx);
       images = undefined;
       break;
   }

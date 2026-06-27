@@ -200,6 +200,7 @@ interface PageProps {
     efashionExportedAt?: string;
     microstoreExportedAt?: string;
     ankorstoreExportedAt?: string;
+    faireExportedAt?: string;
   }>;
 }
 
@@ -295,6 +296,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     efashionExportedAt = "",
     microstoreExportedAt = "",
     ankorstoreExportedAt = "",
+    faireExportedAt = "",
   } = params;
 
   const exactRef   = exactRefParam === "1";
@@ -338,6 +340,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     efashionExportedAt,
     microstoreExportedAt,
     ankorstoreExportedAt,
+    faireExportedAt,
     productIdsIn,
     productIdsNotIn,
   });
@@ -477,6 +480,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     efashionLastExportedAt:   p.efashionLastExportedAt   ? p.efashionLastExportedAt.toISOString()   : null,
     microstoreLastExportedAt: p.microstoreLastExportedAt ? p.microstoreLastExportedAt.toISOString() : null,
     ankorstoreLastExportedAt: p.ankorstoreLastExportedAt ? p.ankorstoreLastExportedAt.toISOString() : null,
+    faireLastExportedAt:      p.faireLastExportedAt      ? p.faireLastExportedAt.toISOString()      : null,
     colors:          p.colors.map((c) => ({
       id:                c.id,
       colorId:           c.colorId ?? "",

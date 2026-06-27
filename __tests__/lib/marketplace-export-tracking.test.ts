@@ -58,6 +58,15 @@ describe("recordMarketplaceExport", () => {
     });
   });
 
+  it("met à jour faireLastExportedAt (Faire)", async () => {
+    const now = new Date("2026-06-27T18:00:00Z");
+    await recordMarketplaceExport("faire", ["p9"], now);
+    expect(updateManyMock).toHaveBeenCalledWith({
+      where: { id: { in: ["p9"] } },
+      data: { faireLastExportedAt: now },
+    });
+  });
+
   it("utilise new Date() par défaut quand `now` n'est pas fourni", async () => {
     const before = Date.now();
     await recordMarketplaceExport("pfs", ["p1"]);

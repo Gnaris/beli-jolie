@@ -42,6 +42,9 @@ const LinkAnkorstoreProductModal = dynamic(
 const LinkEfashionProductModal = dynamic(
   () => import("@/components/admin/products/LinkEfashionProductModal"),
 );
+const LinkFaireProductModal = dynamic(
+  () => import("@/components/admin/products/LinkFaireProductModal"),
+);
 const BulkPublishDraftsModal = dynamic(
   () => import("@/components/admin/products/BulkPublishDraftsModal"),
 );
@@ -563,12 +566,14 @@ function FaireBadge({
   publishing = false,
   syncRequired = false,
   onPublishClick,
+  onLinkClick,
   onSyncClick,
 }: {
   published: boolean;
   publishing?: boolean;
   syncRequired?: boolean;
   onPublishClick?: () => void;
+  onLinkClick?: () => void;
   onSyncClick?: () => void;
 }) {
   if (publishing) {
@@ -621,22 +626,42 @@ function FaireBadge({
       </span>
     );
   }
-  if (onPublishClick) {
+  if (onPublishClick || onLinkClick) {
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onPublishClick();
-        }}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
-        title="Cliquer pour publier ce produit sur Faire"
-      >
-        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-        </svg>
-        Faire
-      </button>
+      <span className="inline-flex items-center gap-1">
+        {onPublishClick && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPublishClick();
+            }}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
+            title="Cliquer pour publier ce produit sur Faire"
+          >
+            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Faire
+          </button>
+        )}
+        {onLinkClick && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onLinkClick();
+            }}
+            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-muted bg-bg-secondary border border-border hover:border-text-secondary hover:text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
+            title="Lier à un produit Faire existant"
+            aria-label="Lier à un produit Faire existant"
+          >
+            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+            </svg>
+          </button>
+        )}
+      </span>
     );
   }
   return (
@@ -705,6 +730,7 @@ interface AdminProduct {
   efashionLastExportedAt: string | null;
   microstoreLastExportedAt: string | null;
   ankorstoreLastExportedAt: string | null;
+  faireLastExportedAt: string | null;
   colors: ColorVariant[];
   translations: ProductTranslation[];
 }
@@ -1448,6 +1474,7 @@ function ProductDatesCell({
   ankorstoreLastExportedAt,
   efashionLastExportedAt,
   microstoreLastExportedAt,
+  faireLastExportedAt,
 }: {
   createdAt: string;
   updatedAt: string;
@@ -1456,6 +1483,7 @@ function ProductDatesCell({
   ankorstoreLastExportedAt: string | null;
   efashionLastExportedAt: string | null;
   microstoreLastExportedAt: string | null;
+  faireLastExportedAt: string | null;
 }) {
   const showUpdated = wasMeaningfullyUpdated(createdAt, updatedAt);
   const longFmt = (iso: string) =>
@@ -1532,6 +1560,12 @@ function ProductDatesCell({
           lastExportedAt={microstoreLastExportedAt}
           marketplaceLabel="Microstore"
         />
+        <MarketplaceExportLine
+          initials="FA"
+          initialsClass="bg-rose-50 text-rose-700 border-rose-200"
+          lastExportedAt={faireLastExportedAt}
+          marketplaceLabel="Faire"
+        />
       </div>
     </div>
   );
@@ -1587,6 +1621,7 @@ function ProductRow({
   const [linkPfsOpen, setLinkPfsOpen] = useState(false);
   const [linkAkOpen, setLinkAkOpen] = useState(false);
   const [linkEfOpen, setLinkEfOpen] = useState(false);
+  const [linkFaireOpen, setLinkFaireOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { confirm } = useConfirm();
@@ -2162,6 +2197,11 @@ function ProductRow({
                       ? () => { void handlePublishFaire(); }
                       : undefined
                   }
+                  onLinkClick={
+                    showFaire && !product.faireProductId && !isFairePublishing
+                      ? () => setLinkFaireOpen(true)
+                      : undefined
+                  }
                   onSyncClick={handleSyncFaire}
                 />
               )}
@@ -2182,6 +2222,7 @@ function ProductRow({
             ankorstoreLastExportedAt={product.ankorstoreLastExportedAt}
             efashionLastExportedAt={product.efashionLastExportedAt}
             microstoreLastExportedAt={product.microstoreLastExportedAt}
+            faireLastExportedAt={product.faireLastExportedAt}
           />
         </td>
 
@@ -2366,6 +2407,19 @@ function ProductRow({
           reference={product.reference}
           onClose={() => {
             setLinkEfOpen(false);
+            router.refresh();
+          }}
+        />,
+        document.body,
+      )}
+
+      {linkFaireOpen && createPortal(
+        <LinkFaireProductModal
+          productId={product.id}
+          productName={product.name}
+          reference={product.reference}
+          onClose={() => {
+            setLinkFaireOpen(false);
             router.refresh();
           }}
         />,

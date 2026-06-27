@@ -17,6 +17,7 @@ const MARKETPLACES: MarketplaceOption[] = [
   { key: "efashion", label: "Efashion" },
   { key: "microstore", label: "Microstore" },
   { key: "ankorstore", label: "Ankorstore" },
+  { key: "faire", label: "Faire" },
 ];
 
 interface Props {

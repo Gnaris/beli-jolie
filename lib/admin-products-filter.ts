@@ -82,6 +82,7 @@ export interface AdminProductsFilterParams {
   efashionExportedAt?: string;
   microstoreExportedAt?: string;
   ankorstoreExportedAt?: string;
+  faireExportedAt?: string;
   /**
    * Filtre sur le code SH (douanier) du produit, désormais en relation
    * avec la bibliothèque HsCode :
@@ -121,6 +122,7 @@ const EXPORT_FIELD_BY_MARKETPLACE = {
   efashion:   "efashionLastExportedAt",
   microstore: "microstoreLastExportedAt",
   ankorstore: "ankorstoreLastExportedAt",
+  faire:      "faireLastExportedAt",
 } as const;
 
 type ExportMarketplaceKey = keyof typeof EXPORT_FIELD_BY_MARKETPLACE;
@@ -331,6 +333,7 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     buildExportedAtClause("efashion", params.efashionExportedAt, now),
     buildExportedAtClause("microstore", params.microstoreExportedAt, now),
     buildExportedAtClause("ankorstore", params.ankorstoreExportedAt, now),
+    buildExportedAtClause("faire", params.faireExportedAt, now),
   ].filter((c): c is Prisma.ProductWhereInput => c !== null);
   if (exportClauses.length > 0) {
     where.AND = [
