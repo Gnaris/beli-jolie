@@ -163,6 +163,23 @@ describe("buildFaireProductPayload — prix moderne uniquement (pas de champs d�
   });
 });
 
+describe("buildFaireProductPayload — un seul axe d'option Color", () => {
+  // Le payload builder ne reçoit jamais de variantes PACK : `fairePublishProduct`
+  // et `faireUpdateProduct` filtrent les PACK en amont (alignement Ankorstore).
+  // Faire refusait sinon HTTP 400 « Duplicate variants with same options »
+  // quand la même couleur existait en UNIT et en PACK (cas ZK03E).
+  it("expose un unique axe Color dans variant_option_sets et dans chaque variante", () => {
+    const { body, variants } = buildFaireProductPayload(makeProduct(), ctx, wholesale, retail, "PUBLISHED");
+    const sets = body.variant_option_sets as { name: string }[];
+    expect(sets).toHaveLength(1);
+    expect(sets[0].name).toBe("Color");
+    for (const v of variants) {
+      expect(v.payload.options).toHaveLength(1);
+      expect(v.payload.options[0].name).toBe("Color");
+    }
+  });
+});
+
 describe("buildFaireProductPayload — galerie racine : couleur principale d'abord", () => {
   it("place TOUTES les images de la couleur primaire d'abord, puis les autres couleurs", () => {
     const { body, productImagesCount } = buildFaireProductPayload(

@@ -166,6 +166,7 @@ beforeEach(() => {
     colors: VARIANT_SKUS.map((sku) => ({
       id: `v-${sku}`,
       faireVariantId: `po_${sku}`,
+      saleType: "UNIT",
     })),
   });
 

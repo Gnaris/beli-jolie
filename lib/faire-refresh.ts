@@ -33,6 +33,7 @@ interface ProductRefreshMeta {
   id: string;
   name: string;
   reference: string;
+  status: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING";
   faireProductId: string | null;
   colors: { id: string; faireVariantId: string | null }[];
 }
@@ -44,6 +45,7 @@ async function loadMeta(productId: string): Promise<ProductRefreshMeta | null> {
       id: true,
       name: true,
       reference: true,
+      status: true,
       faireProductId: true,
       colors: { select: { id: true, faireVariantId: true } },
     },
@@ -89,9 +91,17 @@ export async function faireRefreshProduct(
     },
   });
 
+  // Le refresh n'est éligible que sur les produits ONLINE (cf.
+  // `getRefreshIneligibilityReason`). On crée donc directement en PUBLISHED :
+  // sans ça, la nouvelle fiche Faire restait coincée en brouillon, invisible
+  // côté acheteurs. Pour les statuts imprévus (défense en profondeur), on
+  // retombe sur DRAFT pour éviter de publier par accident.
+  const lifecycleState: "DRAFT" | "PUBLISHED" =
+    meta.status === "ONLINE" ? "PUBLISHED" : "DRAFT";
+
   let publishRes: FairePublishResult;
   try {
-    publishRes = await fairePublishProduct(productId, { lifecycleState: "DRAFT" });
+    publishRes = await fairePublishProduct(productId, { lifecycleState });
   } catch (err) {
     // Rollback nom + IDs.
     await prisma.product.update({

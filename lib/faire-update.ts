@@ -207,6 +207,18 @@ export async function faireUpdateProduct(
   const product = await loadFaireProductFull(productId);
   if (!product) return { success: false, error: "Produit introuvable (loader)." };
 
+  // Cohérent avec le filtre côté publish : Faire ne reçoit que les variantes
+  // UNIT. Si seules les variantes PACK ont été modifiées, on n'a rien à
+  // pousser côté Faire (l'update est un noop côté marketplace).
+  product.colors = product.colors.filter((v) => v.saleType === "UNIT");
+  if (product.colors.length === 0) {
+    return {
+      success: false,
+      error:
+        "Aucune variante à l'unité — Faire n'accepte pas les packs. Ajoutez au moins une variante de type Unité pour synchroniser sur Faire.",
+    };
+  }
+
   const ctxResult = buildPublishContext(product);
   if (!ctxResult.ok || !ctxResult.ctx) {
     return { success: false, error: ctxResult.reason ?? "Contexte Faire invalide." };

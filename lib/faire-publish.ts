@@ -673,6 +673,18 @@ export async function fairePublishProduct(
     return { success: false, error: "Produit introuvable." };
   }
 
+  // Faire ne reçoit que les variantes UNIT. Les variantes PACK (même couleur
+  // mais saleType différent) provoqueraient sinon HTTP 400 « Duplicate variants
+  // with same options ». Aligné sur Ankorstore qui filtre aussi les packs.
+  product.colors = product.colors.filter((v) => v.saleType === "UNIT");
+  if (product.colors.length === 0) {
+    return {
+      success: false,
+      error:
+        "Aucune variante à l'unité — Faire n'accepte pas les packs. Ajoutez au moins une variante de type Unité pour publier sur Faire.",
+    };
+  }
+
   const ctxResult = buildPublishContext(product);
   if (!ctxResult.ok || !ctxResult.ctx) {
     return { success: false, error: ctxResult.reason ?? "Contexte Faire invalide." };
