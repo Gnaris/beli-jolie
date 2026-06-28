@@ -2189,16 +2189,16 @@ function ProductRow({
               )}
               {showFaire && (
                 <FaireBadge
-                  published={!!product.faireProductId}
+                  published={faireBadgeState.online}
                   publishing={isFairePublishing}
-                  syncRequired={product.faireSyncRequired && !isFairePublishing}
+                  syncRequired={product.faireSyncRequired && !isFairePublishing && !faireBadgeState.justPublishedOk}
                   onPublishClick={
-                    !product.faireProductId && !isFairePublishing
+                    !faireBadgeState.online && !isFairePublishing
                       ? () => { void handlePublishFaire(); }
                       : undefined
                   }
                   onLinkClick={
-                    showFaire && !product.faireProductId && !isFairePublishing
+                    showFaire && !faireBadgeState.online && !isFairePublishing
                       ? () => setLinkFaireOpen(true)
                       : undefined
                   }
