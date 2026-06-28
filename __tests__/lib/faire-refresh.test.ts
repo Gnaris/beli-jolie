@@ -22,6 +22,17 @@ const prismaMock: any = {
     findUnique: vi.fn(),
     update: vi.fn().mockResolvedValue({}),
   },
+  productColor: {
+    update: vi.fn().mockResolvedValue({}),
+    updateMany: vi.fn().mockResolvedValue({}),
+  },
+  // $transaction reçoit soit un tableau de promesses Prisma (qu'on a déjà
+  // résolues via les mocks ci-dessus), soit une callback. On gère les deux.
+  $transaction: vi.fn(async (arg: unknown) => {
+    if (typeof arg === "function") return arg(prismaMock);
+    if (Array.isArray(arg)) return Promise.all(arg);
+    return arg;
+  }),
 };
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
@@ -44,6 +55,10 @@ beforeEach(() => {
   prismaMock.product.findUnique.mockReset();
   prismaMock.product.update.mockReset();
   prismaMock.product.update.mockResolvedValue({});
+  prismaMock.productColor.update.mockReset();
+  prismaMock.productColor.update.mockResolvedValue({});
+  prismaMock.productColor.updateMany.mockReset();
+  prismaMock.productColor.updateMany.mockResolvedValue({});
   faireFetchMock.mockReset();
   faireFetchMock.mockResolvedValue({ ok: true, status: 200 });
   fairePublishProductMock.mockReset();
@@ -111,6 +126,49 @@ describe("faireRefreshProduct — lifecycle de la nouvelle fiche", () => {
     await faireRefreshProduct("p-1");
     expect(fairePublishProductMock).toHaveBeenCalledWith("p-1", {
       lifecycleState: "DRAFT",
+    });
+  });
+
+  it("wipe les faireVariantId locaux avant le POST (sinon Faire répond « variants[].id is read-only »)", async () => {
+    prismaMock.product.findUnique.mockResolvedValueOnce(metaOnline());
+    fairePublishProductMock.mockResolvedValueOnce({
+      success: true,
+      faireProductId: "p_NEW",
+      variantMap: [],
+    });
+    await faireRefreshProduct("p-1");
+    // Premier updateMany juste avant le POST : reset des faireVariantId.
+    expect(prismaMock.productColor.updateMany).toHaveBeenCalledWith({
+      where: { productId: "p-1" },
+      data: { faireVariantId: null },
+    });
+  });
+
+  it("rollback restaure les anciens faireVariantId si la republication échoue", async () => {
+    prismaMock.product.findUnique.mockResolvedValueOnce(
+      metaOnline({
+        colors: [
+          { id: "v-1", faireVariantId: "po_OLD_1" },
+          { id: "v-2", faireVariantId: "po_OLD_2" },
+        ],
+      }),
+    );
+    fairePublishProductMock.mockResolvedValueOnce({
+      success: false,
+      error: "HTTP 400",
+    });
+    await faireRefreshProduct("p-1");
+    // Une update par variante avec son ancien id Faire dans le rollback.
+    const restoreCalls = prismaMock.productColor.update.mock.calls.map(
+      (c: unknown[]) => c[0],
+    );
+    expect(restoreCalls).toContainEqual({
+      where: { id: "v-1" },
+      data: { faireVariantId: "po_OLD_1" },
+    });
+    expect(restoreCalls).toContainEqual({
+      where: { id: "v-2" },
+      data: { faireVariantId: "po_OLD_2" },
     });
   });
 

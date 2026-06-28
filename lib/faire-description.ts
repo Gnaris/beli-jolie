@@ -1,16 +1,17 @@
 /**
- * Ajoute à la fin de la description produit envoyée à Faire les infos
- * matériaux + code SH, parce que ces champs ne sont pas exposés à l'acheteuse
- * dans le schéma Faire (composition) ou pas affichés en clair (tariff_code).
- * Les dimensions et le poids passent par le champ structuré `measurements`
- * côté variante (cf. `lib/faire-publish.ts → buildFaireProductPayload`).
+ * Ajoute à la fin de la description produit envoyée à Faire la composition
+ * matériaux, parce que ce champ n'est pas exposé à l'acheteuse dans le schéma
+ * Faire. Les dimensions et le poids passent par le champ structuré
+ * `measurements` côté variante (cf. `lib/faire-publish.ts → buildFaireProductPayload`).
+ * Le code SH reste envoyé en clair via `tariff_code` au niveau variante mais
+ * n'est plus appendu à la description (choix cliente : pas pertinent pour
+ * l'acheteuse).
  *
  * Format de sortie :
  *
  *     {description originale}
  *
  *     Composition : Acier inoxydable 316L (70%), Plaqué or 18 carats (30%)
- *     Code SH : 7117.19.00
  */
 
 export interface FaireDescriptionComposition {
@@ -23,7 +24,6 @@ export interface FaireDescriptionComposition {
 export function buildFaireDescription(
   baseDescription: string,
   compositions: FaireDescriptionComposition[],
-  hsCode: string | null,
 ): string {
   const lines: string[] = [];
   const base = baseDescription?.trim() ?? "";
@@ -31,9 +31,6 @@ export function buildFaireDescription(
 
   const compositionLine = formatCompositionLine(compositions);
   if (compositionLine) lines.push(compositionLine);
-
-  const hs = hsCode?.trim();
-  if (hs) lines.push(`Code SH : ${hs}`);
 
   return lines.join("\n\n");
 }

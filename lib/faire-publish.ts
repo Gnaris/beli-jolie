@@ -616,16 +616,17 @@ export function buildPublishContext(
   const countryAlpha2 = rawAlpha2 ?? "CN"; // fallback raisonnable pour catalogue made-in-China
   const countryUsedFallback = rawAlpha2 == null;
 
-  // Description = description produit + composition (toujours) + code SH (si
-  // rempli) appendus automatiquement. Les dimensions sont envoyées dans le
-  // champ structuré `measurements` au niveau variante (cf. buildFaireProductPayload).
+  // Description = description produit + composition (toujours) appendue
+  // automatiquement. Le code SH reste sur la variante via `tariff_code` mais
+  // n'est plus écrit en bas de description (pas pertinent pour l'acheteuse).
+  // Les dimensions sont envoyées dans le champ structuré `measurements` au
+  // niveau variante (cf. buildFaireProductPayload).
   const description = buildFaireDescription(
     product.description ?? "",
     product.compositions.map((c) => ({
       name: c.composition.name,
       percentage: Number(c.percentage),
     })),
-    tariffCode,
   );
 
   return {

@@ -82,14 +82,25 @@ export async function faireRefreshProduct(
   // Pour cela on duplique localement les valeurs cibles via un override sur
   // l'objet chargé par publish (qui re-lit la BDD). La voie la plus simple :
   // muter temporairement le nom en BDD le temps du POST.
-  await prisma.product.update({
-    where: { id: productId },
-    data: {
-      name: tempName,
-      faireProductId: null,
-      faireLastSyncSnapshot: Prisma.DbNull,
-    },
-  });
+  //
+  // ⚠️ Reset OBLIGATOIRE des `faireVariantId` sur chaque variante : sinon
+  // `buildFaireProductPayload` les met en `variants[].id`, et Faire rejette
+  // au POST (« variant field 'variants[i].id' is read-only » — read-only à
+  // la création, légitime uniquement en PATCH d'une fiche existante).
+  await prisma.$transaction([
+    prisma.product.update({
+      where: { id: productId },
+      data: {
+        name: tempName,
+        faireProductId: null,
+        faireLastSyncSnapshot: Prisma.DbNull,
+      },
+    }),
+    prisma.productColor.updateMany({
+      where: { productId },
+      data: { faireVariantId: null },
+    }),
+  ]);
 
   // Le refresh n'est éligible que sur les produits ONLINE (cf.
   // `getRefreshIneligibilityReason`). On crée donc directement en PUBLISHED :
@@ -99,15 +110,30 @@ export async function faireRefreshProduct(
   const lifecycleState: "DRAFT" | "PUBLISHED" =
     meta.status === "ONLINE" ? "PUBLISHED" : "DRAFT";
 
+  // Rollback partagé : restaure nom + ID produit + IDs variantes (qu'on a
+  // wipés ci-dessus pour permettre le POST de création).
+  const rollback = async () => {
+    await prisma.$transaction([
+      prisma.product.update({
+        where: { id: productId },
+        data: { name: meta.name, faireProductId: oldFaireProductId },
+      }),
+      ...meta.colors
+        .filter((c) => c.faireVariantId)
+        .map((c) =>
+          prisma.productColor.update({
+            where: { id: c.id },
+            data: { faireVariantId: c.faireVariantId },
+          }),
+        ),
+    ]);
+  };
+
   let publishRes: FairePublishResult;
   try {
     publishRes = await fairePublishProduct(productId, { lifecycleState });
   } catch (err) {
-    // Rollback nom + IDs.
-    await prisma.product.update({
-      where: { id: productId },
-      data: { name: meta.name, faireProductId: oldFaireProductId },
-    });
+    await rollback();
     logger.error("[Faire Refresh] publish threw", { productId, error: String(err) });
     return {
       success: false,
@@ -116,11 +142,7 @@ export async function faireRefreshProduct(
   }
 
   if (!publishRes.success) {
-    // Rollback nom + IDs.
-    await prisma.product.update({
-      where: { id: productId },
-      data: { name: meta.name, faireProductId: oldFaireProductId },
-    });
+    await rollback();
     return { success: false, error: publishRes.error };
   }
 
