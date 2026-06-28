@@ -54,12 +54,14 @@ describe("extractFiltersQueryString", () => {
     expect(extractFiltersQueryString("q=&cat=")).toBe("");
   });
 
-  it("garde les filtres de lien marketplace (pfsLink, ankorsLink)", () => {
+  it("garde les filtres de lien marketplace (pfsLink, ankorsLink, efashionLink, faireLink)", () => {
     const extracted = new URLSearchParams(
-      extractFiltersQueryString("pfsLink=linked&ankorsLink=unlinked"),
+      extractFiltersQueryString("pfsLink=linked&ankorsLink=unlinked&efashionLink=linked&faireLink=unlinked"),
     );
     expect(extracted.get("pfsLink")).toBe("linked");
     expect(extracted.get("ankorsLink")).toBe("unlinked");
+    expect(extracted.get("efashionLink")).toBe("linked");
+    expect(extracted.get("faireLink")).toBe("unlinked");
   });
 
   it("garde le filtre syncRequired (synchronisation marketplace nécessaire)", () => {

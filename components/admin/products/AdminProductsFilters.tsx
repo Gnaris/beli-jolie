@@ -40,9 +40,10 @@ interface Props {
   hasPfsConfig?: boolean;
   hasAnkorstoreConfig?: boolean;
   hasEfashionConfig?: boolean;
+  hasFaireConfig?: boolean;
 }
 
-export default function AdminProductsFilters({ totalCount, categories, tags = [], compositions = [], hsCodes = [], hasPfsConfig = false, hasAnkorstoreConfig = false, hasEfashionConfig = false }: Props) {
+export default function AdminProductsFilters({ totalCount, categories, tags = [], compositions = [], hsCodes = [], hasPfsConfig = false, hasAnkorstoreConfig = false, hasEfashionConfig = false, hasFaireConfig = false }: Props) {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -66,6 +67,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlPfsLink = searchParams.get("pfsLink") ?? "";
   const urlAnkorsLink = searchParams.get("ankorsLink") ?? "";
   const urlEfashionLink = searchParams.get("efashionLink") ?? "";
+  const urlFaireLink = searchParams.get("faireLink") ?? "";
   const urlSyncRequired = searchParams.get("syncRequired") ?? "";
   const urlHsCodeId  = searchParams.get("hsCodeId")   ?? "";
   const urlLocked    = searchParams.get("locked")     ?? "";
@@ -142,7 +144,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   }, [searchParams, router]);
 
   const localQ = localTerms.join(",");
-  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlSyncRequired || urlHsCodeId || urlLocked || urlPfsExportedAt || urlEfashionExportedAt || urlMicrostoreExportedAt || urlAnkorstoreExportedAt);
+  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlFaireLink || urlSyncRequired || urlHsCodeId || urlLocked || urlPfsExportedAt || urlEfashionExportedAt || urlMicrostoreExportedAt || urlAnkorstoreExportedAt || urlFaireExportedAt);
   const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
   const [filtersOpen, setFiltersOpen] = useState(hasFilters);
@@ -752,7 +754,22 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   />
                 </FilterField>
               )}
-              {(hasPfsConfig || hasAnkorstoreConfig || hasEfashionConfig) && (
+              {hasFaireConfig && (
+                <FilterField label="Lien Faire">
+                  <CustomSelect
+                    value={urlFaireLink}
+                    onChange={(v) => navigate({ faireLink: v || null })}
+                    options={[
+                      { value: "", label: "Tous" },
+                      { value: "linked", label: "Lié à Faire" },
+                      { value: "unlinked", label: "Non lié à Faire" },
+                    ]}
+                    size="sm"
+                    searchable
+                  />
+                </FilterField>
+              )}
+              {(hasPfsConfig || hasAnkorstoreConfig || hasEfashionConfig || hasFaireConfig) && (
                 <FilterField label="Synchronisation">
                   <CustomSelect
                     value={urlSyncRequired}

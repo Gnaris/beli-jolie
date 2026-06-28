@@ -423,7 +423,7 @@ function TagsDropdown({
         <button
           type="button"
           onClick={onCreateHsCodeClick}
-          className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
+          className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors cursor-pointer"
         >
           + Créer un nouveau code SH
         </button>

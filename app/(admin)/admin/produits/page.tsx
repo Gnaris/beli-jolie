@@ -193,6 +193,7 @@ interface PageProps {
     pfsLink?: string;
     ankorsLink?: string;
     efashionLink?: string;
+    faireLink?: string;
     syncRequired?: string;
     hsCodeId?: string;
     locked?: string;
@@ -289,6 +290,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     pfsLink = "",
     ankorsLink = "",
     efashionLink = "",
+    faireLink = "",
     syncRequired = "",
     hsCodeId = "",
     locked = "",
@@ -333,6 +335,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     pfsLink,
     ankorsLink,
     efashionLink,
+    faireLink,
     syncRequired,
     hsCodeId,
     locked,
@@ -551,6 +554,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
             hasPfsConfig={hasPfsConfig}
             hasAnkorstoreConfig={hasAnkorstoreConfig}
             hasEfashionConfig={hasEfashionConfig}
+            hasFaireConfig={hasFaireConfig}
           />
         </Suspense>
       </div>

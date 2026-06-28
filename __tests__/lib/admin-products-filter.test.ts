@@ -318,7 +318,33 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ efashionLink: "nope" }).efashionReferenceBase).toBeUndefined();
   });
 
-  it("syncRequired='1' ajoute un OR sur les trois drapeaux *SyncRequired (AND avec les autres filtres)", () => {
+  it("requires both product and all UNIT colors to be linked when faireLink=linked", () => {
+    const where = buildAdminProductsWhere({ faireLink: "linked" });
+    expect(where.faireProductId).toEqual({ not: null });
+    expect(where.AND).toEqual([
+      { NOT: { colors: { some: { saleType: "UNIT", faireVariantId: null } } } },
+    ]);
+  });
+
+  it("matches products without faireProductId OR with at least one unlinked UNIT color when faireLink=unlinked", () => {
+    const where = buildAdminProductsWhere({ faireLink: "unlinked" });
+    expect(where.faireProductId).toBeUndefined();
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { faireProductId: null },
+          { colors: { some: { saleType: "UNIT", faireVariantId: null } } },
+        ],
+      },
+    ]);
+  });
+
+  it("ignores faireLink when value is empty or unknown", () => {
+    expect(buildAdminProductsWhere({ faireLink: "" }).faireProductId).toBeUndefined();
+    expect(buildAdminProductsWhere({ faireLink: "nope" }).faireProductId).toBeUndefined();
+  });
+
+  it("syncRequired='1' ajoute un OR sur les quatre drapeaux *SyncRequired (AND avec les autres filtres)", () => {
     const where = buildAdminProductsWhere({ syncRequired: "1" });
     expect(where.AND).toEqual([
       {
@@ -326,6 +352,7 @@ describe("buildAdminProductsWhere", () => {
           { pfsSyncRequired: true },
           { ankorsSyncRequired: true },
           { efashionSyncRequired: true },
+          { faireSyncRequired: true },
         ],
       },
     ]);
@@ -347,6 +374,7 @@ describe("buildAdminProductsWhere", () => {
           { pfsSyncRequired: true },
           { ankorsSyncRequired: true },
           { efashionSyncRequired: true },
+          { faireSyncRequired: true },
         ],
       },
     ]);
@@ -481,6 +509,7 @@ describe("buildAdminProductsWhere", () => {
             { pfsSyncRequired: true },
             { ankorsSyncRequired: true },
             { efashionSyncRequired: true },
+            { faireSyncRequired: true },
           ],
         },
         { pfsLastExportedAt: null },

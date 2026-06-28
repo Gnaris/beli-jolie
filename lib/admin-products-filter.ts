@@ -65,6 +65,15 @@ export interface AdminProductsFilterParams {
    */
   efashionLink?: string;
   /**
+   * Filtre sur le lien Faire — Faire ne synchronise que les variantes UNIT
+   * (1 SKU Faire par couleur). Un produit est considéré « lié » seulement s'il
+   * a son `faireProductId` ET que toutes ses couleurs UNIT portent leur
+   * `faireVariantId`.
+   *   - "linked"   = `faireProductId` renseigné ET aucune couleur UNIT sans `faireVariantId`
+   *   - "unlinked" = `faireProductId` vide OU au moins une couleur UNIT sans `faireVariantId`
+   */
+  faireLink?: string;
+  /**
    * Filtre « Synchronisation marketplace nécessaire » : ne retient que les
    * produits avec au moins un drapeau `*SyncRequired = true` (PFS, Ankorstore
    * ou eFashion). Sert à retrouver d'un coup les fiches qui attendent un
@@ -314,6 +323,24 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     ];
   }
 
+  if (params.faireLink === "linked") {
+    where.faireProductId = { not: null };
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      { NOT: { colors: { some: { saleType: "UNIT", faireVariantId: null } } } },
+    ];
+  } else if (params.faireLink === "unlinked") {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      {
+        OR: [
+          { faireProductId: null },
+          { colors: { some: { saleType: "UNIT", faireVariantId: null } } },
+        ],
+      },
+    ];
+  }
+
   if (params.syncRequired === "1") {
     where.AND = [
       ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
@@ -322,6 +349,7 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
           { pfsSyncRequired: true },
           { ankorsSyncRequired: true },
           { efashionSyncRequired: true },
+          { faireSyncRequired: true },
         ],
       },
     ];
