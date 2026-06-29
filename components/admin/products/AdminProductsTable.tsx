@@ -226,7 +226,7 @@ function MarketplaceBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]"
+        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]"
         title="Publication PFS en cours…"
       >
         <svg
@@ -251,7 +251,7 @@ function MarketplaceBadge({
           e.stopPropagation();
           onSyncClick?.();
         }}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
         title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Paris Fashion Shop"
       >
         <span className="relative inline-flex">
@@ -265,7 +265,7 @@ function MarketplaceBadge({
   if (published) {
     return (
       <span
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
         title="Publié sur Paris Fashion Shop"
       >
         <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
@@ -279,7 +279,7 @@ function MarketplaceBadge({
   // on affiche la pastille correspondante.
   if (onPublishClick || onLinkClick) {
     return (
-      <span className="inline-flex items-center gap-1">
+      <span className="inline-flex items-center justify-center gap-1 min-w-[7.5rem]">
         {onPublishClick && (
           <button
             type="button"
@@ -317,7 +317,7 @@ function MarketplaceBadge({
   }
   return (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
+      className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
       title="Non publié sur Paris Fashion Shop"
     >
       <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
@@ -346,7 +346,7 @@ function AnkorstoreBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]"
+        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]"
         title="Publication Ankorstore en cours… (1 à 5 minutes)"
       >
         <svg
@@ -371,7 +371,7 @@ function AnkorstoreBadge({
           e.stopPropagation();
           onSyncClick?.();
         }}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
         title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Ankorstore"
       >
         <span className="relative inline-flex">
@@ -385,7 +385,7 @@ function AnkorstoreBadge({
   if (published) {
     return (
       <span
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
         title="Publié sur Ankorstore"
       >
         <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
@@ -399,7 +399,7 @@ function AnkorstoreBadge({
   // on affiche la pastille correspondante.
   if (onPublishClick || onLinkClick) {
     return (
-      <span className="inline-flex items-center gap-1">
+      <span className="inline-flex items-center justify-center gap-1 min-w-[7.5rem]">
         {onPublishClick && (
           <button
             type="button"
@@ -437,7 +437,7 @@ function AnkorstoreBadge({
   }
   return (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
+      className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
       title="Non publié sur Ankorstore"
     >
       <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
@@ -465,7 +465,7 @@ function EfashionBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]"
+        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]"
         title="Publication eFashion Paris en cours…"
       >
         <svg
@@ -490,7 +490,7 @@ function EfashionBadge({
           e.stopPropagation();
           onSyncClick?.();
         }}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
         title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à eFashion Paris"
       >
         <span className="relative inline-flex">
@@ -504,7 +504,7 @@ function EfashionBadge({
   if (linked) {
     return (
       <span
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
         title="Lié à eFashion Paris"
       >
         <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
@@ -514,7 +514,7 @@ function EfashionBadge({
   }
   if (onPublishClick || onLinkClick) {
     return (
-      <span className="inline-flex items-center gap-1">
+      <span className="inline-flex items-center justify-center gap-1 min-w-[7.5rem]">
         {onPublishClick && (
           <button
             type="button"
@@ -552,7 +552,7 @@ function EfashionBadge({
   }
   return (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
+      className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
       title="Non lié à eFashion Paris"
     >
       <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
@@ -579,7 +579,7 @@ function FaireBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FCE7F3] text-[#9D174D] border border-[#FBCFE8]"
+        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#FCE7F3] text-[#9D174D] border border-[#FBCFE8]"
         title="Publication Faire en cours…"
       >
         <svg
@@ -604,7 +604,7 @@ function FaireBadge({
           e.stopPropagation();
           onSyncClick?.();
         }}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
         title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Faire"
       >
         <span className="relative inline-flex">
@@ -618,7 +618,7 @@ function FaireBadge({
   if (published) {
     return (
       <span
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
         title="Publié sur Faire"
       >
         <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
@@ -628,7 +628,7 @@ function FaireBadge({
   }
   if (onPublishClick || onLinkClick) {
     return (
-      <span className="inline-flex items-center gap-1">
+      <span className="inline-flex items-center justify-center gap-1 min-w-[7.5rem]">
         {onPublishClick && (
           <button
             type="button"
@@ -666,7 +666,7 @@ function FaireBadge({
   }
   return (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
+      className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
       title="Non publié sur Faire"
     >
       <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
