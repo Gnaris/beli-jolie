@@ -95,9 +95,9 @@ export function productToMicrostoreRows(
 
     // Colonne « Catégorie » : si la cliente a choisi une sous-catégorie comme
     // étiquette Microstore (radio dans la page produit), on l'utilise. Sinon
-    // on retombe sur le comportement historique (catégorie PFS ou locale).
+    // on prend la catégorie du site (jamais la catégorie PFS).
     const categoryLabel =
-      p.microstoreCategoryOverride || p.pfsCategoryName || p.categoryName || "";
+      p.microstoreCategoryOverride || p.categoryName || "";
 
     return [
       p.reference, // 1. Référence

@@ -79,18 +79,18 @@ describe("productToMicrostoreRows — colonne Catégorie", () => {
   // Microstore, voir generate-microstore.ts).
   const COL_CATEGORIE = 2;
 
-  it("utilise la catégorie principale par défaut (pas d'override)", () => {
+  it("utilise la catégorie du site par défaut (pas d'override)", () => {
     const rows = productToMicrostoreRows(makeProduct(), makeCtx());
     expect(rows).toHaveLength(1);
-    expect(rows[0]![COL_CATEGORIE]).toBe("Bracelets"); // pfsCategoryName prioritaire
+    expect(rows[0]![COL_CATEGORIE]).toBe("Bracelet"); // categoryName du site
   });
 
-  it("retombe sur la catégorie locale si pas de catégorie PFS", () => {
+  it("ignore la catégorie PFS même si elle est renseignée", () => {
     const rows = productToMicrostoreRows(
-      makeProduct({ pfsCategoryName: null }),
+      makeProduct({ pfsCategoryName: "Bracelets", categoryName: "Bracelet" }),
       makeCtx(),
     );
-    expect(rows[0]![COL_CATEGORIE]).toBe("Bracelet"); // categoryName local
+    expect(rows[0]![COL_CATEGORIE]).toBe("Bracelet");
   });
 
   it("utilise la sous-catégorie quand microstoreCategoryOverride est posé", () => {
@@ -101,10 +101,9 @@ describe("productToMicrostoreRows — colonne Catégorie", () => {
     expect(rows[0]![COL_CATEGORIE]).toBe("Bracelet de main");
   });
 
-  it("l'override Microstore prime sur pfsCategoryName ET categoryName", () => {
+  it("l'override Microstore prime sur la catégorie du site", () => {
     const rows = productToMicrostoreRows(
       makeProduct({
-        pfsCategoryName: "Bracelets",
         categoryName: "Bracelet",
         microstoreCategoryOverride: "Chaîne de cheville",
       }),
@@ -113,11 +112,11 @@ describe("productToMicrostoreRows — colonne Catégorie", () => {
     expect(rows[0]![COL_CATEGORIE]).toBe("Chaîne de cheville");
   });
 
-  it("ignore un override vide (chaîne vide → fallback catégorie principale)", () => {
+  it("ignore un override vide (chaîne vide → fallback catégorie du site)", () => {
     const rows = productToMicrostoreRows(
       makeProduct({ microstoreCategoryOverride: "" }),
       makeCtx(),
     );
-    expect(rows[0]![COL_CATEGORIE]).toBe("Bracelets");
+    expect(rows[0]![COL_CATEGORIE]).toBe("Bracelet");
   });
 });
