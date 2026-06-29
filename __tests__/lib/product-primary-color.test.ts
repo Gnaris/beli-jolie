@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   getProductPrimaryColorId,
+  getPrimaryInvalidityReason,
   listAvailableColorIds,
   resolvePrimaryColorId,
+  type ProductColorForPrimaryCheck,
 } from "@/lib/product-primary-color";
 
 describe("getProductPrimaryColorId", () => {
@@ -139,5 +141,95 @@ describe("resolvePrimaryColorId", () => {
   it("retourne null si la valeur courante et la liste sont vides", () => {
     expect(resolvePrimaryColorId(null, [])).toBeNull();
     expect(resolvePrimaryColorId(undefined, [])).toBeNull();
+  });
+});
+
+function makeColor(
+  overrides: Partial<ProductColorForPrimaryCheck> = {},
+): ProductColorForPrimaryCheck {
+  return {
+    id: "pc1",
+    colorId: "c1",
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+    pfsColorRefOverride: null,
+    disabled: false,
+    color: { name: "Doré", pfsColorRef: "GOLDEN" },
+    imageCount: 1,
+    siblings: [],
+    ...overrides,
+  };
+}
+
+describe("getPrimaryInvalidityReason", () => {
+  it("retourne null pour une couleur valide", () => {
+    expect(getPrimaryInvalidityReason(makeColor())).toBeNull();
+  });
+
+  it("missing_image quand imageCount = 0", () => {
+    expect(
+      getPrimaryInvalidityReason(makeColor({ imageCount: 0 })),
+    ).toBe("missing_image");
+  });
+
+  it("missing_pfs_mapping quand pfsColorRef et override sont vides", () => {
+    expect(
+      getPrimaryInvalidityReason(
+        makeColor({
+          color: { name: "Doré", pfsColorRef: null },
+          pfsColorRefOverride: null,
+        }),
+      ),
+    ).toBe("missing_pfs_mapping");
+  });
+
+  it("accepte si pfsColorRefOverride est présent même quand pfsColorRef est vide", () => {
+    expect(
+      getPrimaryInvalidityReason(
+        makeColor({
+          color: { name: "Doré", pfsColorRef: null },
+          pfsColorRefOverride: "GOLDEN_ALT",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("deleted quand colorId est null (orphelin)", () => {
+    expect(
+      getPrimaryInvalidityReason(makeColor({ colorId: null, color: null })),
+    ).toBe("deleted");
+  });
+
+  it("all_variants_inactive quand la variante et tous les siblings sont disabled", () => {
+    expect(
+      getPrimaryInvalidityReason(
+        makeColor({
+          disabled: true,
+          siblings: [{ disabled: true }, { disabled: true }],
+        }),
+      ),
+    ).toBe("all_variants_inactive");
+  });
+
+  it("valide si au moins un sibling est actif (variante PACK active malgré UNIT désactivée)", () => {
+    expect(
+      getPrimaryInvalidityReason(
+        makeColor({
+          disabled: true,
+          siblings: [{ disabled: false }],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("missing_image prend la priorité sur missing_pfs_mapping (déterminisme)", () => {
+    expect(
+      getPrimaryInvalidityReason(
+        makeColor({
+          imageCount: 0,
+          color: { name: "Doré", pfsColorRef: null },
+          pfsColorRefOverride: null,
+        }),
+      ),
+    ).toBe("missing_image");
   });
 });
