@@ -233,3 +233,61 @@ describe("getPrimaryInvalidityReason", () => {
     ).toBe("missing_image");
   });
 });
+
+import { resolvePrimaryColorWithValidation } from "@/lib/product-primary-color";
+
+describe("resolvePrimaryColorWithValidation", () => {
+  const validA = makeColor({ id: "A", createdAt: new Date("2026-01-01") });
+  const validB = makeColor({ id: "B", createdAt: new Date("2026-01-02") });
+  const invalidNoImage = makeColor({
+    id: "X",
+    createdAt: new Date("2026-01-01"),
+    imageCount: 0,
+  });
+
+  it("garde la principale actuelle si elle est valide", () => {
+    const out = resolvePrimaryColorWithValidation({
+      colors: [validA, validB],
+      currentPrimaryProductColorId: "A",
+    });
+    expect(out.winnerId).toBe("A");
+    expect(out.reasonForSwap).toBeNull();
+  });
+
+  it("promeut la première valide dans l'ordre createdAt si la principale est invalide", () => {
+    const out = resolvePrimaryColorWithValidation({
+      colors: [invalidNoImage, validA, validB],
+      currentPrimaryProductColorId: "X",
+    });
+    expect(out.winnerId).toBe("A");
+    expect(out.reasonForSwap).toBe("missing_image");
+  });
+
+  it("renvoie winnerId null si aucune couleur n'est valide", () => {
+    const out = resolvePrimaryColorWithValidation({
+      colors: [invalidNoImage],
+      currentPrimaryProductColorId: "X",
+    });
+    expect(out.winnerId).toBeNull();
+    expect(out.reasonForSwap).toBe("missing_image");
+  });
+
+  it("traite l'absence de principale actuelle comme une promotion `deleted`", () => {
+    const out = resolvePrimaryColorWithValidation({
+      colors: [validA, validB],
+      currentPrimaryProductColorId: null,
+    });
+    expect(out.winnerId).toBe("A");
+    expect(out.reasonForSwap).toBe("deleted");
+  });
+
+  it("trie strictement par createdAt ASC, pas par ordre du tableau passé", () => {
+    const newer = makeColor({ id: "N", createdAt: new Date("2026-06-01") });
+    const older = makeColor({ id: "O", createdAt: new Date("2026-01-01") });
+    const out = resolvePrimaryColorWithValidation({
+      colors: [newer, older], // tableau dans le désordre
+      currentPrimaryProductColorId: null,
+    });
+    expect(out.winnerId).toBe("O");
+  });
+});

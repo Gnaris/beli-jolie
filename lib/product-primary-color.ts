@@ -134,3 +134,62 @@ export function getPrimaryInvalidityReason(
   if (allInactive) return "all_variants_inactive";
   return null;
 }
+
+export type ResolvePrimaryColorInput = {
+  colors: ProductColorForPrimaryCheck[];
+  /**
+   * ID du `ProductColor` actuellement marqué principal (avant la sauvegarde).
+   * `null` quand le produit n'a pas de principale (création, ou tous les
+   * `isPrimary=false`, ou pointeur orphelin).
+   */
+  currentPrimaryProductColorId: string | null;
+};
+
+export type ResolvePrimaryColorResult = {
+  /** ID du `ProductColor` qui doit porter `isPrimary=true`. `null` si aucune valide. */
+  winnerId: string | null;
+  /**
+   * Raison pour laquelle la principale a changé. `null` si pas de changement.
+   * Quand la principale courante est invalide, on remonte SA raison
+   * d'invalidité (pas celle du remplaçant). Quand il n'y avait pas de
+   * principale, on utilise `deleted`.
+   */
+  reasonForSwap: PrimaryColorInvalidityReason | null;
+};
+
+/**
+ * Décide qui doit devenir la couleur principale post-sauvegarde.
+ *
+ * - Si l'actuelle (`currentPrimaryProductColorId`) est encore présente ET
+ *   valide → on la garde, `reasonForSwap = null`.
+ * - Sinon → on prend la première valide par `createdAt ASC`. La raison de
+ *   l'invalidation de l'actuelle est remontée (ou `deleted` si l'actuelle
+ *   a disparu ou n'existait pas).
+ * - Si aucune n'est valide → `winnerId = null`, raison = raison de l'actuelle
+ *   (ou `deleted`).
+ */
+export function resolvePrimaryColorWithValidation(
+  input: ResolvePrimaryColorInput,
+): ResolvePrimaryColorResult {
+  const sorted = [...input.colors].sort(
+    (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+  );
+  const current = sorted.find(
+    (c) => c.id === input.currentPrimaryProductColorId,
+  );
+  const currentReason: PrimaryColorInvalidityReason | null = current
+    ? getPrimaryInvalidityReason(current)
+    : "deleted";
+
+  if (current && currentReason === null) {
+    return { winnerId: current.id, reasonForSwap: null };
+  }
+
+  const replacement = sorted.find(
+    (c) => getPrimaryInvalidityReason(c) === null,
+  );
+  return {
+    winnerId: replacement?.id ?? null,
+    reasonForSwap: currentReason,
+  };
+}
