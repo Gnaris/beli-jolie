@@ -710,7 +710,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 export » concerne aussi Microstore (purement Excel, pas de config). */}
             <FilterColumn title="Marketplaces">
               {hasPfsConfig && (
-                <FilterField label={<MarketplaceLabel name="Lien Paris Fashion Shop" />} active={!!urlPfsLink}>
+                <FilterField label="Lien Paris Fashion Shop" active={!!urlPfsLink}>
                   <CustomSelect
                     value={urlPfsLink}
                     onChange={(v) => navigate({ pfsLink: v || null })}
@@ -725,7 +725,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 </FilterField>
               )}
               {hasAnkorstoreConfig && (
-                <FilterField label={<MarketplaceLabel name="Lien Ankorstore" />} active={!!urlAnkorsLink}>
+                <FilterField label="Lien Ankorstore" active={!!urlAnkorsLink}>
                   <CustomSelect
                     value={urlAnkorsLink}
                     onChange={(v) => navigate({ ankorsLink: v || null })}
@@ -740,7 +740,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 </FilterField>
               )}
               {hasEfashionConfig && (
-                <FilterField label={<MarketplaceLabel name="Lien eFashion Paris" />} active={!!urlEfashionLink}>
+                <FilterField label="Lien eFashion Paris" active={!!urlEfashionLink}>
                   <CustomSelect
                     value={urlEfashionLink}
                     onChange={(v) => navigate({ efashionLink: v || null })}
@@ -755,7 +755,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 </FilterField>
               )}
               {hasFaireConfig && (
-                <FilterField label={<MarketplaceLabel name="Lien Faire" />} active={!!urlFaireLink}>
+                <FilterField label="Lien Faire" active={!!urlFaireLink}>
                   <CustomSelect
                     value={urlFaireLink}
                     onChange={(v) => navigate({ faireLink: v || null })}
@@ -770,7 +770,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 </FilterField>
               )}
               {(hasPfsConfig || hasAnkorstoreConfig || hasEfashionConfig || hasFaireConfig) && (
-                <FilterField label={<MarketplaceLabel name="Synchronisation" />} active={!!urlSyncRequired}>
+                <FilterField label="Synchronisation" active={!!urlSyncRequired}>
                   <CustomSelect
                     value={urlSyncRequired}
                     onChange={(v) => navigate({ syncRequired: v || null })}
@@ -785,7 +785,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
               )}
 
               {/* ─── Dernier export ─ 1 dropdown par marketplace ─────────────── */}
-              <FilterField label={<MarketplaceLabel name="Dernier export Paris Fashion Shop" />} active={!!urlPfsExportedAt}>
+              <FilterField label="Dernier export Paris Fashion Shop" active={!!urlPfsExportedAt}>
                 <CustomSelect
                   value={urlPfsExportedAt}
                   onChange={(v) => navigate({ pfsExportedAt: v || null })}
@@ -794,7 +794,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label={<MarketplaceLabel name="Dernier export eFashion" />} active={!!urlEfashionExportedAt}>
+              <FilterField label="Dernier export eFashion" active={!!urlEfashionExportedAt}>
                 <CustomSelect
                   value={urlEfashionExportedAt}
                   onChange={(v) => navigate({ efashionExportedAt: v || null })}
@@ -803,7 +803,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label={<MarketplaceLabel name="Dernier export Microstore" />} active={!!urlMicrostoreExportedAt}>
+              <FilterField label="Dernier export Microstore" active={!!urlMicrostoreExportedAt}>
                 <CustomSelect
                   value={urlMicrostoreExportedAt}
                   onChange={(v) => navigate({ microstoreExportedAt: v || null })}
@@ -812,7 +812,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label={<MarketplaceLabel name="Dernier export Ankorstore" />} active={!!urlAnkorstoreExportedAt}>
+              <FilterField label="Dernier export Ankorstore" active={!!urlAnkorstoreExportedAt}>
                 <CustomSelect
                   value={urlAnkorstoreExportedAt}
                   onChange={(v) => navigate({ ankorstoreExportedAt: v || null })}
@@ -821,7 +821,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label={<MarketplaceLabel name="Dernier export Faire" />} active={!!urlFaireExportedAt}>
+              <FilterField label="Dernier export Faire" active={!!urlFaireExportedAt}>
                 <CustomSelect
                   value={urlFaireExportedAt}
                   onChange={(v) => navigate({ faireExportedAt: v || null })}
@@ -871,49 +871,6 @@ function FilterColumn({ title, children }: { title: string; children: React.Reac
       </h3>
       <div className="space-y-2">{children}</div>
     </section>
-  );
-}
-
-/**
- * Étiquette d'un filtre marketplace : sépare l'action (« Lien », « Dernier
- * export ») du nom de la marketplace, qu'on rend dans une pastille de
- * largeur fixe. Toutes les pastilles ont la même largeur (calée sur la plus
- * longue, « Paris Fashion Shop ») : la cliente peut scanner la colonne
- * Marketplaces d'un coup d'œil sans suivre des libellés qui se décalent.
- */
-function MarketplaceLabel({ name }: { name: string }) {
-  const lien = name.match(/^Lien (.+)$/);
-  const exp  = name.match(/^Dernier export (.+)$/);
-  if (lien) {
-    return (
-      <span className="inline-flex items-center gap-1.5">
-        <span>Lien</span>
-        <MarketplaceChip name={lien[1]} />
-      </span>
-    );
-  }
-  if (exp) {
-    return (
-      <span className="inline-flex items-center gap-1.5">
-        <span>Dernier export</span>
-        <MarketplaceChip name={exp[1]} />
-      </span>
-    );
-  }
-  return <>{name}</>;
-}
-
-/**
- * Pastille marketplace de largeur uniforme.
- * `min-w-[7.5rem]` ≈ 120 px — taille de « Paris Fashion Shop » au font-size
- * du libellé (10 px, tracking-wider, normal-case). Centré, fond slate très
- * doux pour ne pas concurrencer la pastille emerald « filtre actif ».
- */
-function MarketplaceChip({ name }: { name: string }) {
-  return (
-    <span className="inline-block min-w-[7.5rem] text-center px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 normal-case tracking-normal font-semibold text-[10px] ring-1 ring-slate-200">
-      {name}
-    </span>
   );
 }
 

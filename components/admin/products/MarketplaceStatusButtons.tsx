@@ -179,7 +179,14 @@ function StatusBadge({
         type="button"
         onClick={onClick}
         disabled={state.loading}
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border transition-all ${
+        // `min-w-[12rem]` aligne tous les badges marketplace sur la même
+        // largeur visuelle (calée sur le plus long libellé courant —
+        // « Paris Fashion Shop · Belicia ») : la cliente scanne la colonne
+        // Marketplace verticalement sans que les badges se décalent. Les
+        // états « Non publié … » ou « Synchro nécessaire » peuvent dépasser
+        // cette largeur si le texte est plus long — c'est volontaire.
+        // `justify-center` centre la pastille + libellé dans cette largeur.
+        className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1 min-w-[12rem] rounded-none text-[11px] font-semibold font-body border transition-all ${
           state.loading
             ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
             : state.syncRequired
