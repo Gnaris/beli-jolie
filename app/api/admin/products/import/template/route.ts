@@ -21,7 +21,7 @@ const COLORS = {
   inkMuted: "94A3B8",     // slate-400 — texte gris doux
   white: "FFFFFF",
   // Bordures
-  border: "E2E8F0",       // slate-200
+  border: "CBD5E1",       // slate-300 — gris légèrement foncé pour la grille
   borderSoft: "F1F5F9",   // slate-100
   // Section "Fiche produit" — slate (gris-bleuté)
   productBand: "64748B",       // slate-500 — bandeau ligne 1
@@ -415,6 +415,7 @@ export async function GET() {
       cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
       cell.font = { name: "Calibri", size: 11, color: { argb: COLORS.ink } };
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.white } };
+      cell.border = BORDER_THIN;
     }
   }
 

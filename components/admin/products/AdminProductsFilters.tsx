@@ -500,7 +500,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-x-4 gap-y-4 xl:gap-x-0 xl:gap-y-0">
             {/* Colonne : Catalogue */}
             <FilterColumn title="Catalogue">
-              <FilterField label="Catégorie">
+              <FilterField label="Catégorie" active={!!urlCat}>
                 <CustomSelect
                   value={urlCat}
                   onChange={(v) => navigate({ cat: v || null, subCat: null })}
@@ -512,7 +512,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Sous-catégorie">
+              <FilterField label="Sous-catégorie" active={!!urlSubCat}>
                 <CustomSelect
                   value={urlSubCat}
                   onChange={(v) => navigate({ subCat: v || null })}
@@ -529,7 +529,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Mot-clé">
+              <FilterField label="Mot-clé" active={!!urlTag}>
                 <CustomSelect
                   value={urlTag}
                   onChange={(v) => navigate({ tag: v || null })}
@@ -541,7 +541,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Composition">
+              <FilterField label="Composition" active={!!urlComposition}>
                 <CustomSelect
                   value={urlComposition}
                   onChange={(v) => navigate({ composition: v || null })}
@@ -553,7 +553,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Code SH">
+              <FilterField label="Code SH" active={!!urlHsCodeId}>
                 <CustomSelect
                   value={urlHsCodeId}
                   onChange={(v) => navigate({ hsCodeId: v || null })}
@@ -573,7 +573,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
 
             {/* Colonne : Statut & visibilité */}
             <FilterColumn title="Statut & visibilité">
-              <FilterField label="Statut">
+              <FilterField label="Statut" active={!!urlStatus}>
                 <CustomSelect
                   value={urlStatus}
                   onChange={(v) => navigate({ status: v || null })}
@@ -588,7 +588,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Best-sellers">
+              <FilterField label="Best-sellers" active={!!urlBestSeller}>
                 <CustomSelect
                   value={urlBestSeller}
                   onChange={(v) => navigate({ bestSeller: v || null })}
@@ -600,7 +600,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Verrouillage">
+              <FilterField label="Verrouillage" active={!!urlLocked}>
                 <CustomSelect
                   value={urlLocked}
                   onChange={(v) => navigate({ locked: v || null })}
@@ -612,7 +612,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Images">
+              <FilterField label="Images" active={!!urlMissingImages}>
                 <CustomSelect
                   value={urlMissingImages}
                   onChange={(v) => navigate({ missingImages: v || null })}
@@ -629,7 +629,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
 
             {/* Colonne : Prix & stock */}
             <FilterColumn title="Prix & stock">
-              <FilterField label="Prix min (€)">
+              <FilterField label="Prix min (€)" active={!!urlMinPrice}>
                 <input
                   type="number"
                   min={0}
@@ -641,7 +641,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   className="w-full px-2.5 py-1.5 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
                 />
               </FilterField>
-              <FilterField label="Prix max (€)">
+              <FilterField label="Prix max (€)" active={!!urlMaxPrice}>
                 <input
                   type="number"
                   min={0}
@@ -653,7 +653,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   className="w-full px-2.5 py-1.5 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
                 />
               </FilterField>
-              <FilterField label="Stock ≤">
+              <FilterField label="Stock ≤" active={!!urlStockBelow}>
                 <input
                   type="number"
                   min={0}
@@ -668,7 +668,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
 
             {/* Colonne : Dates & fraîcheur */}
             <FilterColumn title="Dates & fraîcheur">
-              <FilterField label="Créé depuis">
+              <FilterField label="Créé depuis" active={!!urlDateFrom}>
                 <input
                   type="date"
                   value={localDateFrom}
@@ -677,7 +677,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   className="w-full px-2.5 py-1.5 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
                 />
               </FilterField>
-              <FilterField label="Créé avant">
+              <FilterField label="Créé avant" active={!!urlDateTo}>
                 <input
                   type="date"
                   value={localDateTo}
@@ -686,7 +686,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   className="w-full px-2.5 py-1.5 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
                 />
               </FilterField>
-              <FilterField label="Tri / Rafraîchissement">
+              <FilterField label="Tri / Rafraîchissement" active={!!urlRefresh}>
                 <CustomSelect
                   value={urlRefresh}
                   onChange={(v) => navigate({ refresh: v || null })}
@@ -710,7 +710,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 export » concerne aussi Microstore (purement Excel, pas de config). */}
             <FilterColumn title="Marketplaces">
               {hasPfsConfig && (
-                <FilterField label="Lien Paris Fashion Shop">
+                <FilterField label={<MarketplaceLabel name="Lien Paris Fashion Shop" />} active={!!urlPfsLink}>
                   <CustomSelect
                     value={urlPfsLink}
                     onChange={(v) => navigate({ pfsLink: v || null })}
@@ -725,7 +725,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 </FilterField>
               )}
               {hasAnkorstoreConfig && (
-                <FilterField label="Lien Ankorstore">
+                <FilterField label={<MarketplaceLabel name="Lien Ankorstore" />} active={!!urlAnkorsLink}>
                   <CustomSelect
                     value={urlAnkorsLink}
                     onChange={(v) => navigate({ ankorsLink: v || null })}
@@ -740,7 +740,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 </FilterField>
               )}
               {hasEfashionConfig && (
-                <FilterField label="Lien eFashion Paris">
+                <FilterField label={<MarketplaceLabel name="Lien eFashion Paris" />} active={!!urlEfashionLink}>
                   <CustomSelect
                     value={urlEfashionLink}
                     onChange={(v) => navigate({ efashionLink: v || null })}
@@ -755,7 +755,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 </FilterField>
               )}
               {hasFaireConfig && (
-                <FilterField label="Lien Faire">
+                <FilterField label={<MarketplaceLabel name="Lien Faire" />} active={!!urlFaireLink}>
                   <CustomSelect
                     value={urlFaireLink}
                     onChange={(v) => navigate({ faireLink: v || null })}
@@ -770,7 +770,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 </FilterField>
               )}
               {(hasPfsConfig || hasAnkorstoreConfig || hasEfashionConfig || hasFaireConfig) && (
-                <FilterField label="Synchronisation">
+                <FilterField label={<MarketplaceLabel name="Synchronisation" />} active={!!urlSyncRequired}>
                   <CustomSelect
                     value={urlSyncRequired}
                     onChange={(v) => navigate({ syncRequired: v || null })}
@@ -785,7 +785,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
               )}
 
               {/* ─── Dernier export ─ 1 dropdown par marketplace ─────────────── */}
-              <FilterField label="Dernier export Paris Fashion Shop">
+              <FilterField label={<MarketplaceLabel name="Dernier export Paris Fashion Shop" />} active={!!urlPfsExportedAt}>
                 <CustomSelect
                   value={urlPfsExportedAt}
                   onChange={(v) => navigate({ pfsExportedAt: v || null })}
@@ -794,7 +794,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Dernier export eFashion">
+              <FilterField label={<MarketplaceLabel name="Dernier export eFashion" />} active={!!urlEfashionExportedAt}>
                 <CustomSelect
                   value={urlEfashionExportedAt}
                   onChange={(v) => navigate({ efashionExportedAt: v || null })}
@@ -803,7 +803,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Dernier export Microstore">
+              <FilterField label={<MarketplaceLabel name="Dernier export Microstore" />} active={!!urlMicrostoreExportedAt}>
                 <CustomSelect
                   value={urlMicrostoreExportedAt}
                   onChange={(v) => navigate({ microstoreExportedAt: v || null })}
@@ -812,7 +812,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Dernier export Ankorstore">
+              <FilterField label={<MarketplaceLabel name="Dernier export Ankorstore" />} active={!!urlAnkorstoreExportedAt}>
                 <CustomSelect
                   value={urlAnkorstoreExportedAt}
                   onChange={(v) => navigate({ ankorstoreExportedAt: v || null })}
@@ -821,7 +821,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Dernier export Faire">
+              <FilterField label={<MarketplaceLabel name="Dernier export Faire" />} active={!!urlFaireExportedAt}>
                 <CustomSelect
                   value={urlFaireExportedAt}
                   onChange={(v) => navigate({ faireExportedAt: v || null })}
@@ -874,12 +874,83 @@ function FilterColumn({ title, children }: { title: string; children: React.Reac
   );
 }
 
-/** Champ de filtre individuel avec son label. */
-function FilterField({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+/**
+ * Étiquette d'un filtre marketplace : sépare l'action (« Lien », « Dernier
+ * export ») du nom de la marketplace, qu'on rend dans une pastille de
+ * largeur fixe. Toutes les pastilles ont la même largeur (calée sur la plus
+ * longue, « Paris Fashion Shop ») : la cliente peut scanner la colonne
+ * Marketplaces d'un coup d'œil sans suivre des libellés qui se décalent.
+ */
+function MarketplaceLabel({ name }: { name: string }) {
+  const lien = name.match(/^Lien (.+)$/);
+  const exp  = name.match(/^Dernier export (.+)$/);
+  if (lien) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span>Lien</span>
+        <MarketplaceChip name={lien[1]} />
+      </span>
+    );
+  }
+  if (exp) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span>Dernier export</span>
+        <MarketplaceChip name={exp[1]} />
+      </span>
+    );
+  }
+  return <>{name}</>;
+}
+
+/**
+ * Pastille marketplace de largeur uniforme.
+ * `min-w-[7.5rem]` ≈ 120 px — taille de « Paris Fashion Shop » au font-size
+ * du libellé (10 px, tracking-wider, normal-case). Centré, fond slate très
+ * doux pour ne pas concurrencer la pastille emerald « filtre actif ».
+ */
+function MarketplaceChip({ name }: { name: string }) {
+  return (
+    <span className="inline-block min-w-[7.5rem] text-center px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 normal-case tracking-normal font-semibold text-[10px] ring-1 ring-slate-200">
+      {name}
+    </span>
+  );
+}
+
+/**
+ * Champ de filtre individuel avec son label.
+ *
+ * `active` = un filtre est actuellement appliqué sur ce champ (valeur ≠ « Tous »).
+ * On affiche alors une pastille emerald devant le libellé et on bascule la
+ * couleur du libellé en emerald-700 : repère visuel rapide pour la cliente,
+ * qui voit en un coup d'œil quels filtres (parmi la quinzaine empilés) sont
+ * actifs. Volontairement discret — pas de couleur sur le champ lui-même pour
+ * ne pas saturer le panneau.
+ */
+function FilterField({
+  label,
+  children,
+  active = false,
+}: {
+  label: React.ReactNode;
+  children: React.ReactNode;
+  active?: boolean;
+}) {
   return (
     <div>
-      <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-0.5">
-        {label}
+      <label
+        className={`flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider font-body mb-0.5 transition-colors ${
+          active ? "text-emerald-700" : "text-text-secondary"
+        }`}
+      >
+        {active && (
+          <span
+            className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"
+            aria-hidden="true"
+          />
+        )}
+        <span>{label}</span>
+        {active && <span className="sr-only"> — filtre actif</span>}
       </label>
       {children}
     </div>
