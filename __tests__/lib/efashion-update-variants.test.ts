@@ -27,6 +27,10 @@ vi.mock("@/lib/efashion-api-write", () => ({
   efashionPublishBrouillon: vi.fn(),
   efashionSoftDeleteProduits: vi.fn(),
   efashionGetAllUsedColorIdsByMainProduct: vi.fn().mockResolvedValue([]),
+  efashionGetProduitCaracteristiqueIds: vi.fn().mockResolvedValue([]),
+}));
+vi.mock("@/lib/efashion-shootings", () => ({
+  efashionPutShootingProduct: vi.fn().mockResolvedValue({ success: true }),
 }));
 vi.mock("@/lib/efashion-photos", () => ({
   efashionGetProductPhotos: vi.fn().mockResolvedValue({ photos: [] }),
@@ -343,9 +347,19 @@ describe("efashionUpdateProductInPlace — variantes ajoutées/supprimées", () 
     expect(callsFor999.length).toBe(0);
   });
 
-  it("auto-crée une nouvelle couleur via duplicateWithNewColor + uploadPhotos + publishBrouillon", async () => {
+  it("auto-crée une nouvelle couleur via PUT shooting (dans le shooting du groupe)", async () => {
     // Snapshot précédent : 1 couleur principale (101 = Doré). L'admin ajoute
     // une couleur Bordeaux localement SANS la lier manuellement à eFashion.
+    // Le nouveau flow : PUT /shootings/product/{mainId} avec Bordeaux ajouté
+    // dans `couleurs[]` — la nouvelle couleur est créée dans le shooting du
+    // groupe (contrairement à `duplicateWithNewColor` qui créait un shooting
+    // séparé invisible côté acheteurs).
+    const putShootingMock = (
+      await import("@/lib/efashion-shootings")
+    ).efashionPutShootingProduct as unknown as ReturnType<typeof vi.fn>;
+    putShootingMock.mockReset();
+    putShootingMock.mockResolvedValue({ success: true });
+
     findUniqueMock.mockResolvedValue({
       id: "p5",
       reference: "A1852DO",
@@ -387,29 +401,36 @@ describe("efashionUpdateProductInPlace — variantes ajoutées/supprimées", () 
         }),
       ],
     });
-    // eFashion confirme l'existence de 101 (la couleur source pour duplicate).
-    listProductsMock.mockResolvedValue({
-      items: [makeLiveItem({ id_produit: 101, id_couleur: 78, main: true, reference_base: "A1852DO" })],
-    });
-    // Le duplicate retourne le nouvel id_produit 3680371 (comme dans le HAR réel).
-    duplicateMock.mockResolvedValue({ id_produit: 3680371, reference: "A1852DO-BORDEAUX", main: false });
+    // 1er listProducts : eFashion ne connaît que 101 (avant PUT).
+    // 2e listProducts (après PUT) : 101 + nouvelle Bordeaux (id_produit=3680371,
+    // id_couleur=66, main=false) dans le même shooting.
+    listProductsMock
+      .mockResolvedValueOnce({
+        items: [makeLiveItem({ id_produit: 101, id_couleur: 78, main: true, reference_base: "A1852DO" })],
+      })
+      .mockResolvedValue({
+        items: [
+          makeLiveItem({ id_produit: 101, id_couleur: 78, main: true, reference_base: "A1852DO" }),
+          makeLiveItem({ id_produit: 3680371, id_couleur: 66, main: false, reference_base: "A1852DO" }),
+        ],
+      });
 
     const res = await efashionUpdateProductInPlace("p5");
 
-    // 1. duplicate appelé avec la main 101 + Bordeaux (id=66)
-    expect(duplicateMock).toHaveBeenCalledTimes(1);
-    expect(duplicateMock.mock.calls[0][0]).toEqual({
-      idProduit: 101,
-      couleurId: 66,
-      couleurName: "Bordeaux",
-    });
+    // 1. PUT shooting appelé sur le main (101) avec Bordeaux ajouté dans couleurs[]
+    expect(putShootingMock).toHaveBeenCalledTimes(1);
+    const [putIdProduit, putInput] = putShootingMock.mock.calls[0];
+    expect(putIdProduit).toBe(101);
+    const couleursIds = (putInput as { couleurs: Array<{ id: number }> }).couleurs.map(
+      (c) => c.id,
+    );
+    expect(couleursIds).toContain(78); // existante (Doré)
+    expect(couleursIds).toContain(66); // nouvelle (Bordeaux)
+    expect((putInput as { couleurPrincipaleId: number }).couleurPrincipaleId).toBe(78);
 
-    // 2. publishBrouillon appelé sur le nouvel id_produit
-    expect(publishBrouillonMock).toHaveBeenCalledTimes(1);
-    expect(publishBrouillonMock.mock.calls[0][0]).toEqual({
-      idProduit: 3680371,
-      idVendeur: 2017,
-    });
+    // 2. Pas d'appel à duplicateWithNewColor (ancien flow abandonné — créait
+    // un shooting séparé).
+    expect(duplicateMock).not.toHaveBeenCalled();
 
     // 3. ProductColor mis à jour en BDD avec le nouvel efashionProductId
     expect(productColorUpdateMock).toHaveBeenCalledWith({

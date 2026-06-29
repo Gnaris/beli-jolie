@@ -29,9 +29,6 @@ import {
   efashionSaveProduitDescription,
   efashionSaveProduitCompositions,
   efashionTranslateText,
-  efashionToggleMainProduct,
-  efashionDuplicateWithNewColor,
-  efashionPublishBrouillon,
   efashionSoftDeleteProduits,
 } from "@/lib/efashion-api-write";
 import {
@@ -425,23 +422,167 @@ export async function efashionUpdateProductInPlace(
             continue;
           }
           try {
-            const dup = await efashionDuplicateWithNewColor({
-              idProduit: sourceEfId,
-              couleurId,
-              couleurName,
+            // ⚠️ Méthode officielle eFashion (cf. docs/efashion-api.md §18.2) :
+            // PUT /shootings/product/{mainId} avec la nouvelle couleur ajoutée
+            // dans `couleurs[]`. Cette méthode crée la nouvelle couleur DANS
+            // LE SHOOTING DU GROUPE (point capital pour que la couleur apparaisse
+            // bien comme variante de la fiche côté acheteurs).
+            //
+            // L'ancienne méthode `duplicateWithNewColor` (mutation GraphQL)
+            // créait un shooting séparé → la couleur n'apparaissait pas dans
+            // le groupe côté catalogue acheteurs eFashion (bug W122 juin 2026).
+            const srcLive = liveById.get(sourceEfId);
+            if (!srcLive) {
+              createErrors.push(
+                `addColor(${couleurName}) : couleur source (efId=${sourceEfId}) absente du live eFashion — relancez la sync.`,
+              );
+              continue;
+            }
+            if (
+              srcLive.id_categorie == null ||
+              srcLive.id_collection == null ||
+              srcLive.id_provenance == null
+            ) {
+              createErrors.push(
+                `addColor(${couleurName}) : payload PUT incomplet (id_categorie/id_collection/id_provenance manquant côté live eFashion).`,
+              );
+              continue;
+            }
+            // Déclinaison héritée du main eFashion — la nouvelle couleur reprend
+            // automatiquement la déclinaison du groupe via la propagation PUT.
+            // (On ne peut pas lire targetDeclinaisonId ici : il est calculé plus
+            // bas dans la fonction.)
+            const decId = srcLive.id_declinaison;
+            if (decId == null) {
+              createErrors.push(
+                `addColor(${couleurName}) : déclinaison eFashion introuvable pour le PUT.`,
+              );
+              continue;
+            }
+
+            // Préserve les caractéristiques actuelles du groupe (le PUT remplace
+            // la liste complète — sans ce read, on les supprimerait toutes).
+            const { efashionGetProduitCaracteristiqueIds } = await import(
+              "@/lib/efashion-api-write"
+            );
+            let caracteristiqueIds: number[] = [];
+            try {
+              caracteristiqueIds = await efashionGetProduitCaracteristiqueIds(sourceEfId);
+            } catch (err) {
+              logger.warn(
+                "[eFashion update] Lecture caracteristiques KO (PUT sans caracs)",
+                {
+                  productId,
+                  sourceEfId,
+                  error: err instanceof Error ? err.message : String(err),
+                },
+              );
+            }
+
+            // Identifie la couleur principale eFashion (id_couleur de la main).
+            let mainIdCouleur: number | null = null;
+            for (const [, live] of liveById) {
+              if (live.main && live.id_couleur != null) {
+                mainIdCouleur = live.id_couleur;
+                break;
+              }
+            }
+            if (mainIdCouleur == null) mainIdCouleur = srcLive.id_couleur;
+            if (mainIdCouleur == null) {
+              createErrors.push(
+                `addColor(${couleurName}) : couleur principale eFashion introuvable pour le PUT.`,
+              );
+              continue;
+            }
+
+            // Liste des id_couleur eFashion = existantes + la nouvelle.
+            const colorIdSet = new Set<number>();
+            for (const [, live] of liveById) {
+              if (live.id_couleur != null) colorIdSet.add(live.id_couleur);
+            }
+            colorIdSet.add(couleurId);
+
+            // Descriptions (FR + dimensions). Les autres langues seront
+            // retraduites par la boucle saveProduitDescription plus loin.
+            const dimensionsSuffix = buildEfashionDimensionsSuffix(product);
+            const descriptionFr = (product.description ?? "") + dimensionsSuffix;
+
+            const compositionsForPut = product.compositions
+              .filter((pc) => pc.composition.efashionId !== null)
+              .map((pc) => ({
+                id: pc.composition.efashionId as number,
+                localisationId: 4,
+                percentage: pc.percentage,
+              }));
+
+            const newColorPrice = computeEfashionPrice({
+              basePrice: Number(newColor.unitPrice),
+              isPack: newColor.saleType === "PACK",
+              packQuantity: newColor.packQuantity,
+              markup,
             });
-            const newEfId = dup.id_produit;
+
+            const { efashionPutShootingProduct } = await import(
+              "@/lib/efashion-shootings"
+            );
+            await efashionPutShootingProduct(sourceEfId, {
+              reference: srcLive.reference,
+              idVendeurMarque: srcLive.id_vendeur_marque ?? 3228,
+              poids: Number(newColor.weight),
+              idCategorie: srcLive.id_categorie,
+              venduPar: srcLive.vendu_par === "tailles" ? "tailles" : "couleurs",
+              idCollection: srcLive.id_collection,
+              idProvenance: srcLive.id_provenance,
+              idDeclinaison: decId,
+              idPack: srcLive.id_pack,
+              prix: newColorPrice,
+              prixReduit: null,
+              couleurs: [...colorIdSet].map((id) => ({ id })),
+              couleurPrincipaleId: mainIdCouleur,
+              compositions: compositionsForPut,
+              caracteristiques: caracteristiqueIds.map((id) => ({ id })),
+              descriptionFr,
+              descriptionEn: descriptionFr,
+              descriptionIt: descriptionFr,
+              descriptionEs: descriptionFr,
+              descriptionZh: null,
+              stock: null,
+              // ⚠️ Date max acceptée par eFashion : 2038-01-19 (TIMESTAMP MySQL).
+              dateRemise: "2037-12-31",
+              pourcentageRemise: 0,
+            });
+
+            // Re-liste les produits du groupe pour découvrir le nouvel
+            // id_produit (le PUT ne le retourne pas directement). Filtre :
+            // id_couleur correspondant + absent du liveById d'avant.
+            const { efashionListByReferenceBaseExact: listForNewColor } =
+              await import("@/lib/efashion-api");
+            const refreshed = await listForNewColor({
+              idVendeur: efashionVendorId,
+              referenceBase: product.efashionReferenceBase!,
+              premelFilter: "tous",
+            });
+            const newItem = refreshed.find(
+              (it) =>
+                (it as { id_couleur?: number }).id_couleur === couleurId &&
+                !liveById.has(it.id_produit),
+            );
+            if (!newItem) {
+              createErrors.push(
+                `addColor(${couleurName}) : PUT OK mais nouvel id_produit introuvable côté listing (id_couleur=${couleurId}).`,
+              );
+              continue;
+            }
+            const newEfId = newItem.id_produit;
+
             await prisma.productColor.update({
               where: { id: newColor.id },
               data: { efashionProductId: newEfId },
             });
-            // Mute la copie en mémoire pour que le filtre `linkedColors` plus bas
-            // l'inclue et que le diff la voie comme une variante valide.
             (newColor as { efashionProductId: number | null }).efashionProductId = newEfId;
 
-            // Upload des photos de la nouvelle couleur — 1 photo par appel HTTP
-            // pour préserver l'ordre (cf. raisonnement dans la section images
-            // plus bas).
+            // Upload photos de la nouvelle couleur — 1 photo par appel HTTP
+            // pour préserver l'ordre (cf. raisonnement section images).
             const imgs = newColor.colorId ? (imagesByColorId.get(newColor.colorId) ?? []) : [];
             const sorted = [...imgs].sort((a, b) => a.order - b.order);
             for (let idx = 0; idx < sorted.length; idx++) {
@@ -454,45 +595,42 @@ export async function efashionUpdateProductInPlace(
               ]);
             }
 
-            // Publie le brouillon pour que la couleur devienne visible côté
-            // catalogue acheteurs (sinon elle reste en `premel='0'` et ne sort
-            // jamais en ligne).
-            await efashionPublishBrouillon({
-              idProduit: newEfId,
-              idVendeur: efashionVendorId,
-            });
-
-            // Ajoute au liveById pour que le reste du flow le voit comme un
-            // variant connu. Les champs `id_collection/id_categorie/...` sont
-            // hérités de la source côté eFashion mais on ne les a pas dans la
-            // réponse de duplicate — on les remplit avec ceux de la source pour
-            // que le payload PUT suivant soit valide.
-            const srcLive = liveById.get(sourceEfId);
+            // Ajoute au liveById pour que le reste du flow le voit comme une
+            // variante connue. Les champs `id_collection/id_categorie/...` sont
+            // récupérés du re-listing (newItem) — fallback sur la source si
+            // listProducts ne les remonte pas.
             liveById.set(newEfId, {
-              reference: dup.reference,
-              reference_base: product.efashionReferenceBase,
-              id_collection: srcLive?.id_collection ?? null,
-              id_categorie: srcLive?.id_categorie ?? null,
-              id_provenance: srcLive?.id_provenance ?? null,
-              id_declinaison: srcLive?.id_declinaison ?? null,
-              id_pack: srcLive?.id_pack ?? null,
-              vendu_par: srcLive?.vendu_par ?? "couleurs",
-              id_vendeur_marque: srcLive?.id_vendeur_marque ?? null,
+              reference: newItem.reference,
+              reference_base: newItem.reference_base ?? product.efashionReferenceBase,
+              id_collection: newItem.id_collection ?? srcLive.id_collection,
+              id_categorie: newItem.id_categorie ?? srcLive.id_categorie,
+              id_provenance: newItem.id_provenance ?? srcLive.id_provenance,
+              id_declinaison: newItem.id_declinaison ?? decId,
+              id_pack: newItem.id_pack ?? srcLive.id_pack,
+              vendu_par: (newItem.vendu_par ?? srcLive.vendu_par ?? "couleurs") as
+                | "couleurs"
+                | "tailles",
+              id_vendeur_marque: newItem.id_vendeur_marque ?? srcLive.id_vendeur_marque,
               id_couleur: couleurId,
-              main: dup.main,
+              main: (newItem as { main?: boolean }).main === true,
             });
 
             colorsCreatedCount++;
             usedColorIds.add(couleurId);
-            logger.info("[eFashion update] Nouvelle couleur créée + photos + publish", {
-              productId,
-              newEfId,
-              couleurName,
-              photosCount: sorted.length,
-            });
+            logger.info(
+              "[eFashion update] Nouvelle couleur ajoutée via PUT shooting (dans le shooting du groupe)",
+              {
+                productId,
+                sourceEfId,
+                newEfId,
+                couleurName,
+                couleurId,
+                photosCount: sorted.length,
+              },
+            );
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            createErrors.push(`createColor(${couleurName}): ${msg}`);
+            createErrors.push(`addColor(${couleurName}): ${msg}`);
           }
         }
       }
