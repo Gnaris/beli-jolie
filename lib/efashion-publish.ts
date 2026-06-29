@@ -418,7 +418,16 @@ export async function efashionPublishProduct(
   // (l'admin peut relancer un sync manuel pour rattraper).
   try {
     const { efashionUpdateProductInPlace } = await import("@/lib/efashion-update");
-    const alignRes = await efashionUpdateProductInPlace(productId, { forceFullSync: true });
+    // `isPostPublishAlignment: true` désactive le filet « numéro inconnu d'eFashion »
+    // — légitime ici parce que toutes les variantes viennent d'être créées par
+    // `saveMelDraft` quelques lignes plus haut, donc forcément présentes côté
+    // eFashion. Pour tout autre point d'entrée (sync incrémentale, Rafraîchir
+    // manuel), on laisse le filet actif pour rattraper les efashionProductId
+    // orphelins.
+    const alignRes = await efashionUpdateProductInPlace(productId, {
+      forceFullSync: true,
+      isPostPublishAlignment: true,
+    });
     if (!alignRes.success) {
       logger.warn("[eFashion publish] Alignement par couleur en erreur", {
         productId,

@@ -14,7 +14,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     product: { findUnique: vi.fn(), update: vi.fn().mockResolvedValue({}) },
-    productColor: { update: vi.fn().mockResolvedValue({}) },
+    productColor: {
+      update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
     productColorImage: { findMany: vi.fn().mockResolvedValue([]) },
     color: { findMany: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(),

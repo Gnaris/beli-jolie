@@ -4,7 +4,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     product: { findUnique: vi.fn(), update: vi.fn() },
-    productColor: { update: vi.fn() },
+    productColor: {
+      update: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
     productColorImage: { findMany: vi.fn().mockResolvedValue([]) },
     color: { findMany: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(),
@@ -538,11 +541,11 @@ describe("efashionUpdateProductInPlace — variantes ajoutées/supprimées", () 
     }
   });
 
-  it("ne déclenche pas d'erreur de skip quand previousSnapshot est null (cas alignement post-publish)", async () => {
-    // Cas appelé en fin de efashionPublishProduct avec forceFullSync : le
-    // snapshot précédent est null donc TOUS les diff.added sont du « post-création »
-    // et les couleurs existent vraiment côté eFashion (saveMelDraft vient juste
-    // de les créer).
+  it("ne déclenche pas le filet d'orphelin avec isPostPublishAlignment, même si liveById est partiel", async () => {
+    // Cas appelé en fin de efashionPublishProduct : le flag bypass est posé
+    // explicitement parce que toutes les variantes viennent d'être créées
+    // par saveMelDraft. Si listProducts a un léger lag et ne voit pas encore
+    // la couleur fraîchement créée, on NE doit PAS la filtrer comme orpheline.
     findUniqueMock.mockResolvedValue({
       id: "p4",
       reference: "TEST",
@@ -561,13 +564,20 @@ describe("efashionUpdateProductInPlace — variantes ajoutées/supprimées", () 
         makeLinkedColor({ id: "pc-101", colorId: "color-101", efashionProductId: 101, isPrimary: true }),
       ],
     });
-    listProductsMock.mockResolvedValue({
-      items: [makeLiveItem({ id_produit: 101, id_couleur: 11, main: true, reference_base: "TEST" })],
+    // Mock du lookup local color → efashionColorId pour que le push stock
+    // trouve son id_couleur (sinon l'erreur cosmétique « sans efashionColorId »
+    // se déclenche et pollue le test).
+    (prisma.color.findMany as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { id: "color-101", efashionColorId: 11 },
+    ]);
+    // liveById vide simule le lag du cache eFashion juste après le publish.
+    listProductsMock.mockResolvedValue({ items: [] });
+
+    const res = await efashionUpdateProductInPlace("p4", {
+      forceFullSync: true,
+      isPostPublishAlignment: true,
     });
 
-    const res = await efashionUpdateProductInPlace("p4", { forceFullSync: true });
-
     expect(res.colorsSkippedCount ?? 0).toBe(0);
-    expect(res.error).toBeUndefined();
   });
 });

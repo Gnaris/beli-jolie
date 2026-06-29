@@ -49,11 +49,21 @@ import {
 } from "@/lib/efashion-sync-diff";
 import { loadEfashionMarkup, computeEfashionPrice } from "@/lib/efashion-pricing";
 import { resolveEfashionDeclinaison } from "@/lib/efashion-declinaison-matcher";
-import { filterVariantsByColorIdSet } from "@/lib/variant-image-coverage";
 
 interface UpdateOpts {
   /** Si true, ignore le snapshot existant et renvoie tout — équivalent du « Resync » côté UI. */
   forceFullSync?: boolean;
+  /**
+   * Mis à `true` uniquement par `efashionPublishProduct` quand il appelle cette
+   * fonction en fin de publish pour aligner les attributs par couleur. Dans ce
+   * cas-là, toutes les variantes viennent d'être créées par `saveMelDraft` et
+   * sont garanties d'être dans `liveById` — on désactive donc le filet de
+   * sécurité « numéro inconnu d'eFashion ». Dans tous les autres cas (sync
+   * incrémentale OU resync forcée via UI), ce flag reste `false` pour que le
+   * filet rattrape les `efashionProductId` orphelins (ex : couleur soft-delete
+   * côté eFashion sans nettoyage local — cf. cas W124/Fuchsia juin 2026).
+   */
+  isPostPublishAlignment?: boolean;
 }
 
 /**
@@ -212,14 +222,18 @@ export async function efashionUpdateProductInPlace(
   // eFashion ne synchronise que les variantes UNIT. Une variante PACK qui
   // posséderait un efashionProductId (cas legacy avant le script de migration)
   // est explicitement ignorée ici.
-  // Ignore aussi les couleurs sans image (cf. variant-image-coverage) — pas
-  // de création de nouvelle couleur eFashion sans photo, pas de propagation
-  // collatérale d'une modif stock sur une variante sans image.
+  //
+  // ⚠️ On NE filtre PAS ici les variantes sans image. Si une variante déjà
+  // liée à eFashion (efashionProductId !== null) perd temporairement ses
+  // images locales (job image en attente, ré-upload en cours…), elle DOIT
+  // rester dans `linkedColors` — sinon le diff la place dans `removed` et
+  // déclenche un softDelete agressif chez eFashion (cas W124/Fuchsia
+  // 10-25/06/2026 : couleur supprimée par notre code à cause d'un état
+  // images transitoire, puis numéro eFashion orphelin laissé en BDD locale).
+  // Le filtre sur les images n'est appliqué qu'au moment de l'auto-création
+  // d'une nouvelle couleur (`colorsToCreate` plus bas).
   const colorIdsHavingImages = new Set(imagesByColorId.keys());
-  const unitColors = filterVariantsByColorIdSet(
-    product.colors.filter((c) => c.saleType === "UNIT"),
-    colorIdsHavingImages,
-  );
+  const unitColors = product.colors.filter((c) => c.saleType === "UNIT");
 
   // ─────────────────────────────────────────────────────────────────────
   // État live eFashion — partagé entre auto-création des couleurs et le
@@ -314,7 +328,12 @@ export async function efashionUpdateProductInPlace(
     (c) =>
       c.efashionProductId === null &&
       !c.disabled &&
-      c.color?.efashionColorId != null,
+      c.color?.efashionColorId != null &&
+      // Pas de création sans image locale — sinon la couleur arrive vide
+      // chez eFashion (observé W124/Fuchsia 10/06/2026 : publish avec
+      // photosCount:0 → fiche jamais visible côté acheteurs).
+      c.colorId !== null &&
+      colorIdsHavingImages.has(c.colorId),
   );
 
   if (colorsToCreate.length > 0) {
@@ -517,13 +536,33 @@ export async function efashionUpdateProductInPlace(
     stockByTaille[tailleLabel] = c.stock;
 
     const colorImages = c.colorId ? (imagesByColorId.get(c.colorId) ?? []) : [];
+    // Fallback : si les images locales ont temporairement disparu mais que la
+    // variante est déjà liée et que le snapshot précédent en avait, on conserve
+    // les images du snapshot — sinon le diff verrait `imagesChanged=true` et
+    // déclencherait un push qui poserait `images: []` côté eFashion (= suppression
+    // des photos chez eux pour un état local transitoire). Voir le commentaire
+    // sur `unitColors` plus haut pour le contexte.
+    let imagesForSnapshot: Array<{ dbPath: string; order: number }> = colorImages.map(
+      (img) => ({ dbPath: img.path, order: img.order }),
+    );
+    if (imagesForSnapshot.length === 0 && previousSnapshot) {
+      const prevVariant = previousSnapshot.variants.find(
+        (v) => v.efashionProductId === c.efashionProductId,
+      );
+      if (prevVariant?.images && prevVariant.images.length > 0) {
+        imagesForSnapshot = prevVariant.images.map((img) => ({
+          dbPath: img.dbPath,
+          order: img.order,
+        }));
+      }
+    }
     return {
       efashionProductId: c.efashionProductId as number,
       visible,
       prix: efashionPrice,
       poids: c.weight,
       stockByTaille,
-      images: colorImages.map((img) => ({ dbPath: img.path, order: img.order })),
+      images: imagesForSnapshot,
     };
   });
 
@@ -915,9 +954,22 @@ export async function efashionUpdateProductInPlace(
       await efashionSoftDeleteProduits(diff.removed);
       colorsDeletedCount = diff.removed.length;
       for (const efId of diff.removed) liveById.delete(efId);
+      // ⚠️ Nettoie aussi le numéro eFashion côté BDD locale — sinon un orphelin
+      // (efashionProductId pointant vers un produit soft-deleted chez eFashion)
+      // reste sur la ProductColor et plante toutes les sync futures : eFashion
+      // accepte les updates sur un id supprimé en répondant `200 OK` sans rien
+      // faire (cas W124/Fuchsia 25/06/2026 → erreur muette pendant 4 jours).
+      const removedCount = await prisma.productColor.updateMany({
+        where: {
+          productId: product.id,
+          efashionProductId: { in: diff.removed },
+        },
+        data: { efashionProductId: null },
+      });
       logger.info("[eFashion update] Couleurs supprimées côté eFashion (softDelete)", {
         productId,
         efIds: diff.removed,
+        productColorsCleared: removedCount.count,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -940,14 +992,18 @@ export async function efashionUpdateProductInPlace(
   // ici les variantes ajoutées qui n'apparaissent pas dans `liveById` et on
   // remonte une erreur claire qui pointe vers ce Rafraîchir.
   //
-  // Exception : pendant l'alignement post-publish (`previousSnapshot === null`,
-  // chemin appelé en fin de `efashionPublishProduct` avec forceFullSync),
-  // toutes les variantes sont nouvellement créées par `saveMelDraft` et sont
-  // dans `liveById` — pas de skip à faire. On reconnaît ce cas au fait que
-  // `previousSnapshot` est null (le bloc plus haut a déjà capturé cette
-  // valeur dans `previousSnapshot`).
+  // Exception : pendant l'alignement post-publish (chemin appelé en fin de
+  // `efashionPublishProduct` avec `isPostPublishAlignment=true`), toutes les
+  // variantes sont nouvellement créées par `saveMelDraft` et sont garanties
+  // d'être dans `liveById` — pas de skip à faire.
+  //
+  // ⚠️ Avant juin 2026 ce filet utilisait `previousSnapshot !== null` comme
+  // discriminant, mais ça désactivait à tort le filet en mode « Rafraîchir »
+  // (forceFullSync, qui met previousSnapshot à null) — laissant les
+  // efashionProductId orphelins passer à travers et générer des « 200 OK
+  // silencieux » côté eFashion (cas W124/Fuchsia 25-29/06/2026).
   const skippedAddedEfIds = new Set<number>();
-  if (previousSnapshot !== null && liveById.size > 0) {
+  if (!opts.isPostPublishAlignment && liveById.size > 0) {
     for (const added of diff.added) {
       if (!liveById.has(added.efashionProductId)) {
         skippedAddedEfIds.add(added.efashionProductId);
@@ -1138,6 +1194,9 @@ export async function efashionUpdateProductInPlace(
     for (const lc of linkedColors) {
       const efId = lc.efashionProductId;
       if (!efId) continue;
+      // Skip les orphelins inconnus d'eFashion — sinon saveProduitDescription
+      // répond `OK` mais ne fait rien (cas W124/Fuchsia 29/06/2026).
+      if (skippedAddedEfIds.has(efId)) continue;
       try {
         await efashionSaveProduitDescription({
           id_produit: efId,
@@ -1172,6 +1231,8 @@ export async function efashionUpdateProductInPlace(
     for (const lc of linkedColors) {
       const efId = lc.efashionProductId;
       if (!efId) continue;
+      // Idem description : on ne pousse pas vers un id orphelin.
+      if (skippedAddedEfIds.has(efId)) continue;
       try {
         await efashionSaveProduitCompositions({
           id_produit: efId,
@@ -1209,7 +1270,18 @@ export async function efashionUpdateProductInPlace(
   //   - Variantes modifiées (`diff.changed`) avec `imagesChanged=true` : purge + ré-upload.
   const variantsNeedingImageSync: EfashionVariantSnapshot[] = [];
   if (opts.forceFullSync) {
-    variantsNeedingImageSync.push(...targetVariants.filter((v) => v.images && v.images.length > 0));
+    // ⚠️ Même en forceFullSync on retire les efashionProductId orphelins (cf.
+    // bloc « Filtrage des couleurs ajoutées localement mais inconnues d'eFashion »).
+    // Sans ce skip, on uploadait des photos vers un id_produit fantôme qui
+    // renvoyait `200 OK` sans rien stocker (cas W124/Fuchsia 29/06/2026).
+    variantsNeedingImageSync.push(
+      ...targetVariants.filter(
+        (v) =>
+          v.images &&
+          v.images.length > 0 &&
+          !skippedAddedEfIds.has(v.efashionProductId),
+      ),
+    );
   } else {
     for (const a of diff.added) {
       // Skip les couleurs ajoutées inconnues d'eFashion (cf. bloc de filtrage
