@@ -686,8 +686,14 @@ Cette section consolide ce qui a été découvert pendant une session de test en
 - L'API `/shootings/check-references-exists-batch` permet de prévalider une référence avant `save-mel-draft`.
 
 #### Ajout d'une couleur après création
-✅ **Découverte importante** : envoyer un `PUT /shootings/product/{id}` avec une **nouvelle couleur dans `couleurs[]`** crée **automatiquement** un nouveau `id_produit` pour cette couleur (avec son propre stock, ses propres photos, etc.). Pas besoin d'endpoint séparé « ajouter une couleur ».
-- À chaque ajout de couleur via PUT → lire le listing via `productsPage` pour récupérer le nouvel `id_produit` (filtrer par `id_couleur` de la nouvelle couleur).
+⚠️ **Mise à jour 29/06/2026** : `PUT /shootings/product/{id}` avec une nouvelle couleur dans `couleurs[]` **ne marche que tant que le shooting d'origine n'a pas été confirmé** par eFashion. Une fois confirmé (= validé manuellement côté eFashion après livraison du shooting, ce qui finit toujours par arriver), le PUT renvoie **HTTP 400 « Ce shooting est déjà confirmé et ne peut plus être modifié »** (cas Noir/Turquoise sur W122 en juin 2026).
+
+✅ **Méthode officielle** = exactement le bouton « + Ajouter une couleur » de leur UI vendeur (HAR du 29/06/2026), en 3 étapes :
+1. `mutation duplicateWithNewColor(idProduit, couleurId, couleurName)` — clone la main du groupe en gardant la même `reference_base` et crée un nouvel `id_produit` rattaché (`id_couleur_liee` = main).
+2. `POST /api/upload-product-photo` (multipart) — 1 photo / appel pour préserver l'ordre.
+3. `mutation publishBrouillon(id_produit, id_vendeur)` — sort la fiche du mode brouillon, la rend visible côté acheteurs.
+
+Cette séquence marche que le shooting du groupe soit confirmé ou pas, et la nouvelle couleur apparaît bien dans le groupe (vérifié sur W122-NOIR le 29/06/2026). C'est le flow câblé dans `lib/efashion-update.ts` (section « Auto-création des couleurs »).
 
 #### Renommage de référence
 - `PUT /shootings/product/{id}` avec un nouveau `reference` propage le renommage à **toutes les couleurs liées** (même `reference_base`).
