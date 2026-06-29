@@ -413,6 +413,11 @@ model Product {
   // Pointe vers une couleur de la liste des variantes OU des packLines.
   primaryColorId          String?
   primaryColor            Color?                @relation("ProductPrimaryColor", fields: [primaryColorId], references: [id], onDelete: SetNull)
+  // Notice à afficher en bannière quand le système a auto-promu la couleur
+  // principale (suite à image manquante / mapping PFS absent / variante supprimée /
+  // toutes variantes désactivées). Reset à null quand l'utilisatrice ferme la
+  // bannière ou quand une sauvegarde laisse la principale dans un état valide.
+  primaryColorPromotionNotice Json?
   lowStockThreshold       Int?
   discountPercent         Decimal?              @db.Decimal(5, 2) // Remise en % (ex: 15.00 = -15%). null = pas de remise
   views                   ProductView[]
