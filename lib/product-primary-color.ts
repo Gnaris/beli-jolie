@@ -91,8 +91,8 @@ export function resolvePrimaryColorId(
 
 export type PrimaryColorInvalidityReason =
   | "missing_image"
-  | "missing_pfs_mapping"
   | "deleted"
+  | "missing_pfs_mapping"
   | "all_variants_inactive";
 
 export type ProductColorForPrimaryCheck = {
