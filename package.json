@@ -12,7 +12,7 @@
     "test:coverage": "vitest run --coverage",
     "test:pfs-smoke": "vitest run __tests__/pfs/pfs-smoke.test.ts",
     "type-check": "tsc --noEmit",
-    "stripe" : "stripe listen --forward-to localhost:3000/api/payments/webhook"
+    "stripe": "stripe listen --forward-to localhost:3000/api/payments/webhook"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -40,6 +40,9 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/pdfkit": "^0.17.5",
     "@types/react": "^19",
@@ -48,6 +51,7 @@
     "dotenv": "^17.3.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "jsdom": "^29.1.1",
     "playwright": "^1.58.2",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
