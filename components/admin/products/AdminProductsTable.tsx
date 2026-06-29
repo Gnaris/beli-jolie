@@ -26,6 +26,7 @@ import { useEfashionShootingBatch } from "@/components/admin/products/EfashionSh
 import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+import { formatRelativeDate } from "@/lib/format-date";
 // Bouton d'export marketplace : import statique (présent dans la barre d'actions
 // qui apparaît à la 1re sélection — un chargement asynchrone créerait un
 // clignotement visible, cf. bug "page qui se refresh" rapporté 2026-06-04).
@@ -1363,32 +1364,7 @@ function ActionsDropdown({
 }
 
 // ─── Dates Cell ────────────────────────────────────────────────────────────────
-
-/**
- * Formate une date pour la cellule compacte du tableau produits :
- *   - aujourd'hui → "auj."
- *   - hier → "hier"
- *   - moins de 7 jours → "il y a Nj"
- *   - même année → "12 juin"
- *   - sinon → "12 juin 2025"
- *
- * Exporté pour les tests unitaires.
- */
-export function formatRelativeDate(iso: string, now: Date = new Date()): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  const msPerDay = 86_400_000;
-  // Comparaison "jour calendaire" pour ne pas dépendre de l'heure.
-  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const diffDays = Math.round((startOf(now) - startOf(d)) / msPerDay);
-  if (diffDays === 0) return "auj.";
-  if (diffDays === 1) return "hier";
-  if (diffDays > 1 && diffDays < 7) return `il y a ${diffDays}j`;
-  const sameYear = d.getFullYear() === now.getFullYear();
-  return d.toLocaleDateString("fr-FR", sameYear
-    ? { day: "2-digit", month: "short" }
-    : { day: "2-digit", month: "short", year: "numeric" });
-}
+// formatRelativeDate is exported from @/lib/format-date
 
 /**
  * Tooltip détaillé affiché au survol d'une puce d'export marketplace.
