@@ -224,7 +224,6 @@ export default function CategoriesMasterDetail({
           open={!!editCat}
           onClose={() => setEditCat(null)}
           onCreated={() => { setEditCat(null); router.refresh(); }}
-          // @ts-expect-error focusMarketplace prop added in Task 9 (QuickCreateModal extension)
           focusMarketplace={editFocusMarketplace}
           editMode={{
             id: editCat.id,

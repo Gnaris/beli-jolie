@@ -57,6 +57,10 @@ interface QuickCreateModalProps {
    *  en lecture seule — typiquement lors de l'import PFS où la correspondance
    *  est imposée par le produit PFS à importer. */
   lockPfs?: boolean;
+  /** Scroll smoothly to the given marketplace card when the modal opens
+   *  (uniquement pour type="category"). Utilisé par la liste catégories pour
+   *  ouvrir la modale directement sur la carte concernée. */
+  focusMarketplace?: "pfs" | "efashion" | "faire";
   /** Edit mode — if set, the modal edits instead of creating */
   editMode?: {
     id: string;
@@ -166,7 +170,7 @@ const RTL: string[] = [];
 export default function QuickCreateModal({
   type, open, onClose, onCreated, categoryId, defaultName, defaultPfsRef,
   defaultPfsGender, defaultPfsFamilyName, defaultPfsCategoryName, defaultPfsCategoryId,
-  defaultHex, editMode, pfsEnabled = true, lockPfs = false,
+  defaultHex, editMode, pfsEnabled = true, lockPfs = false, focusMarketplace,
 }: QuickCreateModalProps) {
   const isEdit = !!editMode;
   const autoTranslateEnabled = useAutoTranslateEnabled();
@@ -208,6 +212,20 @@ export default function QuickCreateModal({
   const [pfsAnnexes, setPfsAnnexes] = useState<PfsMappingOptions | null>(null);
 
   useEffect(() => { setMounted(true); }, []);
+
+  // Scroll en douceur vers la carte marketplace ciblée à l'ouverture de la
+  // modale (utilisé par la liste catégories pour ouvrir directement sur la
+  // bonne carte). Uniquement pertinent pour type="category".
+  useEffect(() => {
+    if (open && focusMarketplace && type === "category") {
+      const timer = setTimeout(() => {
+        document
+          .querySelector<HTMLElement>(`[data-marketplace-card="${focusMarketplace}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [open, focusMarketplace, type]);
 
   useEffect(() => {
     if (!open || type !== "color" || pfsColorOptions) return;
@@ -757,9 +775,16 @@ export default function QuickCreateModal({
                 }`}>
 
                 {/* ── Carte PFS ───────────────────────────────────────── */}
-                <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden h-full flex flex-col">
-                  <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-purple-50/70 to-transparent">
-                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700">
+                <section
+                  data-marketplace-card="pfs"
+                  className="relative rounded-2xl border border-border bg-bg-primary shadow-[var(--shadow-sm)] overflow-hidden h-full flex flex-col"
+                >
+                  <span
+                    aria-hidden
+                    className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-slate-300 to-slate-500"
+                  />
+                  <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-bg-secondary">
+                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-ink/8 text-text-primary">
                       <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M10 2L3 6v7l7 4 7-4V6l-7-4zm0 2.18L15.82 7 10 10.18 4.18 7 10 4.18zM4 9l5 2.86v5L4 14V9zm12 0v5l-5 2.86v-5L16 9z" />
                       </svg>
@@ -826,9 +851,16 @@ export default function QuickCreateModal({
 
                 {/* ── Carte eFashion ──────────────────────────────────── */}
                 {(type === "category" || type === "country" || type === "season" || type === "composition" || type === "color") && !lockPfs && (
-                  <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden h-full flex flex-col">
-                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-purple-50/70 to-transparent">
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700">
+                  <section
+                    data-marketplace-card="efashion"
+                    className="relative rounded-2xl border border-border bg-bg-primary shadow-[var(--shadow-sm)] overflow-hidden h-full flex flex-col"
+                  >
+                    <span
+                      aria-hidden
+                      className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-slate-300 to-slate-500"
+                    />
+                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-bg-secondary">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-ink/8 text-text-primary">
                         <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                           <path d="M10 2a8 8 0 100 16 8 8 0 000-16zm3.7 6.3l-4.5 4.5a1 1 0 01-1.4 0L6 11a1 1 0 011.4-1.4l1.8 1.8 3.8-3.8a1 1 0 011.4 1.4z" />
                         </svg>
@@ -865,9 +897,16 @@ export default function QuickCreateModal({
 
                 {/* ── Carte Faire (catégorie uniquement) ──────────────── */}
                 {type === "category" && !lockPfs && (
-                  <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden h-full flex flex-col">
-                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-purple-50/70 to-transparent">
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700">
+                  <section
+                    data-marketplace-card="faire"
+                    className="relative rounded-2xl border border-border bg-bg-primary shadow-[var(--shadow-sm)] overflow-hidden h-full flex flex-col"
+                  >
+                    <span
+                      aria-hidden
+                      className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-slate-300 to-slate-500"
+                    />
+                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-bg-secondary">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-ink/8 text-text-primary">
                         <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                           <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM6 8a2 2 0 114 0 2 2 0 01-4 0zm6 0a2 2 0 114 0 2 2 0 01-4 0zM6.5 13a3.5 3.5 0 007 0H6.5z" />
                         </svg>
