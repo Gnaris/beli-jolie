@@ -1,81 +1,171 @@
 /**
- * Applique les choix validés en BDD + PFS + Ankorstore (un par un).
- * Met à jour le journal data/name-review-log.json.
+ * Applique le payload du skill produits-nom en BDD seulement.
+ * Aucune communication PFS / Ankorstore / eFashion.
+ * Lève uniquement les drapeaux *SyncRequired pour les marketplaces déjà liées.
  *
  * Usage : npx tsx scripts/name-batch-apply.ts <chemin-vers-payload.json>
  *
- * Le payload JSON est de la forme :
+ * Payload :
  * {
- *   "syncMarketplaces": true,
  *   "items": [
- *     { "ref": "A382", "name": "...", "description": "..." },
- *     ...
+ *     {
+ *       "ref": "A382",
+ *       "name": "...",
+ *       "description": "...",
+ *       "tagNames": ["coeur", "ajouré"],
+ *       "subCategoryNames": ["Boucles pendantes"]
+ *     }
  *   ]
  * }
  */
 import "dotenv/config";
 import fs from "fs";
-import path from "path";
 import { prisma } from "@/lib/prisma";
-import { decryptIfSensitive } from "@/lib/encryption";
-import { pfsUpdateProductInPlace } from "@/lib/pfs-update";
-import { ankorstoreKickoffUpdate } from "@/lib/ankorstore-update";
-import { autoTranslateProduct } from "@/lib/auto-translate";
-import {
-  primeAnkorstoreToken,
-  primeAnkorstoreCredentials,
-} from "@/lib/ankorstore-auth";
+import { normalizeForCompare } from "@/lib/text-normalize";
+import { prependAiNote } from "@/lib/ai-note";
+import { computeMarketplaceSyncFlags } from "@/lib/marketplace-sync-flag";
+import { revalidateTag } from "next/cache";
 
-const JOURNAL_PATH = path.join(process.cwd(), "data", "name-review-log.json");
-const ANKORSTORE_TOKEN_URL = "https://www.ankorstore.com/oauth/token";
-const ANKORSTORE_DELAY_MS = 15000;
+type Item = {
+  ref: string;
+  name: string;
+  description: string;
+  tagNames: string[];
+  subCategoryNames: string[];
+};
 
-async function bootstrapAnkorstoreAuth(): Promise<boolean> {
-  const rows = await prisma.siteConfig.findMany({
-    where: { key: { in: ["ankors_client_id", "ankors_client_secret"] } },
+type Report = {
+  ref: string;
+  status: "ok" | "skipped" | "error";
+  reason?: string;
+  tagsCreated?: number;
+  subCategoriesCreated?: number;
+};
+
+async function applyItem(item: Item, now: Date): Promise<Report> {
+  const product = await prisma.product.findUnique({
+    where: { reference: item.ref },
+    select: {
+      id: true,
+      status: true,
+      categoryId: true,
+      note: true,
+      pfsProductId: true,
+      ankorsProductId: true,
+      efashionReferenceBase: true,
+    },
   });
-  const map = new Map(
-    rows.map((r) => [r.key, decryptIfSensitive(r.key, r.value)?.trim() ?? null]),
-  );
-  const clientId = map.get("ankors_client_id");
-  const clientSecret = map.get("ankors_client_secret");
-  if (!clientId || !clientSecret) return false;
-  primeAnkorstoreCredentials(clientId, clientSecret);
-  const body = new URLSearchParams({
-    grant_type: "client_credentials",
-    client_id: clientId,
-    client_secret: clientSecret,
-  });
-  const resp = await fetch(ANKORSTORE_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!resp.ok) return false;
-  const json = (await resp.json()) as { access_token?: string; expires_in?: number };
-  if (!json.access_token || !json.expires_in) return false;
-  primeAnkorstoreToken(json.access_token, Math.floor(Date.now() / 1000) + json.expires_in);
-  return true;
-}
 
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function readJournal(): { version: number; updated_at: string; products: Record<string, any> } {
-  try {
-    return JSON.parse(fs.readFileSync(JOURNAL_PATH, "utf-8"));
-  } catch {
-    return { version: 1, updated_at: new Date().toISOString(), products: {} };
+  if (!product) return { ref: item.ref, status: "error", reason: "produit introuvable" };
+  if (product.status === "ARCHIVED") {
+    return { ref: item.ref, status: "skipped", reason: "ARCHIVED" };
   }
-}
 
-function writeJournal(j: any) {
-  fs.mkdirSync(path.dirname(JOURNAL_PATH), { recursive: true });
-  fs.writeFileSync(JOURNAL_PATH, JSON.stringify(j, null, 2));
-}
+  // 1. Anti-doublon tags
+  const existingTags = await prisma.tag.findMany({ select: { id: true, name: true } });
+  const tagIdByNormalized = new Map<string, string>();
+  for (const t of existingTags) {
+    tagIdByNormalized.set(normalizeForCompare(t.name), t.id);
+  }
 
-type Item = { ref: string; name: string; description: string };
+  let tagsCreated = 0;
+  const tagIds: string[] = [];
+  for (const rawName of item.tagNames) {
+    const trimmed = rawName.trim();
+    if (!trimmed) continue;
+    const norm = normalizeForCompare(trimmed);
+    if (!norm) continue;
+    let id = tagIdByNormalized.get(norm);
+    if (!id) {
+      const created = await prisma.tag.create({
+        data: { name: trimmed.toLowerCase() },
+        select: { id: true },
+      });
+      id = created.id;
+      tagIdByNormalized.set(norm, id);
+      tagsCreated++;
+    }
+    if (!tagIds.includes(id)) tagIds.push(id);
+  }
+
+  // 2. Anti-doublon sous-catégories sous la catégorie principale du produit
+  const existingSubs = await prisma.subCategory.findMany({
+    where: { categoryId: product.categoryId },
+    select: { id: true, name: true },
+  });
+  const subIdByNormalized = new Map<string, string>();
+  for (const s of existingSubs) {
+    subIdByNormalized.set(normalizeForCompare(s.name), s.id);
+  }
+
+  let subCategoriesCreated = 0;
+  const subIds: string[] = [];
+  for (const rawName of item.subCategoryNames) {
+    const trimmed = rawName.trim();
+    if (!trimmed) continue;
+    const norm = normalizeForCompare(trimmed);
+    if (!norm) continue;
+    let id = subIdByNormalized.get(norm);
+    if (!id) {
+      const created = await prisma.subCategory.create({
+        data: {
+          name: trimmed,
+          slug: norm.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+          categoryId: product.categoryId,
+        },
+        select: { id: true },
+      });
+      id = created.id;
+      subIdByNormalized.set(norm, id);
+      subCategoriesCreated++;
+    }
+    if (!subIds.includes(id)) subIds.push(id);
+  }
+
+  // 3. Drapeaux marketplace
+  const flagPatch = computeMarketplaceSyncFlags({
+    pfsProductId: product.pfsProductId,
+    ankorsProductId: product.ankorsProductId,
+    efashionReferenceBase: product.efashionReferenceBase,
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.product.update({
+      where: { id: product.id },
+      data: {
+        name: item.name.trim(),
+        description: item.description.trim(),
+        note: prependAiNote(product.note, now),
+        subCategories: { connect: subIds.map((id) => ({ id })) },
+        tags: {
+          deleteMany: {},
+          create: tagIds.map((tagId) => ({ tagId })),
+        },
+        ...flagPatch,
+      },
+    });
+    await tx.productTranslation.deleteMany({ where: { productId: product.id } });
+  });
+
+  // 4. Invalidation des caches (best-effort, peut échouer hors contexte Next)
+  try {
+    // @ts-expect-error - Next 16 accepte 2 args (tag, defaultLifetime)
+    revalidateTag("tags", "default");
+    // @ts-expect-error - Next 16 accepte 2 args (tag, defaultLifetime)
+    revalidateTag("sub-categories", "default");
+    // @ts-expect-error - Next 16 accepte 2 args (tag, defaultLifetime)
+    revalidateTag(`product:${product.id}`, "default");
+  } catch {
+    // ignore
+  }
+
+  return {
+    ref: item.ref,
+    status: "ok",
+    tagsCreated,
+    subCategoriesCreated,
+  };
+}
 
 (async () => {
   const payloadPath = process.argv[2];
@@ -84,101 +174,25 @@ type Item = { ref: string; name: string; description: string };
     process.exit(1);
   }
 
-  const payload = JSON.parse(fs.readFileSync(payloadPath, "utf-8")) as {
-    syncMarketplaces?: boolean;
-    items: Item[];
-  };
-  const syncMarketplaces = payload.syncMarketplaces !== false;
-  const items = payload.items;
+  const payload = JSON.parse(fs.readFileSync(payloadPath, "utf-8")) as { items: Item[] };
+  console.log(`📋 ${payload.items.length} produit(s) à appliquer.`);
 
-  console.log(`📋 ${items.length} produit(s) à appliquer. Marketplaces: ${syncMarketplaces}`);
-
-  const ankorstoreReady = syncMarketplaces ? await bootstrapAnkorstoreAuth() : false;
-  if (syncMarketplaces && !ankorstoreReady) {
-    console.warn("⚠️  Auth Ankorstore KO — Ankorstore sera ignoré.");
-  }
-
-  const journal = readJournal();
-  const reports: any[] = [];
-
-  for (const it of items) {
-    const r: any = { ref: it.ref };
+  const now = new Date();
+  const reports: Report[] = [];
+  for (const item of payload.items) {
     try {
-      const product = await prisma.product.findUnique({
-        where: { reference: it.ref },
-        select: { id: true, pfsProductId: true, ankorsProductId: true },
-      });
-      if (!product) {
-        r.error = "produit introuvable";
-        reports.push(r);
-        continue;
-      }
-
-      // 1. BDD
-      await prisma.product.update({
-        where: { id: product.id },
-        data: { name: it.name, description: it.description },
-      });
-      r.bdd = "ok";
-
-      // 2. Reset translations
-      const del = await prisma.productTranslation.deleteMany({ where: { productId: product.id } });
-      r.translations_deleted = del.count;
-
-      // 3. Trigger DeepL retranslation (fire-and-forget)
-      autoTranslateProduct(product.id, it.name, it.description, []);
-
-      // 4. PFS
-      r.pfs = "skip";
-      if (syncMarketplaces && product.pfsProductId) {
-        try {
-          const res = await pfsUpdateProductInPlace(product.id, undefined, {
-            skipRevalidation: true,
-          });
-          r.pfs = res.success ? "ok" : `error: ${res.error ?? "?"}`;
-        } catch (e: any) {
-          r.pfs = `exception: ${e?.message ?? String(e)}`;
-        }
-      }
-
-      // 5. Ankorstore (one at a time with delay)
-      r.ankorstore = "skip";
-      if (syncMarketplaces && product.ankorsProductId && ankorstoreReady) {
-        try {
-          const res = await ankorstoreKickoffUpdate(product.id, { skipRevalidation: true });
-          r.ankorstore = res.success ? "ok" : `error: ${(res as any).error ?? "?"}`;
-        } catch (e: any) {
-          r.ankorstore = `exception: ${e?.message ?? String(e)}`;
-        }
-      }
-
-      // 6. Update journal
-      journal.products[it.ref] = {
-        status: "validated",
-        name: it.name,
-        description: it.description,
-        applied_at: new Date().toISOString(),
-        marketplaces: { pfs: r.pfs, ankorstore: r.ankorstore },
-      };
+      const r = await applyItem(item, now);
+      reports.push(r);
+      console.log(`  ${item.ref} → ${r.status}${r.reason ? ` (${r.reason})` : ""}`);
     } catch (e: any) {
-      r.error = e?.message ?? String(e);
-    }
-
-    reports.push(r);
-    console.log(`  ${it.ref} → BDD:${r.bdd ?? "-"} PFS:${(r.pfs || "-").slice(0, 30)} Ankorstore:${(r.ankorstore || "-").slice(0, 30)}`);
-
-    // Délai entre les opérations Ankorstore pour éviter les 403
-    if (syncMarketplaces && r.ankorstore && r.ankorstore.startsWith("ok")) {
-      await sleep(ANKORSTORE_DELAY_MS);
+      const r: Report = { ref: item.ref, status: "error", reason: e?.message ?? String(e) };
+      reports.push(r);
+      console.log(`  ${item.ref} → error: ${r.reason}`);
     }
   }
-
-  journal.updated_at = new Date().toISOString();
-  writeJournal(journal);
 
   console.log("\n=== RAPPORT ===");
   console.log(JSON.stringify(reports, null, 2));
-  console.log(`\n📒 Journal mis à jour. Total produits suivis : ${Object.keys(journal.products).length}`);
   await prisma.$disconnect();
 })().catch((err) => {
   console.error("ERREUR:", err);
