@@ -1,4 +1,13 @@
 /**
+ * Format une Date en texte long (fr-FR).
+ * Ex: "3 février 2026".
+ */
+export function formatDate(d: Date): string {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+}
+
+/**
  * Format une date ISO en texte relatif (fr-FR), version compacte Ardoise.
  * Ex: "auj.", "1j", "3j", "29 juin", "29 juin 2025".
  */
