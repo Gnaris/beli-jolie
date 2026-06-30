@@ -44,6 +44,9 @@ describe("matchesFilters", () => {
   it("missingTranslation → catégorie sans traduction match", () => {
     expect(matchesFilters(cat({ translations: {} }), new Set(["missingTranslation"]))).toBe(true);
   });
+  it("missingTranslation → catégorie avec 1 seule traduction match (FR sans EN)", () => {
+    expect(matchesFilters(cat({ translations: { fr: "Colliers" } }), new Set(["missingTranslation"]))).toBe(true);
+  });
   it("missingPfs → catégorie PFS complète ne match pas", () => {
     expect(matchesFilters(cat(), new Set(["missingPfs"]))).toBe(false);
   });
@@ -66,7 +69,7 @@ describe("matchesFilters", () => {
 describe("countMissing", () => {
   it("compte les catégories sans traduction", () => {
     const list = [cat(), cat({ id: "c2", translations: {} }), cat({ id: "c3", translations: { fr: "x" } })];
-    expect(countMissing(list, "missingTranslation")).toBe(1);
+    expect(countMissing(list, "missingTranslation")).toBe(2);
   });
   it("compte les catégories sans Faire", () => {
     const list = [cat(), cat({ id: "c2", faireTaxonomyId: null }), cat({ id: "c3", faireTaxonomyId: null })];

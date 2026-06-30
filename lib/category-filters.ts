@@ -27,7 +27,7 @@ export function matchesSearch(cat: CategoryForFilters, query: string): boolean {
 
 export function matchesFilters(cat: CategoryForFilters, active: Set<FilterKey>): boolean {
   if (active.size === 0) return true;
-  if (active.has("missingTranslation") && Object.keys(cat.translations).length >= 1) return false;
+  if (active.has("missingTranslation") && Object.keys(cat.translations).length >= 2) return false;
   if (active.has("missingPfs") && cat.pfsGender && cat.pfsFamilyName) return false;
   if (active.has("missingEfashion") && cat.efashionCategorieId != null) return false;
   if (active.has("missingFaire") && cat.faireTaxonomyId != null) return false;
