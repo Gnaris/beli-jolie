@@ -64,6 +64,18 @@ describe("matchesFilters", () => {
     expect(matchesFilters(c, new Set(["missingTranslation", "missingFaire"]))).toBe(true);
     expect(matchesFilters(c, new Set(["missingTranslation", "missingPfs"]))).toBe(false);
   });
+  it("missingTranslation → EN sans FR match aussi", () => {
+    expect(matchesFilters(cat({ translations: { en: "Necklaces" } }), new Set(["missingTranslation"]))).toBe(true);
+  });
+  it("missingTranslation → traduction vide compte comme manquante", () => {
+    expect(matchesFilters(cat({ translations: { fr: "x", en: "" } }), new Set(["missingTranslation"]))).toBe(true);
+  });
+  it("missingTranslation → autre locale (DE) ne compense pas l'absence d'EN", () => {
+    expect(matchesFilters(cat({ translations: { fr: "x", de: "y" } }), new Set(["missingTranslation"]))).toBe(true);
+  });
+  it("missingPfs → manque pfsCategoryName seul → match", () => {
+    expect(matchesFilters(cat({ pfsCategoryName: null }), new Set(["missingPfs"]))).toBe(true);
+  });
 });
 
 describe("countMissing", () => {
@@ -74,5 +86,13 @@ describe("countMissing", () => {
   it("compte les catégories sans Faire", () => {
     const list = [cat(), cat({ id: "c2", faireTaxonomyId: null }), cat({ id: "c3", faireTaxonomyId: null })];
     expect(countMissing(list, "missingFaire")).toBe(2);
+  });
+  it("compte les catégories sans PFS (manque au moins 1 des 3 champs)", () => {
+    const list = [cat(), cat({ id: "c2", pfsCategoryName: null }), cat({ id: "c3", pfsGender: null })];
+    expect(countMissing(list, "missingPfs")).toBe(2);
+  });
+  it("compte les catégories sans eFashion", () => {
+    const list = [cat(), cat({ id: "c2", efashionCategorieId: null })];
+    expect(countMissing(list, "missingEfashion")).toBe(1);
   });
 });
