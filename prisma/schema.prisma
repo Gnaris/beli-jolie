@@ -365,6 +365,7 @@ model Product {
   reference               String                @unique
   name                    String
   description             String                @db.Text
+  note                    String?               @db.Text
   categoryId              String
   category                Category              @relation(fields: [categoryId], references: [id])
   subCategories           SubCategory[]         @relation("ProductSubCategories")
