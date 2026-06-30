@@ -98,6 +98,7 @@ interface ProductFormProps {
     reference: string;
     name: string;
     description: string;
+    note?: string | null;
     categoryId: string;
     subCategoryIds: string[];
     variants: VariantState[];
@@ -507,6 +508,7 @@ export default function ProductForm({
   const pfsRefAbortRef = useRef<AbortController | null>(null);
   const [name,            setName]            = useState(initialData?.name            ?? "");
   const [description,     setDescription]     = useState(initialData?.description     ?? "");
+  const [note,            setNote]            = useState<string>(initialData?.note     ?? "");
   const [categoryId,      setCategoryId]      = useState(initialData?.categoryId      ?? "");
   const [subCategoryIds,  setSubCategoryIds]  = useState<string[]>(initialData?.subCategoryIds ?? []);
   // Étiquette envoyée à Microstore : null = catégorie principale (défaut),
@@ -1548,6 +1550,7 @@ export default function ProductForm({
       reference:     draftRef,
       name:          draftName,
       description:   description.trim(),
+      note:          note.trim() || null,
       categoryId,
       subCategoryIds,
       microstoreSubCategoryId,
@@ -1810,6 +1813,7 @@ export default function ProductForm({
       reference:     reference.trim().toUpperCase(),
       name:          name.trim(),
       description:   description.trim(),
+      note:          note.trim() || null,
       categoryId,
       subCategoryIds,
       microstoreSubCategoryId,
@@ -3055,6 +3059,28 @@ export default function ProductForm({
                 Publication marketplace en cours — modifications désactivées
               </div>
             )}
+
+            {/* ── Note interne ── */}
+            <div className="rounded-2xl border border-border bg-bg-secondary p-4 shadow-sm mb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">📝</span>
+                <h3 className="font-heading text-base font-semibold">Note interne</h3>
+              </div>
+              <p className="text-xs text-text-tertiary mb-3">
+                Visible uniquement par les administrateurs. N&apos;apparaît jamais sur le site ni sur les marketplaces.
+              </p>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                maxLength={2000}
+                rows={4}
+                placeholder="Ex : « Complété par l'IA le 30/06/2026 » ou tout autre rappel interne."
+                className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-emerald-300"
+              />
+              <p className="mt-1 text-[11px] text-text-tertiary text-right">
+                {note.length} / 2000
+              </p>
+            </div>
 
             {/* ── Boutons d'action ── */}
             <div className="flex items-center justify-center flex-wrap gap-3">
