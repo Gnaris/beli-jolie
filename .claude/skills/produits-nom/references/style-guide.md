@@ -59,16 +59,47 @@ Pour décrire les pièces :
 - **Pierres / matériaux visibles** : nacre, résine, strass, perle (pas perle nacrée vs noire en simultané — décrire la teinte non, juste « nacrée »), pierre facettée, émail, coquillage, mauvais œil (ou « œil porte-bonheur »)
 - **Pendants** : pampille, breloque, charm, pastille, disque, anneau, cerceau, barre/barrette
 
-## Pour 5 propositions par produit
+## Pour 3 propositions par produit
 
 Varier l'angle d'attaque pour donner du choix :
-1. **Une version la plus précise** (mentionne 2-3 éléments visuels)
-2. **Une version plus courte / minimaliste**
-3. **Une version qui met en avant la matière ou le pendant principal**
-4. **Une version qui met en avant la forme principale**
-5. **Une version reformulée** (synonyme, autre angle)
+1. **Une version précise** (mentionne 2-3 éléments visuels)
+2. **Une version courte / minimaliste**
+3. **Une version qui met en avant la forme principale ou le pendant principal**
 
-Ne pas faire 5 quasi-doublons. Donner à la cliente du choix réel.
+Ne pas faire 3 quasi-doublons. Donner à la cliente du choix réel.
+
+## Tags (mots-clés visuels)
+
+### Règles
+- 5 à 12 tags par produit selon richesse visuelle.
+- Toujours en minuscule au stockage.
+- Anti-doublon : comparer en minuscule + sans accent (fait côté script).
+- Pas de couleur. Pas de mot marketing. Pas de tag synonyme de la catégorie principale (« Collier » comme tag d'un produit Collier = redondance inutile).
+
+### Vocabulaire suggéré (non exhaustif)
+- **Formes** : cœur, étoile, trèfle, ovale, rond, carré, goutte, fleur, croix, lune, soleil, plume, feuille, anneau, cercle, barre.
+- **Symboles** : infini, oeil porte-bonheur, hamsa, ancre, clé, serrure, papillon, oiseau, poisson, tortue.
+- **Univers / thèmes** : mer, océan, nature, jungle, animal, végétal, céleste, géométrique, romantique.
+- **Matériaux visibles** : nacre, résine, strass, perle, émail, coquillage.
+- **Techniques** : ajouré, martelé, strié, facetté, torsadé.
+
+## Sous-catégories
+
+- 1 à 4 sous-catégories par produit.
+- Toujours sous la catégorie principale du produit (pas d'invention transversale).
+- Si une sous-catégorie évidente n'existe pas en base, la suggérer dans `+ autre sous-catégorie` — le script la créera proprement sous la bonne catégorie principale.
+
+## Questions de clarification (bannière jaune)
+
+Affichées **seulement** si vraie incertitude (matériau ambigu, élément à moitié coupé sur l'image, packaging non vu). Maximum 3 questions par produit. Pas de questions cosmétiques.
+
+## Signalement catégorie principale
+
+Si la catégorie principale paraît clairement fausse (bague rangée dans Bracelets), l'écrire dans la bannière jaune sous forme :
+
+> ⚠ La catégorie actuelle « X » me semble fausse — cela ressemble à : Y. À corriger manuellement dans l'admin si vous êtes d'accord.
+
+Aucun changement automatique.
 
 ## Erreurs typiques à éviter
 
