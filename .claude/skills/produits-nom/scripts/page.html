@@ -444,6 +444,11 @@
     let viewMode = 'edit'; // 'edit' | 'recap'
     let autoRecapShown = false; // basculement auto en recap déjà fait une fois ?
 
+    // Sous-catégories et tags pour le produit courant
+    let subcats = new Map();
+    let tags = new Map();
+    let currentProduct = null;
+
     async function fetchSession() {
       const r = await fetch('/api/session');
       if (!r.ok) return null;
@@ -608,13 +613,45 @@
       const isNoneName = selectedName === '__NONE__';
       const isNoneDesc = selectedDesc === '__NONE__';
 
+      // Initialise subcats/tags pour ce produit (reset à chaque changement de produit)
+      initSubcatTagsForProduct(p);
+
+      // Bannière clarification
+      const clarifQuestions = p.clarifyingQuestions || [];
+      const clarifQuestionsHtml = clarifQuestions.map(q =>
+        '<div style="margin-bottom:8px;">' +
+        '<p style="font-size:13px;color:#92400e;">• ' + escapeHtml(q) + '</p>' +
+        '<input type="text" style="margin-top:4px;width:100%;border:1px solid #fde68a;border-radius:6px;padding:6px 10px;font-size:13px;" class="clarif-answer" data-question="' + encodeURIComponent(q) + '" />' +
+        '</div>'
+      ).join('');
+      const clarifCategoryFlagHtml = p.categoryFlag
+        ? '<p style="margin-top:12px;font-size:13px;color:#92400e;">⚠ La catégorie actuelle « ' + escapeHtml(p.categoryFlag.current) + ' » me semble fausse — cela ressemble à : ' + escapeHtml(p.categoryFlag.suggested) + '. À corriger manuellement dans l\'admin si vous êtes d\'accord.</p>'
+        : '';
+      const showBanner = clarifQuestions.length > 0 || !!p.categoryFlag;
+
+      // Label sous-catégorie
+      const subcatCatLabel = p.category ? '(sous « ' + escapeHtml(typeof p.category === 'string' ? p.category : p.category.name) + ' »)' : '';
+
       document.getElementById('main').innerHTML = `
+        ${showBanner ? `
+        <aside style="border-radius:12px;border:1px solid #fcd34d;background:#fffbeb;padding:16px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-size:18px;">⚠️</span>
+            <h3 style="font-size:13px;font-weight:700;color:#92400e;">J'ai besoin de précisions (optionnel)</h3>
+          </div>
+          <div id="clarif-questions">${clarifQuestionsHtml}</div>
+          ${clarifCategoryFlagHtml}
+          <button id="clarif-regen-btn" type="button" style="margin-top:12px;border-radius:8px;background:#d97706;padding:8px 14px;font-size:13px;font-weight:600;color:white;border:none;cursor:pointer;">
+            Regénérer avec mes réponses
+          </button>
+        </aside>` : ''}
+
         <div class="product-card">
           <div class="image-section">
             <img class="product-image" src="${imgSrc}" alt="${p.reference}" onerror="this.style.display='none'">
             <div class="ref-line">
               Référence : <strong>${p.reference}</strong>
-              ${p.category ? `<br><small>${escapeHtml(p.category)}</small>` : ''}
+              ${p.category ? `<br><small>${escapeHtml(typeof p.category === 'string' ? p.category : p.category.name)}</small>` : ''}
             </div>
             ${p.name || p.description ? `
               <div class="current-meta">
@@ -653,6 +690,42 @@
                 </div>` : ''}
             </div>
 
+            <!-- Sous-catégories -->
+            <section style="margin-top:8px;">
+              <div class="section-title">
+                Sous-catégories <span id="subcats-cat-label" style="font-weight:400;text-transform:none;letter-spacing:normal;color:#a8a29e;">${subcatCatLabel}</span>
+              </div>
+              <div id="subcats-list" style="display:flex;flex-wrap:wrap;gap:8px;min-height:24px;"></div>
+              <div style="margin-top:10px;display:flex;align-items:center;gap:8px;position:relative;">
+                <input
+                  type="text"
+                  id="subcat-add-input"
+                  placeholder="+ autre sous-catégorie"
+                  style="flex:1;border:1px solid #e7e5e4;border-radius:8px;background:white;padding:8px 12px;font-size:13px;"
+                  autocomplete="off"
+                />
+                <button id="subcat-add-btn" type="button" style="border-radius:8px;background:#44403c;padding:8px 14px;font-size:13px;color:white;border:none;cursor:pointer;">Ajouter</button>
+                <ul id="subcat-suggestions" style="display:none;position:absolute;top:100%;left:0;right:80px;z-index:10;margin-top:4px;border-radius:8px;border:1px solid #e7e5e4;background:white;box-shadow:0 4px 12px rgba(0,0,0,.1);max-height:192px;overflow-y:auto;padding:0;"></ul>
+              </div>
+            </section>
+
+            <!-- Tags -->
+            <section style="margin-top:8px;">
+              <div class="section-title">Tags</div>
+              <div id="tags-list" style="display:flex;flex-wrap:wrap;gap:8px;min-height:24px;"></div>
+              <div style="margin-top:10px;display:flex;align-items:center;gap:8px;position:relative;">
+                <input
+                  type="text"
+                  id="tag-add-input"
+                  placeholder="+ autre tag"
+                  style="flex:1;border:1px solid #e7e5e4;border-radius:8px;background:white;padding:8px 12px;font-size:13px;"
+                  autocomplete="off"
+                />
+                <button id="tag-add-btn" type="button" style="border-radius:8px;background:#44403c;padding:8px 14px;font-size:13px;color:white;border:none;cursor:pointer;">Ajouter</button>
+                <ul id="tag-suggestions" style="display:none;position:absolute;top:100%;left:0;right:80px;z-index:10;margin-top:4px;border-radius:8px;border:1px solid #e7e5e4;background:white;box-shadow:0 4px 12px rgba(0,0,0,.1);max-height:192px;overflow-y:auto;padding:0;"></ul>
+              </div>
+            </section>
+
             <div class="actions">
               ${(isNoneName || isNoneDesc) ? `
                 <button class="btn btn-regen" onclick="requestRegen()">
@@ -672,6 +745,11 @@
           </div>
         </div>
       `;
+
+      // Post-render: wire up subcats/tags chips + autocomplete + clarif button
+      renderSubcats();
+      renderTags();
+      setupSubcatTagListeners();
     }
 
     function renderRecap() {
@@ -771,16 +849,176 @@
       return escapeHtml(s).replace(/\n/g, ' ');
     }
 
+    function chipHtml(label, checked) {
+      const base = 'display:inline-flex;align-items:center;padding:4px 12px;border-radius:9999px;border:1px solid;font-size:13px;cursor:pointer;transition:all .15s;';
+      const active = 'background:#10b981;color:white;border-color:#10b981;';
+      const inactive = 'background:white;color:#44403c;border-color:#d6d3d1;';
+      return '<button type="button" style="' + base + (checked ? active : inactive) + '">' + escapeHtml(label) + '</button>';
+    }
+
+    function renderSubcats() {
+      const list = document.getElementById('subcats-list');
+      if (!list) return;
+      list.innerHTML = '';
+      for (const [key, item] of subcats) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = chipHtml(item.name, item.checked);
+        const btn = wrap.firstElementChild;
+        btn.addEventListener('click', function () {
+          item.checked = !item.checked;
+          renderSubcats();
+        });
+        list.appendChild(btn);
+      }
+    }
+
+    function renderTags() {
+      const list = document.getElementById('tags-list');
+      if (!list) return;
+      list.innerHTML = '';
+      for (const [key, item] of tags) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = chipHtml(item.name, item.checked);
+        const btn = wrap.firstElementChild;
+        btn.addEventListener('click', function () {
+          item.checked = !item.checked;
+          renderTags();
+        });
+        list.appendChild(btn);
+      }
+    }
+
+    function setupAutocomplete(inputId, ulId, btnId, urlBuilder, onPick) {
+      const input = document.getElementById(inputId);
+      const ul = document.getElementById(ulId);
+      const btn = document.getElementById(btnId);
+      if (!input || !ul || !btn) return;
+      let timer = null;
+      input.addEventListener('input', function () {
+        clearTimeout(timer);
+        const q = input.value.trim();
+        if (!q) { ul.style.display = 'none'; return; }
+        timer = setTimeout(async function () {
+          const r = await fetch(urlBuilder() + encodeURIComponent(q)).then(r => r.json());
+          ul.innerHTML = '';
+          for (const item of r.results) {
+            const li = document.createElement('li');
+            li.style.cssText = 'cursor:pointer;padding:8px 12px;font-size:13px;list-style:none;';
+            li.textContent = item.name;
+            li.addEventListener('mouseenter', function () { li.style.background = '#f5f5f4'; });
+            li.addEventListener('mouseleave', function () { li.style.background = ''; });
+            li.addEventListener('click', function () {
+              onPick(item);
+              input.value = '';
+              ul.style.display = 'none';
+            });
+            ul.appendChild(li);
+          }
+          ul.style.display = r.results.length === 0 ? 'none' : 'block';
+        }, 150);
+      });
+      document.addEventListener('click', function (e) {
+        if (!input.contains(e.target) && !ul.contains(e.target)) ul.style.display = 'none';
+      });
+      btn.addEventListener('click', function () {
+        const v = input.value.trim();
+        if (!v) return;
+        onPick({ id: 'new::' + v, name: v });
+        input.value = '';
+        ul.style.display = 'none';
+      });
+    }
+
+    function initSubcatTagsForProduct(p) {
+      subcats = new Map();
+      tags = new Map();
+      currentProduct = p;
+
+      for (const sc of (p.subCategories || [])) {
+        subcats.set(sc.id, { id: sc.id, name: sc.name, checked: true });
+      }
+      for (const sc of (p.proposedSubCategories || [])) {
+        const key = sc.id || ('new::' + sc.name);
+        if (!subcats.has(key)) {
+          subcats.set(key, { id: sc.id || null, name: sc.name, checked: true });
+        }
+      }
+      for (const t of (p.tags || [])) {
+        tags.set(t.id, { id: t.id, name: t.name, checked: true });
+      }
+      for (const t of (p.proposedTags || [])) {
+        const key = t.id || ('new::' + t.name);
+        if (!tags.has(key)) {
+          tags.set(key, { id: t.id || null, name: t.name, checked: true });
+        }
+      }
+    }
+
+    function setupSubcatTagListeners() {
+      setupAutocomplete(
+        'subcat-add-input',
+        'subcat-suggestions',
+        'subcat-add-btn',
+        function () {
+          const catId = (currentProduct && currentProduct.categoryId) ? currentProduct.categoryId : '';
+          return '/api/autocomplete/subcats?categoryId=' + encodeURIComponent(catId) + '&q=';
+        },
+        function (item) {
+          const key = item.id || ('new::' + item.name);
+          subcats.set(key, { id: item.id && !item.id.startsWith('new::') ? item.id : null, name: item.name, checked: true });
+          renderSubcats();
+        }
+      );
+      setupAutocomplete(
+        'tag-add-input',
+        'tag-suggestions',
+        'tag-add-btn',
+        function () { return '/api/autocomplete/tags?q='; },
+        function (item) {
+          const key = item.id || ('new::' + item.name);
+          tags.set(key, { id: item.id && !item.id.startsWith('new::') ? item.id : null, name: item.name, checked: true });
+          renderTags();
+        }
+      );
+
+      const regenBtn = document.getElementById('clarif-regen-btn');
+      if (regenBtn) {
+        regenBtn.addEventListener('click', async function () {
+          const p = currentProduct;
+          if (!p) return;
+          const answers = Array.from(document.querySelectorAll('.clarif-answer'))
+            .map(i => ({ question: decodeURIComponent(i.dataset.question), answer: i.value.trim() }))
+            .filter(a => a.answer);
+          if (answers.length === 0) { alert('Répondez à au moins une question d\'abord.'); return; }
+          await fetch('/api/request-regen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ref: p.reference,
+              comment: answers.map(a => a.question + ' → ' + a.answer).join('\n'),
+              what: 'all',
+              answers,
+            }),
+          });
+          alert('Demande envoyée. Revenez dans Claude Code et tapez « regénère ».');
+        });
+      }
+    }
+
     function onSelectName(v) { selectedName = v; render(); }
     function onSelectDesc(v) { selectedDesc = v; render(); }
 
     async function validate() {
       if (!selectedName || !selectedDesc || selectedName === '__NONE__' || selectedDesc === '__NONE__') return;
       const p = session.products[currentIdx];
+      const tagNames = Array.from(tags.values()).filter(t => t.checked).map(t => t.name);
+      const subCategoryNames = Array.from(subcats.values()).filter(sc => sc.checked).map(sc => sc.name);
       const ok = await postJSON('/api/validate', {
         ref: p.reference,
         name: selectedName,
-        description: selectedDesc
+        description: selectedDesc,
+        tagNames,
+        subCategoryNames,
       });
       if (!ok) { toast('Erreur de sauvegarde'); return; }
       session.decisions = session.decisions || {};
