@@ -216,16 +216,16 @@ export default function ThemedProductFilters({
                 defaultValue={minPrice}
                 onBlur={(e) => setParam({ minPrice: e.target.value })}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                className="flex-1 text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+                className="flex-1 min-w-0 w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
               />
-              <span className="text-text-muted">–</span>
+              <span className="text-text-muted shrink-0">–</span>
               <input
                 type="number"
                 placeholder="Max"
                 defaultValue={maxPrice}
                 onBlur={(e) => setParam({ maxPrice: e.target.value })}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                className="flex-1 text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+                className="flex-1 min-w-0 w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
               />
             </div>
             <div className="text-[10px] text-text-muted mt-1">Entrée ou clic ailleurs pour appliquer</div>
@@ -286,14 +286,14 @@ export default function ThemedProductFilters({
               type="date"
               defaultValue={dateFrom}
               onBlur={(e) => setParam({ dateFrom: e.target.value })}
-              className="flex-1 text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+              className="flex-1 min-w-0 w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
             />
-            <span className="text-text-muted">→</span>
+            <span className="text-text-muted shrink-0">→</span>
             <input
               type="date"
               defaultValue={dateTo}
               onBlur={(e) => setParam({ dateTo: e.target.value })}
-              className="flex-1 text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+              className="flex-1 min-w-0 w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
             />
           </div>
         </div>
