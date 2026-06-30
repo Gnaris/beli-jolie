@@ -38,6 +38,10 @@ if (!fs.existsSync(SESSION_FILE)) {
 const IMAGES_DIR = path.join(os.homedir(), 'Desktop', 'beli-images-temp');
 const PAGE_FILE = path.join(__dirname, 'page.html');
 
+// Cache en mémoire des tags et sous-cat (rechargé à chaque démarrage)
+let TAG_CACHE = []; // [{ id, name }]
+let SUBCAT_CACHE = {}; // { [categoryId]: [{ id, name }] }
+
 // Sauvegarde automatique sur le VPS (filet de secours contre les crashs PC)
 const VPS_BACKUP_PATH = '/var/www/beliandjolie/data/name-session-backup/session.json';
 const VPS_HOST = 'root@72.61.106.128';
@@ -101,6 +105,33 @@ function sendJSON(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
+async function loadAutocompleteCaches() {
+  const s = readSession();
+  if (!s || !s.products) return;
+
+  const tagMap = new Map();
+  const subMap = {};
+  for (const p of s.products) {
+    for (const t of (p.tags || [])) {
+      if (t && t.id) tagMap.set(t.id, t.name);
+    }
+    if (p.category && p.category.id) {
+      subMap[p.category.id] = subMap[p.category.id] || new Map();
+      const m = subMap[p.category.id];
+      for (const sc of (p.category.availableSubCategories || [])) {
+        if (sc && sc.id) m.set(sc.id, sc.name);
+      }
+    }
+  }
+  TAG_CACHE = Array.from(tagMap.entries()).map(([id, name]) => ({ id, name }));
+  SUBCAT_CACHE = Object.fromEntries(
+    Object.entries(subMap).map(([cid, m]) => [
+      cid,
+      Array.from(m.entries()).map(([id, name]) => ({ id, name })),
+    ]),
+  );
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -123,7 +154,7 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/validate' && req.method === 'POST') {
       const body = await readBody(req);
-      const { ref, name, description } = body;
+      const { ref, name, description, tagNames, subCategoryNames } = body;
       if (!ref || !name || !description) {
         return sendJSON(res, 400, { error: 'ref, name, description requis' });
       }
@@ -133,6 +164,8 @@ const server = http.createServer(async (req, res) => {
       s.decisions[ref] = {
         name,
         description,
+        tagNames: Array.isArray(tagNames) ? tagNames : [],
+        subCategoryNames: Array.isArray(subCategoryNames) ? subCategoryNames : [],
         validated_at: new Date().toISOString(),
       };
       writeSession(s);
@@ -141,9 +174,10 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/request-regen' && req.method === 'POST') {
       const body = await readBody(req);
-      const { ref, comment, what } = body;
-      if (!ref || !what) {
-        return sendJSON(res, 400, { error: 'ref et what requis' });
+      const { ref, comment, what, answers } = body;
+      if (!ref || !what) return sendJSON(res, 400, { error: 'ref et what requis' });
+      if (!['name', 'description', 'both', 'all'].includes(what)) {
+        return sendJSON(res, 400, { error: 'what invalide' });
       }
       const s = readSession();
       if (!s) return sendJSON(res, 500, { error: 'session unreadable' });
@@ -151,6 +185,7 @@ const server = http.createServer(async (req, res) => {
         ref,
         comment: comment || '',
         what,
+        answers: Array.isArray(answers) ? answers : [],
         requested_at: new Date().toISOString(),
       };
       writeSession(s);
@@ -165,6 +200,8 @@ const server = http.createServer(async (req, res) => {
         ref,
         name: d.name,
         description: d.description,
+        tagNames: d.tagNames || [],
+        subCategoryNames: d.subCategoryNames || [],
       }));
       if (items.length === 0) {
         return sendJSON(res, 400, { error: 'aucune validation à envoyer' });
@@ -174,7 +211,7 @@ const server = http.createServer(async (req, res) => {
       const payloadPath = path.join(os.tmpdir(), `beli-nom-payload-${Date.now()}.json`);
       fs.writeFileSync(
         payloadPath,
-        JSON.stringify({ syncMarketplaces: true, items }, null, 2),
+        JSON.stringify({ items }, null, 2),
       );
 
       // Launch scp + ssh in background. We rely on bash being available
@@ -201,6 +238,24 @@ const server = http.createServer(async (req, res) => {
       writeSession(s);
 
       return sendJSON(res, 200, { ok: true, count: items.length });
+    }
+
+    if (url.pathname === '/api/autocomplete/tags' && req.method === 'GET') {
+      const q = (url.searchParams.get('q') || '').toLowerCase().trim();
+      const matches = q
+        ? TAG_CACHE.filter((t) => t.name.toLowerCase().includes(q)).slice(0, 20)
+        : TAG_CACHE.slice(0, 20);
+      return sendJSON(res, 200, { results: matches });
+    }
+
+    if (url.pathname === '/api/autocomplete/subcats' && req.method === 'GET') {
+      const q = (url.searchParams.get('q') || '').toLowerCase().trim();
+      const categoryId = url.searchParams.get('categoryId') || '';
+      const pool = SUBCAT_CACHE[categoryId] || [];
+      const matches = q
+        ? pool.filter((sc) => sc.name.toLowerCase().includes(q)).slice(0, 20)
+        : pool.slice(0, 20);
+      return sendJSON(res, 200, { results: matches });
     }
 
     if (url.pathname.startsWith('/images/') && req.method === 'GET') {
@@ -234,10 +289,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, '127.0.0.1', async () => {
+  await loadAutocompleteCaches();
   console.log(`\n  🟢 Serveur prêt sur http://localhost:${PORT}`);
   console.log(`  📄 Session : ${SESSION_FILE}`);
   console.log(`  🖼  Images  : ${IMAGES_DIR}`);
+  console.log(`  💡 Tags en cache : ${TAG_CACHE.length}`);
   console.log(`\n  Ouvrez http://localhost:${PORT} dans votre navigateur.\n`);
 });
 
