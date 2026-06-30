@@ -41,12 +41,14 @@ export default function CategoriesList({
     });
   }
 
-  const FILTERS: { key: FilterKey; label: string; show: boolean }[] = [
-    { key: "missingTranslation", label: "Sans traduction", show: true },
-    { key: "missingPfs", label: "Sans PFS", show: hasPfsConfig },
-    { key: "missingEfashion", label: "Sans eFashion", show: hasEfashionConfig },
-    { key: "missingFaire", label: "Sans Faire", show: hasFaireConfig },
-  ].filter((f) => f.show);
+  const FILTERS: { key: FilterKey; label: string; show: boolean }[] = (
+    [
+      { key: "missingTranslation", label: "Sans traduction", show: true },
+      { key: "missingPfs", label: "Sans PFS", show: hasPfsConfig },
+      { key: "missingEfashion", label: "Sans eFashion", show: hasEfashionConfig },
+      { key: "missingFaire", label: "Sans Faire", show: hasFaireConfig },
+    ] satisfies { key: FilterKey; label: string; show: boolean }[]
+  ).filter((f) => f.show);
 
   return (
     <div className="flex flex-col min-h-[580px] bg-gradient-to-b from-bg-secondary to-bg-primary">
