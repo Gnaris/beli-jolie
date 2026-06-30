@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getEfashionLabelMaps, resolveCategoryLabel } from "@/lib/efashion-labels";
 import CategoriesMasterDetail, { type CategoryRow } from "@/components/admin/categories/CategoriesMasterDetail";
 import CategoriesHeaderActions from "@/components/admin/categories/CategoriesHeaderActions";
+import PageHeader from "@/components/admin/shared/PageHeader";
 import {
   getCachedHasPfsConfig,
   getCachedHasEfashionConfig,
@@ -89,20 +90,12 @@ export default async function CategoriesPage() {
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-5 px-4 md:px-6 py-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 pb-5 border-b border-border">
-        <div>
-          <div className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-text-secondary mb-1.5">
-            <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-ink shadow-[0_0_0_3px_rgba(24,24,27,0.08)]" />
-            Catalogue
-          </div>
-          <h1 className="text-[26px] font-bold tracking-tight text-text-primary font-heading">Catégories</h1>
-          <p className="text-[13px] text-text-secondary mt-1">
-            Organisez votre catalogue produits et leurs mappings marketplaces
-          </p>
-        </div>
-        <CategoriesHeaderActions items={allTranslateItems} />
-      </div>
+      <PageHeader
+        eyebrow="Catalogue"
+        title="Catégories"
+        subtitle="Organisez votre catalogue produits et leurs mappings marketplaces"
+        actions={<CategoriesHeaderActions items={allTranslateItems} />}
+      />
 
       {/* Master/Detail */}
       <CategoriesMasterDetail
