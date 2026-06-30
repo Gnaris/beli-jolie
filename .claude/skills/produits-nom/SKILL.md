@@ -1,6 +1,6 @@
 ---
 name: produits-nom
-description: Use this skill whenever the user wants help renaming Beli & Jolie products. Opens a local web interface (http://localhost:3010) that shows one product at a time with 5 name proposals + 5 description proposals to click on. The user picks, and validations are saved locally as she goes. At the end of the session, a single click pushes everything to the live site (BDD + PFS + Ankorstore). If she clicks "Aucun ne va" + writes a comment, the page asks her to come back in Claude Code and type "regénère" — at which point Claude regenerates the 5 propositions based on her comment by re-reading the product image. Trigger phrases (FR) - (a) NEW SESSION - "produits-nom", "nouveau lot de noms", "génère des noms", "lance les noms", "renommer des produits", "donne-moi un lot" ; (b) REGEN during active session - "regénère", "refais ces propositions" ; (c) STATUS - "où on en est", "combien de produits traités" ; (d) PUSH follow-up - "où en est l'envoi". The user is non-technical, French-speaking, and manages ~9000 stainless steel jewelry products being renamed progressively across many sessions, sometimes from different PCs.
+description: Use this skill whenever the user wants help renaming Beli & Jolie products. Opens a local web interface (http://localhost:3010) that shows one product at a time with 3 name proposals + 3 description proposals to click on, plus suggested sub-categories and tags. The user picks, adjusts tags/sub-categories, and validations are saved locally as she goes. At the end of the session, a single click pushes everything to the live site — the push updates only the database (name, description, tags, sub-categories, note) and raises "Synchro nécessaire" flags for marketplaces already linked to each product, but does NOT push directly to PFS / Ankorstore / eFashion. If she clicks "Aucun ne va" + writes a comment, the page asks her to come back in Claude Code and type "regénère" — at which point Claude regenerates the 3 proposals based on her comment by re-reading the product image. Trigger phrases (FR) - (a) NEW SESSION - "produits-nom", "nouveau lot de noms", "génère des noms", "lance les noms", "renommer des produits", "donne-moi un lot" ; (b) REGEN during active session - "regénère", "refais ces propositions" ; (c) STATUS - "où on en est", "combien de produits traités" ; (d) PUSH follow-up - "où en est l'envoi". The user is non-technical, French-speaking, and manages ~9000 stainless steel jewelry products being renamed progressively across many sessions, sometimes from different PCs.
 ---
 
 # Skill : produits-nom
@@ -9,7 +9,7 @@ description: Use this skill whenever the user wants help renaming Beli & Jolie p
 
 La cliente dirige **Beli & Jolie**, un site B2B de vente en gros de bijoux en acier inoxydable. Elle a **~9 000 produits** dont les noms/descriptions actuels sont génériques. Elle veut renommer **chaque produit** avec un nom + description **courts, factuels, basés sur ce qu'on voit** sur la photo (pas de couleur, pas de mots marketing).
 
-Ce travail s'étale sur plusieurs sessions et possiblement plusieurs PC. Un **journal centralisé sur le VPS** garde la trace de ce qui est déjà fait pour qu'on ne refasse jamais deux fois le même produit.
+Ce travail s'étale sur plusieurs sessions et possiblement plusieurs PC. Le champ `Product.note` en base de données fait office de marqueur : un produit dont la note contient « Complété par l'IA » ne sera plus reproposé dans les lots suivants.
 
 ## Style de communication
 
@@ -33,7 +33,6 @@ Si **ambigu**, demander gentiment :
 
 - **VPS SSH** : `ssh root@72.61.106.128`
 - **Projet sur VPS** : `/var/www/beliandjolie/`
-- **Journal central (sur VPS)** : `/var/www/beliandjolie/data/name-review-log.json` — trace des produits déjà validés, partagé entre tous les PC.
 - **Session locale (sur ce PC)** : `${USERPROFILE}\Desktop\beli-nom-session.json` — état en cours d'une session (produits du lot + propositions + choix de la cliente avant push).
 - **Dossier images temporaire** : `${USERPROFILE}\Desktop\beli-images-temp\` — webp téléchargés depuis le VPS pour visualisation.
 - **Page web locale** : `http://localhost:3010` (port par défaut)
@@ -74,7 +73,7 @@ Si une session **non poussée** existe (`status !== "pushed"`), proposer à la c
 > Vous avez une session en cours avec X produits dont Y validés (dernière modif : Z). Vous voulez (1) reprendre, (2) la pousser puis démarrer un nouveau lot, ou (3) tout effacer et recommencer ?
 
 - Si elle reprend → relancer juste le serveur (étape A.6 directement). Re-télécharger les images en local si elles manquent (cas restauration depuis VPS).
-- Si elle pousse puis recommence → laisser la page faire le push, attendre, supprimer le fichier session (local + VPS), puis continuer.
+- Si elle pousse puis recommence → laisser la page faire le push comme d'habitude, attendre, supprimer le fichier session (local + VPS), puis continuer.
 - Si elle efface → supprimer le fichier session (local + VPS) et continuer.
 
 Pour effacer la copie VPS :
@@ -94,7 +93,9 @@ Si elle dit juste « ok » ou ne précise pas, partir sur **10**.
 ssh root@72.61.106.128 'cd /var/www/beliandjolie && NODE_OPTIONS="-r ./scripts/_lib_no_next_cache.cjs" npx tsx scripts/name-batch-export.ts <N>'
 ```
 
-Le script renvoie un JSON avec les N prochains produits non-traités (exclut tout ce qui est dans le journal).
+Le script renvoie un JSON avec les N produits **les plus récemment créés** dont le champ `note` ne contient pas la mention « Complété par l'IA » (plus de journal JSON séparé — la note du produit en BDD fait foi).
+
+Chaque produit retourné inclut : référence, ancien nom, ancienne description, note actuelle, catégorie principale avec ses sous-catégories disponibles, sous-catégories déjà attachées, tags déjà attachés, une image par couleur, et les identifiants marketplace (`pfsProductId`, `ankorsProductId`, `efashionReferenceBase`).
 
 ### Étape A.4 — Télécharger les images en local
 
@@ -106,15 +107,23 @@ scp "root@72.61.106.128:/var/www/beliandjolie/public<imagePath>" "/c/Users/chenb
 
 Si un produit n'a pas d'image (`imagePath` null), le marquer dans la session comme « sans image » et ne pas le proposer dans le lot (re-tenté plus tard).
 
-### Étape A.5 — Regarder chaque image et générer 5 noms + 5 descriptions
+### Étape A.5 — Regarder chaque image et générer 3 noms + 3 descriptions + tags + sous-cat
 
 Utiliser l'outil **Read** sur chaque fichier `.webp` du dossier temporaire. Suivre **strictement** le style décrit dans `references/style-guide.md`.
 
-**Règles absolues** :
-- **Aucune couleur** dans les noms ou descriptions
-- **Aucun mot marketing** (élégant, sublime, parfait, raffiné, etc.)
+Pour chaque produit, générer :
+- **3 noms** (3 propositions, varier les angles selon le style-guide)
+- **3 descriptions** (idem)
+- **`proposedTags`** : 5 à 12 tags suggérés (lowercase, anti-doublon comparaison sans accent)
+- **`proposedSubCategories`** : 1 à 4 sous-catégories suggérées, choisies parmi `category.availableSubCategories` si possible, ou inventées (nom propre) si rien ne convient
+- **`clarifyingQuestions`** : 0 à 3 questions si tu as un doute (matériau ambigu, élément à moitié coupé sur l'image, packaging non vu)
+- **`categoryFlag`** : `null` ou `{ current, suggested }` si la catégorie principale paraît clairement fausse
+
+**Règles absolues** (rappel) :
+- **Aucune couleur** dans noms ou descriptions
+- **Aucun mot marketing**
 - Décrire uniquement **ce qu'on voit visuellement**
-- **Court et factuel**, description = **1 phrase**
+- **Court et factuel**
 
 ### Étape A.6 — Créer le fichier session et démarrer le serveur
 
@@ -122,9 +131,9 @@ Construire le fichier `${USERPROFILE}\Desktop\beli-nom-session.json` avec cette 
 
 ```json
 {
-  "version": 1,
-  "created_at": "2026-05-19T10:00:00Z",
-  "updated_at": "2026-05-19T10:00:00Z",
+  "version": 2,
+  "created_at": "2026-06-30T10:00:00Z",
+  "updated_at": "2026-06-30T10:00:00Z",
   "status": "in_progress",
   "products": [
     {
@@ -132,10 +141,24 @@ Construire le fichier `${USERPROFILE}\Desktop\beli-nom-session.json` avec cette 
       "reference": "A322",
       "name": "Ancien nom",
       "description": "Ancienne description",
-      "category": "Boucles d'oreilles",
-      "imagePath": "/uploads/produits/a322/a322-argent-1.webp",
-      "names": ["Nom 1", "Nom 2", "Nom 3", "Nom 4", "Nom 5"],
-      "descs": ["Desc 1", "Desc 2", "Desc 3", "Desc 4", "Desc 5"]
+      "note": null,
+      "category": {
+        "id": "...",
+        "name": "Boucles d'oreilles",
+        "availableSubCategories": [{ "id": "...", "name": "Créoles" }]
+      },
+      "subCategories": [],
+      "tags": [],
+      "colors": [{ "colorId": "...", "path": "/uploads/produits/a322/a322-argent-1.webp" }],
+      "pfsProductId": null,
+      "ankorsProductId": null,
+      "efashionReferenceBase": null,
+      "names": ["Nom 1", "Nom 2", "Nom 3"],
+      "descs": ["Desc 1", "Desc 2", "Desc 3"],
+      "proposedTags": [{ "id": null, "name": "Coeur" }, { "id": "tag123", "name": "Strass" }],
+      "proposedSubCategories": [{ "id": null, "name": "Sautoir" }],
+      "clarifyingQuestions": ["Le pendant central est-il en résine ou en nacre ?"],
+      "categoryFlag": null
     }
   ],
   "decisions": {},
@@ -155,8 +178,9 @@ Utiliser `run_in_background: true` du tool Bash. Le serveur garde la main et éc
 Lui dire en français simple :
 - Le nombre de produits prêts
 - L'adresse à ouvrir : **http://localhost:3010**
-- Le mode d'emploi en une phrase : « pour chaque produit, cliquez sur le nom et la description qui vous plaisent, ça passe au suivant tout seul »
-- Si rien ne va : « cochez "Aucun ne va", écrivez pourquoi, cliquez "Demander de regénérer", puis revenez ici taper `regénère` »
+- Le mode d'emploi en une phrase : « pour chaque produit, choisissez un nom et une description parmi mes 3 propositions, ajustez les tags et sous-catégories (déjà cochés), puis cliquez Valider — ça passe au suivant tout seul »
+- Si je propose une bannière jaune sur un produit : « vous pouvez répondre aux questions et cliquer "Regénérer avec mes réponses", OU ignorer la bannière et valider tel quel »
+- Si rien ne va pour le nom ou la description : « cochez "Aucun ne va", écrivez pourquoi, cliquez "Demander de regénérer", puis revenez ici taper `regénère` »
 - À la fin : « cliquez sur le bouton vert "Tout pousser sur le site" en haut à droite »
 
 ---
@@ -171,7 +195,7 @@ Quand la cliente tape « regénère » (ou « refais »), il y a normalement un 
 cat "${USERPROFILE}/Desktop/beli-nom-session.json"
 ```
 
-Trouver `awaitingRegen` : `{ ref, comment, what }` (`what` = `"name"`, `"description"`, ou `"both"`).
+Trouver `awaitingRegen` : `{ ref, comment, answers, what }` (`what` = `"name"`, `"description"`, `"both"`, ou `"all"`).
 
 Si pas de `awaitingRegen`, dire à la cliente :
 > Il n'y a rien à regénérer pour le moment. Tout est bon ?
@@ -180,12 +204,13 @@ Si pas de `awaitingRegen`, dire à la cliente :
 
 Utiliser **Read** sur le fichier image correspondant : `${USERPROFILE}\Desktop\beli-images-temp\<ref-lowercase>.webp`.
 
-Lire le commentaire et regénérer **en tenant compte** de ce qu'elle a écrit :
-- `what === "name"` → 5 nouveaux noms (gardé : `descs` actuels)
-- `what === "description"` → 5 nouvelles descriptions (gardé : `names` actuels)
-- `what === "both"` → 5 noms + 5 descriptions
+Lire `awaitingRegen.what` :
+- `"name"` → 3 nouveaux noms (gardé : `descs` + `proposedTags` + `proposedSubCategories` actuels)
+- `"description"` → 3 nouvelles descriptions
+- `"both"` → 3 noms + 3 descriptions
+- `"all"` → 3 noms + 3 descriptions + nouvelles `proposedTags` + nouvelles `proposedSubCategories` + nouvelles `clarifyingQuestions` (la cliente a répondu à mes questions, je refais tout en tenant compte de ses réponses)
 
-Toujours respecter le `style-guide.md`.
+Le commentaire/réponses se trouvent dans `awaitingRegen.comment` et `awaitingRegen.answers`. Toujours respecter le `style-guide.md`.
 
 ### Étape B.3 — Mettre à jour le fichier session
 
@@ -215,10 +240,18 @@ Présenter sous forme :
 ## Push final (déclenché par la cliente depuis la page)
 
 Quand la cliente clique « Tout pousser sur le site » dans le navigateur, la page appelle l'API du serveur local qui :
-1. Construit un payload avec tous les `decisions`
-2. Copie le payload sur le VPS via `scp`
-3. Lance `scripts/name-batch-apply.ts` sur le VPS via `ssh`
-4. Marque la session comme `pushed`
+1. Construit un payload `{ items: [{ ref, name, description, tagNames, subCategoryNames }, ...] }` avec tous les `decisions`.
+2. Copie le payload sur le VPS via `scp`.
+3. Lance `scripts/name-batch-apply.ts` sur le VPS via `ssh`. Le script applique **uniquement en BDD** :
+   - met à jour `name`, `description`
+   - crée les tags manquants (anti-doublon lowercase sans accent), attache au produit
+   - crée les sous-catégories manquantes sous la catégorie principale, attache au produit
+   - écrit `note` en préfixant « Complété par l'IA le DD/MM/YYYY »
+   - lève les drapeaux `pfsSyncRequired` / `ankorsSyncRequired` / `efashionSyncRequired` UNIQUEMENT pour les marketplaces déjà liées au produit
+   - efface les traductions non-FR (DeepL les régénérera en arrière-plan)
+4. Marque la session comme `pushed`.
+
+**Pas de push direct vers PFS / Ankorstore / eFashion**. C'est la cliente qui déclenche les synchros marketplace manuellement depuis l'admin (boutons existants sur la fiche produit et bulk).
 
 Le serveur retourne immédiatement (envoi en arrière-plan). La cliente peut fermer la page.
 
@@ -227,17 +260,9 @@ Le serveur retourne immédiatement (envoi en arrière-plan). La cliente peut fer
 ssh root@72.61.106.128 'tail -50 /tmp/beli-push.log'
 ```
 
-Et le journal central :
-```bash
-ssh root@72.61.106.128 'cat /var/www/beliandjolie/data/name-review-log.json' | python -m json.tool | tail -100
-```
-
 ---
 
 ## Notes techniques importantes
-
-### Synchronisation Ankorstore
-**TOUJOURS un produit à la fois**, avec délai. Le script `name-batch-apply.ts` gère déjà le délai de 15 s. **Ne JAMAIS** modifier ça pour paralléliser — la cliente a explicitement signalé que ça provoque des erreurs 403.
 
 ### Stub next/cache
 Les scripts tsx hors contexte Next.js ont besoin du stub `_lib_no_next_cache.cjs` pré-chargé via `NODE_OPTIONS="-r ./scripts/_lib_no_next_cache.cjs"`. Sans ça, les fonctions cachées plantent.
@@ -258,9 +283,6 @@ Le fichier `beli-nom-session.json` est sur le Bureau. Chaque clic de validation 
 Le PC de la cliente crash souvent — la copie VPS permet de tout retrouver même si le disque local est inaccessible. Au prochain démarrage (Mode A.1), si le local est manquant ou plus vieux que le VPS, on restaure depuis le VPS.
 
 Coalescence : si plusieurs validations se suivent vite, on ne lance qu'un seul `scp` à la fois — le suivant attend la fin du précédent puis se déclenche avec la version la plus récente.
-
-### Format du journal central
-Voir `references/journal-format.md`.
 
 ### Style des noms/descriptions
 Voir `references/style-guide.md` — référence à relire à chaque génération **et** à chaque regen.
