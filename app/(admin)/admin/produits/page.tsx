@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import type { Metadata } from "next";
 import AdminProductsFilters from "@/components/admin/products/AdminProductsFilters";
+import ThemedProductFilters from "@/components/admin/products/ThemedProductFilters";
 import AdminProductsTable from "@/components/admin/products/AdminProductsTable";
 import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
@@ -97,33 +98,31 @@ function PageHero({
   actions?: React.ReactNode;
 }) {
   const a = HERO_ACCENTS[accent];
+  // Hero sobre Ardoise : pas de dégradé aurore, eyebrow simple en gris muet.
+  // Le paramètre `accent` est conservé pour compat mais n'influe plus sur le rendu.
+  void a;
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-border shadow-sm">
-      <div className={`absolute inset-0 bg-gradient-to-br ${a.aurora}`} />
-      <div className="absolute inset-0 opacity-[0.035] pointer-events-none" style={{
-        backgroundImage: "radial-gradient(circle at 1px 1px, #1A1A1A 1px, transparent 0)",
-        backgroundSize: "16px 16px",
-      }} />
-      <div className="relative p-5 sm:p-6 md:p-7">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div className="min-w-0">
-            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] sm:text-[11px] font-body font-semibold uppercase tracking-[0.18em] ${a.chipBg} ${a.chipText}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${a.chipDot}`} />
+    <div className="py-1">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="w-1 h-1 rounded-full bg-text-muted" aria-hidden />
+            <p className="text-[10.5px] sm:text-[11px] font-body font-semibold uppercase tracking-[0.18em] text-text-muted">
               {eyebrow}
-            </span>
-            <h1 className="font-heading text-2xl sm:text-3xl font-bold text-text-primary leading-tight tracking-tight mt-3">
-              {title}
-            </h1>
-            {subtitle && (
-              <p className="font-body text-sm sm:text-[15px] text-text-secondary mt-1.5 max-w-2xl leading-relaxed">
-                {subtitle}
-              </p>
-            )}
+            </p>
           </div>
-          {actions && (
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">{actions}</div>
+          <h1 className="font-heading text-2xl sm:text-3xl font-bold text-text-primary leading-tight tracking-tight">
+            {title}
+          </h1>
+          {subtitle && (
+            <p className="font-body text-sm sm:text-[14px] text-text-secondary mt-1 max-w-2xl leading-relaxed">
+              {subtitle}
+            </p>
           )}
         </div>
+        {actions && (
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">{actions}</div>
+        )}
       </div>
     </div>
   );
@@ -168,6 +167,27 @@ function PrimaryActionLink({ href, children, variant = "primary" }: { href: stri
       {children}
     </Link>
   );
+}
+
+/**
+ * Compte le nombre de filtres actifs depuis les searchParams pour afficher
+ * un badge sur le bouton « Filtres détaillés » et choisir l'état initial du
+ * panneau (auto-déplié si activeCount > 0).
+ */
+function countActiveFilters(p: Record<string, string | undefined>): number {
+  const keys = [
+    "q", "exactRef", "cat", "subCat", "tag", "composition", "hsCodeId",
+    "minPrice", "maxPrice", "dateFrom", "dateTo", "stockBelow",
+    "bestSeller", "refresh", "locked", "syncRequired", "missingImages",
+    "pfsLink", "ankorsLink", "efashionLink", "faireLink",
+    "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "microstoreExportedAt",
+  ];
+  let n = 0;
+  for (const k of keys) {
+    const v = p[k];
+    if (v && v !== "") n++;
+  }
+  return n;
 }
 
 interface PageProps {
@@ -503,72 +523,60 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
 
   return (
     <div className="space-y-5">
-      {/* ─── Hero ────────────────────────────────────────────────── */}
-      <PageHero
-        eyebrow="Catalogue · Produits"
-        title="Produits"
-        subtitle={`${totalCount.toLocaleString("fr-FR")} produit${totalCount > 1 ? "s" : ""} au catalogue — gérez photos, prix, sync marketplaces.`}
-        accent="emerald"
-        actions={
-          <>
-            <PrimaryActionLink href="/admin/produits/importer" variant="secondary">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
-              Importer
-            </PrimaryActionLink>
-            <PrimaryActionLink href="/admin/produits/nouveau" variant="primary">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-              Nouveau produit
-            </PrimaryActionLink>
-          </>
-        }
-      />
-
-      {/* ─── Stats bento ─────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile label="Total catalogue" value={sectionCounts.all.toLocaleString("fr-FR")} accent="neutral" sub="produits enregistrés" />
-        <StatTile label="En ligne" value={sectionCounts.online.toLocaleString("fr-FR")} accent="emerald" dot sub="visibles côté boutique" />
-        <StatTile label="Hors ligne" value={sectionCounts.offline.toLocaleString("fr-FR")} accent="sky" dot sub="prêts à publier" />
-        <StatTile label="Brouillons" value={sectionCounts.draft.toLocaleString("fr-FR")} accent="violet" dot sub="à compléter" />
-      </div>
-
-      {/* ─── Onglets de section ───────────────────────────────────── */}
-      <div>
-        <Suspense>
-          <ProductStatusTabs counts={sectionCounts} />
-        </Suspense>
-      </div>
-
-      {/* ─── Filtres ──────────────────────────────────────────────── */}
-      <div className="bg-bg-primary border border-border rounded-2xl px-5 sm:px-6 py-5 shadow-sm">
-        <Suspense>
-          <AdminProductsFilters
-            totalCount={totalCount}
-            categories={categories}
-            tags={tags}
-            compositions={compositions}
-            hsCodes={hsCodes}
-            hasPfsConfig={hasPfsConfig}
-            hasAnkorstoreConfig={hasAnkorstoreConfig}
-            hasEfashionConfig={hasEfashionConfig}
-            hasFaireConfig={hasFaireConfig}
+      {/* ─── Carte commune Hero + Onglets + Filtres (look maquette Ardoise) ─── */}
+      <div className="bg-bg-primary border border-border rounded-2xl shadow-sm">
+        <div className="px-3 sm:px-5 md:px-6 pt-4 sm:pt-5 md:pt-6 pb-3 sm:pb-4">
+          <PageHero
+            eyebrow="Catalogue"
+            title="Produits"
+            subtitle={`${totalCount.toLocaleString("fr-FR")} articles${sectionCounts.online > 0 ? ` · ${sectionCounts.online.toLocaleString("fr-FR")} en ligne` : ""}`}
+            accent="emerald"
+            actions={
+              <>
+                <PrimaryActionLink href="/admin/produits/importer" variant="secondary">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                  <span className="hidden sm:inline">Importer Excel</span>
+                  <span className="sm:hidden">Importer</span>
+                </PrimaryActionLink>
+                <PrimaryActionLink href="/admin/produits/nouveau" variant="primary">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  <span className="hidden sm:inline">Nouveau produit</span>
+                  <span className="sm:hidden">Nouveau</span>
+                </PrimaryActionLink>
+              </>
+            }
           />
-        </Suspense>
+        </div>
+        <div className="px-3 sm:px-5 md:px-6 pb-3 sm:pb-4">
+          <Suspense>
+            <ProductStatusTabs counts={sectionCounts} />
+          </Suspense>
+        </div>
+        <div className="px-3 sm:px-5 md:px-6 pb-4 sm:pb-5 border-t border-border-light pt-3 sm:pt-4">
+          <Suspense>
+            <ThemedProductFilters
+              totalCount={totalCount}
+              activeCount={countActiveFilters(params)}
+              categories={categories}
+              tags={tags}
+              compositions={compositions}
+              hsCodes={hsCodes}
+              hasPfsConfig={hasPfsConfig}
+              hasAnkorstoreConfig={hasAnkorstoreConfig}
+              hasEfashionConfig={hasEfashionConfig}
+              hasFaireConfig={hasFaireConfig}
+            />
+          </Suspense>
+        </div>
       </div>
 
-      {/* Tout traduire */}
-      <div className="py-2 flex items-center justify-end">
-        <ProductTranslateAllButton
-          products={serializedProducts.map((p) => ({
-            id: p.id,
-            name: p.name,
-            translationLocales: p.translations.map((t) => t.locale),
-          }))}
-        />
-      </div>
+      {/* « Tout traduire » a été retiré d'ici et sera intégré dans la barre
+          d'actions groupées qui s'affiche au-dessous du tableau quand des
+          produits sont sélectionnés (cf. BulkVariantBar / sélection produits). */}
 
       {/* Tableau */}
       <AdminProductsTable

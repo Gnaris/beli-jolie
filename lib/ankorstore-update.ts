@@ -313,12 +313,14 @@ function buildVariantSnapshot(
   config: AnkorstorePricingConfig,
 ): AnkorstoreVariantSnapshot {
   const sku = buildVariantSku(product, variant, index);
-  // ARCHIVED localement → stock forcé à 0 côté AS (produit retiré de la vente).
-  // ONLINE / OFFLINE → vrai stock local. La visibilite sur la boutique
-  // (ONLINE vs OFFLINE) n'est PAS un signal de stock cote AS : un produit
-  // peut etre archivable avec du stock encore present, et un desarchivage
-  // doit restaurer le vrai stock.
-  const stock = product.status === "ARCHIVED" ? 0 : (variant.stock ?? 0);
+  // ARCHIVED ou OFFLINE localement → stock forcé à 0 côté AS (produit retiré
+  // de la vente). Réversible : repasser en ONLINE renverra le vrai stock au
+  // prochain push. L'API publique Ankorstore n'expose pas de "désactiver",
+  // donc stock 0 = seule façon propre de rendre un produit inachetable.
+  const stock =
+    product.status === "ARCHIVED" || product.status === "OFFLINE"
+      ? 0
+      : (variant.stock ?? 0);
   const colorLabel =
     variant.saleType === "PACK"
       ? getPackColorLabel(variant)
@@ -836,11 +838,13 @@ export async function ankorstoreKickoffUpdate(
         return {
           sku,
           ian: null,
-          // ARCHIVED localement → stock 0 force (retire de la vente).
-          // ONLINE / OFFLINE → vrai stock local. La visibilite cote boutique
-          // n'est PAS un signal de stock cote AS (un produit peut etre
-          // archivable avec du stock encore present).
-          stockQuantity: product.status === "ARCHIVED" ? 0 : (variant.stock ?? 0),
+          // ARCHIVED ou OFFLINE localement → stock 0 forcé (retiré de la
+          // vente). Réversible : repasser en ONLINE renverra le vrai stock
+          // au prochain push.
+          stockQuantity:
+            product.status === "ARCHIVED" || product.status === "OFFLINE"
+              ? 0
+              : (variant.stock ?? 0),
           isAlwaysInStock: false,
           wholesalePrice: variantWholesale,
           retailPrice: variantRetail,

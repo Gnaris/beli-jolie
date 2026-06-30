@@ -5,11 +5,19 @@ import { createPortal } from "react-dom";
 import { signOut } from "next-auth/react";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
 
-export default function LogoutButton({ compact = false }: { compact?: boolean }) {
+export default function LogoutButton({ compact = false, dark = false }: { compact?: boolean; dark?: boolean }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const backdrop = useBackdropClose(() => setOpen(false));
   useEffect(() => { setMounted(true); }, []);
+
+  const baseClassesLight = compact
+    ? "mt-1 flex items-center justify-center px-3 py-2.5 text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors w-full"
+    : "mt-1 flex items-center gap-2.5 px-3 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors font-body w-full";
+
+  const baseClassesDark = compact
+    ? "mt-1 flex items-center justify-center px-3 py-2.5 rounded-lg w-full transition-colors text-[#A1A1AA] border border-[#27272A] hover:bg-white/[0.04] hover:text-white"
+    : "mt-1 flex items-center gap-2 justify-center px-3 py-2.5 rounded-lg w-full transition-colors text-[13px] font-medium text-[#A1A1AA] border border-[#27272A] hover:bg-white/[0.04] hover:text-white font-body";
 
   return (
     <>
@@ -17,11 +25,7 @@ export default function LogoutButton({ compact = false }: { compact?: boolean })
         type="button"
         onClick={() => setOpen(true)}
         title={compact ? "Déconnexion" : undefined}
-        className={
-          compact
-            ? "mt-1 flex items-center justify-center px-3 py-2.5 text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors w-full"
-            : "mt-1 flex items-center gap-2.5 px-3 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors font-body w-full"
-        }
+        className={dark ? baseClassesDark : baseClassesLight}
       >
         <svg className={compact ? "w-5 h-5" : "w-4 h-4"} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}

@@ -41,9 +41,16 @@ interface Props {
   hasAnkorstoreConfig?: boolean;
   hasEfashionConfig?: boolean;
   hasFaireConfig?: boolean;
+  /**
+   * `forceOpen` : utilisé par `ProductFiltersPanel` qui gère lui-même
+   * l'ouverture du panneau via la nouvelle barre compacte. Quand cette prop
+   * est vraie, on force le panneau détaillé visible et on masque le bouton
+   * interne « Filtres » pour éviter le double toggle.
+   */
+  forceOpen?: boolean;
 }
 
-export default function AdminProductsFilters({ totalCount, categories, tags = [], compositions = [], hsCodes = [], hasPfsConfig = false, hasAnkorstoreConfig = false, hasEfashionConfig = false, hasFaireConfig = false }: Props) {
+export default function AdminProductsFilters({ totalCount, categories, tags = [], compositions = [], hsCodes = [], hasPfsConfig = false, hasAnkorstoreConfig = false, hasEfashionConfig = false, hasFaireConfig = false, forceOpen = false }: Props) {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -147,7 +154,8 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlFaireLink || urlSyncRequired || urlHsCodeId || urlLocked || urlPfsExportedAt || urlEfashionExportedAt || urlMicrostoreExportedAt || urlAnkorstoreExportedAt || urlFaireExportedAt);
   const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
-  const [filtersOpen, setFiltersOpen] = useState(hasFilters);
+  const [filtersOpenInternal, setFiltersOpen] = useState(hasFilters);
+  const filtersOpen = forceOpen || filtersOpenInternal;
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Keep filters panel open if there are active filters
@@ -370,9 +378,11 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
           )}
         </div>
 
-        {/* Référence exacte */}
+        {/* Référence exacte — masqué en haut pour matcher la maquette Ardoise.
+            La logique reste active : un filtre dépliable « Plus de filtres »
+            permettra de l'activer ultérieurement. */}
         <label
-          className={`flex items-center gap-2 px-3 py-2 cursor-pointer select-none shrink-0 text-xs font-body font-medium border rounded-lg transition-colors ${
+          className={`hidden flex items-center gap-2 px-3 py-2 cursor-pointer select-none shrink-0 text-xs font-body font-medium border rounded-lg transition-colors ${
             urlExactRef
               ? "border-bg-dark bg-bg-dark text-text-inverse"
               : "border-border bg-bg-primary text-text-secondary hover:border-bg-dark hover:text-text-primary"
@@ -396,8 +406,8 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
 
         <div className="hidden sm:block h-5 w-px bg-border" />
 
-        {/* Quantité par page */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Quantité par page — masquée en haut pour matcher la maquette. */}
+        <div className="hidden items-center gap-2 shrink-0">
           <span className="text-xs text-text-muted font-body whitespace-nowrap">
             Afficher
           </span>
@@ -477,21 +487,24 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
           </button>
         )}
 
-        {/* Toggle filtres */}
-        <button
-          type="button"
-          onClick={() => setFiltersOpen((v) => !v)}
-          className={`flex items-center gap-2 px-3 py-2 text-xs font-body font-medium border rounded-lg transition-colors shrink-0 ml-auto ${
-            hasFilters
-              ? "border-bg-dark bg-bg-dark text-text-inverse"
-              : "border-border bg-bg-primary text-text-secondary hover:border-bg-dark hover:text-text-primary"
-          }`}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
-          </svg>
-          Filtres{hasFilters ? " actifs" : ""}
-        </button>
+        {/* Toggle filtres — masqué quand le wrapper ProductFiltersPanel
+            contrôle déjà l'ouverture via le bouton « Filtres détaillés ». */}
+        {!forceOpen && (
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((v) => !v)}
+            className={`flex items-center gap-2 px-3 py-2 text-xs font-body font-medium border rounded-lg transition-colors shrink-0 ml-auto ${
+              hasFilters
+                ? "border-bg-dark bg-bg-dark text-text-inverse"
+                : "border-border bg-bg-primary text-text-secondary hover:border-bg-dark hover:text-text-primary"
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+            </svg>
+            Filtres{hasFilters ? " actifs" : ""}
+          </button>
+        )}
       </div>
 
       {/* Panneau de filtres déroulant — sections en colonnes côte à côte pour gagner en hauteur */}
@@ -725,14 +738,14 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 </FilterField>
               )}
               {hasAnkorstoreConfig && (
-                <FilterField label="Lien Ankorstore" active={!!urlAnkorsLink}>
+                <FilterField label="Lien ANKOR" active={!!urlAnkorsLink}>
                   <CustomSelect
                     value={urlAnkorsLink}
                     onChange={(v) => navigate({ ankorsLink: v || null })}
                     options={[
                       { value: "", label: "Tous" },
-                      { value: "linked", label: "Lié à Ankorstore" },
-                      { value: "unlinked", label: "Non lié à Ankorstore" },
+                      { value: "linked", label: "Lié à ANKOR" },
+                      { value: "unlinked", label: "Non lié à ANKOR" },
                     ]}
                     size="sm"
                     searchable
@@ -740,14 +753,14 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                 </FilterField>
               )}
               {hasEfashionConfig && (
-                <FilterField label="Lien eFashion Paris" active={!!urlEfashionLink}>
+                <FilterField label="Lien EF" active={!!urlEfashionLink}>
                   <CustomSelect
                     value={urlEfashionLink}
                     onChange={(v) => navigate({ efashionLink: v || null })}
                     options={[
                       { value: "", label: "Tous" },
-                      { value: "linked", label: "Lié à eFashion" },
-                      { value: "unlinked", label: "Non lié à eFashion" },
+                      { value: "linked", label: "Lié à EF" },
+                      { value: "unlinked", label: "Non lié à EF" },
                     ]}
                     size="sm"
                     searchable
@@ -794,7 +807,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Dernier export eFashion" active={!!urlEfashionExportedAt}>
+              <FilterField label="Dernier export EF" active={!!urlEfashionExportedAt}>
                 <CustomSelect
                   value={urlEfashionExportedAt}
                   onChange={(v) => navigate({ efashionExportedAt: v || null })}
@@ -812,7 +825,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Dernier export Ankorstore" active={!!urlAnkorstoreExportedAt}>
+              <FilterField label="Dernier export ANKOR" active={!!urlAnkorstoreExportedAt}>
                 <CustomSelect
                   value={urlAnkorstoreExportedAt}
                   onChange={(v) => navigate({ ankorstoreExportedAt: v || null })}

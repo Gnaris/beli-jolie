@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { invalidateProductTranslations } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
+import { rotatePrimaryIfNeeded } from "@/lib/rotate-primary-service";
 import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
@@ -2167,6 +2168,13 @@ export async function updateVariantQuick(
       archivedFromOnline = result.previousStatus === "ONLINE";
       revalidateTag("products", "default");
     }
+    // Rotation auto couleur principale si la primaire vient de tomber à 0.
+    await rotatePrimaryIfNeeded(variant.productId).catch((err) => {
+      logger.error("[updateVariantQuick] rotatePrimaryIfNeeded failed", {
+        productId: variant.productId,
+        error: err,
+      });
+    });
   }
 
   revalidatePath("/admin/produits");
@@ -2255,6 +2263,12 @@ export async function bulkUpdateVariants(
       if (result.archived && result.previousStatus === "ONLINE") {
         archivedFromOnlineIds.add(pid);
       }
+      await rotatePrimaryIfNeeded(pid).catch((err) => {
+        logger.error("[bulkUpdateVariants] rotatePrimaryIfNeeded failed", {
+          productId: pid,
+          error: err,
+        });
+      });
     }
     if (archivedFromOnlineIds.size > 0) {
       revalidateTag("products", "default");

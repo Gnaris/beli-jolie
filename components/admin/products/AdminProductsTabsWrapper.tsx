@@ -49,41 +49,15 @@ export default function AdminProductsTabsWrapper({ initialTab, children, warning
     router.push(`/admin/produits${qs ? `?${qs}` : ""}`);
   };
 
-  return (
-    <>
-      {/* Tab bar */}
-      <div className="border-b border-border">
-        <div className="flex items-center gap-1 overflow-x-auto pb-1 -mb-px scrollbar-none">
-          {TABS_META.map((tab) => {
-            const isActive = initialTab === tab.key;
-            const warningCount = warnings[tab.key] ?? 0;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => handleTabChange(tab.key)}
-                className={`flex items-center gap-2 px-3.5 py-2.5 text-sm font-body rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
-                  isActive
-                    ? "border-text-primary text-text-primary bg-bg-primary font-medium"
-                    : "border-transparent text-text-muted hover:text-text-secondary hover:bg-bg-secondary/50"
-                }`}
-              >
-                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={tab.icon} />
-                </svg>
-                {tab.label}
-                {warningCount > 0 && (
-                  <span className="flex items-center gap-1 text-[11px] bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0.5 font-medium leading-none">
-                    {warningCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+  // La barre d'onglets (Produits / Catégories / Couleurs / …) a été retirée
+  // pour matcher la maquette Ardoise : la navigation entre ces sous-pages se
+  // fait désormais via le sous-menu déroulant « Produits » de la sidebar.
+  // Le composant garde son rôle de wrapper et continue de rendre le contenu
+  // de l'onglet actif (logique URL `?tab=…` conservée pour compat). Variables
+  // d'origine référencées pour éviter les avertissements unused.
+  void handleTabChange;
+  void warnings;
+  void TABS_META;
 
-      {/* Active tab content */}
-      <div>{children}</div>
-    </>
-  );
+  return <div>{children}</div>;
 }

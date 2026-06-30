@@ -31,6 +31,7 @@ import { formatRelativeDate } from "@/lib/format-date";
 // qui apparaît à la 1re sélection — un chargement asynchrone créerait un
 // clignotement visible, cf. bug "page qui se refresh" rapporté 2026-06-04).
 import MarketplaceExportButton from "@/components/admin/products/MarketplaceExportButton";
+import MarketplaceActionModal from "@/components/admin/products/MarketplaceActionModal";
 
 // Modales lourdes — chargées à l'ouverture seulement pour alléger le bundle
 // initial de la table produits (cf. audit perf 2026-05-31).
@@ -84,6 +85,8 @@ export interface RowActionContext {
   /** Optionnels pour rétro-compat des tests : on les traite comme false si absents. */
   hasEfashionConfig?: boolean;
   efashionEnabled?: boolean;
+  hasFaireConfig?: boolean;
+  faireEnabled?: boolean;
 }
 
 export interface RowActionEligibility {
@@ -115,6 +118,10 @@ export interface RowActionEligibility {
    */
   canPublishEfashion: boolean;
   publishEfashionReason?: string;
+  /** `canPublishFaire` : true si Faire est configuré + activé, que le produit
+   * n'y est pas encore publié, et que la fiche locale n'est pas incomplète. */
+  canPublishFaire: boolean;
+  publishFaireReason?: string;
 }
 
 export function computeRowActionEligibility(
@@ -124,6 +131,7 @@ export function computeRowActionEligibility(
     pfsProductId: string | null;
     ankorsProductId: string | null;
     efashionLinked?: boolean;
+    fairePublished?: boolean;
   },
   ctx: RowActionContext,
 ): RowActionEligibility {
@@ -173,6 +181,19 @@ export function computeRowActionEligibility(
     canPublishEfashion = true;
   }
 
+  const showFaire = !!(ctx.hasFaireConfig && ctx.faireEnabled);
+  let publishFaireReason: string | undefined;
+  let canPublishFaire = false;
+  if (!showFaire) {
+    publishFaireReason = "Faire n'est pas configuré ou est désactivé";
+  } else if (product.fairePublished) {
+    publishFaireReason = "Déjà publié sur Faire";
+  } else if (product.isIncomplete) {
+    publishFaireReason = "Produit incomplet — complétez la fiche d'abord";
+  } else {
+    canPublishFaire = true;
+  }
+
   return {
     canPutOnline: product.status !== "ONLINE" && !product.isIncomplete,
     putOnlineReason,
@@ -185,6 +206,8 @@ export function computeRowActionEligibility(
     publishAnkorstoreReason,
     canPublishEfashion,
     publishEfashionReason,
+    canPublishFaire,
+    publishFaireReason,
   };
 }
 
@@ -210,24 +233,22 @@ function MarketplaceBadge({
   published,
   publishing = false,
   syncRequired = false,
-  onPublishClick,
-  onLinkClick,
+  lastExportedAt = null,
+  onActionClick,
   onSyncClick,
 }: {
   published: boolean;
-  /** Une publication / mise à jour PFS est en cours pour ce produit. */
   publishing?: boolean;
-  /** Le produit est lié à PFS mais des modifs locales n'ont pas été propagées. */
   syncRequired?: boolean;
-  onPublishClick?: () => void;
-  /** Ouvre la modale de liaison vers une fiche PFS existante (mappage couleurs). */
-  onLinkClick?: () => void;
+  lastExportedAt?: string | null;
+  /** Ouvre la modale Publier/Lier (le parent gère ensuite les actions). */
+  onActionClick?: () => void;
   onSyncClick?: () => void;
 }) {
   if (publishing) {
     return (
       <span
-        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]"
+        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
         title="Publication PFS en cours…"
       >
         <svg
@@ -252,7 +273,7 @@ function MarketplaceBadge({
           e.stopPropagation();
           onSyncClick?.();
         }}
-        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer leading-tight"
         title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Paris Fashion Shop"
       >
         <span className="relative inline-flex">
@@ -266,64 +287,33 @@ function MarketplaceBadge({
   if (published) {
     return (
       <span
-        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
-        title="Publié sur Paris Fashion Shop"
+        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] leading-tight"
+        title={lastExportedAt ? `Publié sur Paris Fashion Shop — dernier export ${formatRelativeDate(lastExportedAt)}` : "Publié sur Paris Fashion Shop"}
       >
-        <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
-        PFS
+        <span>PFS</span>
+        {lastExportedAt && <span className="text-[8.5px] opacity-70 font-medium tabular-nums">{formatRelativeDate(lastExportedAt)}</span>}
       </span>
     );
   }
-  // Non publié : on propose deux actions côte à côte quand elles sont
-  // disponibles — "Publier" (créer une nouvelle fiche PFS) et "Lier"
-  // (rattacher à une fiche existante). Si seule une callback est passée,
-  // on affiche la pastille correspondante.
-  if (onPublishClick || onLinkClick) {
-    return (
-      <span className="inline-flex items-center justify-center gap-1 min-w-[7.5rem]">
-        {onPublishClick && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onPublishClick();
-            }}
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
-            title="Cliquer pour publier ce produit sur Paris Fashion Shop"
-          >
-            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            PFS
-          </button>
-        )}
-        {onLinkClick && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onLinkClick();
-            }}
-            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-muted bg-bg-secondary border border-border hover:border-text-secondary hover:text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
-            title="Lier à une fiche Paris Fashion Shop existante"
-            aria-label="Lier à une fiche Paris Fashion Shop existante"
-          >
-            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-            </svg>
-          </button>
-        )}
-      </span>
-    );
-  }
+  // Non publié : badge entièrement cliquable qui ouvre la modale (Publier/Lier)
   return (
-    <span
-      className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
-      title="Non publié sur Paris Fashion Shop"
+    <button
+      type="button"
+      onClick={(e) => {
+        if (!onActionClick) return;
+        e.stopPropagation();
+        onActionClick();
+      }}
+      disabled={!onActionClick}
+      className={`inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold leading-tight transition-colors ${
+        onActionClick
+          ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
+          : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
+      }`}
+      title={onActionClick ? "Cliquer pour publier ou lier ce produit sur Paris Fashion Shop" : "Non publié sur Paris Fashion Shop"}
     >
-      <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
       PFS
-    </span>
+    </button>
   );
 }
 
@@ -331,23 +321,21 @@ function AnkorstoreBadge({
   published,
   publishing = false,
   syncRequired = false,
-  onPublishClick,
-  onLinkClick,
+  lastExportedAt = null,
+  onActionClick,
   onSyncClick,
 }: {
   published: boolean;
-  /** Une publication / mise à jour Ankorstore est en cours pour ce produit. */
   publishing?: boolean;
-  /** Le produit est lié à Ankorstore mais des modifs locales n'ont pas été propagées. */
   syncRequired?: boolean;
-  onPublishClick?: () => void;
-  onLinkClick?: () => void;
+  lastExportedAt?: string | null;
+  onActionClick?: () => void;
   onSyncClick?: () => void;
 }) {
   if (publishing) {
     return (
       <span
-        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]"
+        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
         title="Publication Ankorstore en cours… (1 à 5 minutes)"
       >
         <svg
@@ -360,7 +348,7 @@ function AnkorstoreBadge({
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
         </svg>
-        Ankorstore en cours…
+        ANKOR en cours…
       </span>
     );
   }
@@ -372,78 +360,47 @@ function AnkorstoreBadge({
           e.stopPropagation();
           onSyncClick?.();
         }}
-        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer leading-tight"
         title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Ankorstore"
       >
         <span className="relative inline-flex">
           <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
           <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
         </span>
-        Ankorstore · Synchro
+        ANKOR · Synchro
       </button>
     );
   }
   if (published) {
     return (
       <span
-        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
-        title="Publié sur Ankorstore"
+        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] leading-tight"
+        title={lastExportedAt ? `Publié sur Ankorstore — dernier export ${formatRelativeDate(lastExportedAt)}` : "Publié sur Ankorstore"}
       >
-        <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
-        Ankorstore
+        <span>ANKOR</span>
+        {lastExportedAt && <span className="text-[8.5px] opacity-70 font-medium tabular-nums">{formatRelativeDate(lastExportedAt)}</span>}
       </span>
     );
   }
-  // Non publié : on propose deux actions côte à côte quand elles sont
-  // disponibles — "Publier" (créer une nouvelle fiche Ankorstore) et "Lier"
-  // (rattacher à une fiche existante). Si seule une callback est passée,
-  // on affiche la pastille correspondante.
-  if (onPublishClick || onLinkClick) {
-    return (
-      <span className="inline-flex items-center justify-center gap-1 min-w-[7.5rem]">
-        {onPublishClick && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onPublishClick();
-            }}
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
-            title="Cliquer pour publier ce produit sur Ankorstore"
-          >
-            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            Ankorstore
-          </button>
-        )}
-        {onLinkClick && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onLinkClick();
-            }}
-            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-muted bg-bg-secondary border border-border hover:border-text-secondary hover:text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
-            title="Lier à un produit Ankorstore existant"
-            aria-label="Lier à un produit Ankorstore existant"
-          >
-            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-            </svg>
-          </button>
-        )}
-      </span>
-    );
-  }
+  // Non publié : badge cliquable qui ouvre la modale (Publier/Lier)
   return (
-    <span
-      className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
-      title="Non publié sur Ankorstore"
+    <button
+      type="button"
+      onClick={(e) => {
+        if (!onActionClick) return;
+        e.stopPropagation();
+        onActionClick();
+      }}
+      disabled={!onActionClick}
+      className={`inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold leading-tight transition-colors ${
+        onActionClick
+          ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
+          : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
+      }`}
+      title={onActionClick ? "Cliquer pour publier ou lier ce produit sur Ankorstore" : "Non publié sur Ankorstore"}
     >
-      <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
-      Ankorstore
-    </span>
+      ANKOR
+    </button>
   );
 }
 
@@ -451,22 +408,21 @@ function EfashionBadge({
   linked,
   publishing = false,
   syncRequired = false,
-  onPublishClick,
-  onLinkClick,
+  lastExportedAt = null,
+  onActionClick,
   onSyncClick,
 }: {
   linked: boolean;
   publishing?: boolean;
-  /** Le produit est lié à eFashion mais des modifs locales n'ont pas été propagées. */
   syncRequired?: boolean;
-  onPublishClick?: () => void;
-  onLinkClick?: () => void;
+  lastExportedAt?: string | null;
+  onActionClick?: () => void;
   onSyncClick?: () => void;
 }) {
   if (publishing) {
     return (
       <span
-        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]"
+        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
         title="Publication eFashion Paris en cours…"
       >
         <svg
@@ -479,7 +435,7 @@ function EfashionBadge({
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
         </svg>
-        eFashion en cours…
+        EF en cours…
       </span>
     );
   }
@@ -491,74 +447,47 @@ function EfashionBadge({
           e.stopPropagation();
           onSyncClick?.();
         }}
-        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer leading-tight"
         title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à eFashion Paris"
       >
         <span className="relative inline-flex">
           <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
           <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
         </span>
-        eFashion · Synchro
+        EF · Synchro
       </button>
     );
   }
   if (linked) {
     return (
       <span
-        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
-        title="Lié à eFashion Paris"
+        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] leading-tight"
+        title={lastExportedAt ? `Lié à eFashion Paris — dernier export ${formatRelativeDate(lastExportedAt)}` : "Lié à eFashion Paris"}
       >
-        <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
-        eFashion
+        <span>EF</span>
+        {lastExportedAt && <span className="text-[8.5px] opacity-70 font-medium tabular-nums">{formatRelativeDate(lastExportedAt)}</span>}
       </span>
     );
   }
-  if (onPublishClick || onLinkClick) {
-    return (
-      <span className="inline-flex items-center justify-center gap-1 min-w-[7.5rem]">
-        {onPublishClick && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onPublishClick();
-            }}
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
-            title="Cliquer pour publier ce produit sur eFashion Paris"
-          >
-            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            eFashion
-          </button>
-        )}
-        {onLinkClick && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onLinkClick();
-            }}
-            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-muted bg-bg-secondary border border-border hover:border-text-secondary hover:text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
-            title="Lier à un produit eFashion Paris existant"
-            aria-label="Lier à un produit eFashion Paris existant"
-          >
-            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-            </svg>
-          </button>
-        )}
-      </span>
-    );
-  }
+  // Non lié : badge cliquable qui ouvre la modale (Publier/Lier)
   return (
-    <span
-      className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
-      title="Non lié à eFashion Paris"
+    <button
+      type="button"
+      onClick={(e) => {
+        if (!onActionClick) return;
+        e.stopPropagation();
+        onActionClick();
+      }}
+      disabled={!onActionClick}
+      className={`inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold leading-tight transition-colors ${
+        onActionClick
+          ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
+          : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
+      }`}
+      title={onActionClick ? "Cliquer pour publier ou lier ce produit sur eFashion Paris" : "Non lié à eFashion Paris"}
     >
-      <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
-      eFashion
-    </span>
+      EF
+    </button>
   );
 }
 
@@ -566,21 +495,21 @@ function FaireBadge({
   published,
   publishing = false,
   syncRequired = false,
-  onPublishClick,
-  onLinkClick,
+  lastExportedAt = null,
+  onActionClick,
   onSyncClick,
 }: {
   published: boolean;
   publishing?: boolean;
   syncRequired?: boolean;
-  onPublishClick?: () => void;
-  onLinkClick?: () => void;
+  lastExportedAt?: string | null;
+  onActionClick?: () => void;
   onSyncClick?: () => void;
 }) {
   if (publishing) {
     return (
       <span
-        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#FCE7F3] text-[#9D174D] border border-[#FBCFE8]"
+        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#FCE7F3] text-[#9D174D] border border-[#FBCFE8] leading-tight"
         title="Publication Faire en cours…"
       >
         <svg
@@ -605,7 +534,7 @@ function FaireBadge({
           e.stopPropagation();
           onSyncClick?.();
         }}
-        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer leading-tight"
         title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Faire"
       >
         <span className="relative inline-flex">
@@ -619,60 +548,33 @@ function FaireBadge({
   if (published) {
     return (
       <span
-        className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
-        title="Publié sur Faire"
+        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] leading-tight"
+        title={lastExportedAt ? `Publié sur Faire — dernier export ${formatRelativeDate(lastExportedAt)}` : "Publié sur Faire"}
       >
-        <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
-        Faire
+        <span>Faire</span>
+        {lastExportedAt && <span className="text-[8.5px] opacity-70 font-medium tabular-nums">{formatRelativeDate(lastExportedAt)}</span>}
       </span>
     );
   }
-  if (onPublishClick || onLinkClick) {
-    return (
-      <span className="inline-flex items-center justify-center gap-1 min-w-[7.5rem]">
-        {onPublishClick && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onPublishClick();
-            }}
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
-            title="Cliquer pour publier ce produit sur Faire"
-          >
-            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            Faire
-          </button>
-        )}
-        {onLinkClick && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onLinkClick();
-            }}
-            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-muted bg-bg-secondary border border-border hover:border-text-secondary hover:text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
-            title="Lier à un produit Faire existant"
-            aria-label="Lier à un produit Faire existant"
-          >
-            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-            </svg>
-          </button>
-        )}
-      </span>
-    );
-  }
+  // Non publié : badge cliquable qui ouvre la modale (Publier/Lier)
   return (
-    <span
-      className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 min-w-[7.5rem] rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
-      title="Non publié sur Faire"
+    <button
+      type="button"
+      onClick={(e) => {
+        if (!onActionClick) return;
+        e.stopPropagation();
+        onActionClick();
+      }}
+      disabled={!onActionClick}
+      className={`inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold leading-tight transition-colors ${
+        onActionClick
+          ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
+          : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
+      }`}
+      title={onActionClick ? "Cliquer pour publier ou lier ce produit sur Faire" : "Non publié sur Faire"}
     >
-      <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
       Faire
-    </span>
+    </button>
   );
 }
 
@@ -1114,6 +1016,171 @@ function VariantRow({
   );
 }
 
+// ─── Status badge with inline dropdown ──────────────────────────────────────
+function StatusBadge({
+  status,
+  onChange,
+  canPutOnline,
+  canPutOffline,
+  canArchive,
+  putOnlineReason,
+}: {
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
+  onChange: (next: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
+  canPutOnline: boolean;
+  canPutOffline: boolean;
+  canArchive: boolean;
+  putOnlineReason?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!open) return;
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const menuHeight = 150;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openAbove = spaceBelow < menuHeight && rect.top > menuHeight;
+    setPos({
+      top: openAbove ? rect.top - menuHeight - 4 : rect.bottom + 4,
+      left: rect.left,
+    });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        menuRef.current && !menuRef.current.contains(target) &&
+        anchorRef.current && !anchorRef.current.contains(target)
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const labels = {
+    ONLINE: "En ligne",
+    OFFLINE: "Hors ligne",
+    ARCHIVED: "Archivé",
+    SYNCING: "En sync",
+  } as const;
+  const dotColors = {
+    ONLINE: "#22C55E",
+    OFFLINE: "#9CA3AF",
+    ARCHIVED: "#F59E0B",
+    SYNCING: "#3B82F6",
+  } as const;
+  const badgeCls = {
+    ONLINE: "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] hover:bg-[#DCFCE7]",
+    OFFLINE: "bg-bg-secondary text-text-secondary border-border hover:bg-bg-tertiary",
+    ARCHIVED: "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA] hover:bg-[#FFEDD5]",
+    SYNCING: "bg-blue-50 text-blue-700 border-blue-200",
+  } as const;
+
+  const isSyncing = status === "SYNCING";
+
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        disabled={isSyncing}
+        onClick={(e) => { e.stopPropagation(); if (!isSyncing) setOpen((v) => !v); }}
+        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold border transition-colors ${
+          badgeCls[status]
+        } ${isSyncing ? "cursor-default" : "cursor-pointer"}`}
+        title={isSyncing ? "Statut système : importation en cours" : "Cliquer pour changer le statut"}
+      >
+        <span
+          className="w-1.5 h-1.5 rounded-full"
+          style={{ background: dotColors[status], animation: status === "SYNCING" ? "pulse 1.5s ease-in-out infinite" : undefined }}
+        />
+        {labels[status]}
+        {!isSyncing && (
+          <svg className={`w-2.5 h-2.5 opacity-60 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        )}
+      </button>
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          className="bg-bg-primary border border-border rounded-xl shadow-[var(--shadow-pop)] py-1.5 px-1.5 animate-fadeIn flex flex-col gap-px"
+          style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 9999, width: 170 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <StatusOption
+            label="En ligne"
+            dotColor="#22C55E"
+            selected={status === "ONLINE"}
+            disabled={!canPutOnline}
+            disabledReason={putOnlineReason}
+            onClick={() => { onChange("ONLINE"); setOpen(false); }}
+          />
+          <StatusOption
+            label="Hors ligne"
+            dotColor="#9CA3AF"
+            selected={status === "OFFLINE"}
+            disabled={!canPutOffline}
+            onClick={() => { onChange("OFFLINE"); setOpen(false); }}
+          />
+          <StatusOption
+            label="Archivé"
+            dotColor="#F59E0B"
+            selected={status === "ARCHIVED"}
+            disabled={!canArchive}
+            onClick={() => { onChange("ARCHIVED"); setOpen(false); }}
+          />
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
+function StatusOption({
+  label, dotColor, selected, disabled, disabledReason, onClick,
+}: {
+  label: string;
+  dotColor: string;
+  selected: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled || selected}
+      onClick={onClick}
+      title={disabled ? disabledReason : undefined}
+      className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-body font-medium transition-colors border-none bg-transparent ${
+        disabled
+          ? "text-text-muted opacity-50 cursor-not-allowed"
+          : selected
+          ? "text-text-primary bg-bg-tertiary cursor-default"
+          : "text-text-primary hover:bg-bg-tertiary cursor-pointer"
+      }`}
+    >
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: dotColor }} />
+      <span className="flex-1 text-left">{label}</span>
+      {selected && (
+        <svg className="w-3.5 h-3.5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 // ─── Actions Dropdown (portal) ────────────────────────────────────────────────
 
 function ActionsDropdown({
@@ -1124,6 +1191,8 @@ function ActionsDropdown({
   eligibility,
   ankorstorePublishing,
   pfsPublishing,
+  efashionPublishing,
+  fairePublishing,
   onClose,
   onExpandToggle,
   onRefresh,
@@ -1133,6 +1202,8 @@ function ActionsDropdown({
   onSync,
   onPublishPfs,
   onPublishAnkorstore,
+  onPublishEfashion,
+  onPublishFaire,
   onDelete,
 }: {
   productId: string;
@@ -1140,10 +1211,10 @@ function ActionsDropdown({
   refreshing: boolean;
   anchorRef: React.RefObject<HTMLDivElement | null>;
   eligibility: RowActionEligibility;
-  /** Publication / sync Ankorstore en cours pour ce produit. */
   ankorstorePublishing: boolean;
-  /** Publication / sync PFS en cours pour ce produit. */
   pfsPublishing: boolean;
+  efashionPublishing: boolean;
+  fairePublishing: boolean;
   onClose: () => void;
   onExpandToggle: () => void;
   onRefresh: () => void;
@@ -1153,8 +1224,14 @@ function ActionsDropdown({
   onSync: () => void;
   onPublishPfs: () => void;
   onPublishAnkorstore: () => void;
+  onPublishEfashion: () => void;
+  onPublishFaire: () => void;
   onDelete: () => void;
 }) {
+  // `expanded` et `onExpandToggle` ne sont plus exposés dans le menu mais
+  // restent dans la signature pour compat amont — on évite l'avertissement.
+  void expanded;
+  void onExpandToggle;
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
@@ -1164,12 +1241,12 @@ function ActionsDropdown({
     if (!anchor) return;
     const rect = anchor.getBoundingClientRect();
     // Hauteur estimée du menu — on compte tous les items potentiels
-    const menuHeight = 380;
+    const menuHeight = 480;
     const spaceBelow = window.innerHeight - rect.bottom;
     const openAbove = spaceBelow < menuHeight && rect.top > menuHeight;
     setPos({
-      top: openAbove ? rect.top - menuHeight - 4 : rect.bottom + 4,
-      left: rect.right - 200, // 200px = w-50
+      top: openAbove ? rect.top - menuHeight - 4 : rect.bottom + 6,
+      left: rect.right - 240,
     });
   }, [anchorRef]);
 
@@ -1188,23 +1265,45 @@ function ActionsDropdown({
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose, anchorRef]);
 
+  // Styles maquette Ardoise : groupes nommés (Édition / Statut / Sync) +
+  // items avec icône carrée à gauche + item « Supprimer » en rouge.
   const itemClass =
-    "block w-full text-left px-4 py-2 text-xs font-body text-text-primary hover:bg-bg-tertiary transition-colors no-underline border-none bg-transparent cursor-pointer";
+    "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] font-body font-medium text-text-primary hover:bg-bg-tertiary transition-colors no-underline border-none bg-transparent cursor-pointer";
   const itemDisabledClass =
-    "block w-full text-left px-4 py-2 text-xs font-body text-text-muted opacity-50 cursor-not-allowed border-none bg-transparent";
+    "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] font-body font-medium text-text-muted opacity-50 cursor-not-allowed border-none bg-transparent";
+  const itemDangerClass =
+    "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] font-body font-medium text-error hover:bg-error-bg transition-colors border-none bg-transparent cursor-pointer";
+  const iconWrap =
+    "w-[22px] h-[22px] inline-flex items-center justify-center rounded-md bg-bg-tertiary text-text-secondary text-[13px] shrink-0";
+  const iconWrapDanger =
+    "w-[22px] h-[22px] inline-flex items-center justify-center rounded-md bg-error-bg text-error text-[13px] shrink-0";
+  const groupLabel =
+    "block text-[10px] font-bold uppercase tracking-[0.14em] text-text-muted px-2.5 pt-2 pb-1";
+  const sepCls = "h-px bg-border my-1 mx-1.5";
 
   return (
     <div
       ref={menuRef}
-      className="w-50 bg-bg-primary border border-border rounded-xl shadow-lg py-1 animate-fadeIn"
-      style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 9999, width: 200 }}
+      className="bg-bg-primary border border-border rounded-xl shadow-[var(--shadow-pop)] py-1.5 px-1.5 animate-fadeIn flex flex-col gap-px"
+      style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 9999, width: 240 }}
     >
+      {/* ─── Édition ─── */}
+      <span className={groupLabel}>Édition</span>
       <Link
         href={`/admin/produits/${productId}/modifier`}
         className={itemClass}
         onClick={onClose}
       >
-        Modifier
+        <span className={iconWrap}>✎</span>
+        Modifier la fiche
+      </Link>
+      <Link
+        href={`/admin/produits/nouveau?dupliquerDe=${productId}`}
+        className={itemClass}
+        onClick={onClose}
+      >
+        <span className={iconWrap}>⎘</span>
+        Dupliquer
       </Link>
       <Link
         href={`/fr/produits/${productId}`}
@@ -1212,89 +1311,67 @@ function ActionsDropdown({
         className={itemClass}
         onClick={onClose}
       >
-        Voir côté client
+        <span className={iconWrap}>↗</span>
+        Voir la fiche publique
       </Link>
-      <Link
-        href={`/admin/produits/nouveau?dupliquerDe=${productId}`}
-        className={itemClass}
-        onClick={onClose}
-      >
-        Dupliquer
-      </Link>
-      <button
-        type="button"
-        onClick={onExpandToggle}
-        className={itemClass}
-      >
-        {expanded ? "Masquer les variantes" : "Voir les variantes"}
-      </button>
 
-      <div className="border-t border-border my-1" />
+      <div className={sepCls} />
 
-      {/* ── Changements de statut ── */}
+      {/* ─── Statut ─── */}
+      <span className={groupLabel}>Statut</span>
       {eligibility.canPutOnline ? (
         <button type="button" onClick={onPutOnline} className={itemClass}>
-          <span className="inline-flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
-            Mettre en ligne
-          </span>
+          <span className={iconWrap}>●</span>
+          Mettre en ligne
         </button>
       ) : (
         <span className={itemDisabledClass} title={eligibility.putOnlineReason ?? ""}>
-          <span className="inline-flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
-            Mettre en ligne
-          </span>
+          <span className={iconWrap}>●</span>
+          Mettre en ligne
         </span>
       )}
-
       {eligibility.canPutOffline ? (
         <button type="button" onClick={onPutOffline} className={itemClass}>
-          <span className="inline-flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#9CA3AF]" />
-            Mettre hors ligne
-          </span>
+          <span className={iconWrap}>○</span>
+          Passer hors ligne
         </button>
       ) : (
         <span className={itemDisabledClass} title="Déjà hors ligne">
-          <span className="inline-flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#9CA3AF]" />
-            Mettre hors ligne
-          </span>
+          <span className={iconWrap}>○</span>
+          Passer hors ligne
         </span>
       )}
-
       {eligibility.canArchive ? (
         <button type="button" onClick={onArchive} className={itemClass}>
-          <span className="inline-flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
-            Archiver
-          </span>
+          <span className={iconWrap}>⌂</span>
+          Archiver
         </button>
       ) : (
         <span className={itemDisabledClass} title="Déjà archivé">
-          <span className="inline-flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
-            Archiver
-          </span>
+          <span className={iconWrap}>⌂</span>
+          Archiver
         </span>
       )}
 
-      <div className="border-t border-border my-1" />
+      <div className={sepCls} />
 
-      {/* ── Sync marketplaces (différent de "Rafraîchir") ── */}
+      {/* ─── Synchronisation ─── */}
+      <span className={groupLabel}>Synchronisation</span>
       {eligibility.canSync && (
         <button type="button" onClick={onSync} className={itemClass}>
-          <span className="inline-flex items-center gap-2">
-            <svg className="w-3 h-3 text-[#6366F1]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-            </svg>
-            Synchroniser
-          </span>
+          <span className={iconWrap}>↻</span>
+          Synchroniser
         </button>
       )}
-
-      {/* ── Publier sur PFS (uniquement si non encore publié) ── */}
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={refreshing}
+        className={`${itemClass} ${refreshing ? "opacity-50 cursor-wait" : ""}`}
+      >
+        <span className={iconWrap}>↻</span>
+        {refreshing ? "Rafraîchissement…" : "Rafraîchir"}
+      </button>
       {eligibility.canPublishPfs && (
         <button
           type="button"
@@ -1302,22 +1379,21 @@ function ActionsDropdown({
           disabled={pfsPublishing}
           className={`${itemClass} ${pfsPublishing ? "opacity-50 cursor-wait" : ""}`}
         >
-          <span className="inline-flex items-center gap-2">
-            {pfsPublishing ? (
-              <svg className="w-3 h-3 text-[#4F46E5] animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-              </svg>
-            ) : (
-              <svg className="w-3 h-3 text-[#DC2626]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-            )}
-            {pfsPublishing ? "Publication PFS en cours…" : "Publier sur Paris Fashion Shop"}
-          </span>
+          <span className={iconWrap}>+</span>
+          {pfsPublishing ? "Publication PFS en cours…" : "Publier sur Paris Fashion Shop"}
         </button>
       )}
-
-      {/* ── Publier sur Ankorstore (uniquement si non encore publié) ── */}
+      {eligibility.canPublishEfashion && (
+        <button
+          type="button"
+          onClick={onPublishEfashion}
+          disabled={efashionPublishing}
+          className={`${itemClass} ${efashionPublishing ? "opacity-50 cursor-wait" : ""}`}
+        >
+          <span className={iconWrap}>+</span>
+          {efashionPublishing ? "Publication eFashion en cours…" : "Publier sur eFashion"}
+        </button>
+      )}
       {eligibility.canPublishAnkorstore && (
         <button
           type="button"
@@ -1325,39 +1401,32 @@ function ActionsDropdown({
           disabled={ankorstorePublishing}
           className={`${itemClass} ${ankorstorePublishing ? "opacity-50 cursor-wait" : ""}`}
         >
-          <span className="inline-flex items-center gap-2">
-            {ankorstorePublishing ? (
-              <svg className="w-3 h-3 text-[#4F46E5] animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-              </svg>
-            ) : (
-              <svg className="w-3 h-3 text-[#DC2626]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-            )}
-            {ankorstorePublishing ? "Publication Ankorstore en cours…" : "Publier sur Ankorstore"}
-          </span>
+          <span className={iconWrap}>+</span>
+          {ankorstorePublishing ? "Publication Ankorstore en cours…" : "Publier sur Ankorstore"}
+        </button>
+      )}
+      {eligibility.canPublishFaire && (
+        <button
+          type="button"
+          onClick={onPublishFaire}
+          disabled={fairePublishing}
+          className={`${itemClass} ${fairePublishing ? "opacity-50 cursor-wait" : ""}`}
+        >
+          <span className={iconWrap}>+</span>
+          {fairePublishing ? "Publication Faire en cours…" : "Publier sur Faire"}
         </button>
       )}
 
-      <button
-        type="button"
-        onClick={onRefresh}
-        disabled={refreshing}
-        className={`${itemClass} ${refreshing ? "opacity-50 cursor-wait" : ""}`}
-      >
-        {refreshing ? "Rafraîchissement…" : "Rafraîchir"}
-      </button>
+      <div className={sepCls} />
 
-      <div className="border-t border-border my-1" />
-
-      {/* ── Suppression ── */}
+      {/* ─── Suppression ─── */}
       <button
         type="button"
         onClick={onDelete}
-        className="block w-full text-left px-4 py-2 text-xs font-body text-red-600 hover:bg-red-50 transition-colors border-none bg-transparent cursor-pointer"
+        className={itemDangerClass}
       >
-        Supprimer
+        <span className={iconWrapDanger}>✕</span>
+        Supprimer le produit
       </button>
     </div>
   );
@@ -1507,42 +1576,6 @@ function ProductDatesCell({
           <span className="tabular-nums">{formatRelativeDate(lastRefreshedAt)}</span>
         </span>
       )}
-      {/* Dernier export marketplace — séparateur fin pour distinguer les dates
-          « cycle de vie » (créé/modifié/rafraîchi) des dates « diffusion ».
-          Visible même pour les brouillons : on garde une trace des exports
-          même quand le produit n'est plus lié aux marketplaces. */}
-      <div className="mt-0.5 pt-1.5 border-t border-border-light flex flex-col gap-0.5">
-        <MarketplaceExportLine
-          initials="PFS"
-          initialsClass="bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
-          lastExportedAt={pfsLastExportedAt}
-          marketplaceLabel="Paris Fashion Shop"
-        />
-        <MarketplaceExportLine
-          initials="AK"
-          initialsClass="bg-sky-50 text-sky-700 border-sky-200"
-          lastExportedAt={ankorstoreLastExportedAt}
-          marketplaceLabel="Ankorstore"
-        />
-        <MarketplaceExportLine
-          initials="EF"
-          initialsClass="bg-violet-50 text-violet-700 border-violet-200"
-          lastExportedAt={efashionLastExportedAt}
-          marketplaceLabel="eFashion"
-        />
-        <MarketplaceExportLine
-          initials="MS"
-          initialsClass="bg-amber-50 text-amber-700 border-amber-200"
-          lastExportedAt={microstoreLastExportedAt}
-          marketplaceLabel="Microstore"
-        />
-        <MarketplaceExportLine
-          initials="FA"
-          initialsClass="bg-rose-50 text-rose-700 border-rose-200"
-          lastExportedAt={faireLastExportedAt}
-          marketplaceLabel="Faire"
-        />
-      </div>
     </div>
   );
 }
@@ -1598,6 +1631,11 @@ function ProductRow({
   const [linkAkOpen, setLinkAkOpen] = useState(false);
   const [linkEfOpen, setLinkEfOpen] = useState(false);
   const [linkFaireOpen, setLinkFaireOpen] = useState(false);
+  // Modales « Publier / Lier » : une par marketplace, ouvertes au clic du badge
+  const [actionModalPfs, setActionModalPfs] = useState(false);
+  const [actionModalAk, setActionModalAk] = useState(false);
+  const [actionModalEf, setActionModalEf] = useState(false);
+  const [actionModalFaire, setActionModalFaire] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { confirm } = useConfirm();
@@ -1856,20 +1894,22 @@ function ProductRow({
   const allVariantsSelected = variantIds.length > 0 && variantIds.every((id) => selectedVariantIds.has(id));
 
   const eligibility = computeRowActionEligibility(
-    { ...product, efashionLinked },
+    { ...product, efashionLinked, fairePublished: faireBadgeState.online },
     {
       hasPfsConfig,
       hasAnkorstoreConfig,
       ankorstoreEnabled,
       hasEfashionConfig,
       efashionEnabled,
+      hasFaireConfig,
+      faireEnabled,
     },
   );
 
   return (
     <>
       <tr
-        className={`table-row transition-all duration-150 ${selected ? "bg-[#EEF2FF]" : ""} ${expanded ? "border-b-0" : ""} ${isDeleting ? "opacity-50 pointer-events-none" : ""}`}
+        className={`group table-row transition-all duration-150 ${selected ? "bg-[#EEF2FF]" : ""} ${expanded ? "border-b-0" : ""} ${isDeleting ? "opacity-50 pointer-events-none" : ""}`}
       >
         {/* Checkbox */}
         <td className="px-4 py-3.5 w-10" onClick={(e) => e.stopPropagation()}>
@@ -1882,146 +1922,217 @@ function ProductRow({
         </td>
 
         {/* N° de ligne */}
-        <td className="px-2 py-3.5 w-10 text-center cursor-pointer" onClick={onExpandToggle}>
+        <td className="hidden sm:table-cell px-2 py-3.5 w-10 text-center cursor-pointer" onClick={onExpandToggle}>
           <span className="font-body text-[11px] text-text-muted tabular-nums">{rowNumber}</span>
         </td>
 
-        {/* Photo — click direct vers la page d'édition (sinon le td ouvre le drawer) */}
-        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
-          <Link
-            href={`/admin/produits/${product.id}/modifier`}
-            onClick={(e) => e.stopPropagation()}
-            className="inline-block"
-            aria-label={`Modifier ${product.name}`}
-          >
-            {product.firstImage ? (
-              <img
-                src={product.firstImage}
-                alt={product.name}
-                className="w-12 h-12 object-cover rounded-xl border border-border shadow-sm"
-              />
-            ) : (
-              <div className="w-12 h-12 bg-bg-tertiary rounded-xl flex items-center justify-center border border-border">
-                <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M13.5 12h.008v.008H13.5V12zm0 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 9V7.5a2.25 2.25 0 012.25-2.25h15A2.25 2.25 0 0121 7.5v9a2.25 2.25 0 01-2.25 2.25H4.5A2.25 2.25 0 012.25 21z" />
-                </svg>
-              </div>
-            )}
-          </Link>
-        </td>
-
-        {/* Référence — la pastille redirige vers l'édition, le reste de la cellule ouvre le drawer */}
-        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
-          <div className="inline-flex items-center gap-1.5">
+        {/* Produit — photo + nom + référence dans une seule colonne (fusion
+            des anciennes cellules Photo + Réf. + Produit pour ressembler à
+            la maquette Ardoise). */}
+        <td className="px-3 py-3 cursor-pointer min-w-[260px]" onClick={onExpandToggle}>
+          <div className="flex items-center gap-3">
+            {/* Miniature à gauche — click = page d'édition */}
             <Link
               href={`/admin/produits/${product.id}/modifier`}
               onClick={(e) => e.stopPropagation()}
-              className="font-mono text-[11px] bg-bg-tertiary px-2 py-1 rounded-md text-text-secondary whitespace-nowrap border border-border-light hover:bg-bg-secondary hover:text-text-primary transition-colors"
+              className="shrink-0"
               aria-label={`Modifier ${product.name}`}
             >
-              {product.reference}
-            </Link>
-            <button
-              type="button"
-              onClick={async (e) => {
-                e.stopPropagation();
-                try {
-                  await navigator.clipboard.writeText(product.reference);
-                  setRefCopied(true);
-                  window.setTimeout(() => setRefCopied(false), 1500);
-                } catch {
-                  toast.error("Impossible de copier la référence");
-                }
-              }}
-              title={refCopied ? "Référence copiée" : "Copier la référence"}
-              aria-label={refCopied ? "Référence copiée" : "Copier la référence"}
-              className="inline-flex items-center justify-center w-6 h-6 rounded-md border border-border-light bg-bg-primary text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-            >
-              {refCopied ? (
-                <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                </svg>
+              {product.firstImage ? (
+                <img
+                  src={product.firstImage}
+                  alt={product.name}
+                  className="w-11 h-11 object-cover rounded-lg border border-border shadow-sm"
+                />
               ) : (
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
+                <div className="w-11 h-11 bg-bg-tertiary rounded-lg border border-border flex items-center justify-center">
+                  <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M13.5 12h.008v.008H13.5V12zm0 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 9V7.5a2.25 2.25 0 012.25-2.25h15A2.25 2.25 0 0121 7.5v9a2.25 2.25 0 01-2.25 2.25H4.5A2.25 2.25 0 012.25 21z" />
+                  </svg>
+                </div>
               )}
-            </button>
-            <span onClick={(e) => e.stopPropagation()} className="inline-flex">
-              <ProductLockToggle
-                productId={product.id}
-                initialLocked={product.locked}
-                variant="icon"
-              />
-            </span>
+            </Link>
+            {/* Nom + référence */}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <p className="font-semibold text-text-primary text-[13.5px] leading-tight truncate" title={product.name}>
+                  {product.name}
+                </p>
+                {hasMissingTranslations && (
+                  <span
+                    className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[9px] font-bold shrink-0"
+                    title={`Traductions manquantes: ${missingLocales.join(", ")}`}
+                  >
+                    ⓘ
+                  </span>
+                )}
+              </div>
+              <p className="font-mono text-[11px] text-text-muted mt-0.5 truncate">{product.reference}</p>
+              {/* Infos compactes pour mobile : prix + état + marketplaces.
+                  Masquées dès qu'on a assez de place pour les colonnes dédiées. */}
+              <div className="md:hidden flex items-center gap-2 mt-1.5 flex-wrap">
+                {!isNaN(minPrice) && (
+                  <span className="font-semibold text-text-primary text-[12px] tabular-nums">
+                    {minPrice.toFixed(2)} EUR
+                  </span>
+                )}
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border ${
+                  product.status === "ONLINE" ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
+                    : product.status === "SYNCING" ? "bg-blue-50 text-blue-700 border-blue-200"
+                    : product.status === "ARCHIVED" ? "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA]"
+                    : "bg-bg-secondary text-text-secondary border-border"
+                }`}>
+                  <span className={`w-1 h-1 rounded-full ${
+                    product.status === "ONLINE" ? "bg-[#22C55E]"
+                      : product.status === "SYNCING" ? "bg-blue-500"
+                      : product.status === "ARCHIVED" ? "bg-[#F59E0B]"
+                      : "bg-[#9CA3AF]"
+                  }`} />
+                  {product.status === "ONLINE" ? "En ligne"
+                    : product.status === "SYNCING" ? "En sync"
+                    : product.status === "ARCHIVED" ? "Archivé"
+                    : "Hors ligne"}
+                </span>
+              </div>
+            </div>
+            {/* Boutons compacts (copie ref + verrou) à droite, discrets, apparaissent au survol */}
+            <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    await navigator.clipboard.writeText(product.reference);
+                    setRefCopied(true);
+                    window.setTimeout(() => setRefCopied(false), 1500);
+                  } catch {
+                    toast.error("Impossible de copier la référence");
+                  }
+                }}
+                title={refCopied ? "Référence copiée" : "Copier la référence"}
+                aria-label={refCopied ? "Référence copiée" : "Copier la référence"}
+                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-text-muted hover:bg-bg-tertiary hover:text-text-primary transition-colors"
+              >
+                {refCopied ? (
+                  <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                )}
+              </button>
+              <ProductLockToggle productId={product.id} initialLocked={product.locked} variant="icon" />
+            </div>
           </div>
         </td>
 
-        {/* Produit — nom, catégorie › sous-cat, couleurs + prix mini (fusion des
-            anciennes colonnes Nom, Catégorie, Couleurs pour économiser de la
-            largeur horizontale). */}
-        <td className="px-3 py-3 cursor-pointer min-w-[260px] max-w-[420px]" onClick={onExpandToggle}>
-          <div className="flex flex-col gap-1">
-            {/* Ligne 1 : nom + badge traductions manquantes */}
-            <div className="flex items-center gap-1.5 min-w-0">
-              <p className="font-semibold text-text-primary text-sm truncate" title={product.name}>{product.name}</p>
-              {hasMissingTranslations && (
-                <span className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[9px] font-bold shrink-0" title={`Traductions manquantes: ${missingLocales.join(", ")}`}>
-                  ⓘ
+        {/* Prix */}
+        <td className="hidden md:table-cell px-3 py-3.5 cursor-pointer whitespace-nowrap" onClick={onExpandToggle}>
+          {!isNaN(minPrice) ? (
+            <span className="font-semibold text-text-primary text-[13.5px] tabular-nums">
+              {minPrice.toFixed(2)} EUR
+            </span>
+          ) : (
+            <span className="text-text-muted text-[11px]">—</span>
+          )}
+        </td>
+
+        {/* Marketplaces */}
+        <td className="hidden lg:table-cell px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
+          {shouldShowDraftMarketplaceNotice({
+            isIncomplete: product.isIncomplete,
+            pfsProductId: product.pfsProductId,
+            ankorsProductId: product.ankorsProductId,
+            efashionLinked,
+          }) ? (
+            <div
+              className="inline-flex items-start gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-[#F3E8FF] text-[#7C3AED] border border-[#DDD6FE] max-w-[200px]"
+              title="Ce produit est en brouillon : finalisez la fiche (image, prix, etc.) pour pouvoir le publier ou le lier à une marketplace."
+            >
+              <svg className="w-3 h-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              <span className="leading-tight">
+                Brouillon — impossible de lier aux marketplaces
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-row gap-1 items-start flex-wrap">
+              <MarketplaceBadge
+                published={!!product.pfsProductId}
+                publishing={isPfsPublishing}
+                syncRequired={product.pfsSyncRequired && !isPfsPublishing}
+                lastExportedAt={product.pfsLastExportedAt}
+                onActionClick={
+                  hasPfsConfig && !product.pfsProductId && !isPfsPublishing
+                    ? () => setActionModalPfs(true)
+                    : undefined
+                }
+                onSyncClick={handleSyncPfs}
+              />
+              {showEfashion ? (
+                <EfashionBadge
+                  linked={efashionLinked}
+                  publishing={isEfashionPublishing}
+                  syncRequired={product.efashionSyncRequired && !isEfashionPublishing}
+                  lastExportedAt={product.efashionLastExportedAt}
+                  onActionClick={
+                    showEfashion && !efashionLinked && !isEfashionPublishing
+                      ? () => setActionModalEf(true)
+                      : undefined
+                  }
+                  onSyncClick={handleSyncEfashion}
+                />
+              ) : (
+                <span className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border leading-tight">
+                  EF
                 </span>
               )}
+              <AnkorstoreBadge
+                published={!!product.ankorsProductId}
+                publishing={isAnkorstorePublishing}
+                syncRequired={product.ankorsSyncRequired && !isAnkorstorePublishing}
+                lastExportedAt={product.ankorstoreLastExportedAt}
+                onActionClick={
+                  showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing
+                    ? () => setActionModalAk(true)
+                    : undefined
+                }
+                onSyncClick={handleSyncAnkorstore}
+              />
+              {showFaire ? (
+                <FaireBadge
+                  published={faireBadgeState.online}
+                  publishing={isFairePublishing}
+                  syncRequired={product.faireSyncRequired && !isFairePublishing && !faireBadgeState.justPublishedOk}
+                  lastExportedAt={product.faireLastExportedAt}
+                  onActionClick={
+                    showFaire && !faireBadgeState.online && !isFairePublishing
+                      ? () => setActionModalFaire(true)
+                      : undefined
+                  }
+                  onSyncClick={handleSyncFaire}
+                />
+              ) : (
+                <span className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border leading-tight">
+                  Faire
+                </span>
+              )}
+              {/* Microstore : pas d'API → badge neutre, pas de date ni d'action */}
+              <span
+                className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-bg-tertiary text-text-secondary border border-border-strong leading-tight"
+                title="Microstore — pas d'API, géré manuellement"
+              >
+                MC
+              </span>
             </div>
-            {/* Ligne 2 : catégorie › sous-catégorie en breadcrumb */}
-            <p className="text-[11px] text-text-muted font-body leading-tight truncate" title={product.subCategoryName ? `${product.categoryName} › ${product.subCategoryName}` : product.categoryName}>
-              <span className="text-text-secondary font-medium">{product.categoryName}</span>
-              {product.subCategoryName && (
-                <>
-                  <span className="mx-1 text-text-muted">›</span>
-                  <span>{product.subCategoryName}</span>
-                </>
-              )}
-            </p>
-            {/* Ligne 3 : couleurs (max 5 puis compteur) + prix mini, séparés par un point */}
-            <div className="flex items-center gap-2 flex-nowrap">
-              {uniqueColors.length > 0 && (
-                <div className="flex items-center gap-0.5 flex-nowrap shrink-0">
-                  {uniqueColors.slice(0, 5).map((c) => {
-                    const mainHex = c.color.hex ?? "#9CA3AF";
-                    const swatchStyle: React.CSSProperties = c.color.patternImage
-                      ? { backgroundImage: `url(${c.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
-                      : { backgroundColor: mainHex };
-                    return (
-                      <span
-                        key={c.colorId}
-                        title={c.color.name}
-                        className="inline-block w-4 h-4 rounded-full shrink-0"
-                        style={{
-                          ...swatchStyle,
-                          border: '1.5px solid #fff',
-                          boxShadow: '0 0 0 1px #D1D5DB',
-                        }}
-                      />
-                    );
-                  })}
-                  {uniqueColors.length > 5 && (
-                    <span className="ml-1 text-[10px] text-text-muted font-semibold whitespace-nowrap">+{uniqueColors.length - 5}</span>
-                  )}
-                </div>
-              )}
-              {!isNaN(minPrice) && (
-                <>
-                  {uniqueColors.length > 0 && <span className="text-text-muted text-[10px]">·</span>}
-                  <p className="text-[11px] text-text-muted whitespace-nowrap">
-                    dès <span className="font-semibold text-text-secondary tabular-nums">{minPrice.toFixed(2)} €</span>
-                  </p>
-                </>
-              )}
-            </div>
-          </div>
+          )}
         </td>
 
         {/* Statut */}
-        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
+        <td className="hidden md:table-cell px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5 flex-nowrap">
               {product.isIncomplete && product.status !== "ONLINE" && !product.pfsProductId ? (
@@ -2033,26 +2144,14 @@ function ProductRow({
                   Brouillon
                 </span>
               ) : (
-                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
-                  product.status === "ONLINE"
-                    ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
-                    : product.status === "SYNCING"
-                    ? "bg-blue-50 text-blue-700 border-blue-200"
-                    : product.status === "ARCHIVED"
-                    ? "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA]"
-                    : "bg-bg-secondary text-text-secondary border-border"
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${
-                    product.status === "ONLINE" ? "bg-[#22C55E]"
-                    : product.status === "SYNCING" ? "bg-blue-500 animate-pulse"
-                    : product.status === "ARCHIVED" ? "bg-[#F59E0B]"
-                    : "bg-[#9CA3AF]"
-                  }`} />
-                  {product.status === "ONLINE" ? "En ligne"
-                    : product.status === "SYNCING" ? "Importation en cours depuis Paris Fashion Shop"
-                    : product.status === "ARCHIVED" ? "Archivé"
-                    : "Hors ligne"}
-                </span>
+                <StatusBadge
+                  status={product.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING"}
+                  canPutOnline={eligibility.canPutOnline}
+                  canPutOffline={eligibility.canPutOffline}
+                  canArchive={eligibility.canArchive}
+                  putOnlineReason={eligibility.putOnlineReason}
+                  onChange={(next) => onRowStatus(product.id, next)}
+                />
               )}
             </div>
             <div className="flex items-center gap-1.5 flex-nowrap">
@@ -2085,111 +2184,9 @@ function ProductRow({
           </div>
         </td>
 
-        {/* Marketplaces */}
-        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
-          {shouldShowDraftMarketplaceNotice({
-            isIncomplete: product.isIncomplete,
-            pfsProductId: product.pfsProductId,
-            ankorsProductId: product.ankorsProductId,
-            efashionLinked,
-          }) ? (
-            <div
-              className="inline-flex items-start gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-[#F3E8FF] text-[#7C3AED] border border-[#DDD6FE] max-w-[200px]"
-              title="Ce produit est en brouillon : finalisez la fiche (image, prix, etc.) pour pouvoir le publier ou le lier à une marketplace."
-            >
-              <svg className="w-3 h-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-              </svg>
-              <span className="leading-tight">
-                Brouillon — impossible de lier aux marketplaces
-              </span>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-1.5 items-start">
-              <MarketplaceBadge
-                published={!!product.pfsProductId}
-                publishing={isPfsPublishing}
-                syncRequired={product.pfsSyncRequired && !isPfsPublishing}
-                onPublishClick={
-                  eligibility.canPublishPfs && !isPfsPublishing
-                    ? () => { void handlePublishPfs(); }
-                    : undefined
-                }
-                onLinkClick={
-                  // On expose le bouton "Lier" seulement quand PFS est configuré,
-                  // que le produit n'est pas déjà lié, et qu'aucune publication
-                  // n'est en cours (même grammaire que Ankorstore/eFashion).
-                  hasPfsConfig && !product.pfsProductId && !isPfsPublishing
-                    ? () => setLinkPfsOpen(true)
-                    : undefined
-                }
-                onSyncClick={handleSyncPfs}
-              />
-              <AnkorstoreBadge
-                published={!!product.ankorsProductId}
-                publishing={isAnkorstorePublishing}
-                syncRequired={product.ankorsSyncRequired && !isAnkorstorePublishing}
-                onPublishClick={
-                  eligibility.canPublishAnkorstore && !isAnkorstorePublishing
-                    ? () => { void handlePublishAnkorstore(); }
-                    : undefined
-                }
-                onLinkClick={
-                  showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing
-                    ? () => setLinkAkOpen(true)
-                    : undefined
-                }
-                onSyncClick={handleSyncAnkorstore}
-              />
-              {showEfashion ? (
-                <EfashionBadge
-                  linked={efashionLinked}
-                  publishing={isEfashionPublishing}
-                  syncRequired={product.efashionSyncRequired && !isEfashionPublishing}
-                  onPublishClick={
-                    eligibility.canPublishEfashion && !isEfashionPublishing
-                      ? () => { void handlePublishEfashion(); }
-                      : undefined
-                  }
-                  onLinkClick={
-                    showEfashion && !efashionLinked && !isEfashionPublishing
-                      ? () => setLinkEfOpen(true)
-                      : undefined
-                  }
-                  onSyncClick={handleSyncEfashion}
-                />
-              ) : (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-secondary border border-border">
-                  eFashion
-                </span>
-              )}
-              {showFaire && (
-                <FaireBadge
-                  published={faireBadgeState.online}
-                  publishing={isFairePublishing}
-                  syncRequired={product.faireSyncRequired && !isFairePublishing && !faireBadgeState.justPublishedOk}
-                  onPublishClick={
-                    !faireBadgeState.online && !isFairePublishing
-                      ? () => { void handlePublishFaire(); }
-                      : undefined
-                  }
-                  onLinkClick={
-                    showFaire && !faireBadgeState.online && !isFairePublishing
-                      ? () => setLinkFaireOpen(true)
-                      : undefined
-                  }
-                  onSyncClick={handleSyncFaire}
-                />
-              )}
-            </div>
-          )}
-        </td>
-
         {/* Dates — Créé / Modifié / Rafraîchi sur 3 lignes (lignes masquées si
-            vides ou égales à la création), puis bloc « Dernier export par
-            marketplace » (4 puces PFS / AK / EF / MS). Visible aussi pour les
-            brouillons : on garde la trace des exports même hors marketplaces. */}
-        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
+            vides ou égales à la création). */}
+        <td className="hidden xl:table-cell px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
           <ProductDatesCell
             createdAt={product.createdAt}
             updatedAt={product.updatedAt}
@@ -2208,11 +2205,18 @@ function ProductRow({
             <button
               type="button"
               onClick={() => setActionsOpen((v) => !v)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-lg hover:border-border-dark hover:text-text-primary transition-all shadow-sm"
+              aria-label="Actions du produit"
+              title="Actions"
+              className={`inline-flex items-center justify-center w-9 h-9 rounded-lg transition-all ${
+                actionsOpen
+                  ? "bg-bg-tertiary border border-border text-text-primary"
+                  : "bg-transparent border border-transparent text-text-muted hover:bg-bg-tertiary hover:border-border hover:text-text-primary"
+              }`}
             >
-              Actions
-              <svg className={`w-3 h-3 transition-transform duration-200 ${actionsOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <circle cx="5" cy="12" r="1.75" />
+                <circle cx="12" cy="12" r="1.75" />
+                <circle cx="19" cy="12" r="1.75" />
               </svg>
             </button>
             {actionsOpen && createPortal(
@@ -2224,6 +2228,8 @@ function ProductRow({
                 eligibility={eligibility}
                 ankorstorePublishing={isAnkorstorePublishing}
                 pfsPublishing={isPfsPublishing}
+                efashionPublishing={isEfashionPublishing}
+                fairePublishing={isFairePublishing}
                 onClose={() => setActionsOpen(false)}
                 onExpandToggle={() => { onExpandToggle(); setActionsOpen(false); }}
                 onRefresh={async () => {
@@ -2251,6 +2257,8 @@ function ProductRow({
                 onSync={() => { setActionsOpen(false); onRowSync(product.id); }}
                 onPublishPfs={() => { setActionsOpen(false); void handlePublishPfs(); }}
                 onPublishAnkorstore={() => { setActionsOpen(false); void handlePublishAnkorstore(); }}
+                onPublishEfashion={() => { setActionsOpen(false); void handlePublishEfashion(); }}
+                onPublishFaire={() => { setActionsOpen(false); void handlePublishFaire(); }}
                 onDelete={() => { setActionsOpen(false); onRowDelete(product.id); }}
               />,
               document.body
@@ -2262,7 +2270,7 @@ function ProductRow({
       {/* ── Tiroir variantes ── */}
       {expanded && (
         <tr>
-          <td colSpan={9} className="p-0">
+          <td colSpan={8} className="p-0">
             <div className="drawer-variant-container" style={{ position: 'relative' }}>
               {/* En-tête du tiroir */}
               <div
@@ -2401,6 +2409,58 @@ function ProductRow({
         />,
         document.body,
       )}
+
+      {/* Modales « Publier / Lier » pour chaque marketplace — ouvertes par
+          clic sur le badge marketplace correspondant quand le produit n'y
+          est pas encore. */}
+      <MarketplaceActionModal
+        open={actionModalPfs}
+        marketplaceName="Paris Fashion Shop"
+        marketplaceCode="PFS"
+        productLabel={`${product.name} · ${product.reference}`}
+        canCreate={eligibility.canPublishPfs && !isPfsPublishing}
+        canLink={hasPfsConfig && !product.pfsProductId && !isPfsPublishing}
+        createDisabledReason={eligibility.canPublishPfs ? undefined : "Fiche incomplète ou marketplace non configurée"}
+        onClose={() => setActionModalPfs(false)}
+        onCreate={() => { setActionModalPfs(false); void handlePublishPfs(); }}
+        onLink={() => { setActionModalPfs(false); setLinkPfsOpen(true); }}
+      />
+      <MarketplaceActionModal
+        open={actionModalAk}
+        marketplaceName="Ankorstore"
+        marketplaceCode="ANKOR"
+        productLabel={`${product.name} · ${product.reference}`}
+        canCreate={eligibility.canPublishAnkorstore && !isAnkorstorePublishing}
+        canLink={showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing}
+        createDisabledReason={eligibility.canPublishAnkorstore ? undefined : "Fiche incomplète ou marketplace non configurée"}
+        onClose={() => setActionModalAk(false)}
+        onCreate={() => { setActionModalAk(false); void handlePublishAnkorstore(); }}
+        onLink={() => { setActionModalAk(false); setLinkAkOpen(true); }}
+      />
+      <MarketplaceActionModal
+        open={actionModalEf}
+        marketplaceName="eFashion Paris"
+        marketplaceCode="EF"
+        productLabel={`${product.name} · ${product.reference}`}
+        canCreate={eligibility.canPublishEfashion && !isEfashionPublishing}
+        canLink={showEfashion && !efashionLinked && !isEfashionPublishing}
+        createDisabledReason={eligibility.canPublishEfashion ? undefined : "Fiche incomplète ou marketplace non configurée"}
+        onClose={() => setActionModalEf(false)}
+        onCreate={() => { setActionModalEf(false); void handlePublishEfashion(); }}
+        onLink={() => { setActionModalEf(false); setLinkEfOpen(true); }}
+      />
+      <MarketplaceActionModal
+        open={actionModalFaire}
+        marketplaceName="Faire"
+        marketplaceCode="Faire"
+        productLabel={`${product.name} · ${product.reference}`}
+        canCreate={!faireBadgeState.online && !isFairePublishing}
+        canLink={showFaire && !faireBadgeState.online && !isFairePublishing}
+        createDisabledReason={!faireBadgeState.online ? undefined : "Produit déjà publié"}
+        onClose={() => setActionModalFaire(false)}
+        onCreate={() => { setActionModalFaire(false); void handlePublishFaire(); }}
+        onLink={() => { setActionModalFaire(false); setLinkFaireOpen(true); }}
+      />
     </>
   );
 }
@@ -2806,13 +2866,12 @@ function TableWithTopScroll({
                   title="Tout sélectionner"
                 />
               </th>
-              <th className="px-2 py-3.5 w-10 text-center text-[10px] font-bold text-text-muted uppercase tracking-widest">#</th>
-              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Photo</th>
-              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Réf.</th>
+              <th className="hidden sm:table-cell px-2 py-3.5 w-10 text-center text-[10px] font-bold text-text-muted uppercase tracking-widest">#</th>
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Produit</th>
-              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Statut</th>
-              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Marketplaces</th>
-              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Dates</th>
+              <th className="hidden md:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Prix</th>
+              <th className="hidden lg:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Marketplaces</th>
+              <th className="hidden md:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">État</th>
+              <th className="hidden xl:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Dates</th>
               <th className="px-3 py-3.5 text-right text-[10px] w-28"></th>
             </tr>
           </thead>

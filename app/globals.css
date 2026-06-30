@@ -465,6 +465,22 @@ h1, h2, h3, h4, h5, h6 {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+/* ─── Scrollbar sombre (sidebar admin Ardoise) ───────────────────── */
+.scrollbar-dark {
+  scrollbar-width: thin;
+  scrollbar-color: #27272A transparent;
+}
+.scrollbar-dark::-webkit-scrollbar { width: 6px; height: 6px; }
+.scrollbar-dark::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-dark::-webkit-scrollbar-thumb {
+  background: #27272A;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+.scrollbar-dark::-webkit-scrollbar-thumb:hover { background: #3F3F46; background-clip: content-box; }
+.scrollbar-dark::-webkit-scrollbar-corner { background: transparent; }
+
 /* ─── Custom checkbox ────────────────────── */
 .checkbox-custom {
   appearance: none;

@@ -204,17 +204,18 @@ function getVariantStock(variant: FullVariant): number {
 
 /**
  * Stock effectivement envoyé à Ankorstore.
- * - ARCHIVED localement → stock forcé à 0 (produit retiré de la vente AS,
- *   reversible : un desarchivage renverra le vrai stock).
- * - ONLINE / OFFLINE → vrai stock local envoyé (la visibilite sur la
- *   boutique ne doit pas dicter le stock sur Ankorstore : un produit peut
- *   etre archivable avec du stock encore present).
+ * - ARCHIVED ou OFFLINE localement → stock forcé à 0 (produit retiré de la
+ *   vente côté AS). Réversible : repasser en ONLINE renverra le vrai stock
+ *   au prochain push. Choix volontaire — l'API publique Ankorstore n'expose
+ *   pas de "désactiver", donc mettre stock à 0 = seule façon propre de
+ *   rendre un produit inachetable depuis l'API officielle.
+ * - ONLINE → vrai stock local envoyé.
  */
 function getEffectiveStockForAnkorstore(
   variant: FullVariant,
   productStatus: string,
 ): number {
-  if (productStatus === "ARCHIVED") return 0;
+  if (productStatus === "ARCHIVED" || productStatus === "OFFLINE") return 0;
   return getVariantStock(variant);
 }
 

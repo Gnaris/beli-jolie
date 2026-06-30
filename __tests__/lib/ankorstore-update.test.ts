@@ -595,4 +595,106 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     expect(result).toEqual({ success: false, error: "Produit introuvable en base" });
     expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
   });
+
+  it("Stock 0 forcé quand product.status === 'OFFLINE' (PATCH stock + payload async)", async () => {
+    // Sans snapshot précédent : le diff considère tout comme nouveau,
+    // statusChanged = true → op async + PATCH stock individuels.
+    // Le produit a stock=10 localement mais OFFLINE → on doit envoyer 0 à AS.
+    const product = makeProduct({
+      status: "OFFLINE",
+      ankorsLastSyncSnapshot: null,
+    });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result.success).toBe(true);
+
+    // PATCH stock individuel : stockQuantity à 0 (pas 10)
+    expect(mockPatchVariantStock).toHaveBeenCalledWith("ank-variant-1", {
+      stockQuantity: 0,
+      isAlwaysInStock: false,
+    });
+
+    // Payload async : variants[].stock_quantity à 0 aussi
+    const addCall = mockAddProductsToOperation.mock.calls[0];
+    const products = addCall[1] as { variants: { stockQuantity: number }[] }[];
+    expect(products[0].variants[0].stockQuantity).toBe(0);
+  });
+
+  it("Stock 0 forcé quand product.status === 'ARCHIVED' (comportement préservé)", async () => {
+    const product = makeProduct({
+      status: "ARCHIVED",
+      ankorsLastSyncSnapshot: null,
+    });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result.success).toBe(true);
+    expect(mockPatchVariantStock).toHaveBeenCalledWith("ank-variant-1", {
+      stockQuantity: 0,
+      isAlwaysInStock: false,
+    });
+    const addCall = mockAddProductsToOperation.mock.calls[0];
+    const products = addCall[1] as { variants: { stockQuantity: number }[] }[];
+    expect(products[0].variants[0].stockQuantity).toBe(0);
+  });
+
+  it("Stock réel envoyé quand product.status === 'ONLINE'", async () => {
+    const product = makeProduct({
+      status: "ONLINE",
+      ankorsLastSyncSnapshot: null,
+    });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result.success).toBe(true);
+    expect(mockPatchVariantStock).toHaveBeenCalledWith("ank-variant-1", {
+      stockQuantity: 10,
+      isAlwaysInStock: false,
+    });
+    const addCall = mockAddProductsToOperation.mock.calls[0];
+    const products = addCall[1] as { variants: { stockQuantity: number }[] }[];
+    expect(products[0].variants[0].stockQuantity).toBe(10);
+  });
+
+  it("OFFLINE → ONLINE : repasser ONLINE restaure le vrai stock au prochain push", async () => {
+    // Snapshot précédent : stock 0 (push OFFLINE précédent)
+    const prevSnapshot = makeSnapshot({
+      variants: {
+        "ank-variant-1": {
+          sku: "REF001_red_UNIT_1",
+          wholesalePriceCents: 1000,
+          retailPriceCents: 1000,
+          stockQty: 0,
+          isAlwaysInStock: false,
+          optionColor: "Rouge",
+          optionSize: "TU",
+          optionMaterial: null,
+        },
+      },
+      status: "inactive",
+    });
+    // Maintenant ONLINE avec stock 10 → diff doit voir le changement
+    const product = makeProduct({
+      status: "ONLINE",
+      ankorsLastSyncSnapshot: prevSnapshot,
+    });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result.success).toBe(true);
+    // Le vrai stock (10) doit repartir vers AS
+    expect(mockPatchVariantStock).toHaveBeenCalledWith("ank-variant-1", {
+      stockQuantity: 10,
+      isAlwaysInStock: false,
+    });
+  });
 });
