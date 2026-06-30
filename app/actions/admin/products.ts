@@ -210,6 +210,8 @@ export interface ProductInput {
   hsCodeId?: string | null;
   manufacturingCountryId?: string | null;
   seasonId?: string | null;
+  /** Note interne admin. Jamais exposée sur le site ni marketplaces. */
+  note?: string | null;
   translations?: TranslationInput[];
   discountPercent: number | null; // Remise en % (ex: 15 = -15%). null = pas de remise
   sizeDetailsTu?: string | null; // Détail taille unique (ex: "52-56")
@@ -423,6 +425,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       reference:             input.reference.trim().toUpperCase(),
       name:                  input.name.trim(),
       description:           input.description.trim(),
+      note:                  input.note?.trim() ? input.note.trim() : null,
       categoryId:    input.categoryId,
       isBestSeller:  input.isBestSeller,
       status:        input.status,
@@ -674,6 +677,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       isBestSeller: true,
       name: true,
       description: true,
+      note: true,
       categoryId: true,
       manufacturingCountryId: true,
       seasonId: true,
@@ -788,6 +792,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
         reference:             input.reference.trim().toUpperCase(),
         name:                  input.name.trim(),
         description:           input.description.trim(),
+        note:                  input.note?.trim() ? input.note.trim() : null,
         categoryId:    input.categoryId,
         isBestSeller:  input.isBestSeller,
         status:        input.status,
