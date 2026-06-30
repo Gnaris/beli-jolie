@@ -1,65 +1,83 @@
 /**
- * Exporte le prochain lot de produits sans nouveau nom/description en JSON sur stdout.
- * Lit le journal data/name-review-log.json pour savoir ce qui est déjà traité.
+ * Exporte le prochain lot de produits à compléter par le skill produits-nom.
+ * Filtre = status ONLINE + note ne contient pas "Complété par l'IA".
+ * Tri = createdAt DESC (plus récents en premier).
  * Usage : npx tsx scripts/name-batch-export.ts <N>
  */
 import "dotenv/config";
-import fs from "fs";
-import path from "path";
 import { prisma } from "@/lib/prisma";
-
-const JOURNAL = path.join(process.cwd(), "data", "name-review-log.json");
+import { buildExportWhereClause } from "@/lib/name-batch-export-filter";
 
 (async () => {
   const N = parseInt(process.argv[2] ?? "10", 10);
 
-  let journalRefs = new Set<string>();
-  try {
-    const raw = fs.readFileSync(JOURNAL, "utf-8");
-    const j = JSON.parse(raw);
-    journalRefs = new Set(Object.keys(j.products ?? {}));
-  } catch {
-    // pas de journal = tout est à traiter
-  }
-
   const products = await prisma.product.findMany({
-    where: {
-      status: "ONLINE",
-      reference: { notIn: Array.from(journalRefs) },
-    },
+    where: buildExportWhereClause(),
     take: N,
     orderBy: { createdAt: "desc" },
     include: {
       colorImages: { orderBy: { order: "asc" } },
       colors: {
-        where: { isPrimary: true },
-        take: 1,
-        select: { colorId: true },
+        select: { colorId: true, isPrimary: true },
       },
-      category: { select: { name: true } },
+      category: {
+        select: {
+          id: true,
+          name: true,
+          subCategories: { select: { id: true, name: true } },
+        },
+      },
+      subCategories: { select: { id: true, name: true } },
+      tags: { select: { tag: { select: { id: true, name: true } } } },
     },
   });
 
   const out = products.map((p) => {
-    const primaryColorId = p.colors[0]?.colorId ?? null;
-    const imgForPrimary = p.colorImages.find((i) => i.colorId === primaryColorId);
-    const imgFallback = p.colorImages[0];
+    // Une image par couleur : la première rencontrée par ordre croissant
+    const seenColors = new Set<string>();
+    const onePerColor: { colorId: string; path: string }[] = [];
+    for (const img of p.colorImages) {
+      if (img.colorId && !seenColors.has(img.colorId)) {
+        seenColors.add(img.colorId);
+        onePerColor.push({ colorId: img.colorId, path: img.path });
+      }
+    }
     return {
       id: p.id,
       reference: p.reference,
       name: p.name,
       description: p.description,
-      category: p.category?.name ?? null,
-      imagePath: (imgForPrimary || imgFallback)?.path ?? null,
+      note: p.note,
+      category: p.category
+        ? {
+            id: p.category.id,
+            name: p.category.name,
+            availableSubCategories: p.category.subCategories.map((s) => ({
+              id: s.id,
+              name: s.name,
+            })),
+          }
+        : null,
+      subCategories: p.subCategories.map((s) => ({ id: s.id, name: s.name })),
+      tags: p.tags.map((pt) => ({ id: pt.tag.id, name: pt.tag.name })),
+      colors: onePerColor,
+      pfsProductId: p.pfsProductId,
+      ankorsProductId: p.ankorsProductId,
+      efashionReferenceBase: p.efashionReferenceBase,
     };
   });
 
-  console.log(JSON.stringify({
-    journalSize: journalRefs.size,
-    requested: N,
-    returned: out.length,
-    products: out,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        requested: N,
+        returned: out.length,
+        products: out,
+      },
+      null,
+      2,
+    ),
+  );
 
   await prisma.$disconnect();
 })().catch((err) => {
