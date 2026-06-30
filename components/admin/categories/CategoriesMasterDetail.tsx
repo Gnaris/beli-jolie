@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import CategoriesList from "./CategoriesList";
 import CategoryDetail, { type CategoryDetailData } from "./CategoryDetail";
@@ -53,7 +53,6 @@ export default function CategoriesMasterDetail({
   const searchParams = useSearchParams();
   const { confirm } = useConfirm();
   const toast = useToast();
-  const [, startTransition] = useTransition();
 
   const urlSelectedId = searchParams.get("cat");
   const initialDesktopId = categories[0]?.id ?? null;
@@ -85,14 +84,17 @@ export default function CategoriesMasterDetail({
     setSelectedId(id);
     const params = new URLSearchParams(searchParams.toString());
     params.set("cat", id);
-    startTransition(() => router.replace(`${pathname}?${params.toString()}`, { scroll: false }));
+    // window.history.replaceState évite un re-render serveur (router.replace
+    // ré-invoque la page Server Component, ce qui re-fetch Prisma + labels et
+    // crée un lag perceptible à chaque clic).
+    window.history.replaceState(null, "", `${pathname}?${params.toString()}`);
   }
 
   function handleBack() {
     setSelectedId(null);
     const params = new URLSearchParams(searchParams.toString());
     params.delete("cat");
-    startTransition(() => router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`));
+    window.history.replaceState(null, "", `${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
   }
 
   async function handleDelete(cat: CategoryRow) {
