@@ -95,34 +95,35 @@ export default function CategoriesList({
           const isActive = c.id === selectedId;
           const missingTr = !(c.translations.fr && c.translations.fr.trim() && c.translations.en && c.translations.en.trim());
           return (
-            <div
+            <button
               key={c.id}
+              type="button"
               data-cat-id={c.id}
               data-active={isActive}
               onClick={() => onSelect(c.id)}
-              className={`relative flex items-center justify-between px-3.5 py-2.5 rounded-xl cursor-pointer mb-0.5 transition-all ${
+              className={`relative flex w-full items-center justify-between px-3.5 py-2.5 rounded-xl cursor-pointer mb-0.5 transition-all text-left ${
                 isActive
-                  ? "bg-gradient-to-b from-[#2A2D33] to-[#18181B] text-text-inverse shadow-[var(--shadow-pop)]"
+                  ? "bg-gradient-to-b from-[#27272A] to-[#18181B] text-text-inverse shadow-[var(--shadow-pop)]"
                   : "hover:bg-bg-tertiary text-text-primary"
               }`}
             >
               {isActive && <span aria-hidden className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-ink rounded-r" />}
               <span className={`text-[13.5px] ${isActive ? "font-semibold" : "font-medium"}`}>{c.name}</span>
-              <div className="flex items-center gap-1.5">
+              <span className="flex items-center gap-1.5">
                 {missingTr && (
                   <span aria-hidden className="w-[7px] h-[7px] rounded-full bg-amber-300 shadow-[0_0_0_2.5px_rgba(255,251,235,1)]" title="Sans traduction" />
                 )}
                 <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold ${isActive ? "bg-white/15" : "bg-bg-tertiary"}`}>
                   {c.productCount}
                 </span>
-              </div>
-            </div>
+              </span>
+            </button>
           );
         })}
       </div>
       {/* Total */}
       <div className="px-3.5 py-3 bg-bg-primary border-t border-border text-[11px] text-text-muted text-center font-medium">
-        {filtered.length} catégorie{filtered.length > 1 ? "s" : ""} · {productSum.toLocaleString("fr-FR")} produits
+        {filtered.length} catégorie{filtered.length > 1 ? "s" : ""} · {productSum.toLocaleString("fr-FR")} produit{productSum > 1 ? "s" : ""}
       </div>
     </div>
   );
