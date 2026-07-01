@@ -78,6 +78,17 @@ export interface EfashionSnapshot {
    * Absent sur les snapshots antérieurs au 2026-05-28.
    */
   declinaisonId?: number | null;
+  /**
+   * id_categorie eFashion du groupe — l'arbre 3 niveaux d'eFashion, ex 160103
+   * pour « Bracelets », 160108 pour « Chaînes de cheville ». Vient de
+   * `Product.category.efashionCategorieId`. Permet de détecter quand
+   * l'utilisatrice change la catégorie BJ et qu'il faut la propager à
+   * TOUTES les couleurs eFashion (l'endpoint updateProduit stocke la
+   * catégorie par variante). Absent sur les snapshots antérieurs au
+   * 2026-07-01 — le diff traite ce cas comme « changement » pour forcer
+   * un rattrapage.
+   */
+  categoryId?: number | null;
 }
 
 export interface EfashionDiff {
@@ -110,6 +121,12 @@ export interface EfashionDiff {
    * ajoute/retire une taille au produit BJ.
    */
   declinaisonChanged: boolean;
+  /**
+   * True si l'id_categorie cible (arbre catégories eFashion) diffère de celui
+   * du snapshot précédent. Déclenche un updateProduit sur TOUTES les couleurs
+   * liées (la catégorie eFashion est stockée par variante).
+   */
+  categoryChanged: boolean;
 }
 
 /**
@@ -128,6 +145,7 @@ export function diffEfashionSnapshots(
     compositionsChanged: false,
     primaryChanged: false,
     declinaisonChanged: false,
+    categoryChanged: false,
   };
   if (!before) {
     result.added = [...after.variants];
@@ -137,6 +155,7 @@ export function diffEfashionSnapshots(
     // l'état live d'eFashion par l'updater.
     result.primaryChanged = after.primaryEfashionProductId != null;
     result.declinaisonChanged = after.declinaisonId != null;
+    result.categoryChanged = after.categoryId != null;
     return result;
   }
 
@@ -242,6 +261,16 @@ export function diffEfashionSnapshots(
     }
   }
 
+  // Catégorie eFashion. Même logique que la déclinaison : on déclenche si la
+  // cible est définie ET (le before n'en avait pas, OU les deux diffèrent).
+  // Ainsi un snapshot legacy (sans categoryId) déclenche un rattrapage au
+  // prochain sync — l'updater comparera alors à l'état live avant d'agir.
+  if (after.categoryId != null) {
+    if (before.categoryId == null || before.categoryId !== after.categoryId) {
+      result.categoryChanged = true;
+    }
+  }
+
   return result;
 }
 
@@ -295,6 +324,7 @@ export function hasAnyChanges(diff: EfashionDiff): boolean {
     diff.descriptionsChanged ||
     diff.compositionsChanged ||
     diff.primaryChanged ||
-    diff.declinaisonChanged
+    diff.declinaisonChanged ||
+    diff.categoryChanged
   );
 }

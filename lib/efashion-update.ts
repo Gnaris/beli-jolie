@@ -144,6 +144,10 @@ export async function efashionUpdateProductInPlace(
       dimensionCircumference: true,
       efashionReferenceBase: true,
       efashionLastSyncSnapshot: true,
+      // Catégorie BJ — mappée à un id_categorie eFashion (arbre 3 niveaux).
+      // Source de vérité pour la sync : quand elle change, on doit propager
+      // à TOUTES les couleurs (eFashion stocke la catégorie par variante).
+      category: { select: { efashionCategorieId: true } },
       // Couleur principale BJ — source de vérité pour la sync eFashion.
       // ⚠️ Ne pas se fier à `ProductColor.isPrimary` qui peut être
       // désynchronisé de `Product.primaryColorId` (cas observé : l'admin
@@ -715,6 +719,8 @@ export async function efashionUpdateProductInPlace(
     }
   }
 
+  const targetCategoryId = product.category?.efashionCategorieId ?? null;
+
   const target: EfashionSnapshot = {
     version: 1,
     referenceBase: product.efashionReferenceBase,
@@ -723,6 +729,7 @@ export async function efashionUpdateProductInPlace(
     compositions: targetCompositions,
     primaryEfashionProductId: bjPrimaryEfashionId,
     declinaisonId: targetDeclinaisonId,
+    categoryId: targetCategoryId,
   };
 
   const diff = diffEfashionSnapshots(previousSnapshot, target);
@@ -779,9 +786,32 @@ export async function efashionUpdateProductInPlace(
     variantsToUpdate.length > 0 ||
     diff.primaryChanged ||
     diff.removed.length > 0 ||
-    diff.declinaisonChanged
+    diff.declinaisonChanged ||
+    diff.categoryChanged
   ) {
     await ensureLiveById();
+  }
+
+  // Changement de catégorie eFashion : la nouvelle catégorie doit être poussée
+  // sur TOUTES les couleurs liées (eFashion stocke id_categorie par variante).
+  // On enqueue chaque variante avec un flag `fields` vide — le payload complet
+  // sera reconstruit dans la boucle finale via `live.*`, et on y injectera
+  // `targetCategoryId` à la place de `live.id_categorie` (voir plus bas).
+  //
+  // Idempotent : si la variante est déjà dans la queue (parce que prix/poids/
+  // visible a aussi changé), on ne la duplique pas.
+  if (diff.categoryChanged && targetCategoryId != null) {
+    const alreadyQueued = new Set(variantsToUpdate.map((v) => v.variant.efashionProductId));
+    for (const tv of targetVariants) {
+      if (!alreadyQueued.has(tv.efashionProductId)) {
+        variantsToUpdate.push({ variant: tv, fields: [] as const });
+      }
+    }
+    logger.info("[eFashion update] Catégorie changée — push forcé sur toutes les couleurs", {
+      productId,
+      newCategoryId: targetCategoryId,
+      variantsAffected: targetVariants.length,
+    });
   }
 
   // Aligne la couleur principale eFashion (`main = true`) sur la primaire BJ.
@@ -883,7 +913,10 @@ export async function efashionUpdateProductInPlace(
         };
         if (live.reference_base) input.reference_base = live.reference_base;
         if (live.id_collection !== null) input.id_collection = live.id_collection;
-        if (live.id_categorie !== null) input.id_categorie = live.id_categorie;
+        // `id_categorie` : cible BJ prioritaire, fallback live (voir bloc
+        // updateProduit final pour la même logique).
+        const effectiveCategoryId = targetCategoryId ?? live.id_categorie;
+        if (effectiveCategoryId !== null) input.id_categorie = effectiveCategoryId;
         if (live.id_provenance !== null) input.id_provenance = live.id_provenance;
         if (live.id_pack !== null) input.id_pack = live.id_pack;
         if (live.vendu_par === "couleurs" || live.vendu_par === "tailles") {
@@ -1455,11 +1488,17 @@ export async function efashionUpdateProductInPlace(
       };
       // Recopie des champs « stables » lus chez eFashion — sans ça, eFashion
       // propage prix/poids/visible à toutes les couleurs.
+      //
+      // ⚠️ `id_categorie` : source de vérité = BJ (`targetCategoryId`). Si la
+      // cliente a changé la catégorie BJ, on la pousse à chaque variante. Si
+      // BJ n'a pas de mapping eFashion (efashionCategorieId=null), on retombe
+      // sur la valeur live pour ne pas envoyer null (eFashion refuserait).
       if (live) {
         input.reference = live.reference;
         if (live.reference_base) input.reference_base = live.reference_base;
         if (live.id_collection !== null) input.id_collection = live.id_collection;
-        if (live.id_categorie !== null) input.id_categorie = live.id_categorie;
+        const effectiveCategoryId = targetCategoryId ?? live.id_categorie;
+        if (effectiveCategoryId !== null) input.id_categorie = effectiveCategoryId;
         if (live.id_provenance !== null) input.id_provenance = live.id_provenance;
         if (live.id_declinaison !== null) input.id_declinaison = live.id_declinaison;
         if (live.id_pack !== null) input.id_pack = live.id_pack;
