@@ -38,11 +38,20 @@ export function findLatestOpForProduct(
   return undefined;
 }
 
+// Fenêtre de grâce après une sync réussie pendant laquelle on cache le badge
+// orange même si les props serveur disent encore syncRequired=true. Couvre le
+// délai entre "op done" et l'aboutissement du router.refresh (~800 ms de debounce
+// dans MarketplaceRefreshContext + aller-retour serveur). Au-delà, on refait
+// confiance à syncRequired — si l'utilisatrice modifie le produit après coup,
+// l'alerte orange réapparaît normalement.
+const RECENT_SYNC_WINDOW_MS = 5_000;
+
 export function computeMarketplaceBadgeState(
   serverProductId: string | null,
   op: MarketplaceRefreshItem | undefined,
   target: MarketplaceTarget,
   syncRequired: boolean = false,
+  now: number = Date.now(),
 ): MarketplaceBadgeState {
   if (!op) {
     const online = !!serverProductId;
@@ -64,14 +73,23 @@ export function computeMarketplaceBadgeState(
   const justPublishedOk =
     op.mode === "publish" && op.status === "done" && outcome?.ok === true;
 
+  // Toute sync (publish/resync/refresh) réussie récemment doit masquer
+  // l'orange le temps que router.refresh rapatrie syncRequired=false depuis le
+  // serveur — évite le flash "Synchro nécessaire" entre la fin de l'op et le
+  // rafraîchissement RSC.
+  const completedRecentlyOk =
+    op.status === "done" &&
+    outcome?.ok === true &&
+    !!op.completedAt &&
+    now - Date.parse(op.completedAt) < RECENT_SYNC_WINDOW_MS;
+
   const online = !!serverProductId || justPublishedOk;
 
   return {
     loading,
     online,
-    // Pendant qu'un op tourne ou vient de finir OK, on ne montre pas l'alerte
-    // orange — soit la sync est en cours, soit elle vient d'aboutir.
-    syncRequired: online && syncRequired && !loading && !justPublishedOk,
+    syncRequired:
+      online && syncRequired && !loading && !justPublishedOk && !completedRecentlyOk,
     justPublishedOk,
   };
 }

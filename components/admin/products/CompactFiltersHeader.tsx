@@ -109,7 +109,14 @@ export default function CompactFiltersHeader({
     const bestSeller = p.get("bestSeller") ?? "";
     if (bestSeller === "1") out.push({ key: "best", label: "Best-sellers", remove: ["bestSeller"] });
     const refresh = p.get("refresh") ?? "";
-    if (refresh === "1") out.push({ key: "refresh", label: "Nouveautés", remove: ["refresh"] });
+    const refreshLabel: Record<string, string> = {
+      never: "Jamais rafraîchi",
+      recent: "Rafraîchi récemment (30 j)",
+      refreshed: "Déjà rafraîchi",
+    };
+    if (refresh && refreshLabel[refresh]) {
+      out.push({ key: "refresh", label: refreshLabel[refresh], remove: ["refresh"] });
+    }
     const locked = p.get("locked") ?? "";
     if (locked === "1") out.push({ key: "locked", label: "Verrouillé", remove: ["locked"] });
     const syncRequired = p.get("syncRequired") ?? "";

@@ -34,6 +34,17 @@ const EXPORT_OPTS = [
   { v: "gt90d", label: "> 90 jours" },
 ];
 
+// Filtres « Rafraîchissement produit » — enum côté backend
+// (buildAdminProductsWhere) : "never" = lastRefreshedAt IS NULL,
+// "recent" = rafraîchi dans les 30 derniers jours, "refreshed" = déjà
+// rafraîchi au moins une fois.
+const REFRESH_OPTS = [
+  { v: "", label: "Tous" },
+  { v: "never", label: "Jamais rafraîchi" },
+  { v: "recent", label: "Rafraîchi récemment (30 j)" },
+  { v: "refreshed", label: "Déjà rafraîchi" },
+];
+
 export default function ThemedProductFilters({
   totalCount, activeCount, categories, tags, compositions, hsCodes,
   hasPfsConfig, hasAnkorstoreConfig, hasEfashionConfig, hasFaireConfig,
@@ -246,13 +257,24 @@ export default function ThemedProductFilters({
     }
 
     if (theme === "status") {
+      const refresh = searchParams.get("refresh") ?? "";
       return (
-        <div className="flex flex-col gap-2">
-          <BoolBtn urlKey="bestSeller" label="Best-sellers uniquement" />
-          <BoolBtn urlKey="refresh" label="Nouveautés (30 derniers j)" />
-          <BoolBtn urlKey="syncRequired" label="Synchro nécessaire" />
-          <BoolBtn urlKey="missingImages" label="Variantes sans image" />
-          <BoolBtn urlKey="locked" label="Verrouillés" />
+        <div className="flex flex-col gap-3">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">Rafraîchissement</div>
+            <CustomSelect
+              value={refresh}
+              onChange={(val) => setParam({ refresh: val })}
+              options={REFRESH_OPTS.map((o) => ({ value: o.v, label: o.label }))}
+              size="sm"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <BoolBtn urlKey="bestSeller" label="Best-sellers uniquement" />
+            <BoolBtn urlKey="syncRequired" label="Synchro nécessaire" />
+            <BoolBtn urlKey="missingImages" label="Variantes sans image" />
+            <BoolBtn urlKey="locked" label="Verrouillés" />
+          </div>
         </div>
       );
     }
@@ -274,26 +296,29 @@ export default function ThemedProductFilters({
       );
     }
 
-    // theme === "more"
+    // theme === "more" (renommé « Dates »)
     const dateFrom = searchParams.get("dateFrom") ?? "";
     const dateTo = searchParams.get("dateTo") ?? "";
     return (
       <div className="flex flex-col gap-3">
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">Date de création</div>
-          <div className="flex items-center gap-2">
+        <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted">Date de création</div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-[11px] text-text-secondary mb-1">Créé après le</label>
             <input
               type="date"
               defaultValue={dateFrom}
               onBlur={(e) => setParam({ dateFrom: e.target.value })}
-              className="flex-1 min-w-0 w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+              className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
             />
-            <span className="text-text-muted shrink-0">→</span>
+          </div>
+          <div>
+            <label className="block text-[11px] text-text-secondary mb-1">Créé avant le</label>
             <input
               type="date"
               defaultValue={dateTo}
               onBlur={(e) => setParam({ dateTo: e.target.value })}
-              className="flex-1 min-w-0 w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+              className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
             />
           </div>
         </div>
@@ -310,9 +335,12 @@ export default function ThemedProductFilters({
     } else if (theme === "price") {
       ["minPrice", "maxPrice", "stockBelow"].forEach((k) => has(k) && n++);
     } else if (theme === "status") {
-      ["bestSeller", "refresh", "syncRequired", "missingImages", "locked"].forEach((k) => {
+      ["bestSeller", "syncRequired", "missingImages", "locked"].forEach((k) => {
         if (searchParams.get(k) === "1") n++;
       });
+      // `refresh` est un enum ("never" | "recent" | "refreshed") — toute
+      // valeur non vide compte comme un filtre actif.
+      if (has("refresh")) n++;
     } else if (theme === "marketplaces") {
       ["pfsLink", "ankorsLink", "efashionLink", "faireLink",
        "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt"].forEach((k) => has(k) && n++);
@@ -327,7 +355,7 @@ export default function ThemedProductFilters({
     { key: "price", emoji: "💶", label: "Prix & stock" },
     { key: "status", emoji: "⚡", label: "État" },
     { key: "marketplaces", emoji: "🛒", label: "Marketplaces" },
-    { key: "more", emoji: "⋯", label: "Plus" },
+    { key: "more", emoji: "📅", label: "Dates" },
   ];
 
   // ─── Recherche multi-références : Entrée ajoute un badge ─────────────────

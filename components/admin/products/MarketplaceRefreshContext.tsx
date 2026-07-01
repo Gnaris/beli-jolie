@@ -43,6 +43,7 @@ export interface MarketplaceRefreshItem {
   efashionOutcome?: TargetOutcome;
   faireOutcome?: TargetOutcome;
   ankorsOperationId?: string;
+  completedAt?: string;
 }
 
 export interface MarketplaceRefreshEnqueueInput {

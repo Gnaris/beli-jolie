@@ -46,6 +46,7 @@ export interface SerializedJob {
   faireOutcome?: unknown;
   ankorsOperationId?: string;
   createdAt: string;
+  completedAt?: string;
 }
 
 type JobRow = Prisma.MarketplaceRefreshJobGetPayload<Record<string, never>>;
@@ -118,6 +119,7 @@ export function serializeJob(job: JobRow): SerializedJob {
     faireOutcome: (job.faireOutcome as unknown) ?? undefined,
     ankorsOperationId: job.ankorsOperationId ?? undefined,
     createdAt: job.createdAt.toISOString(),
+    completedAt: job.completedAt ? job.completedAt.toISOString() : undefined,
   };
 }
 
