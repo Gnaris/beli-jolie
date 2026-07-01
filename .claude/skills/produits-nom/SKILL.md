@@ -247,7 +247,7 @@ Quand la cliente clique « Tout pousser sur le site » dans le navigateur, la pa
    - crée les tags manquants (anti-doublon lowercase sans accent), attache au produit
    - crée les sous-catégories manquantes sous la catégorie principale, attache au produit
    - écrit `note` en préfixant « Complété par l'IA le DD/MM/YYYY »
-   - lève les drapeaux `pfsSyncRequired` / `ankorsSyncRequired` / `efashionSyncRequired` UNIQUEMENT pour les marketplaces déjà liées au produit
+   - lève les drapeaux `pfsSyncRequired` / `ankorsSyncRequired` / `efashionSyncRequired` / `faireSyncRequired` UNIQUEMENT pour les marketplaces déjà liées au produit
    - efface les traductions non-FR (DeepL les régénérera en arrière-plan)
 4. Marque la session comme `pushed`.
 

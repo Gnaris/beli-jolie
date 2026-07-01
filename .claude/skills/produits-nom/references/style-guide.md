@@ -72,7 +72,7 @@ Ne pas faire 3 quasi-doublons. Donner à la cliente du choix réel.
 
 ### Règles
 - 5 à 12 tags par produit selon richesse visuelle.
-- Toujours en minuscule au stockage.
+- **Toujours en Capitalize** : première lettre en majuscule, reste en minuscule (« Cœur », « Présentoir bois », « Chaîne fine »). Vaut aussi pour les tags ajoutés à la main par la cliente (auto-capitalisés par la page).
 - Anti-doublon : comparer en minuscule + sans accent (fait côté script).
 - Pas de couleur. Pas de mot marketing. Pas de tag synonyme de la catégorie principale (« Collier » comme tag d'un produit Collier = redondance inutile).
 

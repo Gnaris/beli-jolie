@@ -2,12 +2,14 @@ export interface MarketplaceIds {
   pfsProductId: string | null;
   ankorsProductId: string | null;
   efashionReferenceBase: string | null;
+  faireProductId: string | null;
 }
 
 export interface MarketplaceSyncFlagPatch {
   pfsSyncRequired?: true;
   ankorsSyncRequired?: true;
   efashionSyncRequired?: true;
+  faireSyncRequired?: true;
 }
 
 function hasId(value: string | null): boolean {
@@ -21,5 +23,6 @@ export function computeMarketplaceSyncFlags(
   if (hasId(ids.pfsProductId)) patch.pfsSyncRequired = true;
   if (hasId(ids.ankorsProductId)) patch.ankorsSyncRequired = true;
   if (hasId(ids.efashionReferenceBase)) patch.efashionSyncRequired = true;
+  if (hasId(ids.faireProductId)) patch.faireSyncRequired = true;
   return patch;
 }

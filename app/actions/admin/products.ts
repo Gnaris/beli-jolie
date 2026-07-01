@@ -792,7 +792,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
         reference:             input.reference.trim().toUpperCase(),
         name:                  input.name.trim(),
         description:           input.description.trim(),
-        note:                  input.note?.trim() ? input.note.trim() : null,
+        note:                  input.note === undefined ? undefined : (input.note?.trim() ? input.note.trim() : null),
         categoryId:    input.categoryId,
         isBestSeller:  input.isBestSeller,
         status:        input.status,
@@ -2219,6 +2219,35 @@ export async function updateProductDiscount(
   revalidateTag("products", "default");
   emitProductEvent({ type: "PRODUCT_UPDATED", productId });
 
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
+// Note interne standalone — sauvegarde indépendante du formulaire produit
+// ─────────────────────────────────────────────
+export async function updateProductNoteOnly(
+  productId: string,
+  note: string,
+): Promise<{ success: boolean; error?: string }> {
+  await requireAdmin();
+
+  const trimmed = note.trim();
+  if (trimmed.length > 2000) {
+    return { success: false, error: "Note trop longue (max 2000 caractères)." };
+  }
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { id: true },
+  });
+  if (!product) return { success: false, error: "Produit introuvable." };
+
+  await prisma.product.update({
+    where: { id: productId },
+    data: { note: trimmed || null },
+  });
+
+  revalidatePath(`/admin/produits/${productId}/modifier`);
   return { success: true };
 }
 

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
+import ProductNoteBar from "@/components/admin/products/ProductNoteBar";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
@@ -395,6 +396,7 @@ export default async function ModifierProduitPage({
             microstoreSubCategoryId: product.microstoreSubCategoryId ?? null,
           }}
         />
+        <ProductNoteBar productId={product.id} initialNote={product.note ?? ""} />
       </div>
       </DraftPageWrapper>
     );
@@ -587,6 +589,7 @@ export default async function ModifierProduitPage({
           microstoreSubCategoryId: product.microstoreSubCategoryId ?? null,
         }}
       />
+      <ProductNoteBar productId={product.id} initialNote={product.note ?? ""} />
     </ProductEditWrapper>
   );
 }

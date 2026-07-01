@@ -53,6 +53,7 @@ async function applyItem(item: Item, now: Date): Promise<Report> {
       pfsProductId: true,
       ankorsProductId: true,
       efashionReferenceBase: true,
+      faireProductId: true,
     },
   });
 
@@ -77,8 +78,10 @@ async function applyItem(item: Item, now: Date): Promise<Report> {
     if (!norm) continue;
     let id = tagIdByNormalized.get(norm);
     if (!id) {
+      // Stocké tel qu'envoyé (déjà en Capitalize côté page : première lettre en
+      // majuscule, reste en minuscule). Anti-doublon fait via normalizeForCompare.
       const created = await prisma.tag.create({
-        data: { name: trimmed.toLowerCase() },
+        data: { name: trimmed },
         select: { id: true },
       });
       id = created.id;
@@ -127,6 +130,7 @@ async function applyItem(item: Item, now: Date): Promise<Report> {
     pfsProductId: product.pfsProductId,
     ankorsProductId: product.ankorsProductId,
     efashionReferenceBase: product.efashionReferenceBase,
+    faireProductId: product.faireProductId,
   });
 
   await prisma.$transaction(async (tx) => {

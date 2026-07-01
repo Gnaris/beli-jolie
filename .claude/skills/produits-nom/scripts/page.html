@@ -81,6 +81,30 @@
       background: white;
       border-radius: 12px;
       border: 1px solid #e7e5e4;
+      cursor: zoom-in;
+      transition: transform .15s;
+    }
+    .product-image:hover { transform: scale(1.02); }
+    #img-lightbox {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.85);
+      display: none;
+      align-items: center; justify-content: center;
+      z-index: 9999;
+      cursor: zoom-out;
+    }
+    #img-lightbox.open { display: flex; }
+    #img-lightbox img {
+      max-width: 92vw; max-height: 92vh;
+      object-fit: contain;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    }
+    #img-lightbox .close-hint {
+      position: absolute; top: 20px; right: 24px;
+      color: white; font-size: 14px; opacity: .8;
+      pointer-events: none;
     }
     .ref-line {
       font-size: 13px;
@@ -434,6 +458,11 @@
 
   <div id="toast" class="toast"></div>
 
+  <div id="img-lightbox" onclick="closeLightbox()">
+    <div class="close-hint">✕ cliquer n'importe où pour fermer (ou Échap)</div>
+    <img id="img-lightbox-img" src="" alt="">
+  </div>
+
   <script>
     let session = null;
     let currentIdx = 0;
@@ -648,7 +677,7 @@
 
         <div class="product-card">
           <div class="image-section">
-            <img class="product-image" src="${imgSrc}" alt="${p.reference}" onerror="this.style.display='none'">
+            <img class="product-image" src="${imgSrc}" alt="${p.reference}" title="Cliquer pour zoomer" onclick="openLightbox('${imgSrc}')" onerror="this.style.display='none'">
             <div class="ref-line">
               Référence : <strong>${p.reference}</strong>
               ${p.category ? `<br><small>${escapeHtml(typeof p.category === 'string' ? p.category : p.category.name)}</small>` : ''}
@@ -734,6 +763,7 @@
                 <button class="btn btn-primary" onclick="validate()" ${(!selectedName || !selectedDesc) ? 'disabled' : ''}>
                   ${existingDecision ? 'Mettre à jour' : 'Valider'} et passer au suivant
                 </button>`}
+              <button class="btn btn-secondary" onclick="keepAsIs()" title="Marque le produit comme « traité par l'IA » sans changer le nom, la description, les tags ni les sous-catégories.">✓ Pas besoin de modifier</button>
               <button class="btn btn-secondary" onclick="skip()">Passer (sans choisir)</button>
             </div>
 
@@ -849,6 +879,12 @@
       return escapeHtml(s).replace(/\n/g, ' ');
     }
 
+    function capitalize(s) {
+      const v = String(s || '').trim();
+      if (!v) return v;
+      return v.charAt(0).toLocaleUpperCase('fr-FR') + v.slice(1).toLocaleLowerCase('fr-FR');
+    }
+
     function chipHtml(label, checked) {
       const base = 'display:inline-flex;align-items:center;padding:4px 12px;border-radius:9999px;border:1px solid;font-size:13px;cursor:pointer;transition:all .15s;';
       const active = 'background:#10b981;color:white;border-color:#10b981;';
@@ -894,6 +930,12 @@
       const btn = document.getElementById(btnId);
       if (!input || !ul || !btn) return;
       let timer = null;
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          btn.click();
+        }
+      });
       input.addEventListener('input', function () {
         clearTimeout(timer);
         const q = input.value.trim();
@@ -930,26 +972,31 @@
     }
 
     function initSubcatTagsForProduct(p) {
+      // Si on rerend le même produit, garder l'état en cours (cases décochées, ajouts, etc.).
+      if (currentProduct && currentProduct.reference === p.reference) {
+        currentProduct = p;
+        return;
+      }
       subcats = new Map();
       tags = new Map();
       currentProduct = p;
 
       for (const sc of (p.subCategories || [])) {
-        subcats.set(sc.id, { id: sc.id, name: sc.name, checked: true });
+        subcats.set(sc.id, { id: sc.id, name: capitalize(sc.name), checked: true });
       }
       for (const sc of (p.proposedSubCategories || [])) {
         const key = sc.id || ('new::' + sc.name);
         if (!subcats.has(key)) {
-          subcats.set(key, { id: sc.id || null, name: sc.name, checked: true });
+          subcats.set(key, { id: sc.id || null, name: capitalize(sc.name), checked: true });
         }
       }
       for (const t of (p.tags || [])) {
-        tags.set(t.id, { id: t.id, name: t.name, checked: true });
+        tags.set(t.id, { id: t.id, name: capitalize(t.name), checked: true });
       }
       for (const t of (p.proposedTags || [])) {
         const key = t.id || ('new::' + t.name);
         if (!tags.has(key)) {
-          tags.set(key, { id: t.id || null, name: t.name, checked: true });
+          tags.set(key, { id: t.id || null, name: capitalize(t.name), checked: true });
         }
       }
     }
@@ -964,8 +1011,9 @@
           return '/api/autocomplete/subcats?categoryId=' + encodeURIComponent(catId) + '&q=';
         },
         function (item) {
-          const key = item.id || ('new::' + item.name);
-          subcats.set(key, { id: item.id && !item.id.startsWith('new::') ? item.id : null, name: item.name, checked: true });
+          const name = capitalize(item.name);
+          const key = item.id || ('new::' + name);
+          subcats.set(key, { id: item.id && !item.id.startsWith('new::') ? item.id : null, name, checked: true });
           renderSubcats();
         }
       );
@@ -975,8 +1023,9 @@
         'tag-add-btn',
         function () { return '/api/autocomplete/tags?q='; },
         function (item) {
-          const key = item.id || ('new::' + item.name);
-          tags.set(key, { id: item.id && !item.id.startsWith('new::') ? item.id : null, name: item.name, checked: true });
+          const name = capitalize(item.name);
+          const key = item.id || ('new::' + name);
+          tags.set(key, { id: item.id && !item.id.startsWith('new::') ? item.id : null, name, checked: true });
           renderTags();
         }
       );
@@ -1075,6 +1124,49 @@
     }
     function skip() { goNext(); }
 
+    async function keepAsIs() {
+      const p = session && session.products ? session.products[currentIdx] : null;
+      if (!p) return;
+      // Envoie le nom et la description actuels (déjà en BDD), + tags/sous-cat existants s'il y en a.
+      // Le script apply prépend juste la note "Complété par l'IA le DD/MM/YYYY".
+      const name = (p.name || '').trim();
+      const description = (p.description || '').trim();
+      if (!name || !description) {
+        toast('Impossible : ce produit n\'a pas de nom ou de description en base.');
+        return;
+      }
+      const tagNames = (p.tags || []).map(t => t.name);
+      const subCategoryNames = (p.subCategories || []).map(sc => sc.name);
+      const ok = await postJSON('/api/validate', {
+        ref: p.reference, name, description, tagNames, subCategoryNames,
+      });
+      if (!ok) { toast('Erreur lors de la sauvegarde'); return; }
+      toast('Marqué comme « pas besoin de modifier »');
+      session.decisions = session.decisions || {};
+      session.decisions[p.reference] = { name, description, validated_at: new Date().toISOString() };
+      selectedName = null;
+      selectedDesc = null;
+      nameComment = '';
+      descComment = '';
+      if (currentIdx < session.products.length - 1) goNext();
+      else render();
+    }
+
+    function openLightbox(src) {
+      const box = document.getElementById('img-lightbox');
+      const img = document.getElementById('img-lightbox-img');
+      if (!box || !img) return;
+      img.src = src;
+      box.classList.add('open');
+    }
+    function closeLightbox() {
+      const box = document.getElementById('img-lightbox');
+      if (box) box.classList.remove('open');
+    }
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeLightbox();
+    });
+
     document.getElementById('push-btn').addEventListener('click', async () => {
       if (!confirm('Pousser tous les produits validés sur le vrai site ?\n\nÇa va mettre à jour la boutique + PFS + Ankorstore.\nVous pouvez fermer la page après, l\'envoi continuera tout seul.')) return;
       const r = await fetch('/api/push-all', { method: 'POST' });
@@ -1093,17 +1185,23 @@
       if (!s) return;
       const prevAwaiting = session?.awaitingRegen?.ref;
       const newAwaiting = s.awaitingRegen?.ref;
-      // If we were awaiting and it's resolved → reload current product
+      const prevStatus = session?.status;
       const wasResolved = prevAwaiting && !newAwaiting;
+      const startedAwaiting = !prevAwaiting && newAwaiting;
+      const statusChanged = prevStatus !== s.status;
       session = s;
+      // Ne re-rendre QUE si un changement pertinent est arrivé.
+      // Sinon on écraserait la saisie en cours (chips décochés, focus textarea).
       if (wasResolved) {
         selectedName = null;
         selectedDesc = null;
         nameComment = '';
         descComment = '';
         toast('Nouvelles propositions chargées !');
+        render();
+      } else if (startedAwaiting || statusChanged) {
+        render();
       }
-      render();
     }
 
     (async () => {
