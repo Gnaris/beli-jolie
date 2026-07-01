@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import QuickCreateModal, { QuickCreateType } from "@/components/admin/products/QuickCreateModal";
+import CategoryEditorModal from "@/components/admin/categories/CategoryEditorModal";
 
 interface EntityCreateButtonProps {
   type: QuickCreateType;
@@ -25,13 +26,21 @@ export default function EntityCreateButton({
       <button type="button" onClick={() => setOpen(true)} className={className}>
         {label}
       </button>
-      <QuickCreateModal
-        type={type}
-        open={open}
-        onClose={() => setOpen(false)}
-        onCreated={() => { setOpen(false); router.refresh(); }}
-        categoryId={categoryId}
-      />
+      {type === "category" ? (
+        <CategoryEditorModal
+          open={open}
+          onClose={() => setOpen(false)}
+          onCreated={() => { setOpen(false); router.refresh(); }}
+        />
+      ) : (
+        <QuickCreateModal
+          type={type}
+          open={open}
+          onClose={() => setOpen(false)}
+          onCreated={() => { setOpen(false); router.refresh(); }}
+          categoryId={categoryId}
+        />
+      )}
     </>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   getFaireTaxonomyOptions,
 } from "@/app/actions/admin/faire";
@@ -44,7 +45,59 @@ export default function FaireTaxonomySelect({
   const [types, setTypes] = useState<FaireTaxonomyType[] | null>(null);
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [menuPos, setMenuPos] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    /** Hauteur max du bloc résultats — laisse toujours une marge sous la fenêtre. */
+    maxListHeight: number;
+  } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  // Recalcule la position du menu (rendu via portail) à l'ouverture ET au
+  // resize/scroll de la page — sinon le menu resterait figé pendant que la
+  // modale scrolle.
+  useLayoutEffect(() => {
+    if (!dropdownOpen) return;
+    const update = () => {
+      if (!triggerRef.current) return;
+      const rect = triggerRef.current.getBoundingClientRect();
+      const MARGIN = 12; // marge minimale pour ne pas coller aux bords
+      const SEARCH_HEIGHT = 56; // input + padding ≈ 56 px (mesuré)
+      const IDEAL_LIST_HEIGHT = 240; // ~10 lignes de résultats
+
+      // ── Largeur : recentre si le trigger est près du bord droit ────────
+      const maxWidth = window.innerWidth - MARGIN * 2;
+      const width = Math.min(rect.width, maxWidth);
+      const rawLeft = rect.left;
+      const left = Math.max(MARGIN, Math.min(rawLeft, window.innerWidth - MARGIN - width));
+
+      // ── Hauteur : ouvre au-dessus si pas assez de place en dessous ─────
+      const spaceBelow = window.innerHeight - rect.bottom - MARGIN;
+      const spaceAbove = rect.top - MARGIN;
+      const needed = SEARCH_HEIGHT + IDEAL_LIST_HEIGHT;
+      const openAbove = spaceBelow < needed && spaceAbove > spaceBelow;
+      const availableForMenu = openAbove ? spaceAbove : spaceBelow;
+      // Cap la hauteur des résultats pour ne jamais toucher la barre des tâches.
+      const maxListHeight = Math.max(96, Math.min(IDEAL_LIST_HEIGHT, availableForMenu - SEARCH_HEIGHT));
+      const totalMenuHeight = SEARCH_HEIGHT + maxListHeight;
+      const top = openAbove ? rect.top - totalMenuHeight - 4 : rect.bottom + 4;
+
+      setMenuPos({ top, left, width, maxListHeight });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [dropdownOpen]);
 
   useEffect(() => {
     if (types !== null || loadingTypes) return;
@@ -61,9 +114,12 @@ export default function FaireTaxonomySelect({
   useEffect(() => {
     if (!dropdownOpen) return;
     const onClickOutside = (e: MouseEvent) => {
-      if (!containerRef.current?.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
+      const target = e.target as Node;
+      // Le menu est rendu via portail, donc "cliquer sur le menu" n'est pas
+      // capté par containerRef — on autorise aussi menuRef.
+      if (containerRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setDropdownOpen(false);
     };
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
@@ -115,6 +171,7 @@ export default function FaireTaxonomySelect({
       )}
       <div ref={containerRef} className="relative">
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setDropdownOpen((v) => !v)}
           disabled={saving}
@@ -128,8 +185,12 @@ export default function FaireTaxonomySelect({
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </button>
-        {dropdownOpen && (
-          <div className="absolute left-0 right-0 mt-1 z-20 rounded-md border border-border bg-bg-primary shadow-lg overflow-hidden">
+        {mounted && dropdownOpen && menuPos && createPortal(
+          <div
+            ref={menuRef}
+            style={{ position: "fixed", top: menuPos.top, left: menuPos.left, width: menuPos.width, zIndex: 10000 }}
+            className="rounded-md border border-border bg-bg-primary shadow-lg overflow-hidden"
+          >
             <div className="p-2 border-b border-border">
               <input
                 type="text"
@@ -148,7 +209,10 @@ export default function FaireTaxonomySelect({
                 className="w-full h-8 px-2.5 rounded-md border border-border bg-bg-primary text-text-primary text-xs font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 disabled:opacity-50"
               />
             </div>
-            <div className="max-h-60 overflow-y-auto">
+            <div
+              className="overflow-y-auto"
+              style={{ maxHeight: menuPos.maxListHeight }}
+            >
               {loadingTypes && (
                 <p className="px-3 py-2 text-[11px] text-text-muted font-body">Chargement…</p>
               )}
@@ -191,7 +255,8 @@ export default function FaireTaxonomySelect({
                 </button>
               )}
             </div>
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
 

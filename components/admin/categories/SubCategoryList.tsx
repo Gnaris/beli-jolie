@@ -4,6 +4,7 @@ import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import DeleteButton from "./DeleteButton";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
+import CategoryEditorModal from "./CategoryEditorModal";
 import {
   deleteCategory,
   deleteSubCategory,
@@ -442,11 +443,9 @@ export default function CategoriesManager({ categories }: { categories: Category
 
       {/* Modale édition catégorie */}
       {editCat && (
-        <QuickCreateModal
-          type="category"
+        <CategoryEditorModal
           open={!!editCat}
           onClose={() => setEditCat(null)}
-          onCreated={() => { setEditCat(null); router.refresh(); }}
           editMode={{
             id: editCat.id,
             name: editCat.name,
@@ -465,7 +464,9 @@ export default function CategoriesManager({ categories }: { categories: Category
                 [editCat.id]: { id: next, label: nextLabel },
               }));
             },
-            onSave: handleSaveCat,
+            onSave: async (name, translations, pfs, faire) => {
+              await handleSaveCat(name, translations, undefined, undefined, pfs, faire);
+            },
           }}
         />
       )}

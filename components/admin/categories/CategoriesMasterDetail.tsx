@@ -5,6 +5,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import CategoriesList from "./CategoriesList";
 import CategoryDetail, { type CategoryDetailData } from "./CategoryDetail";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
+import CategoryEditorModal from "./CategoryEditorModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -208,8 +209,7 @@ export default function CategoriesMasterDetail({
       </div>
 
       {/* Modale création */}
-      <QuickCreateModal
-        type="category"
+      <CategoryEditorModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreated={(created) => {
@@ -221,11 +221,9 @@ export default function CategoriesMasterDetail({
 
       {/* Modale édition catégorie */}
       {editCat && (
-        <QuickCreateModal
-          type="category"
+        <CategoryEditorModal
           open={!!editCat}
           onClose={() => setEditCat(null)}
-          onCreated={() => { setEditCat(null); router.refresh(); }}
           focusMarketplace={editFocusMarketplace}
           editMode={{
             id: editCat.id,
@@ -236,7 +234,9 @@ export default function CategoriesMasterDetail({
             pfsCategoryName: editCat.pfsCategoryName,
             efashionCurrentId: editCat.efashionCategorieId,
             faireCurrentTaxonomyId: editCat.faireTaxonomyId,
-            onSave: handleSaveCat,
+            onSave: async (name, translations, pfs, faire) => {
+              await handleSaveCat(name, translations, undefined, undefined, pfs, faire);
+            },
           }}
         />
       )}

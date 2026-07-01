@@ -48,20 +48,20 @@ describe("CategoryDetail", () => {
     );
     expect(screen.getByLabelText(/Retour/i)).toBeInTheDocument();
   });
-  it("click sur le pencil appelle onEdit", () => {
+  it("click sur « Modifier » appelle onEdit", () => {
     const onEdit = vi.fn();
     render(
       <CategoryDetail category={cat} showBackButton={false} onBack={noop} onEdit={onEdit} onDelete={noop} onSubAdd={noop} onSubEdit={noop} onSubDelete={noop} onEditMapping={noop} />,
     );
-    fireEvent.click(screen.getByLabelText(/Modifier la catégorie/i));
+    fireEvent.click(screen.getByRole("button", { name: /^Modifier$/ }));
     expect(onEdit).toHaveBeenCalled();
   });
-  it("click sur le trash appelle onDelete", () => {
+  it("click sur « Supprimer » appelle onDelete", () => {
     const onDelete = vi.fn();
     render(
       <CategoryDetail category={cat} showBackButton={false} onBack={noop} onEdit={noop} onDelete={onDelete} onSubAdd={noop} onSubEdit={noop} onSubDelete={noop} onEditMapping={noop} />,
     );
-    fireEvent.click(screen.getByLabelText(/Supprimer la catégorie/i));
+    fireEvent.click(screen.getByRole("button", { name: /^Supprimer$/ }));
     expect(onDelete).toHaveBeenCalled();
   });
 });
