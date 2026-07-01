@@ -43,10 +43,6 @@ export default function ProductNoteBar({ productId, initialNote }: Props) {
             </span>
           )}
         </div>
-        <p className="text-xs text-text-tertiary mb-3">
-          Visible uniquement par les administrateurs. N&apos;apparaît jamais sur le site ni sur les marketplaces.
-          Se sauvegarde indépendamment du reste de la fiche produit.
-        </p>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
