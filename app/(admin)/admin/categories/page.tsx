@@ -9,6 +9,7 @@ import {
   getCachedHasEfashionConfig,
   getCachedHasFaireConfig,
 } from "@/lib/cached-data";
+import { buildTranslationsMap } from "@/lib/translations";
 
 export const metadata: Metadata = {
   title: "Catégories",
@@ -55,7 +56,7 @@ export default async function CategoriesPage() {
   const rows: CategoryRow[] = categories.map((c) => ({
     id: c.id,
     name: c.name,
-    translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
+    translations: buildTranslationsMap(c.name, c.translations),
     pfsGender: c.pfsGender,
     pfsFamilyName: c.pfsFamilyName,
     pfsCategoryName: c.pfsCategoryName,
@@ -66,24 +67,27 @@ export default async function CategoriesPage() {
     subCategories: c.subCategories.map((s) => ({
       id: s.id,
       name: s.name,
-      translations: Object.fromEntries(s.translations.map((t) => [t.locale, t.name])),
+      translations: buildTranslationsMap(s.name, s.translations),
     })),
     pfsLabel: buildPfsLabel(c.pfsGender, c.pfsFamilyName, c.pfsCategoryName),
     efashionLabel: resolveCategoryLabel(efashionLabels, c.efashionCategorieId) ?? null,
     faireLabel: c.faireTaxonomyId,
   }));
 
+  // hasTranslations = a déjà au moins une traduction non-FR (FR est le nom de
+  // base). On repart des enregistrements Prisma pour éviter de compter le fr
+  // qu'on a seedé plus haut pour l'affichage.
   const allTranslateItems = [
-    ...rows.map((c) => ({
+    ...categories.map((c) => ({
       id: `cat:${c.id}`,
       text: c.name,
-      hasTranslations: Object.keys(c.translations).length > 0,
+      hasTranslations: c.translations.length > 0,
     })),
-    ...rows.flatMap((c) =>
+    ...categories.flatMap((c) =>
       c.subCategories.map((s) => ({
         id: `sub:${s.id}`,
         text: s.name,
-        hasTranslations: Object.keys(s.translations).length > 0,
+        hasTranslations: s.translations.length > 0,
       })),
     ),
   ];
