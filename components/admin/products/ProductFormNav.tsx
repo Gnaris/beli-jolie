@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ChecklistInput } from "./CompletenessChecklist";
 import { computeChecklist } from "./CompletenessChecklist";
 
@@ -59,8 +59,8 @@ const SECTIONS: SectionDef[] = [
   },
   {
     key: "links",
-    label: "Liens",
-    hint: "Produits similaires, ensembles",
+    label: "Produits associés",
+    hint: "Similaires + Ensemble",
     checklistKeys: [],
     anchor: "section-links",
   },
@@ -106,6 +106,10 @@ interface ProductFormNavProps {
   hasUnsavedChanges?: boolean;
   /** "create" or "edit" */
   mode?: "create" | "edit";
+  /** Section actuellement affichée dans le formulaire (mode onglets) */
+  activeSection?: ProductFormSectionKey;
+  /** Callback appelé quand l'utilisatrice change de section */
+  onSectionChange?: (key: ProductFormSectionKey) => void;
 }
 
 export default function ProductFormNav({
@@ -113,51 +117,22 @@ export default function ProductFormNav({
   productStatus,
   hasUnsavedChanges,
   mode,
+  activeSection,
+  onSectionChange,
 }: ProductFormNavProps) {
-  const [activeKey, setActiveKey] =
+  const [internalKey, setInternalKey] =
     useState<ProductFormSectionKey>("overview");
+  const activeKey = activeSection ?? internalKey;
   const progress = computeSectionsProgress(checklistInput);
 
-  // Scroll spy — highlight the section the user is currently looking at
-  useEffect(() => {
-    const ids = SECTIONS.map((s) => s.anchor);
-    const elements = ids
-      .map((id) => document.getElementById(id))
-      .filter((el): el is HTMLElement => Boolean(el));
-    if (elements.length === 0) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort(
-            (a, b) =>
-              (a.target.getBoundingClientRect().top ?? 0) -
-              (b.target.getBoundingClientRect().top ?? 0)
-          );
-        if (visible.length > 0) {
-          const id = visible[0].target.id;
-          const sec = SECTIONS.find((s) => s.anchor === id);
-          if (sec) setActiveKey(sec.key);
-        }
-      },
-      {
-        // Top of section between 12% and 60% of viewport = considered "active"
-        rootMargin: "-12% 0px -40% 0px",
-        threshold: 0,
-      }
-    );
-
-    elements.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-  }, []);
-
-  function handleClick(anchor: string, key: ProductFormSectionKey) {
-    setActiveKey(key);
-    const el = document.getElementById(anchor);
-    if (!el) return;
-    const top = el.getBoundingClientRect().top + window.scrollY - 90;
-    window.scrollTo({ top, behavior: "smooth" });
+  function handleClick(_anchor: string, key: ProductFormSectionKey) {
+    if (onSectionChange) {
+      onSectionChange(key);
+    } else {
+      setInternalKey(key);
+    }
+    // Retour tout en haut pour que le panneau soit visible
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   const overallStatusLabel = (() => {

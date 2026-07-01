@@ -1,6 +1,8 @@
 "use client";
 import { ProductFormHeaderProvider, ProductFormHeaderState, useProductFormHeader } from "./ProductFormHeaderContext";
 import { useToast } from "@/components/ui/Toast";
+import { BestSellerToggle } from "./BestSellerToggle";
+import { KpiRow } from "./KpiRow";
 
 function StatusToggle({ mode }: { mode: "create" | "edit" }) {
   const { productStatus, isIncomplete, statusToggle } = useProductFormHeader();
@@ -120,16 +122,20 @@ export function ProductEditWrapper({
       <div className="max-w-[1600px] mx-auto space-y-8">
         <div className="z-20 bg-bg-secondary border-b border-border -mx-6 px-6 pt-3 pb-4">
           {staticHeader}
+          <KpiRow />
           <div className="flex items-center justify-between gap-3 flex-wrap mt-4 pt-4 border-t border-border">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <h2 className="font-heading text-lg font-bold text-text-primary">
                 Informations du produit
               </h2>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <HeaderBadges />
               </div>
             </div>
-            <StatusToggle mode="edit" />
+            <div className="flex items-center gap-3 flex-wrap">
+              <BestSellerToggle />
+              <StatusToggle mode="edit" />
+            </div>
           </div>
         </div>
         {children}

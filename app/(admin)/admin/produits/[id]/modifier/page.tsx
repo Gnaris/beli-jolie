@@ -7,7 +7,7 @@ import ProductNoteBar from "@/components/admin/products/ProductNoteBar";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
-import { DraftPageWrapper, DraftPageToggle } from "./DraftPageWrapper";
+import { DraftPageWrapper, DraftPageChrome } from "./DraftPageWrapper";
 import { ProductEditRefreshButton } from "@/components/admin/products/ProductEditRefreshButton";
 import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle";
 import { MarketplaceStatusButtons } from "@/components/admin/products/MarketplaceStatusButtons";
@@ -298,13 +298,23 @@ export default async function ModifierProduitPage({
     productStatus: initialProductStatus,
     isIncomplete: initialIsIncomplete,
     stockState: initialStockState,
+    isBestSeller: product.isBestSeller,
+    kpi: {
+      avgPrice: null,
+      minPrice: null,
+      maxPrice: null,
+      totalStock: 0,
+      linkedMarketplaces: 0,
+      totalMarketplaces: 0,
+      completeness: 0,
+    },
   };
 
   if (isDraft) {
     return (
       <DraftPageWrapper>
       <div className="max-w-[1600px] mx-auto space-y-8">
-        <div>
+        <div className="z-20 bg-bg-secondary border-b border-border -mx-6 px-6 pt-3 pb-4">
           <nav className="flex items-center gap-1.5 text-[13px] font-body text-text-muted mb-3">
             <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
             <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -312,17 +322,15 @@ export default async function ModifierProduitPage({
             <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             <span className="text-text-secondary">Continuer</span>
           </nav>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="page-title">Continuer le brouillon</h1>
-              {product.reference && (
-                <p className="text-base text-text-muted font-body mt-1">
-                  Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
-                </p>
-              )}
-            </div>
-            <DraftPageToggle />
+          <div>
+            <h1 className="page-title">Continuer le brouillon</h1>
+            {product.reference && (
+              <p className="text-base text-text-muted font-body mt-1">
+                Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
+              </p>
+            )}
           </div>
+          <DraftPageChrome />
         </div>
 
         <ProductForm
@@ -449,7 +457,13 @@ export default async function ModifierProduitPage({
                     </p>
                   </>
                 )}
-                <span className="hidden sm:block h-4 w-px bg-border" />
+              </div>
+
+              {/* Ligne dédiée Marketplaces (design Ardoise validé) */}
+              <div className="flex items-center gap-3 flex-wrap mt-3 pt-3 border-t border-border">
+                <span className="text-[10px] font-heading font-bold uppercase tracking-[0.12em] text-text-muted">
+                  Marketplaces
+                </span>
                 <MarketplaceStatusButtons
                   efashionLinked={product.colors.some((c) => c.efashionProductId !== null)}
                   hasEfashionConfig={hasEfashionConfig}

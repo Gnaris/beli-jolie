@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Aperçu — Refonte fiche produit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+<style>
+  html, body { height:100%; margin:0; overflow:hidden; }
+  body { display:flex; flex-direction:column; background:#e5e5e8; }
+
+  .stage {
+    flex:1; overflow:auto;
+    display:flex; align-items:flex-start; justify-content:center;
+    padding:20px 16px;
+  }
+  .frame-wrap {
+    background:#fff;
+    border-radius:12px; overflow:hidden;
+    box-shadow:0 20px 60px -10px rgba(0,0,0,.25);
+    transition:width .3s ease;
+    flex-shrink:0;
+    width:100%; max-width:1600px;
+  }
+  /* Simule un vrai téléphone quand mobile */
+  .frame-wrap.mode-mobile {
+    width:390px;
+    border:10px solid #18181B;
+    border-radius:32px;
+  }
+  .frame-wrap.mode-tablet {
+    width:820px;
+    border:8px solid #27272a;
+    border-radius:16px;
+  }
+  .frame-wrap.mode-desktop {
+    width:100%; max-width:1600px;
+    border-radius:0;
+    box-shadow:none;
+  }
+  .stage.mode-desktop { padding:0; }
+
+  iframe {
+    width:100%; height:calc(100vh - 34px - 40px);
+    min-height:600px; border:0; display:block; background:#fff;
+  }
+  .frame-wrap.mode-mobile iframe {
+    height:calc(100vh - 34px - 40px - 20px);
+  }
+  .frame-wrap.mode-tablet iframe {
+    height:calc(100vh - 34px - 40px - 16px);
+  }
+
+  .size-badge {
+    position:fixed; bottom:12px; left:50%; transform:translateX(-50%);
+    background:rgba(24,24,27,.85); color:#fff;
+    padding:5px 12px; border-radius:9999px;
+    font-size:11px; font-weight:600;
+    letter-spacing:0.06em;
+    z-index:10;
+    backdrop-filter:blur(6px);
+  }
+</style>
+</head>
+<body>
+
+<div class="mockup-topbar">
+  <span class="mt-brand">Refonte fiche produit</span>
+  <a href="index.html">Vue d'ensemble</a>
+  <a href="#" data-p="variante-a.html" class="var-link">A · Assistant guidé</a>
+  <a href="#" data-p="variante-b.html" class="var-link active">B · Cockpit onglets</a>
+  <a href="#" data-p="variante-c.html" class="var-link">C · Édition + Aperçu</a>
+  <span class="mt-spacer"></span>
+  <div class="mt-viewport" id="vp">
+    <button class="on" data-mode="desktop">Desktop</button>
+    <button data-mode="tablet">Tablette</button>
+    <button data-mode="mobile">Mobile</button>
+  </div>
+</div>
+
+<div class="stage mode-desktop" id="stage">
+  <div class="frame-wrap mode-desktop" id="frameWrap">
+    <iframe id="frame" src="variante-b.html"></iframe>
+  </div>
+</div>
+
+<div class="size-badge" id="sizeBadge">Desktop · pleine largeur</div>
+
+<script>
+  var params = new URLSearchParams(location.search);
+  var initP = params.get('p') || 'variante-b.html';
+  var initV = params.get('v') || 'desktop';
+
+  var frame = document.getElementById('frame');
+  var wrap = document.getElementById('frameWrap');
+  var stage = document.getElementById('stage');
+  var badge = document.getElementById('sizeBadge');
+
+  var badges = {
+    desktop: 'Desktop · pleine largeur',
+    tablet: 'Tablette · 820 px',
+    mobile: 'Mobile · 390 px'
+  };
+
+  function setVariant(p) {
+    if (frame.src.indexOf(p) === -1) frame.src = p;
+    var links = document.querySelectorAll('.var-link');
+    for (var i = 0; i < links.length; i++) {
+      var a = links[i];
+      if (a.getAttribute('data-p') === p) a.classList.add('active');
+      else a.classList.remove('active');
+    }
+    var url = new URL(location.href);
+    url.searchParams.set('p', p);
+    history.replaceState({}, '', url);
+  }
+  function setViewport(mode) {
+    wrap.className = 'frame-wrap mode-' + mode;
+    stage.className = 'stage mode-' + mode;
+    var btns = document.querySelectorAll('#vp button');
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      if (b.getAttribute('data-mode') === mode) b.classList.add('on');
+      else b.classList.remove('on');
+    }
+    badge.textContent = badges[mode];
+    var url = new URL(location.href);
+    url.searchParams.set('v', mode);
+    history.replaceState({}, '', url);
+  }
+
+  var links = document.querySelectorAll('.var-link');
+  for (var i = 0; i < links.length; i++) {
+    links[i].addEventListener('click', function(e){
+      e.preventDefault();
+      setVariant(this.getAttribute('data-p'));
+    });
+  }
+  var btns = document.querySelectorAll('#vp button');
+  for (var j = 0; j < btns.length; j++) {
+    btns[j].addEventListener('click', function(){
+      setViewport(this.getAttribute('data-mode'));
+    });
+  }
+
+  setVariant(initP);
+  setViewport(initV);
+</script>
+
+</body>
+</html>

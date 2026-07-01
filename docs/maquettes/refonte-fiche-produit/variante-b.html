@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Variante B — Cockpit onglets · Fiche produit Beli & Jolie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+<style>
+  .page-wrap {
+    max-width:1600px; margin:0 auto;
+    display:grid; grid-template-columns:260px 1fr;
+    gap:24px; padding:24px 28px 8px;
+  }
+  .side-col { position:sticky; top:120px; align-self:start; }
+  .main-col { min-width:0; }
+  @media (max-width:1024px) {
+    .page-wrap { grid-template-columns:1fr; padding:16px; gap:14px; }
+  }
+
+  /* Header enrichi : ligne 1 (titre + toggle + bestseller + actions) / ligne 2 (marketplaces) */
+  .fp-header-inner { flex-direction:column; align-items:stretch; gap:12px; }
+  .fp-header-top { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  .fp-header-top > .fp-actions { margin-left:auto; }
+  .fp-header-mp {
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding-top:10px; border-top:1px solid var(--border);
+  }
+  .fp-header-mp .mp-label {
+    font-size:10.5px; font-weight:700; letter-spacing:0.1em;
+    text-transform:uppercase; color:var(--text-muted);
+    margin-right:4px;
+  }
+  .fp-header-mp .mp-actions-inline {
+    margin-left:auto; display:flex; gap:6px;
+  }
+
+  .section-panel { display:none; }
+  .section-panel.active { display:block; }
+
+  .kpi-row {
+    display:grid; gap:12px; grid-template-columns:repeat(4, 1fr);
+    margin-bottom:20px;
+  }
+  @media (max-width:900px) { .kpi-row { grid-template-columns:repeat(2, 1fr); } }
+  .kpi-tile {
+    background:#fff; border:1px solid var(--border);
+    border-radius:var(--radius-lg); padding:14px;
+  }
+  .kpi-label {
+    font-size:10.5px; font-weight:600; letter-spacing:0.08em;
+    text-transform:uppercase; color:var(--text-muted);
+  }
+  .kpi-value {
+    font-size:20px; font-weight:800; font-family:'Poppins', sans-serif;
+    margin-top:4px; color:var(--text-primary);
+  }
+  .kpi-sub { font-size:11px; color:var(--text-muted); margin-top:2px; }
+
+  .panel-hd {
+    display:flex; align-items:center; gap:14px;
+    padding-bottom:16px; margin-bottom:16px;
+    border-bottom:1px solid var(--border);
+  }
+  .panel-hd h2 { font-size:20px; font-weight:700; letter-spacing:-0.015em; }
+  .panel-hd .panel-sub { font-size:12.5px; color:var(--text-muted); margin-top:2px; }
+  .panel-hd .panel-actions { margin-left:auto; display:flex; gap:8px; }
+
+  .nav-actions {
+    display:flex; justify-content:space-between; gap:10px; margin-top:24px;
+    padding-top:20px; border-top:1px dashed var(--border);
+  }
+</style>
+</head>
+<body>
+<script>if (window.top !== window.self) document.body.classList.add('in-iframe');</script>
+
+<div class="mockup-topbar">
+  <span class="mt-brand">Refonte fiche produit</span>
+  <a href="index.html">Vue d'ensemble</a>
+  <a href="variante-a.html">A · Assistant guidé</a>
+  <a href="variante-b.html" class="active">B · Cockpit onglets</a>
+  <a href="variante-c.html">C · Édition + Aperçu</a>
+  <span class="mt-spacer"></span>
+  <div class="mt-viewport">
+    <button class="on" onclick="setViewport('full', event)">Desktop</button>
+    <button onclick="setViewport('tablet', event)">Tablette</button>
+    <button onclick="setViewport('mobile', event)">Mobile</button>
+  </div>
+</div>
+
+<!-- HEADER ENRICHI -->
+<div class="fp-header">
+  <div class="fp-header-inner">
+
+    <div class="fp-header-top">
+      <div>
+        <div class="fp-breadcrumb">
+          <a href="#">Admin</a><span class="sep">›</span>
+          <a href="#">Produits</a><span class="sep">›</span>
+          <span>Bague anneau fin</span>
+        </div>
+        <div class="fp-title" style="margin-top:4px">
+          <h1>Bague anneau fin</h1>
+          <span class="fp-ref">BJ-A001</span>
+          <span class="badge badge-success">En ligne</span>
+        </div>
+      </div>
+      <div class="fp-actions">
+        <div class="toggle" title="Statut">
+          <button class="on on-green">En ligne</button>
+          <button>Hors ligne</button>
+        </div>
+        <button class="bs-toggle" id="bs-btn" onclick="toggleBS()">
+          <span class="star">★</span><span>Best-seller</span>
+        </button>
+        <button class="btn-secondary btn-sm">Stats</button>
+        <button class="btn-secondary btn-sm">↻ Rafraîchir</button>
+        <button class="btn-secondary btn-sm">Voir en ligne</button>
+      </div>
+    </div>
+
+    <!-- Marketplaces dans l'en-tête -->
+    <div class="fp-header-mp">
+      <span class="mp-label">Marketplaces</span>
+      <a href="#" class="mp-chip-hd mp-live" onclick="goTab('mp', event)">
+        <span class="mp-chip-logo lg-pfs">P</span>PFS<span class="mp-chip-dot"></span>
+      </a>
+      <a href="#" class="mp-chip-hd mp-sync" onclick="goTab('mp', event)">
+        <span class="mp-chip-logo lg-pfs">P</span>PFS<span class="mp-chip-dot"></span>
+        <span style="font-size:9.5px;font-weight:500;margin-left:2px">synchro nécessaire</span>
+      </a>
+      <a href="#" class="mp-chip-hd mp-live" onclick="goTab('mp', event)">
+        <span class="mp-chip-logo lg-ankor">A</span>Ankorstore<span class="mp-chip-dot"></span>
+      </a>
+      <a href="#" class="mp-chip-hd mp-empty" onclick="goTab('mp', event)">
+        <span class="mp-chip-logo lg-ef">E</span>eFashion<span class="mp-chip-dot"></span>
+      </a>
+      <a href="#" class="mp-chip-hd mp-empty" onclick="goTab('mp', event)">
+        <span class="mp-chip-logo lg-faire">F</span>Faire<span class="mp-chip-dot"></span>
+      </a>
+      <div class="mp-actions-inline">
+        <button class="btn-ghost btn-sm" onclick="goTab('mp')">Gérer →</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="page-wrap">
+
+  <!-- Picker mobile/tablette (caché sur desktop) -->
+  <div class="tabs-picker" id="picker">
+    <button class="tabs-picker-btn" onclick="toggleSidebar()">
+      <span class="tp-icon-wrap" id="tp-icon">📝</span>
+      <span class="tp-label">
+        <span class="tp-label-eyebrow">Section actuelle</span>
+        <span id="tp-name">Général</span>
+      </span>
+      <span class="tp-chev">▾</span>
+    </button>
+  </div>
+  <div class="tabs-backdrop" id="tabsBackdrop" onclick="closeSidebar()"></div>
+
+  <aside class="side-col" id="sideCol">
+    <nav class="side-tabs" id="tabs">
+      <div class="st-group">Base</div>
+      <button class="st-tab active" data-target="general"><span class="st-icon">📝</span>Général</button>
+      <button class="st-tab" data-target="cat"><span class="st-icon">📂</span>Catégorie</button>
+      <button class="st-tab" data-target="dim"><span class="st-icon">📏</span>Dimensions</button>
+      <button class="st-tab" data-target="comp"><span class="st-icon">⚗️</span>Composition</button>
+      <button class="st-tab" data-target="tags"><span class="st-icon">🏷️</span>Mots-clés</button>
+
+      <div class="st-group">Catalogue</div>
+      <button class="st-tab" data-target="var"><span class="st-icon">🎨</span>Variantes<span class="st-badge">!</span></button>
+      <button class="st-tab" data-target="img"><span class="st-icon">📷</span>Photos</button>
+      <button class="st-tab" data-target="map"><span class="st-icon">🔗</span>Mapping PFS</button>
+
+      <div class="st-group">Diffusion</div>
+      <button class="st-tab" data-target="mp"><span class="st-icon">🛍️</span>Marketplaces</button>
+      <button class="st-tab" data-target="assoc"><span class="st-icon">🧩</span>Produits associés</button>
+
+      <div class="st-group">Interne</div>
+      <button class="st-tab" data-target="note"><span class="st-icon">📌</span>Note</button>
+    </nav>
+  </aside>
+
+  <div class="main-col">
+
+    <div class="kpi-row">
+      <div class="kpi-tile">
+        <div class="kpi-label">Prix moyen</div>
+        <div class="kpi-value">14,90 €</div>
+        <div class="kpi-sub">3 variantes</div>
+      </div>
+      <div class="kpi-tile">
+        <div class="kpi-label">Stock total</div>
+        <div class="kpi-value">95</div>
+        <div class="kpi-sub">réparti sur 3 tailles</div>
+      </div>
+      <div class="kpi-tile">
+        <div class="kpi-label">Marketplaces</div>
+        <div class="kpi-value">2 / 4</div>
+        <div class="kpi-sub">PFS + Ankorstore</div>
+      </div>
+      <div class="kpi-tile">
+        <div class="kpi-label">Complétude</div>
+        <div class="kpi-value">75 %</div>
+        <div class="kpi-sub">8 / 11 sections</div>
+      </div>
+    </div>
+
+    <!-- Général -->
+    <section class="card section-panel active" data-panel="general">
+      <div class="panel-hd">
+        <div>
+          <h2>Général</h2>
+          <div class="panel-sub">Nom, référence et description qui apparaissent partout.</div>
+        </div>
+      </div>
+      <div class="field">
+        <label class="label">Nom du produit *</label>
+        <div class="row" style="gap:6px;margin-bottom:8px">
+          <button class="chip" style="background:var(--ink);color:#fff;border-color:var(--ink)">🇫🇷 Français</button>
+          <button class="chip">🇬🇧 English</button>
+        </div>
+        <input class="input" value="Bague anneau fin" />
+      </div>
+      <div class="form-grid-2">
+        <div class="field"><label class="label">Référence interne *</label><input class="input" value="BJ-A001" style="font-family:ui-monospace,monospace" /></div>
+        <div class="field"><label class="label">Code SH douanier</label><input class="input" value="7117.19" /></div>
+      </div>
+      <div class="field">
+        <label class="label">Description</label>
+        <textarea class="textarea" rows="4">Bague fine en acier inoxydable doré, adaptée à un usage quotidien. Fermeture ajustable, ne noircit pas au contact de l'eau.</textarea>
+        <span class="help">137 / 30 caractères minimum</span>
+      </div>
+      <div class="nav-actions"><button class="btn-ghost">← Précédent</button><button class="btn-primary">Suivant : Catégorie →</button></div>
+    </section>
+
+    <!-- Catégorie -->
+    <section class="card section-panel" data-panel="cat">
+      <div class="panel-hd"><div><h2>Catégorie & classement</h2><div class="panel-sub">Où votre produit apparaîtra sur le site et les marketplaces.</div></div></div>
+      <div class="form-grid-2">
+        <div class="field"><label class="label">Catégorie principale *</label><select class="select"><option>Bague</option></select></div>
+        <div class="field"><label class="label">Sous-catégorie</label><select class="select"><option>Bague fine</option></select></div>
+        <div class="field"><label class="label">Pays de fabrication</label><select class="select"><option>Chine</option></select></div>
+        <div class="field"><label class="label">Saison</label><select class="select"><option>Toutes saisons</option></select></div>
+      </div>
+      <div class="field">
+        <label class="label">Rangs d'apparition</label>
+        <div class="row">
+          <label class="chip"><input type="checkbox" checked style="margin-right:2px" />Microstore</label>
+          <label class="chip"><input type="checkbox" style="margin-right:2px" />Nouveautés</label>
+          <label class="chip"><input type="checkbox" checked style="margin-right:2px" />Sélection Belle</label>
+        </div>
+      </div>
+      <div class="nav-actions"><button class="btn-ghost">← Général</button><button class="btn-primary">Suivant : Dimensions →</button></div>
+    </section>
+
+    <!-- Dimensions -->
+    <section class="card section-panel" data-panel="dim">
+      <div class="panel-hd"><div><h2>Dimensions</h2><div class="panel-sub">Facultatif — en millimètres.</div></div></div>
+      <div class="form-grid-3">
+        <div class="field"><label class="label">Longueur</label><input class="input" placeholder="—" /></div>
+        <div class="field"><label class="label">Largeur</label><input class="input" placeholder="—" /></div>
+        <div class="field"><label class="label">Hauteur</label><input class="input" placeholder="—" /></div>
+        <div class="field"><label class="label">Diamètre</label><input class="input" value="18" /></div>
+        <div class="field"><label class="label">Circonférence</label><input class="input" value="56" /></div>
+        <div class="field"><label class="label">Poids/pièce (g)</label><input class="input" value="3.4" /></div>
+      </div>
+      <div class="nav-actions"><button class="btn-ghost">← Catégorie</button><button class="btn-primary">Suivant : Composition →</button></div>
+    </section>
+
+    <!-- Composition (custom) -->
+    <section class="card section-panel" data-panel="comp">
+      <div class="panel-hd">
+        <div><h2>Composition</h2><div class="panel-sub">Le total doit atteindre 100 %.</div></div>
+      </div>
+
+      <div class="comp-list" id="comp-list">
+        <div class="comp-row">
+          <div class="comp-icon">⚙️</div>
+          <button class="comp-mat-select">
+            <span style="font-weight:700">Acier inoxydable 316L</span>
+            <span style="margin-left:auto;opacity:.4">▾</span>
+          </button>
+          <div class="comp-slider-cell">
+            <input type="range" min="0" max="100" value="80" class="comp-slider" oninput="updateComp(this)" />
+          </div>
+          <div class="comp-pct-cell">
+            <input type="number" min="0" max="100" value="80" class="comp-pct-input" />
+            <span class="unit">%</span>
+          </div>
+          <button class="del-row" title="Retirer">×</button>
+        </div>
+        <div class="comp-row">
+          <div class="comp-icon">✨</div>
+          <button class="comp-mat-select">
+            <span style="font-weight:700">Placage or 18 K</span>
+            <span style="margin-left:auto;opacity:.4">▾</span>
+          </button>
+          <div class="comp-slider-cell">
+            <input type="range" min="0" max="100" value="20" class="comp-slider" oninput="updateComp(this)" />
+          </div>
+          <div class="comp-pct-cell">
+            <input type="number" min="0" max="100" value="20" class="comp-pct-input" />
+            <span class="unit">%</span>
+          </div>
+          <button class="del-row" title="Retirer">×</button>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <button class="comp-add-btn">+ Ajouter un matériau</button>
+      </div>
+
+      <div class="comp-total" id="comp-total">
+        <span class="comp-total-label">Total composition</span>
+        <span class="comp-total-val" id="comp-total-val">100 %</span>
+      </div>
+
+      <div class="nav-actions"><button class="btn-ghost">← Dimensions</button><button class="btn-primary">Suivant : Mots-clés →</button></div>
+    </section>
+
+    <!-- Mots-clés (sans remise ni best-seller) -->
+    <section class="card section-panel" data-panel="tags">
+      <div class="panel-hd"><div><h2>Mots-clés</h2><div class="panel-sub">Tags pour la recherche interne et l'affichage.</div></div></div>
+      <div class="field" style="margin-bottom:0">
+        <label class="label">Tags</label>
+        <div class="row">
+          <span class="chip">Fin<button class="x">×</button></span>
+          <span class="chip">Doré<button class="x">×</button></span>
+          <span class="chip">Empilable<button class="x">×</button></span>
+          <span class="chip">Cadeau<button class="x">×</button></span>
+          <button class="chip chip-add">+ Ajouter</button>
+        </div>
+        <span class="help">Best-seller se règle depuis l'en-tête. Remise se règle dans « Variantes ».</span>
+      </div>
+      <div class="nav-actions"><button class="btn-ghost">← Composition</button><button class="btn-primary">Suivant : Variantes →</button></div>
+    </section>
+
+    <!-- Variantes (comme la version actuelle + remise en haut) -->
+    <section class="card section-panel" data-panel="var">
+      <div class="panel-hd">
+        <div><h2>Variantes couleur & tailles</h2><div class="panel-sub">Prix, poids, stocks par couleur. Structure identique à aujourd'hui.</div></div>
+        <div class="panel-actions"><span class="badge badge-info">3 couleurs · 9 tailles</span></div>
+      </div>
+
+      <!-- Bloc remise (s'applique à tout le produit par défaut) -->
+      <div class="disc-block">
+        <div>
+          <label class="label">Remise appliquée (%)</label>
+          <input class="input" id="disc-input" placeholder="Aucune remise" value="" oninput="updateDisc()" />
+          <span class="help">S'applique à toutes les variantes du produit.</span>
+        </div>
+        <div class="disc-preview" id="disc-preview">
+          <span class="text-muted" style="font-size:10.5px">Prix client</span>
+          <span class="disc-new no-disc" id="disc-new">14,90 €</span>
+          <span class="disc-old" id="disc-old" style="display:none"></span>
+        </div>
+      </div>
+
+      <div class="color-tabs">
+        <button class="color-tab active primary"><span class="swatch" style="background:#D4AF37"></span>Or</button>
+        <button class="color-tab"><span class="swatch" style="background:#C0C0C0"></span>Argent</button>
+        <button class="color-tab"><span class="swatch" style="background:#E8B4A8"></span>Rose gold</button>
+        <button class="color-tab add-color">+ Couleur</button>
+      </div>
+      <div class="row" style="margin-bottom:12px;gap:14px">
+        <div>
+          <label class="label" style="font-size:11px">Type de vente</label>
+          <div class="toggle"><button class="on">À l'unité</button><button>Par pack</button></div>
+        </div>
+        <div style="flex:1"></div>
+        <label class="row" style="gap:6px;font-size:12px;color:var(--text-secondary)">
+          <input type="checkbox" checked />Couleur principale
+        </label>
+      </div>
+      <table class="size-table">
+        <thead>
+          <tr>
+            <th>Taille</th><th>Prix (€)</th><th>Poids (g)</th><th>Stock</th><th>Réf. variante</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td data-label="Taille"><input class="input-tight" value="52 (12)" /></td>
+            <td data-label="Prix (€)"><input class="input-tight" value="14.90" /></td>
+            <td data-label="Poids (g)"><input class="input-tight" value="3.4" /></td>
+            <td data-label="Stock"><input class="input-tight" value="45" /></td>
+            <td data-label="Réf. variante"><input class="input-tight" value="BJ-A001-O-52" /></td>
+            <td><button class="del-row">×</button></td>
+          </tr>
+          <tr>
+            <td data-label="Taille"><input class="input-tight" value="54 (14)" /></td>
+            <td data-label="Prix (€)"><input class="input-tight" value="14.90" /></td>
+            <td data-label="Poids (g)"><input class="input-tight" value="3.5" /></td>
+            <td data-label="Stock"><input class="input-tight" value="38" /></td>
+            <td data-label="Réf. variante"><input class="input-tight" value="BJ-A001-O-54" /></td>
+            <td><button class="del-row">×</button></td>
+          </tr>
+          <tr>
+            <td data-label="Taille"><input class="input-tight" value="56 (16)" /></td>
+            <td data-label="Prix (€)"><input class="input-tight" value="14.90" /></td>
+            <td data-label="Poids (g)"><input class="input-tight" value="3.6" /></td>
+            <td data-label="Stock"><input class="input-tight" value="12" /></td>
+            <td data-label="Réf. variante"><input class="input-tight" value="BJ-A001-O-56" /></td>
+            <td><button class="del-row">×</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top:10px"><button class="btn-secondary btn-sm">+ Taille</button></div>
+      <div class="nav-actions"><button class="btn-ghost">← Mots-clés</button><button class="btn-primary">Suivant : Photos →</button></div>
+    </section>
+
+    <!-- Photos : une ligne par couleur, 5 positions -->
+    <section class="card section-panel" data-panel="img">
+      <div class="panel-hd">
+        <div><h2>Photos produit</h2><div class="panel-sub">5 positions par couleur. La position 1 sert de vignette côté client.</div></div>
+      </div>
+
+      <div class="photos-grid">
+
+        <div class="photos-row">
+          <div class="photos-row-label">
+            <span class="photos-row-swatch" style="background:#D4AF37"></span>
+            <div class="photos-row-name">Or<span style="font-size:11px;font-weight:500;color:var(--text-muted);margin-left:6px">principale</span></div>
+          </div>
+          <div class="photos-slots">
+            <div class="photo-slot filled" style="background:linear-gradient(135deg,#D4AF37,#a1a1aa)"><span class="slot-num primary-num">1<span class="primary-tag"> · principale</span></span><button class="slot-del">×</button></div>
+            <div class="photo-slot filled" style="background:linear-gradient(135deg,#e4e4e7,#d4af37)"><span class="slot-num">2</span><button class="slot-del">×</button></div>
+            <div class="photo-slot filled" style="background:linear-gradient(135deg,#fafafa,#d4af37)"><span class="slot-num">3</span><button class="slot-del">×</button></div>
+            <div class="photo-slot empty"><span class="slot-num">4</span><span class="slot-plus">+</span></div>
+            <div class="photo-slot empty"><span class="slot-num">5</span><span class="slot-plus">+</span></div>
+          </div>
+        </div>
+
+        <div class="photos-row">
+          <div class="photos-row-label">
+            <span class="photos-row-swatch" style="background:#C0C0C0"></span>
+            <div class="photos-row-name">Argent</div>
+          </div>
+          <div class="photos-slots">
+            <div class="photo-slot filled" style="background:linear-gradient(135deg,#C0C0C0,#71717a)"><span class="slot-num primary-num">1<span class="primary-tag"> · principale</span></span><button class="slot-del">×</button></div>
+            <div class="photo-slot filled" style="background:linear-gradient(135deg,#e4e4e7,#C0C0C0)"><span class="slot-num">2</span><button class="slot-del">×</button></div>
+            <div class="photo-slot empty"><span class="slot-num">3</span><span class="slot-plus">+</span></div>
+            <div class="photo-slot empty"><span class="slot-num">4</span><span class="slot-plus">+</span></div>
+            <div class="photo-slot empty"><span class="slot-num">5</span><span class="slot-plus">+</span></div>
+          </div>
+        </div>
+
+        <div class="photos-row">
+          <div class="photos-row-label">
+            <span class="photos-row-swatch" style="background:#E8B4A8"></span>
+            <div class="photos-row-name">Rose gold<span class="warn-mini">⚠ Aucune photo</span></div>
+          </div>
+          <div class="photos-slots">
+            <div class="photo-slot empty"><span class="slot-num">1</span><span class="slot-plus">+</span></div>
+            <div class="photo-slot empty"><span class="slot-num">2</span><span class="slot-plus">+</span></div>
+            <div class="photo-slot empty"><span class="slot-num">3</span><span class="slot-plus">+</span></div>
+            <div class="photo-slot empty"><span class="slot-num">4</span><span class="slot-plus">+</span></div>
+            <div class="photo-slot empty"><span class="slot-num">5</span><span class="slot-plus">+</span></div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="nav-actions"><button class="btn-ghost">← Variantes</button><button class="btn-primary">Suivant : Mapping PFS →</button></div>
+    </section>
+
+    <!-- Mapping PFS -->
+    <section class="card section-panel" data-panel="map">
+      <div class="panel-hd"><div><h2>Correspondance couleurs PFS</h2><div class="panel-sub">Pour éviter les erreurs sur PFS.</div></div></div>
+      <div class="stack">
+        <div class="row" style="justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border-radius:8px">
+          <span class="row" style="gap:8px"><span class="swatch" style="width:16px;height:16px;background:#D4AF37;border-radius:50%"></span><span class="dim-strong">Or</span></span>
+          <button class="btn-secondary btn-sm">Or 18 K (PFS) ▾</button>
+        </div>
+        <div class="row" style="justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border-radius:8px">
+          <span class="row" style="gap:8px"><span class="swatch" style="width:16px;height:16px;background:#C0C0C0;border-radius:50%"></span><span class="dim-strong">Argent</span></span>
+          <button class="btn-secondary btn-sm">Argent brillant ▾</button>
+        </div>
+        <div class="row" style="justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border-radius:8px">
+          <span class="row" style="gap:8px"><span class="swatch" style="width:16px;height:16px;background:#E8B4A8;border-radius:50%"></span><span class="dim-strong">Rose gold</span></span>
+          <button class="btn-secondary btn-sm">Sélectionner… ▾</button>
+        </div>
+      </div>
+      <div class="nav-actions"><button class="btn-ghost">← Photos</button><button class="btn-primary">Suivant : Marketplaces →</button></div>
+    </section>
+
+    <!-- Marketplaces (détail) -->
+    <section class="card section-panel" data-panel="mp">
+      <div class="panel-hd"><div><h2>Diffusion marketplaces</h2><div class="panel-sub">Le raccourci d'en-tête vous amène ici.</div></div></div>
+      <div class="mp-block">
+        <div class="mp-card">
+          <div class="mp-card-head"><div class="mp-logo lg-pfs">PFS</div><div><div class="mp-name">Paris Fashion Shop</div><div class="mp-sub">ID 892 341</div></div></div>
+          <div class="mp-card-body"><span class="badge badge-success">En ligne</span><span class="badge badge-warning">Synchro nécessaire</span></div>
+          <div class="mp-actions"><button class="btn-secondary btn-sm">Mettre à jour</button><button class="btn-ghost btn-sm">Délier</button></div>
+        </div>
+        <div class="mp-card">
+          <div class="mp-card-head"><div class="mp-logo lg-ankor">AKS</div><div><div class="mp-name">Ankorstore</div><div class="mp-sub">ID 12 998</div></div></div>
+          <div class="mp-card-body"><span class="badge badge-success">En ligne</span></div>
+          <div class="mp-actions"><button class="btn-secondary btn-sm">Mettre à jour</button><button class="btn-ghost btn-sm">Délier</button></div>
+        </div>
+        <div class="mp-card">
+          <div class="mp-card-head"><div class="mp-logo lg-ef">EF</div><div><div class="mp-name">eFashion Paris</div><div class="mp-sub">Non lié</div></div></div>
+          <div class="mp-card-body"><span class="badge badge-neutral">Hors ligne</span></div>
+          <div class="mp-actions"><button class="btn-primary btn-sm">Publier</button></div>
+        </div>
+        <div class="mp-card">
+          <div class="mp-card-head"><div class="mp-logo lg-faire">FAI</div><div><div class="mp-name">Faire</div><div class="mp-sub">Non lié</div></div></div>
+          <div class="mp-card-body"><span class="badge badge-neutral">Hors ligne</span></div>
+          <div class="mp-actions"><button class="btn-primary btn-sm">Publier</button></div>
+        </div>
+      </div>
+      <div class="nav-actions"><button class="btn-ghost">← Mapping PFS</button><button class="btn-primary">Suivant : Produits associés →</button></div>
+    </section>
+
+    <!-- Produits associés (fusion Similaires + Ensemble) -->
+    <section class="card section-panel" data-panel="assoc">
+      <div class="panel-hd">
+        <div><h2>Produits associés</h2><div class="panel-sub">Regroupe les suggestions et le contenu d'un ensemble.</div></div>
+      </div>
+
+      <div style="margin-bottom:22px">
+        <div class="section-eyebrow">Suggestions affichées sur la fiche client</div>
+        <div class="row" style="margin-bottom:8px">
+          <div class="chip" style="gap:8px;padding:4px 10px 4px 4px;background:#fff;border-color:var(--border-strong)">
+            <div style="width:26px;height:26px;border-radius:5px;background:linear-gradient(135deg,#e4e4e7,#a1a1aa)"></div>
+            <div style="line-height:1.2"><div style="font-size:12px;font-weight:600">Bague solitaire zircon</div><div style="font-size:10px;color:var(--text-muted);font-family:ui-monospace,monospace">BJ-A089</div></div>
+            <button class="x">×</button>
+          </div>
+          <div class="chip" style="gap:8px;padding:4px 10px 4px 4px;background:#fff;border-color:var(--border-strong)">
+            <div style="width:26px;height:26px;border-radius:5px;background:linear-gradient(135deg,#fafafa,#a1a1aa)"></div>
+            <div style="line-height:1.2"><div style="font-size:12px;font-weight:600">Bague fine croisée</div><div style="font-size:10px;color:var(--text-muted);font-family:ui-monospace,monospace">BJ-A045</div></div>
+            <button class="x">×</button>
+          </div>
+          <button class="btn-secondary btn-sm">+ Ajouter une suggestion</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-eyebrow">Contenu d'un ensemble</div>
+        <div style="padding:22px;text-align:center;color:var(--text-muted);font-size:12.5px;background:var(--bg-secondary);border-radius:8px">
+          📦 Ce produit ne contient pas d'autres produits.<br/>
+          <span style="font-size:11.5px">Créez un « pack » qui vend plusieurs articles ensemble.</span>
+          <div style="margin-top:10px"><button class="btn-secondary btn-sm">+ Ajouter un enfant</button></div>
+        </div>
+      </div>
+
+      <div class="nav-actions"><button class="btn-ghost">← Marketplaces</button><button class="btn-primary">Suivant : Note →</button></div>
+    </section>
+
+    <!-- Note -->
+    <section class="card section-panel" data-panel="note">
+      <div class="panel-hd"><div><h2>Note interne</h2><div class="panel-sub">Visible uniquement dans l'admin.</div></div></div>
+      <textarea class="textarea" rows="4">Stock rose gold à recommander au fournisseur mi-juillet.</textarea>
+      <div class="row" style="margin-top:8px">
+        <span class="text-muted">62 / 2000 caractères</span>
+        <div class="spacer"></div>
+        <button class="btn-secondary btn-sm">Enregistrer la note</button>
+      </div>
+      <div class="nav-actions"><button class="btn-ghost">← Produits associés</button><span></span></div>
+    </section>
+
+  </div>
+</div>
+
+<div class="fp-footer">
+  <div class="fp-footer-inner">
+    <div class="fp-footer-status">
+      <span class="fp-footer-dot"></span>
+      <span>8 sections sur 11 complètes</span>
+    </div>
+    <div class="fp-footer-actions">
+      <button class="btn-ghost">Annuler modifications</button>
+      <button class="btn-secondary">Enregistrer en brouillon</button>
+      <button class="btn-primary btn-lg">Enregistrer les modifications</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Onglets
+  document.querySelectorAll('#tabs .st-tab').forEach(function(t){
+    t.addEventListener('click', function(){
+      goTab(t.getAttribute('data-target'));
+    });
+  });
+
+  function goTab(target, ev) {
+    if (ev) ev.preventDefault();
+    document.querySelectorAll('#tabs .st-tab').forEach(function(x){ x.classList.remove('active'); });
+    var tab = document.querySelector('#tabs .st-tab[data-target="'+target+'"]');
+    if (tab) tab.classList.add('active');
+    document.querySelectorAll('.section-panel').forEach(function(x){ x.classList.remove('active'); });
+    var panel = document.querySelector('.section-panel[data-panel="'+target+'"]');
+    if (panel) panel.classList.add('active');
+    // Sync picker mobile
+    if (tab) {
+      var iconEl = tab.querySelector('.st-icon');
+      var labelText = tab.textContent.replace(/\s+/g, ' ').trim();
+      var picker = document.getElementById('tp-name');
+      var pickerIcon = document.getElementById('tp-icon');
+      if (picker) picker.textContent = labelText;
+      if (pickerIcon && iconEl) pickerIcon.textContent = iconEl.textContent;
+    }
+    closeSidebar();
+    window.scrollTo({ top: 0, behavior:'smooth' });
+  }
+
+  function toggleSidebar() {
+    var col = document.getElementById('sideCol');
+    var picker = document.getElementById('picker');
+    var bd = document.getElementById('tabsBackdrop');
+    var isOpen = col.classList.toggle('open');
+    picker.classList.toggle('open', isOpen);
+    bd.classList.toggle('on', isOpen);
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+  }
+  function closeSidebar() {
+    document.getElementById('sideCol').classList.remove('open');
+    document.getElementById('picker').classList.remove('open');
+    document.getElementById('tabsBackdrop').classList.remove('on');
+    document.body.style.overflow = '';
+  }
+
+  // Nav Suivant/Précédent
+  document.querySelectorAll('.nav-actions button').forEach(function(b){
+    if (!b.textContent) return;
+    b.addEventListener('click', function(){
+      var txt = b.textContent.trim();
+      var current = document.querySelector('#tabs .st-tab.active');
+      var tabs = Array.from(document.querySelectorAll('#tabs .st-tab'));
+      var i = tabs.indexOf(current);
+      if (txt.indexOf('→') >= 0 && i < tabs.length - 1) tabs[i+1].click();
+      else if (txt.indexOf('←') >= 0 && i > 0) tabs[i-1].click();
+    });
+  });
+
+  // Best-seller toggle
+  function toggleBS() {
+    document.getElementById('bs-btn').classList.toggle('on');
+  }
+
+  // Composition — synchro slider/input + total
+  document.querySelectorAll('.comp-slider').forEach(function(sl){
+    var pctInput = sl.closest('.comp-row').querySelector('.comp-pct-input');
+    sl.addEventListener('input', function(){ pctInput.value = sl.value; recalcTotal(); });
+    pctInput.addEventListener('input', function(){ sl.value = pctInput.value || 0; recalcTotal(); });
+  });
+  function recalcTotal() {
+    var total = 0;
+    document.querySelectorAll('.comp-pct-input').forEach(function(i){ total += Number(i.value) || 0; });
+    var el = document.getElementById('comp-total-val');
+    el.textContent = total + ' %';
+    var container = document.getElementById('comp-total');
+    if (total === 100) {
+      el.style.color = 'var(--success)';
+      container.style.background = 'var(--success-bg)';
+      container.style.borderColor = '#bbf7d0';
+    } else if (total > 100) {
+      el.style.color = 'var(--error)';
+      container.style.background = 'var(--error-bg)';
+      container.style.borderColor = '#fecaca';
+    } else {
+      el.style.color = 'var(--warning)';
+      container.style.background = 'var(--warning-bg)';
+      container.style.borderColor = '#fde68a';
+    }
+  }
+  function updateComp(sl) { /* handled via listener above */ }
+
+  // Remise — mise à jour prix aperçu
+  function fmt(n) { return n.toFixed(2).replace('.', ','); }
+  function updateDisc() {
+    var d = parseFloat(document.getElementById('disc-input').value) || 0;
+    var newEl = document.getElementById('disc-new');
+    var oldEl = document.getElementById('disc-old');
+    var base = 14.90;
+    if (d > 0) {
+      newEl.textContent = fmt(base * (1 - d/100)) + ' €';
+      newEl.classList.remove('no-disc');
+      oldEl.textContent = fmt(base) + ' €';
+      oldEl.style.display = 'inline';
+    } else {
+      newEl.textContent = fmt(base) + ' €';
+      newEl.classList.add('no-disc');
+      oldEl.style.display = 'none';
+    }
+  }
+
+  function setViewport(mode, ev) {
+    var b = document.body;
+    b.style.maxWidth = mode === 'mobile' ? '380px' : mode === 'tablet' ? '820px' : '';
+    b.style.margin = mode === 'full' ? '' : '0 auto';
+    b.style.boxShadow = mode === 'full' ? '' : '0 0 40px rgba(0,0,0,.15)';
+    document.querySelectorAll('.mt-viewport button').forEach(function(x){ x.classList.remove('on'); });
+    ev.target.classList.add('on');
+  }
+</script>
+
+</body>
+</html>

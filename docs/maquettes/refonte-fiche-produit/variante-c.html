@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Variante C — Édition + Aperçu · Fiche produit Beli & Jolie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+<style>
+  .page-wrap {
+    max-width:1720px; margin:0 auto;
+    display:grid; grid-template-columns:1fr 460px;
+    gap:20px; padding:20px 24px 8px;
+  }
+  .edit-col { min-width:0; display:flex; flex-direction:column; gap:14px; }
+  .preview-col { position:sticky; top:120px; align-self:start; }
+
+  @media (max-width:1200px) {
+    .page-wrap { grid-template-columns:1fr; padding:18px; }
+    .preview-col { display:none; }
+    .preview-mobile-btn { display:inline-flex !important; }
+  }
+
+  .acc-card {
+    background:#fff; border:1px solid var(--border);
+    border-radius:var(--radius-lg); overflow:hidden;
+    box-shadow:var(--shadow-card);
+  }
+  .acc-head {
+    padding:14px 18px; display:flex; align-items:center; gap:14px;
+    cursor:pointer; user-select:none;
+  }
+  .acc-head:hover { background:var(--bg-secondary); }
+  .acc-head .acc-icon {
+    width:32px; height:32px; border-radius:8px;
+    background:var(--bg-tertiary); display:inline-flex;
+    align-items:center; justify-content:center; font-size:15px;
+  }
+  .acc-card.open .acc-head .acc-icon { background:var(--ink); color:#fff; }
+  .acc-head h3 { font-size:14px; font-weight:700; letter-spacing:-0.01em; }
+  .acc-head .acc-sub { font-size:11.5px; color:var(--text-muted); margin-top:2px; }
+  .acc-head .acc-chev {
+    margin-left:auto; color:var(--text-muted); transition:.2s;
+    font-size:14px;
+  }
+  .acc-card.open .acc-head .acc-chev { transform:rotate(90deg); color:var(--text-primary); }
+  .acc-body {
+    padding:0 18px 18px; border-top:1px solid var(--border);
+    display:none;
+  }
+  .acc-card.open .acc-body { display:block; padding-top:16px; }
+  .acc-head .acc-status { margin-left:auto; }
+  .acc-card.open .acc-head .acc-status { margin-left:0; }
+
+  .preview-panel {
+    background:linear-gradient(180deg, #f9fafb, #fff);
+    border:1px solid var(--border); border-radius:var(--radius-2xl);
+    overflow:hidden; box-shadow:var(--shadow-card);
+  }
+  .preview-panel-hd {
+    background:var(--bg-tertiary); padding:10px 16px;
+    display:flex; align-items:center; gap:10px;
+    border-bottom:1px solid var(--border);
+    font-size:11.5px;
+  }
+  .preview-panel-hd .dots { display:inline-flex; gap:4px; }
+  .preview-panel-hd .dots span { width:9px; height:9px; border-radius:50%; }
+  .preview-panel-hd .dots span:nth-child(1) { background:#f87171; }
+  .preview-panel-hd .dots span:nth-child(2) { background:#fbbf24; }
+  .preview-panel-hd .dots span:nth-child(3) { background:#4ade80; }
+  .preview-url {
+    flex:1; background:#fff; padding:4px 10px; border-radius:5px;
+    font-family:ui-monospace, monospace; font-size:10.5px;
+    color:var(--text-secondary); border:1px solid var(--border);
+  }
+  .preview-panel-hd .live {
+    font-size:10px; font-weight:700; padding:2px 8px;
+    border-radius:9999px; background:#DCFCE7; color:#15803D;
+    text-transform:uppercase; letter-spacing:0.08em;
+  }
+  .preview-body {
+    padding:22px; display:flex; flex-direction:column; gap:16px;
+  }
+  .pv-image-lg {
+    aspect-ratio:1; border-radius:var(--radius-lg);
+    background:linear-gradient(135deg, #D4AF37, #a1a1aa);
+    display:flex; align-items:center; justify-content:center;
+    color:#fff; font-weight:700; font-family:'Poppins', sans-serif;
+    font-size:20px; letter-spacing:0.05em;
+  }
+  .pv-thumbs { display:flex; gap:6px; }
+  .pv-thumbs .thumb {
+    width:56px; height:56px; border-radius:6px;
+    background:linear-gradient(135deg, #e4e4e7, #d4af37);
+    cursor:pointer; opacity:.6;
+    border:2px solid transparent;
+  }
+  .pv-thumbs .thumb.on { opacity:1; border-color:var(--ink); }
+  .pv-thumbs .thumb:nth-child(2) { background:linear-gradient(135deg, #fafafa, #d4af37); }
+  .pv-thumbs .thumb:nth-child(3) { background:linear-gradient(135deg, #e4e4e7, #a1a1aa); }
+  .pv-cat {
+    font-size:10.5px; text-transform:uppercase;
+    letter-spacing:0.14em; color:var(--text-muted); font-weight:600;
+  }
+  .pv-title { font-size:22px; font-weight:700; letter-spacing:-0.015em; }
+  .pv-price {
+    font-size:24px; font-weight:800; font-family:'Poppins', sans-serif;
+    color:var(--ink);
+  }
+  .pv-price.discounted { color:var(--error); }
+  .pv-old {
+    text-decoration:line-through; font-size:14px;
+    color:var(--text-muted); margin-left:8px;
+  }
+  .pv-disc-badge {
+    display:inline-flex; margin-left:6px; padding:2px 8px;
+    border-radius:9999px; background:var(--error-bg);
+    color:var(--error); font-size:11px; font-weight:700;
+  }
+  .pv-desc { color:var(--text-secondary); font-size:13px; line-height:1.6; }
+  .pv-colors { display:flex; gap:8px; }
+  .pv-colors .swatch {
+    width:28px; height:28px; border-radius:50%;
+    border:1.5px solid #fff; box-shadow:0 0 0 1px var(--border-dark);
+    cursor:pointer; transition:.15s;
+  }
+  .pv-colors .swatch:hover { transform:scale(1.1); }
+  .pv-colors .swatch.on { box-shadow:0 0 0 2px var(--ink); }
+  .pv-sizes { display:flex; gap:6px; flex-wrap:wrap; }
+  .pv-sizes button {
+    background:#fff; border:1px solid var(--border-strong);
+    border-radius:6px; padding:8px 14px; font-size:12px; font-weight:600;
+    cursor:pointer; color:var(--text-primary);
+  }
+  .pv-sizes button.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .pv-add-btn {
+    background:var(--ink); color:#fff; border:none;
+    padding:14px 22px; border-radius:8px; font-weight:600;
+    font-size:14px; cursor:pointer; width:100%;
+  }
+  .pv-tabs {
+    display:flex; gap:20px; border-bottom:1px solid var(--border);
+    font-size:11.5px; font-weight:600; color:var(--text-muted);
+  }
+  .pv-tabs .tab {
+    padding:10px 0; cursor:pointer; text-transform:uppercase;
+    letter-spacing:0.06em;
+  }
+  .pv-tabs .tab.on { color:var(--text-primary); border-bottom:2px solid var(--ink); }
+  .pv-cont { font-size:12.5px; color:var(--text-secondary); line-height:1.6; }
+  .preview-mobile-btn {
+    display:none; position:fixed; right:14px; bottom:70px; z-index:30;
+    background:var(--ink); color:#fff; border:none;
+    padding:12px 18px; border-radius:9999px;
+    font-size:13px; font-weight:600;
+    box-shadow:var(--shadow-pop); cursor:pointer;
+    align-items:center; gap:8px;
+  }
+  .drawer-backdrop {
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
+    z-index:40;
+  }
+  .drawer-backdrop.on { display:block; }
+  .drawer {
+    position:fixed; bottom:0; left:0; right:0; z-index:50;
+    background:#fff; border-radius:16px 16px 0 0;
+    max-height:85vh; overflow-y:auto;
+    transform:translateY(100%); transition:transform .25s ease-out;
+    padding:14px;
+  }
+  .drawer.on { transform:translateY(0); }
+  .drawer-handle {
+    width:36px; height:4px; background:var(--border-dark);
+    border-radius:2px; margin:0 auto 10px;
+  }
+</style>
+</head>
+<body>
+<script>if (window.top !== window.self) document.body.classList.add('in-iframe');</script>
+
+<div class="mockup-topbar">
+  <span class="mt-brand">Refonte fiche produit</span>
+  <a href="index.html">Vue d'ensemble</a>
+  <a href="variante-a.html">A · Assistant guidé</a>
+  <a href="variante-b.html">B · Cockpit onglets</a>
+  <a href="variante-c.html" class="active">C · Édition + Aperçu</a>
+  <span class="mt-spacer"></span>
+  <div class="mt-viewport">
+    <button class="on" onclick="setViewport('full', event)">Desktop</button>
+    <button onclick="setViewport('tablet', event)">Tablette</button>
+    <button onclick="setViewport('mobile', event)">Mobile</button>
+  </div>
+</div>
+
+<div class="fp-header">
+  <div class="fp-header-inner">
+    <div>
+      <div class="fp-breadcrumb">
+        <a href="#">Admin</a><span class="sep">›</span>
+        <a href="#">Produits</a><span class="sep">›</span>
+        <span>Bague anneau fin</span>
+      </div>
+      <div class="fp-title" style="margin-top:4px">
+        <h1>Bague anneau fin</h1>
+        <span class="fp-ref">BJ-A001</span>
+        <span class="badge badge-success">En ligne</span>
+      </div>
+    </div>
+    <div class="fp-actions">
+      <div class="toggle"><button class="on on-green">En ligne</button><button>Hors ligne</button></div>
+      <button class="btn-secondary btn-sm">↻ Rafraîchir</button>
+      <button class="btn-secondary btn-sm">Voir en ligne</button>
+    </div>
+  </div>
+</div>
+
+<div class="page-wrap">
+  <div class="edit-col">
+
+    <div class="row" style="justify-content:space-between;padding:2px 4px">
+      <div class="text-muted">Cliquez sur une section pour l'ouvrir. L'aperçu à droite se met à jour en direct.</div>
+      <div class="row" style="gap:6px">
+        <button class="btn-ghost btn-sm" onclick="toggleAll(true)">Tout ouvrir</button>
+        <button class="btn-ghost btn-sm" onclick="toggleAll(false)">Tout fermer</button>
+      </div>
+    </div>
+
+    <div class="acc-card open">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <div class="acc-icon">📝</div>
+        <div>
+          <h3>Général</h3>
+          <div class="acc-sub">Nom · Référence · Description</div>
+        </div>
+        <div class="acc-status"><span class="badge badge-success">Complet</span></div>
+        <span class="acc-chev">›</span>
+      </div>
+      <div class="acc-body">
+        <div class="field">
+          <label class="label">Nom du produit *</label>
+          <div class="row" style="gap:6px;margin-bottom:8px">
+            <button class="chip" style="background:var(--ink);color:#fff;border-color:var(--ink)">🇫🇷</button>
+            <button class="chip">🇬🇧</button>
+          </div>
+          <input class="input" value="Bague anneau fin" id="in-name" />
+        </div>
+        <div class="form-grid-2">
+          <div class="field">
+            <label class="label">Référence</label>
+            <input class="input" value="BJ-A001" style="font-family:ui-monospace,monospace" />
+          </div>
+          <div class="field">
+            <label class="label">Code SH</label>
+            <input class="input" value="7117.19" />
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label class="label">Description</label>
+          <textarea class="textarea" rows="3" id="in-desc">Bague fine en acier inoxydable doré, adaptée à un usage quotidien.</textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-card open">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <div class="acc-icon">💶</div>
+        <div>
+          <h3>Prix & remise</h3>
+          <div class="acc-sub">Prix client · Remise éventuelle</div>
+        </div>
+        <div class="acc-status"><span class="badge badge-success">14,90 €</span></div>
+        <span class="acc-chev">›</span>
+      </div>
+      <div class="acc-body">
+        <div class="form-grid-2">
+          <div class="field">
+            <label class="label">Prix unitaire (€) *</label>
+            <input class="input" value="14.90" id="in-price" />
+          </div>
+          <div class="field">
+            <label class="label">Remise (%)</label>
+            <input class="input" placeholder="Aucune" id="in-disc" />
+          </div>
+        </div>
+        <label class="row" style="gap:6px;font-size:12.5px;color:var(--text-secondary)">
+          <input type="checkbox" />Best Seller — affiche une étoile
+        </label>
+      </div>
+    </div>
+
+    <div class="acc-card">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <div class="acc-icon">📂</div>
+        <div>
+          <h3>Catégorie & classement</h3>
+          <div class="acc-sub">Bague · Bague fine · Chine · Toutes saisons</div>
+        </div>
+        <div class="acc-status"><span class="badge badge-success">OK</span></div>
+        <span class="acc-chev">›</span>
+      </div>
+      <div class="acc-body">
+        <div class="form-grid-2">
+          <div class="field"><label class="label">Catégorie *</label><select class="select"><option>Bague</option></select></div>
+          <div class="field"><label class="label">Sous-catégorie</label><select class="select"><option>Bague fine</option></select></div>
+          <div class="field"><label class="label">Pays</label><select class="select"><option>Chine</option></select></div>
+          <div class="field"><label class="label">Saison</label><select class="select"><option>Toutes saisons</option></select></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-card">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <div class="acc-icon">📏</div>
+        <div>
+          <h3>Dimensions & poids</h3>
+          <div class="acc-sub">Diamètre 18 mm · Circ. 56 mm · 3,4 g</div>
+        </div>
+        <div class="acc-status"><span class="badge badge-neutral">Partiel</span></div>
+        <span class="acc-chev">›</span>
+      </div>
+      <div class="acc-body">
+        <div class="form-grid-3">
+          <div class="field"><label class="label">Diamètre (mm)</label><input class="input" value="18" /></div>
+          <div class="field"><label class="label">Circonférence (mm)</label><input class="input" value="56" /></div>
+          <div class="field"><label class="label">Poids (g)</label><input class="input" value="3.4" /></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-card">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <div class="acc-icon">⚗️</div>
+        <div>
+          <h3>Composition</h3>
+          <div class="acc-sub">Acier 80 % · Placage or 20 %</div>
+        </div>
+        <div class="acc-status"><span class="badge badge-success">Total 100 %</span></div>
+        <span class="acc-chev">›</span>
+      </div>
+      <div class="acc-body">
+        <div class="row">
+          <span class="chip"><span class="dim-strong">Acier 316L</span> <input class="input-tight" value="80" style="width:56px" />%<button class="x">×</button></span>
+          <span class="chip"><span class="dim-strong">Placage or 18 K</span> <input class="input-tight" value="20" style="width:56px" />%<button class="x">×</button></span>
+          <button class="chip chip-add">+ Ajouter</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-card">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <div class="acc-icon">🏷️</div>
+        <div>
+          <h3>Mots-clés</h3>
+          <div class="acc-sub">Fin · Doré · Empilable · Cadeau</div>
+        </div>
+        <div class="acc-status"><span class="badge badge-success">4 tags</span></div>
+        <span class="acc-chev">›</span>
+      </div>
+      <div class="acc-body">
+        <div class="row">
+          <span class="chip">Fin<button class="x">×</button></span>
+          <span class="chip">Doré<button class="x">×</button></span>
+          <span class="chip">Empilable<button class="x">×</button></span>
+          <span class="chip">Cadeau<button class="x">×</button></span>
+          <button class="chip chip-add">+ Ajouter</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-card open">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <div class="acc-icon">🎨</div>
+        <div>
+          <h3>Variantes couleur & tailles</h3>
+          <div class="acc-sub">3 couleurs · 9 tailles · 95 en stock</div>
+        </div>
+        <div class="acc-status"><span class="badge badge-info">3 × 3</span></div>
+        <span class="acc-chev">›</span>
+      </div>
+      <div class="acc-body">
+        <div class="color-tabs">
+          <button class="color-tab active primary"><span class="swatch" style="background:#D4AF37"></span>Or</button>
+          <button class="color-tab"><span class="swatch" style="background:#C0C0C0"></span>Argent</button>
+          <button class="color-tab"><span class="swatch" style="background:#E8B4A8"></span>Rose gold</button>
+          <button class="color-tab add-color">+ Couleur</button>
+        </div>
+        <table class="size-table">
+          <thead><tr><th>Taille</th><th>Prix (€)</th><th>Stock</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><input class="input-tight" value="52 (12)" /></td><td><input class="input-tight" value="14.90" /></td><td><input class="input-tight" value="45" /></td><td><button class="del-row">×</button></td></tr>
+            <tr><td><input class="input-tight" value="54 (14)" /></td><td><input class="input-tight" value="14.90" /></td><td><input class="input-tight" value="38" /></td><td><button class="del-row">×</button></td></tr>
+            <tr><td><input class="input-tight" value="56 (16)" /></td><td><input class="input-tight" value="14.90" /></td><td><input class="input-tight" value="12" /></td><td><button class="del-row">×</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="acc-card">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <div class="acc-icon">📷</div>
+        <div>
+          <h3>Photos</h3>
+          <div class="acc-sub">Or (3) · Argent (2) · Rose gold (0)</div>
+        </div>
+        <div class="acc-status"><span class="badge badge-warning">Rose gold manque</span></div>
+        <span class="acc-chev">›</span>
+      </div>
+      <div class="acc-body">
+        <div class="image-strip">
+          <div class="image-thumb primary" style="background:linear-gradient(135deg,#D4AF37,#a1a1aa)"><button class="del">×</button></div>
+          <div class="image-thumb" style="background:linear-gradient(135deg,#e4e4e7,#d4af37)"><button class="del">×</button></div>
+          <div class="image-thumb" style="background:linear-gradient(135deg,#fafafa,#d4af37)"><button class="del">×</button></div>
+          <div class="image-thumb dropzone"><div>📷<br/>Ajouter</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-card">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <div class="acc-icon">🛍️</div>
+        <div>
+          <h3>Marketplaces</h3>
+          <div class="acc-sub">PFS · Ankorstore en ligne · eFashion & Faire non liés</div>
+        </div>
+        <div class="acc-status"><span class="badge badge-warning">Synchro PFS</span></div>
+        <span class="acc-chev">›</span>
+      </div>
+      <div class="acc-body">
+        <div class="mp-block">
+          <div class="mp-card">
+            <div class="mp-card-head"><div class="mp-logo lg-pfs">PFS</div><div><div class="mp-name">Paris Fashion Shop</div><div class="mp-sub">ID 892 341</div></div></div>
+            <div class="mp-card-body"><span class="badge badge-success">En ligne</span><span class="badge badge-warning">Synchro</span></div>
+            <div class="mp-actions"><button class="btn-secondary btn-sm">Mettre à jour</button></div>
+          </div>
+          <div class="mp-card">
+            <div class="mp-card-head"><div class="mp-logo lg-ankor">AKS</div><div><div class="mp-name">Ankorstore</div><div class="mp-sub">ID 12 998</div></div></div>
+            <div class="mp-card-body"><span class="badge badge-success">En ligne</span></div>
+            <div class="mp-actions"><button class="btn-secondary btn-sm">Mettre à jour</button></div>
+          </div>
+          <div class="mp-card">
+            <div class="mp-card-head"><div class="mp-logo lg-ef">EF</div><div><div class="mp-name">eFashion Paris</div><div class="mp-sub">Non lié</div></div></div>
+            <div class="mp-card-body"><span class="badge badge-neutral">Hors ligne</span></div>
+            <div class="mp-actions"><button class="btn-primary btn-sm">Publier</button></div>
+          </div>
+          <div class="mp-card">
+            <div class="mp-card-head"><div class="mp-logo lg-faire">FAI</div><div><div class="mp-name">Faire</div><div class="mp-sub">Non lié</div></div></div>
+            <div class="mp-card-body"><span class="badge badge-neutral">Hors ligne</span></div>
+            <div class="mp-actions"><button class="btn-primary btn-sm">Publier</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-card">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <div class="acc-icon">🔗</div>
+        <div>
+          <h3>Mapping couleurs PFS</h3>
+          <div class="acc-sub">Or & Argent mappés · Rose gold à mapper</div>
+        </div>
+        <div class="acc-status"><span class="badge badge-warning">1 manquant</span></div>
+        <span class="acc-chev">›</span>
+      </div>
+      <div class="acc-body">
+        <div class="stack">
+          <div class="row" style="justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border-radius:8px">
+            <span class="row" style="gap:8px"><span class="swatch" style="width:16px;height:16px;background:#D4AF37;border-radius:50%"></span><span class="dim-strong">Or</span></span>
+            <button class="btn-secondary btn-sm">Or 18 K ▾</button>
+          </div>
+          <div class="row" style="justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border-radius:8px">
+            <span class="row" style="gap:8px"><span class="swatch" style="width:16px;height:16px;background:#E8B4A8;border-radius:50%"></span><span class="dim-strong">Rose gold</span></span>
+            <button class="btn-secondary btn-sm">Sélectionner… ▾</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-card">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <div class="acc-icon">🔍</div>
+        <div>
+          <h3>Produits similaires</h3>
+          <div class="acc-sub">2 suggestions affichées sur la fiche client</div>
+        </div>
+        <span class="acc-chev">›</span>
+      </div>
+      <div class="acc-body">
+        <div class="row">
+          <div class="chip" style="gap:8px;padding:4px 10px 4px 4px;background:#fff">
+            <div style="width:26px;height:26px;border-radius:5px;background:linear-gradient(135deg,#e4e4e7,#a1a1aa)"></div>
+            <div style="line-height:1.2"><div style="font-size:12px;font-weight:600">Bague solitaire zircon</div><div style="font-size:10px;color:var(--text-muted);font-family:ui-monospace,monospace">BJ-A089</div></div>
+            <button class="x">×</button>
+          </div>
+          <button class="btn-secondary btn-sm">+ Ajouter</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-card">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <div class="acc-icon">📌</div>
+        <div>
+          <h3>Note interne</h3>
+          <div class="acc-sub">62 caractères — visible admin uniquement</div>
+        </div>
+        <span class="acc-chev">›</span>
+      </div>
+      <div class="acc-body">
+        <textarea class="textarea" rows="3">Stock rose gold à recommander au fournisseur mi-juillet.</textarea>
+      </div>
+    </div>
+
+  </div>
+
+  <aside class="preview-col">
+    <div class="preview-panel">
+      <div class="preview-panel-hd">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="preview-url">beliandjolie.com/produits/bague-anneau-fin</div>
+        <span class="live">Live</span>
+      </div>
+      <div class="preview-body">
+        <div class="pv-image-lg" id="pv-image">BJ-A001</div>
+        <div class="pv-thumbs">
+          <div class="thumb on"></div>
+          <div class="thumb"></div>
+          <div class="thumb"></div>
+        </div>
+        <div>
+          <div class="pv-cat">Bague · Bague fine</div>
+          <div class="pv-title" id="pv-title">Bague anneau fin</div>
+          <div style="margin-top:8px" id="pv-price-row">
+            <span class="pv-price" id="pv-price">14,90 €</span>
+            <span class="pv-old" id="pv-old" style="display:none"></span>
+            <span class="pv-disc-badge" id="pv-disc" style="display:none"></span>
+          </div>
+        </div>
+        <div class="pv-desc" id="pv-desc">Bague fine en acier inoxydable doré, adaptée à un usage quotidien.</div>
+        <div>
+          <div class="text-muted" style="margin-bottom:6px;font-weight:600">Couleur — <span id="pv-color-label">Or</span></div>
+          <div class="pv-colors" id="pv-colors">
+            <span class="swatch on" style="background:#D4AF37" data-c="Or" data-bg="linear-gradient(135deg,#D4AF37,#a1a1aa)"></span>
+            <span class="swatch" style="background:#C0C0C0" data-c="Argent" data-bg="linear-gradient(135deg,#C0C0C0,#71717a)"></span>
+            <span class="swatch" style="background:#E8B4A8" data-c="Rose gold" data-bg="linear-gradient(135deg,#E8B4A8,#a1a1aa)"></span>
+          </div>
+        </div>
+        <div>
+          <div class="text-muted" style="margin-bottom:6px;font-weight:600">Taille</div>
+          <div class="pv-sizes">
+            <button class="on">52</button><button>54</button><button>56</button>
+          </div>
+        </div>
+        <button class="pv-add-btn">Ajouter au panier</button>
+        <div class="pv-tabs"><span class="tab on">Description</span><span class="tab">Composition</span><span class="tab">Livraison</span></div>
+        <div class="pv-cont">
+          Fabriquée en <b>acier inoxydable 316L</b> avec placage or 18 K. Ne noircit pas au contact de l'eau. Livrée en pochette cadeau.
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<button class="preview-mobile-btn" onclick="openDrawer()">👁 Aperçu client</button>
+<div class="drawer-backdrop" id="db" onclick="closeDrawer()"></div>
+<div class="drawer" id="dr">
+  <div class="drawer-handle"></div>
+  <div class="preview-panel">
+    <div class="preview-panel-hd">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="preview-url">beliandjolie.com/produits/bague-anneau-fin</div>
+    </div>
+    <div class="preview-body">
+      <div class="pv-image-lg">BJ-A001</div>
+      <div class="pv-title">Bague anneau fin</div>
+      <div class="pv-price">14,90 €</div>
+      <div class="pv-desc">Bague fine en acier inoxydable doré.</div>
+      <button class="pv-add-btn">Ajouter au panier</button>
+    </div>
+  </div>
+</div>
+
+<div class="fp-footer">
+  <div class="fp-footer-inner">
+    <div class="fp-footer-status">
+      <span class="fp-footer-dot"></span>
+      <span>Modifications non enregistrées</span>
+    </div>
+    <div class="fp-footer-actions">
+      <button class="btn-ghost">Annuler</button>
+      <button class="btn-secondary">Brouillon</button>
+      <button class="btn-primary btn-lg">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function toggleAcc(head) {
+    head.parentElement.classList.toggle('open');
+  }
+  function toggleAll(open) {
+    document.querySelectorAll('.acc-card').forEach(function(c){
+      if (open) c.classList.add('open');
+      else c.classList.remove('open');
+    });
+  }
+
+  // Nom -> preview
+  document.getElementById('in-name').addEventListener('input', function(e){
+    document.getElementById('pv-title').textContent = e.target.value;
+  });
+  document.getElementById('in-desc').addEventListener('input', function(e){
+    document.getElementById('pv-desc').textContent = e.target.value;
+  });
+
+  // Prix + remise
+  function fmt(n) { return n.toFixed(2).replace('.', ','); }
+  function updatePrice() {
+    var p = parseFloat(document.getElementById('in-price').value) || 0;
+    var d = parseFloat(document.getElementById('in-disc').value) || 0;
+    var price = document.getElementById('pv-price');
+    var old = document.getElementById('pv-old');
+    var disc = document.getElementById('pv-disc');
+    if (d > 0) {
+      price.textContent = fmt(p * (1 - d/100)) + ' €';
+      price.classList.add('discounted');
+      old.textContent = fmt(p) + ' €';
+      old.style.display = 'inline';
+      disc.textContent = '-' + d + ' %';
+      disc.style.display = 'inline-flex';
+    } else {
+      price.textContent = fmt(p) + ' €';
+      price.classList.remove('discounted');
+      old.style.display = 'none';
+      disc.style.display = 'none';
+    }
+  }
+  document.getElementById('in-price').addEventListener('input', updatePrice);
+  document.getElementById('in-disc').addEventListener('input', updatePrice);
+
+  // Couleurs
+  document.querySelectorAll('#pv-colors .swatch').forEach(function(s){
+    s.addEventListener('click', function(){
+      document.querySelectorAll('#pv-colors .swatch').forEach(function(x){ x.classList.remove('on'); });
+      s.classList.add('on');
+      document.getElementById('pv-color-label').textContent = s.getAttribute('data-c');
+      document.getElementById('pv-image').style.background = s.getAttribute('data-bg');
+    });
+  });
+
+  // Tailles
+  document.querySelectorAll('.pv-sizes button').forEach(function(b){
+    b.addEventListener('click', function(){
+      b.parentElement.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+      b.classList.add('on');
+    });
+  });
+
+  function openDrawer() {
+    document.getElementById('db').classList.add('on');
+    document.getElementById('dr').classList.add('on');
+  }
+  function closeDrawer() {
+    document.getElementById('db').classList.remove('on');
+    document.getElementById('dr').classList.remove('on');
+  }
+
+  function setViewport(mode, ev) {
+    var b = document.body;
+    b.style.maxWidth = mode === 'mobile' ? '380px' : mode === 'tablet' ? '820px' : '';
+    b.style.margin = mode === 'full' ? '' : '0 auto';
+    b.style.boxShadow = mode === 'full' ? '' : '0 0 40px rgba(0,0,0,.15)';
+    document.querySelectorAll('.mt-viewport button').forEach(function(x){ x.classList.remove('on'); });
+    ev.target.classList.add('on');
+  }
+</script>
+
+</body>
+</html>

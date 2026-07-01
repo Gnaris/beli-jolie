@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Refonte fiche produit · 3 variantes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+<style>
+  .hero {
+    position:relative; overflow:hidden;
+    background:linear-gradient(135deg, #fafafa 0%, #ffffff 60%);
+    border-bottom:1px solid var(--border);
+    padding:48px 32px;
+  }
+  .hero::before, .hero::after {
+    content:""; position:absolute; border-radius:9999px; filter:blur(60px);
+  }
+  .hero::before { width:280px; height:280px; top:-80px; left:-80px; background:rgba(228,228,231,.5); }
+  .hero::after  { width:320px; height:320px; bottom:-100px; right:-50px; background:rgba(212,212,216,.4); }
+  .hero-inner { position:relative; max-width:1200px; margin:0 auto; }
+  .hero .eyebrow {
+    display:inline-flex; align-items:center; gap:8px;
+    font-size:11px; font-weight:600; letter-spacing:0.18em; text-transform:uppercase;
+    color:var(--text-muted); margin-bottom:12px;
+  }
+  .hero .eyebrow::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--ink); }
+  .hero h1 { font-size:34px; font-weight:700; letter-spacing:-0.025em; line-height:1.15; }
+  .hero p { max-width:720px; color:var(--text-secondary); margin-top:12px; font-size:14.5px; line-height:1.6; }
+
+  .wrap { max-width:1200px; margin:0 auto; padding:36px 32px 60px; }
+
+  .variants {
+    display:grid; gap:22px;
+    grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));
+  }
+  .variant {
+    background:#fff; border:1px solid var(--border);
+    border-radius:var(--radius-2xl); overflow:hidden;
+    box-shadow:var(--shadow-card); transition:.2s;
+    display:flex; flex-direction:column;
+  }
+  .variant:hover {
+    transform:translateY(-3px);
+    box-shadow:var(--shadow-pop);
+    border-color:var(--border-dark);
+  }
+  .variant-badge {
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:10.5px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase;
+    color:var(--text-muted);
+  }
+  .variant-thumb {
+    aspect-ratio:16/10;
+    background:var(--bg-tertiary);
+    position:relative; overflow:hidden;
+    display:flex; align-items:stretch; justify-content:center;
+    padding:14px;
+  }
+  .variant-body {
+    padding:22px; display:flex; flex-direction:column; gap:12px; flex:1;
+  }
+  .variant h2 {
+    font-size:20px; font-weight:700; letter-spacing:-0.015em;
+    margin-bottom:2px;
+  }
+  .variant .desc {
+    font-size:13px; color:var(--text-secondary);
+    line-height:1.55;
+  }
+  .variant .props {
+    display:flex; flex-direction:column; gap:6px; margin-top:4px;
+  }
+  .variant .prop {
+    display:flex; gap:8px; font-size:12px; color:var(--text-secondary);
+  }
+  .variant .prop::before {
+    content:"·"; font-weight:700; color:var(--ink);
+    flex-shrink:0; width:12px; text-align:center;
+  }
+  .variant .cta {
+    margin-top:auto; padding-top:12px;
+    display:flex; gap:8px;
+  }
+
+  /* Mini mockups dans les thumbnails */
+  .mm {
+    flex:1; background:#fff; border-radius:8px;
+    border:1px solid var(--border); overflow:hidden;
+    display:flex; font-size:8px;
+  }
+  .mm-a { display:flex; flex-direction:column; }
+  .mm-a .mma-top {
+    background:var(--ink); color:#fff; padding:5px 7px; font-size:8px;
+  }
+  .mm-a .mma-hero { background:var(--bg-secondary); padding:5px 7px; border-bottom:1px solid var(--border); }
+  .mm-a .mma-body { display:grid; grid-template-columns:1fr 60px; gap:6px; padding:6px; flex:1; }
+  .mm-a .mma-main { display:flex; flex-direction:column; gap:4px; }
+  .mm-a .mma-block { background:var(--bg-tertiary); border-radius:3px; height:14px; }
+  .mm-a .mma-block.tall { height:26px; }
+  .mm-a .mma-toc { background:var(--bg-tertiary); border-radius:4px; padding:4px 5px; display:flex; flex-direction:column; gap:3px; }
+  .mm-a .mma-toc div { height:5px; background:#fff; border-radius:2px; }
+  .mm-a .mma-toc div.on { background:var(--ink); }
+
+  .mm-b { display:grid; grid-template-columns:70px 1fr; gap:0; }
+  .mm-b .mmb-side { background:#fff; border-right:1px solid var(--border); padding:6px 4px; display:flex; flex-direction:column; gap:3px; }
+  .mm-b .mmb-side div { height:8px; background:var(--bg-tertiary); border-radius:2px; }
+  .mm-b .mmb-side div.on { background:var(--ink); position:relative; }
+  .mm-b .mmb-side div.on::before { content:""; position:absolute; left:-4px; top:1px; bottom:1px; width:2px; background:var(--ink); border-radius:1px; }
+  .mm-b .mmb-main { padding:6px; display:flex; flex-direction:column; gap:4px; }
+  .mm-b .mmb-kpis { display:grid; grid-template-columns:1fr 1fr 1fr; gap:3px; }
+  .mm-b .mmb-kpi { background:var(--bg-secondary); border-radius:3px; height:16px; }
+  .mm-b .mmb-block { background:var(--bg-tertiary); border-radius:3px; }
+  .mm-b .mmb-block.h1 { height:8px; width:60%; }
+  .mm-b .mmb-block.h2 { height:20px; }
+
+  .mm-c { display:grid; grid-template-columns:1fr 1fr; gap:0; }
+  .mm-c .mmc-l { background:#fff; padding:6px; display:flex; flex-direction:column; gap:3px; border-right:1px solid var(--border); }
+  .mm-c .mmc-acc { background:var(--bg-tertiary); border-radius:3px; height:10px; }
+  .mm-c .mmc-acc.open { height:26px; background:#fff; border:1px solid var(--border); }
+  .mm-c .mmc-r { background:linear-gradient(180deg, #f9fafb, #fff); padding:6px; display:flex; flex-direction:column; gap:4px; }
+  .mm-c .mmc-img { aspect-ratio:1; background:linear-gradient(135deg,#d4af37,#a1a1aa); border-radius:4px; }
+  .mm-c .mmc-price { height:10px; background:var(--ink); width:40%; border-radius:2px; }
+  .mm-c .mmc-line { height:5px; background:var(--bg-tertiary); border-radius:2px; }
+  .mm-c .mmc-line.short { width:60%; }
+  .mm-c .mmc-swatch-row { display:flex; gap:3px; }
+  .mm-c .mmc-swatch { width:8px; height:8px; border-radius:50%; }
+
+  .footer-note {
+    text-align:center; font-size:12px; color:var(--text-muted);
+    padding-top:36px; max-width:640px; margin:0 auto; line-height:1.6;
+  }
+</style>
+</head>
+<body>
+
+<div class="mockup-topbar">
+  <span class="mt-brand">Refonte fiche produit</span>
+  <a href="index.html" class="active">Vue d'ensemble</a>
+  <a href="variante-a.html">A · Assistant guidé</a>
+  <a href="variante-b.html">B · Cockpit onglets</a>
+  <a href="variante-c.html">C · Édition + Aperçu</a>
+</div>
+
+<div class="hero">
+  <div class="hero-inner">
+    <div class="eyebrow">Refonte de la fiche produit</div>
+    <h1>3 façons de concevoir la page produit</h1>
+    <p>Chaque variante gère les <b>mêmes 12 sections</b> (général, catégorie, dimensions, composition, mots-clés, variantes couleur, photos, mapping PFS, marketplaces, similaires, ensemble, note interne). Ce qui change : <b>comment vous les voyez et les remplissez</b>. Tout est en thème Ardoise et responsive (bureau · tablette · mobile).</p>
+    <p style="margin-top:16px;font-size:13px;color:var(--text-muted)">
+      Cliquez sur une variante pour l'ouvrir. En haut de chaque page, un sélecteur permet de simuler tablette / mobile.
+    </p>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="variants">
+
+    <!-- Variante A -->
+    <a href="viewer.html?p=variante-a.html" style="text-decoration:none;color:inherit" class="variant">
+      <div class="variant-thumb">
+        <div class="mm mm-a">
+          <div class="mma-top">Bague anneau fin · BJ-A001</div>
+          <div class="mma-hero">
+            <div style="height:6px;background:var(--ink);width:40%;border-radius:2px;margin-bottom:3px"></div>
+            <div style="height:4px;background:var(--border-dark);width:60%;border-radius:2px"></div>
+          </div>
+          <div class="mma-body">
+            <div class="mma-main">
+              <div class="mma-block tall"></div>
+              <div class="mma-block tall"></div>
+              <div class="mma-block"></div>
+              <div class="mma-block tall"></div>
+            </div>
+            <div class="mma-toc">
+              <div class="on"></div>
+              <div></div>
+              <div></div>
+              <div></div>
+              <div></div>
+              <div></div>
+              <div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="variant-body">
+        <div class="variant-badge">Variante A</div>
+        <h2>Assistant guidé</h2>
+        <div class="desc">Le formulaire descend en une longue page. Vous scrollez. À droite, un mini sommaire montre votre progression et les sections qui manquent.</div>
+        <div class="props">
+          <div class="prop">Le plus proche de la version actuelle — pas de rupture d'habitude</div>
+          <div class="prop">On voit tout d'un coup d'œil</div>
+          <div class="prop">Idéal si vous connaissez déjà le produit et voulez vérifier vite</div>
+          <div class="prop">Peut sembler long sur mobile</div>
+        </div>
+        <div class="cta">
+          <span class="btn-primary btn-sm">Ouvrir la maquette →</span>
+        </div>
+      </div>
+    </a>
+
+    <!-- Variante B -->
+    <a href="viewer.html?p=variante-b.html" style="text-decoration:none;color:inherit" class="variant">
+      <div class="variant-thumb">
+        <div class="mm mm-b">
+          <div class="mmb-side">
+            <div class="on"></div>
+            <div></div>
+            <div></div>
+            <div></div>
+            <div></div>
+            <div></div>
+            <div></div>
+            <div></div>
+          </div>
+          <div class="mmb-main">
+            <div class="mmb-kpis">
+              <div class="mmb-kpi"></div>
+              <div class="mmb-kpi"></div>
+              <div class="mmb-kpi"></div>
+            </div>
+            <div class="mmb-block h1"></div>
+            <div class="mmb-block h2"></div>
+            <div class="mmb-block h2"></div>
+            <div class="mmb-block h2"></div>
+          </div>
+        </div>
+      </div>
+      <div class="variant-body">
+        <div class="variant-badge">Variante B</div>
+        <h2>Cockpit à onglets</h2>
+        <div class="desc">Une section à la fois. Vous choisissez à gauche (Général / Variantes / Marketplaces…) et l'écran s'y consacre entièrement. En haut, 4 chiffres clés (prix, stock, marketplaces, complétude).</div>
+        <div class="props">
+          <div class="prop">On se concentre sur une chose à la fois — moins fatigant</div>
+          <div class="prop">Les boutons Suivant / Précédent guident la saisie</div>
+          <div class="prop">Excellent sur mobile (les onglets deviennent une barre déroulante)</div>
+          <div class="prop">Il faut cliquer d'onglet en onglet pour tout voir</div>
+        </div>
+        <div class="cta">
+          <span class="btn-primary btn-sm">Ouvrir la maquette →</span>
+        </div>
+      </div>
+    </a>
+
+    <!-- Variante C -->
+    <a href="viewer.html?p=variante-c.html" style="text-decoration:none;color:inherit" class="variant">
+      <div class="variant-thumb">
+        <div class="mm mm-c">
+          <div class="mmc-l">
+            <div class="mmc-acc open"></div>
+            <div class="mmc-acc"></div>
+            <div class="mmc-acc open"></div>
+            <div class="mmc-acc"></div>
+            <div class="mmc-acc"></div>
+            <div class="mmc-acc"></div>
+          </div>
+          <div class="mmc-r">
+            <div class="mmc-img"></div>
+            <div class="mmc-line short"></div>
+            <div class="mmc-price"></div>
+            <div class="mmc-line"></div>
+            <div class="mmc-swatch-row">
+              <div class="mmc-swatch" style="background:#D4AF37"></div>
+              <div class="mmc-swatch" style="background:#C0C0C0"></div>
+              <div class="mmc-swatch" style="background:#E8B4A8"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="variant-body">
+        <div class="variant-badge">Variante C</div>
+        <h2>Édition + Aperçu client en direct</h2>
+        <div class="desc">À gauche, des blocs qui s'ouvrent et se ferment (accordéon). À droite, l'aperçu tel que vos clients le verront — il se met à jour quand vous tapez. Changez la couleur, le prix, la remise → vous voyez tout de suite.</div>
+        <div class="props">
+          <div class="prop">Vous voyez EN DIRECT ce que verront les clients</div>
+          <div class="prop">Accordéon = vous choisissez ce que vous ouvrez</div>
+          <div class="prop">Sur mobile, l'aperçu s'ouvre via un bouton « Aperçu client »</div>
+          <div class="prop">Écran assez large recommandé pour bien profiter de l'aperçu</div>
+        </div>
+        <div class="cta">
+          <span class="btn-primary btn-sm">Ouvrir la maquette →</span>
+        </div>
+      </div>
+    </a>
+
+  </div>
+
+  <div class="footer-note">
+    Les maquettes ne touchent pas au vrai site. Cliquez, tapez, essayez.<br/>
+    <b>Ensuite dites-moi :</b> quelle variante vous préférez, ce que vous voulez changer dessus, ce qu'il faut absolument garder ou virer.
+  </div>
+
+</div>
+
+</body>
+</html>

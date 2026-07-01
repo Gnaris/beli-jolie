@@ -13,7 +13,7 @@ import {
   getCachedFaireEnabled,
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
-import { CreatePageWrapper, CreatePageToggle } from "./CreatePageWrapper";
+import { CreatePageWrapper, CreatePageChrome } from "./CreatePageWrapper";
 
 export const metadata: Metadata = { title: "Nouveau produit" };
 export const dynamic = "force-dynamic";
@@ -263,18 +263,16 @@ export default async function NouveauProduitPage({
   return (
     <CreatePageWrapper>
       <div className="max-w-[1600px] mx-auto space-y-8">
-        <div>
+        <div className="z-20 bg-bg-secondary border-b border-border -mx-6 px-6 pt-3 pb-4">
           <div className="flex items-center gap-2 text-sm font-body text-text-muted mb-2">
             <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
             <span>/</span>
             <span className="text-text-secondary">Nouveau</span>
           </div>
-          <div className="flex items-center justify-between">
-            <h1 className="page-title">
-              Créer un produit
-            </h1>
-            <CreatePageToggle />
-          </div>
+          <h1 className="page-title">
+            Créer un produit
+          </h1>
+          <CreatePageChrome />
         </div>
 
         <ProductForm

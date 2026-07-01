@@ -6,7 +6,10 @@ import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, Ava
 import PfsMappingSection from "./PfsMappingSection";
 import { detectPfsColorConflicts, formatConflictsMessage } from "@/lib/pfs-color-conflicts";
 import CompletenessChecklist, { computeChecklist } from "./CompletenessChecklist";
-import ProductFormNav from "./ProductFormNav";
+import ProductFormNav, { ProductFormSectionKey } from "./ProductFormNav";
+import ProductFormSectionPicker from "./ProductFormSectionPicker";
+import { SectionNavFooter } from "./SectionNavFooter";
+import { SectionEyebrow } from "./SectionEyebrow";
 import { createProduct, updateProduct, saveProductTranslations, fetchProductFormAttributes, checkProductReferenceAvailable } from "@/app/actions/admin/products";
 
 import { VALID_LOCALES, LOCALE_LABELS, NON_DEFAULT_LOCALES } from "@/i18n/locales";
@@ -249,12 +252,15 @@ function TagsDropdown({
 
   return (
     <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-text-primary font-heading">Mots clés & Tags</p>
-        <button type="button" onClick={onCreateClick}
-          className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
-        >+ Créer</button>
-      </div>
+      <SectionEyebrow
+        label="Mots-clés"
+        hint="Tags de recherche + code SH douanier."
+        action={
+          <button type="button" onClick={onCreateClick}
+            className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
+          >+ Créer</button>
+        }
+      />
 
       {/* Selected tags as removable chips */}
       {tagNames.length > 0 && (
@@ -354,39 +360,7 @@ function TagsDropdown({
         )}
       </div>
 
-      {/* Best Seller */}
-      <div className="pt-3 border-t border-border-light">
-        <label className="flex items-center gap-3 cursor-pointer group">
-          <input type="checkbox" checked={isBestSeller} onChange={(e) => setIsBestSeller(e.target.checked)}
-            className="w-4 h-4 border-border accent-[#1A1A1A]" />
-          <div>
-            <span className="text-sm font-body font-semibold text-text-secondary">Best Seller</span>
-            <p className="text-xs text-text-muted font-body mt-0.5">Mettre en avant dans les filtres</p>
-          </div>
-        </label>
-      </div>
-
-      {/* Remise produit */}
-      <div className="pt-3 border-t border-border-light">
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-text-primary font-heading">Remise produit</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="0.01"
-              placeholder="—"
-              value={discountPercent}
-              onChange={(e) => setDiscountPercent(e.target.value)}
-              className="field-input w-24 text-right"
-            />
-            <span className="text-sm font-semibold text-text-secondary">%</span>
-          </div>
-        </div>
-      </div>
+      {/* Best-seller et Remise sont maintenant respectivement dans l'en-tête et la section Variantes */}
 
       {/* Code SH (douanier) — bibliothèque + dropdown */}
       <div className="pt-3 border-t border-border-light space-y-1.5">
@@ -530,6 +504,7 @@ export default function ProductForm({
   const [bundleChildIds, setBundleChildIds] = useState<string[]>(initialData?.bundleChildIds ?? []);
   const [tagNames,          setTagNames]          = useState<string[]>(initialData?.tagNames ?? []);
   const [isBestSeller,      setIsBestSeller]      = useState(initialData?.isBestSeller ?? false);
+  const [activeSection,     setActiveSection]     = useState<ProductFormSectionKey>(mode === "create" ? "info" : "overview");
   const [discountPercent,   setDiscountPercent]   = useState(initialData?.discountPercent ?? "");
   const [sizeDetailsTu, setSizeDetailsTu] = useState(initialData?.sizeDetailsTu ?? "");
   const [manufacturingCountryId, setManufacturingCountryId] = useState(initialData?.manufacturingCountryId ?? "");
@@ -633,7 +608,7 @@ export default function ProductForm({
   }, []);
 
   // ── Sync header badges via context ────────────────────────────────────
-  const { updateHeader, registerStatusToggle } = useProductFormHeader();
+  const { updateHeader, registerStatusToggle, registerBestSellerToggle } = useProductFormHeader();
   const headerStockState = useMemo((): "ok" | "partial_out" | "all_out" => {
     const withStock = variants.filter(v => v.stock !== "" && v.stock !== undefined);
     const outOfStock = withStock.filter(v => parseInt(v.stock) === 0);
@@ -671,6 +646,70 @@ export default function ProductForm({
     updateHeader({ isIncomplete: wasImported ? false : getCompletenessErrors().length > 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reference, name, description, categoryId, compositions, variants, colorImages]);
+
+  // ── Sync Best-seller au header (nouveau header enrichi) ────────────
+  useEffect(() => {
+    updateHeader({ isBestSeller });
+  }, [isBestSeller, updateHeader]);
+  useEffect(() => {
+    registerBestSellerToggle({
+      toggle: () => setIsBestSeller((v) => !v),
+    });
+  }, [registerBestSellerToggle]);
+
+  // ── Sync KPIs au header (prix, stock, marketplaces, complétude) ────
+  const headerKpi = useMemo(() => {
+    const prices: number[] = [];
+    let totalStock = 0;
+    for (const v of variants) {
+      const p = parseFloat(v.unitPrice);
+      if (!isNaN(p) && p > 0) prices.push(p);
+      const s = parseInt(v.stock);
+      if (!isNaN(s) && s >= 0) totalStock += s;
+    }
+    const avgPrice = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : null;
+    const minPrice = prices.length > 0 ? Math.min(...prices) : null;
+    const maxPrice = prices.length > 0 ? Math.max(...prices) : null;
+
+    let linked = 0;
+    let total = 0;
+    if (hasPfsConfig) { total++; if (initialData?.pfsProductId) linked++; }
+    if (hasAnkorstoreConfig && ankorstoreEnabled) { total++; if (initialData?.ankorsProductId) linked++; }
+    if (hasEfashionConfig && efashionEnabled) { total++; if (initialData?.efashionReferenceBase) linked++; }
+    if (hasFaireConfig && faireEnabled) { total++; if (initialData?.faireProductId) linked++; }
+
+    const checks = [
+      reference.trim().length > 0,
+      name.trim().length > 0,
+      description.trim().length >= 30,
+      !!categoryId,
+      compositions.length > 0,
+      variants.length > 0,
+      colorImages.some((c) => Array.isArray(c.imagePreviews) && c.imagePreviews.length > 0),
+      !!manufacturingCountryId,
+      !!seasonId,
+      !!(dimLength || dimWidth || dimHeight || dimDiameter || dimCircumference),
+    ];
+    const done = checks.filter(Boolean).length;
+    const completeness = (done / checks.length) * 100;
+
+    return {
+      avgPrice, minPrice, maxPrice, totalStock,
+      linkedMarketplaces: linked, totalMarketplaces: total,
+      completeness,
+    };
+  }, [
+    variants, reference, name, description, categoryId, compositions, colorImages,
+    manufacturingCountryId, seasonId,
+    dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference,
+    hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled,
+    hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled,
+    initialData?.pfsProductId, initialData?.ankorsProductId,
+    initialData?.efashionReferenceBase, initialData?.faireProductId,
+  ]);
+  useEffect(() => {
+    updateHeader({ kpi: headerKpi });
+  }, [headerKpi, updateHeader]);
 
   // Listen for SSE marketplace sync events to:
   // 1. Unlock the form when sync completes (even if page was loaded mid-sync)
@@ -2262,8 +2301,15 @@ export default function ProductForm({
           productStatus={productStatus}
           hasUnsavedChanges={hasUnsavedChanges}
           mode={mode}
+          activeSection={activeSection}
+          onSectionChange={setActiveSection}
         />
-      <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="min-w-0">
+      <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="min-w-0 space-y-4">
+      <ProductFormSectionPicker
+        checklistInput={checklistInput}
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+      />
       {/*
         Verrou pendant l'upload des photos : le `<fieldset disabled>` propage
         l'état à TOUS les champs internes (HTML natif), pas seulement au
@@ -2278,7 +2324,7 @@ export default function ProductForm({
       >
 
         {/* ── Indicateur de complétude ── */}
-        <div id="section-overview" className="scroll-mt-24">
+        <div id="section-overview" hidden={activeSection !== "overview"}>
           <CompletenessChecklist input={checklistInput} />
         </div>
 
@@ -2286,16 +2332,16 @@ export default function ProductForm({
         <div className="space-y-4">
 
           {/* Row 1 : Bloc principal (left) + Bloc mots clés (right) */}
-          <div id="section-info" className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4 scroll-mt-24">
+          <div id="section-info" hidden={activeSection !== "info"} className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4">
 
             {/* ── BLOC PRINCIPAL ── */}
             <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-
-              {/* Header: titre + langue tabs + bouton IA */}
+              <SectionEyebrow
+                label="Général"
+                hint="Nom, référence et description qui apparaissent partout."
+              />
+              {/* Header: langue tabs + bouton IA */}
               <div className="flex flex-wrap items-center gap-3">
-                <p className="text-sm font-semibold text-text-primary font-heading shrink-0">
-                  Fiche produit
-                </p>
                 <div className="flex-1 flex flex-wrap items-center gap-2">
                   <LocaleTabs
                     locales={VALID_LOCALES}
@@ -2683,16 +2729,14 @@ export default function ProductForm({
           </div>
 
           {/* Row 2 : Bloc dimensions (left) + Bloc composition (right) */}
-          <div id="section-details" className="grid grid-cols-1 lg:grid-cols-2 gap-4 scroll-mt-24">
+          <div id="section-details" hidden={activeSection !== "details"} className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
             {/* ── BLOC DIMENSIONS ── */}
             <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-              <div>
-                <p className="text-sm font-semibold text-text-primary font-heading">Dimensions</p>
-                <p className="text-xs text-text-muted font-body mt-0.5">
-                  En millimètres (mm) — laisser vide si non applicable.
-                </p>
-              </div>
+              <SectionEyebrow
+                label="Dimensions"
+                hint="En millimètres (mm) — laisser vide si non applicable."
+              />
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <Field label="Longueur">
                   <input type="number" min="0" step="0.1" value={dimLength} placeholder="—"
@@ -2721,18 +2765,19 @@ export default function ProductForm({
             <div className={`bg-bg-primary border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)] ${
               compositions.length === 0 || Math.abs(totalPct - 100) > 0.5 ? "border-[#EF4444]" : "border-border"
             }`}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-text-primary font-heading">Composition</p>
-                  <p className="text-xs text-text-muted font-body mt-0.5">
-                    Matériaux et pourcentages.
-                  </p>
-                </div>
-                <button type="button"
-                  onClick={() => setModalType("composition")}
-                  className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
-                >+ Créer un matériau</button>
-              </div>
+              <SectionEyebrow
+                label="Composition"
+                hint="Matériaux et pourcentages — total 100 %."
+                action={
+                  <button
+                    type="button"
+                    onClick={() => setModalType("composition")}
+                    className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
+                  >
+                    + Créer un matériau
+                  </button>
+                }
+              />
 
               <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
                 <div className="flex-1">
@@ -2764,39 +2809,96 @@ export default function ProductForm({
 
               {compositions.length > 0 && (
                 <>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-secondary font-body">
-                      {compositions.length} matériau{compositions.length > 1 ? "x" : ""}
-                    </span>
-                    <span className={`text-sm font-semibold px-3 py-1 rounded-full font-body ${
-                      Math.abs(totalPct - 100) <= 0.5
-                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                        : "bg-[#FEE2E2] text-[#DC2626] border border-[#FECACA]"
-                    }`}>
-                      Total : {totalPct.toFixed(1)} %{Math.abs(totalPct - 100) <= 0.5 ? " ✓" : " ≠ 100%"}
-                    </span>
-                  </div>
-                  <ul className="divide-y divide-[#E5E5E5] border border-border rounded-xl overflow-hidden">
+                  <div className="space-y-2.5">
                     {compositions.map((item) => {
                       const comp = localCompositions.find((c) => c.id === item.compositionId);
+                      const pct = Math.max(0, Math.min(100, parseFloat(item.percentage) || 0));
                       return (
-                        <li key={item.compositionId} className="flex items-center justify-between px-4 py-2.5 gap-3">
-                          <span className="text-sm font-medium text-text-primary font-body flex-1 min-w-0 truncate">
-                            {comp?.name ?? item.compositionId}
-                          </span>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <input type="number" min="0" max="100" step="0.1" value={item.percentage}
-                              onChange={(e) => updateCompositionPct(item.compositionId, e.target.value)}
-                              className="w-20 field-input px-2 py-1.5 text-sm text-right" />
-                            <span className="text-sm text-text-secondary">%</span>
+                        <div
+                          key={item.compositionId}
+                          className="grid grid-cols-[36px_1fr_auto] sm:grid-cols-[36px_1.3fr_1fr_auto_36px] gap-3 items-center bg-bg-primary border border-border rounded-xl p-3"
+                        >
+                          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-bg-tertiary to-bg-secondary inline-flex items-center justify-center text-text-secondary shrink-0">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.7} viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+                            </svg>
                           </div>
-                          <button type="button" onClick={() => removeComposition(item.compositionId)}
-                            className="text-text-primary hover:text-[#DC2626] transition-colors text-sm shrink-0"
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-text-primary font-body truncate">
+                              {comp?.name ?? item.compositionId}
+                            </div>
+                            <div className="text-[11px] text-text-muted font-body sm:hidden">
+                              {pct.toFixed(1)} %
+                            </div>
+                          </div>
+                          <div className="hidden sm:flex items-center min-w-0">
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={pct}
+                              onChange={(e) => updateCompositionPct(item.compositionId, e.target.value)}
+                              className="w-full h-2 rounded-full appearance-none bg-bg-tertiary accent-bg-dark cursor-pointer"
+                              aria-label={`Pourcentage ${comp?.name ?? "matériau"}`}
+                            />
+                          </div>
+                          <div className="inline-flex items-center gap-1 bg-bg-secondary border border-border rounded-lg px-2 py-1.5">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.1"
+                              value={item.percentage}
+                              onChange={(e) => updateCompositionPct(item.compositionId, e.target.value)}
+                              className="w-12 text-right bg-transparent border-0 outline-none font-heading font-bold text-base text-text-primary p-0"
+                            />
+                            <span className="text-sm font-bold text-text-muted">%</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeComposition(item.compositionId)}
+                            className="hidden sm:inline-flex w-8 h-8 items-center justify-center rounded-lg border border-border bg-bg-primary text-text-muted hover:border-[#EF4444] hover:text-[#EF4444] hover:bg-[#FEE2E2] transition-colors"
+                            title="Retirer"
+                            aria-label={`Retirer ${comp?.name ?? "matériau"}`}
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeComposition(item.compositionId)}
+                            className="sm:hidden text-[11px] text-text-muted hover:text-[#EF4444] transition-colors justify-self-end"
                           >Retirer</button>
-                        </li>
+                        </div>
                       );
                     })}
-                  </ul>
+                  </div>
+                  <div
+                    className={`flex items-center justify-between rounded-xl px-4 py-3 border ${
+                      Math.abs(totalPct - 100) <= 0.5
+                        ? "bg-emerald-50 border-emerald-200"
+                        : totalPct > 100
+                          ? "bg-[#FEE2E2] border-[#FECACA]"
+                          : "bg-[#FEF3C7] border-[#FDE68A]"
+                    }`}
+                  >
+                    <span className="text-[11px] font-heading font-bold uppercase tracking-[0.1em] text-text-muted">
+                      Total composition
+                    </span>
+                    <span
+                      className={`font-heading font-extrabold text-xl ${
+                        Math.abs(totalPct - 100) <= 0.5
+                          ? "text-emerald-700"
+                          : totalPct > 100
+                            ? "text-[#B91C1C]"
+                            : "text-[#B45309]"
+                      }`}
+                    >
+                      {totalPct.toFixed(1)} %
+                    </span>
+                  </div>
                 </>
               )}
             </div>
@@ -2804,7 +2906,7 @@ export default function ProductForm({
         </div>
 
         {/* ── Variantes couleur ── */}
-        <section id="section-variants" className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-2xl p-8 space-y-5 shadow-card scroll-mt-24`}>
+        <section id="section-variants" hidden={activeSection !== "variants"} className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-2xl p-8 space-y-5 shadow-card`}>
           <div className="flex items-center justify-between gap-4 border-b border-border pb-4 flex-wrap">
             <div className="flex items-center gap-3">
               <h2 className="font-heading text-xl font-bold text-text-primary">
@@ -2840,6 +2942,60 @@ export default function ProductForm({
               Au moins une variante de couleur est obligatoire pour créer le produit.
             </p>
           )}
+
+          {/* ── Bloc Remise (s'applique à toutes les variantes du produit) ── */}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end bg-gradient-to-br from-bg-primary to-bg-secondary border border-border rounded-xl p-4">
+            <div>
+              <label htmlFor="product-discount" className="block text-xs font-body font-semibold text-text-primary mb-1">
+                Remise appliquée (%)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="product-discount"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  placeholder="Aucune remise"
+                  value={discountPercent}
+                  onChange={(e) => setDiscountPercent(e.target.value)}
+                  className="field-input w-32 text-right"
+                />
+                <span className="text-sm font-semibold text-text-secondary">%</span>
+              </div>
+              <p className="text-[11px] text-text-muted font-body mt-1">
+                S'applique à toutes les variantes du produit.
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] font-body font-semibold uppercase tracking-[0.08em] text-text-muted">
+                Prix client
+              </div>
+              {(() => {
+                const disc = discountPercent ? parseFloat(discountPercent) : 0;
+                const avg = (() => {
+                  const prices = variants
+                    .map((v) => parseFloat(v.unitPrice))
+                    .filter((n) => !isNaN(n) && n > 0);
+                  if (prices.length === 0) return null;
+                  return prices.reduce((a, b) => a + b, 0) / prices.length;
+                })();
+                if (avg === null) {
+                  return <div className="font-heading font-extrabold text-lg text-text-muted mt-1">—</div>;
+                }
+                const fmt = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+                if (disc > 0 && disc <= 100) {
+                  return (
+                    <div className="flex items-baseline justify-end gap-2 mt-1">
+                      <span className="font-heading font-extrabold text-lg text-[#B91C1C]">{fmt(avg * (1 - disc / 100))}</span>
+                      <span className="text-xs text-text-muted line-through">{fmt(avg)}</span>
+                    </div>
+                  );
+                }
+                return <div className="font-heading font-extrabold text-lg text-text-primary mt-1">{fmt(avg)}</div>;
+              })()}
+            </div>
+          </div>
 
           {(() => {
             // Bandeau d'alerte : liste les couleurs sans aucune image. Elles
@@ -2973,50 +3129,77 @@ export default function ProductForm({
           )}
         </section>
 
-        <div id="section-links" className="space-y-8 scroll-mt-24">
-        {/* ── Produits similaires ── */}
-        <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
-          <div className="border-b border-border pb-4">
-            <h2 className="font-heading text-xl font-bold text-text-primary">
-              Produits similaires
-            </h2>
-            <p className="text-sm text-text-muted font-body mt-1">
-              Ces produits seront affichés dans la section &quot;Vous aimerez aussi&quot; sur la fiche client.
-            </p>
-          </div>
-          <SimilarProductPicker
-            productId={productId}
-            selected={similarProductIds}
-            initialProducts={initialData?.similarProducts}
-            onAdd={(id) => setSimilarProductIds((prev) => [...prev, id])}
-            onRemove={(id) => setSimilarProductIds((prev) => prev.filter((x) => x !== id))}
-          />
-        </section>
+        <div id="section-links" hidden={activeSection !== "links"} className="space-y-8">
+          <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-8 shadow-card">
+            <div className="border-b border-border pb-4">
+              <h2 className="font-heading text-xl font-bold text-text-primary">
+                Produits associés
+              </h2>
+              <p className="text-sm text-text-muted font-body mt-1">
+                Suggestions affichées sur la fiche client et contenu d&apos;un éventuel ensemble.
+              </p>
+            </div>
 
-        {/* ── Composition (ensemble → sous-produits) ── */}
-        <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
-          <div className="border-b border-border pb-4">
-            <h2 className="font-heading text-xl font-bold text-text-primary">
-              Contenu de l&apos;ensemble
-            </h2>
-            <p className="text-sm text-text-muted font-body mt-1">
-              Si ce produit est un ensemble (ex : parure, coffret), sélectionnez les produits qu&apos;il contient.
-            </p>
-          </div>
-          <SimilarProductPicker
-            productId={productId}
-            selected={bundleChildIds}
-            initialProducts={initialData?.bundleChildren}
-            onAdd={(id) => setBundleChildIds((prev) => [...prev, id])}
-            onRemove={(id) => setBundleChildIds((prev) => prev.filter((x) => x !== id))}
-          />
-        </section>
+            {/* ── Sous-bloc 1 : Suggestions similaires ── */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="w-1 h-3.5 rounded-sm bg-bg-dark" />
+                <span className="text-[11px] font-heading font-bold uppercase tracking-[0.1em] text-text-muted">
+                  Suggestions similaires
+                </span>
+              </div>
+              <p className="text-sm text-text-muted font-body mb-4">
+                Ces produits seront affichés dans la section &quot;Vous aimerez aussi&quot; sur la fiche client.
+              </p>
+              <SimilarProductPicker
+                productId={productId}
+                selected={similarProductIds}
+                initialProducts={initialData?.similarProducts}
+                onAdd={(id) => setSimilarProductIds((prev) => [...prev, id])}
+                onRemove={(id) => setSimilarProductIds((prev) => prev.filter((x) => x !== id))}
+              />
+            </div>
 
-        {/* ── Ce produit se trouve aussi dans (lecture seule) ── */}
-        {initialData?.bundleParents && initialData.bundleParents.length > 0 && (
-          <BundleParentsReadonly products={initialData.bundleParents} />
-        )}
+            {/* ── Sous-bloc 2 : Contenu de l'ensemble ── */}
+            <div className="pt-6 border-t border-border">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="w-1 h-3.5 rounded-sm bg-bg-dark" />
+                <span className="text-[11px] font-heading font-bold uppercase tracking-[0.1em] text-text-muted">
+                  Contenu de l&apos;ensemble
+                </span>
+              </div>
+              <p className="text-sm text-text-muted font-body mb-4">
+                Si ce produit est un ensemble (ex&nbsp;: parure, coffret), sélectionnez les produits qu&apos;il contient.
+              </p>
+              <SimilarProductPicker
+                productId={productId}
+                selected={bundleChildIds}
+                initialProducts={initialData?.bundleChildren}
+                onAdd={(id) => setBundleChildIds((prev) => [...prev, id])}
+                onRemove={(id) => setBundleChildIds((prev) => prev.filter((x) => x !== id))}
+              />
+            </div>
+
+            {/* ── Sous-bloc 3 : Ensembles qui contiennent ce produit ── */}
+            {initialData?.bundleParents && initialData.bundleParents.length > 0 && (
+              <div className="pt-6 border-t border-border">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-1 h-3.5 rounded-sm bg-bg-dark" />
+                  <span className="text-[11px] font-heading font-bold uppercase tracking-[0.1em] text-text-muted">
+                    Contenu d&apos;un ensemble parent
+                  </span>
+                </div>
+                <BundleParentsReadonly products={initialData.bundleParents} />
+              </div>
+            )}
+          </section>
         </div>
+
+        {/* Nav Précédent/Suivant entre onglets (bas de section) */}
+        <SectionNavFooter
+          activeSection={activeSection}
+          onSectionChange={setActiveSection}
+        />
 
         {(error || onlineErrors.length > 0 || isSyncLocked || mode !== "edit" || hasUnsavedChanges) && (
         <div className="sticky bottom-0 z-10 flex justify-center py-4">

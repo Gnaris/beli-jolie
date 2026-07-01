@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Variante A — Assistant guidé · Fiche produit Beli & Jolie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+<style>
+  .page-wrap {
+    max-width:1600px; margin:0 auto;
+    display:grid; grid-template-columns:1fr 280px;
+    gap:28px; padding:24px 28px 8px;
+  }
+  .main-col { min-width:0; display:flex; flex-direction:column; gap:20px; }
+  .toc-col { display:block; }
+  @media (max-width:1200px) {
+    .page-wrap { grid-template-columns:1fr; padding:20px; }
+    .toc-col { display:none; }
+    .toc-mobile { display:block !important; }
+  }
+  .toc-mobile {
+    display:none; background:#fff; border:1px solid var(--border);
+    border-radius:var(--radius-lg); padding:6px; margin-bottom:8px;
+    overflow-x:auto; white-space:nowrap;
+    -webkit-overflow-scrolling:touch;
+  }
+  .toc-mobile a {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:8px 12px; border-radius:6px;
+    font-size:12px; color:var(--text-secondary); text-decoration:none;
+  }
+  .toc-mobile a.active { background:var(--ink); color:#fff; }
+  .toc-mobile .toc-status { width:12px; height:12px; }
+
+  /* Version A spécifique : cards avec numéro d'étape */
+  .step-card { position:relative; }
+  .step-card .card-hd { padding-bottom:14px; margin-bottom:14px; }
+</style>
+</head>
+<body>
+<script>if (window.top !== window.self) document.body.classList.add('in-iframe');</script>
+
+<!-- Barre nav des maquettes -->
+<div class="mockup-topbar">
+  <span class="mt-brand">Refonte fiche produit</span>
+  <a href="index.html">Vue d'ensemble</a>
+  <a href="variante-a.html" class="active">A · Assistant guidé</a>
+  <a href="variante-b.html">B · Cockpit onglets</a>
+  <a href="variante-c.html">C · Édition + Aperçu</a>
+  <span class="mt-spacer"></span>
+  <div class="mt-viewport">
+    <button class="on" onclick="setViewport('full')">Desktop</button>
+    <button onclick="setViewport('tablet')">Tablette</button>
+    <button onclick="setViewport('mobile')">Mobile</button>
+  </div>
+</div>
+
+<!-- En-tête sticky de la fiche produit -->
+<div class="fp-header">
+  <div class="fp-header-inner">
+    <div>
+      <div class="fp-breadcrumb">
+        <a href="#">Admin</a>
+        <span class="sep">›</span>
+        <a href="#">Produits</a>
+        <span class="sep">›</span>
+        <span>Bague anneau fin</span>
+      </div>
+      <div class="fp-title" style="margin-top:4px">
+        <h1>Bague anneau fin</h1>
+        <span class="fp-ref">BJ-A001</span>
+        <span class="badge badge-success">En ligne</span>
+      </div>
+      <div class="fp-meta" style="margin-top:6px">
+        <span>Créé le 1 juin</span>
+        <span>·</span>
+        <span>Modifié il y a 2 j</span>
+        <span>·</span>
+        <span>Rafraîchi il y a 1 j</span>
+      </div>
+    </div>
+    <div class="fp-actions">
+      <div class="toggle" title="Statut">
+        <button class="on on-green">En ligne</button>
+        <button>Hors ligne</button>
+      </div>
+      <button class="btn-secondary btn-sm" title="Stats">Stats</button>
+      <button class="btn-secondary btn-sm" title="Rafraîchir">↻ Rafraîchir</button>
+      <button class="btn-secondary btn-sm" title="Voir côté client">Voir en ligne</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sommaire mobile en haut (visible < 1200px) -->
+<div class="toc-mobile">
+  <a href="#s-general" class="active"><span class="toc-status done">✓</span>Général</a>
+  <a href="#s-cat"><span class="toc-status done">✓</span>Catégorie</a>
+  <a href="#s-dim"><span class="toc-status"></span>Dimensions</a>
+  <a href="#s-comp"><span class="toc-status done">✓</span>Composition</a>
+  <a href="#s-tags"><span class="toc-status done">✓</span>Mots-clés</a>
+  <a href="#s-var"><span class="toc-status done">✓</span>Variantes</a>
+  <a href="#s-img"><span class="toc-status done">✓</span>Images</a>
+  <a href="#s-map"><span class="toc-status done">✓</span>Mapping PFS</a>
+  <a href="#s-mp"><span class="toc-status done">✓</span>Marketplaces</a>
+  <a href="#s-sim"><span class="toc-status"></span>Similaires</a>
+  <a href="#s-bundle"><span class="toc-status"></span>Ensemble</a>
+  <a href="#s-note"><span class="toc-status"></span>Note interne</a>
+</div>
+
+<!-- Contenu principal -->
+<div class="page-wrap">
+
+  <!-- Colonne formulaire -->
+  <div class="main-col">
+
+    <!-- 1. Général -->
+    <section id="s-general" class="card step-card">
+      <div class="card-hd">
+        <span class="card-num">1</span>
+        <div>
+          <h3>Général</h3>
+          <div class="card-sub">Nom, référence et description qui apparaissent partout.</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="label">Nom du produit <span style="color:var(--error)">*</span></label>
+        <div class="row" style="gap:6px;margin-bottom:8px">
+          <button class="chip" style="background:var(--ink);color:#fff;border-color:var(--ink)">🇫🇷 Français</button>
+          <button class="chip">🇬🇧 English</button>
+        </div>
+        <input class="input" value="Bague anneau fin" />
+        <span class="help">Nom visible côté client. Traductions gérées automatiquement.</span>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="field">
+          <label class="label">Référence interne <span style="color:var(--error)">*</span></label>
+          <input class="input" value="BJ-A001" style="font-family:ui-monospace,monospace" />
+          <span class="help">Utilisée sur les factures et pour lier aux marketplaces.</span>
+        </div>
+        <div class="field">
+          <label class="label">Code SH douanier</label>
+          <input class="input" value="7117.19" />
+          <span class="help">Pour les exports internationaux (Faire, Ankorstore).</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="label">Description <span style="color:var(--error)">*</span></label>
+        <textarea class="textarea" rows="4">Bague fine en acier inoxydable doré, adaptée à un usage quotidien. Fermeture ajustable, ne noircit pas au contact de l'eau.</textarea>
+        <span class="help">Minimum 30 caractères. <span class="dim-strong">137 / 30 caractères</span>.</span>
+      </div>
+    </section>
+
+    <!-- 2. Catégorie -->
+    <section id="s-cat" class="card step-card">
+      <div class="card-hd">
+        <span class="card-num">2</span>
+        <div>
+          <h3>Catégorie & classement</h3>
+          <div class="card-sub">Où votre produit apparaîtra dans les rayons du site et des marketplaces.</div>
+        </div>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="field">
+          <label class="label">Catégorie principale <span style="color:var(--error)">*</span></label>
+          <select class="select"><option>Bague</option><option>Bracelet</option><option>Collier</option><option>Boucles d'oreilles</option></select>
+        </div>
+        <div class="field">
+          <label class="label">Sous-catégorie</label>
+          <select class="select"><option>Bague fine</option><option>Bague solitaire</option><option>Bague chevalière</option></select>
+        </div>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="field">
+          <label class="label">Pays de fabrication</label>
+          <select class="select"><option>Chine</option><option>Turquie</option><option>Italie</option><option>France</option></select>
+        </div>
+        <div class="field">
+          <label class="label">Saison</label>
+          <select class="select"><option>Toutes saisons</option><option>Printemps-Été</option><option>Automne-Hiver</option></select>
+        </div>
+      </div>
+
+      <div class="field" style="margin-bottom:0">
+        <label class="label">Rangs d'apparition</label>
+        <div class="row">
+          <label class="chip"><input type="checkbox" checked style="margin-right:2px" />Microstore</label>
+          <label class="chip"><input type="checkbox" style="margin-right:2px" />Nouveautés</label>
+          <label class="chip"><input type="checkbox" checked style="margin-right:2px" />Sélection Belle</label>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Dimensions -->
+    <section id="s-dim" class="card step-card">
+      <div class="card-hd">
+        <span class="card-num">3</span>
+        <div>
+          <h3>Dimensions</h3>
+          <div class="card-sub">Facultatif — en millimètres. Utile pour les fiches marketplace.</div>
+        </div>
+      </div>
+      <div class="form-grid-3">
+        <div class="field"><label class="label">Longueur (mm)</label><input class="input" value="" placeholder="—" /></div>
+        <div class="field"><label class="label">Largeur (mm)</label><input class="input" value="" placeholder="—" /></div>
+        <div class="field"><label class="label">Hauteur (mm)</label><input class="input" value="" placeholder="—" /></div>
+        <div class="field"><label class="label">Diamètre (mm)</label><input class="input" value="18" /></div>
+        <div class="field"><label class="label">Circonférence (mm)</label><input class="input" value="56" /></div>
+        <div class="field" style="margin-bottom:0"><label class="label">Poids par pièce (g)</label><input class="input" value="3.4" /></div>
+      </div>
+    </section>
+
+    <!-- 4. Composition -->
+    <section id="s-comp" class="card step-card">
+      <div class="card-hd">
+        <span class="card-num">4</span>
+        <div>
+          <h3>Composition</h3>
+          <div class="card-sub">Le total doit atteindre 100 %.</div>
+        </div>
+        <div class="card-actions"><span class="badge badge-success">Total 100 %</span></div>
+      </div>
+
+      <div class="stack">
+        <div class="row">
+          <span class="chip"><span class="dim-strong">Acier inoxydable 316L</span> <input class="input-tight" value="80" style="width:60px" />%<button class="x">×</button></span>
+          <span class="chip"><span class="dim-strong">Placage or 18 K</span> <input class="input-tight" value="20" style="width:60px" />%<button class="x">×</button></span>
+          <button class="chip chip-add">+ Ajouter un matériau</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. Tags -->
+    <section id="s-tags" class="card step-card">
+      <div class="card-hd">
+        <span class="card-num">5</span>
+        <div>
+          <h3>Mots-clés & options commerciales</h3>
+          <div class="card-sub">Tags pour la recherche + options d'affichage.</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="label">Mots-clés / tags</label>
+        <div class="row">
+          <span class="chip">Fin<button class="x">×</button></span>
+          <span class="chip">Doré<button class="x">×</button></span>
+          <span class="chip">Empilable<button class="x">×</button></span>
+          <span class="chip">Cadeau<button class="x">×</button></span>
+          <button class="chip chip-add">+ Ajouter</button>
+        </div>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="field" style="margin-bottom:0">
+          <label class="label">Best Seller</label>
+          <div class="toggle"><button>Oui</button><button class="on">Non</button></div>
+          <span class="help">Affiche une étoile sur la fiche.</span>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label class="label">Remise (%)</label>
+          <input class="input" value="" placeholder="Aucune remise" />
+          <span class="help">Prix barré + prix remisé côté client.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. Variantes couleur -->
+    <section id="s-var" class="card step-card">
+      <div class="card-hd">
+        <span class="card-num">6</span>
+        <div>
+          <h3>Variantes couleur & tailles</h3>
+          <div class="card-sub">Prix, stocks et tailles pour chaque couleur.</div>
+        </div>
+        <div class="card-actions"><span class="badge badge-info">3 couleurs · 9 tailles</span></div>
+      </div>
+
+      <div class="color-tabs">
+        <button class="color-tab active primary"><span class="swatch" style="background:#D4AF37"></span>Or</button>
+        <button class="color-tab"><span class="swatch" style="background:#C0C0C0"></span>Argent</button>
+        <button class="color-tab"><span class="swatch" style="background:#E8B4A8"></span>Rose gold</button>
+        <button class="color-tab add-color">+ Ajouter une couleur</button>
+      </div>
+
+      <div class="row" style="margin-bottom:12px;gap:14px">
+        <div>
+          <label class="label" style="font-size:11px">Type de vente</label>
+          <div class="toggle"><button class="on">À l'unité</button><button>Par pack</button></div>
+        </div>
+        <div style="flex:1"></div>
+        <label class="row" style="gap:6px;font-size:12px;color:var(--text-secondary)">
+          <input type="checkbox" checked />Couleur principale (utilisée pour les vignettes)
+        </label>
+      </div>
+
+      <table class="size-table">
+        <thead>
+          <tr>
+            <th style="width:110px">Taille</th>
+            <th style="width:130px">Prix unitaire (€)</th>
+            <th style="width:110px">Poids (g)</th>
+            <th style="width:130px">Stock</th>
+            <th style="width:120px">Réf. variante</th>
+            <th style="width:40px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><input class="input-tight" value="52 (12)" /></td>
+            <td><input class="input-tight" value="14.90" /></td>
+            <td><input class="input-tight" value="3.4" /></td>
+            <td><input class="input-tight" value="45" /></td>
+            <td><input class="input-tight" value="BJ-A001-O-52" style="font-family:ui-monospace,monospace" /></td>
+            <td><button class="del-row" title="Supprimer">×</button></td>
+          </tr>
+          <tr>
+            <td><input class="input-tight" value="54 (14)" /></td>
+            <td><input class="input-tight" value="14.90" /></td>
+            <td><input class="input-tight" value="3.5" /></td>
+            <td><input class="input-tight" value="38" /></td>
+            <td><input class="input-tight" value="BJ-A001-O-54" style="font-family:ui-monospace,monospace" /></td>
+            <td><button class="del-row" title="Supprimer">×</button></td>
+          </tr>
+          <tr>
+            <td><input class="input-tight" value="56 (16)" /></td>
+            <td><input class="input-tight" value="14.90" /></td>
+            <td><input class="input-tight" value="3.6" /></td>
+            <td><input class="input-tight" value="12" /></td>
+            <td><input class="input-tight" value="BJ-A001-O-56" style="font-family:ui-monospace,monospace" /></td>
+            <td><button class="del-row" title="Supprimer">×</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top:10px"><button class="btn-secondary btn-sm">+ Ajouter une taille</button></div>
+    </section>
+
+    <!-- 7. Images -->
+    <section id="s-img" class="card step-card">
+      <div class="card-hd">
+        <span class="card-num">7</span>
+        <div>
+          <h3>Photos produit</h3>
+          <div class="card-sub">Jusqu'à 5 photos par couleur. Glissez-déposez pour réorganiser.</div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-bottom:12px;gap:6px">
+        <button class="color-tab active primary" style="padding:5px 12px 5px 6px"><span class="swatch" style="background:#D4AF37"></span>Or (3)</button>
+        <button class="color-tab" style="padding:5px 12px 5px 6px"><span class="swatch" style="background:#C0C0C0"></span>Argent (2)</button>
+        <button class="color-tab" style="padding:5px 12px 5px 6px"><span class="swatch" style="background:#E8B4A8"></span>Rose gold (0) <span class="badge badge-warning" style="padding:1px 6px;font-size:9.5px">manquant</span></button>
+      </div>
+
+      <div class="image-strip">
+        <div class="image-thumb primary" style="background:linear-gradient(135deg,#D4AF37,#a1a1aa)">
+          <button class="del">×</button>
+        </div>
+        <div class="image-thumb" style="background:linear-gradient(135deg,#e4e4e7,#d4af37)">
+          <button class="del">×</button>
+        </div>
+        <div class="image-thumb" style="background:linear-gradient(135deg,#fafafa,#d4af37)">
+          <button class="del">×</button>
+        </div>
+        <div class="image-thumb dropzone">
+          <div>📷<br/>Ajouter une photo<br/><span class="text-muted" style="font-size:10px">ou glisser ici</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. Mapping PFS -->
+    <section id="s-map" class="card step-card">
+      <div class="card-hd">
+        <span class="card-num">8</span>
+        <div>
+          <h3>Correspondance couleurs PFS</h3>
+          <div class="card-sub">Pour éviter les erreurs de couleur sur PFS.</div>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="row" style="justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border-radius:8px">
+          <span class="row" style="gap:8px"><span class="swatch" style="width:16px;height:16px;background:#D4AF37;border-radius:50%"></span><span class="dim-strong">Or</span></span>
+          <button class="btn-secondary btn-sm">Or 18 K (PFS) ▾</button>
+        </div>
+        <div class="row" style="justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border-radius:8px">
+          <span class="row" style="gap:8px"><span class="swatch" style="width:16px;height:16px;background:#C0C0C0;border-radius:50%"></span><span class="dim-strong">Argent</span></span>
+          <button class="btn-secondary btn-sm">Argent brillant (PFS) ▾</button>
+        </div>
+        <div class="row" style="justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);border-radius:8px">
+          <span class="row" style="gap:8px"><span class="swatch" style="width:16px;height:16px;background:#E8B4A8;border-radius:50%"></span><span class="dim-strong">Rose gold</span></span>
+          <button class="btn-secondary btn-sm">Sélectionner… ▾</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9. Marketplaces -->
+    <section id="s-mp" class="card step-card">
+      <div class="card-hd">
+        <span class="card-num">9</span>
+        <div>
+          <h3>Diffusion sur les marketplaces</h3>
+          <div class="card-sub">Où votre produit est visible en ce moment.</div>
+        </div>
+      </div>
+
+      <div class="mp-block">
+        <div class="mp-card">
+          <div class="mp-card-head">
+            <div class="mp-logo lg-pfs">PFS</div>
+            <div><div class="mp-name">Paris Fashion Shop</div><div class="mp-sub">ID 892 341 · lié il y a 2 j</div></div>
+          </div>
+          <div class="mp-card-body">
+            <span class="badge badge-success">En ligne</span>
+            <span class="badge badge-warning">Synchro nécessaire</span>
+          </div>
+          <div class="mp-actions">
+            <button class="btn-secondary btn-sm">Mettre à jour</button>
+            <button class="btn-ghost btn-sm">Délier</button>
+          </div>
+        </div>
+        <div class="mp-card">
+          <div class="mp-card-head">
+            <div class="mp-logo lg-ankor">AKS</div>
+            <div><div class="mp-name">Ankorstore</div><div class="mp-sub">ID 12 998 · lié il y a 4 j</div></div>
+          </div>
+          <div class="mp-card-body">
+            <span class="badge badge-success">En ligne</span>
+          </div>
+          <div class="mp-actions">
+            <button class="btn-secondary btn-sm">Mettre à jour</button>
+            <button class="btn-ghost btn-sm">Délier</button>
+          </div>
+        </div>
+        <div class="mp-card">
+          <div class="mp-card-head">
+            <div class="mp-logo lg-ef">EF</div>
+            <div><div class="mp-name">eFashion Paris</div><div class="mp-sub">Non lié</div></div>
+          </div>
+          <div class="mp-card-body">
+            <span class="badge badge-neutral">Hors ligne</span>
+          </div>
+          <div class="mp-actions">
+            <button class="btn-primary btn-sm">Publier</button>
+          </div>
+        </div>
+        <div class="mp-card">
+          <div class="mp-card-head">
+            <div class="mp-logo lg-faire">FAI</div>
+            <div><div class="mp-name">Faire</div><div class="mp-sub">Non lié</div></div>
+          </div>
+          <div class="mp-card-body">
+            <span class="badge badge-neutral">Hors ligne</span>
+          </div>
+          <div class="mp-actions">
+            <button class="btn-primary btn-sm">Publier</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10. Produits similaires -->
+    <section id="s-sim" class="card step-card">
+      <div class="card-hd">
+        <span class="card-num">10</span>
+        <div>
+          <h3>Produits similaires</h3>
+          <div class="card-sub">Suggestions affichées sur la fiche client.</div>
+        </div>
+        <div class="card-actions"><button class="btn-secondary btn-sm">+ Ajouter</button></div>
+      </div>
+      <div class="row">
+        <div class="chip" style="gap:8px;padding:4px 10px 4px 4px;background:#fff;border-color:var(--border-strong)">
+          <div style="width:26px;height:26px;border-radius:5px;background:linear-gradient(135deg,#e4e4e7,#a1a1aa)"></div>
+          <div style="line-height:1.2">
+            <div style="font-size:12px;font-weight:600">Bague solitaire zircon</div>
+            <div style="font-size:10px;color:var(--text-muted);font-family:ui-monospace,monospace">BJ-A089</div>
+          </div>
+          <button class="x">×</button>
+        </div>
+        <div class="chip" style="gap:8px;padding:4px 10px 4px 4px;background:#fff;border-color:var(--border-strong)">
+          <div style="width:26px;height:26px;border-radius:5px;background:linear-gradient(135deg,#fafafa,#a1a1aa)"></div>
+          <div style="line-height:1.2">
+            <div style="font-size:12px;font-weight:600">Bague fine croisée</div>
+            <div style="font-size:10px;color:var(--text-muted);font-family:ui-monospace,monospace">BJ-A045</div>
+          </div>
+          <button class="x">×</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11. Bundle -->
+    <section id="s-bundle" class="card step-card">
+      <div class="card-hd">
+        <span class="card-num">11</span>
+        <div>
+          <h3>Contenu d'un ensemble</h3>
+          <div class="card-sub">Vide car ce produit n'est pas un ensemble.</div>
+        </div>
+        <div class="card-actions"><button class="btn-secondary btn-sm">+ Ajouter un enfant</button></div>
+      </div>
+      <div style="padding:22px;text-align:center;color:var(--text-muted);font-size:12.5px;background:var(--bg-secondary);border-radius:8px">
+        Ce produit ne contient pas d'autres produits.
+      </div>
+    </section>
+
+    <!-- 12. Note interne -->
+    <section id="s-note" class="card step-card">
+      <div class="card-hd">
+        <span class="card-num">12</span>
+        <div>
+          <h3>Note interne</h3>
+          <div class="card-sub">Visible uniquement par l'équipe admin.</div>
+        </div>
+      </div>
+      <textarea class="textarea" rows="3" placeholder="Notes internes (visible uniquement dans l'admin)…">Stock rose gold à recommander au fournisseur mi-juillet.</textarea>
+      <div class="row" style="margin-top:8px">
+        <span class="text-muted">62 / 2000 caractères</span>
+        <div class="spacer"></div>
+        <button class="btn-secondary btn-sm">Enregistrer la note</button>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Colonne sommaire (desktop) -->
+  <aside class="toc-col">
+    <div class="toc">
+      <h4>Progression</h4>
+      <ul class="toc-list" id="toc-list">
+        <li><a href="#s-general" class="active"><span class="toc-status done">✓</span>Général</a></li>
+        <li><a href="#s-cat"><span class="toc-status done">✓</span>Catégorie</a></li>
+        <li><a href="#s-dim"><span class="toc-status"></span>Dimensions</a></li>
+        <li><a href="#s-comp"><span class="toc-status done">✓</span>Composition</a></li>
+        <li><a href="#s-tags"><span class="toc-status done">✓</span>Mots-clés</a></li>
+        <li><a href="#s-var"><span class="toc-status done">✓</span>Variantes</a></li>
+        <li><a href="#s-img"><span class="toc-status err">!</span>Images</a></li>
+        <li><a href="#s-map"><span class="toc-status done">✓</span>Mapping PFS</a></li>
+        <li><a href="#s-mp"><span class="toc-status done">✓</span>Marketplaces</a></li>
+        <li><a href="#s-sim"><span class="toc-status"></span>Similaires</a></li>
+        <li><a href="#s-bundle"><span class="toc-status"></span>Ensemble</a></li>
+        <li><a href="#s-note"><span class="toc-status"></span>Note interne</a></li>
+      </ul>
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Prêt à enregistrer</div>
+        <div style="height:6px;background:var(--bg-tertiary);border-radius:3px;overflow:hidden;margin-bottom:6px">
+          <div style="width:75%;height:100%;background:linear-gradient(90deg,#22C55E,#15803D)"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary)"><span class="dim-strong">9 / 12</span> sections complètes</div>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<!-- Footer sticky -->
+<div class="fp-footer">
+  <div class="fp-footer-inner">
+    <div class="fp-footer-status">
+      <span class="fp-footer-dot"></span>
+      <span>Toutes vos modifications sont prêtes à être enregistrées</span>
+    </div>
+    <div class="fp-footer-actions">
+      <button class="btn-ghost">Annuler modifications</button>
+      <button class="btn-secondary">Enregistrer en brouillon</button>
+      <button class="btn-primary btn-lg">Enregistrer les modifications</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Smooth scroll depuis le sommaire
+  document.querySelectorAll('.toc-list a, .toc-mobile a').forEach(function(a){
+    a.addEventListener('click', function(e){
+      e.preventDefault();
+      var id = a.getAttribute('href');
+      var target = document.querySelector(id);
+      if (target) {
+        var offset = window.innerWidth <= 1200 ? 140 : 110;
+        window.scrollTo({ top: target.offsetTop - offset, behavior:'smooth' });
+      }
+      document.querySelectorAll('.toc-list a, .toc-mobile a').forEach(function(x){ x.classList.remove('active'); });
+      document.querySelectorAll('.toc-list a[href="'+id+'"], .toc-mobile a[href="'+id+'"]').forEach(function(x){ x.classList.add('active'); });
+    });
+  });
+
+  // Viewport switcher
+  function setViewport(mode) {
+    var b = document.body;
+    b.style.maxWidth = mode === 'mobile' ? '380px' : mode === 'tablet' ? '820px' : '';
+    b.style.margin = mode === 'full' ? '' : '0 auto';
+    b.style.boxShadow = mode === 'full' ? '' : '0 0 40px rgba(0,0,0,.15)';
+    document.querySelectorAll('.mt-viewport button').forEach(function(x){ x.classList.remove('on'); });
+    event.target.classList.add('on');
+  }
+</script>
+
+</body>
+</html>
