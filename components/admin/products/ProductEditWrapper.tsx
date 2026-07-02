@@ -1,108 +1,69 @@
 "use client";
 import { ProductFormHeaderProvider, ProductFormHeaderState, useProductFormHeader } from "./ProductFormHeaderContext";
 import { useToast } from "@/components/ui/Toast";
-import { BestSellerToggle } from "./BestSellerToggle";
 import { KpiRow } from "./KpiRow";
 
 function StatusToggle({ mode }: { mode: "create" | "edit" }) {
-  const { productStatus, isIncomplete, statusToggle } = useProductFormHeader();
+  const { productStatus, statusToggle } = useProductFormHeader();
   const toast = useToast();
   const isOnline = productStatus === "ONLINE";
-  const hasErrors = isIncomplete;
 
-  const handleToggle = () => {
-    if (!statusToggle) return;
-    if (isOnline) {
-      // Going offline — no validation needed
-      statusToggle.setProductStatus("OFFLINE");
-      statusToggle.setOnlineErrors([]);
-      statusToggle.setError("");
-    } else {
-      // Going online — validate. Erreurs affichées en toast (pas de bandeau).
-      const errors = statusToggle.getCompletenessErrors();
-      if (errors.length > 0) {
-        const preview = errors.slice(0, 3).join(" · ");
-        const suffix = errors.length > 3 ? ` (+${errors.length - 3} autre${errors.length - 3 > 1 ? "s" : ""})` : "";
-        toast.error(
-          "Produit incomplet",
-          `Impossible de mettre en ligne : ${preview}${suffix}`,
-        );
-        return;
-      }
-      if (statusToggle.isOutOfStock()) {
-        toast.error(
-          "Rupture de stock",
-          "Toutes les variantes sont en rupture — impossible de mettre en ligne.",
-        );
-        return;
-      }
-      statusToggle.setOnlineErrors([]);
-      statusToggle.setError("");
-      statusToggle.setProductStatus("ONLINE");
+  const goOnline = () => {
+    if (isOnline || !statusToggle) return;
+    const errors = statusToggle.getCompletenessErrors();
+    if (errors.length > 0) {
+      const preview = errors.slice(0, 3).join(" · ");
+      const suffix = errors.length > 3 ? ` (+${errors.length - 3} autre${errors.length - 3 > 1 ? "s" : ""})` : "";
+      toast.error("Produit incomplet", `Impossible de mettre en ligne : ${preview}${suffix}`);
+      return;
     }
+    if (statusToggle.isOutOfStock()) {
+      toast.error("Rupture de stock", "Toutes les variantes sont en rupture — impossible de mettre en ligne.");
+      return;
+    }
+    statusToggle.setOnlineErrors([]);
+    statusToggle.setError("");
+    statusToggle.setProductStatus("ONLINE");
   };
 
-  // Disabled when trying to go online but form is incomplete (only in create mode label differs)
-  const disabled = !statusToggle || (!isOnline && hasErrors && !statusToggle);
+  const goOffline = () => {
+    if (!isOnline || !statusToggle) return;
+    statusToggle.setProductStatus("OFFLINE");
+    statusToggle.setOnlineErrors([]);
+    statusToggle.setError("");
+  };
 
   return (
-    <button
-      type="button"
-      onClick={handleToggle}
-      className="flex items-center gap-3 group"
-      title={isOnline
-        ? (mode === "edit" ? "Passer hors ligne" : "Mettre hors ligne")
-        : (mode === "edit" ? "Passer en ligne" : "Mettre en ligne")
-      }
+    <div
+      className="inline-flex items-center bg-bg-tertiary rounded-full p-0.5 gap-0.5"
+      role="group"
+      aria-label="Statut du produit"
     >
-      {/* Toggle track */}
-      <div className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
-        isOnline ? "bg-[#22C55E]" : "bg-[#D1D5DB]"
-      }`}>
-        {/* Toggle knob */}
-        <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 ${
-          isOnline ? "translate-x-5" : "translate-x-0"
-        }`} />
-      </div>
-      {/* Label */}
-      <span className={`text-sm font-semibold font-body whitespace-nowrap ${
-        isOnline ? "text-[#15803D]" : "text-text-secondary"
-      }`}>
-        {mode === "create"
-          ? (isOnline ? "Mettre en ligne" : "Hors ligne")
-          : (isOnline ? "En ligne" : "Hors ligne")
-        }
-      </span>
-    </button>
-  );
-}
-
-function HeaderBadges() {
-  const { productStatus, isIncomplete, stockState } = useProductFormHeader();
-
-  return (
-    <>
-      {productStatus !== "ONLINE" && isIncomplete && (
-        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-body bg-[#F3E8FF] text-[#7C3AED] border border-[#DDD6FE]">
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
-          </svg>
-          Brouillon
-        </span>
-      )}
-      {stockState === "all_out" && (
-        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-body bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#DC2626]" />
-          Rupture de stock
-        </span>
-      )}
-      {stockState === "partial_out" && (
-        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-body bg-[#FFF7ED] text-[#C2410C] border border-[#FED7AA]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#EA580C]" />
-          Rupture de variant
-        </span>
-      )}
-    </>
+      <button
+        type="button"
+        onClick={goOnline}
+        title={mode === "create" ? "Mettre en ligne" : "Passer en ligne"}
+        className={`px-3 py-1 rounded-full text-[11.5px] font-semibold font-body transition-all whitespace-nowrap ${
+          isOnline
+            ? "bg-white text-[#15803D] shadow-sm"
+            : "text-text-muted hover:text-text-primary"
+        }`}
+      >
+        En ligne
+      </button>
+      <button
+        type="button"
+        onClick={goOffline}
+        title="Passer hors ligne"
+        className={`px-3 py-1 rounded-full text-[11.5px] font-semibold font-body transition-all whitespace-nowrap ${
+          !isOnline
+            ? "bg-white text-text-primary shadow-sm"
+            : "text-text-muted hover:text-text-primary"
+        }`}
+      >
+        Hors ligne
+      </button>
+    </div>
   );
 }
 
@@ -123,20 +84,6 @@ export function ProductEditWrapper({
         <div className="z-20 bg-bg-secondary border-b border-border -mx-6 px-6 pt-3 pb-4">
           {staticHeader}
           <KpiRow />
-          <div className="flex items-center justify-between gap-3 flex-wrap mt-4 pt-4 border-t border-border">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="font-heading text-lg font-bold text-text-primary">
-                Informations du produit
-              </h2>
-              <div className="flex items-center gap-2 flex-wrap">
-                <HeaderBadges />
-              </div>
-            </div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <BestSellerToggle />
-              <StatusToggle mode="edit" />
-            </div>
-          </div>
         </div>
         {children}
       </div>

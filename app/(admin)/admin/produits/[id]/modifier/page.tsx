@@ -3,11 +3,13 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
-import ProductNoteBar from "@/components/admin/products/ProductNoteBar";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
-import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
+import { ProductEditWrapper, StatusToggle } from "@/components/admin/products/ProductEditWrapper";
+import { BestSellerToggle } from "@/components/admin/products/BestSellerToggle";
+import { HeaderInlineBadges } from "@/components/admin/products/HeaderInlineBadges";
+import { KpiRow } from "@/components/admin/products/KpiRow";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
-import { DraftPageWrapper, DraftPageChrome } from "./DraftPageWrapper";
+import { DraftPageWrapper } from "./DraftPageWrapper";
 import { ProductEditRefreshButton } from "@/components/admin/products/ProductEditRefreshButton";
 import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle";
 import { MarketplaceStatusButtons } from "@/components/admin/products/MarketplaceStatusButtons";
@@ -316,21 +318,35 @@ export default async function ModifierProduitPage({
       <div className="max-w-[1600px] mx-auto space-y-8">
         <div className="z-20 bg-bg-secondary border-b border-border -mx-6 px-6 pt-3 pb-4">
           <nav className="flex items-center gap-1.5 text-[13px] font-body text-text-muted mb-3">
+            <Link href="/admin" className="hover:text-text-primary transition-colors">Admin</Link>
+            <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
             <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             <span className="text-text-secondary font-medium truncate max-w-xs">{product.name || "Brouillon"}</span>
-            <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-            <span className="text-text-secondary">Continuer</span>
           </nav>
-          <div>
-            <h1 className="page-title">Continuer le brouillon</h1>
-            {product.reference && (
-              <p className="text-base text-text-muted font-body mt-1">
-                Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
-              </p>
-            )}
+
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="font-heading text-[26px] leading-tight font-bold tracking-tight text-text-primary truncate">
+                  {product.name || "Continuer le brouillon"}
+                </h1>
+                {product.reference && (
+                  <span className="inline-flex items-center font-mono text-[11px] bg-bg-tertiary px-2.5 py-1 rounded-md text-text-secondary border border-border-light font-semibold">
+                    {product.reference}
+                  </span>
+                )}
+                <HeaderInlineBadges />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <StatusToggle mode="create" />
+              <BestSellerToggle />
+            </div>
           </div>
-          <DraftPageChrome />
+
+          <KpiRow />
         </div>
 
         <ProductForm
@@ -402,9 +418,9 @@ export default async function ModifierProduitPage({
             faireProductId: product.faireProductId,
             primaryColorId: product.primaryColorId ?? null,
             microstoreSubCategoryId: product.microstoreSubCategoryId ?? null,
+            note: product.note ?? "",
           }}
         />
-        <ProductNoteBar productId={product.id} initialNote={product.note ?? ""} />
       </div>
       </DraftPageWrapper>
     );
@@ -416,87 +432,33 @@ export default async function ModifierProduitPage({
       staticHeader={
         <>
           <nav className="flex items-center gap-1.5 text-[13px] font-body text-text-muted mb-3">
+            <Link href="/admin" className="hover:text-text-primary transition-colors">Admin</Link>
+            <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
             <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             <span className="text-text-secondary font-medium truncate max-w-xs">{product.name}</span>
-            <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-            <span className="text-text-secondary">Modifier</span>
           </nav>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="page-title">Modifier le produit</h1>
-              <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] bg-bg-tertiary px-2.5 py-1 rounded-none text-text-secondary border border-border-light font-semibold">
+
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="font-heading text-[26px] leading-tight font-bold tracking-tight text-text-primary truncate">
+                  {product.name}
+                </h1>
+                <span className="inline-flex items-center font-mono text-[11px] bg-bg-tertiary px-2.5 py-1 rounded-md text-text-secondary border border-border-light font-semibold">
                   {product.reference}
                 </span>
-                <span className="hidden sm:block h-4 w-px bg-border" />
-                <p className="text-[11px] text-text-muted font-body">
-                  Créé le{" "}
-                  <span className="text-text-secondary font-medium">
-                    {product.createdAt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
-                  </span>
-                </p>
-                <span className="hidden sm:block h-4 w-px bg-border" />
-                <p className="text-[11px] text-text-muted font-body">
-                  Modifié le{" "}
-                  <span className="text-text-secondary font-medium">
-                    {product.updatedAt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                </p>
-                {product.lastRefreshedAt && (
-                  <>
-                    <span className="hidden sm:block h-4 w-px bg-border" />
-                    <p className="inline-flex items-center gap-1 text-[11px] text-[#4F46E5] font-body">
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                      </svg>
-                      Rafraîchi le{" "}
-                      <span className="font-medium">
-                        {product.lastRefreshedAt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                    </p>
-                  </>
-                )}
-              </div>
-
-              {/* Ligne dédiée Marketplaces (design Ardoise validé) */}
-              <div className="flex items-center gap-3 flex-wrap mt-3 pt-3 border-t border-border">
-                <span className="text-[10px] font-heading font-bold uppercase tracking-[0.12em] text-text-muted">
-                  Marketplaces
-                </span>
-                <MarketplaceStatusButtons
-                  efashionLinked={product.colors.some((c) => c.efashionProductId !== null)}
-                  hasEfashionConfig={hasEfashionConfig}
-                  efashionEnabled={efashionEnabled}
-                  productId={product.id}
-                  reference={product.reference}
-                  productName={product.name}
-                  firstImage={colorImagesDb[0]?.path ?? null}
-                  pfsProductId={product.pfsProductId}
-                  pfsBrandName={product.pfsBrandName ?? null}
-                  hasPfsConfig={hasPfsConfig}
-                  ankorsProductId={product.ankorsProductId}
-                  hasAnkorstoreConfig={hasAnkorstoreConfig}
-                  ankorstoreEnabled={ankorstoreEnabled}
-                  faireProductId={product.faireProductId}
-                  hasFaireConfig={hasFaireConfig}
-                  faireEnabled={faireEnabled}
-                  pfsSyncRequired={product.pfsSyncRequired}
-                  ankorsSyncRequired={product.ankorsSyncRequired}
-                  efashionSyncRequired={product.efashionSyncRequired}
-                  faireSyncRequired={product.faireSyncRequired}
-                />
+                <HeaderInlineBadges />
               </div>
             </div>
-            <div className="flex items-center gap-2">
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <StatusToggle mode="edit" />
+              <BestSellerToggle />
               <ProductStatsModal
                 productId={product.id}
                 productName={product.name}
                 reference={product.reference}
-              />
-              <ProductLockToggle
-                productId={product.id}
-                initialLocked={product.locked}
               />
               <ProductEditRefreshButton
                 productId={product.id}
@@ -515,19 +477,53 @@ export default async function ModifierProduitPage({
                 hasFaireConfig={hasFaireConfig}
                 faireEnabled={faireEnabled}
               />
+              <ProductLockToggle
+                productId={product.id}
+                initialLocked={product.locked}
+                variant="icon"
+              />
               <Link
                 href={`/produits/${product.id}`}
                 target="_blank"
-                className="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-text-secondary bg-bg-primary border border-border rounded-none hover:border-border-dark hover:text-text-primary transition-all font-body shadow-sm"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-text-secondary bg-bg-primary border border-border rounded-md hover:bg-bg-secondary hover:border-border-dark hover:text-text-primary transition-all font-body shadow-sm whitespace-nowrap"
                 title="Voir côté client"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                Voir
+                Voir en ligne
               </Link>
             </div>
+          </div>
+
+          {/* Ligne 2 dédiée Marketplaces */}
+          <div className="flex items-center gap-3 flex-wrap mt-4 pt-3 border-t border-border">
+            <span className="text-[10px] font-heading font-bold uppercase tracking-[0.12em] text-text-muted">
+              Marketplaces
+            </span>
+            <MarketplaceStatusButtons
+              efashionLinked={product.colors.some((c) => c.efashionProductId !== null)}
+              hasEfashionConfig={hasEfashionConfig}
+              efashionEnabled={efashionEnabled}
+              productId={product.id}
+              reference={product.reference}
+              productName={product.name}
+              firstImage={colorImagesDb[0]?.path ?? null}
+              pfsProductId={product.pfsProductId}
+              pfsBrandName={product.pfsBrandName ?? null}
+              hasPfsConfig={hasPfsConfig}
+              ankorsProductId={product.ankorsProductId}
+              hasAnkorstoreConfig={hasAnkorstoreConfig}
+              ankorstoreEnabled={ankorstoreEnabled}
+              faireProductId={product.faireProductId}
+              hasFaireConfig={hasFaireConfig}
+              faireEnabled={faireEnabled}
+              pfsSyncRequired={product.pfsSyncRequired}
+              ankorsSyncRequired={product.ankorsSyncRequired}
+              efashionSyncRequired={product.efashionSyncRequired}
+              faireSyncRequired={product.faireSyncRequired}
+            />
           </div>
         </>
       }
@@ -603,7 +599,6 @@ export default async function ModifierProduitPage({
           microstoreSubCategoryId: product.microstoreSubCategoryId ?? null,
         }}
       />
-      <ProductNoteBar productId={product.id} initialNote={product.note ?? ""} />
     </ProductEditWrapper>
   );
 }

@@ -53,10 +53,10 @@ export function ProductEditRefreshButton({
         type="button"
         disabled
         aria-disabled="true"
-        className="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-text-muted bg-bg-secondary border border-border rounded-xl font-body shadow-sm opacity-60 cursor-not-allowed"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-text-muted bg-bg-secondary border border-border rounded-md font-body shadow-sm opacity-60 cursor-not-allowed whitespace-nowrap"
         title="Ce produit est verrouillé — rafraîchissement désactivé"
       >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -90,11 +90,11 @@ export function ProductEditRefreshButton({
         }
       }}
       disabled={pending}
-      className="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-text-secondary bg-bg-primary border border-border rounded-xl hover:border-border-dark hover:text-text-primary transition-all font-body shadow-sm disabled:opacity-50 disabled:cursor-wait"
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-text-secondary bg-bg-primary border border-border rounded-md hover:bg-bg-secondary hover:border-border-dark hover:text-text-primary transition-all font-body shadow-sm disabled:opacity-50 disabled:cursor-wait whitespace-nowrap"
       title="Rafraîchir (boutique + marketplaces)"
     >
       <svg
-        className={`w-4 h-4 ${pending ? "animate-spin" : ""}`}
+        className={`w-3.5 h-3.5 ${pending ? "animate-spin" : ""}`}
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"

@@ -160,10 +160,30 @@ const server = http.createServer(async (req, res) => {
       }
       const s = readSession();
       if (!s) return sendJSON(res, 500, { error: 'session unreadable' });
+
+      // Retrouver la traduction anglaise correspondant au FR choisi via son index
+      // dans les propositions. Si le FR ne correspond à aucune proposition (édition
+      // manuelle), on laisse nameEn/descriptionEn vides — PFS prendra le relais.
+      let nameEn = null;
+      let descriptionEn = null;
+      const product = (s.products || []).find((p) => p.reference === ref);
+      if (product) {
+        const nameIdx = (product.names || []).indexOf(name);
+        const descIdx = (product.descs || []).indexOf(description);
+        if (nameIdx >= 0 && Array.isArray(product.names_en) && product.names_en[nameIdx]) {
+          nameEn = product.names_en[nameIdx];
+        }
+        if (descIdx >= 0 && Array.isArray(product.descs_en) && product.descs_en[descIdx]) {
+          descriptionEn = product.descs_en[descIdx];
+        }
+      }
+
       s.decisions = s.decisions || {};
       s.decisions[ref] = {
         name,
         description,
+        nameEn,
+        descriptionEn,
         tagNames: Array.isArray(tagNames) ? tagNames : [],
         subCategoryNames: Array.isArray(subCategoryNames) ? subCategoryNames : [],
         validated_at: new Date().toISOString(),
@@ -200,6 +220,8 @@ const server = http.createServer(async (req, res) => {
         ref,
         name: d.name,
         description: d.description,
+        nameEn: d.nameEn || undefined,
+        descriptionEn: d.descriptionEn || undefined,
         tagNames: d.tagNames || [],
         subCategoryNames: d.subCategoryNames || [],
       }));

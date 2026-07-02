@@ -151,8 +151,31 @@ function IconBtn({
 // Badge marketplace (état principal + clic principal)
 // ──────────────────────────────────────────────────────────────────────────
 
+const MARKETPLACE_META: Record<
+  MarketplaceKey,
+  { letter: string; gradient: string }
+> = {
+  pfs: {
+    letter: "P",
+    gradient: "linear-gradient(135deg,#4f46e5,#6366f1)",
+  },
+  ankorstore: {
+    letter: "A",
+    gradient: "linear-gradient(135deg,#0ea5e9,#38bdf8)",
+  },
+  efashion: {
+    letter: "E",
+    gradient: "linear-gradient(135deg,#db2777,#ec4899)",
+  },
+  faire: {
+    letter: "F",
+    gradient: "linear-gradient(135deg,#f59e0b,#fbbf24)",
+  },
+};
+
 function StatusBadge({
   state,
+  marketplace,
   label,
   sublabel,
   onClick,
@@ -161,6 +184,8 @@ function StatusBadge({
   loadingLabel,
 }: {
   state: MarketplaceBadgeState;
+  /** Sert à choisir le logo rond coloré (P / A / E / F). */
+  marketplace: MarketplaceKey;
   label: string;
   /** Texte secondaire affiché à droite du nom (ex: "· Belicia"). */
   sublabel?: string | null;
@@ -169,9 +194,15 @@ function StatusBadge({
   title: string;
   loadingLabel: string;
 }) {
-  const clickable =
-    !state.loading &&
-    (state.syncRequired || !state.online);
+  const mp = MARKETPLACE_META[marketplace];
+
+  const chipClasses = state.loading
+    ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
+    : state.syncRequired
+      ? "bg-[#FEF3C7] text-[#B45309] border-[#FDE68A] hover:bg-[#FDE68A] cursor-pointer"
+      : state.online
+        ? "bg-[#DCFCE7] text-[#15803D] border-[#BBF7D0] cursor-default"
+        : "bg-bg-tertiary text-text-muted border-border hover:bg-bg-secondary cursor-pointer";
 
   return (
     <span className="group relative inline-flex">
@@ -179,44 +210,28 @@ function StatusBadge({
         type="button"
         onClick={onClick}
         disabled={state.loading}
-        // `min-w-[12rem]` aligne tous les badges marketplace sur la même
-        // largeur visuelle (calée sur le plus long libellé courant —
-        // « Paris Fashion Shop · Belicia ») : la cliente scanne la colonne
-        // Marketplace verticalement sans que les badges se décalent. Les
-        // états « Non publié … » ou « Synchro nécessaire » peuvent dépasser
-        // cette largeur si le texte est plus long — c'est volontaire.
-        // `justify-center` centre la pastille + libellé dans cette largeur.
-        className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1 min-w-[12rem] rounded-none text-[11px] font-semibold font-body border transition-all ${
-          state.loading
-            ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
-            : state.syncRequired
-              ? "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA] hover:bg-[#FFEDD5] cursor-pointer"
-              : state.online
-                ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
-                : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
-        }`}
+        className={`inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold font-body border transition-all ${chipClasses}`}
         title={title}
       >
+        {/* Logo rond avec initiale du marketplace */}
+        <span
+          className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[8.5px] font-extrabold flex-shrink-0"
+          style={{ background: mp.gradient }}
+          aria-hidden
+        >
+          {mp.letter}
+        </span>
+
+        {/* Label */}
         {state.loading ? (
-          Icon.Spinner
-        ) : state.syncRequired ? (
-          <span className="relative inline-flex">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#F97316] animate-pulse" />
-            <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+          <span className="inline-flex items-center gap-1.5">
+            {Icon.Spinner}
+            {loadingLabel}
           </span>
-        ) : (
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${
-              state.online ? "bg-[#22C55E]" : "bg-[#DC2626]"
-            }`}
-          />
-        )}
-        {state.loading ? (
-          loadingLabel
         ) : state.syncRequired ? (
           <span>
             {label} <span className="opacity-60">·</span>{" "}
-            <span className="font-bold">Synchro nécessaire</span>
+            <span className="font-bold">synchro nécessaire</span>
           </span>
         ) : state.online ? (
           sublabel ? (
@@ -225,13 +240,26 @@ function StatusBadge({
               <span className="font-bold">{sublabel}</span>
             </span>
           ) : (
-            label
+            <span>{label}</span>
           )
         ) : (
-          <>
-            {Icon.Plus}
-            Non publié {label}
-          </>
+          <span>{label}</span>
+        )}
+
+        {/* Dot d'état à droite */}
+        {!state.loading && (
+          state.syncRequired ? (
+            <span className="relative inline-flex">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse" />
+              <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F59E0B] opacity-60 animate-ping" />
+            </span>
+          ) : (
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                state.online ? "bg-[#22C55E] animate-pulse" : "bg-border-dark"
+              }`}
+            />
+          )
         )}
       </button>
       {state.syncRequired && onCancelSyncRequired && (
@@ -241,17 +269,12 @@ function StatusBadge({
             e.stopPropagation();
             onCancelSyncRequired();
           }}
-          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-[#9A3412] border border-[#FED7AA] shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[#FFEDD5] hover:text-[#7C2D12] transition-opacity"
+          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-[#B45309] border border-[#FDE68A] shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[#FDE68A] hover:text-[#78350F] transition-opacity"
           title="Ignorer cette synchronisation (le badge orange disparaîtra sans rien envoyer)"
           aria-label="Ignorer cette synchronisation"
         >
           {Icon.Close}
         </button>
-      )}
-      {/* Indicateur visuel "clickable" — bord plus marqué pour bien faire
-          comprendre que le badge est un bouton actionnable dans cet état. */}
-      {clickable && (
-        <span aria-hidden className="hidden" />
       )}
     </span>
   );
@@ -268,7 +291,7 @@ function MarketplaceBlock({
   children: React.ReactNode;
 }) {
   return (
-    <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-bg-secondary/40 border border-border/60">
+    <div className="inline-flex items-center gap-1">
       {children}
     </div>
   );
@@ -645,7 +668,8 @@ export function MarketplaceStatusButtons({
           <MarketplaceBlock>
             <StatusBadge
               state={pfsState}
-              label="Paris Fashion Shop"
+              marketplace="pfs"
+              label="PFS"
               sublabel={pfsProductId ? pfsBrandName : null}
               onClick={() => {
                 if (pfsState.loading) return;
@@ -733,6 +757,7 @@ export function MarketplaceStatusButtons({
           <MarketplaceBlock>
             <StatusBadge
               state={ankorstoreState}
+              marketplace="ankorstore"
               label="Ankorstore"
               sublabel={null}
               onClick={() => {
@@ -823,7 +848,8 @@ export function MarketplaceStatusButtons({
           <MarketplaceBlock>
             <StatusBadge
               state={efashionState}
-              label="eFashion Paris"
+              marketplace="efashion"
+              label="eFashion"
               sublabel={null}
               onClick={() => {
                 if (efashionState.loading) return;
@@ -897,6 +923,7 @@ export function MarketplaceStatusButtons({
           <MarketplaceBlock>
             <StatusBadge
               state={faireState}
+              marketplace="faire"
               label="Faire"
               sublabel={null}
               onClick={() => {

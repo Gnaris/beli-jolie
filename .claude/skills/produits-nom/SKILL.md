@@ -112,8 +112,8 @@ Si un produit n'a pas d'image (`imagePath` null), le marquer dans la session com
 Utiliser l'outil **Read** sur chaque fichier `.webp` du dossier temporaire. Suivre **strictement** le style décrit dans `references/style-guide.md`.
 
 Pour chaque produit, générer :
-- **3 noms** (3 propositions, varier les angles selon le style-guide)
-- **3 descriptions** (idem)
+- **3 noms FR + 3 noms EN** (`names` et `names_en`, index-matché : `names_en[i]` = traduction anglaise de `names[i]`)
+- **3 descriptions FR + 3 descriptions EN** (`descs` et `descs_en`, index-matché)
 - **`proposedTags`** : 5 à 12 tags suggérés (lowercase, anti-doublon comparaison sans accent)
 - **`proposedSubCategories`** : 1 à 4 sous-catégories suggérées, choisies parmi `category.availableSubCategories` si possible, ou inventées (nom propre) si rien ne convient
 - **`clarifyingQuestions`** : 0 à 3 questions si tu as un doute (matériau ambigu, élément à moitié coupé sur l'image, packaging non vu)
@@ -124,6 +124,7 @@ Pour chaque produit, générer :
 - **Aucun mot marketing**
 - Décrire uniquement **ce qu'on voit visuellement**
 - **Court et factuel**
+- Les règles FR s'appliquent à l'EN — voir `references/style-guide.md` section « Anglais »
 
 ### Étape A.6 — Créer le fichier session et démarrer le serveur
 
@@ -155,6 +156,8 @@ Construire le fichier `${USERPROFILE}\Desktop\beli-nom-session.json` avec cette 
       "efashionReferenceBase": null,
       "names": ["Nom 1", "Nom 2", "Nom 3"],
       "descs": ["Desc 1", "Desc 2", "Desc 3"],
+      "names_en": ["Name 1", "Name 2", "Name 3"],
+      "descs_en": ["Desc 1", "Desc 2", "Desc 3"],
       "proposedTags": [{ "id": null, "name": "Coeur" }, { "id": "tag123", "name": "Strass" }],
       "proposedSubCategories": [{ "id": null, "name": "Sautoir" }],
       "clarifyingQuestions": ["Le pendant central est-il en résine ou en nacre ?"],
@@ -205,10 +208,12 @@ Si pas de `awaitingRegen`, dire à la cliente :
 Utiliser **Read** sur le fichier image correspondant : `${USERPROFILE}\Desktop\beli-images-temp\<ref-lowercase>.webp`.
 
 Lire `awaitingRegen.what` :
-- `"name"` → 3 nouveaux noms (gardé : `descs` + `proposedTags` + `proposedSubCategories` actuels)
-- `"description"` → 3 nouvelles descriptions
-- `"both"` → 3 noms + 3 descriptions
-- `"all"` → 3 noms + 3 descriptions + nouvelles `proposedTags` + nouvelles `proposedSubCategories` + nouvelles `clarifyingQuestions` (la cliente a répondu à mes questions, je refais tout en tenant compte de ses réponses)
+- `"name"` → 3 nouveaux noms FR + 3 nouveaux noms EN (gardé : `descs`/`descs_en` + `proposedTags` + `proposedSubCategories` actuels)
+- `"description"` → 3 nouvelles descriptions FR + 3 nouvelles descriptions EN
+- `"both"` → 3 noms FR/EN + 3 descriptions FR/EN
+- `"all"` → 3 noms FR/EN + 3 descriptions FR/EN + nouvelles `proposedTags` + nouvelles `proposedSubCategories` + nouvelles `clarifyingQuestions` (la cliente a répondu à mes questions, je refais tout en tenant compte de ses réponses)
+
+**Toujours regénérer EN en même temps que FR** — sinon l'index-match casse et la traduction ne suivra pas au push.
 
 Le commentaire/réponses se trouvent dans `awaitingRegen.comment` et `awaitingRegen.answers`. Toujours respecter le `style-guide.md`.
 
@@ -240,15 +245,15 @@ Présenter sous forme :
 ## Push final (déclenché par la cliente depuis la page)
 
 Quand la cliente clique « Tout pousser sur le site » dans le navigateur, la page appelle l'API du serveur local qui :
-1. Construit un payload `{ items: [{ ref, name, description, tagNames, subCategoryNames }, ...] }` avec tous les `decisions`.
+1. Construit un payload `{ items: [{ ref, name, description, nameEn, descriptionEn, tagNames, subCategoryNames }, ...] }` avec tous les `decisions`. `nameEn`/`descriptionEn` sont retrouvés côté serveur par index-match dans les propositions.
 2. Copie le payload sur le VPS via `scp`.
 3. Lance `scripts/name-batch-apply.ts` sur le VPS via `ssh`. Le script applique **uniquement en BDD** :
    - met à jour `name`, `description`
+   - écrit la traduction anglaise directement dans `ProductTranslation(locale=en)` si `nameEn`+`descriptionEn` sont fournis (pas de traduction auto). Sinon, efface toutes les traductions et laisse la traduction auto PFS les régénérer.
    - crée les tags manquants (anti-doublon lowercase sans accent), attache au produit
    - crée les sous-catégories manquantes sous la catégorie principale, attache au produit
    - écrit `note` en préfixant « Complété par l'IA le DD/MM/YYYY »
    - lève les drapeaux `pfsSyncRequired` / `ankorsSyncRequired` / `efashionSyncRequired` / `faireSyncRequired` UNIQUEMENT pour les marketplaces déjà liées au produit
-   - efface les traductions non-FR (DeepL les régénérera en arrière-plan)
 4. Marque la session comme `pushed`.
 
 **Pas de push direct vers PFS / Ankorstore / eFashion**. C'est la cliente qui déclenche les synchros marketplace manuellement depuis l'admin (boutons existants sur la fiche produit et bulk).
@@ -287,8 +292,8 @@ Coalescence : si plusieurs validations se suivent vite, on ne lance qu'un seul `
 ### Style des noms/descriptions
 Voir `references/style-guide.md` — référence à relire à chaque génération **et** à chaque regen.
 
-### Traductions DeepL
-Les traductions (anglais, allemand, etc.) sont **automatiquement effacées** par le script apply, puis **régénérées en arrière-plan** par DeepL (~minutes). La cliente n'a rien à faire.
+### Traductions
+Si le payload contient `nameEn`+`descriptionEn` (cas normal du skill), la traduction anglaise est écrite directement — pas de traduction auto. Si absente (édition manuelle par la cliente), le script efface les traductions et la **traduction auto PFS** (`lib/auto-translate.ts`, cf. CLAUDE.md) les régénère en arrière-plan.
 
 ### Si l'image d'un produit n'existe pas
 Le `colorImages` de la BDD peut être vide. Dans ce cas, signaler à la cliente le produit comme « sans image — à compléter » et le skip pour le lot en cours (ne pas le mettre dans le journal pour qu'il soit re-tenté plus tard).

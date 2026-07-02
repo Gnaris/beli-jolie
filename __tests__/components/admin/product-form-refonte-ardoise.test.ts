@@ -50,11 +50,9 @@ describe("Refonte Ardoise fiche produit — en-tête enrichi", () => {
     expect(KPI_ROW).toContain("completeness");
   });
 
-  it("ProductEditWrapper intègre KpiRow + BestSellerToggle", () => {
-    expect(WRAPPER).toContain("import { BestSellerToggle }");
+  it("ProductEditWrapper intègre KpiRow (BestSellerToggle est monté depuis la page)", () => {
     expect(WRAPPER).toContain("import { KpiRow }");
     expect(WRAPPER).toContain("<KpiRow />");
-    expect(WRAPPER).toContain("<BestSellerToggle />");
   });
 
   it("ProductForm publie isBestSeller + kpi via updateHeader", () => {
@@ -79,12 +77,23 @@ describe("Refonte Ardoise fiche produit — layout onglets", () => {
     expect(FORM).toContain("onSectionChange={setActiveSection}");
   });
 
-  it("chaque section est cachée quand elle n'est pas active", () => {
-    expect(FORM).toContain('id="section-overview" hidden={activeSection !== "overview"}');
-    expect(FORM).toContain('id="section-info" hidden={activeSection !== "info"}');
-    expect(FORM).toContain('id="section-details" hidden={activeSection !== "details"}');
-    expect(FORM).toContain('id="section-variants" hidden={activeSection !== "variants"}');
-    expect(FORM).toContain('id="section-links" hidden={activeSection !== "links"}');
+  it("les wrappers de sections utilisent les 11 clés Ardoise groupées", () => {
+    // 5 wrappers historiques encore présents (agrègent plusieurs onglets de la maquette)
+    expect(FORM).toContain('id="section-info"');
+    expect(FORM).toContain('id="section-details"');
+    expect(FORM).toContain('id="section-variants"');
+    expect(FORM).toContain('id="section-links"');
+    // 2 nouvelles sections dédiées (Marketplaces + Note)
+    expect(FORM).toContain('id="section-note"');
+    // La nav publie bien les 10 clés attendues (Marketplaces retirée sur demande cliente)
+    for (const key of ["general", "cat", "dim", "comp", "tags", "var", "img", "map", "assoc", "note"]) {
+      expect(NAV).toContain(`key: "${key}"`);
+    }
+    expect(NAV).not.toContain('key: "mp"');
+    // Groupes visuels de la maquette
+    for (const group of ["Base", "Catalogue", "Diffusion", "Interne"]) {
+      expect(NAV).toContain(`group: "${group}"`);
+    }
   });
 
   it("le picker mobile existe et est masqué sur desktop (xl:hidden)", () => {

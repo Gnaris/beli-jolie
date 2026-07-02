@@ -107,3 +107,68 @@ Aucun changement automatique.
 - Confondre les éléments visuels — **toujours bien regarder l'image** avant de générer
 - Reprendre tel quel l'ancien nom générique (« Boucles d'oreilles en acier inoxydable » seul ne suffit pas)
 - Décrire ce qu'on imagine — ne jamais inventer un détail absent de la photo
+
+---
+
+## Anglais
+
+Le site est bilingue **FR + EN**. Pour chaque produit, générer **3 noms EN + 3 descriptions EN index-matchés** avec les FR (nom EN 2 = traduction du nom FR 2). Champs session : `names_en` et `descs_en`.
+
+### Règles absolues (mêmes qu'en FR)
+
+1. **Aucune couleur** dans les noms ni dans les descriptions
+2. **Aucun mot marketing** — no *elegant*, *stunning*, *perfect*, *timeless*, *romantic*, *ideal for…*
+3. Décrire uniquement **ce qu'on voit** sur la photo
+4. **Court et factuel**
+5. La description = **une seule phrase**
+
+### Vocabulaire clé (FR → EN)
+
+| FR | EN |
+|---|---|
+| Boucles d'oreilles | Earrings |
+| Collier | Necklace |
+| Bracelet | Bracelet |
+| Bague | Ring |
+| Chaîne de cheville | Anklet |
+| Pendentif | Pendant |
+| Parure | Jewelry set |
+| Lot de X | Set of X |
+| Plateau / présentoir | Display / display tray |
+| Cadre bois | Wooden frame |
+| Coussin | Cushion |
+| Jonc | Bangle |
+| Pavée de strass | Rhinestone-paved / paved with rhinestones |
+| Anti-stress / pivotante | Anti-stress / spinning / fidget |
+| Bracelets thaïlandais | Thai bracelets |
+| Nacre | Mother-of-pearl |
+| Résine | Resin |
+| Émail / émaillé | Enamel / enamelled |
+| Ajouré | Openwork |
+| Martelé | Hammered |
+| Strié | Ridged |
+| Facetté | Faceted |
+| Torsadé | Twisted |
+| Coeur | Heart |
+| Étoile | Star |
+| Trèfle | Clover |
+| Fleur | Flower |
+| Cerceau | Hoop |
+| Pampille / breloque | Charm |
+| Acier inoxydable | Stainless steel |
+| Laiton | Brass |
+
+### Exemples (miroir des exemples FR validés)
+
+| Réf | FR | EN |
+|-----|----|----|
+| A382 | Boucles d'oreilles cœur résine et éventail | Heart resin and fan earrings |
+| A485 | Boucles d'oreilles cascade de pastilles | Cascading disc earrings |
+| A271 | Chaîne de cheville étoiles | Star anklet |
+
+### Cohérence FR ↔ EN
+
+- Même **ordre des idées** (élément principal → détail secondaire)
+- Même **structure** (Type + forme + détail)
+- Même **niveau de détail** (si le FR mentionne « chaîne fine », l'EN doit dire « fine chain »)
+- Si un mot FR n'a pas d'équivalent EN simple, choisir le mot commercial le plus courant sur les marketplaces internationales (Amazon, Etsy)

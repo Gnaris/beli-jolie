@@ -1,13 +1,15 @@
 "use client";
 import { useState } from "react";
 import type { ChecklistInput } from "./CompletenessChecklist";
-import { SECTIONS, computeSectionsProgress, ProductFormSectionKey } from "./ProductFormNav";
+import { SECTIONS, computeSectionsProgress, ProductFormSectionKey, ProductFormSectionGroup } from "./ProductFormNav";
 
 interface Props {
   checklistInput: ChecklistInput;
   activeSection: ProductFormSectionKey;
   onSectionChange: (key: ProductFormSectionKey) => void;
 }
+
+const GROUP_ORDER: ProductFormSectionGroup[] = ["Base", "Catalogue", "Diffusion", "Interne"];
 
 export default function ProductFormSectionPicker({
   checklistInput,
@@ -25,12 +27,12 @@ export default function ProductFormSectionPicker({
         onClick={() => setOpen(true)}
         className="xl:hidden w-full flex items-center gap-3 px-4 py-3 bg-bg-primary border border-border rounded-xl shadow-card text-left"
       >
-        <span className="w-8 h-8 rounded-lg bg-bg-dark text-text-inverse inline-flex items-center justify-center font-heading font-bold text-sm">
-          {SECTIONS.findIndex((s) => s.key === activeSection) + 1}
+        <span className="w-8 h-8 rounded-lg bg-bg-tertiary inline-flex items-center justify-center text-[16px]" aria-hidden>
+          {current.icon}
         </span>
         <span className="flex-1 min-w-0">
           <span className="block text-[10px] font-semibold tracking-[0.12em] uppercase text-text-muted font-body">
-            Section actuelle
+            Section actuelle · {current.group}
           </span>
           <span className="block font-heading font-semibold text-text-primary text-[14px] truncate">
             {current.label}
@@ -51,66 +53,60 @@ export default function ProductFormSectionPicker({
             className="relative w-full max-w-[360px] max-h-[80vh] overflow-y-auto bg-bg-primary rounded-2xl shadow-modal border border-border p-3"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted font-body px-2 py-2">
-              Sections du produit
-            </p>
-            <ul className="space-y-1">
-              {SECTIONS.map((sec, idx) => {
-                const p = progress[sec.key];
-                const isActive = sec.key === activeSection;
-                return (
-                  <li key={sec.key}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onSectionChange(sec.key);
-                        setOpen(false);
-                      }}
-                      className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center gap-3 transition-colors ${
-                        isActive
-                          ? "bg-bg-dark text-text-inverse"
-                          : "hover:bg-bg-secondary text-text-primary"
-                      }`}
-                    >
-                      <span
-                        className={`w-7 h-7 rounded-md inline-flex items-center justify-center font-heading font-bold text-[12px] shrink-0 ${
-                          isActive
-                            ? "bg-text-inverse/15 text-text-inverse"
-                            : "bg-bg-tertiary text-text-secondary"
-                        }`}
-                      >
-                        {idx + 1}
-                      </span>
-                      <span className="flex-1 min-w-0">
-                        <span className="block font-heading font-semibold text-[13.5px]">
-                          {sec.label}
-                        </span>
-                        <span
-                          className={`block text-[11px] font-body mt-0.5 ${
-                            isActive ? "text-text-inverse/70" : "text-text-muted"
-                          }`}
-                        >
-                          {sec.hint}
-                        </span>
-                        {p.hasItems && (
-                          <span
-                            className={`block text-[10px] font-body mt-0.5 ${
+            {GROUP_ORDER.map((groupName) => {
+              const sectionsInGroup = SECTIONS.filter((s) => s.group === groupName);
+              return (
+                <div key={groupName} className="mb-3 last:mb-0">
+                  <p className="text-[10px] font-heading font-bold uppercase tracking-[0.12em] text-text-muted mb-1.5 px-2 pt-1">
+                    {groupName}
+                  </p>
+                  <ul className="space-y-0.5">
+                    {sectionsInGroup.map((sec) => {
+                      const p = progress[sec.key];
+                      const isActive = sec.key === activeSection;
+                      return (
+                        <li key={sec.key}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onSectionChange(sec.key);
+                              setOpen(false);
+                            }}
+                            className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center gap-2.5 transition-colors ${
                               isActive
-                                ? "text-text-inverse/80"
-                                : p.isFull
-                                  ? "text-emerald-600"
-                                  : "text-[#EF4444]"
+                                ? "bg-bg-dark text-text-inverse"
+                                : "hover:bg-bg-secondary text-text-primary"
                             }`}
                           >
-                            {p.done} / {p.total} renseigné{p.total > 1 ? "s" : ""}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+                            <span className="text-[15px] leading-none shrink-0" aria-hidden>
+                              {sec.icon}
+                            </span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block font-body font-semibold text-[13px] leading-tight">
+                                {sec.label}
+                              </span>
+                              {p.hasItems && (
+                                <span
+                                  className={`block text-[10px] font-body mt-0.5 ${
+                                    isActive
+                                      ? "text-text-inverse/80"
+                                      : p.isFull
+                                        ? "text-emerald-600"
+                                        : "text-[#EF4444]"
+                                  }`}
+                                >
+                                  {p.done} / {p.total}
+                                </span>
+                              )}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

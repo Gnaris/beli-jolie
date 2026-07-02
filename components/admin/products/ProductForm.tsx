@@ -3,6 +3,7 @@
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, PackLineState, PfsColorOption, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack, packLinesColorList, buildVariantDuplicateKey } from "./ColorVariantManager";
+import PhotosPanel from "./PhotosPanel";
 import PfsMappingSection from "./PfsMappingSection";
 import { detectPfsColorConflicts, formatConflictsMessage } from "@/lib/pfs-color-conflicts";
 import CompletenessChecklist, { computeChecklist } from "./CompletenessChecklist";
@@ -10,7 +11,8 @@ import ProductFormNav, { ProductFormSectionKey } from "./ProductFormNav";
 import ProductFormSectionPicker from "./ProductFormSectionPicker";
 import { SectionNavFooter } from "./SectionNavFooter";
 import { SectionEyebrow } from "./SectionEyebrow";
-import { createProduct, updateProduct, saveProductTranslations, fetchProductFormAttributes, checkProductReferenceAvailable } from "@/app/actions/admin/products";
+import { PanelHeader } from "./PanelHeader";
+import { createProduct, updateProduct, saveProductTranslations, fetchProductFormAttributes, checkProductReferenceAvailable, updateProductNoteOnly } from "@/app/actions/admin/products";
 
 import { VALID_LOCALES, LOCALE_LABELS, NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
@@ -18,6 +20,7 @@ import QuickCreateModal, { QuickCreateType } from "./QuickCreateModal";
 import CustomSelect from "@/components/ui/CustomSelect";
 import HsCodeModal from "@/components/admin/codes-sh/HsCodeModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useToast } from "@/components/ui/Toast";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
 import { useEfashionShootingBatch } from "./EfashionShootingBatchContext";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
@@ -360,53 +363,7 @@ function TagsDropdown({
         )}
       </div>
 
-      {/* Best-seller et Remise sont maintenant respectivement dans l'en-tête et la section Variantes */}
-
-      {/* Code SH (douanier) — bibliothèque + dropdown */}
-      <div className="pt-3 border-t border-border-light space-y-1.5">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <p className="text-sm font-semibold text-text-primary font-heading">Code SH</p>
-          <a
-            href="https://www.tarifdouanier.eu/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[11px] font-normal text-[#4F46E5] hover:text-[#3730A3] hover:underline font-body"
-            title="Ouvrir la liste des codes SH dans un nouvel onglet"
-          >
-            Voir la liste
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-            </svg>
-          </a>
-        </div>
-
-        <CustomSelect
-          value={hsCodeId}
-          onChange={(v) => setHsCodeId(v)}
-          options={[
-            { value: "", label: "Aucun" },
-            ...hsCodeOptions.map((c) => ({
-              value: c.id,
-              label: `${c.code} — ${c.label}`,
-            })),
-          ]}
-          size="md"
-          searchable
-          placeholder="Aucun"
-        />
-
-        <button
-          type="button"
-          onClick={onCreateHsCodeClick}
-          className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors cursor-pointer"
-        >
-          + Créer un nouveau code SH
-        </button>
-
-        <p className="text-[11px] text-text-muted font-body">
-          Code douanier international (6 à 10 chiffres) — requis par Ankorstore.
-        </p>
-      </div>
+      {/* Best-seller, Remise et Code SH sont maintenant respectivement dans l'en-tête, Variantes et Général */}
     </div>
   );
 }
@@ -504,7 +461,7 @@ export default function ProductForm({
   const [bundleChildIds, setBundleChildIds] = useState<string[]>(initialData?.bundleChildIds ?? []);
   const [tagNames,          setTagNames]          = useState<string[]>(initialData?.tagNames ?? []);
   const [isBestSeller,      setIsBestSeller]      = useState(initialData?.isBestSeller ?? false);
-  const [activeSection,     setActiveSection]     = useState<ProductFormSectionKey>(mode === "create" ? "info" : "overview");
+  const [activeSection,     setActiveSection]     = useState<ProductFormSectionKey>("general");
   const [discountPercent,   setDiscountPercent]   = useState(initialData?.discountPercent ?? "");
   const [sizeDetailsTu, setSizeDetailsTu] = useState(initialData?.sizeDetailsTu ?? "");
   const [manufacturingCountryId, setManufacturingCountryId] = useState(initialData?.manufacturingCountryId ?? "");
@@ -517,6 +474,12 @@ export default function ProductForm({
   const [dimDiameter,      setDimDiameter]      = useState(initialData?.dimDiameter      ?? "");
   const [dimCircumference, setDimCircumference] = useState(initialData?.dimCircumference ?? "");
   const [hsCodeId,         setHsCodeId]         = useState<string>(initialData?.hsCodeId    ?? "");
+
+  // ── Note interne (édition inline dans la section "note") ─────────────
+  const [note, setNote] = useState<string>(initialData?.note ?? "");
+  const [savedNote, setSavedNote] = useState<string>(initialData?.note ?? "");
+  const [noteSaving, setNoteSaving] = useState(false);
+  const noteDirty = note !== savedNote;
 
   const [error, setError] = useState("");
   const [onlineErrors, setOnlineErrors] = useState<string[]>([]);
@@ -738,7 +701,24 @@ export default function ProductForm({
   // ── Unsaved changes guard ─────────────────────────────────────────────
   const router = useRouter();
   const { confirm: confirmDialog } = useConfirm();
+  const toast = useToast();
   const { enqueue: enqueuePublish } = useMarketplaceRefreshQueue();
+
+  const handleSaveNote = async () => {
+    if (!productId || noteSaving) return;
+    setNoteSaving(true);
+    try {
+      const res = await updateProductNoteOnly(productId, note);
+      if (res.success) {
+        setSavedNote(note);
+        toast.success("Note enregistrée");
+      } else {
+        toast.error("Impossible d'enregistrer la note", res.error ?? "Erreur inconnue.");
+      }
+    } finally {
+      setNoteSaving(false);
+    }
+  };
   // eFashion : la création (ou refresh) d'un produit pas encore lié crée un
   // ticket de shooting côté eFashion. Pour éviter le spam de tickets, ces
   // opérations partent dans une file d'attente (validation manuelle de
@@ -1191,22 +1171,23 @@ export default function ProductForm({
   function addComposition() {
     if (!newCompId) return;
     if (compositions.some((c) => c.compositionId === newCompId)) return;
-    const evenPct = (100 / (compositions.length + 1)).toFixed(1);
+    const evenPct = String(Math.round(100 / (compositions.length + 1)));
     const updated = compositions.map((c) => ({ ...c, percentage: evenPct }));
     setCompositions([...updated, { compositionId: newCompId, percentage: evenPct }]);
     setNewCompId("");
   }
 
   function updateCompositionPct(compositionId: string, pct: string) {
+    const cleaned = pct === "" ? "" : String(Math.max(0, Math.min(100, Math.round(Number(pct) || 0))));
     setCompositions(compositions.map((c) =>
-      c.compositionId === compositionId ? { ...c, percentage: pct } : c
+      c.compositionId === compositionId ? { ...c, percentage: cleaned } : c
     ));
   }
 
   function removeComposition(compositionId: string) {
     const remaining = compositions.filter((c) => c.compositionId !== compositionId);
     if (remaining.length === 0) { setCompositions([]); return; }
-    const evenPct = (100 / remaining.length).toFixed(1);
+    const evenPct = String(Math.round(100 / remaining.length));
     setCompositions(remaining.map((c) => ({ ...c, percentage: evenPct })));
   }
 
@@ -2323,22 +2304,17 @@ export default function ProductForm({
         className={`space-y-8 min-w-0 border-0 p-0 m-0 ${uploadProgress !== null ? "opacity-60" : ""}`}
       >
 
-        {/* ── Indicateur de complétude ── */}
-        <div id="section-overview" hidden={activeSection !== "overview"}>
-          <CompletenessChecklist input={checklistInput} />
-        </div>
-
         {/* ── Informations du produit ── */}
         <div className="space-y-4">
 
-          {/* Row 1 : Bloc principal (left) + Bloc mots clés (right) */}
-          <div id="section-info" hidden={activeSection !== "info"} className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4">
+          {/* Row 1 : chaque bloc (Général / Catégorie / Mots-clés) est un panel dédié */}
+          <div id="section-info" hidden={!(["general","cat","tags"] as const).some((k) => k === activeSection)} className="space-y-4">
 
-            {/* ── BLOC PRINCIPAL ── */}
-            <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-              <SectionEyebrow
-                label="Général"
-                hint="Nom, référence et description qui apparaissent partout."
+            {/* ── BLOC GÉNÉRAL ── */}
+            <div hidden={activeSection !== "general"} className="bg-bg-primary border border-border rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+              <PanelHeader
+                title="Général"
+                subtitle="Nom, référence et description qui apparaissent partout."
               />
               {/* Header: langue tabs + bouton IA */}
               <div className="flex flex-wrap items-center gap-3">
@@ -2432,23 +2408,15 @@ export default function ProductForm({
                 )}
               </Field>
 
-              {/* Non-FR hint + missing translation warning */}
-              {activeLocale !== "fr" && (
-                <div className="space-y-2">
-                  <div className="bg-bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-text-secondary font-body">
-                    Langue active : <strong>{LOCALE_LABELS[activeLocale]}</strong> — le nom et la description seront sauvegardés en tant que traduction.
-                    Les champs Catégorie, Sous-catégories, Tags, Composition et Couleurs restent en français.
-                  </div>
-                  {missingDbLocales?.has(activeLocale) && (
-                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 font-body">
-                      <span className="text-base leading-none mt-0.5">⚠️</span>
-                      <span>
-                        <strong>Traduction manquante</strong> — Aucune traduction enregistrée en <strong>{LOCALE_LABELS[activeLocale]}</strong>.
-                        Le produit s&apos;affichera en français par défaut pour les visiteurs dans cette langue.
-                        Utilisez le bouton &laquo;&nbsp;Générer avec l&apos;IA&nbsp;&raquo; ou remplissez manuellement les champs.
-                      </span>
-                    </div>
-                  )}
+              {/* Avertissement "traduction manquante" — uniquement quand pertinent */}
+              {activeLocale !== "fr" && missingDbLocales?.has(activeLocale) && (
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 font-body">
+                  <span className="text-base leading-none mt-0.5">⚠️</span>
+                  <span>
+                    <strong>Traduction manquante</strong> — Aucune traduction enregistrée en <strong>{LOCALE_LABELS[activeLocale]}</strong>.
+                    Le produit s&apos;affichera en français par défaut pour les visiteurs dans cette langue.
+                    Utilisez le bouton &laquo;&nbsp;Générer avec l&apos;IA&nbsp;&raquo; ou remplissez manuellement les champs.
+                  </span>
                 </div>
               )}
 
@@ -2472,6 +2440,79 @@ export default function ProductForm({
                   <p className="text-[11px] text-[#EF4444] mt-1 font-body">Le nom du produit est requis.</p>
                 )}
               </div>
+
+              {/* Code SH douanier — pleine largeur */}
+              <div>
+                <label className="block text-sm font-body font-semibold text-text-secondary mb-1.5">
+                  Code SH douanier
+                </label>
+                <CustomSelect
+                  value={hsCodeId}
+                  onChange={(v) => setHsCodeId(v)}
+                  options={[
+                    { value: "", label: "Aucun" },
+                    ...localHsCodes.map((c) => ({
+                      value: c.id,
+                      label: `${c.code} — ${c.label}`,
+                    })),
+                  ]}
+                  size="md"
+                  searchable
+                  placeholder="Aucun"
+                />
+                <button
+                  type="button"
+                  onClick={() => setHsCodeQuickCreateOpen(true)}
+                  className="mt-1 text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors cursor-pointer"
+                >
+                  + Créer un nouveau code SH
+                </button>
+              </div>
+
+              {/* Description (déplacée ici pour rester dans la card Général) */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-body font-semibold text-text-secondary">
+                    Description *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
+                  </label>
+                  {activeLocale === "fr" && (() => {
+                    const refSuffixLen = getAnkorstoreReferenceSuffixLength(reference);
+                    const effectiveLen = description.trim().length + refSuffixLen;
+                    const tooShort = effectiveLen < DESCRIPTION_MIN_CHARS;
+                    return (
+                      <span
+                        className={`text-[11px] font-body ${tooShort ? "text-[#EF4444]" : "text-text-tertiary"}`}
+                        title={refSuffixLen > 0 ? `Inclut ${refSuffixLen} caractères de la ligne « Référence produit : ${reference.trim()} » ajoutée automatiquement.` : undefined}
+                      >
+                        {effectiveLen} / {DESCRIPTION_MIN_CHARS} min
+                      </span>
+                    );
+                  })()}
+                </div>
+                <textarea
+                  value={activeDescription}
+                  onChange={(e) => setActiveDescription(e.target.value)}
+                  onBlur={() => { if (activeLocale === "fr") markTouched("description"); }}
+                  rows={4}
+                  placeholder={activeLocale === "fr" ? "Description commerciale du produit (30 caractères minimum)…" : `Description en ${LOCALE_LABELS[activeLocale]}…`}
+                  className={`field-input resize-none${activeLocale === "fr" && (!description.trim() || description.trim().length + getAnkorstoreReferenceSuffixLength(reference) < DESCRIPTION_MIN_CHARS) ? " field-error" : ""}`}
+                  required={activeLocale === "fr"}
+                />
+                {activeLocale === "fr" && touchedFields.has("description") && !description.trim() && (
+                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">La description est requise pour la mise en ligne.</p>
+                )}
+                {activeLocale === "fr" && touchedFields.has("description") && description.trim() && description.trim().length + getAnkorstoreReferenceSuffixLength(reference) < DESCRIPTION_MIN_CHARS && (
+                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">Minimum {DESCRIPTION_MIN_CHARS} caractères requis (ligne référence comprise). Actuellement : {description.trim().length + getAnkorstoreReferenceSuffixLength(reference)}.</p>
+                )}
+              </div>
+            </div>
+
+            {/* ── BLOC CATÉGORIE ── */}
+            <div hidden={activeSection !== "cat"} className="bg-bg-primary border border-border rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+              <PanelHeader
+                title="Catégorie & classement"
+                subtitle="Où votre produit apparaîtra sur le site et les marketplaces."
+              />
 
               {/* Catégorie + sous-catégories (always FR) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -2670,45 +2711,10 @@ export default function ProductForm({
                 </div>
               </div>
 
-              {/* Description */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-sm font-body font-semibold text-text-secondary">
-                    Description *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
-                  </label>
-                  {activeLocale === "fr" && (() => {
-                    const refSuffixLen = getAnkorstoreReferenceSuffixLength(reference);
-                    const effectiveLen = description.trim().length + refSuffixLen;
-                    const tooShort = effectiveLen < DESCRIPTION_MIN_CHARS;
-                    return (
-                      <span
-                        className={`text-[11px] font-body ${tooShort ? "text-[#EF4444]" : "text-text-tertiary"}`}
-                        title={refSuffixLen > 0 ? `Inclut ${refSuffixLen} caractères de la ligne « Référence produit : ${reference.trim()} » ajoutée automatiquement.` : undefined}
-                      >
-                        {effectiveLen} / {DESCRIPTION_MIN_CHARS} min
-                      </span>
-                    );
-                  })()}
-                </div>
-                <textarea
-                  value={activeDescription}
-                  onChange={(e) => setActiveDescription(e.target.value)}
-                  onBlur={() => { if (activeLocale === "fr") markTouched("description"); }}
-                  rows={4}
-                  placeholder={activeLocale === "fr" ? "Description commerciale du produit (30 caractères minimum)…" : `Description en ${LOCALE_LABELS[activeLocale]}…`}
-                  className={`field-input resize-none${activeLocale === "fr" && (!description.trim() || description.trim().length + getAnkorstoreReferenceSuffixLength(reference) < DESCRIPTION_MIN_CHARS) ? " field-error" : ""}`}
-                  required={activeLocale === "fr"}
-                />
-                {activeLocale === "fr" && touchedFields.has("description") && !description.trim() && (
-                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">La description est requise pour la mise en ligne.</p>
-                )}
-                {activeLocale === "fr" && touchedFields.has("description") && description.trim() && description.trim().length + getAnkorstoreReferenceSuffixLength(reference) < DESCRIPTION_MIN_CHARS && (
-                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">Minimum {DESCRIPTION_MIN_CHARS} caractères requis (ligne référence comprise). Actuellement : {description.trim().length + getAnkorstoreReferenceSuffixLength(reference)}.</p>
-                )}
-              </div>
             </div>
 
-            {/* ── BLOC MOTS CLÉS & REMISE ── */}
+            {/* ── BLOC MOTS CLÉS ── */}
+            <div hidden={activeSection !== "tags"}>
             <TagsDropdown
               localTags={localTags}
               tagNames={tagNames}
@@ -2726,16 +2732,17 @@ export default function ProductForm({
               hsCodeOptions={localHsCodes}
               onCreateHsCodeClick={() => setHsCodeQuickCreateOpen(true)}
             />
+            </div>
           </div>
 
           {/* Row 2 : Bloc dimensions (left) + Bloc composition (right) */}
-          <div id="section-details" hidden={activeSection !== "details"} className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div id="section-details" hidden={!(["dim","comp"] as const).some((k) => k === activeSection)} className="space-y-4">
 
             {/* ── BLOC DIMENSIONS ── */}
-            <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-              <SectionEyebrow
-                label="Dimensions"
-                hint="En millimètres (mm) — laisser vide si non applicable."
+            <div hidden={activeSection !== "dim"} className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+              <PanelHeader
+                title="Dimensions & poids"
+                subtitle="Facultatif — en millimètres. Le poids par pièce se règle sur chaque variante couleur."
               />
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <Field label="Longueur">
@@ -2762,7 +2769,7 @@ export default function ProductForm({
             </div>
 
             {/* ── BLOC COMPOSITION ── */}
-            <div className={`bg-bg-primary border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)] ${
+            <div hidden={activeSection !== "comp"} className={`bg-bg-primary border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)] ${
               compositions.length === 0 || Math.abs(totalPct - 100) > 0.5 ? "border-[#EF4444]" : "border-border"
             }`}>
               <SectionEyebrow
@@ -2828,7 +2835,7 @@ export default function ProductForm({
                               {comp?.name ?? item.compositionId}
                             </div>
                             <div className="text-[11px] text-text-muted font-body sm:hidden">
-                              {pct.toFixed(1)} %
+                              {Math.round(pct)} %
                             </div>
                           </div>
                           <div className="hidden sm:flex items-center min-w-0">
@@ -2848,7 +2855,7 @@ export default function ProductForm({
                               type="number"
                               min="0"
                               max="100"
-                              step="0.1"
+                              step="1"
                               value={item.percentage}
                               onChange={(e) => updateCompositionPct(item.compositionId, e.target.value)}
                               className="w-12 text-right bg-transparent border-0 outline-none font-heading font-bold text-base text-text-primary p-0"
@@ -2896,7 +2903,7 @@ export default function ProductForm({
                             : "text-[#B45309]"
                       }`}
                     >
-                      {totalPct.toFixed(1)} %
+                      {Math.round(totalPct)} %
                     </span>
                   </div>
                 </>
@@ -2906,7 +2913,7 @@ export default function ProductForm({
         </div>
 
         {/* ── Variantes couleur ── */}
-        <section id="section-variants" hidden={activeSection !== "variants"} className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-2xl p-8 space-y-5 shadow-card`}>
+        <section id="section-variants" hidden={!(["var","img","map"] as const).some((k) => k === activeSection)} className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-2xl p-8 space-y-5 shadow-card`}>
           <div className="flex items-center justify-between gap-4 border-b border-border pb-4 flex-wrap">
             <div className="flex items-center gap-3">
               <h2 className="font-heading text-xl font-bold text-text-primary">
@@ -2943,8 +2950,19 @@ export default function ProductForm({
             </p>
           )}
 
+          {activeSection === "img" && (
+            <PhotosPanel
+              variants={variants}
+              colorImages={colorImages}
+              availableColors={localColors}
+              onChangeImages={setColorImages}
+              primaryColorId={primaryColorId}
+              productReference={reference}
+            />
+          )}
+
           {/* ── Bloc Remise (s'applique à toutes les variantes du produit) ── */}
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end bg-gradient-to-br from-bg-primary to-bg-secondary border border-border rounded-xl p-4">
+          <div hidden={activeSection !== "var"} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end bg-gradient-to-br from-bg-primary to-bg-secondary border border-border rounded-xl p-4">
             <div>
               <label htmlFor="product-discount" className="block text-xs font-body font-semibold text-text-primary mb-1">
                 Remise appliquée (%)
@@ -3066,6 +3084,7 @@ export default function ProductForm({
             );
           })()}
 
+          <div hidden={activeSection !== "var"}>
           <ColorVariantManager
             variants={variants}
             colorImages={colorImages}
@@ -3084,9 +3103,10 @@ export default function ProductForm({
             onChangePrimaryColorId={setPrimaryColorId}
             allowColorEdit={allowColorEditExistingVariants}
           />
+          </div>
 
           {/* ── Mapping Paris Fashion Shop par variante ── */}
-          {hasPfsConfig && variants.length > 0 && (
+          {hasPfsConfig && variants.length > 0 && activeSection === "map" && (
             <PfsMappingSection
               variants={variants}
               availableColors={localColors}
@@ -3129,7 +3149,7 @@ export default function ProductForm({
           )}
         </section>
 
-        <div id="section-links" hidden={activeSection !== "links"} className="space-y-8">
+        <div id="section-links" hidden={activeSection !== "assoc"} className="space-y-8">
           <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-8 shadow-card">
             <div className="border-b border-border pb-4">
               <h2 className="font-heading text-xl font-bold text-text-primary">
@@ -3192,6 +3212,43 @@ export default function ProductForm({
                 <BundleParentsReadonly products={initialData.bundleParents} />
               </div>
             )}
+          </section>
+        </div>
+
+        {/* ── Marketplaces (placeholder — détail des cards à venir) ── */}
+        {/* ── Note interne ── */}
+        <div id="section-note" hidden={activeSection !== "note"} className="space-y-4">
+          <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-4 shadow-card">
+            <PanelHeader
+              title="Note interne"
+              subtitle="Visible uniquement dans l'admin — mémo (recommande fournisseur, retour client, etc.)."
+            />
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              maxLength={2000}
+              rows={6}
+              placeholder="Ex : « Stock rose gold à recommander mi-juillet » ou tout autre rappel interne."
+              className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-emerald-300 font-body"
+            />
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] text-text-muted font-body">
+                {note.length} / 2000 caractères
+              </span>
+              {noteDirty && (
+                <span className="text-[11px] text-amber-700 bg-amber-100 border border-amber-200 rounded-full px-2 py-0.5 font-body">
+                  Modifications non enregistrées
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleSaveNote}
+                disabled={noteSaving || !noteDirty}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-body font-semibold bg-bg-dark text-text-inverse hover:bg-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {noteSaving ? "Enregistrement…" : "Enregistrer la note"}
+              </button>
+            </div>
           </section>
         </div>
 
@@ -3260,22 +3317,19 @@ export default function ProductForm({
                         : "Créer le produit";
 
                 let hintLabel = "";
-                if (!isPending && !isUploading) {
-                  if (!isProductComplete) {
-                    hintLabel = "Sera enregistré en brouillon";
-                  } else if (productStatus === "ONLINE") {
-                    hintLabel = "Visible par les clients";
-                  } else if (productStatus === "OFFLINE") {
-                    hintLabel = "Reste hors ligne";
-                  } else if (productStatus === "ARCHIVED") {
-                    hintLabel = "Reste archivé";
-                  }
+                if (!isPending && !isUploading && !isProductComplete) {
+                  hintLabel = "Fiche produit incomplète";
                 }
 
+                // En mode brouillon (create + productId existant), "Finaliser le produit"
+                // fait doublon avec "Enregistrer en brouillon" — on grise le bouton
+                // pour éviter la confusion, la sauvegarde passe par le bouton secondaire.
+                const isDraftFinalize = mode === "create" && !!productId;
                 return (
                   <button
                     type="submit"
-                    disabled={isPending || isSyncLocked || isUploading}
+                    disabled={isPending || isSyncLocked || isUploading || isDraftFinalize}
+                    title={isDraftFinalize ? "Utilisez « Enregistrer en brouillon » — ce bouton est désactivé dans ce mode." : undefined}
                     className="btn-primary h-14 min-w-[260px] px-6 py-0 text-base disabled:opacity-60 disabled:cursor-not-allowed flex flex-col items-center justify-center gap-0.5 leading-tight"
                   >
                     <span>{mainLabel}</span>

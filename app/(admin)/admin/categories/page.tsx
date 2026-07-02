@@ -10,6 +10,8 @@ import {
   getCachedHasFaireConfig,
 } from "@/lib/cached-data";
 import { buildTranslationsMap } from "@/lib/translations";
+import { getFaireTaxonomy } from "@/lib/faire-taxonomy";
+import { findFaireTaxonomyById } from "@/lib/faire-taxonomy-types";
 
 export const metadata: Metadata = {
   title: "Catégories",
@@ -35,7 +37,7 @@ function buildPfsLabel(g: string | null, f: string | null, c: string | null): st
 }
 
 export default async function CategoriesPage() {
-  const [categories, efashionLabels, hasPfsConfig, hasEfashionConfig, hasFaireConfig] = await Promise.all([
+  const [categories, efashionLabels, hasPfsConfig, hasEfashionConfig, hasFaireConfig, faireTypes] = await Promise.all([
     prisma.category.findMany({
       orderBy: { name: "asc" },
       include: {
@@ -51,7 +53,19 @@ export default async function CategoriesPage() {
     getCachedHasPfsConfig(),
     getCachedHasEfashionConfig(),
     getCachedHasFaireConfig(),
+    // Taxonomie Faire (cachée) — résout les tt_xxx en nom humain "Bracelets"
+    // avec breadcrumb "Bijoux › Bracelets". Renvoie [] en cas d'erreur ou si
+    // Faire n'est pas configuré, auquel cas l'ID brut reste le fallback.
+    getFaireTaxonomy().catch(() => []),
   ]);
+
+  function buildFaireLabel(taxonomyId: string | null): string | null {
+    if (!taxonomyId) return null;
+    const hit = findFaireTaxonomyById(faireTypes, taxonomyId);
+    if (!hit) return taxonomyId;
+    const trail = hit.categoryBreadcrumb?.join(" › ");
+    return trail ? `${hit.name} · ${trail}` : hit.name;
+  }
 
   const rows: CategoryRow[] = categories.map((c) => ({
     id: c.id,
@@ -71,7 +85,7 @@ export default async function CategoriesPage() {
     })),
     pfsLabel: buildPfsLabel(c.pfsGender, c.pfsFamilyName, c.pfsCategoryName),
     efashionLabel: resolveCategoryLabel(efashionLabels, c.efashionCategorieId) ?? null,
-    faireLabel: c.faireTaxonomyId,
+    faireLabel: buildFaireLabel(c.faireTaxonomyId),
   }));
 
   // hasTranslations = a déjà au moins une traduction non-FR (FR est le nom de

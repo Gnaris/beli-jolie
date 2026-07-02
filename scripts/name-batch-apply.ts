@@ -12,6 +12,8 @@
  *       "ref": "A382",
  *       "name": "...",
  *       "description": "...",
+ *       "nameEn": "...",          // optionnel — si présent, écrit ProductTranslation(locale=en)
+ *       "descriptionEn": "...",   // optionnel — idem
  *       "tagNames": ["coeur", "ajouré"],
  *       "subCategoryNames": ["Boucles pendantes"]
  *     }
@@ -30,6 +32,8 @@ type Item = {
   ref: string;
   name: string;
   description: string;
+  nameEn?: string;
+  descriptionEn?: string;
   tagNames: string[];
   subCategoryNames: string[];
 };
@@ -133,6 +137,10 @@ async function applyItem(item: Item, now: Date): Promise<Report> {
     faireProductId: product.faireProductId,
   });
 
+  const nameEn = item.nameEn?.trim();
+  const descriptionEn = item.descriptionEn?.trim();
+  const hasEn = Boolean(nameEn && descriptionEn);
+
   await prisma.$transaction(async (tx) => {
     await tx.product.update({
       where: { id: product.id },
@@ -148,7 +156,25 @@ async function applyItem(item: Item, now: Date): Promise<Report> {
         ...flagPatch,
       },
     });
-    await tx.productTranslation.deleteMany({ where: { productId: product.id } });
+
+    if (hasEn) {
+      // Traduction anglaise fournie : on la pose directement (pas de DeepL).
+      // On efface uniquement la ligne 'en' précédente et on garde les autres locales intactes.
+      await tx.productTranslation.deleteMany({
+        where: { productId: product.id, locale: "en" },
+      });
+      await tx.productTranslation.create({
+        data: {
+          productId: product.id,
+          locale: "en",
+          name: nameEn!,
+          description: descriptionEn!,
+        },
+      });
+    } else {
+      // Pas de traduction fournie : ancien comportement — efface tout, DeepL régénère en arrière-plan.
+      await tx.productTranslation.deleteMany({ where: { productId: product.id } });
+    }
   });
 
   // 4. Invalidation des caches (best-effort, peut échouer hors contexte Next)
