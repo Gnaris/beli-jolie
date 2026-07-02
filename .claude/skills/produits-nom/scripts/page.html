@@ -476,6 +476,7 @@
     // Sous-catégories et tags pour le produit courant
     let subcats = new Map();
     let tags = new Map();
+    let composition = new Map(); // { [ref]: { ref, category, checked } }
     let currentProduct = null;
 
     async function fetchSession() {
@@ -719,6 +720,14 @@
                 </div>` : ''}
             </div>
 
+            <!-- Contenu de l'ensemble (parures uniquement) -->
+            ${(p.siblings && p.siblings.length > 0) ? `
+            <section style="margin-top:8px;">
+              <div class="section-title">Contenu de l'ensemble</div>
+              <div style="font-size:12px;color:#78716c;margin-bottom:8px;">Cochez les produits qui font partie de cette parure — tout est coché par défaut.</div>
+              <div id="composition-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+            </section>` : ''}
+
             <!-- Sous-catégories -->
             <section style="margin-top:8px;">
               <div class="section-title">
@@ -779,6 +788,7 @@
       // Post-render: wire up subcats/tags chips + autocomplete + clarif button
       renderSubcats();
       renderTags();
+      renderComposition();
       setupSubcatTagListeners();
     }
 
@@ -908,6 +918,38 @@
       }
     }
 
+    function renderComposition() {
+      const list = document.getElementById('composition-list');
+      if (!list) return;
+      list.innerHTML = '';
+      for (const [ref, item] of composition) {
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid #e7e5e4;border-radius:8px;background:' + (item.checked ? '#f0fdf4' : '#fafaf9') + ';cursor:pointer;font-size:14px;';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!item.checked;
+        cb.style.cssText = 'width:16px;height:16px;cursor:pointer;';
+        const refEl = document.createElement('strong');
+        refEl.style.cssText = 'font-family:monospace;color:#1c1917;';
+        refEl.textContent = item.ref;
+        const sep = document.createElement('span');
+        sep.style.color = '#78716c';
+        sep.textContent = '·';
+        const catEl = document.createElement('span');
+        catEl.style.color = '#57534e';
+        catEl.textContent = item.category;
+        row.appendChild(cb);
+        row.appendChild(refEl);
+        row.appendChild(sep);
+        row.appendChild(catEl);
+        cb.addEventListener('change', function () {
+          item.checked = cb.checked;
+          renderComposition();
+        });
+        list.appendChild(row);
+      }
+    }
+
     function renderTags() {
       const list = document.getElementById('tags-list');
       if (!list) return;
@@ -979,6 +1021,7 @@
       }
       subcats = new Map();
       tags = new Map();
+      composition = new Map();
       currentProduct = p;
 
       for (const sc of (p.subCategories || [])) {
@@ -998,6 +1041,13 @@
         if (!tags.has(key)) {
           tags.set(key, { id: t.id || null, name: capitalize(t.name), checked: true });
         }
+      }
+      for (const sib of (p.siblings || [])) {
+        composition.set(sib.ref, {
+          ref: sib.ref,
+          category: sib.category || '',
+          checked: true,
+        });
       }
     }
 
@@ -1062,12 +1112,14 @@
       const p = session.products[currentIdx];
       const tagNames = Array.from(tags.values()).filter(t => t.checked).map(t => t.name);
       const subCategoryNames = Array.from(subcats.values()).filter(sc => sc.checked).map(sc => sc.name);
+      const compositionRefs = Array.from(composition.values()).filter(c => c.checked).map(c => c.ref);
       const ok = await postJSON('/api/validate', {
         ref: p.reference,
         name: selectedName,
         description: selectedDesc,
         tagNames,
         subCategoryNames,
+        compositionRefs,
       });
       if (!ok) { toast('Erreur de sauvegarde'); return; }
       session.decisions = session.decisions || {};
@@ -1137,8 +1189,9 @@
       }
       const tagNames = (p.tags || []).map(t => t.name);
       const subCategoryNames = (p.subCategories || []).map(sc => sc.name);
+      const compositionRefs = (p.siblings || []).map(s => s.ref); // par défaut : tout coché
       const ok = await postJSON('/api/validate', {
-        ref: p.reference, name, description, tagNames, subCategoryNames,
+        ref: p.reference, name, description, tagNames, subCategoryNames, compositionRefs,
       });
       if (!ok) { toast('Erreur lors de la sauvegarde'); return; }
       toast('Marqué comme « pas besoin de modifier »');

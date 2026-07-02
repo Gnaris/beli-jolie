@@ -45,6 +45,17 @@ Quand l'utilisatrice demande **corriger / réparer / mettre à jour** quelque ch
 
 Confirmation **uniquement** avant actions vraiment risquées (suppression de données, drop tables, push --force, secrets).
 
+### Maquette avant toute modif de design
+
+Dès qu'une demande touche au **visuel / UI / design** (couleurs, mise en page, composants, refonte d'un écran, nouveau bloc, style d'un tableau, hero, sidebar, etc.) :
+
+1. **Ne pas toucher au vrai code d'abord.** Créer une **maquette HTML autonome** dans `C:/Users/Admin/Downloads/` (fichier unique, Tailwind via CDN si besoin, aucune dépendance au repo).
+2. Ouvrir le fichier dans le navigateur pour qu'elle voie l'aperçu.
+3. **Attendre son retour** : ajustements sur la maquette autant que nécessaire.
+4. **Une fois la maquette validée**, appliquer dans le vrai code du site (`app/`, `components/`…).
+
+Sauter cette étape uniquement si elle dit explicitement « pas besoin de maquette » ou si le changement est trivial (renommer un libellé, corriger une faute, ajuster un padding précis qu'elle a chiffré).
+
 ### Procédures en attente (déclenchées par phrase de code)
 
 - **« feu vert journaux »** → exécuter `docs/operations/mysql-binlog-cleanup.md`. Une fois réussie, **supprimer le fichier et retirer cette ligne**.

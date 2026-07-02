@@ -1,14 +1,19 @@
 import { prisma } from "@/lib/prisma";
-import Link from "next/link";
 import type { Metadata } from "next";
-import EntityCreateButton from "@/components/admin/EntityCreateButton";
-import SeasonsManager from "@/components/admin/seasons/SeasonsManager";
+import PageHeader from "@/components/admin/shared/PageHeader";
+import SeasonsHeaderActions from "@/components/admin/seasons/SeasonsHeaderActions";
+import SeasonsMasterDetail, { type SeasonRow } from "@/components/admin/seasons/SeasonsMasterDetail";
+import {
+  getCachedHasPfsConfig,
+  getCachedHasEfashionConfig,
+} from "@/lib/cached-data";
 import { getEfashionLabelMaps, resolveCollectionLabel } from "@/lib/efashion-labels";
+import { buildTranslationsMap } from "@/lib/translations";
 
 export const metadata: Metadata = { title: "Saisons" };
 
 export default async function SaisonsPage() {
-  const [seasons, efashionLabels] = await Promise.all([
+  const [seasons, efashionLabels, hasPfsConfig, hasEfashionConfig] = await Promise.all([
     prisma.season.findMany({
       orderBy: { name: "asc" },
       include: {
@@ -17,36 +22,41 @@ export default async function SaisonsPage() {
       },
     }),
     getEfashionLabelMaps(),
+    getCachedHasPfsConfig(),
+    getCachedHasEfashionConfig(),
   ]);
 
-  const seasonItems = seasons.map((s) => ({
+  const rows: SeasonRow[] = seasons.map((s) => ({
     id: s.id,
     name: s.name,
+    translations: buildTranslationsMap(s.name, s.translations),
     pfsRef: s.pfsRef,
     efashionCollectionId: s.efashionCollectionId,
-    efashionCollectionLabel: resolveCollectionLabel(efashionLabels, s.efashionCollectionId),
+    efashionLabel: resolveCollectionLabel(efashionLabels, s.efashionCollectionId) ?? null,
     productCount: s._count.products,
-    translations: Object.fromEntries(s.translations.map((t) => [t.locale, t.name])),
+    createdAt: s.createdAt,
+  }));
+
+  const allTranslateItems = seasons.map((s) => ({
+    id: s.id,
+    text: s.name,
+    hasTranslations: s.translations.length > 0,
   }));
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-sm font-body text-text-muted mb-1">
-            <Link href="/admin" className="hover:text-text-primary transition-colors">Admin</Link>
-            <span>/</span>
-            <span className="text-text-secondary">Saisons</span>
-          </div>
-          <h1 className="page-title">Saisons</h1>
-          <p className="page-subtitle">
-            Gérez les saisons / collections de vos produits (ex: Printemps/Été 2026).
-          </p>
-        </div>
-        <EntityCreateButton type="season" label="+ Créer une saison" />
-      </div>
+    <div className="max-w-[1400px] mx-auto space-y-5 px-4 md:px-6 py-6">
+      <PageHeader
+        eyebrow="Catalogue · Collections"
+        title="Saisons"
+        subtitle="Créez les saisons ici, puis assignez-les à vos produits."
+        actions={<SeasonsHeaderActions items={allTranslateItems} />}
+      />
 
-      <SeasonsManager initialSeasons={seasonItems} />
+      <SeasonsMasterDetail
+        seasons={rows}
+        hasPfsConfig={hasPfsConfig}
+        hasEfashionConfig={hasEfashionConfig}
+      />
     </div>
   );
 }

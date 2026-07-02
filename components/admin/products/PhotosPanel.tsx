@@ -13,7 +13,7 @@
  * différé, sync marketplaces, etc.) reste dans ProductForm et n'est pas touchée.
  */
 
-import { useRef, useMemo, useState } from "react";
+import { useRef, useMemo, useState, useEffect } from "react";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import {
@@ -42,8 +42,19 @@ export default function PhotosPanel({
   availableColors,
   onChangeImages,
   primaryColorId,
+  productReference,
 }: Props) {
   const { confirm } = useConfirm();
+  const [zoomed, setZoomed] = useState<{ src: string; downloadName: string } | null>(null);
+
+  useEffect(() => {
+    if (!zoomed) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setZoomed(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoomed]);
 
   // Ordre d'affichage : on suit l'ordre des variantes. Pour un pack multi-couleurs,
   // on prend chaque couleur composante. Les entrées orphelines de colorImages
@@ -97,6 +108,8 @@ export default function PhotosPanel({
             availableColors={availableColors}
             colorImages={colorImages}
             onChangeImages={onChangeImages}
+            productReference={productReference}
+            onZoom={(src, downloadName) => setZoomed({ src, downloadName })}
             onConfirmDelete={async () => {
               return confirm({
                 type: "danger",
@@ -108,6 +121,41 @@ export default function PhotosPanel({
           />
         ))}
       </div>
+
+      {zoomed && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
+          onClick={() => setZoomed(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={zoomed.src}
+            alt="Aperçu"
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[92vh] max-w-[92vw] object-contain rounded-xl shadow-2xl"
+          />
+          <a
+            href={zoomed.src}
+            download={zoomed.downloadName}
+            onClick={(e) => e.stopPropagation()}
+            title="Télécharger"
+            className="absolute top-4 right-16 w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center backdrop-blur-sm transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+            </svg>
+          </a>
+          <button
+            type="button"
+            onClick={() => setZoomed(null)}
+            title="Fermer"
+            aria-label="Fermer l'aperçu"
+            className="absolute top-4 right-4 w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white text-2xl flex items-center justify-center backdrop-blur-sm transition-colors"
+          >
+            ×
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -122,6 +170,23 @@ interface PhotoRowProps {
   colorImages: ColorImageState[];
   onChangeImages: (next: ColorImageState[]) => void;
   onConfirmDelete: () => Promise<boolean | "secondary">;
+  productReference?: string;
+  onZoom: (src: string, downloadName: string) => void;
+}
+
+function slugForFile(input: string): string {
+  return input
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || "photo";
+}
+
+function extFromSrc(src: string): string {
+  const m = src.split("?")[0].match(/\.([a-z0-9]{2,5})$/i);
+  return m ? m[1].toLowerCase() : "jpg";
 }
 
 function PhotoRow({
@@ -134,6 +199,8 @@ function PhotoRow({
   colorImages,
   onChangeImages,
   onConfirmDelete,
+  productReference,
+  onZoom,
 }: PhotoRowProps) {
   const state = colorImages.find((c) => c.groupKey === groupKey);
   const opt = availableColors.find((c) => c.id === colorId);
@@ -325,13 +392,18 @@ function PhotoRow({
           const idx = state?.orders.indexOf(pos) ?? -1;
           const src = idx >= 0 ? state?.imagePreviews[idx] : undefined;
           if (src) {
+            const refPart = productReference ? slugForFile(productReference) : "photo";
+            const colorPart = slugForFile(colorName || "couleur");
+            const downloadName = `${refPart}-${colorPart}-${pos + 1}.${extFromSrc(src)}`;
             return (
               <FilledSlot
                 key={pos}
                 position={pos}
                 src={src}
+                downloadName={downloadName}
                 onRemove={() => removeAt(pos)}
                 onDropReorder={(fromPos) => movePhoto(fromPos, pos)}
+                onZoom={() => onZoom(src, downloadName)}
               />
             );
           }
@@ -355,13 +427,17 @@ const PHOTO_DND_TYPE = "application/x-beli-photo-pos";
 function FilledSlot({
   position,
   src,
+  downloadName,
   onRemove,
   onDropReorder,
+  onZoom,
 }: {
   position: number;
   src: string;
+  downloadName: string;
   onRemove: () => void;
   onDropReorder: (fromPos: number) => void;
+  onZoom: () => void;
 }) {
   const isPrimary = position === 0;
   const [isDropTarget, setIsDropTarget] = useState(false);
@@ -394,6 +470,18 @@ function FilledSlot({
     if (Number.isFinite(fromPos)) onDropReorder(fromPos);
   }
 
+  // Empêche le drag natif de démarrer quand on clique sur un bouton d'action
+  // (le parent est draggable). preventDefault() sur dragstart bloque le drag,
+  // stopPropagation() sur mousedown empêche le focus-drag involontaire.
+  const stopDrag = {
+    onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+    onDragStart: (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    draggable: false as const,
+  };
+
   return (
     <div
       draggable
@@ -402,7 +490,7 @@ function FilledSlot({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       title="Glissez pour changer d'ordre"
-      className={`relative aspect-square rounded-lg overflow-hidden border-2 bg-bg-tertiary cursor-grab active:cursor-grabbing transition-colors ${
+      className={`group relative aspect-square rounded-lg overflow-hidden border-2 bg-bg-tertiary cursor-grab active:cursor-grabbing transition-colors ${
         isDropTarget ? "border-bg-dark ring-2 ring-bg-dark/30" : "border-border-strong"
       }`}
     >
@@ -413,8 +501,39 @@ function FilledSlot({
         className="w-full h-full object-cover pointer-events-none"
         draggable={false}
       />
+
+      {/* Overlay d'actions au survol — pointer-events-none sur le fond pour ne
+          pas capter le drag ; seuls les boutons captent les clics. */}
+      <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+        <button
+          type="button"
+          onClick={onZoom}
+          {...stopDrag}
+          title="Agrandir"
+          aria-label={`Agrandir l'image en position ${position + 1}`}
+          className="pointer-events-auto w-8 h-8 rounded-full bg-white/95 hover:bg-white text-slate-900 flex items-center justify-center shadow cursor-pointer"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M10.5 7v7M7 10.5h7M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z" />
+          </svg>
+        </button>
+        <a
+          href={src}
+          download={downloadName}
+          onClick={(e) => e.stopPropagation()}
+          {...stopDrag}
+          title="Télécharger"
+          aria-label={`Télécharger l'image en position ${position + 1}`}
+          className="pointer-events-auto w-8 h-8 rounded-full bg-white/95 hover:bg-white text-slate-900 flex items-center justify-center shadow cursor-pointer"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+          </svg>
+        </a>
+      </div>
+
       <span
-        className={`absolute top-1 left-1 inline-flex items-center rounded-full text-white text-[9px] font-bold font-body px-1.5 py-0.5 ${
+        className={`absolute top-1 left-1 inline-flex items-center rounded-full text-white text-[9px] font-bold font-body px-1.5 py-0.5 pointer-events-none ${
           isPrimary ? "bg-bg-dark" : "bg-black/55"
         }`}
       >
@@ -426,9 +545,10 @@ function FilledSlot({
       <button
         type="button"
         onClick={onRemove}
+        {...stopDrag}
         title="Supprimer cette image"
         aria-label={`Supprimer l'image en position ${position + 1}`}
-        className="absolute top-1 right-1 w-[18px] h-[18px] rounded-full bg-black/55 text-white text-[11px] leading-none flex items-center justify-center hover:bg-black/75 transition-colors"
+        className="absolute top-1 right-1 w-[18px] h-[18px] rounded-full bg-black/55 text-white text-[11px] leading-none flex items-center justify-center hover:bg-black/75 transition-colors cursor-pointer"
       >
         ×
       </button>

@@ -27,11 +27,15 @@ import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/componen
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import { formatRelativeDate } from "@/lib/format-date";
-// Bouton d'export marketplace : import statique (présent dans la barre d'actions
-// qui apparaît à la 1re sélection — un chargement asynchrone créerait un
-// clignotement visible, cf. bug "page qui se refresh" rapporté 2026-06-04).
-import MarketplaceExportButton from "@/components/admin/products/MarketplaceExportButton";
 import MarketplaceActionModal from "@/components/admin/products/MarketplaceActionModal";
+import BulkActionBar, { type MarketplaceKey } from "@/components/admin/products/BulkActionBar";
+
+const MARKETPLACE_LABEL: Record<MarketplaceKey, string> = {
+  pfs: "Paris Fashion Shop",
+  ankorstore: "Ankorstore",
+  efashion: "eFashion Paris",
+  faire: "Faire",
+};
 
 // Modales lourdes — chargées à l'ouverture seulement pour alléger le bundle
 // initial de la table produits (cf. audit perf 2026-05-31).
@@ -619,6 +623,7 @@ interface AdminProduct {
   firstImage: string | null;
   pfsProductId: string | null;
   ankorsProductId: string | null;
+  efashionReferenceBase: string | null;
   faireProductId: string | null;
   /** Drapeaux « Synchronisation nécessaire » pilotés par le save produit et le
    *  worker image. Affiche un badge orange cliquable pour pousser la modif. */
@@ -1994,6 +1999,21 @@ function ProductRow({
                     : "Hors ligne"}
                 </span>
               </div>
+              {/* Badges marketplaces compacts pour mobile + tablette (< lg).
+                  Non-interactifs : simple aperçu du statut de publication.
+                  Les vraies actions sont accessibles via le menu ⋮. */}
+              <div className="lg:hidden flex items-center gap-1 mt-1.5 flex-wrap">
+                <MpDot label="PFS" active={hasPfsConfig && !!product.pfsProductId} syncRequired={product.pfsSyncRequired} />
+                {showEfashion && (
+                  <MpDot label="EF" active={efashionLinked} syncRequired={product.efashionSyncRequired} />
+                )}
+                {showAnkorstore && (
+                  <MpDot label="AK" active={!!product.ankorsProductId} syncRequired={product.ankorsSyncRequired} />
+                )}
+                {showFaire && (
+                  <MpDot label="Faire" active={faireBadgeState.online} syncRequired={product.faireSyncRequired} />
+                )}
+              </div>
             </div>
             {/* Boutons compacts (copie ref + verrou) à droite, discrets, apparaissent au survol */}
             <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
@@ -2792,69 +2812,11 @@ function TableWithTopScroll({
   onRowDelete: (productId: string) => void;
   onRowSync: (productId: string) => void;
 }) {
-  const topScrollRef = useRef<HTMLDivElement>(null);
-  const tableScrollRef = useRef<HTMLDivElement>(null);
-  const topInnerRef = useRef<HTMLDivElement>(null);
-  const isSyncingRef = useRef<"top" | "bottom" | null>(null);
-
-  // Sync widths & show/hide top scrollbar
-  useEffect(() => {
-    const tableEl = tableScrollRef.current;
-    const topEl = topScrollRef.current;
-    const topInner = topInnerRef.current;
-    if (!tableEl || !topEl || !topInner) return;
-
-    const syncWidth = () => {
-      const scrollW = tableEl.scrollWidth;
-      const clientW = tableEl.clientWidth;
-      topInner.style.width = `${scrollW}px`;
-      // Hide top scrollbar when no overflow
-      topEl.style.display = scrollW > clientW ? "block" : "none";
-    };
-
-    syncWidth();
-
-    const ro = new ResizeObserver(syncWidth);
-    ro.observe(tableEl);
-    return () => ro.disconnect();
-  }, [products]);
-
-  // Sync scroll positions
-  useEffect(() => {
-    const topEl = topScrollRef.current;
-    const tableEl = tableScrollRef.current;
-    if (!topEl || !tableEl) return;
-
-    const onTopScroll = () => {
-      if (isSyncingRef.current === "bottom") return;
-      isSyncingRef.current = "top";
-      tableEl.scrollLeft = topEl.scrollLeft;
-      requestAnimationFrame(() => { isSyncingRef.current = null; });
-    };
-    const onTableScroll = () => {
-      if (isSyncingRef.current === "top") return;
-      isSyncingRef.current = "bottom";
-      topEl.scrollLeft = tableEl.scrollLeft;
-      requestAnimationFrame(() => { isSyncingRef.current = null; });
-    };
-
-    topEl.addEventListener("scroll", onTopScroll);
-    tableEl.addEventListener("scroll", onTableScroll);
-    return () => {
-      topEl.removeEventListener("scroll", onTopScroll);
-      tableEl.removeEventListener("scroll", onTableScroll);
-    };
-  }, []);
-
   return (
     <div className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
-      {/* Top scrollbar */}
-      <div ref={topScrollRef} className="overflow-x-auto" style={{ height: 12 }}>
-        <div ref={topInnerRef} style={{ height: 1 }} />
-      </div>
-      {/* Table */}
-      <div ref={tableScrollRef} className="overflow-x-auto">
-        <table className="w-full text-sm font-body" style={{ minWidth: 980 }}>
+      {/* Table — pas de min-width, les colonnes secondaires disparaissent aux petits breakpoints */}
+      <div>
+        <table className="w-full text-sm font-body">
           <thead>
             <tr className="table-header">
               <th className="px-4 py-3.5 w-10">
@@ -3011,7 +2973,6 @@ export default function AdminProductsTable({
   const selectedDraftIds = allProducts
     .filter((p) => selectedIds.has(p.id) && p.status === "OFFLINE")
     .map((p) => p.id);
-  const hasSelectedDrafts = selectedDraftIds.length > 0;
 
   const handleBulkPublishDraftsConfirm = useCallback(
     async (decision: {
@@ -4114,6 +4075,136 @@ export default function AdminProductsTable({
     });
   }, [selectedVariantIds, allProducts, startTransition, showLoading, hideLoading, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, confirm, enqueuePfs]);
 
+  // ─── Nouveaux handlers pour BulkActionBar ─────────────────────────────
+  // Ces handlers alimentent le panneau « Marketplaces » qui liste, pour chaque
+  // marketplace configuré, les produits à publier (identifiant marketplace
+  // absent + statut ONLINE) ou à synchroniser (drapeau *SyncRequired = true).
+
+  const handleBulkMarketplacePublish = useCallback(async (marketplace: MarketplaceKey, ids: string[]) => {
+    if (ids.length === 0) return;
+    const count = ids.length;
+    const plural = count > 1 ? "s" : "";
+    const label = MARKETPLACE_LABEL[marketplace];
+
+    // eFashion : première publication = ticket de shooting, pas d'envoi direct.
+    if (marketplace === "efashion") {
+      const ok = await confirm({
+        type: "info",
+        title: `Ajouter ${count} produit${plural} au shooting eFashion ?`,
+        message: `Une entrée de shooting sera créée pour chaque produit. L'envoi effectif vers eFashion se validera depuis la fenêtre "eFashion" en bas à droite.`,
+        confirmLabel: "Ajouter au shooting",
+        cancelLabel: "Annuler",
+      });
+      if (ok !== true) return;
+      void (async () => {
+        try {
+          const res = await bulkAddToEfashionShootingBatch(ids, "PUBLISH");
+          if (res.addedCount > 0) {
+            toast.success(
+              `${res.addedCount} produit${res.addedCount > 1 ? "s" : ""} ajouté${res.addedCount > 1 ? "s" : ""} au shooting eFashion`,
+              "Validez l'envoi depuis la fenêtre eFashion en bas à droite.",
+            );
+          }
+        } catch (e) {
+          toast.error("Ajout au shooting eFashion impossible", e instanceof Error ? e.message : "Erreur inconnue.");
+        } finally {
+          void refreshEfashionBatch();
+        }
+      })();
+      return;
+    }
+
+    const asyncNote = marketplace === "ankorstore"
+      ? " La publication Ankorstore est asynchrone : le résultat arrivera dans les minutes qui suivent."
+      : "";
+    const ok = await confirm({
+      type: "warning",
+      title: `Publier ${count} produit${plural} sur ${label} ?`,
+      message: `Une nouvelle fiche sera créée sur ${label} pour chaque produit, avec les infos, photos, prix et stock actuels.${asyncNote}`,
+      confirmLabel: "Oui, publier",
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+
+    const products = allProducts.filter((p) => ids.includes(p.id));
+    const options = { local: false, pfs: false, ankorstore: false, efashion: false, faire: false };
+    if (marketplace === "pfs") options.pfs = true;
+    if (marketplace === "ankorstore") options.ankorstore = true;
+    if (marketplace === "faire") options.faire = true;
+    enqueuePfs(
+      products.map((p) => ({
+        productId: p.id,
+        reference: p.reference,
+        productName: p.name,
+        firstImage: p.firstImage,
+        options: { ...options },
+        mode: "publish" as const,
+        marketplace,
+      })),
+    );
+    toast.success(
+      `${count} produit${plural} en cours de publication sur ${label}`,
+      "Suivi dans la fenêtre en bas à droite.",
+    );
+  }, [allProducts, enqueuePfs, toast, refreshEfashionBatch, confirm]);
+
+  const handleBulkMarketplaceSync = useCallback(async (marketplace: MarketplaceKey, ids: string[]) => {
+    if (ids.length === 0) return;
+    const count = ids.length;
+    const plural = count > 1 ? "s" : "";
+    const label = MARKETPLACE_LABEL[marketplace];
+
+    const asyncNote = marketplace === "ankorstore"
+      ? " La synchro Ankorstore est asynchrone : le résultat arrivera dans les minutes qui suivent."
+      : "";
+    const ok = await confirm({
+      type: "info",
+      title: `Synchroniser ${count} produit${plural} sur ${label} ?`,
+      message: `Les changements locaux seront envoyés sur ${label} pour mettre à jour les fiches existantes.${asyncNote}`,
+      confirmLabel: "Oui, synchroniser",
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+
+    const products = allProducts.filter((p) => ids.includes(p.id));
+    const options = { local: false, pfs: false, ankorstore: false, efashion: false, faire: false };
+    if (marketplace === "pfs") options.pfs = true;
+    if (marketplace === "ankorstore") options.ankorstore = true;
+    if (marketplace === "efashion") options.efashion = true;
+    if (marketplace === "faire") options.faire = true;
+    enqueuePfs(
+      products.map((p) => ({
+        productId: p.id,
+        reference: p.reference,
+        productName: p.name,
+        firstImage: p.firstImage,
+        options: { ...options },
+        mode: "resync" as const,
+        marketplace,
+      })),
+    );
+    toast.success(
+      `${count} produit${plural} en cours de synchro sur ${label}`,
+      "Suivi dans la fenêtre en bas à droite.",
+    );
+  }, [allProducts, enqueuePfs, toast, confirm]);
+
+  const handleBulkRefreshCurrent = useCallback(async () => {
+    const selectedProductsPayload = allProducts
+      .filter((p) => selectedIds.has(p.id))
+      .map((p) => ({
+        productId: p.id,
+        reference: p.reference,
+        productName: p.name,
+        firstImage: p.firstImage,
+        status: p.status,
+        isIncomplete: p.isIncomplete,
+        wasImported: !!p.pfsProductId,
+        locked: p.locked,
+      }));
+    await refreshBulk(selectedProductsPayload);
+  }, [allProducts, selectedIds, refreshBulk]);
+
   if (allProducts.length === 0) {
     return (
       <div className="bg-bg-primary border border-border rounded-2xl p-16 text-center">
@@ -4130,139 +4221,43 @@ export default function AdminProductsTable({
 
   return (
     <div>
-      {/* Barre d'actions en masse (produits)
-          Toujours montée dans le DOM puis animée via le pattern CSS Grid
-          `grid-rows-[0fr] → grid-rows-[1fr]` : la barre s'agrandit en douceur
-          au lieu d'apparaître d'un coup et de pousser le tableau (bug "page qui
-          se refresh" rapporté 2026-06-04). Quand rien n'est sélectionné, le
-          wrapper a 0px de hauteur ET 0px de marge — aucun espace vide. */}
-      <div
-        aria-hidden={!someSelected}
-        className={`grid transition-all duration-300 ease-out ${
-          someSelected
-            ? "grid-rows-[1fr] opacity-100 mb-3"
-            : "grid-rows-[0fr] opacity-0 mb-0 pointer-events-none"
-        }`}
-      >
-        <div className="overflow-hidden">
-        <div className="flex items-center gap-3 bg-bg-dark text-text-inverse rounded-2xl px-5 py-3.5 shadow-lg">
-          <span className="text-sm font-body font-semibold tabular-nums">
-            {selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}
-          </span>
-          <div className="h-4 w-px bg-bg-primary/20" />
-          <button
-            type="button"
-            onClick={() => handleBulkStatus("ONLINE")}
-            disabled={isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#22C55E] text-white text-xs font-medium rounded-lg hover:bg-[#16A34A] disabled:opacity-50 transition-colors font-body"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            Mettre en ligne
-          </button>
-          <button
-            type="button"
-            onClick={() => handleBulkStatus("OFFLINE")}
-            disabled={isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-primary/10 text-text-inverse text-xs font-medium rounded-lg hover:bg-bg-primary/20 disabled:opacity-50 transition-colors font-body"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
-            </svg>
-            Mettre hors ligne
-          </button>
-          <button
-            type="button"
-            onClick={() => handleBulkStatus("ARCHIVED")}
-            disabled={isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F59E0B]/80 text-white text-xs font-medium rounded-lg hover:bg-[#D97706] disabled:opacity-50 transition-colors font-body"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
-            </svg>
-            Archiver
-          </button>
-          <div className="h-4 w-px bg-bg-primary/20" />
-          {hasSelectedDrafts && (
-            <button
-              type="button"
-              onClick={() => setBulkPublishDraftsOpen(true)}
-              disabled={isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4F46E5] text-white text-xs font-medium rounded-lg hover:bg-[#4338CA] disabled:opacity-50 transition-colors font-body"
-              title="Mettre en ligne les brouillons éligibles et les publier sur les marketplaces"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-              Publier brouillons ({selectedDraftIds.length})
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={async () => {
-              const selectedProducts = allProducts
-                .filter((p) => selectedIds.has(p.id))
-                .map((p) => ({
-                  productId: p.id,
-                  reference: p.reference,
-                  productName: p.name,
-                  firstImage: p.firstImage,
-                  status: p.status,
-                  isIncomplete: p.isIncomplete,
-                  wasImported: !!p.pfsProductId,
-                  locked: p.locked,
-                }));
-              await refreshBulk(selectedProducts);
-            }}
-            disabled={isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#6366F1] text-white text-xs font-medium rounded-lg hover:bg-[#4F46E5] disabled:opacity-50 transition-colors font-body"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-            </svg>
-            Rafraîchir
-          </button>
-          <button
-            type="button"
-            onClick={() => setBulkEditOpen(true)}
-            disabled={isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#A855F7] text-white text-xs font-medium rounded-lg hover:bg-[#9333EA] disabled:opacity-50 transition-colors font-body"
-            title="Modifier en masse : catégorie, code SH, composition, pays, saison, best-seller"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-            </svg>
-            Modifier
-          </button>
-          <div className="h-4 w-px bg-bg-primary/20" />
-          <MarketplaceExportButton
-            productIds={Array.from(selectedIds)}
-            disabled={isPending}
-            onExported={() => router.refresh()}
-          />
-          <button
-            type="button"
-            onClick={() => handleBulkDelete()}
-            disabled={isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/80 text-white text-xs font-medium rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors font-body"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-            </svg>
-            Supprimer
-          </button>
-          <button
-            type="button"
-            onClick={() => { setSelectedIds(new Set()); }}
-            className="ml-auto text-xs text-text-inverse/50 hover:text-text-inverse transition-colors font-body"
-          >
-            Désélectionner
-          </button>
-        </div>
-        </div>
-      </div>
+      {/* Barre d'actions en masse — nouveau composant flottant (Variante A).
+          Le rendu, le compteur intelligent, le panneau Marketplaces contextuel
+          et le menu « Plus » vivent dans BulkActionBar. Ici on se contente de
+          brancher les handlers déjà en place. */}
+      <BulkActionBar
+        selectedProducts={allProducts.filter((p) => selectedIds.has(p.id)).map((p) => ({
+          id: p.id,
+          reference: p.reference,
+          name: p.name,
+          status: p.status,
+          isIncomplete: p.isIncomplete,
+          locked: p.locked,
+          firstImage: p.firstImage,
+          pfsProductId: p.pfsProductId,
+          ankorsProductId: p.ankorsProductId,
+          efashionReferenceBase: p.efashionReferenceBase,
+          faireProductId: p.faireProductId,
+          pfsSyncRequired: p.pfsSyncRequired,
+          ankorsSyncRequired: p.ankorsSyncRequired,
+          efashionSyncRequired: p.efashionSyncRequired,
+          faireSyncRequired: p.faireSyncRequired,
+        }))}
+        isPending={isPending}
+        marketplaces={{
+          pfs: { available: hasPfsConfig },
+          ankorstore: { configured: hasAnkorstoreConfig, enabled: ankorstoreEnabled },
+          efashion: { configured: hasEfashionConfig, enabled: efashionEnabled },
+          faire: { configured: hasFaireConfig, enabled: faireEnabled },
+        }}
+        onStatus={(status) => handleBulkStatus(status)}
+        onDelete={() => handleBulkDelete()}
+        onRefresh={handleBulkRefreshCurrent}
+        onEditAttributes={() => setBulkEditOpen(true)}
+        onDeselectAll={() => setSelectedIds(new Set())}
+        onMarketplacePublish={handleBulkMarketplacePublish}
+        onMarketplaceSync={handleBulkMarketplaceSync}
+      />
 
       {/* Message résultat bulk */}
       {bulkMessage && (
@@ -4322,5 +4317,23 @@ export default function AdminProductsTable({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Pastille compacte statut marketplace, utilisée dans la colonne Produit sur
+ * mobile + tablette (< lg) où la colonne Marketplaces dédiée est masquée.
+ * Non-interactive : simple indicateur. Les actions passent par le menu ⋮.
+ */
+function MpDot({ label, active, syncRequired }: { label: string; active: boolean; syncRequired: boolean }) {
+  const cls = syncRequired && active
+    ? "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA]"
+    : active
+      ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
+      : "bg-bg-secondary text-text-muted border-border";
+  return (
+    <span className={`inline-flex items-center justify-center px-1.5 h-5 rounded text-[9.5px] font-semibold border leading-none ${cls}`}>
+      {label}
+    </span>
   );
 }

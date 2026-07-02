@@ -154,7 +154,7 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/validate' && req.method === 'POST') {
       const body = await readBody(req);
-      const { ref, name, description, tagNames, subCategoryNames } = body;
+      const { ref, name, description, tagNames, subCategoryNames, compositionRefs } = body;
       if (!ref || !name || !description) {
         return sendJSON(res, 400, { error: 'ref, name, description requis' });
       }
@@ -186,6 +186,7 @@ const server = http.createServer(async (req, res) => {
         descriptionEn,
         tagNames: Array.isArray(tagNames) ? tagNames : [],
         subCategoryNames: Array.isArray(subCategoryNames) ? subCategoryNames : [],
+        compositionRefs: Array.isArray(compositionRefs) ? compositionRefs : [],
         validated_at: new Date().toISOString(),
       };
       writeSession(s);
@@ -224,6 +225,7 @@ const server = http.createServer(async (req, res) => {
         descriptionEn: d.descriptionEn || undefined,
         tagNames: d.tagNames || [],
         subCategoryNames: d.subCategoryNames || [],
+        compositionRefs: d.compositionRefs || [],
       }));
       if (items.length === 0) {
         return sendJSON(res, 400, { error: 'aucune validation à envoyer' });

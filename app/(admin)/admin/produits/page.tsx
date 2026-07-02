@@ -121,7 +121,7 @@ function PageHero({
           )}
         </div>
         {actions && (
-          <div className="flex items-center gap-2 shrink-0 flex-wrap">{actions}</div>
+          <div className="grid grid-cols-2 gap-2 md:flex md:items-center md:gap-2 md:shrink-0 md:flex-wrap">{actions}</div>
         )}
       </div>
     </div>
@@ -163,7 +163,7 @@ function PrimaryActionLink({ href, children, variant = "primary" }: { href: stri
     ? "bg-bg-dark text-text-inverse hover:bg-primary-hover shadow-sm"
     : "bg-white/80 backdrop-blur-sm text-text-primary border border-border hover:bg-white";
   return (
-    <Link href={href} className={`inline-flex items-center gap-2 h-10 px-4 rounded-xl text-sm font-body font-medium transition-all ${cls}`}>
+    <Link href={href} className={`inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl text-sm font-body font-medium transition-all w-full md:w-auto ${cls}`}>
       {children}
     </Link>
   );
@@ -492,9 +492,10 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     updatedAt:       p.updatedAt.toISOString(),
     lastRefreshedAt: p.lastRefreshedAt ? p.lastRefreshedAt.toISOString() : null,
     firstImage:      pickFirstImage({ primaryColorId: p.primaryColorId, colors: p.colors }, colorImagePath),
-    pfsProductId:    p.pfsProductId,
-    ankorsProductId: p.ankorsProductId,
-    faireProductId:  p.faireProductId,
+    pfsProductId:          p.pfsProductId,
+    ankorsProductId:       p.ankorsProductId,
+    efashionReferenceBase: p.efashionReferenceBase,
+    faireProductId:        p.faireProductId,
     pfsSyncRequired:      p.pfsSyncRequired,
     ankorsSyncRequired:   p.ankorsSyncRequired,
     efashionSyncRequired: p.efashionSyncRequired,

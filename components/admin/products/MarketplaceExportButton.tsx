@@ -156,15 +156,15 @@ export default function MarketplaceExportButton({ productIds, disabled, onExport
           type="button"
           onClick={() => setMenuOpen((v) => !v)}
           disabled={disabled || isLoadingPreview || productIds.length === 0}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-primary/10 text-text-inverse text-xs font-medium rounded-lg hover:bg-bg-primary/20 disabled:opacity-50 transition-colors font-body"
+          className="inline-flex items-center gap-1.5 px-3 py-2 bg-sky-50 text-sky-700 text-[13px] font-medium rounded-[10px] hover:bg-sky-100 disabled:opacity-50 transition-colors whitespace-nowrap"
           title="Exporter la sélection au format Excel"
         >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+          <svg className="w-[15px] h-[15px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15M9 12l3 3m0 0l3-3m-3 3V2.25" />
           </svg>
           {isLoadingPreview ? "Préparation…" : "Exporter"}
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </button>
 

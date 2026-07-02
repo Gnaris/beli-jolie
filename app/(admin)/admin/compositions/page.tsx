@@ -1,14 +1,19 @@
 import { prisma } from "@/lib/prisma";
-import Link from "next/link";
 import type { Metadata } from "next";
-import EntityCreateButton from "@/components/admin/EntityCreateButton";
-import CompositionsManager from "@/components/admin/compositions/CompositionsManager";
+import PageHeader from "@/components/admin/shared/PageHeader";
+import CompositionsHeaderActions from "@/components/admin/compositions/CompositionsHeaderActions";
+import CompositionsMasterDetail, { type CompositionRow } from "@/components/admin/compositions/CompositionsMasterDetail";
+import {
+  getCachedHasPfsConfig,
+  getCachedHasEfashionConfig,
+} from "@/lib/cached-data";
 import { getEfashionLabelMaps, resolveCompositionLabel } from "@/lib/efashion-labels";
+import { buildTranslationsMap } from "@/lib/translations";
 
-export const metadata: Metadata = { title: "Compositions" };
+export const metadata: Metadata = { title: "Bibliothèque de compositions" };
 
 export default async function CompositionsPage() {
-  const [compositions, efashionLabels] = await Promise.all([
+  const [compositions, efashionLabels, hasPfsConfig, hasEfashionConfig] = await Promise.all([
     prisma.composition.findMany({
       orderBy: { name: "asc" },
       include: {
@@ -17,36 +22,41 @@ export default async function CompositionsPage() {
       },
     }),
     getEfashionLabelMaps(),
+    getCachedHasPfsConfig(),
+    getCachedHasEfashionConfig(),
   ]);
 
-  const compositionItems = compositions.map((c) => ({
+  const rows: CompositionRow[] = compositions.map((c) => ({
     id: c.id,
     name: c.name,
+    translations: buildTranslationsMap(c.name, c.translations),
     pfsCompositionRef: c.pfsCompositionRef,
     efashionId: c.efashionId,
-    efashionLabel: resolveCompositionLabel(efashionLabels, c.efashionId),
+    efashionLabel: resolveCompositionLabel(efashionLabels, c.efashionId) ?? null,
     productCount: c._count.products,
-    translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
+    createdAt: c.createdAt,
+  }));
+
+  const allTranslateItems = compositions.map((c) => ({
+    id: c.id,
+    text: c.name,
+    hasTranslations: c.translations.length > 0,
   }));
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-sm font-body text-text-muted mb-1">
-            <Link href="/admin" className="hover:text-text-primary transition-colors">Admin</Link>
-            <span>/</span>
-            <span className="text-text-secondary">Compositions</span>
-          </div>
-          <h1 className="page-title">Bibliothèque de compositions</h1>
-          <p className="page-subtitle">
-            Créez les matériaux et compositions — ils seront assignables aux produits avec un pourcentage.
-          </p>
-        </div>
-        <EntityCreateButton type="composition" label="+ Créer une composition" />
-      </div>
+    <div className="max-w-[1400px] mx-auto space-y-5 px-4 md:px-6 py-6">
+      <PageHeader
+        eyebrow="Catalogue · Matériaux"
+        title="Compositions"
+        subtitle="Créez les matériaux ici."
+        actions={<CompositionsHeaderActions items={allTranslateItems} />}
+      />
 
-      <CompositionsManager initialCompositions={compositionItems} />
+      <CompositionsMasterDetail
+        compositions={rows}
+        hasPfsConfig={hasPfsConfig}
+        hasEfashionConfig={hasEfashionConfig}
+      />
     </div>
   );
 }

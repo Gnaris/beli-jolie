@@ -1,14 +1,21 @@
 import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
-import EntityCreateButton from "@/components/admin/EntityCreateButton";
-import ColorsManager from "@/components/admin/couleurs/ColorsManager";
-import { getCachedPfsEnabled, getCachedAnkorstoreEnabled } from "@/lib/cached-data";
+import PageHeader from "@/components/admin/shared/PageHeader";
+import ColorsHeaderActions from "@/components/admin/couleurs/ColorsHeaderActions";
+import ColorsMasterDetail, { type ColorRow } from "@/components/admin/couleurs/ColorsMasterDetail";
+import {
+  getCachedPfsEnabled,
+  getCachedAnkorstoreEnabled,
+  getCachedHasPfsConfig,
+  getCachedHasEfashionConfig,
+} from "@/lib/cached-data";
 import { getEfashionLabelMaps, resolveColorLabel } from "@/lib/efashion-labels";
+import { buildTranslationsMap } from "@/lib/translations";
 
 export const metadata: Metadata = { title: "Bibliothèque de couleurs" };
 
 export default async function CouleursPage() {
-  const [colors, pfsEnabled, ankorstoreEnabled, efashionLabels] = await Promise.all([
+  const [colors, pfsEnabled, ankorstoreEnabled, efashionLabels, hasPfsConfig, hasEfashionConfig] = await Promise.all([
     prisma.color.findMany({
       orderBy: { name: "asc" },
       include: {
@@ -19,12 +26,13 @@ export default async function CouleursPage() {
     getCachedPfsEnabled(),
     getCachedAnkorstoreEnabled(),
     getEfashionLabelMaps(),
+    getCachedHasPfsConfig(),
+    getCachedHasEfashionConfig(),
   ]);
 
   // Compte de partage par pfsColorRef : combien d'autres couleurs pointent
-  // sur le même mapping PFS principal. Sert à afficher un badge informatif
-  // (les utilisateurs peuvent quand même publier — un override secondaire
-  // résout le conflit côté produit).
+  // sur le même mapping PFS. Sert à un badge info dans la carte marketplace
+  // (non bloquant — un override secondaire résout le conflit côté produit).
   const pfsRefCount = new Map<string, number>();
   for (const c of colors) {
     if (c.pfsColorRef) {
@@ -32,42 +40,42 @@ export default async function CouleursPage() {
     }
   }
 
-  const colorItems = colors.map((c) => ({
+  const rows: ColorRow[] = colors.map((c) => ({
     id: c.id,
     name: c.name,
     hex: c.hex,
     patternImage: c.patternImage,
+    translations: buildTranslationsMap(c.name, c.translations),
     pfsColorRef: c.pfsColorRef,
     pfsSharedCount: c.pfsColorRef ? Math.max(0, (pfsRefCount.get(c.pfsColorRef) ?? 1) - 1) : 0,
     efashionColorId: c.efashionColorId,
-    efashionColorLabel: resolveColorLabel(efashionLabels, c.efashionColorId),
+    efashionLabel: resolveColorLabel(efashionLabels, c.efashionColorId) ?? null,
     productCount: c._count.productColors,
-    translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
+    createdAt: c.createdAt,
+  }));
+
+  const allTranslateItems = colors.map((c) => ({
+    id: c.id,
+    text: c.name,
+    hasTranslations: c.translations.length > 0,
   }));
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="page-title">Bibliothèque de couleurs</h1>
-          <p className="page-subtitle">
-            Créez les couleurs ici, puis assignez-les à vos produits.
-          </p>
-        </div>
-        <EntityCreateButton type="color" label="+ Créer une couleur" />
-      </div>
+    <div className="max-w-[1400px] mx-auto space-y-5 px-4 md:px-6 py-6">
+      <PageHeader
+        eyebrow="Catalogue"
+        title="Couleurs"
+        subtitle="Créez les couleurs ici, puis assignez-les à vos produits."
+        actions={<ColorsHeaderActions items={allTranslateItems} />}
+      />
 
-      {/* Liste */}
-      <section className="space-y-3">
-        <h2 className="font-heading text-sm font-semibold text-text-secondary uppercase tracking-wider border-b border-border pb-2">
-          Couleurs ({colors.length})
-        </h2>
-        <ColorsManager
-          initialColors={colorItems}
-          pfsEnabled={pfsEnabled}
-          ankorstoreEnabled={ankorstoreEnabled}
-        />
-      </section>
+      <ColorsMasterDetail
+        colors={rows}
+        hasPfsConfig={hasPfsConfig}
+        hasEfashionConfig={hasEfashionConfig}
+        pfsEnabled={pfsEnabled}
+        ankorstoreEnabled={ankorstoreEnabled}
+      />
     </div>
   );
 }

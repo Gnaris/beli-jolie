@@ -97,6 +97,8 @@ Le script renvoie un JSON avec les N produits **les plus récemment créés** do
 
 Chaque produit retourné inclut : référence, ancien nom, ancienne description, note actuelle, catégorie principale avec ses sous-catégories disponibles, sous-catégories déjà attachées, tags déjà attachés, une image par couleur, et les identifiants marketplace (`pfsProductId`, `ankorsProductId`, `efashionReferenceBase`).
 
+**Contenu de l'ensemble (parures uniquement)** : si le produit est une **Parure de bijoux** dont la référence se termine par « E », le script cherche automatiquement les sous-produits (collier, bracelet, boucles, bague) qui partagent la base de la référence. Exemple : `A2591E` → cherche `A2591`, `A2591A`, `A2591B`, `A2591C` (max un caractère suffixe). Ces produits reviennent dans le champ `siblings: [{ ref, category }]` et seront proposés à la cliente, tous cochés par défaut, dans la section « Contenu de l'ensemble » de la page. Au push, ils sont liés au parent via `ProductBundle`.
+
 ### Étape A.4 — Télécharger les images en local
 
 Créer le dossier temporaire s'il n'existe pas, puis pour chaque produit télécharger l'image :
@@ -158,6 +160,7 @@ Construire le fichier `${USERPROFILE}\Desktop\beli-nom-session.json` avec cette 
       "descs": ["Desc 1", "Desc 2", "Desc 3"],
       "names_en": ["Name 1", "Name 2", "Name 3"],
       "descs_en": ["Desc 1", "Desc 2", "Desc 3"],
+      "siblings": [{ "ref": "A2591", "category": "Collier" }, { "ref": "A2591A", "category": "Bracelet" }],
       "proposedTags": [{ "id": null, "name": "Coeur" }, { "id": "tag123", "name": "Strass" }],
       "proposedSubCategories": [{ "id": null, "name": "Sautoir" }],
       "clarifyingQuestions": ["Le pendant central est-il en résine ou en nacre ?"],
@@ -245,7 +248,7 @@ Présenter sous forme :
 ## Push final (déclenché par la cliente depuis la page)
 
 Quand la cliente clique « Tout pousser sur le site » dans le navigateur, la page appelle l'API du serveur local qui :
-1. Construit un payload `{ items: [{ ref, name, description, nameEn, descriptionEn, tagNames, subCategoryNames }, ...] }` avec tous les `decisions`. `nameEn`/`descriptionEn` sont retrouvés côté serveur par index-match dans les propositions.
+1. Construit un payload `{ items: [{ ref, name, description, nameEn, descriptionEn, tagNames, subCategoryNames, compositionRefs }, ...] }` avec tous les `decisions`. `nameEn`/`descriptionEn` sont retrouvés côté serveur par index-match dans les propositions. `compositionRefs` = refs cochées dans « Contenu de l'ensemble ».
 2. Copie le payload sur le VPS via `scp`.
 3. Lance `scripts/name-batch-apply.ts` sur le VPS via `ssh`. Le script applique **uniquement en BDD** :
    - met à jour `name`, `description`
@@ -254,6 +257,7 @@ Quand la cliente clique « Tout pousser sur le site » dans le navigateur, la pa
    - crée les sous-catégories manquantes sous la catégorie principale, attache au produit
    - écrit `note` en préfixant « Complété par l'IA le DD/MM/YYYY »
    - lève les drapeaux `pfsSyncRequired` / `ankorsSyncRequired` / `efashionSyncRequired` / `faireSyncRequired` UNIQUEMENT pour les marketplaces déjà liées au produit
+   - remplace le contenu de l'ensemble (`ProductBundle`) — parent = ce produit, enfants = refs de `compositionRefs`. Refs inconnues ignorées silencieusement.
 4. Marque la session comme `pushed`.
 
 **Pas de push direct vers PFS / Ankorstore / eFashion**. C'est la cliente qui déclenche les synchros marketplace manuellement depuis l'admin (boutons existants sur la fiche produit et bulk).

@@ -36,6 +36,7 @@ type Item = {
   descriptionEn?: string;
   tagNames: string[];
   subCategoryNames: string[];
+  compositionRefs?: string[]; // enfants du bundle (sous-produits de la parure)
 };
 
 type Report = {
@@ -158,7 +159,7 @@ async function applyItem(item: Item, now: Date): Promise<Report> {
     });
 
     if (hasEn) {
-      // Traduction anglaise fournie : on la pose directement (pas de DeepL).
+      // Traduction anglaise fournie : on la pose directement (pas de traduction auto).
       // On efface uniquement la ligne 'en' précédente et on garde les autres locales intactes.
       await tx.productTranslation.deleteMany({
         where: { productId: product.id, locale: "en" },
@@ -172,8 +173,30 @@ async function applyItem(item: Item, now: Date): Promise<Report> {
         },
       });
     } else {
-      // Pas de traduction fournie : ancien comportement — efface tout, DeepL régénère en arrière-plan.
+      // Pas de traduction fournie : ancien comportement — efface tout, PFS régénère en arrière-plan.
       await tx.productTranslation.deleteMany({ where: { productId: product.id } });
+    }
+
+    // 5. Composition (contenu de l'ensemble) — parent = ce produit, enfants = les refs cochées.
+    // On remplace complètement les liens existants pour ce parent.
+    const compositionRefs = (item.compositionRefs || [])
+      .map((r) => r.trim())
+      .filter(Boolean);
+    if (compositionRefs.length > 0) {
+      const children = await tx.product.findMany({
+        where: { reference: { in: compositionRefs } },
+        select: { id: true, reference: true },
+      });
+      await tx.productBundle.deleteMany({ where: { parentId: product.id } });
+      for (const child of children) {
+        if (child.id === product.id) continue; // sécurité : jamais soi-même
+        await tx.productBundle.create({
+          data: { parentId: product.id, childId: child.id },
+        });
+      }
+    } else {
+      // Si la cliente a tout décoché, on nettoie aussi.
+      await tx.productBundle.deleteMany({ where: { parentId: product.id } });
     }
   });
 

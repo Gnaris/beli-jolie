@@ -40,7 +40,7 @@ export default function ProductStatusTabs({ counts }: { counts: SectionCounts })
   }
 
   return (
-    <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: "none" }}>
+    <div className="flex items-center gap-1.5 flex-wrap">
       {SECTIONS.map((s) => {
         const isActive = current === s.key;
         const count = counts[s.countKey];
@@ -49,7 +49,7 @@ export default function ProductStatusTabs({ counts }: { counts: SectionCounts })
             key={s.key}
             type="button"
             onClick={() => handleClick(s.key)}
-            className={`group flex items-center gap-2 px-4 py-2.5 text-[13px] font-body font-medium rounded-xl whitespace-nowrap transition-all duration-200 ${
+            className={`group flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-[12px] sm:text-[13px] font-body font-medium rounded-xl whitespace-nowrap transition-all duration-200 ${
               isActive
                 ? "bg-bg-dark text-text-inverse shadow-md"
                 : "bg-bg-primary text-text-secondary border border-border hover:border-border-dark hover:text-text-primary hover:shadow-sm"

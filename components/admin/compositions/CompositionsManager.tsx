@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteComposition, updateCompositionDirect, updateCompositionPfsRef } from "@/app/actions/admin/compositions";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
-import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
+import CompositionEditorModal from "./CompositionEditorModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import MarketplaceMappingBadge from "@/components/admin/MarketplaceMappingBadge";
@@ -204,11 +204,9 @@ export default function CompositionsManager({
       )}
 
       {editTarget && (
-        <QuickCreateModal
-          type="composition"
+        <CompositionEditorModal
           open={!!editTarget}
           onClose={() => setEditTarget(null)}
-          onCreated={() => { setEditTarget(null); router.refresh(); }}
           editMode={{
             id: editTarget.id,
             name: editTarget.name,

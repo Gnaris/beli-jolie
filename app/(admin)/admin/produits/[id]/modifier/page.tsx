@@ -7,6 +7,7 @@ import type { VariantState, ColorImageState } from "@/components/admin/products/
 import { ProductEditWrapper, StatusToggle } from "@/components/admin/products/ProductEditWrapper";
 import { BestSellerToggle } from "@/components/admin/products/BestSellerToggle";
 import { HeaderInlineBadges } from "@/components/admin/products/HeaderInlineBadges";
+import { ProductReferenceBadge } from "@/components/admin/products/ProductReferenceBadge";
 import { KpiRow } from "@/components/admin/products/KpiRow";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 import { DraftPageWrapper } from "./DraftPageWrapper";
@@ -332,9 +333,7 @@ export default async function ModifierProduitPage({
                   {product.name || "Continuer le brouillon"}
                 </h1>
                 {product.reference && (
-                  <span className="inline-flex items-center font-mono text-[11px] bg-bg-tertiary px-2.5 py-1 rounded-md text-text-secondary border border-border-light font-semibold">
-                    {product.reference}
-                  </span>
+                  <ProductReferenceBadge reference={product.reference} />
                 )}
                 <HeaderInlineBadges />
               </div>
@@ -445,9 +444,7 @@ export default async function ModifierProduitPage({
                 <h1 className="font-heading text-[26px] leading-tight font-bold tracking-tight text-text-primary truncate">
                   {product.name}
                 </h1>
-                <span className="inline-flex items-center font-mono text-[11px] bg-bg-tertiary px-2.5 py-1 rounded-md text-text-secondary border border-border-light font-semibold">
-                  {product.reference}
-                </span>
+                <ProductReferenceBadge reference={product.reference} />
                 <HeaderInlineBadges />
               </div>
             </div>

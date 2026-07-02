@@ -2923,7 +2923,7 @@ export default function ProductForm({
                 {variants.length} variante{variants.length > 1 ? "s" : ""}
               </span>
             </div>
-            {hasTailleUnique && (
+            {hasTailleUnique && activeSection === "var" && (
               <div className="flex items-center gap-2">
                 <label
                   htmlFor="size-details-tu"
