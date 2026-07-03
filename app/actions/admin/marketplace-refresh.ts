@@ -45,6 +45,15 @@ export interface MarketplaceRefreshOptions {
   ankorstore?: boolean; // Re-push to Ankorstore (Phase 4)
   efashion?: boolean; // Re-push to eFashion Paris (Lot 3 = update / Lot 5 = refresh complet)
   faire?: boolean; // Re-push to Faire (3.B)
+  /**
+   * Étalement du lot : délai en millisecondes entre le départ de chaque
+   * produit. 0 ou absent = tous les produits partent en même temps
+   * (comportement historique). Le 1er produit part immédiatement, le 2e
+   * après intervalMs, etc. Chaque marketplace d'un même produit partage la
+   * même heure de départ. Uniquement lu par le POST /marketplace-queue,
+   * ignoré par les server actions.
+   */
+  intervalMs?: number;
 }
 
 async function refreshLocal(productId: string): Promise<void> {

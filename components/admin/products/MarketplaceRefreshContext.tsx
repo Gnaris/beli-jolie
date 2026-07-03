@@ -43,6 +43,8 @@ export interface MarketplaceRefreshItem {
   efashionOutcome?: TargetOutcome;
   faireOutcome?: TargetOutcome;
   ankorsOperationId?: string;
+  /** ISO date. Présent quand le job attend une heure de départ future (étalement). */
+  scheduledFor?: string;
   completedAt?: string;
 }
 
@@ -58,9 +60,14 @@ export interface MarketplaceRefreshEnqueueInput {
   marketplace?: MarketplaceTarget;
 }
 
+export interface EnqueueMeta {
+  /** Étalement du lot en ms. 0 ou absent = tous les produits partent en même temps. */
+  intervalMs?: number;
+}
+
 interface MarketplaceRefreshContextValue {
   items: MarketplaceRefreshItem[];
-  enqueue: (inputs: MarketplaceRefreshEnqueueInput[]) => void;
+  enqueue: (inputs: MarketplaceRefreshEnqueueInput[], meta?: EnqueueMeta) => void;
   clear: () => void;
   stop: () => void;
   isAllFinished: boolean;
@@ -163,14 +170,18 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
 
   // ── Actions : enqueue / clear / stop ──────────────────────────────
   const enqueue = useCallback(
-    (inputs: MarketplaceRefreshEnqueueInput[]) => {
+    (inputs: MarketplaceRefreshEnqueueInput[], meta?: EnqueueMeta) => {
       if (inputs.length === 0) return;
+      const intervalMs =
+        meta?.intervalMs && Number.isFinite(meta.intervalMs) && meta.intervalMs > 0
+          ? meta.intervalMs
+          : 0;
       void (async () => {
         try {
           const res = await fetch("/api/admin/marketplace-queue", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ items: inputs }),
+            body: JSON.stringify({ items: inputs, intervalMs }),
           });
           if (res.ok) {
             const data = (await res.json()) as { items: MarketplaceRefreshItem[] };

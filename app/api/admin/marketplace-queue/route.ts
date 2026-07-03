@@ -22,8 +22,12 @@ import {
   mapMarketplaceToDb,
   mapModeToDb,
 } from "@/lib/marketplace-queue-serializer";
+import { computeScheduledTimestamps } from "@/lib/marketplace-queue-scheduling";
 
 const LIST_WINDOW_HOURS = 24;
+// Borne large : ~30 jours. Empêche les intervalles absurdes qui feraient
+// tenir des jobs QUEUED trop longtemps dans la table.
+const MAX_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -31,7 +35,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Accès non autorisé." }, { status: 401 });
   }
 
-  let body: { items?: ClientEnqueueInput[] };
+  let body: { items?: ClientEnqueueInput[]; intervalMs?: number };
   try {
     body = await req.json();
   } catch {
@@ -43,8 +47,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
 
+  // intervalMs facultatif : absent, 0, ou négatif → pas d'étalement (démarrage immédiat).
+  const rawInterval =
+    typeof body.intervalMs === "number" && Number.isFinite(body.intervalMs)
+      ? body.intervalMs
+      : 0;
+  if (rawInterval < 0 || rawInterval > MAX_INTERVAL_MS) {
+    return NextResponse.json(
+      { error: `intervalMs doit être entre 0 et ${MAX_INTERVAL_MS}.` },
+      { status: 400 },
+    );
+  }
+
+  // Calcule pour chaque input (dans l'ordre d'arrivée) la date de départ.
+  // Groupé par productId : les items d'un même produit partent en même temps.
+  const schedule = computeScheduledTimestamps(
+    validation.items.map((i) => i.productId),
+    rawInterval,
+    new Date(),
+  );
+
   const created = await prisma.$transaction(
-    validation.items.map((input) =>
+    validation.items.map((input, index) =>
       prisma.marketplaceRefreshJob.create({
         data: {
           productId: input.productId,
@@ -57,6 +81,7 @@ export async function POST(req: NextRequest) {
             options: input.options,
           },
           status: "QUEUED",
+          scheduledFor: schedule[index] ?? null,
         },
       }),
     ),

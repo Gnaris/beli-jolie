@@ -616,6 +616,9 @@ model MarketplaceRefreshJob {
   ankorsOperationId String?
   errorMessage      String?              @db.Text
   createdAt         DateTime             @default(now())
+  /// Heure à laquelle le job peut être démarré. Null = immédiat.
+  /// Utilisé pour étaler un lot de rafraîchissements (1 produit toutes les N min).
+  scheduledFor      DateTime?
   startedAt         DateTime?
   completedAt       DateTime?
 
@@ -623,6 +626,7 @@ model MarketplaceRefreshJob {
   @@index([productId])
   @@index([createdAt])
   @@index([status, createdAt])
+  @@index([status, scheduledFor])
 }
 
 // ─────────────────────────────────────────────

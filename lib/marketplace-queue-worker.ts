@@ -196,10 +196,17 @@ async function startQueued(): Promise<void> {
   });
   let ankorsBudget = Math.max(0, ANKORSTORE_CONCURRENCY - ankorsInFlight);
 
-  // On prend un peu plus de jobs queued pour pouvoir filtrer les Ankorstore au-delà du budget
+  // On prend un peu plus de jobs queued pour pouvoir filtrer les Ankorstore au-delà du budget.
+  // scheduledFor = null → démarrage immédiat. Sinon on attend l'heure prévue (étalement).
+  const now = new Date();
   const queued = await prisma.marketplaceRefreshJob.findMany({
-    where: { status: "QUEUED" },
-    orderBy: { createdAt: "asc" },
+    where: {
+      status: "QUEUED",
+      OR: [{ scheduledFor: null }, { scheduledFor: { lte: now } }],
+    },
+    // Tri par heure prévue puis par ordre d'arrivée : les jobs planifiés partent
+    // à leur heure, les immédiats sortent dans l'ordre où ils ont été créés.
+    orderBy: [{ scheduledFor: "asc" }, { createdAt: "asc" }],
     take: Math.max(totalBudget * 2, 10),
   });
 

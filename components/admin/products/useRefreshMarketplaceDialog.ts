@@ -268,7 +268,8 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         });
         localConsumed = options.local;
       }
-      enqueue(inputs);
+      // Un seul produit : intervalMs n'a pas de sens (rien à étaler). On force à 0.
+      enqueue(inputs, { intervalMs: 0 });
       if (options.efashion) {
         toast.info(
           "Ajouté au shooting eFashion",
@@ -416,11 +417,17 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
           localConsumed = options.local;
         }
       }
-      enqueue(inputs);
+      enqueue(inputs, { intervalMs: options.intervalMs ?? 0 });
+      const spread = (options.intervalMs ?? 0) > 0;
       if (options.efashion) {
         toast.info(
           "Ajoutés au shooting eFashion",
           `${filtered.length} produit${filtered.length > 1 ? "s" : ""} attendent votre validation dans la fenêtre eFashion en bas à droite.`,
+        );
+      } else if (spread) {
+        toast.info(
+          "Rafraîchissement planifié",
+          `${filtered.length} produit${filtered.length > 1 ? "s" : ""} seront rafraîchis un par un selon la cadence choisie.`,
         );
       } else {
         toast.info(

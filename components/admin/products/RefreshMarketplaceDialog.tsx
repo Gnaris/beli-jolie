@@ -223,6 +223,61 @@ interface ModalProps {
   onResult: (options: MarketplaceRefreshOptions | null) => void;
 }
 
+// Raccourcis proposés dans la section Cadence. Ordre = affichage.
+const CADENCE_PRESETS: Array<{ label: string; ms: number }> = [
+  { label: "1 min", ms: 60_000 },
+  { label: "5 min", ms: 5 * 60_000 },
+  { label: "10 min", ms: 10 * 60_000 },
+  { label: "20 min", ms: 20 * 60_000 },
+  { label: "30 min", ms: 30 * 60_000 },
+  { label: "1 h", ms: 60 * 60_000 },
+];
+
+type CadenceUnit = "s" | "m" | "h";
+
+function unitToMs(unit: CadenceUnit): number {
+  if (unit === "s") return 1_000;
+  if (unit === "h") return 60 * 60_000;
+  return 60_000;
+}
+
+function formatDurationHuman(ms: number): string {
+  if (ms < 60_000) {
+    const s = Math.round(ms / 1000);
+    return `${s} s`;
+  }
+  if (ms < 60 * 60_000) {
+    const min = Math.round(ms / 60_000);
+    return `${min} min`;
+  }
+  const h = Math.floor(ms / (60 * 60_000));
+  const remainMin = Math.round((ms - h * 60 * 60_000) / 60_000);
+  if (remainMin === 0) return `${h} h`;
+  return `${h} h ${String(remainMin).padStart(2, "0")}`;
+}
+
+function formatEndTime(endsAt: Date): string {
+  const now = new Date();
+  const sameDay =
+    endsAt.getFullYear() === now.getFullYear() &&
+    endsAt.getMonth() === now.getMonth() &&
+    endsAt.getDate() === now.getDate();
+  const hh = String(endsAt.getHours()).padStart(2, "0");
+  const mm = String(endsAt.getMinutes()).padStart(2, "0");
+  if (sameDay) return `aujourd'hui vers ${hh}:${mm}`;
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  if (
+    endsAt.getFullYear() === tomorrow.getFullYear() &&
+    endsAt.getMonth() === tomorrow.getMonth() &&
+    endsAt.getDate() === tomorrow.getDate()
+  ) {
+    return `demain vers ${hh}:${mm}`;
+  }
+  const d = String(endsAt.getDate()).padStart(2, "0");
+  const m = String(endsAt.getMonth() + 1).padStart(2, "0");
+  return `le ${d}/${m} vers ${hh}:${mm}`;
+}
+
 function Modal({ input, onResult }: ModalProps) {
   const [closing, setClosing] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -235,6 +290,20 @@ function Modal({ input, onResult }: ModalProps) {
     efashion: false,
     faire: false,
   });
+  // Cadence — visible seulement pour count > 1. Défaut : Immédiat.
+  const [cadenceMode, setCadenceMode] = useState<"immediate" | "spread">("immediate");
+  const [presetMs, setPresetMs] = useState<number | null>(10 * 60_000);
+  const [customAmount, setCustomAmount] = useState<number>(10);
+  const [customUnit, setCustomUnit] = useState<CadenceUnit>("m");
+  const showCadence = input.count > 1;
+
+  // Interval final choisi. 0 = pas d'étalement.
+  const intervalMs =
+    showCadence && cadenceMode === "spread"
+      ? presetMs !== null
+        ? presetMs
+        : Math.max(1, Math.round(customAmount)) * unitToMs(customUnit)
+      : 0;
 
   useEffect(() => {
     setMounted(true);
@@ -288,8 +357,18 @@ function Modal({ input, onResult }: ModalProps) {
       ankorstore: state.ankorstore,
       efashion: state.efashion,
       faire: state.faire,
+      intervalMs: intervalMs > 0 ? intervalMs : undefined,
     });
   }
+
+  // Résumé de la cadence : dernier départ, fin estimée.
+  const cadenceSummary = (() => {
+    if (!showCadence || cadenceMode !== "spread" || intervalMs <= 0) return null;
+    const lastStartMs = (input.count - 1) * intervalMs;
+    // Estimation grossière : on ajoute 2 min pour le dernier produit (durée moyenne d'un refresh).
+    const endsAt = new Date(Date.now() + lastStartMs + 2 * 60_000);
+    return { lastStartMs, endText: formatEndTime(endsAt) };
+  })();
 
   if (!mounted) return null;
 
@@ -382,6 +461,155 @@ function Modal({ input, onResult }: ModalProps) {
               </div>
             </div>
           )}
+
+          {/* Section : Cadence — visible seulement en mode bulk (count > 1) */}
+          {showCadence && (
+            <div className="px-6 md:px-8 pt-6 pb-6 bg-gradient-to-b from-white to-slate-50/60 border-t border-dashed border-border">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-1 h-4 rounded-full bg-indigo-500" />
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-700">
+                    Cadence
+                  </span>
+                </div>
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+                  Nouveau
+                </span>
+              </div>
+              <p className="text-xs text-text-muted mb-4">
+                Choisissez un délai entre chaque produit pour étaler l&apos;effet
+                «&nbsp;Nouveauté&nbsp;». Le 1<sup>er</sup> part tout de suite, le suivant après
+                le délai, etc.
+              </p>
+
+              {/* Toggle Immédiat / Étaler */}
+              <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200 mb-4">
+                <button
+                  type="button"
+                  onClick={() => setCadenceMode("immediate")}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    cadenceMode === "immediate"
+                      ? "text-white bg-gradient-to-r from-slate-600 to-slate-800 shadow-sm font-semibold"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Immédiat
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCadenceMode("spread")}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    cadenceMode === "spread"
+                      ? "text-white bg-gradient-to-r from-indigo-500 to-indigo-600 shadow-sm font-semibold"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Étaler
+                </button>
+              </div>
+
+              {cadenceMode === "spread" && (
+                <>
+                  {/* Raccourcis */}
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {CADENCE_PRESETS.map((p) => {
+                      const active = presetMs === p.ms;
+                      return (
+                        <button
+                          key={p.ms}
+                          type="button"
+                          onClick={() => setPresetMs(p.ms)}
+                          className={`px-3 py-1.5 rounded-full text-xs transition-colors ${
+                            active
+                              ? "font-semibold bg-indigo-600 text-white border border-indigo-600 shadow-sm"
+                              : "font-medium bg-white border border-slate-200 text-slate-700 hover:border-indigo-300"
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Personnalisé */}
+                  <div className="rounded-2xl border border-border bg-white p-4">
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <div>
+                        <div className="text-xs font-semibold text-text-primary">Personnalisé</div>
+                        <div className="text-[11px] text-text-muted">
+                          Ajustez au chiffre près.
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        value={customAmount}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          if (Number.isFinite(v) && v >= 1) {
+                            setCustomAmount(Math.floor(v));
+                            setPresetMs(null); // sortie du preset actif
+                          }
+                        }}
+                        className="w-24 px-3 py-2 rounded-lg border border-border text-sm font-medium text-text-primary focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      />
+                      <div className="inline-flex rounded-lg border border-border overflow-hidden text-xs font-medium">
+                        {(["s", "m", "h"] as CadenceUnit[]).map((u) => {
+                          const active = customUnit === u && presetMs === null;
+                          const label = u === "s" ? "Secondes" : u === "m" ? "Minutes" : "Heures";
+                          return (
+                            <button
+                              key={u}
+                              type="button"
+                              onClick={() => {
+                                setCustomUnit(u);
+                                setPresetMs(null);
+                              }}
+                              className={`px-3 py-2 border-r border-border last:border-r-0 transition-colors ${
+                                active
+                                  ? "bg-indigo-50 text-indigo-700"
+                                  : "bg-white text-text-secondary hover:bg-bg-secondary"
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Résumé */}
+                  {cadenceSummary && (
+                    <div className="mt-4 rounded-2xl bg-indigo-50/70 border border-indigo-100 p-3.5 flex items-start gap-2.5">
+                      <svg
+                        className="w-4 h-4 text-indigo-600 mt-0.5 flex-shrink-0"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2}
+                      >
+                        <circle cx="12" cy="12" r="9" strokeWidth={1.6} />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v5l3 2" />
+                      </svg>
+                      <div className="text-[11.5px] text-indigo-900 leading-relaxed">
+                        1 produit toutes les{" "}
+                        <span className="font-semibold">{formatDurationHuman(intervalMs)}</span>.
+                        Le dernier partira dans{" "}
+                        <span className="font-semibold">
+                          {formatDurationHuman(cadenceSummary.lastStartMs)}
+                        </span>
+                        . Fin estimée&nbsp;:{" "}
+                        <span className="font-semibold">{cadenceSummary.endText}</span>.
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -425,7 +653,7 @@ function Modal({ input, onResult }: ModalProps) {
                   d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                 />
               </svg>
-              Rafraîchir
+              {intervalMs > 0 ? "Planifier" : "Rafraîchir"}
             </button>
           </div>
         </div>

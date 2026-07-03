@@ -104,3 +104,28 @@ export function getLocalOutcomeForGroup(
   }
   return undefined;
 }
+
+/**
+ * Retourne la date de départ planifiée d'un groupe (la plus proche parmi les
+ * items encore en QUEUED), ou null si aucun item planifié / si tous sont déjà
+ * partis.
+ */
+export function getGroupScheduledFor(group: ProductGroup): Date | null {
+  let earliest: Date | null = null;
+  for (const item of group.items) {
+    if (item.status !== "queued") continue;
+    if (!item.scheduledFor) continue;
+    const d = new Date(item.scheduledFor);
+    if (!earliest || d < earliest) earliest = d;
+  }
+  return earliest;
+}
+
+/**
+ * True si le groupe est en attente d'une heure de départ future (au moins un
+ * item queued avec scheduledFor > now).
+ */
+export function groupIsScheduled(group: ProductGroup, now: Date = new Date()): boolean {
+  const s = getGroupScheduledFor(group);
+  return s !== null && s > now;
+}

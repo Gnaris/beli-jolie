@@ -46,6 +46,8 @@ export interface SerializedJob {
   faireOutcome?: unknown;
   ankorsOperationId?: string;
   createdAt: string;
+  /** ISO string. Absent = démarrage immédiat. Présent = heure prévue de départ. */
+  scheduledFor?: string;
   completedAt?: string;
 }
 
@@ -119,6 +121,7 @@ export function serializeJob(job: JobRow): SerializedJob {
     faireOutcome: (job.faireOutcome as unknown) ?? undefined,
     ankorsOperationId: job.ankorsOperationId ?? undefined,
     createdAt: job.createdAt.toISOString(),
+    scheduledFor: job.scheduledFor ? job.scheduledFor.toISOString() : undefined,
     completedAt: job.completedAt ? job.completedAt.toISOString() : undefined,
   };
 }
