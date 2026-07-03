@@ -28,16 +28,102 @@ export async function getAdminClaims(filter?: string) {
     include: {
       user: { select: { firstName: true, lastName: true, company: true } },
       order: { select: { orderNumber: true } },
+      conversation: { select: { id: true } },
       _count: { select: { items: true, images: true } },
     },
     orderBy: { createdAt: "desc" },
   });
 
+  const conversationIds = claims
+    .map((c) => c.conversation?.id)
+    .filter((id): id is string => Boolean(id));
+
+  const unreadCounts = conversationIds.length
+    ? await prisma.message.groupBy({
+        by: ["conversationId"],
+        where: {
+          conversationId: { in: conversationIds },
+          senderRole: "CLIENT",
+          readAt: null,
+        },
+        _count: { _all: true },
+      })
+    : [];
+
+  const unreadMap = new Map(unreadCounts.map((u) => [u.conversationId, u._count._all]));
+
   return claims.map((c) => ({
     ...c,
     refundAmount: c.refundAmount ? Number(c.refundAmount) : null,
     creditAmount: c.creditAmount ? Number(c.creditAmount) : null,
+    hasUnreadFromClient: c.conversation ? (unreadMap.get(c.conversation.id) ?? 0) > 0 : false,
   }));
+}
+
+export async function getAdminClaimsStats() {
+  await requireAdmin();
+
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+  const [counts, oldestOpen, resolvedThisMonth, resolvedPrevMonth, monthAmounts] = await Promise.all([
+    prisma.claim.groupBy({
+      by: ["status"],
+      _count: true,
+    }),
+    prisma.claim.findFirst({
+      where: { status: { in: ["OPEN", "IN_REVIEW"] } },
+      orderBy: { createdAt: "asc" },
+      select: { createdAt: true },
+    }),
+    prisma.claim.count({
+      where: { status: "RESOLVED", updatedAt: { gte: startOfMonth } },
+    }),
+    prisma.claim.count({
+      where: { status: "RESOLVED", updatedAt: { gte: startOfPrevMonth, lt: startOfMonth } },
+    }),
+    prisma.claim.aggregate({
+      where: { status: "RESOLVED", updatedAt: { gte: startOfMonth } },
+      _sum: { refundAmount: true, creditAmount: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const countMap = Object.fromEntries(counts.map((c) => [c.status, c._count]));
+  const total = counts.reduce((sum, c) => sum + c._count, 0);
+
+  const toTreat = (countMap.OPEN ?? 0) + (countMap.IN_REVIEW ?? 0);
+  const inProgress =
+    (countMap.RETURN_PENDING ?? 0) +
+    (countMap.RETURN_SHIPPED ?? 0) +
+    (countMap.RETURN_RECEIVED ?? 0) +
+    (countMap.RESOLUTION_PENDING ?? 0);
+
+  const oldestOpenDays = oldestOpen
+    ? Math.max(0, Math.floor((now.getTime() - oldestOpen.createdAt.getTime()) / 86_400_000))
+    : null;
+
+  const growth =
+    resolvedPrevMonth > 0
+      ? ((resolvedThisMonth - resolvedPrevMonth) / resolvedPrevMonth) * 100
+      : null;
+
+  const monthRefund = Number(monthAmounts._sum.refundAmount ?? 0);
+  const monthCredit = Number(monthAmounts._sum.creditAmount ?? 0);
+  const monthAmount = monthRefund + monthCredit;
+
+  return {
+    total,
+    countMap,
+    toTreat,
+    inProgress,
+    oldestOpenDays,
+    resolvedThisMonth,
+    growth,
+    monthAmount,
+    monthResolvedCount: monthAmounts._count._all,
+  };
 }
 
 export async function getAdminClaim(claimId: string) {

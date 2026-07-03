@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import SeasonsList from "./SeasonsList";
 import SeasonDetail, { type SeasonDetailData } from "./SeasonDetail";
 import SeasonEditorModal from "./SeasonEditorModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
-import { deleteSeason, updateSeasonDirect, updateSeasonPfsRef } from "@/app/actions/admin/seasons";
+import { deleteSeason, updateSeasonDirect, updateSeasonPfsRef, reorderSeasons } from "@/app/actions/admin/seasons";
 
 export type SeasonRow = {
   id: string;
@@ -17,6 +17,7 @@ export type SeasonRow = {
   efashionCollectionId: number | null;
   efashionLabel: string | null;
   productCount: number;
+  position: number;
   createdAt: Date;
 };
 
@@ -36,9 +37,14 @@ export default function SeasonsMasterDetail({
   const searchParams = useSearchParams();
   const { confirm } = useConfirm();
   const toast = useToast();
+  const [, startTransition] = useTransition();
+
+  // Copie locale pour permettre l'optimistic update lors du drag & drop.
+  const [items, setItems] = useState<SeasonRow[]>(seasons);
+  useEffect(() => { setItems(seasons); }, [seasons]);
 
   const urlSelectedId = searchParams.get("season");
-  const initialDesktopId = seasons[0]?.id ?? null;
+  const initialDesktopId = items[0]?.id ?? null;
   const [selectedId, setSelectedId] = useState<string | null>(urlSelectedId ?? initialDesktopId);
   const [editTarget, setEditTarget] = useState<SeasonRow | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -50,13 +56,13 @@ export default function SeasonsMasterDetail({
   }, [urlSelectedId, selectedId]);
 
   useEffect(() => {
-    if (selectedId && !seasons.some((s) => s.id === selectedId)) {
-      setSelectedId(seasons[0]?.id ?? null);
+    if (selectedId && !items.some((s) => s.id === selectedId)) {
+      setSelectedId(items[0]?.id ?? null);
       const params = new URLSearchParams(searchParams.toString());
       params.delete("season");
       router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
     }
-  }, [selectedId, seasons, pathname, router, searchParams]);
+  }, [selectedId, items, pathname, router, searchParams]);
 
   function handleSelect(id: string) {
     setSelectedId(id);
@@ -89,13 +95,30 @@ export default function SeasonsMasterDetail({
     if (!ok) return;
     try {
       await deleteSeason(season.id);
-      const remaining = seasons.filter((s) => s.id !== season.id);
+      const remaining = items.filter((s) => s.id !== season.id);
       setSelectedId(remaining[0]?.id ?? null);
       router.refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erreur lors de la suppression.";
       toast.error("Suppression", message);
     }
+  }
+
+  function handleReorder(newOrderedIds: string[]) {
+    // Optimistic — recalcul immédiat des positions.
+    const positionMap = new Map(newOrderedIds.map((id, i) => [id, i]));
+    const previous = items;
+    setItems((prev) =>
+      prev.map((s) => ({ ...s, position: positionMap.get(s.id) ?? s.position })),
+    );
+    startTransition(async () => {
+      try {
+        await reorderSeasons(newOrderedIds);
+      } catch (err) {
+        setItems(previous);
+        toast.error("Erreur", (err as Error).message);
+      }
+    });
   }
 
   async function handleSaveSeason(
@@ -114,7 +137,7 @@ export default function SeasonsMasterDetail({
     router.refresh();
   }
 
-  const selectedSeason = seasons.find((s) => s.id === selectedId) ?? null;
+  const selectedSeason = items.find((s) => s.id === selectedId) ?? null;
   const selectedDetail: SeasonDetailData | null = selectedSeason
     ? {
         id: selectedSeason.id,
@@ -131,17 +154,18 @@ export default function SeasonsMasterDetail({
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] bg-bg-primary border border-border rounded-3xl shadow-[var(--shadow-pop)] overflow-hidden">
-        <div className={`${selectedId ? "hidden" : "block"} md:block md:border-r md:border-border`}>
+      <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] bg-bg-primary border border-border rounded-3xl shadow-[var(--shadow-pop)] overflow-hidden md:h-[calc(100vh-14rem)] md:min-h-[520px]">
+        <div className={`${selectedId ? "hidden" : "block"} md:block md:border-r md:border-border md:min-h-0 md:h-full md:overflow-hidden`}>
           <SeasonsList
-            seasons={seasons}
+            seasons={items}
             selectedId={selectedId}
             onSelect={handleSelect}
             hasPfsConfig={hasPfsConfig}
             hasEfashionConfig={hasEfashionConfig}
+            onReorder={handleReorder}
           />
         </div>
-        <div className={`${selectedId ? "block" : "hidden"} md:block`}>
+        <div className={`${selectedId ? "block" : "hidden"} md:block md:min-h-0 md:h-full md:overflow-hidden`}>
           {selectedDetail ? (
             <SeasonDetail
               season={selectedDetail}
@@ -152,7 +176,7 @@ export default function SeasonsMasterDetail({
               onEditMapping={() => selectedSeason && setEditTarget(selectedSeason)}
             />
           ) : (
-            <div className="hidden md:flex flex-col items-center justify-center min-h-[580px] text-text-muted text-sm">
+            <div className="hidden md:flex flex-col items-center justify-center h-full min-h-[520px] text-text-muted text-sm">
               Sélectionnez une saison à gauche.
             </div>
           )}

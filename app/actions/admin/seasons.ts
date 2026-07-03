@@ -96,3 +96,18 @@ export async function deleteSeason(id: string) {
   revalidatePath("/admin/produits");
   revalidateTag("seasons", "default");
 }
+
+/** Reorder seasons by providing an ordered array of ids */
+export async function reorderSeasons(orderedIds: string[]) {
+  await requireAdmin();
+
+  await prisma.$transaction(
+    orderedIds.map((id, index) =>
+      prisma.season.update({ where: { id }, data: { position: index } }),
+    ),
+  );
+
+  revalidatePath("/admin/produits");
+  revalidatePath("/admin/saisons");
+  revalidateTag("seasons", "default");
+}

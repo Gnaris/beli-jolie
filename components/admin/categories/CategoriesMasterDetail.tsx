@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import CategoriesList from "./CategoriesList";
 import CategoryDetail, { type CategoryDetailData } from "./CategoryDetail";
@@ -11,6 +11,7 @@ import { useToast } from "@/components/ui/Toast";
 import {
   deleteCategory,
   deleteSubCategory,
+  reorderCategories,
   updateCategoryDirect,
   updateCategoryPfsTaxonomy,
   updateCategoryFaireTaxonomy,
@@ -22,6 +23,7 @@ type Sub = { id: string; name: string; translations: Record<string, string> };
 export type CategoryRow = {
   id: string;
   name: string;
+  position: number;
   translations: Record<string, string>;
   pfsGender: string | null;
   pfsFamilyName: string | null;
@@ -54,15 +56,36 @@ export default function CategoriesMasterDetail({
   const searchParams = useSearchParams();
   const { confirm } = useConfirm();
   const toast = useToast();
+  const [, startTransition] = useTransition();
 
   const urlSelectedId = searchParams.get("cat");
-  const initialDesktopId = categories[0]?.id ?? null;
+  const [items, setItems] = useState<CategoryRow[]>(categories);
+  useEffect(() => { setItems(categories); }, [categories]);
+  const initialDesktopId = items[0]?.id ?? null;
   const [selectedId, setSelectedId] = useState<string | null>(urlSelectedId ?? initialDesktopId);
   const [editCat, setEditCat] = useState<CategoryRow | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [subModalCatId, setSubModalCatId] = useState<string | null>(null);
   const [editSub, setEditSub] = useState<{ sub: Sub; catId: string } | null>(null);
   const [editFocusMarketplace, setEditFocusMarketplace] = useState<"pfs" | "efashion" | "faire" | undefined>(undefined);
+
+  function handleReorder(newOrderedIds: string[]) {
+    const positionMap = new Map(newOrderedIds.map((id, i) => [id, i]));
+    const previous = items;
+    setItems((prev) =>
+      [...prev]
+        .map((c) => ({ ...c, position: positionMap.get(c.id) ?? c.position }))
+        .sort((a, b) => a.position - b.position),
+    );
+    startTransition(async () => {
+      try {
+        await reorderCategories(newOrderedIds);
+      } catch (err) {
+        setItems(previous);
+        toast.error("Erreur", (err as Error).message);
+      }
+    });
+  }
 
   // Sync URL → state (deep-link, back/forward)
   useEffect(() => {
@@ -73,13 +96,13 @@ export default function CategoriesMasterDetail({
 
   // Si l'URL pointe une catégorie introuvable, on rabat sur la première
   useEffect(() => {
-    if (selectedId && !categories.some((c) => c.id === selectedId)) {
-      setSelectedId(categories[0]?.id ?? null);
+    if (selectedId && !items.some((c) => c.id === selectedId)) {
+      setSelectedId(items[0]?.id ?? null);
       const params = new URLSearchParams(searchParams.toString());
       params.delete("cat");
       router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
     }
-  }, [selectedId, categories, pathname, router, searchParams]);
+  }, [selectedId, items, pathname, router, searchParams]);
 
   function handleSelect(id: string) {
     setSelectedId(id);
@@ -111,7 +134,7 @@ export default function CategoriesMasterDetail({
     });
     if (!ok) return;
     await deleteCategory(cat.id);
-    const remaining = categories.filter((c) => c.id !== cat.id);
+    const remaining = items.filter((c) => c.id !== cat.id);
     setSelectedId(remaining[0]?.id ?? null);
     router.refresh();
   }
@@ -157,7 +180,7 @@ export default function CategoriesMasterDetail({
     router.refresh();
   }
 
-  const selectedCat = categories.find((c) => c.id === selectedId) ?? null;
+  const selectedCat = items.find((c) => c.id === selectedId) ?? null;
   const selectedDetail: CategoryDetailData | null = selectedCat
     ? {
         id: selectedCat.id,
@@ -174,20 +197,21 @@ export default function CategoriesMasterDetail({
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] bg-bg-primary border border-border rounded-3xl shadow-[var(--shadow-pop)] overflow-hidden">
+      <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] bg-bg-primary border border-border rounded-3xl shadow-[var(--shadow-pop)] overflow-hidden md:h-[calc(100vh-14rem)] md:min-h-[520px]">
         {/* Sur mobile : on cache le panneau gauche quand une cat est sélectionnée */}
-        <div className={`${selectedId ? "hidden" : "block"} md:block md:border-r md:border-border`}>
+        <div className={`${selectedId ? "hidden" : "block"} md:block md:border-r md:border-border md:min-h-0 md:h-full md:overflow-hidden`}>
           <CategoriesList
-            categories={categories}
+            categories={items}
             selectedId={selectedId}
             onSelect={handleSelect}
             hasPfsConfig={hasPfsConfig}
             hasEfashionConfig={hasEfashionConfig}
             hasFaireConfig={hasFaireConfig}
+            onReorder={handleReorder}
           />
         </div>
         {/* Sur mobile : on cache le panneau droit s'il n'y a pas de sélection */}
-        <div className={`${selectedId ? "block" : "hidden"} md:block`}>
+        <div className={`${selectedId ? "block" : "hidden"} md:block md:min-h-0 md:h-full md:overflow-hidden`}>
           {selectedDetail ? (
             <CategoryDetail
               category={selectedDetail}
@@ -201,7 +225,7 @@ export default function CategoriesMasterDetail({
               onEditMapping={(mp) => { setEditFocusMarketplace(mp); setEditCat(selectedCat); }}
             />
           ) : (
-            <div className="hidden md:flex flex-col items-center justify-center min-h-[580px] text-text-muted text-sm">
+            <div className="hidden md:flex flex-col items-center justify-center h-full min-h-[520px] text-text-muted text-sm">
               Sélectionnez une catégorie à gauche.
             </div>
           )}

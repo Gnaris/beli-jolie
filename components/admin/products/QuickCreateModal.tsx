@@ -784,10 +784,12 @@ export default function QuickCreateModal({
                     className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-slate-300 to-slate-500"
                   />
                   <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-bg-secondary">
-                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-ink/8 text-text-primary">
-                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M10 2L3 6v7l7 4 7-4V6l-7-4zm0 2.18L15.82 7 10 10.18 4.18 7 10 4.18zM4 9l5 2.86v5L4 14V9zm12 0v5l-5 2.86v-5L16 9z" />
-                      </svg>
+                    <span
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-[11px] font-extrabold shrink-0"
+                      style={{ background: "linear-gradient(135deg,#4f46e5,#6366f1)", boxShadow: "0 2px 6px rgba(79,70,229,0.35), inset 0 1px 0 rgba(255,255,255,0.15)" }}
+                      aria-hidden
+                    >
+                      P
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] font-semibold text-text-primary font-heading leading-none">Paris Fashion Shop</p>
@@ -860,10 +862,12 @@ export default function QuickCreateModal({
                       className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-slate-300 to-slate-500"
                     />
                     <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-bg-secondary">
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-ink/8 text-text-primary">
-                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M10 2a8 8 0 100 16 8 8 0 000-16zm3.7 6.3l-4.5 4.5a1 1 0 01-1.4 0L6 11a1 1 0 011.4-1.4l1.8 1.8 3.8-3.8a1 1 0 011.4 1.4z" />
-                        </svg>
+                      <span
+                        className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-[11px] font-extrabold shrink-0"
+                        style={{ background: "linear-gradient(135deg,#db2777,#ec4899)", boxShadow: "0 2px 6px rgba(219,39,119,0.35), inset 0 1px 0 rgba(255,255,255,0.15)" }}
+                        aria-hidden
+                      >
+                        E
                       </span>
                       <div className="flex-1 min-w-0">
                         <p className="text-[13px] font-semibold text-text-primary font-heading leading-none">eFashion Paris</p>
@@ -906,10 +910,12 @@ export default function QuickCreateModal({
                       className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-slate-300 to-slate-500"
                     />
                     <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-bg-secondary">
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-ink/8 text-text-primary">
-                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM6 8a2 2 0 114 0 2 2 0 01-4 0zm6 0a2 2 0 114 0 2 2 0 01-4 0zM6.5 13a3.5 3.5 0 007 0H6.5z" />
-                        </svg>
+                      <span
+                        className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-[11px] font-extrabold shrink-0"
+                        style={{ background: "linear-gradient(135deg,#f59e0b,#fbbf24)", boxShadow: "0 2px 6px rgba(245,158,11,0.35), inset 0 1px 0 rgba(255,255,255,0.15)" }}
+                        aria-hidden
+                      >
+                        F
                       </span>
                       <div className="flex-1 min-w-0">
                         <p className="text-[13px] font-semibold text-text-primary font-heading leading-none">Faire</p>
@@ -1001,11 +1007,13 @@ export default function QuickCreateModal({
                 {/* ── Carte Faire (pays — code alpha-3) ────────────────────── */}
                 {type === "country" && !lockPfs && (
                   <section className="rounded-2xl border border-border bg-bg-primary shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden h-full flex flex-col">
-                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-purple-50/70 to-transparent">
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-100 text-purple-700">
-                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM6 8a2 2 0 114 0 2 2 0 01-4 0zm6 0a2 2 0 114 0 2 2 0 01-4 0zM6.5 13a3.5 3.5 0 007 0H6.5z" />
-                        </svg>
+                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-bg-secondary">
+                      <span
+                        className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-[11px] font-extrabold shrink-0"
+                        style={{ background: "linear-gradient(135deg,#f59e0b,#fbbf24)", boxShadow: "0 2px 6px rgba(245,158,11,0.35), inset 0 1px 0 rgba(255,255,255,0.15)" }}
+                        aria-hidden
+                      >
+                        F
                       </span>
                       <div className="flex-1 min-w-0">
                         <p className="text-[13px] font-semibold text-text-primary font-heading leading-none">Faire</p>

@@ -9,9 +9,9 @@ import {
   bulkUpdateProductStatus,
   bulkUpdateProductAttributes,
   bulkDeleteProducts,
+  bulkTranslateProducts,
   previewProductDeletion,
   updateVariantQuick,
-  bulkUpdateVariants,
 } from "@/app/actions/admin/products";
 import { deleteProductsOnPfs, deleteProductsOnAnkorstore, deleteProductsOnEfashion, deleteProductsOnFaire } from "@/app/actions/admin/marketplace-delete";
 import { bulkAddToEfashionShootingBatch } from "@/app/actions/admin/efashion-shooting-batch";
@@ -23,6 +23,7 @@ import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefr
 import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
 import { useEfashionShootingBatch } from "@/components/admin/products/EfashionShootingBatchContext";
+import { useFilterPending } from "@/components/admin/products/FilterPendingContext";
 import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
@@ -658,368 +659,321 @@ interface Props {
   bulkEditOptions: BulkEditOptions;
 }
 
-// ─── Variant Editor Row ────────────────────────────────────────────────────────
+// ─── Variant dirty-edit helpers ─────────────────────────────────────────────
+// Édition inline dans le tiroir : chaque cellule (prix, stock, poids, packQty)
+// se transforme en champ custom au double-clic. Tant que l'utilisatrice n'a
+// pas cliqué « Appliquer les modifications » en bas du tiroir, les nouvelles
+// valeurs vivent uniquement en mémoire dans dirtyEdits (Record<variantId,
+// { field: newValue }>). Exportés pour les tests unitaires.
 
-function VariantRow({
-  variant,
-  product,
-  hasPfsConfig,
-  hasAnkorstoreConfig,
-  ankorstoreEnabled,
-  hasEfashionConfig,
-  efashionEnabled,
-  hasFaireConfig,
-  faireEnabled,
-  checked,
-  onCheck,
-  onSaved,
+export type VariantField = "price" | "stock" | "weight" | "packQty";
+export type VariantDirtyEdits = Record<string, Partial<Record<VariantField, number>>>;
+
+export function isVariantCellDirty(
+  edits: VariantDirtyEdits,
+  variantId: string,
+  field: VariantField,
+): boolean {
+  return edits[variantId]?.[field] !== undefined;
+}
+
+export function commitVariantCell(
+  edits: VariantDirtyEdits,
+  variantId: string,
+  field: VariantField,
+  newValue: number,
+  originalValue: number,
+): VariantDirtyEdits {
+  const next: VariantDirtyEdits = { ...edits };
+  if (newValue === originalValue) {
+    if (next[variantId]) {
+      const perVariant = { ...next[variantId] };
+      delete perVariant[field];
+      if (Object.keys(perVariant).length === 0) delete next[variantId];
+      else next[variantId] = perVariant;
+    }
+    return next;
+  }
+  next[variantId] = { ...(next[variantId] ?? {}), [field]: newValue };
+  return next;
+}
+
+export function countVariantDirtyEdits(edits: VariantDirtyEdits): number {
+  let n = 0;
+  for (const id in edits) n += Object.keys(edits[id]).length;
+  return n;
+}
+
+// ─── Cellule éditable au simple clic ────────────────────────────────────────
+// Rend un <span> cliquable qui bascule en <input> custom au clic. Entrée /
+// blur -> commit ; Échap -> annule cette édition en cours (sans toucher aux
+// autres cellules dirty). L'affichage repose sur `children` : l'appelant
+// fournit le JSX complet à afficher (chiffre + puce colorée pour le stock,
+// préfixe €/kg, etc.).
+function VariantEditableCell({
+  variantId,
+  field,
+  currentValue,
+  originalValue,
+  isInt,
+  dirty,
+  ariaLabel,
+  onCommit,
+  children,
 }: {
-  variant: ColorVariant;
-  product: AdminProduct;
-  hasPfsConfig: boolean;
-  hasAnkorstoreConfig: boolean;
-  ankorstoreEnabled: boolean;
-  hasEfashionConfig: boolean;
-  efashionEnabled: boolean;
-  hasFaireConfig: boolean;
-  faireEnabled: boolean;
-  checked: boolean;
-  onCheck: () => void;
-  onSaved: () => void;
+  variantId: string;
+  field: VariantField;
+  currentValue: number;
+  originalValue: number;
+  isInt: boolean;
+  dirty: boolean;
+  ariaLabel: string;
+  onCommit: (field: VariantField, newValue: number, originalValue: number) => void;
+  children: React.ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
-  const [price, setPrice] = useState(String(variant.unitPrice));
-  const [stock, setStock] = useState(String(variant.stock));
-  const [weight, setWeight] = useState(String(variant.weight));
-  const [packQuantity, setPackQuantity] = useState(String(variant.packQuantity ?? ""));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const { confirm } = useConfirm();
-  const { enqueue } = useMarketplaceRefreshQueue();
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleSave = async () => {
-    setSaving(true);
-    setError("");
-    try {
-      await updateVariantQuick(variant.id, {
-        unitPrice: parseFloat(price) || 0,
-        stock: parseInt(stock) || 0,
-        weight: parseFloat(weight) || 0,
-        packQuantity: variant.saleType === "PACK" ? (parseInt(packQuantity) || null) : null,
-      });
-      setEditing(false);
-      onSaved();
-
-      // Propose la mise a jour marketplaces avec cases a cocher (PFS + AS + eFashion + Faire).
-      const pfsAvailable = hasPfsConfig && !!product.pfsProductId;
-      const ankorsAvailable =
-        hasAnkorstoreConfig && ankorstoreEnabled && !!product.ankorsProductId;
-      const efashionAvailable =
-        hasEfashionConfig && efashionEnabled &&
-        product.colors.some((c) => c.efashionProductId != null);
-      const faireAvailable =
-        hasFaireConfig && faireEnabled && !!product.faireProductId;
-      if (pfsAvailable || ankorsAvailable || efashionAvailable || faireAvailable) {
-        const pfsRef = { current: pfsAvailable };
-        const ankorsRef = { current: ankorsAvailable };
-        const efashionRef = { current: efashionAvailable };
-        const faireRef = { current: faireAvailable };
-        const checkboxes: {
-          id: string;
-          label: string;
-          defaultChecked: boolean;
-          onChange: (v: boolean) => void;
-        }[] = [];
-        if (pfsAvailable) {
-          checkboxes.push({
-            id: "pfs",
-            label: "Mettre à jour sur Paris Fashion Shop",
-            defaultChecked: true,
-            onChange: (v) => {
-              pfsRef.current = v;
-            },
-          });
-        }
-        if (ankorsAvailable) {
-          checkboxes.push({
-            id: "ankorstore",
-            label: "Mettre à jour sur Ankorstore",
-            defaultChecked: true,
-            onChange: (v) => {
-              ankorsRef.current = v;
-            },
-          });
-        }
-        if (efashionAvailable) {
-          checkboxes.push({
-            id: "efashion",
-            label: "Mettre à jour sur eFashion Paris",
-            defaultChecked: true,
-            onChange: (v) => {
-              efashionRef.current = v;
-            },
-          });
-        }
-        if (faireAvailable) {
-          checkboxes.push({
-            id: "faire",
-            label: "Mettre à jour sur Faire",
-            defaultChecked: true,
-            onChange: (v) => {
-              faireRef.current = v;
-            },
-          });
-        }
-        const ok = await confirm({
-          type: "info",
-          title: "Propager aux marketplaces ?",
-          message: `Modification de la variante "${variant.color.name}" — cochez les marketplaces où l'envoyer.`,
-          checkboxesLabel: "Marketplaces",
-          checkboxes,
-          confirmLabel: "Mettre à jour",
-          cancelLabel: "Plus tard",
-        });
-        if (ok === true) {
-          const inputs: Parameters<typeof enqueue>[0] = [];
-          if (pfsRef.current) {
-            inputs.push({
-              productId: product.id,
-              reference: product.reference,
-              productName: product.name,
-              firstImage: product.firstImage,
-              options: { local: false, pfs: true },
-              mode: "publish",
-              marketplace: "pfs",
-            });
-          }
-          if (ankorsRef.current) {
-            inputs.push({
-              productId: product.id,
-              reference: product.reference,
-              productName: product.name,
-              firstImage: product.firstImage,
-              options: { local: false, pfs: false, ankorstore: true },
-              mode: "publish",
-              marketplace: "ankorstore",
-            });
-          }
-          if (efashionRef.current) {
-            inputs.push({
-              productId: product.id,
-              reference: product.reference,
-              productName: product.name,
-              firstImage: product.firstImage,
-              options: { local: false, pfs: false, ankorstore: false, efashion: true },
-              mode: "publish",
-              marketplace: "efashion",
-            });
-          }
-          if (faireRef.current) {
-            inputs.push({
-              productId: product.id,
-              reference: product.reference,
-              productName: product.name,
-              firstImage: product.firstImage,
-              options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
-              mode: "publish",
-              marketplace: "faire",
-            });
-          }
-          if (inputs.length > 0) enqueue(inputs);
-        }
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setSaving(false);
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
     }
+  }, [editing]);
+
+  const startEdit = () => {
+    setDraft(String(currentValue));
+    setEditing(true);
   };
 
-  if (!editing) {
+  const commit = () => {
+    const raw = parseFloat(draft.replace(",", "."));
+    if (Number.isFinite(raw) && raw >= 0) {
+      const rounded = isInt ? Math.round(raw) : Math.round(raw * 100) / 100;
+      onCommit(field, rounded, originalValue);
+    }
+    setEditing(false);
+  };
+  const cancel = () => setEditing(false);
+
+  if (editing) {
     return (
-      <tr className={`transition-colors border-t border-border-light ${checked ? "bg-[#EEF2FF]" : "hover:bg-bg-primary/80"}`}
-      >
-        {/* Checkbox */}
-        <td className="pl-5 pr-2 py-2.5 w-10">
-          <input
-            type="checkbox"
-            checked={checked}
-            onChange={onCheck}
-            className="checkbox-custom checkbox-sm"
-            title={`Sélectionner ${variant.color.name} — ${product.name}`}
-          />
-        </td>
-        <td className="px-3 py-2.5">
-          <div className="flex items-center gap-2.5">
-            {(() => {
-              const mainHex = variant.color.hex ?? "#9CA3AF";
-              const fullName = variant.color.name;
-              const swatchStyle: React.CSSProperties = variant.color.patternImage
-                ? { backgroundImage: `url(${variant.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
-                : { backgroundColor: mainHex };
-              return (
-                <>
-                  <span
-                    className="w-5 h-5 rounded-full shrink-0"
-                    style={{
-                      ...swatchStyle,
-                      border: '2px solid #fff',
-                      boxShadow: '0 0 0 1px #D1D1D1, 0 1px 2px rgba(0,0,0,0.08)',
-                    }}
-                    title={fullName}
-                  />
-                  <span className="text-xs font-medium font-body text-text-primary">
-                    {fullName}
-                  </span>
-                </>
-              );
-            })()}
-          </div>
-        </td>
-        <td className="px-3 py-2.5 text-xs font-body">
-          <span className={`badge text-[10px] ${variant.saleType === "UNIT" ? "badge-info" : "badge-purple"}`}>
-            {variant.saleType === "UNIT" ? "Unité" : `Pack ×${variant.packQuantity}`}
-          </span>
-          {variant.variantSizes && variant.variantSizes.length > 0 && (
-            <span className="badge badge-neutral text-[10px] ml-1.5">
-              {variant.variantSizes.map(vs => vs.quantity > 1 ? `${vs.size.name}\u00D7${vs.quantity}` : vs.size.name).join(", ")}
-            </span>
-          )}
-        </td>
-        <td className="px-3 py-2.5 text-xs font-body font-semibold text-text-primary">
-          {Number(variant.unitPrice).toFixed(2)} €
-        </td>
-        <td className="px-3 py-2.5 text-xs font-body">
-          {variant.stock === 0 ? (
-            <span className="inline-flex items-center gap-1.5 text-[#DC2626] font-bold">
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#DC2626', display: 'inline-block' }} className="animate-pulse" />
-              {variant.stock}
-            </span>
-          ) : variant.stock <= 5 ? (
-            <span className="inline-flex items-center gap-1.5 text-[#D97706] font-semibold">
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#D97706', display: 'inline-block' }} />
-              {variant.stock}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 text-[#16A34A] font-medium">
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#16A34A', display: 'inline-block' }} />
-              {variant.stock}
-            </span>
-          )}
-        </td>
-        <td className="px-3 py-2.5 text-xs font-body text-text-secondary">
-          {variant.weight} kg
-        </td>
-        <td className="px-3 py-2.5 text-right">
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="inline-flex items-center gap-1 text-[11px] font-medium font-body transition-all px-2.5 py-1 bg-bg-primary text-text-secondary border border-border-dark rounded-md shadow-sm hover:border-text-primary hover:text-text-primary"
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
-            Modifier
-          </button>
-        </td>
-      </tr>
+      <input
+        ref={inputRef}
+        type="number"
+        step={isInt ? "1" : "0.01"}
+        min={0}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); commit(); }
+          else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+        }}
+        className="variant-cell-input"
+        aria-label={ariaLabel}
+        data-variant-id={variantId}
+        data-variant-field={field}
+      />
     );
   }
 
-  // ── Mode édition ──
-  const inputClass = "variant-input w-full";
-
-
   return (
-    <>
-      <tr className="border-t-[1.5px] border-t-[#FDE68A] bg-[#FFFBEB]">
-        <td className="pl-5 pr-2 py-2.5 w-10">
-          <input type="checkbox" checked={checked} onChange={onCheck} className="checkbox-custom checkbox-sm" />
-        </td>
-        <td className="px-3 py-2.5">
-          <div className="flex items-center gap-2.5">
-            <span className="w-5 h-5 rounded-full shrink-0"
-              style={{
-                ...(variant.color.patternImage
-                  ? { backgroundImage: `url(${variant.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
-                  : { backgroundColor: variant.color.hex ?? "#9CA3AF" }),
-                border: '2px solid #fff', boxShadow: '0 0 0 1px #D1D1D1',
-              }}
-            />
-            <span className="text-xs font-medium font-body text-text-primary">
-              {variant.color.name}
-            </span>
-          </div>
-        </td>
-        <td className="px-3 py-2.5">
-          <div className="flex items-center gap-1.5">
-            <span className={`badge text-[10px] ${variant.saleType === "UNIT" ? "badge-info" : "badge-purple"}`}>
-              {variant.saleType === "UNIT" ? "Unité" : "Pack"}
-            </span>
-            {variant.saleType === "PACK" && (
-              <input type="number" min={2} value={packQuantity} onChange={(e) => setPackQuantity(e.target.value)} placeholder="Qté" className={`${inputClass} !w-14`} title="Quantité par paquet" />
-            )}
-            {variant.variantSizes && variant.variantSizes.length > 0 && (
-              <span className="badge badge-neutral text-[10px]">
-                {variant.variantSizes.map(vs => vs.quantity > 1 ? `${vs.size.name}\u00D7${vs.quantity}` : vs.size.name).join(", ")}
-              </span>
-            )}
-          </div>
-        </td>
-        <td className="px-3 py-2.5">
-          <input type="number" step="0.01" min={0} value={price} onChange={(e) => setPrice(e.target.value)} className={`${inputClass} !w-20`} />
-        </td>
-        <td className="px-3 py-2.5">
-          <input type="number" min={0} value={stock} onChange={(e) => setStock(e.target.value)} className={`${inputClass} !w-16`} />
-        </td>
-        <td className="px-3 py-2.5">
-          <input type="number" step="0.01" min={0} value={weight} onChange={(e) => setWeight(e.target.value)} className={`${inputClass} !w-16`} />
-        </td>
-        <td className="px-3 py-2.5 text-right">
-          <div className="flex items-center gap-1.5 justify-end">
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className={`inline-flex items-center gap-1 font-body transition-colors px-3 py-1.5 text-[11px] font-semibold bg-bg-dark text-text-inverse rounded-md border-none ${saving ? "cursor-wait opacity-60" : "cursor-pointer"}`}
-            >
-              {saving ? (
-                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              ) : (
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              )}
-              {saving ? "..." : "OK"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditing(false)}
-              className="font-body transition-colors px-2.5 py-1.5 text-[11px] text-text-secondary bg-transparent border-none rounded-md cursor-pointer hover:bg-bg-primary hover:text-text-primary"
-            >
-              Annuler
-            </button>
-          </div>
-        </td>
-      </tr>
-      {error && (
-        <tr className="bg-[#FEF2F2]">
-          <td colSpan={9} className="px-5 py-2 text-xs font-body text-error">
-            <div className="flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-              {error}
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={startEdit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); startEdit(); }
+      }}
+      className={`variant-cell-editable text-xs font-body ${dirty ? "variant-cell-dirty" : ""}`}
+      aria-label={`${ariaLabel} — cliquez pour modifier`}
+      data-variant-id={variantId}
+      data-variant-field={field}
+    >
+      {children}
+      <span className="variant-cell-hint">Cliquez</span>
+    </span>
   );
 }
+
+// ─── Variant Row (nouvelle version : édition inline, plus de checkbox) ─────
+// La ligne n'a plus de bouton « Modifier » ni de case à cocher. Chaque cellule
+// éditable délègue au top-level (AdminProductsTable) la mémorisation de la
+// valeur en attente via `onCommitCell`. Un bandeau flottant global en bas de
+// l'écran affiche le total des modifications et permet de tout appliquer /
+// annuler d'un coup, même à travers plusieurs tiroirs ouverts.
+function VariantRow({
+  variant,
+  editsForVariant,
+  onCommitCell,
+}: {
+  variant: ColorVariant;
+  editsForVariant: Partial<Record<VariantField, number>>;
+  onCommitCell: (variantId: string, field: VariantField, newValue: number, originalValue: number) => void;
+}) {
+  const priceOrig = variant.unitPrice;
+  const stockOrig = variant.stock;
+  const weightOrig = variant.weight;
+  const packOrig = variant.packQuantity ?? 0;
+
+  const priceCurrent = editsForVariant.price ?? priceOrig;
+  const stockCurrent = editsForVariant.stock ?? stockOrig;
+  const weightCurrent = editsForVariant.weight ?? weightOrig;
+  const packCurrent = editsForVariant.packQty ?? packOrig;
+
+  const dirtyPrice = editsForVariant.price !== undefined;
+  const dirtyStock = editsForVariant.stock !== undefined;
+  const dirtyWeight = editsForVariant.weight !== undefined;
+  const dirtyPack = editsForVariant.packQty !== undefined;
+
+  const commit = useCallback(
+    (field: VariantField, newValue: number, originalValue: number) => {
+      onCommitCell(variant.id, field, newValue, originalValue);
+    },
+    [onCommitCell, variant.id],
+  );
+
+  // Puce colorée du stock : vert, ambre (≤5), rouge (0).
+  const stockDotColor =
+    stockCurrent === 0 ? "#DC2626" : stockCurrent <= 5 ? "#D97706" : "#16A34A";
+  const stockLabelClass =
+    stockCurrent === 0
+      ? "text-[#DC2626] font-bold"
+      : stockCurrent <= 5
+      ? "text-[#D97706] font-semibold"
+      : "text-[#16A34A] font-medium";
+
+  const swatchStyle: React.CSSProperties = variant.color.patternImage
+    ? { backgroundImage: `url(${variant.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
+    : { backgroundColor: variant.color.hex ?? "#9CA3AF" };
+
+  return (
+    <tr className="border-t border-border-light transition-colors hover:bg-bg-primary/60">
+      {/* Couleur */}
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <span
+            className="w-[22px] h-[22px] rounded-full shrink-0"
+            style={{
+              ...swatchStyle,
+              border: "2px solid #fff",
+              boxShadow: "0 0 0 1px #D1D1D1, 0 1px 3px rgba(0,0,0,0.08)",
+            }}
+            title={variant.color.name}
+          />
+          <span className="text-xs font-semibold font-body text-text-primary">
+            {variant.color.name}
+          </span>
+        </div>
+      </td>
+
+      {/* Type - UNIT ou PACK avec édition inline du packQty */}
+      <td className="px-4 py-3">
+        {variant.saleType === "UNIT" ? (
+          <span className="badge badge-info text-[10px]">Unité</span>
+        ) : (
+          <span className="badge badge-purple text-[10px] inline-flex items-center gap-1">
+            Pack ×
+            <VariantEditableCell
+              variantId={variant.id}
+              field="packQty"
+              currentValue={packCurrent}
+              originalValue={packOrig}
+              isInt
+              dirty={dirtyPack}
+              ariaLabel={`Quantité par pack — ${variant.color.name}`}
+              onCommit={commit}
+            >
+              {packCurrent}
+            </VariantEditableCell>
+          </span>
+        )}
+      </td>
+
+      {/* Tailles (lecture seule ici) */}
+      <td className="px-4 py-3">
+        {variant.variantSizes && variant.variantSizes.length > 0 && (
+          <span className="badge badge-neutral text-[10px]">
+            {variant.variantSizes
+              .map((vs) => (vs.quantity > 1 ? `${vs.size.name}×${vs.quantity}` : vs.size.name))
+              .join(", ")}
+          </span>
+        )}
+      </td>
+
+      {/* Prix HT */}
+      <td className="px-4 py-3 text-right">
+        <VariantEditableCell
+          variantId={variant.id}
+          field="price"
+          currentValue={priceCurrent}
+          originalValue={priceOrig}
+          isInt={false}
+          dirty={dirtyPrice}
+          ariaLabel={`Prix HT — ${variant.color.name}`}
+          onCommit={commit}
+        >
+          <span className="font-semibold text-text-primary">
+            {priceCurrent.toFixed(2).replace(".", ",")} €
+          </span>
+        </VariantEditableCell>
+      </td>
+
+      {/* Stock */}
+      <td className="px-4 py-3 text-right">
+        <VariantEditableCell
+          variantId={variant.id}
+          field="stock"
+          currentValue={stockCurrent}
+          originalValue={stockOrig}
+          isInt
+          dirty={dirtyStock}
+          ariaLabel={`Stock — ${variant.color.name}`}
+          onCommit={commit}
+        >
+          {dirtyStock ? (
+            <>{stockCurrent}</>
+          ) : (
+            <span className={`inline-flex items-center gap-1.5 ${stockLabelClass}`}>
+              <span
+                className={stockCurrent === 0 ? "animate-pulse" : ""}
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: stockDotColor,
+                  display: "inline-block",
+                }}
+              />
+              {stockCurrent}
+            </span>
+          )}
+        </VariantEditableCell>
+      </td>
+
+      {/* Poids */}
+      <td className="px-4 py-3 text-right">
+        <VariantEditableCell
+          variantId={variant.id}
+          field="weight"
+          currentValue={weightCurrent}
+          originalValue={weightOrig}
+          isInt={false}
+          dirty={dirtyWeight}
+          ariaLabel={`Poids — ${variant.color.name}`}
+          onCommit={commit}
+        >
+          <span className="text-text-secondary">
+            {weightCurrent.toFixed(2).replace(".", ",")} kg
+          </span>
+        </VariantEditableCell>
+      </td>
+    </tr>
+  );
+}
+
 
 // ─── Status badge with inline dropdown ──────────────────────────────────────
 function StatusBadge({
@@ -1601,9 +1555,8 @@ function ProductRow({
   onToggle,
   expanded,
   onExpandToggle,
-  selectedVariantIds,
-  onToggleVariant,
-  onToggleAllVariants,
+  dirtyEdits,
+  onCommitCell,
   isDeleting = false,
   onRowStatus,
   onRowDelete,
@@ -1622,9 +1575,8 @@ function ProductRow({
   onToggle: () => void;
   expanded: boolean;
   onExpandToggle: () => void;
-  selectedVariantIds: Set<string>;
-  onToggleVariant: (id: string) => void;
-  onToggleAllVariants: (ids: string[], select: boolean) => void;
+  dirtyEdits: VariantDirtyEdits;
+  onCommitCell: (variantId: string, field: VariantField, newValue: number, originalValue: number) => void;
   isDeleting?: boolean;
   onRowStatus: (productId: string, status: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
   onRowDelete: (productId: string) => void;
@@ -1895,8 +1847,10 @@ function ProductRow({
   const missingLocales = allNonFrLocales.filter((l) => !existingLocales.has(l));
   const hasMissingTranslations = missingLocales.length > 0;
 
-  const variantIds = product.colors.map((c) => c.id);
-  const allVariantsSelected = variantIds.length > 0 && variantIds.every((id) => selectedVariantIds.has(id));
+  // ─── State d'édition inline : remonté au top-level ──────────────────────
+  // Le bandeau apply/cancel est désormais un flottant global (voir
+  // AdminProductsTable). ProductRow ne fait que passer les modifs de ses
+  // variantes vers le state top-level via `onCommitCell` (prop).
 
   const eligibility = computeRowActionEligibility(
     { ...product, efashionLinked, fairePublished: faireBadgeState.online },
@@ -2287,89 +2241,64 @@ function ProductRow({
         </td>
       </tr>
 
-      {/* ── Tiroir variantes ── */}
+      {/* ── Tiroir variantes (refonte cockpit) ── */}
       {expanded && (
         <tr>
           <td colSpan={8} className="p-0">
-            <div className="drawer-variant-container" style={{ position: 'relative' }}>
+            <div className="drawer-variant-container">
               {/* En-tête du tiroir */}
-              <div
-                className="flex items-center justify-between drawer-variant-header"
-                style={{ padding: '12px 20px' }}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-[3px] h-4 rounded-sm bg-bg-dark" />
-                    <span className="font-heading text-[11px] font-bold text-text-primary uppercase tracking-wider"
-                    >
+              <div className="drawer-variant-header relative flex items-center justify-between">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-1 h-9 rounded-full bg-gradient-to-b from-emerald-400 to-emerald-700" />
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700 mb-0.5">
+                      Tiroir variantes
+                    </div>
+                    <div className="font-heading text-xl font-bold text-text-primary leading-tight">
                       {product.colors.length} variante{product.colors.length > 1 ? "s" : ""}
-                    </span>
+                      <span className="ml-2 text-text-muted font-normal text-sm font-body">
+                        · cliquez sur un chiffre pour l'éditer
+                      </span>
+                    </div>
                   </div>
-                  {product.colors.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => onToggleAllVariants(variantIds, !allVariantsSelected)}
-                      className={`inline-flex items-center gap-1.5 font-body transition-all px-2.5 py-1 text-[10px] font-semibold rounded-md border cursor-pointer ${
-                        allVariantsSelected
-                          ? "border-bg-dark bg-bg-dark text-text-inverse"
-                          : "border-border-dark bg-bg-primary text-text-secondary"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={allVariantsSelected}
-                        readOnly
-                        className="checkbox-custom checkbox-sm pointer-events-none"
-                        tabIndex={-1}
-                      />
-                      {allVariantsSelected ? "Désélectionner tout" : "Sélectionner tout"}
-                    </button>
-                  )}
                 </div>
                 <Link
                   href={`/admin/produits/${product.id}/modifier`}
-                  className="inline-flex items-center gap-1.5 font-body transition-colors text-[11px] text-text-secondary hover:text-text-primary no-underline"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-text-muted hover:text-text-primary transition-colors no-underline"
                 >
                   Édition complète
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                   </svg>
                 </Link>
               </div>
 
               {/* Table des variantes */}
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="drawer-variant-th">
-                    <th className="w-10 py-2 pl-5 pr-2"></th>
-                    <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Couleur</th>
-                    <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Type</th>
-                    <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT</th>
-                    <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Stock</th>
-                    <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Poids</th>
-                    <th className="px-3 py-2 text-right text-[10px]"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {product.colors.map((variant) => (
-                    <VariantRow
-                      key={variant.id}
-                      variant={variant}
-                      product={product}
-                      hasPfsConfig={hasPfsConfig}
-                      hasAnkorstoreConfig={hasAnkorstoreConfig}
-                      ankorstoreEnabled={ankorstoreEnabled}
-                      hasEfashionConfig={hasEfashionConfig}
-                      efashionEnabled={efashionEnabled}
-                      hasFaireConfig={hasFaireConfig}
-                      faireEnabled={faireEnabled}
-                      checked={selectedVariantIds.has(variant.id)}
-                      onCheck={() => onToggleVariant(variant.id)}
-                      onSaved={() => {}}
-                    />
-                  ))}
-                </tbody>
-              </table>
+              <div className="drawer-variant-table-wrap">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="drawer-variant-th">
+                      <th className="px-4 py-3 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Couleur</th>
+                      <th className="px-4 py-3 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Type</th>
+                      <th className="px-4 py-3 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Tailles</th>
+                      <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT</th>
+                      <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Stock</th>
+                      <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Poids</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {product.colors.map((variant) => (
+                      <VariantRow
+                        key={variant.id}
+                        variant={variant}
+                        editsForVariant={dirtyEdits[variant.id] ?? {}}
+                        onCommitCell={onCommitCell}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* Bandeau apply/cancel : géré globalement au niveau AdminProductsTable */}
             </div>
           </td>
         </tr>
@@ -2485,309 +2414,10 @@ function ProductRow({
   );
 }
 
-// ─── Bulk Variant Edit Bar ──────────────────────────────────────────────────────
-
-const BULK_FIELDS: { value: string; label: string; icon: string }[] = [
-  { value: "stock", label: "Stock", icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" },
-  { value: "price", label: "Prix HT", icon: "M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
-  { value: "weight", label: "Poids", icon: "M12 3v17.25m0 0c-1.472 0-2.882.265-4.185.75M12 20.25c1.472 0 2.882.265 4.185.75M18.75 4.97A48.416 48.416 0 0012 4.5c-2.291 0-4.545.16-6.75.47m13.5 0c1.01.143 2.01.317 3 .52m-3-.52l2.62 10.726c.122.499-.106 1.028-.589 1.202a5.988 5.988 0 01-2.031.352 5.988 5.988 0 01-2.031-.352c-.483-.174-.711-.703-.59-1.202L18.75 4.971zm-16.5.52c.99-.203 1.99-.377 3-.52m0 0l2.62 10.726c.122.499-.106 1.028-.589 1.202a5.989 5.989 0 01-2.031.352 5.989 5.989 0 01-2.031-.352c-.483-.174-.711-.703-.59-1.202L5.25 4.971z" },
-];
-
-function BulkVariantBar({
-  count,
-  onApply,
-  onClear,
-  isPending,
-}: {
-  count: number;
-  onApply: (data: Record<string, unknown>) => void;
-  onClear: () => void;
-  isPending: boolean;
-}) {
-  const [field, setField] = useState<string>("stock");
-  const [mode, setMode] = useState<"set" | "add">("set");
-  const [value, setValue] = useState("");
-  const [fieldMenuOpen, setFieldMenuOpen] = useState(false);
-
-  const handleApply = () => {
-    const numVal = parseFloat(value);
-    if (isNaN(numVal)) return;
-
-    if (field === "stock") {
-      onApply(mode === "set" ? { stock: Math.max(0, Math.round(numVal)) } : { stock: { increment: Math.round(numVal) } });
-    } else if (field === "price") {
-      if (mode === "set") onApply({ unitPrice: Math.max(0, numVal) });
-      else onApply({ unitPrice: { increment: numVal } });
-    } else if (field === "weight") {
-      onApply({ weight: Math.max(0, numVal) });
-    }
-  };
-
-  const barInputStyle: React.CSSProperties = {
-    padding: '7px 12px',
-    fontSize: '12px',
-    fontFamily: 'var(--font-roboto), sans-serif',
-    color: '#FFFFFF',
-    background: 'rgba(255,255,255,0.12)',
-    border: '1px solid rgba(255,255,255,0.2)',
-    borderRadius: '8px',
-    outline: 'none',
-    width: 140,
-  };
-
-  return (
-    <div
-      className="bulk-variant-bar"
-      style={{
-        position: 'fixed',
-        bottom: 24,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 50,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        background: '#1A1A1A',
-        color: '#fff',
-        borderRadius: 16,
-        padding: '14px 20px',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.05)',
-      }}
-    >
-      {/* Count badge */}
-      <div className="flex items-center gap-2">
-        <span className="font-heading"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 28,
-            height: 28,
-            background: 'rgba(255,255,255,0.15)',
-            borderRadius: 8,
-            fontSize: 14,
-            fontWeight: 700,
-          }}
-        >
-          {count}
-        </span>
-        <span className="font-body" style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)' }}>
-          variante{count > 1 ? "s" : ""}
-        </span>
-      </div>
-
-      <div style={{ height: 24, width: 1, background: 'rgba(255,255,255,0.15)' }} />
-
-      {/* Field selector — custom dropdown */}
-      <div style={{ position: 'relative' }}>
-        <button
-          type="button"
-          onClick={() => setFieldMenuOpen(!fieldMenuOpen)}
-          className="font-body"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '7px 14px',
-            fontSize: 12,
-            fontWeight: 600,
-            color: '#fff',
-            background: 'rgba(255,255,255,0.12)',
-            border: '1px solid rgba(255,255,255,0.2)',
-            borderRadius: 10,
-            cursor: 'pointer',
-            transition: 'all 0.15s',
-            minWidth: 150,
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.18)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
-        >
-          <svg className="w-3.5 h-3.5 shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d={BULK_FIELDS.find(f => f.value === field)?.icon ?? ""} />
-          </svg>
-          <span className="flex-1 text-left">{BULK_FIELDS.find(f => f.value === field)?.label}</span>
-          <svg className={`w-3 h-3 shrink-0 opacity-50 transition-transform duration-200 ${fieldMenuOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-          </svg>
-        </button>
-
-        {fieldMenuOpen && (
-          <>
-            <div className="fixed inset-0 z-[60]" onClick={() => setFieldMenuOpen(false)} />
-            <div
-              style={{
-                position: 'absolute',
-                bottom: '100%',
-                left: 0,
-                marginBottom: 6,
-                minWidth: 200,
-                background: '#fff',
-                borderRadius: 12,
-                boxShadow: '0 12px 40px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.06)',
-                overflow: 'hidden',
-                zIndex: 61,
-                animation: 'confirmSlideUp 0.15s ease-out',
-              }}
-            >
-              <div style={{ padding: '6px 0' }}>
-                {BULK_FIELDS.map((f) => (
-                  <button
-                    key={f.value}
-                    type="button"
-                    onClick={() => { setField(f.value); setValue(""); setFieldMenuOpen(false); }}
-                    className="font-body"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      width: '100%',
-                      padding: '9px 14px',
-                      fontSize: 12,
-                      fontWeight: field === f.value ? 700 : 500,
-                      color: field === f.value ? '#1A1A1A' : '#6B6B6B',
-                      background: field === f.value ? '#F7F7F8' : 'transparent',
-                      border: 'none',
-                      cursor: 'pointer',
-                      transition: 'all 0.1s',
-                      textAlign: 'left',
-                    }}
-                    onMouseEnter={(e) => { if (field !== f.value) e.currentTarget.style.background = '#F7F7F8'; }}
-                    onMouseLeave={(e) => { if (field !== f.value) e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5} style={{ color: field === f.value ? '#1A1A1A' : '#9CA3AF' }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d={f.icon} />
-                    </svg>
-                    <span className="flex-1">{f.label}</span>
-                    {field === f.value && (
-                      <svg className="w-3.5 h-3.5 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Mode (set / add) — only for stock & price */}
-      {(field === "stock" || field === "price") && (
-        <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)' }}>
-          <button
-            type="button"
-            onClick={() => setMode("set")}
-            className="font-body"
-            style={{
-              padding: '7px 12px',
-              fontSize: 11,
-              fontWeight: 600,
-              border: 'none',
-              cursor: 'pointer',
-              background: mode === "set" ? '#fff' : 'transparent',
-              color: mode === "set" ? '#1A1A1A' : 'rgba(255,255,255,0.5)',
-              transition: 'all 0.15s',
-            }}
-          >
-            Définir
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("add")}
-            className="font-body"
-            style={{
-              padding: '7px 12px',
-              fontSize: 11,
-              fontWeight: 600,
-              border: 'none',
-              cursor: 'pointer',
-              background: mode === "add" ? '#fff' : 'transparent',
-              color: mode === "add" ? '#1A1A1A' : 'rgba(255,255,255,0.5)',
-              transition: 'all 0.15s',
-            }}
-          >
-            +/−
-          </button>
-        </div>
-      )}
-
-      {/* Value input */}
-      {(
-        <input
-          type="number"
-          step={field === "stock" ? "1" : "0.01"}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder={
-            field === "stock" ? (mode === "set" ? "Nouveau stock" : "+10 ou -5")
-            : field === "price" ? (mode === "set" ? "Nouveau prix" : "+1.50 ou -0.50")
-            : field === "weight" ? "Poids (kg)"
-            : "Valeur"
-          }
-          style={barInputStyle}
-        />
-      )}
-
-      {/* Apply button */}
-      <button
-        type="button"
-        onClick={handleApply}
-        disabled={isPending || (!value)}
-        className="flex items-center gap-1.5 font-body"
-        style={{
-          padding: '7px 16px',
-          fontSize: 12,
-          fontWeight: 700,
-          background: '#fff',
-          color: '#1A1A1A',
-          border: 'none',
-          borderRadius: 8,
-          cursor: isPending || (!value) ? 'not-allowed' : 'pointer',
-          opacity: isPending || (!value) ? 0.4 : 1,
-          transition: 'all 0.15s',
-        }}
-      >
-        {isPending ? (
-          <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-        ) : (
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-        )}
-        Appliquer
-      </button>
-
-      <div style={{ height: 24, width: 1, background: 'rgba(255,255,255,0.15)' }} />
-
-      {/* Clear */}
-      <button
-        type="button"
-        onClick={onClear}
-        className="font-body"
-        style={{
-          fontSize: 12,
-          color: 'rgba(255,255,255,0.4)',
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          transition: 'color 0.15s',
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.color = '#fff'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; }}
-      >
-        Désélectionner
-      </button>
-    </div>
-  );
-}
-
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, startIndex, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, deletingIds, onRowStatus, onRowDelete, onRowSync,
+  products, startIndex, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, onRowDelete, onRowSync,
 }: {
   products: AdminProduct[];
   startIndex: number;
@@ -2804,9 +2434,8 @@ function TableWithTopScroll({
   toggleSelect: (id: string) => void;
   expandedIds: Set<string>;
   toggleExpand: (id: string) => void;
-  selectedVariantIds: Set<string>;
-  toggleVariant: (id: string) => void;
-  toggleAllVariants: (ids: string[], select: boolean) => void;
+  dirtyEdits: VariantDirtyEdits;
+  onCommitCell: (variantId: string, field: VariantField, newValue: number, originalValue: number) => void;
   deletingIds: Set<string>;
   onRowStatus: (productId: string, status: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
   onRowDelete: (productId: string) => void;
@@ -2854,9 +2483,8 @@ function TableWithTopScroll({
                 onToggle={() => toggleSelect(product.id)}
                 expanded={expandedIds.has(product.id)}
                 onExpandToggle={() => toggleExpand(product.id)}
-                selectedVariantIds={selectedVariantIds}
-                onToggleVariant={toggleVariant}
-                onToggleAllVariants={toggleAllVariants}
+                dirtyEdits={dirtyEdits}
+                onCommitCell={onCommitCell}
                 isDeleting={deletingIds.has(product.id)}
                 onRowStatus={onRowStatus}
                 onRowDelete={onRowDelete}
@@ -2887,8 +2515,14 @@ export default function AdminProductsTable({
 }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
+  // ─── Édition inline des variantes ──────────────────────────────────────
+  // Le state vit ici (top-level) pour qu'un seul bandeau flottant global
+  // affiche le total des modifications, même quand plusieurs tiroirs
+  // variantes sont ouverts sur des produits différents.
+  const [dirtyEdits, setDirtyEdits] = useState<VariantDirtyEdits>({});
+  const [applyingVariantEdits, setApplyingVariantEdits] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const { isFiltering } = useFilterPending();
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [bulkPublishDraftsOpen, setBulkPublishDraftsOpen] = useState(false);
   const router = useRouter();
@@ -2914,7 +2548,6 @@ export default function AdminProductsTable({
   const allPageIds = allProducts.map((p) => p.id);
   const allSelected = allPageIds.length > 0 && allPageIds.every((id) => selectedIds.has(id));
   const someSelected = selectedIds.size > 0;
-  const variantCount = selectedVariantIds.size;
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -2942,30 +2575,205 @@ export default function AdminProductsTable({
     });
   }, []);
 
-  const toggleVariant = useCallback((variantId: string) => {
-    setSelectedVariantIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(variantId)) next.delete(variantId);
-      else next.add(variantId);
-      return next;
-    });
+  // ─── Handlers édition inline (global) ─────────────────────────────────
+  const handleCommitCell = useCallback(
+    (variantId: string, field: VariantField, newValue: number, originalValue: number) => {
+      setDirtyEdits((prev) => commitVariantCell(prev, variantId, field, newValue, originalValue));
+    },
+    [],
+  );
+  const handleCancelAllVariantEdits = useCallback(() => {
+    setDirtyEdits({});
   }, []);
+  const totalDirtyVariants = countVariantDirtyEdits(dirtyEdits);
+  const affectedProductIds = new Set<string>();
+  for (const variantId in dirtyEdits) {
+    const p = allProducts.find((prod) => prod.colors.some((c) => c.id === variantId));
+    if (p) affectedProductIds.add(p.id);
+  }
 
-  const toggleAllVariants = useCallback((ids: string[], select: boolean) => {
-    setSelectedVariantIds((prev) => {
-      const next = new Set(prev);
-      if (select) {
-        ids.forEach((id) => next.add(id));
-      } else {
-        ids.forEach((id) => next.delete(id));
+  // Enregistre toutes les modifs (variante par variante), puis propose la
+  // propagation aux marketplaces via une seule pop-up qui liste les produits
+  // impactés par marketplace.
+  const handleApplyAllVariantEdits = useCallback(async () => {
+    if (totalDirtyVariants === 0 || applyingVariantEdits) return;
+    const snapshot = dirtyEdits;
+    setApplyingVariantEdits(true);
+    try {
+      const entries = Object.entries(snapshot);
+      await Promise.all(
+        entries.map(async ([variantId, changes]) => {
+          const variant = allProducts
+            .flatMap((p) => p.colors)
+            .find((c) => c.id === variantId);
+          if (!variant) return;
+          const data: Parameters<typeof updateVariantQuick>[1] = {};
+          if (changes.price !== undefined) data.unitPrice = changes.price;
+          if (changes.stock !== undefined) data.stock = changes.stock;
+          if (changes.weight !== undefined) data.weight = changes.weight;
+          if (changes.packQty !== undefined) {
+            data.packQuantity = variant.saleType === "PACK" ? changes.packQty : null;
+          }
+          if (Object.keys(data).length > 0) {
+            await updateVariantQuick(variantId, data);
+          }
+        }),
+      );
+      setDirtyEdits({});
+      toast.success(
+        `${totalDirtyVariants} modification${totalDirtyVariants > 1 ? "s" : ""} enregistrée${totalDirtyVariants > 1 ? "s" : ""}`,
+      );
+      router.refresh();
+
+      // Regroupe les produits impactés par marketplace pour la pop-up.
+      const variantIds = Object.keys(snapshot);
+      const { affectedProducts, pfsProducts, ankorsProducts, efashionProducts, faireProducts } =
+        computeBulkVariantMarketplaceTargets(allProducts, variantIds, {
+          hasPfsConfig,
+          showAnkorstore,
+          showEfashion,
+          showFaire,
+        });
+
+      if (
+        pfsProducts.length === 0 &&
+        ankorsProducts.length === 0 &&
+        efashionProducts.length === 0 &&
+        faireProducts.length === 0
+      ) {
+        return;
       }
-      return next;
-    });
-  }, []);
 
-  const clearSelectedVariants = useCallback(() => {
-    setSelectedVariantIds(new Set());
-  }, []);
+      const pfsRef = { current: pfsProducts.length > 0 };
+      const ankorsRef = { current: ankorsProducts.length > 0 };
+      const efashionRef = { current: efashionProducts.length > 0 };
+      const faireRef = { current: faireProducts.length > 0 };
+      const checkboxes: {
+        id: string;
+        label: string;
+        defaultChecked: boolean;
+        onChange: (v: boolean) => void;
+      }[] = [];
+      if (pfsProducts.length > 0) {
+        checkboxes.push({
+          id: "pfs",
+          label: `Mettre à jour sur Paris Fashion Shop (${pfsProducts.length} produit${pfsProducts.length > 1 ? "s" : ""})`,
+          defaultChecked: true,
+          onChange: (v) => { pfsRef.current = v; },
+        });
+      }
+      if (ankorsProducts.length > 0) {
+        checkboxes.push({
+          id: "ankorstore",
+          label: `Mettre à jour sur Ankorstore (${ankorsProducts.length} produit${ankorsProducts.length > 1 ? "s" : ""})`,
+          defaultChecked: true,
+          onChange: (v) => { ankorsRef.current = v; },
+        });
+      }
+      if (efashionProducts.length > 0) {
+        checkboxes.push({
+          id: "efashion",
+          label: `Mettre à jour sur eFashion Paris (${efashionProducts.length} produit${efashionProducts.length > 1 ? "s" : ""})`,
+          defaultChecked: true,
+          onChange: (v) => { efashionRef.current = v; },
+        });
+      }
+      if (faireProducts.length > 0) {
+        checkboxes.push({
+          id: "faire",
+          label: `Mettre à jour sur Faire (${faireProducts.length} produit${faireProducts.length > 1 ? "s" : ""})`,
+          defaultChecked: true,
+          onChange: (v) => { faireRef.current = v; },
+        });
+      }
+
+      const ok = await confirm({
+        type: "info",
+        title: "Propager aux marketplaces ?",
+        message: `${affectedProducts.length} produit${affectedProducts.length > 1 ? "s" : ""} touché${affectedProducts.length > 1 ? "s" : ""} par ces modifications — cochez les marketplaces où l'envoyer.`,
+        checkboxesLabel: "Marketplaces",
+        checkboxes,
+        confirmLabel: "Mettre à jour",
+        cancelLabel: "Plus tard",
+      });
+      if (ok !== true) return;
+
+      const inputs: Parameters<typeof enqueuePfs>[0] = [];
+      if (pfsRef.current) {
+        for (const p of pfsProducts) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: true },
+            mode: "publish",
+            marketplace: "pfs",
+          });
+        }
+      }
+      if (ankorsRef.current) {
+        for (const p of ankorsProducts) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: false, ankorstore: true },
+            mode: "publish",
+            marketplace: "ankorstore",
+          });
+        }
+      }
+      if (efashionRef.current) {
+        for (const p of efashionProducts) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: false, ankorstore: false, efashion: true },
+            mode: "publish",
+            marketplace: "efashion",
+          });
+        }
+      }
+      if (faireRef.current) {
+        for (const p of faireProducts) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+            mode: "publish",
+            marketplace: "faire",
+          });
+        }
+      }
+      if (inputs.length > 0) enqueuePfs(inputs);
+    } catch (e) {
+      toast.error(
+        "Enregistrement impossible",
+        e instanceof Error ? e.message : "Erreur inconnue",
+      );
+    } finally {
+      setApplyingVariantEdits(false);
+    }
+  }, [
+    totalDirtyVariants,
+    applyingVariantEdits,
+    dirtyEdits,
+    allProducts,
+    hasPfsConfig,
+    showAnkorstore,
+    showEfashion,
+    showFaire,
+    confirm,
+    enqueuePfs,
+    router,
+    toast,
+  ]);
 
   // Sélection filtrée sur les brouillons (OFFLINE) — sert au bouton « Publier
   // brouillons sur marketplaces ». Le bouton n'apparaît que si la sélection
@@ -3890,191 +3698,6 @@ export default function AdminProductsTable({
     if (inputs.length > 0) enqueuePfs(inputs);
   }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, confirm, enqueuePfs, toast]);
 
-  // ─── Bulk variant actions ──
-  const handleBulkVariantUpdate = useCallback(async (data: Record<string, unknown>) => {
-    const ids = [...selectedVariantIds];
-    setBulkMessage(null);
-
-    const hasIncrement = Object.values(data).some((v) => v && typeof v === "object" && "increment" in (v as Record<string, unknown>));
-
-    showLoading();
-    startTransition(async () => {
-      let bulkSucceeded = false;
-      try {
-        if (hasIncrement) {
-          const field = Object.keys(data)[0];
-          const incrementVal = (data[field] as { increment: number }).increment;
-          let updated = 0;
-          for (const variantId of ids) {
-            try {
-              const product = allProducts.find((p) => p.colors.some((c) => c.id === variantId));
-              const variant = product?.colors.find((c) => c.id === variantId);
-              if (!variant) continue;
-
-              const currentVal = field === "stock" ? variant.stock : field === "unitPrice" ? variant.unitPrice : variant.weight;
-              const newVal = Math.max(0, currentVal + incrementVal);
-              await updateVariantQuick(variantId, { [field]: field === "stock" ? Math.round(newVal) : newVal });
-              updated++;
-            } catch { /* skip */ }
-          }
-          setBulkMessage({
-            type: "success",
-            text: `${updated} variante${updated > 1 ? "s" : ""} mise${updated > 1 ? "s" : ""} à jour`,
-          });
-          bulkSucceeded = updated > 0;
-        } else {
-          const result = await bulkUpdateVariants(ids, data as Record<string, number | string | null>);
-          setBulkMessage({
-            type: "success",
-            text: `${result.updated} variante${result.updated > 1 ? "s" : ""} mise${result.updated > 1 ? "s" : ""} à jour`,
-          });
-          bulkSucceeded = result.updated > 0;
-        }
-        setSelectedVariantIds(new Set());
-      } catch (e) {
-        setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
-      } finally {
-        hideLoading();
-      }
-
-      // Propose la mise à jour marketplaces (PFS + Ankorstore + eFashion + Faire)
-      // sur les produits dont au moins une variante a été modifiée.
-      if (!bulkSucceeded) return;
-      const showEfashion = hasEfashionConfig && efashionEnabled;
-      const showFaire = hasFaireConfig && faireEnabled;
-      const { affectedProducts, pfsProducts, ankorsProducts, efashionProducts, faireProducts } =
-        computeBulkVariantMarketplaceTargets(allProducts, ids, {
-          hasPfsConfig,
-          showAnkorstore,
-          showEfashion,
-          showFaire,
-        });
-      if (
-        pfsProducts.length === 0 &&
-        ankorsProducts.length === 0 &&
-        efashionProducts.length === 0 &&
-        faireProducts.length === 0
-      )
-        return;
-
-      const pfsRef = { current: pfsProducts.length > 0 };
-      const ankorsRef = { current: ankorsProducts.length > 0 };
-      const efashionRef = { current: efashionProducts.length > 0 };
-      const faireRef = { current: faireProducts.length > 0 };
-      const checkboxes: {
-        id: string;
-        label: string;
-        defaultChecked: boolean;
-        onChange: (v: boolean) => void;
-      }[] = [];
-      if (pfsProducts.length > 0) {
-        checkboxes.push({
-          id: "pfs",
-          label: `Mettre à jour sur Paris Fashion Shop (${pfsProducts.length} produit${pfsProducts.length > 1 ? "s" : ""})`,
-          defaultChecked: true,
-          onChange: (v) => {
-            pfsRef.current = v;
-          },
-        });
-      }
-      if (ankorsProducts.length > 0) {
-        checkboxes.push({
-          id: "ankorstore",
-          label: `Mettre à jour sur Ankorstore (${ankorsProducts.length} produit${ankorsProducts.length > 1 ? "s" : ""})`,
-          defaultChecked: true,
-          onChange: (v) => {
-            ankorsRef.current = v;
-          },
-        });
-      }
-      if (efashionProducts.length > 0) {
-        checkboxes.push({
-          id: "efashion",
-          label: `Mettre à jour sur eFashion Paris (${efashionProducts.length} produit${efashionProducts.length > 1 ? "s" : ""})`,
-          defaultChecked: true,
-          onChange: (v) => {
-            efashionRef.current = v;
-          },
-        });
-      }
-      if (faireProducts.length > 0) {
-        checkboxes.push({
-          id: "faire",
-          label: `Mettre à jour sur Faire (${faireProducts.length} produit${faireProducts.length > 1 ? "s" : ""})`,
-          defaultChecked: true,
-          onChange: (v) => {
-            faireRef.current = v;
-          },
-        });
-      }
-      const ok = await confirm({
-        type: "info",
-        title: "Propager aux marketplaces ?",
-        message: `${affectedProducts.length} produit${affectedProducts.length > 1 ? "s" : ""} touché${affectedProducts.length > 1 ? "s" : ""} par cette modification — cochez les marketplaces où l'envoyer.`,
-        checkboxesLabel: "Marketplaces",
-        checkboxes,
-        confirmLabel: "Mettre à jour",
-        cancelLabel: "Plus tard",
-      });
-      if (ok !== true) return;
-
-      const inputs: Parameters<typeof enqueuePfs>[0] = [];
-      if (pfsRef.current) {
-        for (const p of pfsProducts) {
-          inputs.push({
-            productId: p.id,
-            reference: p.reference,
-            productName: p.name,
-            firstImage: p.firstImage,
-            options: { local: false, pfs: true },
-            mode: "publish",
-            marketplace: "pfs",
-          });
-        }
-      }
-      if (ankorsRef.current) {
-        for (const p of ankorsProducts) {
-          inputs.push({
-            productId: p.id,
-            reference: p.reference,
-            productName: p.name,
-            firstImage: p.firstImage,
-            options: { local: false, pfs: false, ankorstore: true },
-            mode: "publish",
-            marketplace: "ankorstore",
-          });
-        }
-      }
-      if (efashionRef.current) {
-        for (const p of efashionProducts) {
-          inputs.push({
-            productId: p.id,
-            reference: p.reference,
-            productName: p.name,
-            firstImage: p.firstImage,
-            options: { local: false, pfs: false, ankorstore: false, efashion: true },
-            mode: "publish",
-            marketplace: "efashion",
-          });
-        }
-      }
-      if (faireRef.current) {
-        for (const p of faireProducts) {
-          inputs.push({
-            productId: p.id,
-            reference: p.reference,
-            productName: p.name,
-            firstImage: p.firstImage,
-            options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
-            mode: "publish",
-            marketplace: "faire",
-          });
-        }
-      }
-      if (inputs.length > 0) enqueuePfs(inputs);
-    });
-  }, [selectedVariantIds, allProducts, startTransition, showLoading, hideLoading, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, confirm, enqueuePfs]);
-
   // ─── Nouveaux handlers pour BulkActionBar ─────────────────────────────
   // Ces handlers alimentent le panneau « Marketplaces » qui liste, pour chaque
   // marketplace configuré, les produits à publier (identifiant marketplace
@@ -4189,6 +3812,42 @@ export default function AdminProductsTable({
     );
   }, [allProducts, enqueuePfs, toast, confirm]);
 
+  const handleBulkTranslateAll = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const plural = ids.length > 1 ? "s" : "";
+    const ok = await confirm({
+      type: "info",
+      title: `Traduire ${ids.length} produit${plural} en anglais ?`,
+      message: `Le nom et la description en anglais seront remplacés par une nouvelle traduction depuis le français. La traduction utilise le compte PFS.`,
+      confirmLabel: "Oui, traduire",
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+
+    startTransition(async () => {
+      showLoading(`Traduction de ${ids.length} produit${plural} en cours…`);
+      try {
+        const res = await bulkTranslateProducts(ids);
+        const parts: string[] = [];
+        if (res.translated > 0) parts.push(`${res.translated} traduit${res.translated > 1 ? "s" : ""}`);
+        if (res.failed > 0) parts.push(`${res.failed} en échec`);
+        if (res.skipped > 0) parts.push(`${res.skipped} ignoré${res.skipped > 1 ? "s" : ""}`);
+        if (res.translated > 0 && res.failed === 0) {
+          toast.success("Traduction terminée", parts.join(" · "));
+        } else if (res.translated > 0) {
+          toast.info("Traduction terminée", parts.join(" · "));
+        } else {
+          toast.error("Aucune traduction n'a pu être enregistrée", parts.join(" · ") || "Réessayez dans quelques instants.");
+        }
+      } catch (e) {
+        toast.error("Traduction impossible", e instanceof Error ? e.message : "Erreur inconnue.");
+      } finally {
+        hideLoading();
+      }
+    });
+  }, [selectedIds, confirm, toast, showLoading, hideLoading, startTransition]);
+
   const handleBulkRefreshCurrent = useCallback(async () => {
     const selectedProductsPayload = allProducts
       .filter((p) => selectedIds.has(p.id))
@@ -4207,7 +3866,7 @@ export default function AdminProductsTable({
 
   if (allProducts.length === 0) {
     return (
-      <div className="bg-bg-primary border border-border rounded-2xl p-16 text-center">
+      <div className="relative bg-bg-primary border border-border rounded-2xl p-16 text-center">
         <div className="w-16 h-16 bg-bg-tertiary rounded-2xl flex items-center justify-center mx-auto mb-5">
           <svg className="w-7 h-7 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
@@ -4215,6 +3874,7 @@ export default function AdminProductsTable({
         </div>
         <p className="font-heading font-bold text-text-primary text-base mb-1.5">Aucun produit trouvé</p>
         <p className="text-sm text-text-muted font-body max-w-xs mx-auto">Aucun résultat ne correspond à vos critères de recherche. Essayez de modifier vos filtres.</p>
+        <FilterLoadingOverlay visible={isFiltering} />
       </div>
     );
   }
@@ -4254,6 +3914,7 @@ export default function AdminProductsTable({
         onDelete={() => handleBulkDelete()}
         onRefresh={handleBulkRefreshCurrent}
         onEditAttributes={() => setBulkEditOpen(true)}
+        onTranslateAll={handleBulkTranslateAll}
         onDeselectAll={() => setSelectedIds(new Set())}
         onMarketplacePublish={handleBulkMarketplacePublish}
         onMarketplaceSync={handleBulkMarketplaceSync}
@@ -4278,16 +3939,63 @@ export default function AdminProductsTable({
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
+      <div className="relative">
+        <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
+        <FilterLoadingOverlay visible={isFiltering} />
+      </div>
 
-      {/* Barre flottante d'édition en masse des variantes */}
-      {variantCount > 0 && (
-        <BulkVariantBar
-          count={variantCount}
-          onApply={handleBulkVariantUpdate}
-          onClear={clearSelectedVariants}
-          isPending={isPending}
-        />
+      {/* Bandeau flottant global — apparaît en bas de l'écran dès qu'au moins
+          une cellule a bougé dans n'importe quel tiroir variantes ouvert. */}
+      {totalDirtyVariants > 0 && (
+        <div className="variant-apply-bar-floating">
+          <div className="variant-apply-bar">
+            <div className="flex items-center gap-3 flex-1 min-w-0 relative z-10">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/15 ring-1 ring-amber-400/40 flex items-center justify-center flex-shrink-0">
+                <span
+                  className="w-2.5 h-2.5 rounded-full bg-amber-400"
+                  style={{ animation: "variant-dirty-pulse 1.8s ease-in-out infinite" }}
+                />
+              </div>
+              <div className="leading-tight min-w-0">
+                <div className="font-heading font-bold text-[15px] text-white truncate">
+                  {totalDirtyVariants} modification{totalDirtyVariants > 1 ? "s" : ""} en attente
+                  <span className="ml-1.5 text-slate-400 font-normal text-[13px]">
+                    · {affectedProductIds.size} produit{affectedProductIds.size > 1 ? "s" : ""}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 truncate">
+                  Ces changements ne sont pas encore enregistrés
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleCancelAllVariantEdits}
+              disabled={applyingVariantEdits}
+              className="variant-apply-btn-ghost relative z-10"
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              onClick={handleApplyAllVariantEdits}
+              disabled={applyingVariantEdits}
+              className="variant-apply-btn-primary relative z-10"
+            >
+              {applyingVariantEdits ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              )}
+              {applyingVariantEdits ? "Enregistrement…" : "Appliquer les modifications"}
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Modale d'édition en masse d'attributs produit */}
@@ -4316,6 +4024,31 @@ export default function AdminProductsTable({
           onConfirm={handleBulkPublishDraftsConfirm}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Voile blanc translucide + petit cercle de chargement superposé sur le
+ * tableau produits pendant qu'un filtre / onglet / recherche re-fetch la
+ * liste (transition Next.js). Empêche le double-clic et signale que
+ * l'affichage est en train d'être actualisé.
+ */
+function FilterLoadingOverlay({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <div
+      className="absolute inset-0 z-30 flex items-start justify-center pt-20 bg-white/60 backdrop-blur-[1px] rounded-2xl pointer-events-none"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex items-center gap-2 bg-bg-primary border border-border rounded-full px-3.5 py-1.5 shadow-md">
+        <svg className="w-4 h-4 animate-spin text-bg-dark" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <span className="text-[12px] font-body font-medium text-text-secondary">Chargement…</span>
+      </div>
     </div>
   );
 }

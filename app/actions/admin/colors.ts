@@ -242,3 +242,18 @@ export async function deleteColor(id: string) {
   revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
 }
+
+/** Reorder colors by providing an ordered array of ids */
+export async function reorderColors(orderedIds: string[]) {
+  await requireAdmin();
+
+  await prisma.$transaction(
+    orderedIds.map((id, index) =>
+      prisma.color.update({ where: { id }, data: { position: index } }),
+    ),
+  );
+
+  revalidatePath("/admin/produits");
+  revalidatePath("/admin/couleurs");
+  revalidateTag("colors", "default");
+}

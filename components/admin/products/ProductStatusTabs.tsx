@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useTransition } from "react";
+import { useFilterPending } from "./FilterPendingContext";
 
 interface SectionCounts {
   all: number;
@@ -22,7 +22,7 @@ const SECTIONS = [
 export default function ProductStatusTabs({ counts }: { counts: SectionCounts }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
+  const { startFiltering: startTransition } = useFilterPending();
 
   const current = searchParams.get("status") ?? "";
 

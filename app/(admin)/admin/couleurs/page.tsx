@@ -17,7 +17,7 @@ export const metadata: Metadata = { title: "Bibliothèque de couleurs" };
 export default async function CouleursPage() {
   const [colors, pfsEnabled, ankorstoreEnabled, efashionLabels, hasPfsConfig, hasEfashionConfig] = await Promise.all([
     prisma.color.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
         _count: { select: { productColors: true } },
         translations: true,
@@ -51,6 +51,7 @@ export default async function CouleursPage() {
     efashionColorId: c.efashionColorId,
     efashionLabel: resolveColorLabel(efashionLabels, c.efashionColorId) ?? null,
     productCount: c._count.productColors,
+    position: c.position,
     createdAt: c.createdAt,
   }));
 

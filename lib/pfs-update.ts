@@ -432,6 +432,81 @@ function buildProductFieldsSnapshot(
   };
 }
 
+/**
+ * Signature stable du contenu du pack, indépendante de l'ordre des entrées.
+ * Format : liste triée de "<colorRef>:<size>:<qty>" jointe par "||".
+ * Renvoie null pour une variante UNIT (aucun pack).
+ */
+function computePackSignatureFromEntries(
+  entries: { color: string; size: string; qty: number }[] | null,
+): string | null {
+  if (!entries || entries.length === 0) return null;
+  return entries
+    .map((e) => `${e.color}:${e.size}:${e.qty}`)
+    .sort()
+    .join("||");
+}
+
+/**
+ * Construit la liste d'entrées pack {color,size,qty} à partir d'une variante
+ * BJ, en réutilisant la même logique que buildVariantCreateData (mono-couleur
+ * via variantSizes + packQuantity, ou multi-couleur via packLines).
+ */
+function buildPackEntriesForSnapshot(
+  variant: FullVariant,
+  colorRefMap: Map<string, string> | undefined,
+): { color: string; size: string; qty: number }[] | null {
+  if (variant.saleType !== "PACK") return null;
+  const entries: { color: string; size: string; qty: number }[] = [];
+  if (variant.packLines.length > 0) {
+    for (const pl of variant.packLines) {
+      if (!pl.color?.name) continue;
+      const plColorRef = resolvePfsColorRef(pl.color, colorRefMap, pl.pfsColorRefOverride);
+      if (pl.sizes && pl.sizes.length > 0) {
+        for (const ps of pl.sizes) {
+          const sizeRef = ps.size.pfsSizeRef || ps.size.name || "TU";
+          entries.push({ color: plColorRef, size: sizeRef, qty: ps.quantity });
+        }
+      } else {
+        entries.push({ color: plColorRef, size: "TU", qty: variant.packQuantity ?? 1 });
+      }
+    }
+  } else if (variant.color?.name) {
+    const colorRef = resolvePfsColorRef(variant.color, colorRefMap, variant.pfsColorRefOverride);
+    const variantSizes =
+      variant.variantSizes.length > 0
+        ? variant.variantSizes
+        : [{ size: { name: "TU", pfsSizeRef: "TU" }, quantity: variant.packQuantity ?? 1 }];
+    for (const vs of variantSizes) {
+      const sizeRef = getSizeRef(vs);
+      entries.push({ color: colorRef, size: sizeRef, qty: vs.quantity });
+    }
+  }
+  return entries.length > 0 ? entries : null;
+}
+
+/**
+ * Signature d'un pack lu côté PFS via pfsGetVariants — permet de comparer
+ * la composition réelle chez PFS avec ce qu'on souhaite envoyer, quand le
+ * snapshot précédent n'a pas encore cette info (compat rétro).
+ */
+function computePackSignatureFromPfsVariant(pfsVariant: {
+  type: string;
+  packs?: { color: { reference: string }; sizes?: { size: string; qty: number }[] }[];
+} | undefined): string | null {
+  if (!pfsVariant || pfsVariant.type !== "PACK" || !pfsVariant.packs) return null;
+  const entries: string[] = [];
+  for (const p of pfsVariant.packs) {
+    const colorRef = p.color?.reference;
+    if (!colorRef) continue;
+    if (p.sizes && p.sizes.length > 0) {
+      for (const s of p.sizes) entries.push(`${colorRef}:${s.size}:${s.qty}`);
+    }
+  }
+  if (entries.length === 0) return null;
+  return entries.sort().join("||");
+}
+
 function buildVariantSnapshot(
   variant: FullVariant,
   pfsMarkup?: MarkupConfig,
@@ -439,12 +514,15 @@ function buildVariantSnapshot(
 ): PfsVariantSnapshot {
   const stock = variant.stock ?? 0;
   const effective = getEffectiveColorRef(variant, colorRefMap) ?? undefined;
+  const packEntries = buildPackEntriesForSnapshot(variant, colorRefMap);
   return {
     price: getPfsUnitPrice(variant, pfsMarkup),
     stock,
     weight: variant.weight,
     isActive: stock > 0,
     colorRef: effective,
+    saleType: variant.saleType,
+    packSignature: computePackSignatureFromEntries(packEntries),
   };
 }
 
@@ -660,11 +738,13 @@ export async function pfsUpdateProductInPlace(
     // Get existing PFS variants
     // NB : on inclut `packs` car les variantes PACK n'ont pas de `item` —
     // leur couleur principale vit dans packs[0].color.reference côté PFS.
+    // `packs[].sizes` sert à recalculer la signature du pack et détecter les
+    // changements de composition (nombre d'articles / couleurs internes).
     let existingPfsVariants: {
       id: string;
       type: string;
       item?: { color: { reference: string }; size: string };
-      packs?: { color: { reference: string } }[];
+      packs?: { color: { reference: string }; sizes?: { size: string; qty: number }[] }[];
       stock_qty: number;
     }[] = [];
     try {
@@ -700,11 +780,11 @@ export async function pfsUpdateProductInPlace(
     // Find PFS variants that no longer exist locally → delete
     const variantsToDelete = existingPfsVariants.filter((v) => !localPfsVariantIds.has(v.id));
 
-    // 2a. Patch existing variants — uniquement celles signalées dans le diff
+    // 2a. Patch existing variants — uniquement celles signalées dans le diff.
+    // Le recreate (delete + create), lui, tourne sur TOUTES les variantes
+    // pour détecter aussi les changements non capturés par le diff (compat
+    // rétro : snapshots pré-v1.1 sans saleType/packSignature).
     const changedSet = new Set(diff.variantsChanged);
-    const variantsChangedUpdate = variantsToUpdate.filter(({ pfsVariantId: vid }) =>
-      changedSet.has(vid),
-    );
 
     // Sépare les changements en deux familles :
     //   - couleur effective modifiée → recreate (PFS ne permet pas de patcher
@@ -741,8 +821,13 @@ export async function pfsUpdateProductInPlace(
     });
 
     const variantsToRecreate: { bjVariant: FullVariant; oldPfsVariantId: string; pfsData: PfsVariantCreateData }[] = [];
-    const variantsToPatch: typeof variantsChangedUpdate = [];
-    for (const item of variantsChangedUpdate) {
+    const variantsToPatch: typeof variantsToUpdate = [];
+    // Le recreate (delete + create côté PFS) peut être requis même quand le
+    // snapshot dit "identique" — c'est le cas typique après un changement de
+    // packQuantity où le prix unitaire reste identique par hasard. On boucle
+    // donc sur TOUTES les variantes candidates au patch, pas seulement celles
+    // du changedSet.
+    for (const item of variantsToUpdate) {
       const prevVariantSnap = prevSnapshot?.variants[item.pfsVariantId];
       const nextVariantSnap = nextVariantsSnap[item.pfsVariantId];
       const nextColorRef = nextVariantSnap?.colorRef ?? null;
@@ -766,9 +851,51 @@ export async function pfsUpdateProductInPlace(
           colorChanged = pfsRef !== null ? pfsRef !== nextColorRef : true;
         }
       }
-      if (colorChanged) {
+
+      // Détection changement de type (UNIT ↔ PACK) et composition du pack
+      // (nombre d'articles / couleurs internes / tailles). PFS ne permet ni
+      // de patcher le type ni packs[] — donc on doit recréer la variante
+      // avec les nouvelles infos. Fallback identique à colorChanged : quand
+      // le snapshot précédent ne porte pas encore ces champs (ancien schema),
+      // on interroge pfsGetVariants pour connaître l'état réel côté PFS.
+      let saleTypeChanged = false;
+      let packSignatureChanged = false;
+      const nextSaleType = nextVariantSnap?.saleType ?? null;
+      const nextPackSig = nextVariantSnap?.packSignature ?? null;
+      if (!colorChanged && nextSaleType) {
+        const prevSaleType = prevVariantSnap?.saleType ?? null;
+        if (prevSaleType) {
+          saleTypeChanged = prevSaleType !== nextSaleType;
+        } else {
+          const pfsVariant = existingPfsVariants.find((v) => v.id === item.pfsVariantId);
+          if (pfsVariant?.type) {
+            const pfsSaleType: "UNIT" | "PACK" = pfsVariant.type === "PACK" ? "PACK" : "UNIT";
+            saleTypeChanged = pfsSaleType !== nextSaleType;
+          }
+        }
+      }
+      if (!colorChanged && !saleTypeChanged && nextSaleType === "PACK") {
+        const prevSig = prevVariantSnap?.packSignature;
+        if (prevSig !== undefined) {
+          packSignatureChanged = (prevSig ?? null) !== nextPackSig;
+        } else {
+          // Fallback : lire la composition PFS réelle et comparer.
+          const pfsVariant = existingPfsVariants.find((v) => v.id === item.pfsVariantId);
+          const pfsSig = computePackSignatureFromPfsVariant(pfsVariant);
+          if (pfsSig !== null || pfsVariant?.type === "PACK") {
+            packSignatureChanged = pfsSig !== nextPackSig;
+          }
+        }
+      }
+
+      if (colorChanged || saleTypeChanged || packSignatureChanged) {
         const pfsData = buildVariantCreateData(item.bjVariant, colorRefMap, pfsMarkup);
         if (pfsData) {
+          logger.info("[PFS Update] Variant scheduled for recreate", {
+            pfsVariantId: item.pfsVariantId,
+            bjVariantId: item.bjVariant.id,
+            reason: colorChanged ? "color" : saleTypeChanged ? "saleType" : "packContent",
+          });
           variantsToRecreate.push({
             bjVariant: item.bjVariant,
             oldPfsVariantId: item.pfsVariantId,
@@ -777,7 +904,11 @@ export async function pfsUpdateProductInPlace(
           continue;
         }
       }
-      variantsToPatch.push(item);
+      // Pas de recreate : on ne patch que si le diff signale un changement de
+      // prix/stock/poids/actif (sinon rien à envoyer).
+      if (changedSet.has(item.pfsVariantId)) {
+        variantsToPatch.push(item);
+      }
     }
 
     if (variantsToPatch.length > 0) {

@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
-import SizesManager from "@/components/admin/tailles/SizesManager";
+import PageHeader from "@/components/admin/shared/PageHeader";
+import SizesMasterDetail from "@/components/admin/tailles/SizesMasterDetail";
+import CreateSizeTrigger from "@/components/admin/tailles/CreateSizeTrigger";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { withProtectedSizeItem, type SizeManagerItem } from "@/lib/protected-sizes";
 
@@ -30,16 +32,15 @@ export default async function TaillesPage() {
   const pfsSizes = (annexes?.sizes ?? []).map((ref) => ({ reference: ref, label: ref }));
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="page-title">Gestion des tailles</h1>
-        <p className="page-subtitle">
-          Créez votre bibliothèque de tailles et mappez chacune à sa référence
-          Paris Fashion Shop.
-        </p>
-      </div>
+    <div className="max-w-[1400px] mx-auto space-y-5 px-4 md:px-6 py-6">
+      <PageHeader
+        eyebrow="Catalogue"
+        title="Tailles"
+        subtitle="Créez votre bibliothèque de tailles et associez chacune à sa référence Paris Fashion Shop."
+        actions={<CreateSizeTrigger />}
+      />
 
-      <SizesManager initialSizes={sizeItems} pfsSizes={pfsSizes} />
+      <SizesMasterDetail initialSizes={sizeItems} pfsSizes={pfsSizes} />
     </div>
   );
 }

@@ -42,7 +42,7 @@ export default function ColorDetail({
   const valueLabel = isPattern ? "Motif image" : color.hex ?? "—";
 
   return (
-    <div className="flex flex-col gap-4 p-5 md:p-7 bg-bg-primary overflow-y-auto">
+    <div className="flex flex-col gap-4 p-5 md:p-7 bg-bg-primary overflow-y-auto md:h-full">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 pb-4 border-b border-border">
         <div className="flex items-center gap-4 min-w-0">

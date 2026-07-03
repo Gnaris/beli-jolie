@@ -2,6 +2,10 @@
 
 import { useMemo, useRef, useState, useEffect } from "react";
 import MarketplaceExportButton from "./MarketplaceExportButton";
+import {
+  isItemActive,
+  useMarketplaceRefreshQueue,
+} from "./MarketplaceRefreshContext";
 
 // Sous-ensemble des champs d'AdminProduct nécessaires à la barre — évite
 // d'importer tout le type et de forcer les refactos si l'entité principale
@@ -42,6 +46,7 @@ interface Props {
   onDelete: () => void;
   onRefresh: () => void;
   onEditAttributes: () => void;
+  onTranslateAll: () => void;
   onDeselectAll: () => void;
   onMarketplacePublish: (marketplace: MarketplaceKey, productIds: string[]) => void;
   onMarketplaceSync: (marketplace: MarketplaceKey, productIds: string[]) => void;
@@ -52,18 +57,29 @@ interface Props {
 // statut est ONLINE (les brouillons ne sont pas éligibles), (c) il n'est pas
 // incomplet. "À synchroniser" = drapeau *SyncRequired = true, indépendamment
 // du statut (la synchro sert justement à propager les changements).
-function computeMarketplaceCounts(products: BulkBarProduct[]) {
+//
+// Un produit est retiré de "à publier" ET "à synchroniser" pour une marketplace
+// donnée si une opération est déjà en cours (queued / in_progress / awaiting
+// callback) — évite de proposer à la cliente de relancer une action déjà lancée.
+export type InFlightByMarketplace = Partial<Record<MarketplaceKey, ReadonlySet<string>>>;
+
+function computeMarketplaceCounts(
+  products: BulkBarProduct[],
+  inFlight?: InFlightByMarketplace,
+) {
   const eligibleForPublish = (p: BulkBarProduct) =>
     p.status === "ONLINE" && !p.isIncomplete;
+  const notInFlight = (mp: MarketplaceKey) => (p: BulkBarProduct) =>
+    !inFlight?.[mp]?.has(p.id);
 
-  const pfsToPublish = products.filter((p) => !p.pfsProductId && eligibleForPublish(p));
-  const pfsToSync = products.filter((p) => p.pfsSyncRequired);
-  const ankorsToPublish = products.filter((p) => !p.ankorsProductId && eligibleForPublish(p));
-  const ankorsToSync = products.filter((p) => p.ankorsSyncRequired);
-  const efashionToPublish = products.filter((p) => !p.efashionReferenceBase && eligibleForPublish(p));
-  const efashionToSync = products.filter((p) => p.efashionSyncRequired);
-  const faireToPublish = products.filter((p) => !p.faireProductId && eligibleForPublish(p));
-  const faireToSync = products.filter((p) => p.faireSyncRequired);
+  const pfsToPublish = products.filter((p) => !p.pfsProductId && eligibleForPublish(p) && notInFlight("pfs")(p));
+  const pfsToSync = products.filter((p) => p.pfsSyncRequired && notInFlight("pfs")(p));
+  const ankorsToPublish = products.filter((p) => !p.ankorsProductId && eligibleForPublish(p) && notInFlight("ankorstore")(p));
+  const ankorsToSync = products.filter((p) => p.ankorsSyncRequired && notInFlight("ankorstore")(p));
+  const efashionToPublish = products.filter((p) => !p.efashionReferenceBase && eligibleForPublish(p) && notInFlight("efashion")(p));
+  const efashionToSync = products.filter((p) => p.efashionSyncRequired && notInFlight("efashion")(p));
+  const faireToPublish = products.filter((p) => !p.faireProductId && eligibleForPublish(p) && notInFlight("faire")(p));
+  const faireToSync = products.filter((p) => p.faireSyncRequired && notInFlight("faire")(p));
 
   return {
     pfs: { publish: pfsToPublish, sync: pfsToSync },
@@ -122,6 +138,7 @@ export default function BulkActionBar({
   onDelete,
   onRefresh,
   onEditAttributes,
+  onTranslateAll,
   onDeselectAll,
   onMarketplacePublish,
   onMarketplaceSync,
@@ -163,8 +180,31 @@ export default function BulkActionBar({
     return { online, draft, archived };
   }, [selectedProducts]);
 
+  // ── Opérations marketplace en cours par productId ──
+  // Vient de la file du provider (poll 2s si actif). On regroupe par marketplace
+  // pour retirer du panneau les produits déjà en train d'être publiés ou
+  // synchronisés — sinon la cliente voit "1 produit pas encore sur Ankorstore"
+  // alors qu'elle vient de cliquer "Publier" et que le badge affiche déjà
+  // "Ankorstore en cours".
+  const { items: queueItems } = useMarketplaceRefreshQueue();
+  const inFlightByMarketplace = useMemo<InFlightByMarketplace>(() => {
+    const map: Record<MarketplaceKey, Set<string>> = {
+      pfs: new Set(),
+      ankorstore: new Set(),
+      efashion: new Set(),
+      faire: new Set(),
+    };
+    for (const item of queueItems) {
+      if (isItemActive(item)) map[item.marketplace].add(item.productId);
+    }
+    return map;
+  }, [queueItems]);
+
   // ── Calcul actions marketplace (mémoïsé) ──
-  const mpCounts = useMemo(() => computeMarketplaceCounts(selectedProducts), [selectedProducts]);
+  const mpCounts = useMemo(
+    () => computeMarketplaceCounts(selectedProducts, inFlightByMarketplace),
+    [selectedProducts, inFlightByMarketplace],
+  );
 
   const mpActionsTotal = useMemo(() => {
     let n = 0;
@@ -324,6 +364,16 @@ export default function BulkActionBar({
                     onClick={() => {
                       setPlusOpen(false);
                       onEditAttributes();
+                    }}
+                  />
+                  <MenuItem
+                    icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" /></svg>}
+                    iconClass="bg-sky-50 text-sky-700"
+                    title="Tout traduire"
+                    hint="Nom + description en anglais"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      onTranslateAll();
                     }}
                   />
                   <div className="border-t border-border-light" />

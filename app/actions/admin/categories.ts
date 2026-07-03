@@ -278,3 +278,18 @@ export async function updateSubCategory(id: string, formData: FormData) {
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
 }
+
+/** Reorder categories by providing an ordered array of ids */
+export async function reorderCategories(orderedIds: string[]) {
+  await requireAdmin();
+
+  await prisma.$transaction(
+    orderedIds.map((id, index) =>
+      prisma.category.update({ where: { id }, data: { position: index } }),
+    ),
+  );
+
+  revalidatePath("/admin/produits");
+  revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
+}

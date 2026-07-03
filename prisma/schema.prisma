@@ -154,6 +154,7 @@ model Category {
   // "6109.10.00" pour t-shirts coton, etc.). Configurable par catégorie
   // pour rester générique tous types de produits.
   faireHsCode         String?
+  position            Int                   @default(0) // ordre d'affichage manuel (drag & drop admin)
   subCategories       SubCategory[]
   products            Product[]
   translations        CategoryTranslation[]
@@ -208,6 +209,7 @@ model Color {
   patternImage       String? // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
   pfsColorRef        String? // Référence PFS (ex: "GOLDEN", "SILVER") — utilisée pour publish/refresh
   efashionColorId    Int? // ID couleur eFashion (biblio officielle, ex: 78=Doré, 22=Argent)
+  position           Int                 @default(0) // ordre d'affichage manuel (drag & drop admin)
   createdAt          DateTime            @default(now())
   productColors      ProductColor[]
   colorImages        ProductColorImage[]
@@ -236,6 +238,7 @@ model HsCode {
   // Format Faire (avec points, ex: "7117.19.00.00"). Optionnel — si null,
   // le code numérique brut sert de fallback lors de l'envoi à Faire.
   faireFormat String?
+  position    Int       @default(0) // ordre d'affichage manuel (drag & drop admin)
   createdAt   DateTime  @default(now())
   products    Product[]
 }
@@ -276,6 +279,7 @@ model Season {
   pfsRef               String? // PFS collection reference: "PE2026", "AH2025" — multiple seasons can share the same ref
   // eFashion : ID collection (ex: 3 = "Toutes les saisons")
   efashionCollectionId Int?
+  position             Int                 @default(0) // ordre d'affichage manuel (drag & drop admin)
   createdAt            DateTime            @default(now())
   products             Product[]
   translations         SeasonTranslation[]
@@ -302,6 +306,7 @@ model Composition {
   // Faire : libellé matériau en anglais (ex: "Stainless Steel 316L"). Faire
   // accepte un tableau de chaînes libres dans `materials[]`. Saisi à la main.
   faireMaterialLabel String?
+  position           Int                      @default(0) // ordre d'affichage manuel (drag & drop admin)
   createdAt          DateTime                 @default(now())
   products           ProductComposition[]
   translations       CompositionTranslation[]

@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useMemo, useTransition } from "react";
+import { useCallback, useMemo } from "react";
+import { useFilterPending } from "./FilterPendingContext";
 
 interface CategoryOption { id: string; name: string }
 interface TagOption { id: string; name: string }
@@ -36,7 +37,7 @@ export default function CompactFiltersHeader({
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
+  const { startFiltering: startTransition } = useFilterPending();
 
   // Mappe id → label pour rendre les pills lisibles
   const catLabels = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c.name])), [categories]);

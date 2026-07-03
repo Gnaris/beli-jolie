@@ -67,7 +67,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <EfashionShootingBatchProvider>
     <RefreshWarningProvider>
     <IneligibleRefreshProvider>
-    <div id="admin-theme-wrapper" className="min-h-screen bg-bg-secondary flex">
+    <div id="admin-theme-wrapper" className="min-h-screen flex bg-[#EEEEF1]">
 
       <AdminDesktopShell
         shopName={shopName}
@@ -86,7 +86,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           shopName={shopName}
         />
 
-        <main className="flex-1 p-4 md:p-6 lg:p-8">
+        <main className="flex-1 p-4 md:p-6 lg:p-8 lg:my-5 lg:mr-5 lg:rounded-[22px] lg:bg-white lg:border lg:border-zinc-200 lg:shadow-[0_20px_40px_-20px_rgba(9,9,11,0.15),0_6px_16px_-8px_rgba(9,9,11,0.06)] lg:min-h-[calc(100vh-40px)]">
           {children}
         </main>
       </AdminDesktopShell>

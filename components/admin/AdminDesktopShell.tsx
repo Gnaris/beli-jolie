@@ -105,7 +105,6 @@ export default function AdminDesktopShell({
     setHydrated(true);
   }, []);
 
-  // Ouvre auto le sous-menu Produits si on est dans une page enfant
   useEffect(() => {
     NAV_SECTIONS.forEach((s) => {
       s.items.forEach((item) => {
@@ -137,27 +136,10 @@ export default function AdminDesktopShell({
   return (
     <>
       <aside
-        className={`shrink-0 hidden lg:flex flex-col fixed top-0 left-0 h-screen z-40 ${transitionCls} ${collapsed ? "w-[76px]" : "w-[260px]"}`}
-        style={{ background: "#0A0A0A", color: "#A1A1AA" }}
+        className={`shrink-0 hidden lg:flex flex-col fixed z-40 top-5 bottom-5 left-5 ${transitionCls} bg-white border border-zinc-200 rounded-[22px] shadow-[0_20px_40px_-20px_rgba(9,9,11,0.18),0_6px_16px_-8px_rgba(9,9,11,0.08)] ${collapsed ? "w-[76px]" : "w-[260px]"}`}
       >
-        {/* Bouton replier */}
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label={collapsed ? "Ouvrir la barre latérale" : "Réduire la barre latérale"}
-          title={collapsed ? "Ouvrir la barre latérale" : "Réduire la barre latérale"}
-          className="absolute -right-3 top-7 w-6 h-6 rounded-full bg-white border border-border shadow-sm flex items-center justify-center text-text-muted hover:text-text-primary hover:border-bg-dark transition-colors z-50"
-        >
-          <svg
-            className={`w-3 h-3 transition-transform duration-200 ${collapsed ? "rotate-180" : ""}`}
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 19.5L8.25 12l7.5-7.5" />
-          </svg>
-        </button>
-
         {/* Brand */}
-        <div className={`border-b border-white/[0.06] ${collapsed ? "px-3 py-5 flex items-center justify-center" : "px-5 py-5"}`}>
+        <div className={`border-b border-zinc-100 ${collapsed ? "px-3 py-5 flex items-center justify-center" : "px-5 py-5"}`}>
           {collapsed ? (
             <Link
               href="/fr"
@@ -168,7 +150,7 @@ export default function AdminDesktopShell({
               <span className="font-heading text-base font-bold text-white">
                 {shopName.charAt(0).toUpperCase()}
               </span>
-              <span className="absolute -top-3 -right-3 w-7 h-7 rounded-full bg-amber-300/30 blur-xl" />
+              <span className="absolute -top-3 -right-3 w-9 h-9 rounded-full bg-amber-300/50 blur-xl" />
             </Link>
           ) : (
             <Link href="/fr" className="flex items-center gap-3 group">
@@ -179,15 +161,15 @@ export default function AdminDesktopShell({
                 <span className="font-heading text-base font-bold text-white">
                   {shopName.charAt(0).toUpperCase()}
                 </span>
-                <span className="absolute -top-3 -right-3 w-7 h-7 rounded-full bg-amber-300/30 blur-xl" />
+                <span className="absolute -top-3 -right-3 w-9 h-9 rounded-full bg-amber-300/50 blur-xl" />
               </div>
               <div className="min-w-0">
-                <p className="font-heading text-base font-bold text-white tracking-tight truncate leading-tight">
+                <p className="font-heading text-base font-bold text-zinc-900 tracking-tight truncate leading-tight">
                   {shopName}
                 </p>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
-                  <p className="text-[10px] font-body uppercase tracking-[0.18em] font-semibold" style={{ color: "#71717A" }}>
+                  <p className="text-[10px] font-body uppercase tracking-[0.18em] font-semibold text-zinc-500">
                     Administration
                   </p>
                 </div>
@@ -196,24 +178,24 @@ export default function AdminDesktopShell({
           )}
         </div>
 
-        {/* Navigation */}
+        {/* Navigation — en mode replié on retire l'overflow pour laisser passer les bulles au survol */}
         <nav
-          className={`relative flex-1 py-4 overflow-y-auto overflow-x-hidden scrollbar-dark ${collapsed ? "px-2" : "px-3"}`}
+          className={`relative flex-1 py-4 scrollbar-light ${collapsed ? "overflow-visible" : "overflow-y-auto overflow-x-hidden"} ${collapsed ? "px-2" : "px-3"}`}
           aria-label="Navigation admin"
         >
           {NAV_SECTIONS.map((section, sectionIdx) => (
             <div key={section.title}>
               {!collapsed && (
                 <div className={`flex items-center gap-2 px-3 mb-2 ${sectionIdx === 0 ? "mt-1" : "mt-6"}`}>
-                  <span className="w-1 h-1 rounded-full" style={{ background: "#52525B" }} />
-                  <p className="text-[10px] uppercase tracking-[0.18em] font-semibold" style={{ color: "#52525B" }}>
+                  <span className="w-1 h-1 rounded-full bg-zinc-400" />
+                  <p className="text-[10px] uppercase tracking-[0.18em] font-semibold text-zinc-500">
                     {section.title}
                   </p>
                 </div>
               )}
               {collapsed && sectionIdx > 0 && (
                 <div className="flex justify-center my-3">
-                  <span className="w-1 h-1 rounded-full" style={{ background: "#52525B" }} />
+                  <span className="w-1 h-1 rounded-full bg-zinc-300" />
                 </div>
               )}
 
@@ -233,8 +215,7 @@ export default function AdminDesktopShell({
                         <div
                           key={item.href}
                           title={`${item.label} — Bientôt`}
-                          className="relative flex items-center justify-center px-3 py-2.5 rounded-xl opacity-50 cursor-not-allowed"
-                          style={{ color: "#52525B" }}
+                          className="relative flex items-center justify-center px-3 py-2.5 rounded-xl opacity-50 cursor-not-allowed text-zinc-400"
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
@@ -245,14 +226,13 @@ export default function AdminDesktopShell({
                     return (
                       <div
                         key={item.href}
-                        className="flex items-center gap-3 px-3 py-2.5 text-sm font-body rounded-xl cursor-not-allowed opacity-50"
-                        style={{ color: "#52525B" }}
+                        className="flex items-center gap-3 px-3 py-2.5 text-sm font-body rounded-xl cursor-not-allowed opacity-60 text-zinc-400"
                       >
                         <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
                         </svg>
                         <span className="flex-1">{item.label}</span>
-                        <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 uppercase tracking-wide leading-none shrink-0" style={{ background: "rgba(255,255,255,0.04)", color: "#71717A" }}>
+                        <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 uppercase tracking-wide leading-none shrink-0 bg-zinc-100 text-zinc-500 border border-zinc-200">
                           Bientôt
                         </span>
                       </div>
@@ -265,81 +245,73 @@ export default function AdminDesktopShell({
                       <Link
                         key={item.href}
                         href={item.href}
-                        className="relative flex items-center justify-center px-3 py-2.5 rounded-xl transition-colors group"
-                        style={{
-                          background: parentActive ? "rgba(255,255,255,0.06)" : "transparent",
-                          color: parentActive ? "#fff" : "#A1A1AA",
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!parentActive) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)";
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!parentActive) (e.currentTarget as HTMLElement).style.background = "transparent";
-                        }}
+                        title={item.label}
+                        className={`relative flex items-center justify-center px-3 py-2.5 rounded-xl transition-colors group ${
+                          parentActive
+                            ? "bg-zinc-100 text-zinc-900"
+                            : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                        }`}
                       >
                         {parentActive && (
-                          <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-white" />
+                          <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-zinc-900" />
                         )}
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d={item.icon} />
                         </svg>
                         {(ordersBadge || warning) && (
                           <span
-                            className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full ring-2"
-                            style={{
-                              background: ordersBadge ? "#3B82F6" : "#F59E0B",
-                              boxShadow: "0 0 0 2px #0A0A0A",
-                            }}
+                            className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full ring-2 ring-white"
+                            style={{ background: ordersBadge ? "#3B82F6" : "#F59E0B" }}
                           />
                         )}
-                        <span className="absolute left-full top-1/2 -translate-y-1/2 ml-3 hidden group-hover:flex items-center gap-2 bg-white text-text-primary text-xs rounded-lg px-3 py-1.5 z-50 pointer-events-none shadow-lg whitespace-nowrap">
-                          {item.label}
-                          {ordersBadge && (
-                            <span className="bg-sky-100 text-sky-700 rounded-full px-1.5 py-0.5 text-[10px] font-semibold">
-                              {pendingOrdersCount}
+                        <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-[opacity,transform] duration-150 z-[60] whitespace-nowrap">
+                          <span className="relative block bg-zinc-900 text-white text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)]">
+                            <span className="flex items-center gap-2">
+                              {item.label}
+                              {ordersBadge && (
+                                <span className="rounded-full bg-sky-500/25 text-sky-200 px-1.5 py-0.5 text-[10px] font-bold">
+                                  {pendingOrdersCount}
+                                </span>
+                              )}
+                              {warning && (
+                                <span className="rounded-full bg-amber-500/25 text-amber-200 px-1.5 py-0.5 text-[10px] font-medium">
+                                  ⚠ {warning.count}
+                                </span>
+                              )}
                             </span>
-                          )}
-                          {warning && (
-                            <span className="bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
-                              ⚠ {warning.count}
-                            </span>
-                          )}
+                            <span aria-hidden className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-zinc-900 rotate-45" />
+                          </span>
                         </span>
                       </Link>
                     );
                   }
 
-                  // ─── Item étendu, avec ou sans sous-menu ───
                   const itemBaseCls = "relative flex items-center gap-3 px-3 py-2.5 text-[13.5px] font-body rounded-xl transition-colors group";
-                  const itemActiveCls = parentActive ? "bg-white/[0.06] text-white font-semibold" : "text-[#A1A1AA] hover:bg-white/[0.04] hover:text-white";
+                  const itemActiveCls = parentActive
+                    ? "bg-zinc-100 text-zinc-900 font-semibold"
+                    : "text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900";
 
                   return (
                     <div key={item.href}>
                       {hasChildren ? (
-                        // Item parent : Link qui navigue ET ouvre le sous-menu.
-                        // Le chevron à droite est un button séparé qui permet
-                        // de fermer/rouvrir le menu sans naviguer.
                         <div className={`${itemBaseCls} ${itemActiveCls} pr-1`}>
                           {parentActive && (
-                            <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-white" />
+                            <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-zinc-900" />
                           )}
                           <Link
                             href={item.href}
                             onClick={() => {
-                              // Au clic, s'assure que le sous-menu est ouvert
                               if (!open) toggleSubmenu(item.href);
                             }}
                             className="flex items-center gap-3 flex-1 min-w-0 text-inherit no-underline"
                           >
                             <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d={item.icon} />
                             </svg>
                             <span className="flex-1 truncate">{item.label}</span>
                           </Link>
                           {warning && (
-                            <span className="flex items-center gap-1 text-[10.5px] rounded-full px-1.5 py-0.5 font-medium shrink-0"
-                              style={{ background: "rgba(245,158,11,0.15)", color: "#FCD34D", border: "1px solid rgba(245,158,11,0.2)" }}
-                            >
+                            <span className="flex items-center gap-1 text-[10.5px] rounded-full px-1.5 py-0.5 font-semibold shrink-0 bg-amber-100 text-amber-800 border border-amber-200">
                               ⚠ {warning.count}
                             </span>
                           )}
@@ -347,7 +319,7 @@ export default function AdminDesktopShell({
                             type="button"
                             onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleSubmenu(item.href); }}
                             aria-label={open ? "Replier" : "Déplier"}
-                            className="w-6 h-6 rounded inline-flex items-center justify-center hover:bg-white/[0.08] transition-colors"
+                            className="w-6 h-6 rounded inline-flex items-center justify-center hover:bg-zinc-200/60 transition-colors"
                           >
                             <svg
                               className={`w-3 h-3 opacity-60 transition-transform ${open ? "rotate-90" : ""}`}
@@ -363,61 +335,43 @@ export default function AdminDesktopShell({
                           className={`${itemBaseCls} ${itemActiveCls}`}
                         >
                           {active && (
-                            <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-white" />
+                            <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-zinc-900" />
                           )}
                           <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d={item.icon} />
                           </svg>
                           <span className="flex-1 truncate">{item.label}</span>
                           {ordersBadge && (
-                            <span className="flex items-center justify-center text-[11px] rounded-full min-w-[22px] h-[22px] px-1.5 font-semibold shrink-0"
-                              style={{ background: "rgba(59,130,246,0.15)", color: "#93C5FD", border: "1px solid rgba(59,130,246,0.25)" }}
-                            >
+                            <span className="flex items-center justify-center text-[11px] rounded-full min-w-[22px] h-[22px] px-1.5 font-bold shrink-0 bg-sky-100 text-sky-700 border border-sky-200">
                               {pendingOrdersCount}
                             </span>
                           )}
                           {warning && (
-                            <span className="flex items-center gap-1 text-[10.5px] rounded-full px-1.5 py-0.5 font-medium shrink-0"
-                              style={{ background: "rgba(245,158,11,0.15)", color: "#FCD34D", border: "1px solid rgba(245,158,11,0.2)" }}
-                            >
+                            <span className="flex items-center gap-1 text-[10.5px] rounded-full px-1.5 py-0.5 font-semibold shrink-0 bg-amber-100 text-amber-800 border border-amber-200">
                               ⚠ {warning.count}
                             </span>
                           )}
                         </Link>
                       )}
 
-                      {/* Sous-menu */}
                       {hasChildren && open && (
                         <div className="relative pl-3 pt-0.5 pb-1">
-                          <span className="absolute left-[21px] top-1 bottom-1 w-px" style={{ background: "#27272A" }} />
+                          <span className="absolute left-[21px] top-1 bottom-1 w-px bg-zinc-200" />
                           {item.children!.map((c) => {
                             const subActive = isItemActive(pathname, c.href);
                             return (
                               <Link
                                 key={c.href}
                                 href={c.href}
-                                className="relative flex items-center gap-2 pl-8 pr-3 py-1.5 rounded-md text-[12.5px] transition-colors"
-                                style={{
-                                  color: subActive ? "#fff" : "#71717A",
-                                  background: subActive ? "rgba(255,255,255,0.05)" : "transparent",
-                                  fontWeight: subActive ? 600 : 450,
-                                }}
-                                onMouseEnter={(e) => {
-                                  if (!subActive) {
-                                    (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.03)";
-                                    (e.currentTarget as HTMLElement).style.color = "#D4D4D8";
-                                  }
-                                }}
-                                onMouseLeave={(e) => {
-                                  if (!subActive) {
-                                    (e.currentTarget as HTMLElement).style.background = "transparent";
-                                    (e.currentTarget as HTMLElement).style.color = "#71717A";
-                                  }
-                                }}
+                                className={`relative flex items-center gap-2 pl-8 pr-3 py-1.5 rounded-md text-[12.5px] transition-colors ${
+                                  subActive
+                                    ? "bg-zinc-100 text-zinc-900 font-semibold"
+                                    : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900"
+                                }`}
                               >
                                 <span
                                   className="absolute left-[21px] top-1/2 w-2 h-px"
-                                  style={{ background: subActive ? "#fff" : "#3F3F46", transform: "translateY(-0.5px)" }}
+                                  style={{ background: subActive ? "#18181B" : "#D4D4D8", transform: "translateY(-0.5px)" }}
                                 />
                                 {c.label}
                               </Link>
@@ -431,51 +385,90 @@ export default function AdminDesktopShell({
               </div>
             </div>
           ))}
-          <div className={`border-t border-white/[0.06] ${collapsed ? "mt-4 mx-2 pt-3" : "pt-2 mt-6"}`}>
-            <AdminClientModeButton compact={collapsed} />
+          <div className={`border-t border-zinc-100 ${collapsed ? "mt-4 mx-2 pt-3" : "pt-2 mt-6"}`}>
+            {collapsed ? (
+              <div className="relative group">
+                <AdminClientModeButton compact />
+                <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-[opacity,transform] duration-150 z-[60] whitespace-nowrap">
+                  <span className="relative block bg-zinc-900 text-white text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)]">
+                    Mode client
+                    <span aria-hidden className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-zinc-900 rotate-45" />
+                  </span>
+                </span>
+              </div>
+            ) : (
+              <AdminClientModeButton />
+            )}
           </div>
         </nav>
 
         {/* User profile + logout */}
-        <div className={`relative border-t border-white/[0.06] py-4 ${collapsed ? "px-2" : "px-3"}`} style={{ background: "rgba(255,255,255,0.02)" }}>
+        <div className={`relative border-t border-zinc-100 py-4 ${collapsed ? "px-2" : "px-3"} bg-zinc-50/60 rounded-b-[22px]`}>
           {collapsed ? (
             <div title={`${userName} — Administrateur`} className="flex items-center justify-center mb-1.5">
               <div
                 className="relative w-10 h-10 rounded-full flex items-center justify-center shadow-sm"
-                style={{ background: "#27272A", border: "1px solid #3F3F46" }}
+                style={{ background: "#18181B", border: "1px solid #27272A" }}
               >
                 <span className="text-white text-[11px] font-bold font-body">{initials}</span>
-                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500" style={{ boxShadow: "0 0 0 2px #0A0A0A" }} />
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
               </div>
             </div>
           ) : (
             <div
-              className="relative overflow-hidden flex items-center gap-3 px-3 py-2.5 mb-2 rounded-2xl"
-              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid #1F1F22" }}
+              className="relative overflow-hidden flex items-center gap-3 px-3 py-2.5 mb-2 rounded-2xl bg-white border border-zinc-200"
             >
               <div
                 className="relative w-9 h-9 rounded-full flex items-center justify-center shadow-sm shrink-0"
-                style={{ background: "#27272A", border: "1px solid #3F3F46" }}
+                style={{ background: "#18181B", border: "1px solid #27272A" }}
               >
                 <span className="text-white text-[11px] font-bold font-body">{initials}</span>
-                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500" style={{ boxShadow: "0 0 0 2px #0A0A0A" }} />
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-white truncate font-body leading-tight">
+                <p className="text-sm font-semibold text-zinc-900 truncate font-body leading-tight">
                   {userName}
                 </p>
-                <p className="text-[11px] font-body leading-tight truncate uppercase tracking-wider font-medium" style={{ color: "#71717A" }}>
+                <p className="text-[11px] font-body leading-tight truncate uppercase tracking-wider font-medium text-zinc-500">
                   Administrateur
                 </p>
               </div>
             </div>
           )}
-          <LogoutButton compact={collapsed} dark />
+          {collapsed ? (
+            <div className="relative group">
+              <LogoutButton compact />
+              <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-[opacity,transform] duration-150 z-[60] whitespace-nowrap">
+                <span className="relative block bg-zinc-900 text-white text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)]">
+                  Déconnexion
+                  <span aria-hidden className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-zinc-900 rotate-45" />
+                </span>
+              </span>
+            </div>
+          ) : (
+            <LogoutButton />
+          )}
         </div>
       </aside>
 
+      {/* Bouton replier — sorti de la sidebar pour ne pas être rogné par overflow-hidden */}
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label={collapsed ? "Ouvrir la barre latérale" : "Réduire la barre latérale"}
+        title={collapsed ? "Ouvrir la barre latérale" : "Réduire la barre latérale"}
+        className={`hidden lg:flex fixed top-[48px] w-6 h-6 rounded-full bg-white border border-zinc-200 shadow-sm items-center justify-center text-zinc-500 hover:text-zinc-900 hover:border-zinc-900 transition-[left,color,border-color] z-50 ${collapsed ? "left-[84px]" : "left-[268px]"} ${transitionCls}`}
+      >
+        <svg
+          className={`w-3 h-3 transition-transform duration-200 ${collapsed ? "rotate-180" : ""}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 19.5L8.25 12l7.5-7.5" />
+        </svg>
+      </button>
+
       <div
-        className={`flex-1 flex flex-col min-w-0 ${transitionCls} ${collapsed ? "lg:ml-[76px]" : "lg:ml-[260px]"}`}
+        className={`flex-1 flex flex-col min-w-0 ${transitionCls} ${collapsed ? "lg:ml-[116px]" : "lg:ml-[300px]"}`}
       >
         {children}
       </div>

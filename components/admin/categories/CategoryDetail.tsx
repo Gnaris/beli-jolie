@@ -42,7 +42,7 @@ export default function CategoryDetail({
   onEditMapping,
 }: Props) {
   return (
-    <div className="flex flex-col gap-4 p-5 md:p-7 bg-bg-primary overflow-y-auto">
+    <div className="flex flex-col gap-4 p-5 md:p-7 bg-bg-primary overflow-y-auto md:h-full">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 pb-4 border-b border-border">
         <div className="flex items-start gap-2 min-w-0">

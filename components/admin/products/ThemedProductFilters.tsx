@@ -1,9 +1,11 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CompactFiltersHeader from "./CompactFiltersHeader";
 import CustomSelect from "@/components/ui/CustomSelect";
+import { useFilterPending } from "./FilterPendingContext";
+import { clampPerPage, MAX_PER_PAGE, MIN_PER_PAGE } from "@/lib/pagination";
 
 interface CategoryOption { id: string; name: string; subCategories?: { id: string; name: string }[] }
 interface TagOption { id: string; name: string }
@@ -51,7 +53,7 @@ export default function ThemedProductFilters({
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
+  const { startFiltering: startTransition } = useFilterPending();
   const [openTheme, setOpenTheme] = useState<ThemeKey | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
@@ -367,12 +369,28 @@ export default function ThemedProductFilters({
   const inputRef = useRef<HTMLInputElement>(null);
   const exactRef = searchParams.get("exactRef") === "1";
   const perPage = searchParams.get("perPage") ?? "20";
+  const [perPageDraft, setPerPageDraft] = useState(perPage);
 
   // Sync depuis URL si l'utilisateur navigue (ex. effacer tout)
   useEffect(() => {
     const urlTerms = q ? q.split(",").map((t) => t.trim()).filter(Boolean) : [];
     setLocalTerms(urlTerms);
   }, [q]);
+
+  useEffect(() => {
+    setPerPageDraft(perPage);
+  }, [perPage]);
+
+  function applyPerPage() {
+    const next = clampPerPage(perPageDraft, parseInt(perPage, 10) || 20);
+    if (next === null) {
+      setPerPageDraft(perPage);
+      return;
+    }
+    setPerPageDraft(String(next));
+    if (String(next) === perPage) return;
+    setParam({ perPage: String(next) });
+  }
 
   function commitDraft(): string | null {
     const v = draft.trim();
@@ -512,24 +530,29 @@ export default function ThemedProductFilters({
           </span>
           Réf. exacte
         </button>
-        {/* Per page */}
-        <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-border-strong bg-white shrink-0">
-          <span className="text-[11px] text-text-muted font-body whitespace-nowrap pl-1">Afficher</span>
-          {["20", "30", "50", "100"].map((n) => (
-            <button
-              key={n}
-              type="button"
-              onClick={() => setParam({ perPage: n })}
-              className={`px-2 py-1 text-[11.5px] font-medium rounded-md transition-colors ${
-                perPage === n
-                  ? "bg-ink text-white"
-                  : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
-              }`}
-            >
-              {n}
-            </button>
-          ))}
-          <span className="text-[11px] text-text-muted whitespace-nowrap pr-1 tabular-nums">/ {totalCount.toLocaleString("fr-FR")}</span>
+        {/* Per page — saisie libre (min 1, max 500) */}
+        <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border-strong bg-white shrink-0">
+          <span className="text-[11px] text-text-muted font-body whitespace-nowrap">Afficher</span>
+          <input
+            type="number"
+            min={MIN_PER_PAGE}
+            max={MAX_PER_PAGE}
+            value={perPageDraft}
+            onChange={(e) => setPerPageDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                applyPerPage();
+              }
+            }}
+            onBlur={applyPerPage}
+            aria-label="Nombre de produits par page"
+            title={`Entre ${MIN_PER_PAGE} et ${MAX_PER_PAGE}`}
+            className="w-14 h-7 px-1.5 text-[12px] text-center font-medium border border-border rounded-md bg-bg-secondary focus:outline-none focus:border-ink transition-colors tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+          <span className="text-[11px] text-text-muted whitespace-nowrap tabular-nums">
+            / {totalCount.toLocaleString("fr-FR")}
+          </span>
         </div>
         {/* Effacer tous les filtres */}
         {activeCount > 0 && (

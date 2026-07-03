@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: "Saisons" };
 export default async function SaisonsPage() {
   const [seasons, efashionLabels, hasPfsConfig, hasEfashionConfig] = await Promise.all([
     prisma.season.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
         _count: { select: { products: true } },
         translations: true,
@@ -34,6 +34,7 @@ export default async function SaisonsPage() {
     efashionCollectionId: s.efashionCollectionId,
     efashionLabel: resolveCollectionLabel(efashionLabels, s.efashionCollectionId) ?? null,
     productCount: s._count.products,
+    position: s.position,
     createdAt: s.createdAt,
   }));
 

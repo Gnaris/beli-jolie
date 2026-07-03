@@ -11,9 +11,11 @@ import {
   type SeasonForFilters,
   type SeasonFilterKey,
 } from "@/lib/season-filters";
+import { useDragReorder, DragHandle, dropIndicatorClass } from "@/components/admin/shared/useDragReorder";
 
 type Season = SeasonForFilters & {
   productCount: number;
+  position: number;
 };
 
 type Props = {
@@ -22,6 +24,7 @@ type Props = {
   onSelect: (id: string) => void;
   hasPfsConfig: boolean;
   hasEfashionConfig: boolean;
+  onReorder: (newOrderedIds: string[]) => void;
 };
 
 type SeasonGroup = {
@@ -65,16 +68,33 @@ export default function SeasonsList({
   onSelect,
   hasPfsConfig,
   hasEfashionConfig,
+  onReorder,
 }: Props) {
   const [query, setQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<Set<SeasonFilterKey>>(new Set());
 
+  // Ordre fourni par le parent (position asc) — on s'y fie.
+  const sorted = useMemo(() => seasons, [seasons]);
+
   const filtered = useMemo(
-    () => seasons.filter((s) => matchesSearch(s, query) && matchesFilters(s, activeFilters)),
-    [seasons, query, activeFilters],
+    () => sorted.filter((s) => matchesSearch(s, query) && matchesFilters(s, activeFilters)),
+    [sorted, query, activeFilters],
   );
 
   const groups = useMemo(() => groupSeasons(filtered), [filtered]);
+
+  // sortedIds respecte l'ordre visuel (groupes puis ordre position au sein d'un groupe).
+  const sortedIds = useMemo(
+    () => groupSeasons(sorted).flatMap((g) => g.seasons.map((s) => s.id)),
+    [sorted],
+  );
+
+  const dragDisabled = query.trim().length > 0 || activeFilters.size > 0;
+
+  const { dragId, overId, overPos, bind } = useDragReorder({
+    orderedIds: sortedIds,
+    onReorder: (ids) => onReorder(ids),
+  });
 
   const productSum = filtered.reduce((acc, s) => acc + s.productCount, 0);
 
@@ -96,7 +116,7 @@ export default function SeasonsList({
   ).filter((f) => f.show);
 
   return (
-    <div className="flex flex-col min-h-[580px] bg-gradient-to-b from-bg-secondary to-bg-primary">
+    <div className="flex flex-col min-h-[580px] md:min-h-0 md:h-full bg-gradient-to-b from-bg-secondary to-bg-primary">
       {/* Search */}
       <div className="px-3.5 py-4 bg-bg-primary border-b border-border">
         <div className="relative">
@@ -138,6 +158,14 @@ export default function SeasonsList({
         })}
       </div>
 
+      {/* Hint drag & drop désactivé */}
+      {dragDisabled && filtered.length > 1 && (
+        <div className="px-3.5 py-2 bg-amber-50 border-b border-amber-100 text-[11px] text-amber-800 flex items-center gap-2">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Effacez la recherche et les filtres pour réorganiser à la souris.
+        </div>
+      )}
+
       {/* Groupes par année */}
       <div className="flex-1 overflow-y-auto p-2.5 space-y-3">
         {groups.map((group) => (
@@ -155,52 +183,66 @@ export default function SeasonsList({
             {group.seasons.map((s) => {
               const isActive = s.id === selectedId;
               const missingTr = !(s.translations.fr && s.translations.fr.trim() && s.translations.en && s.translations.en.trim());
+              const drag = dragDisabled ? null : bind(s.id);
+              const isDragging = dragId === s.id;
+              const indicator = dropIndicatorClass(overId, overPos, s.id);
               return (
-                <button
+                <div
                   key={s.id}
-                  type="button"
-                  data-season-id={s.id}
-                  data-active={isActive}
-                  onClick={() => onSelect(s.id)}
-                  className={`relative flex w-full items-center gap-3 px-3.5 py-2.5 rounded-xl cursor-pointer mb-0.5 transition-all text-left ${
-                    isActive
-                      ? "bg-gradient-to-b from-[#27272A] to-[#18181B] text-text-inverse shadow-[var(--shadow-pop)]"
-                      : "hover:bg-bg-tertiary text-text-primary"
-                  }`}
+                  draggable={drag?.draggable ?? false}
+                  onDragStart={drag?.onDragStart}
+                  onDragEnd={drag?.onDragEnd}
+                  onDragOver={drag?.onDragOver}
+                  onDragLeave={drag?.onDragLeave}
+                  onDrop={drag?.onDrop}
+                  className={`relative flex w-full items-center gap-1 px-1 mb-0.5 ${isDragging ? "opacity-40" : ""} ${indicator}`}
                 >
-                  {isActive && (
-                    <span
-                      aria-hidden
-                      className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-[3px] h-6 rounded-r"
-                      style={{ background: "#38BDF8" }}
-                    />
-                  )}
-                  <span
-                    aria-hidden
-                    className={`w-8 h-8 rounded-[10px] shrink-0 inline-flex items-center justify-center text-[14px] ${
-                      isActive ? "ring-1 ring-white/25" : ""
+                  {!dragDisabled && <DragHandle />}
+                  <button
+                    type="button"
+                    data-season-id={s.id}
+                    data-active={isActive}
+                    onClick={() => onSelect(s.id)}
+                    className={`relative flex flex-1 items-center gap-3 px-3.5 py-2.5 rounded-xl cursor-pointer transition-all text-left ${
+                      isActive
+                        ? "bg-gradient-to-b from-[#27272A] to-[#18181B] text-text-inverse shadow-[var(--shadow-pop)]"
+                        : "hover:bg-bg-tertiary text-text-primary"
                     }`}
-                    style={{
-                      background: seasonGradient(s.name),
-                      boxShadow: "0 1px 3px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.4)",
-                    }}
                   >
-                    {seasonEmoji(s.name)}
-                  </span>
-                  <span className={`flex-1 text-[13.5px] truncate ${isActive ? "font-semibold" : "font-medium"}`}>
-                    {s.name}
-                  </span>
-                  {missingTr && (
+                    {isActive && (
+                      <span
+                        aria-hidden
+                        className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-[3px] h-6 rounded-r"
+                        style={{ background: "#38BDF8" }}
+                      />
+                    )}
                     <span
                       aria-hidden
-                      className="w-[7px] h-[7px] rounded-full bg-amber-300 shadow-[0_0_0_2.5px_rgba(255,251,235,1)]"
-                      title="Sans traduction"
-                    />
-                  )}
-                  <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold ${isActive ? "bg-white/15" : "bg-bg-tertiary"}`}>
-                    {s.productCount}
-                  </span>
-                </button>
+                      className={`w-8 h-8 rounded-[10px] shrink-0 inline-flex items-center justify-center text-[14px] ${
+                        isActive ? "ring-1 ring-white/25" : ""
+                      }`}
+                      style={{
+                        background: seasonGradient(s.name),
+                        boxShadow: "0 1px 3px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.4)",
+                      }}
+                    >
+                      {seasonEmoji(s.name)}
+                    </span>
+                    <span className={`flex-1 text-[13.5px] truncate ${isActive ? "font-semibold" : "font-medium"}`}>
+                      {s.name}
+                    </span>
+                    {missingTr && (
+                      <span
+                        aria-hidden
+                        className="w-[7px] h-[7px] rounded-full bg-amber-300 shadow-[0_0_0_2.5px_rgba(255,251,235,1)]"
+                        title="Sans traduction"
+                      />
+                    )}
+                    <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold ${isActive ? "bg-white/15" : "bg-bg-tertiary"}`}>
+                      {s.productCount}
+                    </span>
+                  </button>
+                </div>
               );
             })}
           </div>

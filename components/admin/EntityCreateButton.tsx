@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import QuickCreateModal, { QuickCreateType } from "@/components/admin/products/QuickCreateModal";
 import CategoryEditorModal from "@/components/admin/categories/CategoryEditorModal";
+import CountryEditModal from "@/components/admin/manufacturing-countries/CountryEditModal";
 
 interface EntityCreateButtonProps {
   type: QuickCreateType;
@@ -28,6 +29,12 @@ export default function EntityCreateButton({
       </button>
       {type === "category" ? (
         <CategoryEditorModal
+          open={open}
+          onClose={() => setOpen(false)}
+          onCreated={() => { setOpen(false); router.refresh(); }}
+        />
+      ) : type === "country" ? (
+        <CountryEditModal
           open={open}
           onClose={() => setOpen(false)}
           onCreated={() => { setOpen(false); router.refresh(); }}

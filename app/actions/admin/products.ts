@@ -6,7 +6,7 @@ import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { invalidateProductTranslations } from "@/lib/translate";
+import { invalidateProductTranslations, translateTextStrict } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
 import { rotatePrimaryIfNeeded } from "@/lib/rotate-primary-service";
 import { emitProductEvent } from "@/lib/product-events";
@@ -2454,6 +2454,72 @@ export async function saveProductTranslations(
       skipDuplicates: true,
     });
   }
+}
+
+/**
+ * Traduit en anglais le nom + description des produits sélectionnés depuis la
+ * barre d'action bulk (menu "Plus"). Force l'écrasement des ProductTranslation
+ * existantes pour la locale "en" — l'utilisatrice a explicitement demandé
+ * "on remplace" pour repartir de la version FR courante.
+ *
+ * Ne dépend PAS du flag `auto_translate_enabled` (SiteConfig) car c'est une
+ * action manuelle.
+ */
+export async function bulkTranslateProducts(
+  productIds: string[],
+): Promise<{ translated: number; failed: number; skipped: number }> {
+  await requireAdmin();
+  if (productIds.length === 0) return { translated: 0, failed: 0, skipped: 0 };
+
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, name: true, description: true },
+  });
+
+  let translated = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  const CONCURRENCY = 5;
+  for (let i = 0; i < products.length; i += CONCURRENCY) {
+    const chunk = products.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      chunk.map(async (p) => {
+        const nameFr = p.name.trim();
+        if (!nameFr) {
+          skipped++;
+          return;
+        }
+        try {
+          const descFr = (p.description ?? "").trim();
+          const [translatedName, translatedDesc] = await Promise.all([
+            translateTextStrict(nameFr, "fr", "en"),
+            descFr ? translateTextStrict(descFr, "fr", "en") : Promise.resolve(""),
+          ]);
+          if (translatedName === null) {
+            failed++;
+            return;
+          }
+          const finalName = translatedName.trim();
+          const finalDesc = translatedDesc === null ? "" : (translatedDesc ?? "");
+          await prisma.productTranslation.upsert({
+            where: { productId_locale: { productId: p.id, locale: "en" } },
+            update: { name: finalName, description: finalDesc },
+            create: { productId: p.id, locale: "en", name: finalName, description: finalDesc },
+          });
+          translated++;
+        } catch (err) {
+          logger.error("[bulkTranslateProducts] échec", { error: err, productId: p.id });
+          failed++;
+        }
+      }),
+    );
+  }
+
+  revalidateTag("products", "default");
+  revalidatePath("/admin/produits");
+
+  return { translated, failed, skipped };
 }
 
 /**

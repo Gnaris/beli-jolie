@@ -95,3 +95,18 @@ export async function deleteComposition(id: string) {
   await prisma.composition.delete({ where: { id } });
   revalidatePath("/admin/produits");
 }
+
+/** Reorder compositions by providing an ordered array of ids */
+export async function reorderCompositions(orderedIds: string[]) {
+  await requireAdmin();
+
+  await prisma.$transaction(
+    orderedIds.map((id, index) =>
+      prisma.composition.update({ where: { id }, data: { position: index } }),
+    ),
+  );
+
+  revalidatePath("/admin/produits");
+  revalidatePath("/admin/compositions");
+  revalidateTag("compositions", "default");
+}

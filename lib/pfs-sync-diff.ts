@@ -41,6 +41,19 @@ export interface PfsVariantSnapshot {
    * pas un override.
    */
   colorRef?: string;
+  /**
+   * Type PFS effectif de la variante ("UNIT" côté BJ = "ITEM" côté PFS,
+   * "PACK" identique). Optionnel pour compat rétro : un snapshot sans ce
+   * champ ne déclenche PAS de recreate systématique — la logique de recreate
+   * fait un fallback sur `pfsGetVariants` pour connaître le type réel.
+   */
+  saleType?: "UNIT" | "PACK";
+  /**
+   * Signature stable du contenu du pack : liste triée de "<colorRef>:<size>:<qty>"
+   * jointe par "||". `null` pour une variante UNIT. Optionnel pour compat rétro
+   * (mêmes règles que saleType : le fallback interroge PFS).
+   */
+  packSignature?: string | null;
 }
 
 export type PfsImagesSnapshot = {
@@ -98,12 +111,20 @@ export function variantSnapshotEqual(
   a: PfsVariantSnapshot,
   b: PfsVariantSnapshot,
 ): boolean {
+  // saleType et packSignature ne sont comparés que si les DEUX snapshots
+  // les portent — sinon on tombe dans le cas "ancien snapshot pré-v1.1"
+  // et le fallback pfsGetVariants côté pfs-update.ts décidera si un
+  // recreate est nécessaire.
+  const saleTypeComparable = a.saleType != null && b.saleType != null;
+  const packSigComparable = a.packSignature !== undefined && b.packSignature !== undefined;
   return (
     a.price === b.price &&
     a.stock === b.stock &&
     a.weight === b.weight &&
     a.isActive === b.isActive &&
-    (a.colorRef ?? null) === (b.colorRef ?? null)
+    (a.colorRef ?? null) === (b.colorRef ?? null) &&
+    (!saleTypeComparable || a.saleType === b.saleType) &&
+    (!packSigComparable || (a.packSignature ?? null) === (b.packSignature ?? null))
   );
 }
 

@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import CompositionsList from "./CompositionsList";
 import CompositionDetail, { type CompositionDetailData } from "./CompositionDetail";
 import CompositionEditorModal from "./CompositionEditorModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
-import { deleteComposition, updateCompositionDirect, updateCompositionPfsRef } from "@/app/actions/admin/compositions";
+import { deleteComposition, updateCompositionDirect, updateCompositionPfsRef, reorderCompositions } from "@/app/actions/admin/compositions";
 
 export type CompositionRow = {
   id: string;
@@ -17,6 +17,7 @@ export type CompositionRow = {
   efashionId: number | null;
   efashionLabel: string | null;
   productCount: number;
+  position: number;
   createdAt: Date;
 };
 
@@ -36,9 +37,14 @@ export default function CompositionsMasterDetail({
   const searchParams = useSearchParams();
   const { confirm } = useConfirm();
   const toast = useToast();
+  const [, startTransition] = useTransition();
+
+  // Copie locale pour permettre l'optimistic update lors du drag & drop.
+  const [items, setItems] = useState<CompositionRow[]>(compositions);
+  useEffect(() => { setItems(compositions); }, [compositions]);
 
   const urlSelectedId = searchParams.get("composition");
-  const initialDesktopId = compositions[0]?.id ?? null;
+  const initialDesktopId = items[0]?.id ?? null;
   const [selectedId, setSelectedId] = useState<string | null>(urlSelectedId ?? initialDesktopId);
   const [editTarget, setEditTarget] = useState<CompositionRow | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -52,13 +58,13 @@ export default function CompositionsMasterDetail({
 
   // Rabat sur la première composition si l'URL pointe une entrée introuvable
   useEffect(() => {
-    if (selectedId && !compositions.some((c) => c.id === selectedId)) {
-      setSelectedId(compositions[0]?.id ?? null);
+    if (selectedId && !items.some((c) => c.id === selectedId)) {
+      setSelectedId(items[0]?.id ?? null);
       const params = new URLSearchParams(searchParams.toString());
       params.delete("composition");
       router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
     }
-  }, [selectedId, compositions, pathname, router, searchParams]);
+  }, [selectedId, items, pathname, router, searchParams]);
 
   function handleSelect(id: string) {
     setSelectedId(id);
@@ -93,13 +99,30 @@ export default function CompositionsMasterDetail({
     if (!ok) return;
     try {
       await deleteComposition(comp.id);
-      const remaining = compositions.filter((c) => c.id !== comp.id);
+      const remaining = items.filter((c) => c.id !== comp.id);
       setSelectedId(remaining[0]?.id ?? null);
       router.refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erreur lors de la suppression.";
       toast.error("Suppression", message);
     }
+  }
+
+  function handleReorder(newOrderedIds: string[]) {
+    // Optimistic — recalcul immédiat des positions.
+    const positionMap = new Map(newOrderedIds.map((id, i) => [id, i]));
+    const previous = items;
+    setItems((prev) =>
+      prev.map((c) => ({ ...c, position: positionMap.get(c.id) ?? c.position })),
+    );
+    startTransition(async () => {
+      try {
+        await reorderCompositions(newOrderedIds);
+      } catch (err) {
+        setItems(previous);
+        toast.error("Erreur", (err as Error).message);
+      }
+    });
   }
 
   async function handleSaveComposition(
@@ -118,7 +141,7 @@ export default function CompositionsMasterDetail({
     router.refresh();
   }
 
-  const selectedComp = compositions.find((c) => c.id === selectedId) ?? null;
+  const selectedComp = items.find((c) => c.id === selectedId) ?? null;
   const selectedDetail: CompositionDetailData | null = selectedComp
     ? {
         id: selectedComp.id,
@@ -135,19 +158,20 @@ export default function CompositionsMasterDetail({
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] bg-bg-primary border border-border rounded-3xl shadow-[var(--shadow-pop)] overflow-hidden">
+      <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] bg-bg-primary border border-border rounded-3xl shadow-[var(--shadow-pop)] overflow-hidden md:h-[calc(100vh-14rem)] md:min-h-[520px]">
         {/* Sur mobile : masquer la liste quand une composition est sélectionnée */}
-        <div className={`${selectedId ? "hidden" : "block"} md:block md:border-r md:border-border`}>
+        <div className={`${selectedId ? "hidden" : "block"} md:block md:border-r md:border-border md:min-h-0 md:h-full md:overflow-hidden`}>
           <CompositionsList
-            compositions={compositions}
+            compositions={items}
             selectedId={selectedId}
             onSelect={handleSelect}
             hasPfsConfig={hasPfsConfig}
             hasEfashionConfig={hasEfashionConfig}
+            onReorder={handleReorder}
           />
         </div>
         {/* Sur mobile : masquer le détail s'il n'y a pas de sélection */}
-        <div className={`${selectedId ? "block" : "hidden"} md:block`}>
+        <div className={`${selectedId ? "block" : "hidden"} md:block md:min-h-0 md:h-full md:overflow-hidden`}>
           {selectedDetail ? (
             <CompositionDetail
               composition={selectedDetail}
@@ -158,7 +182,7 @@ export default function CompositionsMasterDetail({
               onEditMapping={() => selectedComp && setEditTarget(selectedComp)}
             />
           ) : (
-            <div className="hidden md:flex flex-col items-center justify-center min-h-[580px] text-text-muted text-sm">
+            <div className="hidden md:flex flex-col items-center justify-center h-full min-h-[520px] text-text-muted text-sm">
               Sélectionnez une composition à gauche.
             </div>
           )}

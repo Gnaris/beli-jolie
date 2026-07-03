@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import ColorsList from "./ColorsList";
 import ColorDetail, { type ColorDetailData } from "./ColorDetail";
@@ -8,7 +8,7 @@ import ColorEditorModal from "./ColorEditorModal";
 import ColorResyncModal from "./ColorResyncModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
-import { deleteColor, updateColorDirect, type AffectedProduct } from "@/app/actions/admin/colors";
+import { deleteColor, updateColorDirect, reorderColors, type AffectedProduct } from "@/app/actions/admin/colors";
 
 export type ColorRow = {
   id: string;
@@ -21,6 +21,7 @@ export type ColorRow = {
   efashionColorId: number | null;
   efashionLabel: string | null;
   productCount: number;
+  position: number;
   createdAt: Date;
 };
 
@@ -44,9 +45,14 @@ export default function ColorsMasterDetail({
   const searchParams = useSearchParams();
   const { confirm } = useConfirm();
   const toast = useToast();
+  const [, startTransition] = useTransition();
+
+  // Copie locale pour permettre l'optimistic update lors du drag & drop.
+  const [items, setItems] = useState<ColorRow[]>(colors);
+  useEffect(() => { setItems(colors); }, [colors]);
 
   const urlSelectedId = searchParams.get("color");
-  const initialDesktopId = colors[0]?.id ?? null;
+  const initialDesktopId = items[0]?.id ?? null;
   const [selectedId, setSelectedId] = useState<string | null>(urlSelectedId ?? initialDesktopId);
   const [editTarget, setEditTarget] = useState<ColorRow | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -65,13 +71,13 @@ export default function ColorsMasterDetail({
 
   // Rabat sur la première couleur si l'URL pointe une entrée introuvable
   useEffect(() => {
-    if (selectedId && !colors.some((c) => c.id === selectedId)) {
-      setSelectedId(colors[0]?.id ?? null);
+    if (selectedId && !items.some((c) => c.id === selectedId)) {
+      setSelectedId(items[0]?.id ?? null);
       const params = new URLSearchParams(searchParams.toString());
       params.delete("color");
       router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
     }
-  }, [selectedId, colors, pathname, router, searchParams]);
+  }, [selectedId, items, pathname, router, searchParams]);
 
   function handleSelect(id: string) {
     setSelectedId(id);
@@ -106,9 +112,26 @@ export default function ColorsMasterDetail({
     });
     if (!ok) return;
     await deleteColor(color.id);
-    const remaining = colors.filter((c) => c.id !== color.id);
+    const remaining = items.filter((c) => c.id !== color.id);
     setSelectedId(remaining[0]?.id ?? null);
     router.refresh();
+  }
+
+  function handleReorder(newOrderedIds: string[]) {
+    // Optimistic — recalcul immédiat des positions.
+    const positionMap = new Map(newOrderedIds.map((id, i) => [id, i]));
+    const previous = items;
+    setItems((prev) =>
+      prev.map((c) => ({ ...c, position: positionMap.get(c.id) ?? c.position })),
+    );
+    startTransition(async () => {
+      try {
+        await reorderColors(newOrderedIds);
+      } catch (err) {
+        setItems(previous);
+        toast.error("Erreur", (err as Error).message);
+      }
+    });
   }
 
   async function handleSaveColor(
@@ -141,7 +164,7 @@ export default function ColorsMasterDetail({
     }
   }
 
-  const selectedColor = colors.find((c) => c.id === selectedId) ?? null;
+  const selectedColor = items.find((c) => c.id === selectedId) ?? null;
   const selectedDetail: ColorDetailData | null = selectedColor
     ? {
         id: selectedColor.id,
@@ -161,19 +184,20 @@ export default function ColorsMasterDetail({
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] bg-bg-primary border border-border rounded-3xl shadow-[var(--shadow-pop)] overflow-hidden">
+      <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] bg-bg-primary border border-border rounded-3xl shadow-[var(--shadow-pop)] overflow-hidden md:h-[calc(100vh-14rem)] md:min-h-[520px]">
         {/* Sur mobile : masquer la liste quand une couleur est sélectionnée */}
-        <div className={`${selectedId ? "hidden" : "block"} md:block md:border-r md:border-border`}>
+        <div className={`${selectedId ? "hidden" : "block"} md:block md:border-r md:border-border md:min-h-0 md:h-full md:overflow-hidden`}>
           <ColorsList
-            colors={colors}
+            colors={items}
             selectedId={selectedId}
             onSelect={handleSelect}
             hasPfsConfig={hasPfsConfig}
             hasEfashionConfig={hasEfashionConfig}
+            onReorder={handleReorder}
           />
         </div>
         {/* Sur mobile : masquer le détail s'il n'y a pas de sélection */}
-        <div className={`${selectedId ? "block" : "hidden"} md:block`}>
+        <div className={`${selectedId ? "block" : "hidden"} md:block md:min-h-0 md:h-full md:overflow-hidden`}>
           {selectedDetail ? (
             <ColorDetail
               color={selectedDetail}
@@ -184,7 +208,7 @@ export default function ColorsMasterDetail({
               onEditMapping={() => selectedColor && setEditTarget(selectedColor)}
             />
           ) : (
-            <div className="hidden md:flex flex-col items-center justify-center min-h-[580px] text-text-muted text-sm">
+            <div className="hidden md:flex flex-col items-center justify-center h-full min-h-[520px] text-text-muted text-sm">
               Sélectionnez une couleur à gauche.
             </div>
           )}

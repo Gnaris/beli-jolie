@@ -121,6 +121,81 @@ describe("variantSnapshotEqual", () => {
       ),
     ).toBe(false);
   });
+
+  it("returns false when saleType flips UNIT → PACK", () => {
+    expect(
+      variantSnapshotEqual(
+        { price: 9.9, stock: 10, weight: 5, isActive: true, saleType: "UNIT" },
+        { price: 9.9, stock: 10, weight: 5, isActive: true, saleType: "PACK" },
+      ),
+    ).toBe(false);
+  });
+
+  it("returns false when packSignature changes (qty 1 → qty 12)", () => {
+    expect(
+      variantSnapshotEqual(
+        {
+          price: 9.9,
+          stock: 10,
+          weight: 5,
+          isActive: true,
+          saleType: "PACK",
+          packSignature: "PINK:TU:1",
+        },
+        {
+          price: 9.9,
+          stock: 10,
+          weight: 5,
+          isActive: true,
+          saleType: "PACK",
+          packSignature: "PINK:TU:12",
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("stays equal when packSignature+saleType identical", () => {
+    expect(
+      variantSnapshotEqual(
+        {
+          price: 3.32,
+          stock: 999,
+          weight: 0.015,
+          isActive: true,
+          saleType: "PACK",
+          packSignature: "PINK:TU:12",
+        },
+        {
+          price: 3.32,
+          stock: 999,
+          weight: 0.015,
+          isActive: true,
+          saleType: "PACK",
+          packSignature: "PINK:TU:12",
+        },
+      ),
+    ).toBe(true);
+  });
+
+  // Compat rétro : les snapshots pré-v1.1 n'ont ni saleType ni packSignature.
+  // La comparaison doit rester "égale" pour éviter des recreates massifs
+  // gratuits — le fallback pfsGetVariants (dans pfs-update.ts) prend le
+  // relais pour les cas ambigus.
+  it("keeps equal when one snapshot lacks saleType/packSignature (legacy)", () => {
+    expect(
+      variantSnapshotEqual(
+        { price: 9.9, stock: 10, weight: 5, isActive: true },
+        {
+          price: 9.9,
+          stock: 10,
+          weight: 5,
+          isActive: true,
+          saleType: "UNIT",
+          packSignature: null,
+        },
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("diffSnapshots — no previous snapshot", () => {
@@ -185,6 +260,57 @@ describe("diffSnapshots — single variant change", () => {
     });
     const diff = diffSnapshots(prev, next);
     expect(diff.variantsChanged).toEqual(["VAR3"]);
+  });
+
+  it("reports variant as changed when only saleType flips (same price/stock)", () => {
+    const prev = makeSnapshot({
+      variants: {
+        VAR1: { price: 9.9, stock: 10, weight: 5, isActive: true, saleType: "UNIT" },
+      },
+    });
+    const next = makeSnapshot({
+      variants: {
+        VAR1: {
+          price: 9.9,
+          stock: 10,
+          weight: 5,
+          isActive: true,
+          saleType: "PACK",
+          packSignature: "GOLDEN:TU:1",
+        },
+      },
+    });
+    const diff = diffSnapshots(prev, next);
+    expect(diff.variantsChanged).toEqual(["VAR1"]);
+  });
+
+  it("reports variant as changed when only packSignature flips (qty 1 → qty 12, same unit price)", () => {
+    const prev = makeSnapshot({
+      variants: {
+        VAR1: {
+          price: 3.32,
+          stock: 999,
+          weight: 5,
+          isActive: true,
+          saleType: "PACK",
+          packSignature: "PINK:TU:1",
+        },
+      },
+    });
+    const next = makeSnapshot({
+      variants: {
+        VAR1: {
+          price: 3.32,
+          stock: 999,
+          weight: 5,
+          isActive: true,
+          saleType: "PACK",
+          packSignature: "PINK:TU:12",
+        },
+      },
+    });
+    const diff = diffSnapshots(prev, next);
+    expect(diff.variantsChanged).toEqual(["VAR1"]);
   });
 });
 

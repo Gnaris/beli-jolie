@@ -92,3 +92,16 @@ export async function deleteHsCode(id: string) {
   invalidate();
   return { success: true as const };
 }
+
+/** Reorder HS codes by providing an ordered array of ids */
+export async function reorderHsCodes(orderedIds: string[]) {
+  await requireAdmin();
+
+  await prisma.$transaction(
+    orderedIds.map((id, index) =>
+      prisma.hsCode.update({ where: { id }, data: { position: index } }),
+    ),
+  );
+
+  invalidate();
+}

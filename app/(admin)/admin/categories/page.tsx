@@ -39,7 +39,7 @@ function buildPfsLabel(g: string | null, f: string | null, c: string | null): st
 export default async function CategoriesPage() {
   const [categories, efashionLabels, hasPfsConfig, hasEfashionConfig, hasFaireConfig, faireTypes] = await Promise.all([
     prisma.category.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
         subCategories: {
           orderBy: { name: "asc" },
@@ -70,6 +70,7 @@ export default async function CategoriesPage() {
   const rows: CategoryRow[] = categories.map((c) => ({
     id: c.id,
     name: c.name,
+    position: c.position,
     translations: buildTranslationsMap(c.name, c.translations),
     pfsGender: c.pfsGender,
     pfsFamilyName: c.pfsFamilyName,

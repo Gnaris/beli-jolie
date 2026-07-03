@@ -111,15 +111,15 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
 
   return (
     <>
-      {/* ─── Top bar mobile : sobre + hamburger ─────────────────────── */}
-      <header className="lg:hidden relative h-14 sticky top-0 z-30 bg-bg-primary border-b border-border">
+      {/* ─── Top bar mobile : blanche & sobre ─────────────────────── */}
+      <header className="lg:hidden relative h-14 sticky top-0 z-30 bg-white border-b border-zinc-200 shadow-sm">
         <div className="relative h-full flex items-center justify-between px-3">
           <button
             onClick={() => setOpen(true)}
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-bg-secondary border border-border hover:bg-bg-tertiary transition-colors"
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-zinc-50 border border-zinc-200 hover:bg-zinc-100 transition-colors text-zinc-700"
             aria-label="Ouvrir le menu"
           >
-            <svg className="w-5 h-5 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
             </svg>
           </button>
@@ -132,18 +132,19 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
               <span className="font-heading text-xs font-bold text-white">
                 {shopName.charAt(0).toUpperCase()}
               </span>
+              <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-amber-300/60 blur-md" />
             </div>
-            <span className="font-heading text-sm font-bold text-text-primary truncate max-w-[140px]">
+            <span className="font-heading text-sm font-bold text-zinc-900 truncate max-w-[140px]">
               {shopName}
             </span>
           </Link>
 
           <div
             className="relative w-9 h-9 rounded-full flex items-center justify-center shadow-sm"
-            style={{ background: "#27272A", border: "1px solid #3F3F46" }}
+            style={{ background: "#18181B", border: "1px solid #27272A" }}
           >
             <span className="text-white text-[11px] font-bold">{initials}</span>
-            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-bg-primary" />
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
           </div>
         </div>
       </header>
@@ -151,20 +152,19 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
       {/* ─── Backdrop ─────────────────────── */}
       {open && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden animate-[fadeIn_120ms_ease-out]"
+          className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm z-40 lg:hidden animate-[fadeIn_120ms_ease-out]"
           onClick={() => setOpen(false)}
         />
       )}
 
-      {/* ─── Slide-in drawer (thème noir Variante A) ─────────────────────── */}
+      {/* ─── Slide-in drawer (thème Porcelaine) ─────────────────────── */}
       <nav
-        className={`fixed top-0 left-0 h-full w-[calc(100%-3rem)] max-w-[300px] z-50 transform transition-transform duration-200 ease-out lg:hidden flex flex-col rounded-r-2xl ${
+        className={`fixed top-0 left-0 h-full w-[calc(100%-3rem)] max-w-[300px] z-50 transform transition-transform duration-200 ease-out lg:hidden flex flex-col rounded-r-2xl bg-white border-r border-zinc-200 shadow-[0_25px_60px_-10px_rgba(9,9,11,0.25)] ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
-        style={{ background: "#0A0A0A", color: "#A1A1AA", boxShadow: "0 25px 60px -10px rgba(0,0,0,0.5)" }}
       >
         {/* Header drawer */}
-        <div className="relative flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
+        <div className="relative flex items-center justify-between px-5 py-4 border-b border-zinc-100">
           <Link href="/admin" onClick={() => setOpen(false)} className="flex items-center gap-3 min-w-0">
             <div
               className="relative w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm overflow-hidden shrink-0"
@@ -173,13 +173,13 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
               <span className="font-heading text-base font-bold text-white">
                 {shopName.charAt(0).toUpperCase()}
               </span>
-              <span className="absolute -top-3 -right-3 w-7 h-7 rounded-full bg-amber-300/30 blur-xl" />
+              <span className="absolute -top-3 -right-3 w-9 h-9 rounded-full bg-amber-300/50 blur-xl" />
             </div>
             <div className="min-w-0">
-              <p className="font-heading text-base font-bold text-white truncate leading-tight">{shopName}</p>
+              <p className="font-heading text-base font-bold text-zinc-900 truncate leading-tight">{shopName}</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
-                <p className="text-[10px] uppercase tracking-[0.18em] font-body font-semibold" style={{ color: "#71717A" }}>
+                <p className="text-[10px] uppercase tracking-[0.18em] font-body font-semibold text-zinc-500">
                   Administration
                 </p>
               </div>
@@ -187,8 +187,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
           </Link>
           <button
             onClick={() => setOpen(false)}
-            className="w-9 h-9 flex items-center justify-center rounded-xl transition-colors shrink-0 ml-2"
-            style={{ background: "rgba(255,255,255,0.04)", color: "#A1A1AA" }}
+            className="w-9 h-9 flex items-center justify-center rounded-xl transition-colors shrink-0 ml-2 bg-zinc-50 border border-zinc-200 hover:bg-zinc-100 text-zinc-700"
             aria-label="Fermer le menu"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -198,12 +197,12 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
         </div>
 
         {/* Navigation links */}
-        <div className="relative flex-1 px-3 py-4 overflow-y-auto scrollbar-dark">
+        <div className="relative flex-1 px-3 py-4 overflow-y-auto scrollbar-light">
           {NAV_SECTIONS.map((section, sectionIdx) => (
             <div key={section.title}>
               <div className={`flex items-center gap-2 px-3 mb-2 ${sectionIdx === 0 ? "mt-1" : "mt-5"}`}>
-                <span className="w-1 h-1 rounded-full" style={{ background: "#52525B" }} />
-                <p className="text-[10px] uppercase tracking-[0.18em] font-semibold" style={{ color: "#52525B" }}>
+                <span className="w-1 h-1 rounded-full bg-zinc-400" />
+                <p className="text-[10px] uppercase tracking-[0.18em] font-semibold text-zinc-500">
                   {section.title}
                 </p>
               </div>
@@ -220,17 +219,15 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                   if (hasChildren) {
                     return (
                       <div key={item.href}>
-                        {/* Item parent : Link qui navigue ET ouvre le sous-menu */}
                         <div
-                          className="relative w-full flex items-center gap-3 px-3 py-2.5 text-[13.5px] font-body rounded-xl transition-colors pr-1"
-                          style={{
-                            background: parentActive ? "rgba(255,255,255,0.06)" : "transparent",
-                            color: parentActive ? "#fff" : "#A1A1AA",
-                            fontWeight: parentActive ? 600 : 500,
-                          }}
+                          className={`relative w-full flex items-center gap-3 px-3 py-2.5 text-[13.5px] font-body rounded-xl transition-colors pr-1 ${
+                            parentActive
+                              ? "bg-zinc-100 text-zinc-900 font-semibold"
+                              : "text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900"
+                          }`}
                         >
                           {parentActive && (
-                            <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-white" />
+                            <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-zinc-900" />
                           )}
                           <Link
                             href={item.href}
@@ -241,14 +238,12 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                             className="flex items-center gap-3 flex-1 min-w-0 text-inherit no-underline"
                           >
                             <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d={item.icon} />
                             </svg>
                             <span className="flex-1 truncate">{item.label}</span>
                           </Link>
                           {warningCount > 0 && item.href !== "/admin/commandes" && (
-                            <span className="flex items-center gap-1 text-[10.5px] rounded-full px-1.5 py-0.5 font-medium"
-                              style={{ background: "rgba(245,158,11,0.15)", color: "#FCD34D", border: "1px solid rgba(245,158,11,0.2)" }}
-                            >
+                            <span className="flex items-center gap-1 text-[10.5px] rounded-full px-1.5 py-0.5 font-semibold bg-amber-100 text-amber-800 border border-amber-200">
                               ⚠ {warningCount}
                             </span>
                           )}
@@ -256,7 +251,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                             type="button"
                             onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleSubmenu(item.href); }}
                             aria-label={sopen ? "Replier" : "Déplier"}
-                            className="w-6 h-6 rounded inline-flex items-center justify-center hover:bg-white/[0.08] transition-colors"
+                            className="w-6 h-6 rounded inline-flex items-center justify-center hover:bg-zinc-200/60 transition-colors"
                           >
                             <svg
                               className={`w-3 h-3 opacity-60 transition-transform ${sopen ? "rotate-90" : ""}`}
@@ -268,7 +263,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                         </div>
                         {sopen && (
                           <div className="relative pl-3 pt-0.5 pb-1">
-                            <span className="absolute left-[21px] top-1 bottom-1 w-px" style={{ background: "#27272A" }} />
+                            <span className="absolute left-[21px] top-1 bottom-1 w-px bg-zinc-200" />
                             {item.children!.map((c) => {
                               const subActive = isItemActive(pathname, c.href);
                               return (
@@ -276,16 +271,15 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                                   key={c.href}
                                   href={c.href}
                                   onClick={() => setOpen(false)}
-                                  className="relative flex items-center gap-2 pl-8 pr-3 py-1.5 rounded-md text-[12.5px] transition-colors"
-                                  style={{
-                                    color: subActive ? "#fff" : "#71717A",
-                                    background: subActive ? "rgba(255,255,255,0.05)" : "transparent",
-                                    fontWeight: subActive ? 600 : 450,
-                                  }}
+                                  className={`relative flex items-center gap-2 pl-8 pr-3 py-1.5 rounded-md text-[12.5px] transition-colors ${
+                                    subActive
+                                      ? "bg-zinc-100 text-zinc-900 font-semibold"
+                                      : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900"
+                                  }`}
                                 >
                                   <span
                                     className="absolute left-[21px] top-1/2 w-2 h-px"
-                                    style={{ background: subActive ? "#fff" : "#3F3F46", transform: "translateY(-0.5px)" }}
+                                    style={{ background: subActive ? "#18181B" : "#D4D4D8", transform: "translateY(-0.5px)" }}
                                   />
                                   {c.label}
                                 </Link>
@@ -302,31 +296,26 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                       key={item.href}
                       href={item.href}
                       onClick={() => setOpen(false)}
-                      className="relative flex items-center gap-3 px-3 py-2.5 text-[13.5px] font-body rounded-xl transition-colors"
-                      style={{
-                        background: active ? "rgba(255,255,255,0.06)" : "transparent",
-                        color: active ? "#fff" : "#A1A1AA",
-                        fontWeight: active ? 600 : 500,
-                      }}
+                      className={`relative flex items-center gap-3 px-3 py-2.5 text-[13.5px] font-body rounded-xl transition-colors ${
+                        active
+                          ? "bg-zinc-100 text-zinc-900 font-semibold"
+                          : "text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900"
+                      }`}
                     >
                       {active && (
-                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-white" />
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-zinc-900" />
                       )}
                       <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d={item.icon} />
                       </svg>
                       <span className="flex-1">{item.label}</span>
                       {item.href === "/admin/commandes" && warningCount > 0 && (
-                        <span className="flex items-center justify-center text-[11px] rounded-full min-w-[22px] h-[22px] px-1.5 font-semibold"
-                          style={{ background: "rgba(59,130,246,0.15)", color: "#93C5FD", border: "1px solid rgba(59,130,246,0.25)" }}
-                        >
+                        <span className="flex items-center justify-center text-[11px] rounded-full min-w-[22px] h-[22px] px-1.5 font-bold bg-sky-100 text-sky-700 border border-sky-200">
                           {warningCount}
                         </span>
                       )}
                       {item.href !== "/admin/commandes" && warningCount > 0 && (
-                        <span className="flex items-center gap-1 text-[10.5px] rounded-full px-1.5 py-0.5 font-medium"
-                          style={{ background: "rgba(245,158,11,0.15)", color: "#FCD34D", border: "1px solid rgba(245,158,11,0.2)" }}
-                        >
+                        <span className="flex items-center gap-1 text-[10.5px] rounded-full px-1.5 py-0.5 font-semibold bg-amber-100 text-amber-800 border border-amber-200">
                           ⚠ {warningCount}
                         </span>
                       )}
@@ -339,31 +328,30 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
         </div>
 
         {/* User / Logout */}
-        <div className="relative px-3 py-4 border-t border-white/[0.06]" style={{ background: "rgba(255,255,255,0.02)" }}>
+        <div className="relative px-3 py-4 border-t border-zinc-100 bg-zinc-50/60">
           <div className="mb-2">
             <AdminClientModeButton />
           </div>
           <div
-            className="relative overflow-hidden flex items-center gap-3 px-3 py-2.5 mb-2 rounded-2xl"
-            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid #1F1F22" }}
+            className="relative overflow-hidden flex items-center gap-3 px-3 py-2.5 mb-2 rounded-2xl bg-white border border-zinc-200"
           >
             <div
               className="relative w-9 h-9 rounded-full flex items-center justify-center shadow-sm shrink-0"
-              style={{ background: "#27272A", border: "1px solid #3F3F46" }}
+              style={{ background: "#18181B", border: "1px solid #27272A" }}
             >
               <span className="text-white text-[11px] font-bold font-body">{initials}</span>
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500" style={{ boxShadow: "0 0 0 2px #0A0A0A" }} />
+              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-white truncate font-body leading-tight">
+              <p className="text-sm font-semibold text-zinc-900 truncate font-body leading-tight">
                 {userName}
               </p>
-              <p className="text-[11px] font-body leading-tight uppercase tracking-wider font-medium" style={{ color: "#71717A" }}>
+              <p className="text-[11px] font-body leading-tight uppercase tracking-wider font-medium text-zinc-500">
                 Administrateur
               </p>
             </div>
           </div>
-          <LogoutButton dark />
+          <LogoutButton />
         </div>
         <style>{`
           @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }

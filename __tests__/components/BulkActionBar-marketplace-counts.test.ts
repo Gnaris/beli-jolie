@@ -78,6 +78,41 @@ describe("computeMarketplaceCounts — panneau Marketplaces dynamique", () => {
     expect(counts.efashion.sync).toHaveLength(0);
     expect(counts.faire.publish).toHaveLength(0);
   });
+
+  it("retire les produits déjà en cours de publication sur la marketplace ciblée", () => {
+    const products = [
+      mkProduct({ id: "1", status: "ONLINE", ankorsProductId: null }),
+      mkProduct({ id: "2", status: "ONLINE", ankorsProductId: null }),
+    ];
+    // "1" a une op Ankorstore active (publication en cours) → ne doit plus
+    // apparaître dans "à publier". "2" reste éligible.
+    const inFlight = { ankorstore: new Set(["1"]) };
+    const counts = computeMarketplaceCounts(products, inFlight);
+    expect(counts.ankorstore.publish.map((p) => p.id)).toEqual(["2"]);
+  });
+
+  it("retire les produits déjà en cours de synchronisation sur la marketplace ciblée", () => {
+    const products = [
+      mkProduct({ id: "1", pfsSyncRequired: true }),
+      mkProduct({ id: "2", pfsSyncRequired: true }),
+    ];
+    const inFlight = { pfs: new Set(["2"]) };
+    const counts = computeMarketplaceCounts(products, inFlight);
+    expect(counts.pfs.sync.map((p) => p.id)).toEqual(["1"]);
+  });
+
+  it("le filtre in-flight est cloisonné par marketplace (op PFS ne masque pas Ankorstore)", () => {
+    const p = mkProduct({
+      id: "1",
+      status: "ONLINE",
+      pfsProductId: null,
+      ankorsProductId: null,
+    });
+    // Op PFS active seulement → PFS masqué mais Ankorstore toujours proposé.
+    const counts = computeMarketplaceCounts([p], { pfs: new Set(["1"]) });
+    expect(counts.pfs.publish).toHaveLength(0);
+    expect(counts.ankorstore.publish.map((x) => x.id)).toEqual(["1"]);
+  });
 });
 
 describe("isMarketplaceAvailable — visibilité des cartes selon config", () => {

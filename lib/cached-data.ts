@@ -18,7 +18,7 @@ export interface PfsLiveColor {
 export const getCachedCategories = unstable_cache(
   async () =>
     prisma.category.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
         subCategories: {
           orderBy: { name: "asc" },
@@ -46,7 +46,7 @@ export const getCachedCollections = unstable_cache(
 export const getCachedColors = unstable_cache(
   async () =>
     prisma.color.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       select: { id: true, name: true, hex: true, patternImage: true },
     }),
   ["filter-colors"],
@@ -68,7 +68,7 @@ export const getCachedTags = unstable_cache(
 export const getCachedHsCodes = unstable_cache(
   async () =>
     prisma.hsCode.findMany({
-      orderBy: { code: "asc" },
+      orderBy: [{ position: "asc" }, { code: "asc" }],
       select: { id: true, code: true, label: true },
     }),
   ["filter-hs-codes"],
@@ -101,7 +101,7 @@ export const getCachedSizes = unstable_cache(
 export const getCachedSeasons = unstable_cache(
   async () =>
     prisma.season.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       select: { id: true, name: true },
     }),
   ["filter-seasons"],
@@ -112,7 +112,7 @@ export const getCachedSeasons = unstable_cache(
 export const getCachedCompositions = unstable_cache(
   async () =>
     prisma.composition.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       select: { id: true, name: true },
     }),
   ["filter-compositions"],

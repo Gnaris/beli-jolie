@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import AdminProductsFilters from "@/components/admin/products/AdminProductsFilters";
 import ThemedProductFilters from "@/components/admin/products/ThemedProductFilters";
 import AdminProductsTable from "@/components/admin/products/AdminProductsTable";
+import { FilterPendingProvider } from "@/components/admin/products/FilterPendingContext";
 import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
@@ -415,7 +416,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     }),
     prisma.product.count({ where }),
     prisma.category.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       select: {
         id: true,
         name: true,
@@ -426,7 +427,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     getCachedCompositions(),
     // Bibliothèque des codes SH (pour le filtre dédié)
     prisma.hsCode.findMany({
-      orderBy: { code: "asc" },
+      orderBy: [{ position: "asc" }, { code: "asc" }],
       select: { id: true, code: true, label: true },
     }),
     // Bibliothèque pays + saisons (pour la modale d'édition en masse)
@@ -435,7 +436,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       select: { id: true, name: true },
     }),
     prisma.season.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       select: { id: true, name: true },
     }),
     // Section counts for tabs (lightweight parallel queries)
@@ -523,6 +524,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   });
 
   return (
+    <FilterPendingProvider>
     <div className="space-y-5">
       {/* ─── Carte commune Hero + Onglets + Filtres (look maquette Ardoise) ─── */}
       <div className="bg-bg-primary border border-border rounded-2xl shadow-sm">
@@ -538,8 +540,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                   </svg>
-                  <span className="hidden sm:inline">Importer Excel</span>
-                  <span className="sm:hidden">Importer</span>
+                  <span>Importer</span>
                 </PrimaryActionLink>
                 <PrimaryActionLink href="/admin/produits/nouveau" variant="primary">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -616,6 +617,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         </div>
       )}
     </div>
+    </FilterPendingProvider>
   );
 }
 
@@ -625,7 +627,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
 async function CategoriesContent() {
   const [categories, efashionLabels, faireTaxonomy] = await Promise.all([
     prisma.category.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
         subCategories: {
           orderBy: { name: "asc" },
@@ -685,7 +687,7 @@ async function CategoriesContent() {
 async function CouleursContent() {
   const [colors, pfsEnabled, ankorstoreEnabled, efashionLabels] = await Promise.all([
     prisma.color.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
         _count: { select: { productColors: true } },
         translations: true,
@@ -733,7 +735,7 @@ async function CouleursContent() {
 async function CompositionsContent() {
   const [compositions, efashionLabels] = await Promise.all([
     prisma.composition.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
         _count: { select: { products: true } },
         translations: true,
@@ -814,7 +816,7 @@ async function PaysContent() {
 async function SaisonsContent() {
   const [seasons, efashionLabels] = await Promise.all([
     prisma.season.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
         _count: { select: { products: true } },
         translations: true,
@@ -853,7 +855,7 @@ async function SaisonsContent() {
    ═══════════════════════════════════════════════════════════════════════════ */
 async function CodesShContent() {
   const rows = await prisma.hsCode.findMany({
-    orderBy: { code: "asc" },
+    orderBy: [{ position: "asc" }, { code: "asc" }],
     include: { _count: { select: { products: true } } },
   });
 

@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: "Bibliothèque de compositions" };
 export default async function CompositionsPage() {
   const [compositions, efashionLabels, hasPfsConfig, hasEfashionConfig] = await Promise.all([
     prisma.composition.findMany({
-      orderBy: { name: "asc" },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
         _count: { select: { products: true } },
         translations: true,
@@ -34,6 +34,7 @@ export default async function CompositionsPage() {
     efashionId: c.efashionId,
     efashionLabel: resolveCompositionLabel(efashionLabels, c.efashionId) ?? null,
     productCount: c._count.products,
+    position: c.position,
     createdAt: c.createdAt,
   }));
 
