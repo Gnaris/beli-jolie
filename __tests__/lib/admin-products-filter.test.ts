@@ -137,6 +137,33 @@ describe("buildAdminProductsWhere", () => {
     expect(created.lte.getMinutes()).toBe(59);
   });
 
+  it("applies updatedFrom and clamps updatedTo to end of day (filtre date de dernière modification)", () => {
+    const where = buildAdminProductsWhere({
+      updatedFrom: "2026-02-01",
+      updatedTo: "2026-02-28",
+    });
+    const updated = where.updatedAt as { gte: Date; lte: Date };
+    expect(updated.gte).toEqual(new Date("2026-02-01"));
+    expect(updated.lte.getHours()).toBe(23);
+    expect(updated.lte.getMinutes()).toBe(59);
+    // Le filtre createdAt reste indépendant
+    expect(where.createdAt).toBeUndefined();
+  });
+
+  it("combine dateFrom/dateTo et updatedFrom/updatedTo indépendamment", () => {
+    const where = buildAdminProductsWhere({
+      dateFrom: "2026-01-01",
+      updatedFrom: "2026-02-01",
+    });
+    expect((where.createdAt as { gte: Date }).gte).toEqual(new Date("2026-01-01"));
+    expect((where.updatedAt as { gte: Date }).gte).toEqual(new Date("2026-02-01"));
+  });
+
+  it("ignore updatedFrom / updatedTo quand ils sont vides", () => {
+    const where = buildAdminProductsWhere({ updatedFrom: "", updatedTo: "" });
+    expect(where.updatedAt).toBeUndefined();
+  });
+
   it("supports several filters at once without clobbering them", () => {
     const where = buildAdminProductsWhere({
       cat: "c1",

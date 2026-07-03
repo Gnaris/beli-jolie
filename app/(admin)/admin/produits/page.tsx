@@ -178,7 +178,7 @@ function PrimaryActionLink({ href, children, variant = "primary" }: { href: stri
 function countActiveFilters(p: Record<string, string | undefined>): number {
   const keys = [
     "q", "exactRef", "cat", "subCat", "tag", "composition", "hsCodeId",
-    "minPrice", "maxPrice", "dateFrom", "dateTo", "stockBelow",
+    "minPrice", "maxPrice", "dateFrom", "dateTo", "updatedFrom", "updatedTo", "stockBelow",
     "bestSeller", "refresh", "locked", "syncRequired", "missingImages",
     "pfsLink", "ankorsLink", "efashionLink", "faireLink",
     "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "microstoreExportedAt",
@@ -209,6 +209,8 @@ interface PageProps {
     maxPrice?: string;
     dateFrom?: string;
     dateTo?: string;
+    updatedFrom?: string;
+    updatedTo?: string;
     stockBelow?: string;
     missingImages?: string;
     pfsLink?: string;
@@ -306,6 +308,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     maxPrice: maxPriceParam = "",
     dateFrom = "",
     dateTo = "",
+    updatedFrom = "",
+    updatedTo = "",
     stockBelow: stockBelowParam = "",
     missingImages = "",
     pfsLink = "",
@@ -352,6 +356,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     maxPrice,
     dateFrom,
     dateTo,
+    updatedFrom,
+    updatedTo,
     stockBelow,
     pfsLink,
     ankorsLink,

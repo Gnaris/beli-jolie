@@ -38,6 +38,13 @@ export interface AdminProductsFilterParams {
   maxPrice?: number | null;
   dateFrom?: string;
   dateTo?: string;
+  /**
+   * Bornes du filtre « Date de dernière modification » — mappées sur
+   * `Product.updatedAt`. `updatedTo` est étendue à 23:59:59.999 pour couvrir
+   * toute la journée (même logique que `dateTo`).
+   */
+  updatedFrom?: string;
+  updatedTo?: string;
   stockBelow?: number | null;
   /**
    * Filtre sur le lien Paris Fashion Shop — un produit est considéré « lié »
@@ -259,6 +266,15 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     const end = new Date(params.dateTo);
     end.setHours(23, 59, 59, 999);
     where.createdAt = { ...(where.createdAt as object), lte: end };
+  }
+
+  if (params.updatedFrom) {
+    where.updatedAt = { ...(where.updatedAt as object), gte: new Date(params.updatedFrom) };
+  }
+  if (params.updatedTo) {
+    const end = new Date(params.updatedTo);
+    end.setHours(23, 59, 59, 999);
+    where.updatedAt = { ...(where.updatedAt as object), lte: end };
   }
 
   const stockBelow = params.stockBelow ?? null;

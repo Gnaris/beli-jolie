@@ -107,6 +107,15 @@ export default function CompactFiltersHeader({
         remove: ["dateFrom", "dateTo"],
       });
     }
+    const updatedFrom = p.get("updatedFrom") ?? "";
+    const updatedTo = p.get("updatedTo") ?? "";
+    if (updatedFrom || updatedTo) {
+      out.push({
+        key: "updated-dates",
+        label: `Modifié · ${updatedFrom || "…"} → ${updatedTo || "…"}`,
+        remove: ["updatedFrom", "updatedTo"],
+      });
+    }
     const bestSeller = p.get("bestSeller") ?? "";
     if (bestSeller === "1") out.push({ key: "best", label: "Best-sellers", remove: ["bestSeller"] });
     const refresh = p.get("refresh") ?? "";

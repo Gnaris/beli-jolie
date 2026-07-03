@@ -50,6 +50,14 @@ describe("ThemedProductFilters — popover Dates", () => {
     expect(THEMED).toContain("setParam({ dateFrom: e.target.value })");
     expect(THEMED).toContain("setParam({ dateTo: e.target.value })");
   });
+
+  it("ajoute une section « Date de dernière modification » (updatedFrom / updatedTo)", () => {
+    expect(THEMED).toContain("Date de dernière modification");
+    expect(THEMED).toContain("Modifié après le");
+    expect(THEMED).toContain("Modifié avant le");
+    expect(THEMED).toContain("setParam({ updatedFrom: e.target.value })");
+    expect(THEMED).toContain("setParam({ updatedTo: e.target.value })");
+  });
 });
 
 describe("CompactFiltersHeader — pill Rafraîchissement", () => {
@@ -61,5 +69,13 @@ describe("CompactFiltersHeader — pill Rafraîchissement", () => {
 
   it("ne compare plus refresh === \"1\" (bug pill sur l'ancien bool)", () => {
     expect(HEADER).not.toContain('if (refresh === "1")');
+  });
+});
+
+describe("CompactFiltersHeader — pill Date de dernière modification", () => {
+  it("génère une pill séparée pour updatedFrom / updatedTo (préfixée « Modifié »)", () => {
+    expect(HEADER).toContain('updatedFrom');
+    expect(HEADER).toContain('updatedTo');
+    expect(HEADER).toContain('Modifié · ');
   });
 });

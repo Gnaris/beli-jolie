@@ -301,27 +301,54 @@ export default function ThemedProductFilters({
     // theme === "more" (renommé « Dates »)
     const dateFrom = searchParams.get("dateFrom") ?? "";
     const dateTo = searchParams.get("dateTo") ?? "";
+    const updatedFrom = searchParams.get("updatedFrom") ?? "";
+    const updatedTo = searchParams.get("updatedTo") ?? "";
     return (
-      <div className="flex flex-col gap-3">
-        <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted">Date de création</div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="block text-[11px] text-text-secondary mb-1">Créé après le</label>
-            <input
-              type="date"
-              defaultValue={dateFrom}
-              onBlur={(e) => setParam({ dateFrom: e.target.value })}
-              className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
-            />
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted">Date de création</div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[11px] text-text-secondary mb-1">Créé après le</label>
+              <input
+                type="date"
+                defaultValue={dateFrom}
+                onBlur={(e) => setParam({ dateFrom: e.target.value })}
+                className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-text-secondary mb-1">Créé avant le</label>
+              <input
+                type="date"
+                defaultValue={dateTo}
+                onBlur={(e) => setParam({ dateTo: e.target.value })}
+                className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-[11px] text-text-secondary mb-1">Créé avant le</label>
-            <input
-              type="date"
-              defaultValue={dateTo}
-              onBlur={(e) => setParam({ dateTo: e.target.value })}
-              className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
-            />
+        </div>
+        <div className="flex flex-col gap-2 border-t border-border pt-3">
+          <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted">Date de dernière modification</div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[11px] text-text-secondary mb-1">Modifié après le</label>
+              <input
+                type="date"
+                defaultValue={updatedFrom}
+                onBlur={(e) => setParam({ updatedFrom: e.target.value })}
+                className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-text-secondary mb-1">Modifié avant le</label>
+              <input
+                type="date"
+                defaultValue={updatedTo}
+                onBlur={(e) => setParam({ updatedTo: e.target.value })}
+                className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -347,7 +374,7 @@ export default function ThemedProductFilters({
       ["pfsLink", "ankorsLink", "efashionLink", "faireLink",
        "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt"].forEach((k) => has(k) && n++);
     } else if (theme === "more") {
-      ["dateFrom", "dateTo"].forEach((k) => has(k) && n++);
+      ["dateFrom", "dateTo", "updatedFrom", "updatedTo"].forEach((k) => has(k) && n++);
     }
     return n;
   }
