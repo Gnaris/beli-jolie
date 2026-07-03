@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback } from "react";
-import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import {
   useMarketplaceRefreshQueue,
@@ -15,6 +14,7 @@ import {
 } from "@/app/actions/admin/marketplace-refresh";
 import { useRefreshWarning } from "@/components/admin/products/RecentlyRefreshedWarningModal";
 import { useIneligibleRefresh } from "@/components/admin/products/IneligibleRefreshModal";
+import { useRefreshMarketplacePrompt } from "@/components/admin/products/RefreshMarketplaceDialog";
 import {
   getRefreshIneligibilityReason,
   labelForIneligibility,
@@ -50,12 +50,12 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
   const showEfashion = opts?.showEfashion ?? false;
   const showFaire = opts?.showFaire ?? false;
 
-  const { confirm } = useConfirm();
   const toast = useToast();
   const { enqueue, inFlightProductIds } = useMarketplaceRefreshQueue();
   const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
   const { ask: askWarning } = useRefreshWarning();
   const { ask: askIneligible } = useIneligibleRefresh();
+  const { ask: askRefreshOptions } = useRefreshMarketplacePrompt();
 
   // Sépare la sélection en éligibles / non éligibles selon le statut local
   // (ONLINE + complet). Vérifié en premier car instantané et déterministe.
@@ -125,90 +125,15 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
 
   const askOptions = useCallback(
     async (count: number, firstProductName?: string): Promise<MarketplaceRefreshOptions | null> => {
-      const localRef = { current: false };
-      const pfsRef = { current: false };
-      const ankorstoreRef = { current: false };
-      const efashionRef = { current: false };
-      const faireRef = { current: false };
-
-      const title = count === 1 ? "Rafraîchir ce produit ?" : `Rafraîchir ${count} produits ?`;
-      const message =
-        count === 1 && firstProductName
-          ? `Choisissez où rafraîchir « ${firstProductName} » :`
-          : count === 1
-            ? "Choisissez où rafraîchir le produit :"
-            : "Les options s'appliquent à tous les produits cochés.";
-
-      const checkboxes = [
-        {
-          id: "local",
-          label: "Remettre en Nouveauté sur la boutique",
-          defaultChecked: false,
-          onChange: (v: boolean) => {
-            localRef.current = v;
-          },
-        },
-      ];
-      if (showPfs) {
-        checkboxes.push({
-          id: "pfs",
-          label: "Rafraîchir sur Paris Fashion Shop (crée le nouveau, supprime l'ancien)",
-          defaultChecked: false,
-          onChange: (v: boolean) => {
-            pfsRef.current = v;
-          },
-        });
-      }
-      if (showAnkorstore) {
-        checkboxes.push({
-          id: "ankorstore",
-          label: "Rafraîchir sur Ankorstore (crée le nouveau, archive l'ancien)",
-          defaultChecked: false,
-          onChange: (v: boolean) => {
-            ankorstoreRef.current = v;
-          },
-        });
-      }
-      if (showEfashion) {
-        checkboxes.push({
-          id: "efashion",
-          label: "Rafraîchir sur eFashion Paris (renvoie infos, photos, prix et stock)",
-          defaultChecked: false,
-          onChange: (v: boolean) => {
-            efashionRef.current = v;
-          },
-        });
-      }
-      if (showFaire) {
-        checkboxes.push({
-          id: "faire",
-          label: "Rafraîchir sur Faire (crée le nouveau, supprime l'ancien)",
-          defaultChecked: false,
-          onChange: (v: boolean) => {
-            faireRef.current = v;
-          },
-        });
-      }
-
-      const ok = await confirm({
-        type: "warning",
-        title,
-        message,
-        checkboxesLabel: "Options",
-        checkboxes,
-        requireAtLeastOneChecked: true,
-        confirmLabel: "Rafraîchir",
+      const options = await askRefreshOptions({
+        count,
+        firstProductName,
+        showPfs,
+        showAnkorstore,
+        showEfashion,
+        showFaire,
       });
-      if (!ok) return null;
-
-      const options: MarketplaceRefreshOptions = {
-        local: localRef.current,
-        pfs: pfsRef.current,
-        ankorstore: ankorstoreRef.current,
-        efashion: efashionRef.current,
-        faire: faireRef.current,
-      };
-
+      if (!options) return null;
       if (
         !options.local &&
         !options.pfs &&
@@ -221,7 +146,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       }
       return options;
     },
-    [confirm, toast, showPfs, showAnkorstore, showEfashion, showFaire],
+    [askRefreshOptions, toast, showPfs, showAnkorstore, showEfashion, showFaire],
   );
 
   const refreshSingle = useCallback(

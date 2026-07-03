@@ -40,6 +40,12 @@ interface MarketplacesConfig {
 interface Props {
   selectedProducts: BulkBarProduct[];
   isPending: boolean;
+  /**
+   * Libellé affiché à côté du compteur quand une action bulk est en cours
+   * (ex : « Traduction de 3 produits en cours… »). Quand non-null, la bande
+   * dégradée du haut se met à glisser en boucle pour signaler l'activité.
+   */
+  pendingLabel?: string | null;
   marketplaces: MarketplacesConfig;
 
   onStatus: (status: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
@@ -133,6 +139,7 @@ const MARKETPLACE_META: Record<MarketplaceKey, {
 export default function BulkActionBar({
   selectedProducts,
   isPending,
+  pendingLabel,
   marketplaces,
   onStatus,
   onDelete,
@@ -143,6 +150,7 @@ export default function BulkActionBar({
   onMarketplacePublish,
   onMarketplaceSync,
 }: Props) {
+  const showPending = Boolean(pendingLabel);
   const [marketplacesOpen, setMarketplacesOpen] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -231,8 +239,15 @@ export default function BulkActionBar({
           ref={barRef}
           className="relative rounded-2xl border border-border-strong/80 bg-white shadow-[0_10px_25px_-8px_rgba(24,24,27,0.12),0_4px_10px_-2px_rgba(24,24,27,0.06)]"
         >
-          {/* Bande dégradée fine en haut (langage cockpit) */}
-          <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-2xl bg-gradient-to-r from-emerald-400 via-cyan-500 to-violet-500" />
+          {/* Bande dégradée fine en haut (langage cockpit). Quand une action
+              bulk est en cours (pendingLabel non-null), on remplace le fond
+              statique par un dégradé qui glisse en boucle pour signaler
+              l'activité — le voile blanc au-dessus du tableau confirme visuellement. */}
+          {showPending ? (
+            <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-2xl animate-bulk-bar-shimmer" />
+          ) : (
+            <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-2xl bg-gradient-to-r from-emerald-400 via-cyan-500 to-violet-500" />
+          )}
 
           <div className="flex items-center gap-2 lg:gap-3 px-3 lg:px-4 py-3 flex-wrap">
             {/* Compteur intelligent */}
@@ -255,6 +270,24 @@ export default function BulkActionBar({
                 </div>
               </div>
             </div>
+
+            {/* Badge « action en cours » — s'affiche juste après le compteur
+                pendant une action bulk (traduction, suppression, changement de
+                statut, modification d'attributs). Reprend le voile blanc du
+                tableau côté visuel. */}
+            {showPending && (
+              <div
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200 text-[12px] font-medium"
+                role="status"
+                aria-live="polite"
+              >
+                <svg className="w-3.5 h-3.5 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span className="truncate max-w-[240px]">{pendingLabel}</span>
+              </div>
+            )}
 
             <Separator />
 

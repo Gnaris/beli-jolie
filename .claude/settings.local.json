@@ -7,7 +7,10 @@
       "Bash(npx vitest *)",
       "Bash(netstat -ano)",
       "Bash(findstr :3000)",
-      "Bash(findstr LISTENING)"
+      "Bash(findstr LISTENING)",
+      "Bash(start *)",
+      "Bash(npm test *)",
+      "Bash(git push *)"
     ]
   }
 }

@@ -869,6 +869,23 @@ h1, h2, h3, h4, h5, h6 {
   0%   { transform: translateX(-150%); }
   100% { transform: translateX(150%); }
 }
+/* Bande dégradée qui glisse en boucle sur la barre d'action bulk pour signaler
+   qu'une action en masse est en cours (ex : « Tout traduire »). Le fond utilise
+   un dégradé étiré à 200 % et on décale la position pour donner l'effet. */
+@keyframes bulkBarShimmer {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+.animate-bulk-bar-shimmer {
+  background-image: linear-gradient(90deg,
+    #34d399 0%, #22d3ee 25%, #a78bfa 50%,
+    #22d3ee 75%, #34d399 100%);
+  background-size: 200% 100%;
+  animation: bulkBarShimmer 1.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-bulk-bar-shimmer { animation: none; }
+}
 @keyframes customSelectDown {
   from { opacity: 0; transform: translateY(-4px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }

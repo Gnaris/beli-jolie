@@ -16,6 +16,7 @@ import { EfashionShootingBatchWidget } from "@/components/admin/products/Efashio
 import ImportProgressWidget from "@/components/admin/products/ImportProgressWidget";
 import { RefreshWarningProvider } from "@/components/admin/products/RecentlyRefreshedWarningModal";
 import { IneligibleRefreshProvider } from "@/components/admin/products/IneligibleRefreshModal";
+import { RefreshMarketplacePromptProvider } from "@/components/admin/products/RefreshMarketplaceDialog";
 import { getCachedSiteConfig, getCachedPfsCredentials } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
@@ -67,6 +68,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <EfashionShootingBatchProvider>
     <RefreshWarningProvider>
     <IneligibleRefreshProvider>
+    <RefreshMarketplacePromptProvider>
     <div id="admin-theme-wrapper" className="min-h-screen flex bg-[#EEEEF1]">
 
       <AdminDesktopShell
@@ -96,6 +98,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <EfashionShootingBatchWidget />
       <ImportProgressWidget />
     </div>
+    </RefreshMarketplacePromptProvider>
     </IneligibleRefreshProvider>
     </RefreshWarningProvider>
     </EfashionShootingBatchProvider>

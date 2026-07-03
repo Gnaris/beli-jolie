@@ -253,11 +253,11 @@ function MarketplaceBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
         title="Publication PFS en cours…"
       >
         <svg
-          className="w-2.5 h-2.5 animate-spin"
+          className="w-3 h-3 animate-spin shrink-0"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -266,7 +266,7 @@ function MarketplaceBadge({
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
         </svg>
-        PFS en cours…
+        <span>PFS</span>
       </span>
     );
   }
@@ -340,11 +340,11 @@ function AnkorstoreBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
         title="Publication Ankorstore en cours… (1 à 5 minutes)"
       >
         <svg
-          className="w-2.5 h-2.5 animate-spin"
+          className="w-3 h-3 animate-spin shrink-0"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -353,7 +353,7 @@ function AnkorstoreBadge({
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
         </svg>
-        ANKOR en cours…
+        <span>ANKOR</span>
       </span>
     );
   }
@@ -427,11 +427,11 @@ function EfashionBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
         title="Publication eFashion Paris en cours…"
       >
         <svg
-          className="w-2.5 h-2.5 animate-spin"
+          className="w-3 h-3 animate-spin shrink-0"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -440,7 +440,7 @@ function EfashionBadge({
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
         </svg>
-        EF en cours…
+        <span>EF</span>
       </span>
     );
   }
@@ -514,11 +514,11 @@ function FaireBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#FCE7F3] text-[#9D174D] border border-[#FBCFE8] leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#FCE7F3] text-[#9D174D] border border-[#FBCFE8] leading-tight"
         title="Publication Faire en cours…"
       >
         <svg
-          className="w-2.5 h-2.5 animate-spin"
+          className="w-3 h-3 animate-spin shrink-0"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -527,7 +527,7 @@ function FaireBadge({
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
         </svg>
-        Faire en cours…
+        <span>Faire</span>
       </span>
     );
   }
@@ -2542,6 +2542,10 @@ export default function AdminProductsTable({
   const toast = useToast();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  // Libellé de l'action bulk en cours (« Traduction… », « Suppression… », etc.).
+  // Alimente à la fois le badge dans BulkActionBar et le voile posé sur le
+  // tableau. `null` quand aucune action n'est en cours.
+  const [bulkActionLabel, setBulkActionLabel] = useState<string | null>(null);
 
   const allProducts = products;
 
@@ -2937,7 +2941,11 @@ export default function AdminProductsTable({
     if (!confirmed) return;
 
     setBulkMessage(null);
-    showLoading();
+    const bulkVerb =
+      status === "ONLINE" ? "Mise en ligne" :
+      status === "OFFLINE" ? "Mise hors ligne" :
+      "Archivage";
+    setBulkActionLabel(`${bulkVerb} de ${count} produit${count > 1 ? "s" : ""}…`);
     let successIds: string[] = [];
     await new Promise<void>((resolve) => {
       startTransition(async () => {
@@ -2962,7 +2970,7 @@ export default function AdminProductsTable({
         } catch (e) {
           setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
         } finally {
-          hideLoading();
+          setBulkActionLabel(null);
           resolve();
         }
       });
@@ -3117,7 +3125,7 @@ export default function AdminProductsTable({
         }
       }
     }
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, router]);
+  }, [selectedIds, startTransition, confirm, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, router]);
 
   // ─── Bulk modif d'attributs produit (catégorie, code SH, composition, pays,
   // saison, best-seller) ──
@@ -3133,7 +3141,7 @@ export default function AdminProductsTable({
     const result = await new Promise<BulkAttrResult | null>((resolve) => {
       startTransition(async () => {
         try {
-          showLoading(`Modification de ${ids.length} produit${ids.length > 1 ? "s" : ""}…`);
+          setBulkActionLabel(`Modification de ${ids.length} produit${ids.length > 1 ? "s" : ""}…`);
           const r = await bulkUpdateProductAttributes(ids, payload);
           const msgs: string[] = [];
           if (r.updated > 0) {
@@ -3151,7 +3159,7 @@ export default function AdminProductsTable({
           setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
           resolve(null);
         } finally {
-          hideLoading();
+          setBulkActionLabel(null);
           setBulkEditOpen(false);
         }
       });
@@ -3295,7 +3303,7 @@ export default function AdminProductsTable({
       }
     }
     if (inputs.length > 0) enqueuePfs(inputs);
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig, showAnkorstore, showEfashion, showFaire]);
+  }, [selectedIds, startTransition, confirm, allProducts, enqueuePfs, hasPfsConfig, showAnkorstore, showEfashion, showFaire]);
 
   const handleBulkDelete = useCallback(async (idsOverride?: string[]) => {
     const ids = idsOverride ?? [...selectedIds];
@@ -3451,7 +3459,13 @@ export default function AdminProductsTable({
 
     setBulkMessage(null);
     setDeletingIds(new Set(ids));
-    showLoading();
+    setBulkActionLabel(
+      archiveCount === 0
+        ? `Suppression de ${deleteCount} produit${deleteCount > 1 ? "s" : ""}…`
+        : deleteCount === 0
+          ? `Archivage de ${archiveCount} produit${archiveCount > 1 ? "s" : ""}…`
+          : `Suppression de ${count} produit${count > 1 ? "s" : ""}…`,
+    );
     startTransition(async () => {
       try {
         // 1. Kickoff Ankorstore delete BEFORE local delete (the AnkorstoreOperation
@@ -3554,11 +3568,11 @@ export default function AdminProductsTable({
       } catch (e) {
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
       } finally {
-        hideLoading();
+        setBulkActionLabel(null);
         setDeletingIds(new Set());
       }
     });
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, toast, router]);
+  }, [selectedIds, startTransition, confirm, allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, toast, router]);
 
   // Synchroniser un (ou plusieurs) produit(s) avec les marketplaces : renvoie
   // toutes les données (prix, stock, images, statut, etc.) au même `pfsProductId`
@@ -3826,7 +3840,7 @@ export default function AdminProductsTable({
     if (ok !== true) return;
 
     startTransition(async () => {
-      showLoading(`Traduction de ${ids.length} produit${plural} en cours…`);
+      setBulkActionLabel(`Traduction de ${ids.length} produit${plural} en cours…`);
       try {
         const res = await bulkTranslateProducts(ids);
         const parts: string[] = [];
@@ -3843,10 +3857,10 @@ export default function AdminProductsTable({
       } catch (e) {
         toast.error("Traduction impossible", e instanceof Error ? e.message : "Erreur inconnue.");
       } finally {
-        hideLoading();
+        setBulkActionLabel(null);
       }
     });
-  }, [selectedIds, confirm, toast, showLoading, hideLoading, startTransition]);
+  }, [selectedIds, confirm, toast, startTransition]);
 
   const handleBulkRefreshCurrent = useCallback(async () => {
     const selectedProductsPayload = allProducts
@@ -3904,6 +3918,7 @@ export default function AdminProductsTable({
           faireSyncRequired: p.faireSyncRequired,
         }))}
         isPending={isPending}
+        pendingLabel={bulkActionLabel}
         marketplaces={{
           pfs: { available: hasPfsConfig },
           ankorstore: { configured: hasAnkorstoreConfig, enabled: ankorstoreEnabled },
@@ -3942,6 +3957,7 @@ export default function AdminProductsTable({
       <div className="relative">
         <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
         <FilterLoadingOverlay visible={isFiltering} />
+        <BulkActionOverlay label={bulkActionLabel} />
       </div>
 
       {/* Bandeau flottant global — apparaît en bas de l'écran dès qu'au moins
@@ -4048,6 +4064,32 @@ function FilterLoadingOverlay({ visible }: { visible: boolean }) {
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
         <span className="text-[12px] font-body font-medium text-text-secondary">Chargement…</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Voile blanc translucide + libellé « … en cours » posé sur le tableau
+ * pendant qu'une action bulk (traduction, suppression, changement de statut,
+ * modification d'attributs) tourne. Complète la bande animée de la
+ * BulkActionBar : la cliente voit que la barre ET le tableau signalent
+ * l'activité, pas juste un spinner détaché flottant au milieu de l'écran.
+ */
+function BulkActionOverlay({ label }: { label: string | null }) {
+  if (!label) return null;
+  return (
+    <div
+      className="absolute inset-0 z-30 flex items-start justify-center pt-20 bg-white/60 backdrop-blur-[1px] rounded-2xl pointer-events-none"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex items-center gap-2.5 bg-bg-primary border border-border rounded-full px-4 py-2 shadow-lg">
+        <svg className="w-4 h-4 animate-spin text-bg-dark" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <span className="text-[13px] font-body font-medium text-text-primary">{label}</span>
       </div>
     </div>
   );
