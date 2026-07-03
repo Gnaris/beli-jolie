@@ -119,7 +119,11 @@ export async function checkVies(rawVat: string): Promise<ViesResult> {
         requestDate: typeof d.requestDate === "string" ? d.requestDate : null,
       };
 
-      if (userError && userError !== "VALID") {
+      // "VALID" et "INVALID" sont de vrais résultats VIES, pas des erreurs de service.
+      // Tout autre code (MS_UNAVAILABLE, SERVICE_UNAVAILABLE, TIMEOUT, INVALID_INPUT…)
+      // signale un vrai problème → on le remonte en serviceError pour l'admin.
+      const REAL_RESULTS = new Set(["VALID", "INVALID", ""]);
+      if (userError && !REAL_RESULTS.has(userError)) {
         result.serviceError = `VIES : ${userError}`;
       }
 

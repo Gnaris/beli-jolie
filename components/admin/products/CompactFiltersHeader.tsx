@@ -127,6 +127,16 @@ export default function CompactFiltersHeader({
     if (refresh && refreshLabel[refresh]) {
       out.push({ key: "refresh", label: refreshLabel[refresh], remove: ["refresh"] });
     }
+    // Tri actif — retiré en un clic pour revenir au défaut (créé le + récent).
+    const sortLabel: Record<string, string> = {
+      createdAsc:   "Tri · Créé le + ancien d'abord",
+      modifiedDesc: "Tri · Modifié le + récent d'abord",
+      modifiedAsc:  "Tri · Modifié le + ancien d'abord",
+    };
+    const sortVal = p.get("sort") ?? "";
+    if (sortLabel[sortVal]) {
+      out.push({ key: "sort", label: sortLabel[sortVal], remove: ["sort"] });
+    }
     const locked = p.get("locked") ?? "";
     if (locked === "1") out.push({ key: "locked", label: "Verrouillé", remove: ["locked"] });
     const syncRequired = p.get("syncRequired") ?? "";

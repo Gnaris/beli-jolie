@@ -39,10 +39,11 @@ interface Props {
   topProducts: TopProduct[];
 }
 
+// Palette Ardoise : dégradé de gris + noir d'encre pour les statuts
 const STATUS_COLORS: Record<string, string> = {
-  PENDING: "#F59E0B",
-  SHIPPED: "#22C55E",
-  CANCELLED: "#9CA3AF",
+  SHIPPED: "#18181B",
+  PENDING: "#71717A",
+  CANCELLED: "#D4D4D8",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -77,59 +78,19 @@ function OrdersTooltip({ active, payload, label }: any) {
   );
 }
 
-type Accent = "emerald" | "sky" | "amber" | "violet";
-
 function ChartCard({
-  accent, eyebrow, title, children,
+  eyebrow, title, children,
 }: {
-  accent: Accent;
   eyebrow: string;
   title: string;
   children: React.ReactNode;
 }) {
-  const cfg = {
-    emerald: {
-      stripe: "from-emerald-400 to-emerald-600",
-      cardBg: "bg-gradient-to-br from-emerald-50/70 via-bg-primary to-bg-primary",
-      border: "border-emerald-200",
-      dotBg: "bg-emerald-500",
-      eyebrowText: "text-emerald-700",
-      halo: "bg-emerald-300/40",
-    },
-    sky: {
-      stripe: "from-sky-400 to-sky-600",
-      cardBg: "bg-gradient-to-br from-sky-50/70 via-bg-primary to-bg-primary",
-      border: "border-sky-200",
-      dotBg: "bg-sky-500",
-      eyebrowText: "text-sky-700",
-      halo: "bg-sky-300/40",
-    },
-    amber: {
-      stripe: "from-amber-400 to-amber-600",
-      cardBg: "bg-gradient-to-br from-amber-50/70 via-bg-primary to-bg-primary",
-      border: "border-amber-200",
-      dotBg: "bg-amber-500",
-      eyebrowText: "text-amber-700",
-      halo: "bg-amber-300/40",
-    },
-    violet: {
-      stripe: "from-violet-400 to-violet-600",
-      cardBg: "bg-gradient-to-br from-violet-50/70 via-bg-primary to-bg-primary",
-      border: "border-violet-200",
-      dotBg: "bg-violet-500",
-      eyebrowText: "text-violet-700",
-      halo: "bg-violet-300/40",
-    },
-  }[accent];
-
   return (
-    <div className={`relative overflow-hidden ${cfg.cardBg} border ${cfg.border} rounded-2xl shadow-sm hover:shadow-md transition-all`}>
-      <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${cfg.stripe}`} />
-      <div className={`absolute -top-16 -right-16 w-40 h-40 rounded-full blur-3xl ${cfg.halo} pointer-events-none`} />
+    <div className="relative overflow-hidden bg-bg-primary border border-border rounded-2xl shadow-sm hover:shadow-card-md transition-all">
       <div className="relative p-4 sm:p-5 md:p-6">
         <div className="flex items-center gap-2 mb-1">
-          <span className={`w-1.5 h-1.5 rounded-full ${cfg.dotBg}`} />
-          <span className={`font-body text-[10px] sm:text-[11px] uppercase tracking-[0.15em] font-semibold ${cfg.eyebrowText}`}>
+          <span className="w-1.5 h-1.5 rounded-full bg-border-strong" />
+          <span className="font-body text-[10px] sm:text-[11px] uppercase tracking-[0.15em] font-semibold text-text-muted">
             {eyebrow}
           </span>
         </div>
@@ -157,7 +118,7 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
       {/* Row 1 — Area + Bar */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Revenue AreaChart */}
-        <ChartCard accent="emerald" eyebrow="Chiffre d'affaires" title="Revenus sur 6 mois">
+        <ChartCard eyebrow="Chiffre d'affaires" title="Revenus sur 6 mois">
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={monthlyData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
               <defs>
@@ -194,7 +155,7 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
         </ChartCard>
 
         {/* Orders BarChart */}
-        <ChartCard accent="sky" eyebrow="Volume" title="Commandes sur 6 mois">
+        <ChartCard eyebrow="Volume" title="Commandes sur 6 mois">
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={monthlyData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
@@ -220,7 +181,7 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
       {/* Row 2 — Pie + Top products */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Status PieChart */}
-        <ChartCard accent="amber" eyebrow="Répartition" title="Distribution des statuts">
+        <ChartCard eyebrow="Répartition" title="Distribution des statuts">
           {statusData.length === 0 ? (
             <div className="flex items-center justify-center h-[220px] text-sm text-text-muted font-body">
               Aucune commande
@@ -268,7 +229,7 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
         </ChartCard>
 
         {/* Top 5 products — horizontal bars */}
-        <ChartCard accent="violet" eyebrow="Best-sellers" title="Top 5 produits commandés">
+        <ChartCard eyebrow="Best-sellers" title="Top 5 produits commandés">
           {topProducts.length === 0 ? (
             <div className="flex items-center justify-center h-[180px] text-sm text-text-muted font-body">
               Aucune donnée

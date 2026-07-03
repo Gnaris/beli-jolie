@@ -11,6 +11,19 @@ export type AdminProductsRefreshValue =
   | "modifiedAsc";
 
 /**
+ * Valeurs possibles pour le paramètre URL `sort` — tri explicite du tableau
+ * admin des produits, indépendant du filtre `refresh`. Vide/absent = défaut
+ * (`createdAt` desc). `sort` prend la priorité sur les valeurs de tri héritées
+ * de `refresh` (`dateDesc/Asc`, `modifiedDesc/Asc`) quand les deux sont posés.
+ */
+export type AdminProductsSortValue =
+  | ""
+  | "createdDesc"
+  | "createdAsc"
+  | "modifiedDesc"
+  | "modifiedAsc";
+
+/**
  * Valeurs possibles pour les filtres "Dernier export marketplace" — un filtre
  * par marketplace (PFS, eFashion, Microstore, Ankorstore). On expose volontairement
  * une grille à 5 paliers (jamais → > 90j) plutôt qu'un date-picker : la cliente
@@ -439,14 +452,26 @@ export async function findProductIdsWithMissingVariantImages(
  * Build the Prisma `orderBy` for the admin products list.
  *
  * Default: most recently created first.
- * `dateDesc` / `dateAsc` sort by `lastRefreshedAt`, with never-refreshed
- * products always at the end (nulls last) and `createdAt` as tie-breaker.
- * `modifiedDesc` / `modifiedAsc` sort by `updatedAt` (auto-incremented by
- * Prisma at every `product.update`, including UI "Enregistrer les modifications").
+ * `sort` (paramètre URL dédié) prend la priorité s'il vaut une des 4 options
+ * de tri exposées à l'admin :
+ *   - `createdDesc` / `createdAsc` : tri explicite par `createdAt`
+ *   - `modifiedDesc` / `modifiedAsc` : tri par `updatedAt`
+ *
+ * Sinon on retombe sur le comportement historique via `refresh` :
+ * - `dateDesc` / `dateAsc` : `lastRefreshedAt`, `nulls: "last"`, `createdAt` en tie-breaker
+ * - `modifiedDesc` / `modifiedAsc` : `updatedAt`
+ * - toute autre valeur (`""`, `"never"`, `"recent"`, `"refreshed"`) : `createdAt` desc
  */
 export function buildAdminProductsOrderBy(
   refresh?: string,
+  sort?: string,
 ): Prisma.ProductOrderByWithRelationInput[] {
+  // `sort` a la priorité — 4 valeurs reconnues, autres = ignoré (fallback refresh).
+  if (sort === "createdDesc") return [{ createdAt: "desc" }];
+  if (sort === "createdAsc")  return [{ createdAt: "asc" }];
+  if (sort === "modifiedDesc") return [{ updatedAt: "desc" }];
+  if (sort === "modifiedAsc")  return [{ updatedAt: "asc" }];
+
   if (refresh === "dateDesc") {
     return [
       { lastRefreshedAt: { sort: "desc", nulls: "last" } },

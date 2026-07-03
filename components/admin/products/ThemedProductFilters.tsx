@@ -25,7 +25,21 @@ interface Props {
   hasFaireConfig: boolean;
 }
 
-type ThemeKey = "catalogue" | "price" | "status" | "marketplaces" | "more";
+type ThemeKey = "catalogue" | "price" | "status" | "marketplaces" | "sort" | "more";
+
+/**
+ * Options exposées dans le popover « Trier ». La valeur "" équivaut au tri
+ * par défaut (créé le plus récent d'abord) et efface le param URL `sort`.
+ * Les 4 autres valeurs sont interprétées par `buildAdminProductsOrderBy`.
+ */
+const SORT_OPTS = [
+  { v: "",             label: "Créé — Plus récent d'abord (défaut)" },
+  { v: "createdAsc",   label: "Créé — Plus ancien d'abord" },
+  { v: "modifiedDesc", label: "Modifié — Plus récent d'abord" },
+  { v: "modifiedAsc",  label: "Modifié — Plus ancien d'abord" },
+];
+
+const SORT_VALUES = new Set(SORT_OPTS.map((o) => o.v).filter((v) => v !== ""));
 
 const EXPORT_OPTS = [
   { v: "", label: "Tous" },
@@ -298,6 +312,30 @@ export default function ThemedProductFilters({
       );
     }
 
+    if (theme === "sort") {
+      const raw = searchParams.get("sort") ?? "";
+      const v = SORT_VALUES.has(raw) ? raw : "";
+      return (
+        <div className="flex flex-col gap-3">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">
+              Trier les produits par
+            </div>
+            <CustomSelect
+              value={v}
+              onChange={(val) => setParam({ sort: val })}
+              options={SORT_OPTS.map((o) => ({ value: o.v, label: o.label }))}
+              size="sm"
+            />
+            <div className="text-[10px] text-text-muted mt-1.5 leading-relaxed">
+              « Créé » = date de création du produit. « Modifié » = dernière
+              modification (édition de la fiche).
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // theme === "more" (renommé « Dates »)
     const dateFrom = searchParams.get("dateFrom") ?? "";
     const dateTo = searchParams.get("dateTo") ?? "";
@@ -373,6 +411,10 @@ export default function ThemedProductFilters({
     } else if (theme === "marketplaces") {
       ["pfsLink", "ankorsLink", "efashionLink", "faireLink",
        "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt"].forEach((k) => has(k) && n++);
+    } else if (theme === "sort") {
+      // Actif seulement si `sort` porte une valeur reconnue.
+      const raw = searchParams.get("sort") ?? "";
+      if (SORT_VALUES.has(raw)) n++;
     } else if (theme === "more") {
       ["dateFrom", "dateTo", "updatedFrom", "updatedTo"].forEach((k) => has(k) && n++);
     }
@@ -384,6 +426,7 @@ export default function ThemedProductFilters({
     { key: "price", emoji: "💶", label: "Prix & stock" },
     { key: "status", emoji: "⚡", label: "État" },
     { key: "marketplaces", emoji: "🛒", label: "Marketplaces" },
+    { key: "sort", emoji: "⇅", label: "Trier" },
     { key: "more", emoji: "📅", label: "Dates" },
   ];
 

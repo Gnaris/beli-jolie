@@ -14,99 +14,55 @@ export const metadata: Metadata = {
   title: "Tableau de bord — Admin",
 };
 
-// ─── Tuile KPI (carte cliquable ou non) ────────────────────────────────────
+// ─── Tuile KPI Ardoise (cliquable ou non) ──────────────────────────────────
 function KpiTile({
-  href, label, value, sub, icon, accent = "neutral", highlight = false,
+  href, label, value, icon, tone,
 }: {
   href?: string;
   label: string;
   value: string;
-  sub?: string;
   icon: React.ReactNode;
-  accent?: "neutral" | "emerald" | "sky" | "amber" | "rose" | "violet";
-  highlight?: boolean;
+  tone?: "warning" | "danger" | null;
 }) {
-  const accentMap = {
-    neutral: {
-      cardBg: "bg-bg-primary",
-      iconBg: "bg-bg-secondary", iconText: "text-text-secondary",
-      border: "border-border", valueText: "text-text-primary",
-      ring: "", glow: "",
-    },
-    emerald: {
-      cardBg: "bg-gradient-to-br from-emerald-50/80 via-bg-primary to-bg-primary",
-      iconBg: "bg-emerald-100 ring-1 ring-emerald-200", iconText: "text-emerald-700",
-      border: "border-emerald-200", valueText: "text-emerald-700",
-      ring: "", glow: "before:bg-emerald-300/40",
-    },
-    sky: {
-      cardBg: highlight
-        ? "bg-gradient-to-br from-sky-100 via-sky-50 to-bg-primary"
-        : "bg-gradient-to-br from-sky-50/80 via-bg-primary to-bg-primary",
-      iconBg: "bg-sky-100 ring-1 ring-sky-200", iconText: "text-sky-700",
-      border: highlight ? "border-sky-300" : "border-sky-200",
-      valueText: "text-sky-700",
-      ring: highlight ? "ring-1 ring-sky-200" : "",
-      glow: "before:bg-sky-300/40",
-    },
-    amber: {
-      cardBg: highlight
-        ? "bg-gradient-to-br from-amber-100 via-amber-50 to-bg-primary"
-        : "bg-gradient-to-br from-amber-50/80 via-bg-primary to-bg-primary",
-      iconBg: "bg-amber-100 ring-1 ring-amber-200", iconText: "text-amber-700",
-      border: highlight ? "border-amber-300" : "border-amber-200",
-      valueText: "text-amber-700",
-      ring: highlight ? "ring-1 ring-amber-200" : "",
-      glow: "before:bg-amber-300/40",
-    },
-    rose: {
-      cardBg: highlight
-        ? "bg-gradient-to-br from-rose-100 via-rose-50 to-bg-primary"
-        : "bg-gradient-to-br from-rose-50/80 via-bg-primary to-bg-primary",
-      iconBg: "bg-rose-100 ring-1 ring-rose-200", iconText: "text-rose-700",
-      border: highlight ? "border-rose-300" : "border-rose-200",
-      valueText: "text-rose-700",
-      ring: highlight ? "ring-1 ring-rose-200" : "",
-      glow: "before:bg-rose-300/40",
-    },
-    violet: {
-      cardBg: "bg-gradient-to-br from-violet-50/80 via-bg-primary to-bg-primary",
-      iconBg: "bg-violet-100 ring-1 ring-violet-200", iconText: "text-violet-700",
-      border: "border-violet-200", valueText: "text-violet-700",
-      ring: "", glow: "before:bg-violet-300/40",
-    },
-  }[accent];
+  const toneChip = {
+    warning: { dot: "bg-amber-500", text: "text-amber-700", label: "Action requise" },
+    danger:  { dot: "bg-rose-500",  text: "text-rose-700",  label: "À réapprovisionner" },
+  };
+  const chip = tone ? toneChip[tone] : null;
 
-  const base = `relative overflow-hidden border ${accentMap.border} ${accentMap.ring} ${accentMap.cardBg} rounded-2xl p-4 sm:p-5 shadow-sm transition-all`;
-  const interactive = href ? "hover:shadow-md hover:-translate-y-0.5 cursor-pointer" : "";
-  // halo top-right
-  const haloBefore = `before:content-[''] before:absolute before:-top-12 before:-right-12 before:w-32 before:h-32 before:rounded-full before:blur-3xl ${accentMap.glow}`;
+  const base = "group relative overflow-hidden rounded-2xl border border-border bg-bg-primary shadow-sm transition-all";
+  const interactive = href ? "hover:shadow-card-md hover:-translate-y-0.5 cursor-pointer" : "";
 
   const inner = (
-    <>
-      <div className="relative flex items-center justify-between mb-3 sm:mb-4">
-        <span className={`inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl ${accentMap.iconBg} ${accentMap.iconText}`}>
+    <div className="p-5">
+      <div className="flex items-center justify-between mb-4">
+        <span className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-bg-tertiary text-text-primary">
           {icon}
         </span>
         {href && (
-          <span className={`${accentMap.iconText} opacity-50 group-hover:opacity-100 transition-opacity`}>
+          <span className="text-text-muted opacity-40 group-hover:opacity-100 transition-opacity">
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M7 17L17 7M10 7h7v7" /></svg>
           </span>
         )}
       </div>
-      <p className={`relative font-heading text-2xl sm:text-3xl font-bold tabular-nums leading-none ${accentMap.valueText}`}>
+      <p className="font-heading text-2xl sm:text-3xl font-bold tabular-nums leading-none text-text-primary">
         {value}
       </p>
-      <p className="relative text-xs sm:text-sm font-body text-text-secondary mt-1.5 sm:mt-2">{label}</p>
-      {sub && <p className="relative text-[11px] font-body text-text-muted mt-0.5">{sub}</p>}
-    </>
+      <p className="text-sm font-body text-text-secondary mt-1.5">{label}</p>
+      {chip && (
+        <p className="text-[11px] font-body mt-1 flex items-center gap-1.5">
+          <span className={`w-1.5 h-1.5 rounded-full ${chip.dot} animate-pulse`} />
+          <span className={`font-medium ${chip.text}`}>{chip.label}</span>
+        </p>
+      )}
+    </div>
   );
 
-  if (href) return <Link href={href} className={`group ${base} ${interactive} ${haloBefore} block`}>{inner}</Link>;
-  return <div className={`${base} ${haloBefore}`}>{inner}</div>;
+  if (href) return <Link href={href} className={`${base} ${interactive} block`}>{inner}</Link>;
+  return <div className={base}>{inner}</div>;
 }
 
-// ─── Tuile alerte (pill cliquable dans le hero) ────────────────────────────
+// ─── Pill d'alerte dans le hero ────────────────────────────────────────────
 function AlertPill({ href, count, label, tone }: { href: string; count: number; label: string; tone: "amber" | "rose" }) {
   const toneMap = {
     amber: "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100",
@@ -125,51 +81,47 @@ function AlertPill({ href, count, label, tone }: { href: string; count: number; 
   );
 }
 
-// ─── Tuile lien rapide brandée ─────────────────────────────────────────────
+// ─── Tuile lien rapide Ardoise ─────────────────────────────────────────────
 function QuickLinkTile({
-  href, label, desc, icon, accent,
+  href, label, desc, icon, dark = false,
 }: {
   href: string;
   label: string;
   desc: string;
   icon: React.ReactNode;
-  accent: { from: string; to: string };
+  dark?: boolean;
 }) {
+  const bg = dark ? "bg-bg-dark text-white border-bg-dark" : "bg-bg-primary text-text-primary border-border";
+  const iconBox = dark ? "bg-white/10 text-white" : "bg-bg-tertiary text-text-primary";
+  const descColor = dark ? "text-white/60" : "text-text-muted";
+  const arrow = dark ? "text-white/50" : "text-text-muted";
+
   return (
     <Link
       href={href}
-      className="group relative overflow-hidden rounded-2xl border border-border bg-bg-primary shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
+      className={`group relative overflow-hidden rounded-2xl border shadow-sm hover:shadow-card-md hover:-translate-y-0.5 transition-all ${bg}`}
     >
-      <div
-        className="absolute inset-x-0 top-0 h-1 transition-all group-hover:h-1.5"
-        style={{ background: `linear-gradient(90deg, ${accent.from}, ${accent.to})` }}
-      />
-      <div className="p-4 sm:p-5 flex flex-col h-full min-h-[112px]">
-        <div className="flex items-center justify-between mb-3">
-          <span
-            className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-white shadow-sm"
-            style={{ background: `linear-gradient(135deg, ${accent.from}, ${accent.to})` }}
-          >
+      <div className="p-5">
+        <div className="flex items-center justify-between mb-4">
+          <span className={`inline-flex items-center justify-center w-11 h-11 rounded-xl ${iconBox}`}>
             {icon}
           </span>
-          <svg className="w-4 h-4 text-text-muted group-hover:text-text-primary transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <svg className={`w-4 h-4 ${arrow} opacity-40 group-hover:opacity-100 transition-opacity`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 12h14M13 5l7 7-7 7" />
           </svg>
         </div>
-        <div className="mt-auto">
-          <p className="font-heading font-semibold text-text-primary text-sm leading-tight">{label}</p>
-          <p className="text-[11px] sm:text-xs text-text-muted mt-1 font-body leading-snug">{desc}</p>
-        </div>
+        <p className="font-heading font-semibold text-sm leading-tight">{label}</p>
+        <p className={`text-xs mt-1 font-body leading-snug ${descColor}`}>{desc}</p>
       </div>
     </Link>
   );
 }
 
-// ─── Header de section avec petite étincelle ───────────────────────────────
+// ─── Header de section ─────────────────────────────────────────────────────
 function SectionHeader({ eyebrow, title }: { eyebrow: string; title?: string }) {
   return (
     <div className="flex items-center gap-2 mb-4">
-      <span className="w-1 h-4 rounded-full bg-bg-dark/40" />
+      <span className="w-1 h-4 rounded-full bg-border-strong" />
       <h2 className="font-heading text-[11px] sm:text-xs uppercase tracking-[0.18em] text-text-secondary font-semibold">
         {eyebrow}
       </h2>
@@ -242,44 +194,22 @@ export default async function AdminDashboardPage() {
   return (
     <div className="space-y-8 sm:space-y-10">
 
-      {/* ════════════════════════ HERO COMMAND CENTER ════════════════════════ */}
-      <div className="relative overflow-hidden rounded-3xl border border-border shadow-sm">
-        {/* Fond aurora : superposition de halos colorés très doux */}
-        <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-white to-sky-50" />
-        <div
-          className="absolute inset-0 opacity-60 pointer-events-none"
-          style={{
-            background: `
-              radial-gradient(circle at 10% 10%, rgba(167, 139, 250, 0.35) 0%, transparent 45%),
-              radial-gradient(circle at 90% 20%, rgba(56, 189, 248, 0.25) 0%, transparent 45%),
-              radial-gradient(circle at 80% 100%, rgba(251, 191, 36, 0.18) 0%, transparent 45%),
-              radial-gradient(circle at 0% 100%, rgba(52, 211, 153, 0.18) 0%, transparent 45%)
-            `,
-          }}
-        />
-        {/* Texture pointillée fine au-dessus */}
-        <div className="absolute inset-0 opacity-[0.04] pointer-events-none" style={{
-          backgroundImage: "radial-gradient(circle at 1px 1px, #1A1A1A 1px, transparent 0)",
-          backgroundSize: "18px 18px",
-        }} />
+      {/* ════════════════════════ HERO ARDOISE ════════════════════════ */}
+      <div className="relative overflow-hidden rounded-3xl border border-border bg-bg-primary shadow-sm">
+        {/* Voile subtil : du gris très clair vers blanc, plus d'aurora */}
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-bg-secondary to-bg-primary" />
 
         <div className="relative p-5 sm:p-7 md:p-9">
           <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2 mb-3 flex-wrap">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-bg-dark text-white shadow-sm">
-                  <svg className="w-3 h-3 text-amber-300" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2z" />
-                  </svg>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-bg-tertiary border border-border text-text-secondary">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   <span className="font-body text-[10px] sm:text-[11px] uppercase tracking-[0.18em] font-semibold">
                     Cockpit administrateur
                   </span>
                 </span>
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/70 backdrop-blur-sm border border-white/50 text-text-secondary">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="font-body text-[10px] sm:text-[11px] uppercase tracking-wider font-medium">En ligne</span>
-                </span>
-                <span className="hidden sm:inline-flex font-body text-xs text-text-secondary truncate">
+                <span className="hidden sm:inline-flex font-body text-xs text-text-muted truncate">
                   · {todayFormatted}
                 </span>
               </div>
@@ -317,14 +247,13 @@ export default async function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* ════════════════════════ KPIs DU JOUR (bento) ════════════════════════ */}
+      {/* ════════════════════════ KPIs DU JOUR ════════════════════════ */}
       <section>
         <SectionHeader eyebrow="Aujourd'hui" title="indicateurs clés" />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <KpiTile
             label="Revenu du jour"
             value={fmtEur(revenueToday)}
-            accent="emerald"
             icon={
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
@@ -335,8 +264,7 @@ export default async function AdminDashboardPage() {
             href="/admin/commandes?status=PENDING"
             label="Commandes à traiter"
             value={pendingOrders.toString()}
-            accent="sky"
-            highlight={pendingOrders > 0}
+            tone={pendingOrders > 0 ? "warning" : null}
             icon={
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
@@ -349,8 +277,7 @@ export default async function AdminDashboardPage() {
             href="/admin/utilisateurs?status=PENDING"
             label="Clients à examiner"
             value={pendingCount.toString()}
-            accent="amber"
-            highlight={pendingCount > 0}
+            tone={pendingCount > 0 ? "warning" : null}
             icon={
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2" />
@@ -363,8 +290,7 @@ export default async function AdminDashboardPage() {
             href="/admin/produits?stock=low"
             label="Stock bas"
             value={lowStockCount.toString()}
-            accent="rose"
-            highlight={lowStockCount > 0}
+            tone={lowStockCount > 0 ? "danger" : null}
             icon={
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
@@ -389,7 +315,6 @@ export default async function AdminDashboardPage() {
           <KpiTile
             label="Revenu total"
             value={fmtEur(totalRevenue)}
-            accent="emerald"
             icon={
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 3v18h18" />
@@ -400,7 +325,6 @@ export default async function AdminDashboardPage() {
           <KpiTile
             label="Commandes au total"
             value={totalOrders.toString()}
-            accent="sky"
             icon={
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
@@ -412,7 +336,6 @@ export default async function AdminDashboardPage() {
           <KpiTile
             label="Clients actifs"
             value={approvedCount.toString()}
-            accent="violet"
             icon={
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
@@ -448,8 +371,8 @@ export default async function AdminDashboardPage() {
 
         {latestPending.length === 0 ? (
           <div className="rounded-2xl border border-border bg-bg-primary p-8 sm:p-10 text-center shadow-sm">
-            <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-3">
-              <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 rounded-full bg-bg-tertiary flex items-center justify-center mx-auto mb-3">
+              <svg className="w-6 h-6 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
@@ -463,10 +386,10 @@ export default async function AdminDashboardPage() {
                 <Link
                   key={user.id}
                   href={`/admin/utilisateurs/${user.id}`}
-                  className="block bg-bg-primary border border-border rounded-2xl p-4 shadow-sm hover:shadow-md transition-all"
+                  className="block bg-bg-primary border border-border rounded-2xl p-4 shadow-sm hover:shadow-card-md transition-all"
                 >
                   <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-100 to-amber-200 text-amber-700 flex items-center justify-center font-heading font-semibold text-sm shrink-0">
+                    <div className="w-10 h-10 rounded-full bg-bg-tertiary text-text-primary flex items-center justify-center font-heading font-semibold text-sm shrink-0">
                       {initialsOf(user.firstName, user.lastName)}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -491,11 +414,11 @@ export default async function AdminDashboardPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border bg-bg-secondary/60">
-                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-secondary uppercase tracking-wider">Société</th>
-                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-secondary uppercase tracking-wider">Contact</th>
-                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap">Email</th>
-                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap">SIRET</th>
-                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap">Date</th>
+                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-muted uppercase tracking-wider">Société</th>
+                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-muted uppercase tracking-wider">Contact</th>
+                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-muted uppercase tracking-wider whitespace-nowrap">Email</th>
+                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-muted uppercase tracking-wider whitespace-nowrap">SIRET</th>
+                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-muted uppercase tracking-wider whitespace-nowrap">Date</th>
                       <th className="px-5 py-3" />
                     </tr>
                   </thead>
@@ -504,7 +427,7 @@ export default async function AdminDashboardPage() {
                       <tr key={user.id} className="border-b border-border-light last:border-0 hover:bg-bg-secondary/50 transition-colors">
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-100 to-amber-200 text-amber-700 flex items-center justify-center font-heading font-semibold text-xs shrink-0">
+                            <div className="w-9 h-9 rounded-full bg-bg-tertiary text-text-primary flex items-center justify-center font-heading font-semibold text-xs shrink-0">
                               {initialsOf(user.firstName, user.lastName)}
                             </div>
                             <p className="font-body font-semibold text-text-primary text-sm">{user.company}</p>
@@ -545,35 +468,31 @@ export default async function AdminDashboardPage() {
             href="/admin/utilisateurs"
             label="Clients"
             desc="Voir et valider les comptes"
-            accent={{ from: "#7C3AED", to: "#A855F7" }}
             icon={<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" /></svg>}
           />
           <QuickLinkTile
             href="/admin/produits"
             label="Produits"
-            desc="Catalogue, photos, sync"
-            accent={{ from: "#0E7C66", to: "#1AB58A" }}
+            desc="Catalogue, photos, synchro"
             icon={<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" /><path d="M3.27 6.96L12 12.01l8.73-5.05" /><path d="M12 22.08V12" /></svg>}
           />
           <QuickLinkTile
             href="/admin/commandes"
             label="Commandes"
             desc="Suivre et expédier"
-            accent={{ from: "#1E40AF", to: "#3B82F6" }}
             icon={<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 01-8 0" /></svg>}
           />
           <QuickLinkTile
             href="/admin/collections"
             label="Collections"
             desc="Organiser les regroupements"
-            accent={{ from: "#B45309", to: "#F59E0B" }}
             icon={<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></svg>}
           />
           <QuickLinkTile
             href="/"
             label="Voir le site"
             desc="Vue visiteur en boutique"
-            accent={{ from: "#1A1A1A", to: "#4B5563" }}
+            dark
             icon={<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>}
           />
         </div>

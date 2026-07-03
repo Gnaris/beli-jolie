@@ -75,9 +75,13 @@ model User {
   discountMinAmount     Decimal?            @db.Decimal(12, 2) // seuil HT pour mode THRESHOLD
   discountMinQuantity   Int? // nombre min d'articles pour mode THRESHOLD
   discountNextOrderUsed Boolean             @default(false) // true = remise NEXT_ORDER déjà utilisée
-  freeShipping          Boolean             @default(false) // legacy — remplacé par shippingDiscount*
-  shippingDiscountType  ClientDiscountType? // PERCENT ou AMOUNT, null = pas de remise livraison
-  shippingDiscountValue Decimal?            @db.Decimal(12, 2) // valeur %, montant €
+  freeShipping                   Boolean             @default(false) // legacy — remplacé par shippingDiscount*
+  shippingDiscountType           ClientDiscountType? // PERCENT ou AMOUNT, null = pas de remise livraison
+  shippingDiscountValue          Decimal?            @db.Decimal(12, 2) // valeur %, montant €
+  shippingDiscountMode           ClientDiscountMode? // null = PERMANENT (rétro-compat)
+  shippingDiscountMinAmount      Decimal?            @db.Decimal(12, 2) // seuil HT pour mode THRESHOLD
+  shippingDiscountMinQuantity    Int? // nombre min d'articles pour mode THRESHOLD
+  shippingDiscountNextOrderUsed  Boolean             @default(false) // true = remise NEXT_ORDER déjà utilisée
   lastLoginAt           DateTime?
   lastSeenAt            DateTime? // Heartbeat: dernier ping reçu pendant que le client est sur le site
   createdAt             DateTime            @default(now())

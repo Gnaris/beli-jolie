@@ -179,7 +179,7 @@ function countActiveFilters(p: Record<string, string | undefined>): number {
   const keys = [
     "q", "exactRef", "cat", "subCat", "tag", "composition", "hsCodeId",
     "minPrice", "maxPrice", "dateFrom", "dateTo", "updatedFrom", "updatedTo", "stockBelow",
-    "bestSeller", "refresh", "locked", "syncRequired", "missingImages",
+    "bestSeller", "refresh", "sort", "locked", "syncRequired", "missingImages",
     "pfsLink", "ankorsLink", "efashionLink", "faireLink",
     "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "microstoreExportedAt",
   ];
@@ -204,6 +204,7 @@ interface PageProps {
     composition?: string;
     bestSeller?: string;
     refresh?: string;
+    sort?: string;
     status?: string;
     minPrice?: string;
     maxPrice?: string;
@@ -303,6 +304,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     composition = "",
     bestSeller = "",
     refresh = "",
+    sort = "",
     status: statusFilter = "",
     minPrice: minPriceParam = "",
     maxPrice: maxPriceParam = "",
@@ -395,7 +397,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   ] = await Promise.all([
     prisma.product.findMany({
       where,
-      orderBy: buildAdminProductsOrderBy(refresh),
+      orderBy: buildAdminProductsOrderBy(refresh, sort),
       skip:    (currentPage - 1) * perPage,
       take:    perPage,
       include: {

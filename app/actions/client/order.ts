@@ -140,7 +140,9 @@ export async function placeOrder(
         email: true, phone: true, siret: true, vatNumber: true,
         vatExempt: true, addressCountry: true,
         discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true,
-        freeShipping: true, shippingDiscountType: true, shippingDiscountValue: true,
+        freeShipping: true,
+        shippingDiscountType: true, shippingDiscountValue: true, shippingDiscountMode: true,
+        shippingDiscountMinAmount: true, shippingDiscountMinQuantity: true,
       },
     }),
     prisma.cart.findUnique({
@@ -282,11 +284,24 @@ export async function placeOrder(
   // Transporteur privé : le client gère sa propre expédition, frais = 0
   const isPrivateCarrier = input.carrierId === "private_carrier";
 
-  // Remise livraison : shipping discount (% ou montant), freeShipping = legacy fallback
+  // Remise livraison : respecte le mode (PERMANENT / THRESHOLD / NEXT_ORDER)
+  const shippingDiscountMode = user.shippingDiscountMode ?? "PERMANENT";
+  const shippingDiscountApplies = (() => {
+    if (!user.shippingDiscountType || user.shippingDiscountValue == null) return false;
+    if (shippingDiscountMode === "THRESHOLD") {
+      const minAmount = user.shippingDiscountMinAmount != null ? Number(user.shippingDiscountMinAmount) : 0;
+      const minQty    = user.shippingDiscountMinQuantity ?? 0;
+      const amountOk  = minAmount <= 0 || subtotalHT >= minAmount;
+      const qtyOk     = minQty <= 0 || totalItemQuantity >= minQty;
+      return amountOk && qtyOk;
+    }
+    return true; // PERMANENT et NEXT_ORDER : appliquée si présente
+  })();
+
   const effectiveCarrierPrice = (() => {
     if (isPrivateCarrier) return 0;
     if (clientFreeShipping) return 0;
-    if (user.shippingDiscountType && user.shippingDiscountValue != null) {
+    if (shippingDiscountApplies && user.shippingDiscountType && user.shippingDiscountValue != null) {
       const sdv = Number(user.shippingDiscountValue);
       if (user.shippingDiscountType === "PERCENT") {
         return Math.max(0, input.carrierPrice * (1 - sdv / 100));
@@ -660,7 +675,7 @@ export async function placeOrder(
     logger.error("[placeOrder] Confirmation client error", { error: err })
   );
 
-  // ── 7. Auto-suppression remise NEXT_ORDER ──────────────────────────────
+  // ── 7. Auto-suppression remises NEXT_ORDER ──────────────────────────────
 
   if (clientDiscountMode === "NEXT_ORDER" && discountApplies) {
     await prisma.user.update({
@@ -670,7 +685,22 @@ export async function placeOrder(
         discountValue: null,
         discountMode: null,
         discountMinAmount: null,
+        discountMinQuantity: null,
         discountNextOrderUsed: true,
+      },
+    });
+  }
+
+  if (shippingDiscountMode === "NEXT_ORDER" && shippingDiscountApplies) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        shippingDiscountType: null,
+        shippingDiscountValue: null,
+        shippingDiscountMode: null,
+        shippingDiscountMinAmount: null,
+        shippingDiscountMinQuantity: null,
+        shippingDiscountNextOrderUsed: true,
         freeShipping: false,
       },
     });

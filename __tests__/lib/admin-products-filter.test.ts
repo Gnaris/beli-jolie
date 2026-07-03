@@ -621,4 +621,56 @@ describe("buildAdminProductsOrderBy", () => {
       { updatedAt: "asc" },
     ]);
   });
+
+  // ─── Paramètre `sort` dédié (prioritaire sur les valeurs de tri du `refresh`) ───
+
+  it("sorts by createdAt desc for sort=createdDesc (alias explicite du défaut)", () => {
+    expect(buildAdminProductsOrderBy("", "createdDesc")).toEqual([
+      { createdAt: "desc" },
+    ]);
+  });
+
+  it("sorts by createdAt asc for sort=createdAsc (le plus ancien créé d'abord)", () => {
+    expect(buildAdminProductsOrderBy("", "createdAsc")).toEqual([
+      { createdAt: "asc" },
+    ]);
+  });
+
+  it("sorts by updatedAt desc for sort=modifiedDesc", () => {
+    expect(buildAdminProductsOrderBy("", "modifiedDesc")).toEqual([
+      { updatedAt: "desc" },
+    ]);
+  });
+
+  it("sorts by updatedAt asc for sort=modifiedAsc", () => {
+    expect(buildAdminProductsOrderBy("", "modifiedAsc")).toEqual([
+      { updatedAt: "asc" },
+    ]);
+  });
+
+  it("ignores unknown sort values and falls back to refresh (or default)", () => {
+    expect(buildAdminProductsOrderBy("", "totallyMadeUp")).toEqual([
+      { createdAt: "desc" },
+    ]);
+    // Valeur inconnue de `sort` ne doit pas masquer un tri valide de `refresh`.
+    expect(buildAdminProductsOrderBy("dateDesc", "totallyMadeUp")).toEqual([
+      { lastRefreshedAt: { sort: "desc", nulls: "last" } },
+      { createdAt: "desc" },
+    ]);
+  });
+
+  it("gives sort priority over refresh when both carry a valid sort value", () => {
+    // refresh porte un tri (dateDesc) et sort en porte un autre (createdAsc) :
+    // `sort` gagne.
+    expect(buildAdminProductsOrderBy("dateDesc", "createdAsc")).toEqual([
+      { createdAt: "asc" },
+    ]);
+  });
+
+  it("ignores sort when it is empty (falls back to refresh handling)", () => {
+    // Cas typique : filtre `refresh=recent` + pas de tri explicite → défaut.
+    expect(buildAdminProductsOrderBy("recent", "")).toEqual([
+      { createdAt: "desc" },
+    ]);
+  });
 });

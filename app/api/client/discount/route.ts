@@ -12,7 +12,9 @@ export async function GET() {
     select: {
       discountType: true, discountValue: true, discountMode: true,
       discountMinAmount: true, discountMinQuantity: true,
-      freeShipping: true, shippingDiscountType: true, shippingDiscountValue: true,
+      freeShipping: true,
+      shippingDiscountType: true, shippingDiscountValue: true, shippingDiscountMode: true,
+      shippingDiscountMinAmount: true, shippingDiscountMinQuantity: true,
     },
   });
 
@@ -35,6 +37,9 @@ export async function GET() {
       freeShipping: user.freeShipping,
       shippingDiscountType: user.shippingDiscountType,
       shippingDiscountValue: user.shippingDiscountValue != null ? Number(user.shippingDiscountValue) : null,
+      shippingDiscountMode: user.shippingDiscountMode ?? "PERMANENT",
+      shippingDiscountMinAmount: user.shippingDiscountMinAmount != null ? Number(user.shippingDiscountMinAmount) : null,
+      shippingDiscountMinQuantity: user.shippingDiscountMinQuantity,
     },
   });
 }

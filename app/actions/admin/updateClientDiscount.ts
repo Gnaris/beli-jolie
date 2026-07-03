@@ -12,8 +12,11 @@ export interface UpdateClientDiscountInput {
   discountMode:         ClientDiscountMode | null;
   discountMinAmount:    number | null;
   discountMinQuantity:  number | null;
-  shippingDiscountType:  ClientDiscountType | null;
-  shippingDiscountValue: number | null;
+  shippingDiscountType:      ClientDiscountType | null;
+  shippingDiscountValue:     number | null;
+  shippingDiscountMode:      ClientDiscountMode | null;
+  shippingDiscountMinAmount: number | null;
+  shippingDiscountMinQuantity: number | null;
   freeShipping:         boolean;
 }
 
@@ -34,9 +37,9 @@ export async function updateClientDiscount(
   if (!user) return { success: false, error: "Utilisateur introuvable." };
   if (user.role === "ADMIN") return { success: false, error: "Impossible de modifier un administrateur." };
 
-  // Validation — product discount
-  if (input.discountType && (input.discountValue == null)) {
-    return { success: false, error: "Valeur de remise manquante." };
+  // ── Validation — remise produits ────────────────────────────────────────
+  if (input.discountType && input.discountValue == null) {
+    return { success: false, error: "Valeur de remise produit manquante." };
   }
   if (input.discountType === "PERCENT" && input.discountValue != null) {
     if (input.discountValue <= 0 || input.discountValue > 100) {
@@ -48,16 +51,16 @@ export async function updateClientDiscount(
       return { success: false, error: "La remise en € doit être supérieure à 0." };
     }
   }
-  if (input.discountMode === "THRESHOLD") {
+  if (input.discountType && input.discountMode === "THRESHOLD") {
     const hasAmount = input.discountMinAmount != null && input.discountMinAmount > 0;
-    const hasQty = input.discountMinQuantity != null && input.discountMinQuantity > 0;
+    const hasQty    = input.discountMinQuantity != null && input.discountMinQuantity > 0;
     if (!hasAmount && !hasQty) {
-      return { success: false, error: "Il faut définir au moins un montant minimum ou un nombre minimum d'articles." };
+      return { success: false, error: "Remise produit : définir un montant ou une quantité minimum." };
     }
   }
 
-  // Validation — shipping discount
-  if (input.shippingDiscountType && (input.shippingDiscountValue == null)) {
+  // ── Validation — remise livraison ───────────────────────────────────────
+  if (input.shippingDiscountType && input.shippingDiscountValue == null) {
     return { success: false, error: "Valeur de remise livraison manquante." };
   }
   if (input.shippingDiscountType === "PERCENT" && input.shippingDiscountValue != null) {
@@ -70,21 +73,36 @@ export async function updateClientDiscount(
       return { success: false, error: "La remise livraison en € doit être supérieure à 0." };
     }
   }
+  if (input.shippingDiscountType && input.shippingDiscountMode === "THRESHOLD") {
+    const hasAmount = input.shippingDiscountMinAmount != null && input.shippingDiscountMinAmount > 0;
+    const hasQty    = input.shippingDiscountMinQuantity != null && input.shippingDiscountMinQuantity > 0;
+    if (!hasAmount && !hasQty) {
+      return { success: false, error: "Remise livraison : définir un montant ou une quantité minimum." };
+    }
+  }
 
-  const hasDiscount = !!input.discountType;
+  const hasDiscount     = !!input.discountType;
+  const hasShipDiscount = !!input.shippingDiscountType;
 
   await prisma.user.update({
     where: { id: userId },
     data: {
+      // Remise produits
       discountType:          hasDiscount ? input.discountType : null,
       discountValue:         hasDiscount ? input.discountValue : null,
       discountMode:          hasDiscount ? (input.discountMode ?? "PERMANENT") : null,
-      discountMinAmount:     hasDiscount && input.discountMode === "THRESHOLD" ? (input.discountMinAmount ?? null) : null,
-      discountMinQuantity:   hasDiscount && input.discountMode === "THRESHOLD" ? (input.discountMinQuantity ?? null) : null,
-      discountNextOrderUsed: hasDiscount && input.discountMode === "NEXT_ORDER" ? false : false,
-      freeShipping:          input.freeShipping,
-      shippingDiscountType:  input.shippingDiscountType ?? null,
-      shippingDiscountValue: input.shippingDiscountType ? (input.shippingDiscountValue ?? null) : null,
+      discountMinAmount:     hasDiscount && input.discountMode === "THRESHOLD" ? input.discountMinAmount : null,
+      discountMinQuantity:   hasDiscount && input.discountMode === "THRESHOLD" ? input.discountMinQuantity : null,
+      discountNextOrderUsed: false,
+
+      // Remise livraison
+      freeShipping:                  input.freeShipping,
+      shippingDiscountType:          hasShipDiscount ? input.shippingDiscountType : null,
+      shippingDiscountValue:         hasShipDiscount ? input.shippingDiscountValue : null,
+      shippingDiscountMode:          hasShipDiscount ? (input.shippingDiscountMode ?? "PERMANENT") : null,
+      shippingDiscountMinAmount:     hasShipDiscount && input.shippingDiscountMode === "THRESHOLD" ? input.shippingDiscountMinAmount : null,
+      shippingDiscountMinQuantity:   hasShipDiscount && input.shippingDiscountMode === "THRESHOLD" ? input.shippingDiscountMinQuantity : null,
+      shippingDiscountNextOrderUsed: false,
     },
   });
 

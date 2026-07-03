@@ -61,7 +61,13 @@ export async function POST(req: Request) {
     prisma.shippingAddress.findFirst({ where: { id: addressId, userId } }),
     prisma.user.findUnique({
       where: { id: userId },
-      select: { company: true, email: true, vatExempt: true, discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true, freeShipping: true, shippingDiscountType: true, shippingDiscountValue: true },
+      select: {
+        company: true, email: true, vatExempt: true,
+        discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true,
+        freeShipping: true,
+        shippingDiscountType: true, shippingDiscountValue: true, shippingDiscountMode: true,
+        shippingDiscountMinAmount: true, shippingDiscountMinQuantity: true,
+      },
     }),
   ]);
 
@@ -108,6 +114,13 @@ export async function POST(req: Request) {
   const effectiveCarrierPrice = (() => {
     if (user?.freeShipping) return 0;
     if (user?.shippingDiscountType && user.shippingDiscountValue != null) {
+      // Respecter le mode livraison (PERMANENT / THRESHOLD / NEXT_ORDER)
+      const shipMode = user.shippingDiscountMode ?? "PERMANENT";
+      if (shipMode === "THRESHOLD") {
+        const minAmount = user.shippingDiscountMinAmount != null ? Number(user.shippingDiscountMinAmount) : 0;
+        const minQty    = user.shippingDiscountMinQuantity ?? 0;
+        if ((minAmount > 0 && subtotalHT < minAmount) || (minQty > 0 && totalItemQuantity < minQty)) return carrierPrice;
+      }
       const sdv = Number(user.shippingDiscountValue);
       if (user.shippingDiscountType === "PERCENT") return Math.max(0, carrierPrice * (1 - sdv / 100));
       return Math.max(0, carrierPrice - sdv);
