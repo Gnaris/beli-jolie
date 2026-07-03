@@ -80,4 +80,52 @@ describe("buildFaireVariantSkus", () => {
     const single = buildSingleFaireSku("BJ001", variant, 0);
     expect(single).toBe(batch);
   });
+
+  it("inclut la taille dans le SKU quand sizeName est fourni", () => {
+    // Cas H30 : plusieurs tailles pour une même couleur → chaque combo (color, size)
+    // doit avoir un SKU unique côté Faire.
+    const variants = [
+      {
+        id: "vAAAA1234",
+        saleType: "UNIT" as const,
+        color: { id: "c1", name: "Argent" },
+        sizeName: "52",
+      },
+      {
+        id: "vBBBB5678",
+        saleType: "UNIT" as const,
+        color: { id: "c1", name: "Argent" },
+        sizeName: "53",
+      },
+    ];
+    const map = buildFaireVariantSkus("H30", variants);
+    expect(map.get("vAAAA1234")).toBe("h30_argent_52_UNIT_AAAA1234");
+    expect(map.get("vBBBB5678")).toBe("h30_argent_53_UNIT_BBBB5678");
+  });
+
+  it("garde l'ancien format (sans taille) quand sizeName est absent", () => {
+    // Rétro-compat : les 1051 produits Faire déjà en ligne n'ont pas d'axe Size.
+    // Leur SKU doit rester identique pour ne pas créer de faux diff.
+    const variants = [
+      { id: "vCCCC1111", saleType: "UNIT" as const, color: { id: "c1", name: "Or" } },
+    ];
+    const sku = buildFaireVariantSkus("BJ001", variants).get("vCCCC1111")!;
+    expect(sku).toBe("bj001_or_UNIT_CCCC1111");
+  });
+
+  it("slugifie et rogne la taille si nécessaire pour respecter MAX_FAIRE_SKU_LENGTH", () => {
+    const variants = [
+      {
+        id: "vDDDD2222",
+        saleType: "UNIT" as const,
+        color: { id: "c1", name: "Argent" },
+        sizeName: "Extra Grande Taille Spéciale",
+      },
+    ];
+    const sku = buildFaireVariantSkus("BJ001", variants).get("vDDDD2222")!;
+    expect(sku.length).toBeLessThanOrEqual(MAX_FAIRE_SKU_LENGTH);
+    // Slugification : espaces → -, accents retirés, minuscules.
+    expect(sku).toMatch(/_extra-grande/);
+    expect(sku.endsWith("_UNIT_DDDD2222")).toBe(true);
+  });
 });

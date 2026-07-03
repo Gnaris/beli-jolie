@@ -302,6 +302,69 @@ export interface FaireVariantPayload {
   };
 }
 
+/**
+ * Décide si le produit doit exposer un axe `Size` en plus de `Color` côté Faire.
+ *
+ * Règle : uniquement si les variantes UNIT couvrent au moins DEUX tailles
+ * distinctes. Sinon on garde 1 seul axe Color (comportement historique).
+ *
+ * Pourquoi ce seuil : les 1051 produits déjà en ligne sur Faire ont tous
+ * « Taille unique » comme unique valeur de taille. Ne pas activer l'axe Size
+ * pour eux garantit que leur SKU et leur schéma d'options restent inchangés
+ * au prochain resync — pas de faux diff, pas de recréation de variantes côté
+ * Faire. Le déclenchement se fait naturellement pour les 42 produits bloqués
+ * (bagues H30, H32, etc.) qui ont plusieurs tailles réelles.
+ */
+function shouldExposeSizeAxis(product: FullProduct): boolean {
+  const sizes = new Set<string>();
+  for (const c of product.colors) {
+    if (c.saleType !== "UNIT") continue;
+    for (const s of c.variantSizes) sizes.add(s.size.name);
+  }
+  return sizes.size >= 2;
+}
+
+/**
+ * "Ligne Faire" élémentaire : un couple (variante BJ, taille) qui produira
+ * exactement une entrée dans le tableau `variants[]` envoyé à Faire.
+ *
+ * - Quand l'axe Size est actif : chaque `variantSize` d'une variante BJ UNIT
+ *   génère une ligne. Une variante BJ multi-taille produit N lignes qui
+ *   partagent le même `bjVariantId` (le mapping stock/prix côté Faire pointe
+ *   vers la même variante en BDD).
+ * - Quand l'axe Size est inactif : une seule ligne par variante BJ (avec
+ *   `sizeName = null`), stock = stock global de la variante.
+ */
+interface FaireLine {
+  bjVariant: FullVariant;
+  sizeName: string | null;
+  /** Stock effectif de cette ligne (par taille si axe actif, sinon global). */
+  stockEffective: number;
+}
+
+function buildFaireLines(
+  product: FullProduct,
+  sizeAxis: boolean,
+): FaireLine[] {
+  const lines: FaireLine[] = [];
+  for (const v of product.colors) {
+    if (sizeAxis) {
+      // Une ligne par taille. Si la variante n'a aucune taille alors qu'on
+      // active l'axe (cas mixte hypothétique), on skip — Faire exige que toutes
+      // les variantes aient une valeur pour chaque axe déclaré. En pratique,
+      // shouldExposeSizeAxis ne renvoie true que quand ≥ 2 tailles existent,
+      // donc les variantes sans taille sont marginales.
+      for (const s of v.variantSizes) {
+        const perSize = product.status === "ARCHIVED" ? 0 : s.quantity;
+        lines.push({ bjVariant: v, sizeName: s.size.name, stockEffective: perSize });
+      }
+    } else {
+      lines.push({ bjVariant: v, sizeName: null, stockEffective: effectiveStock(v, product.status) });
+    }
+  }
+  return lines;
+}
+
 export function buildFaireProductPayload(
   product: FullProduct,
   ctx: FairePublishContext,
@@ -317,25 +380,38 @@ export function buildFaireProductPayload(
   productImageUrls: string[];
 } {
   const imagesByColorId = buildImagesByColorId(product.colorImages);
-  const skuByVariantId = buildFaireVariantSkus(
+  const sizeAxis = shouldExposeSizeAxis(product);
+  const lines = buildFaireLines(product, sizeAxis);
+
+  const skuByLine = buildFaireVariantSkus(
     product.reference,
-    product.colors.map((c) => ({
-      id: c.id,
-      saleType: c.saleType,
-      color: c.color,
+    lines.map((l) => ({
+      // Suffixe l'ID BJ avec la taille pour garantir un SKU unique par ligne
+      // quand une même variante BJ est éclatée en N lignes (multi-taille).
+      // Le suffixe entre dans les 8 derniers chars → contribue à l'unicité.
+      id: sizeAxis && l.sizeName
+        ? `${l.bjVariant.id}-${l.sizeName}`
+        : l.bjVariant.id,
+      saleType: l.bjVariant.saleType,
+      color: l.bjVariant.color,
+      sizeName: sizeAxis ? l.sizeName : null,
     })),
   );
 
   const variants: FaireVariantPayload[] = [];
-  const optionValuesSet = new Set<string>();
+  const colorValuesSet = new Set<string>();
+  const sizeValuesSet = new Set<string>();
 
-  for (let i = 0; i < product.colors.length; i++) {
-    const v = product.colors[i];
-    const sku = skuByVariantId.get(v.id) ?? v.id;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const v = line.bjVariant;
+    const lineKey = sizeAxis && line.sizeName ? `${v.id}-${line.sizeName}` : v.id;
+    const sku = skuByLine.get(lineKey) ?? v.id;
     const prices = getFaireVariantPrices(v, wholesaleConfig, retailConfig);
-    const stock = effectiveStock(v, product.status);
+    const stock = line.stockEffective;
     const colorLabel = v.saleType === "PACK" ? packColorLabel(v) : v.color?.name ?? "Couleur";
-    optionValuesSet.add(colorLabel);
+    colorValuesSet.add(colorLabel);
+    if (sizeAxis && line.sizeName) sizeValuesSet.add(line.sizeName);
 
     const imgPaths = imagesByColorId.get(v.colorId ?? "") ?? [];
     // `sequence` (0-indexed) : Faire utilise ce champ pour l'ordre d'affichage
@@ -373,10 +449,22 @@ export function buildFaireProductPayload(
     }
     const measurements = Object.keys(measurementsObj).length > 0 ? measurementsObj : undefined;
 
+    const sizeSuffix = sizeAxis && line.sizeName ? ` — ${line.sizeName}` : "";
     const variantName =
       v.saleType === "PACK" && v.packQuantity
-        ? `${colorLabel} (pack ${v.packQuantity})`
-        : colorLabel;
+        ? `${colorLabel} (pack ${v.packQuantity})${sizeSuffix}`
+        : `${colorLabel}${sizeSuffix}`;
+
+    // Options envoyées à Faire : toujours Color, + Size quand l'axe est actif.
+    // Les 2 axes doivent apparaître dans le même ordre que `variant_option_sets`
+    // — Faire n'y attache pas de sémantique mais rester cohérent facilite la
+    // lecture du portail.
+    const optionsPayload: { name: string; value: string }[] = [
+      { name: "Color", value: colorLabel },
+    ];
+    if (sizeAxis && line.sizeName) {
+      optionsPayload.push({ name: "Size", value: line.sizeName });
+    }
 
     variants.push({
       bjVariantId: v.id,
@@ -389,17 +477,27 @@ export function buildFaireProductPayload(
         // lieu de croire qu'on crée des doublons (« Duplicate variants with
         // same options »). Absent pour les nouvelles variantes → Faire les
         // crée à partir du payload.
-        ...(v.faireVariantId ? { id: v.faireVariantId } : {}),
-        // Token unique par publication : ID variante + salt timestamp (passé
-        // par buildFaireProductPayload). On NE veut PAS d'idempotence stable
-        // entre publications successives — Faire renvoie sinon les vieux
-        // produits DELETED en cache, qui font échouer toute republication.
-        idempotence_token: `bj-var-${v.id}-${idempotenceSalt}`,
+        //
+        // ⚠️ On ne réutilise l'ID Faire QUE quand une seule ligne existe pour
+        // cette variante BJ (`v.faireVariantId` désigne une variante Faire
+        // unique). Dans le cas éclaté multi-taille, plusieurs lignes partagent
+        // le même bjVariantId mais chaque taille est une variante Faire
+        // distincte — on laisse Faire matcher par SKU.
+        ...(v.faireVariantId && !(sizeAxis && line.sizeName)
+          ? { id: v.faireVariantId }
+          : {}),
+        // Token unique par ligne (variante + taille) + salt timestamp. Sans
+        // la taille, deux lignes issues d'une même variante BJ multi-taille
+        // partageraient le même token → Faire rejetterait pour cause de
+        // duplicate idempotence.
+        idempotence_token: line.sizeName
+          ? `bj-var-${v.id}-${line.sizeName}-${idempotenceSalt}`
+          : `bj-var-${v.id}-${idempotenceSalt}`,
         sku,
         name: variantName,
         available_quantity: stock,
         active: stock > 0 || product.status !== "ARCHIVED",
-        options: [{ name: "Color", value: colorLabel }],
+        options: optionsPayload,
         ...(images ? { images } : {}),
         ...(measurements ? { measurements } : {}),
         ...(ctx.tariffCode ? { tariff_code: ctx.tariffCode } : {}),
@@ -503,9 +601,12 @@ export function buildFaireProductPayload(
     // unit_multiplier = 1 obligatoire (>0). Représente la "quantité par carton" :
     // ici on vend à l'unité (pas par carton), donc 1.
     unit_multiplier: 1,
-    variant_option_sets: [
-      { name: "Color", values: Array.from(optionValuesSet) },
-    ],
+    variant_option_sets: sizeAxis
+      ? [
+          { name: "Color", values: Array.from(colorValuesSet) },
+          { name: "Size", values: Array.from(sizeValuesSet) },
+        ]
+      : [{ name: "Color", values: Array.from(colorValuesSet) }],
     variants: variants.map((v) => v.payload),
     ...(productImages.length > 0 ? { images: productImages } : {}),
     // PAS de wholesale_price_cents / retail_price_cents racine : champs
@@ -516,7 +617,7 @@ export function buildFaireProductPayload(
   return {
     body,
     variants,
-    optionValues: Array.from(optionValuesSet),
+    optionValues: Array.from(colorValuesSet),
     productImagesCount: productImages.length,
     /** URLs des images au niveau produit racine — gardées pour le snapshot diff. */
     productImageUrls: productImages.map((i) => i.url),

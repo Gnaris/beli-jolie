@@ -321,3 +321,298 @@ describe("buildFaireProductPayload — galerie racine : couleur principale d'abo
     expect(images?.[4]?.url).toContain("ar-1");
   });
 });
+
+describe("buildFaireProductPayload — axe Size activé quand ≥ 2 tailles distinctes", () => {
+  // Cas H30 : bague ajustable avec 2 couleurs × 4 tailles = 8 variantes UNIT
+  // partageant les mêmes noms de couleur. Avant : Faire refuse HTTP 400
+  // « Duplicate variants with same options ». Solution : exposer un deuxième
+  // axe Size en plus de Color pour que chaque combinaison soit unique.
+  function makeRingProduct() {
+    return makeProduct({
+      reference: "H30",
+      primaryColorId: "c-do",
+      colors: [52, 53, 54, 55].flatMap((s) => [
+        {
+          id: `v-ar-${s}`,
+          unitPrice: 3.2,
+          weight: 0.02,
+          stock: 1000,
+          isPrimary: false,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-ar",
+          color: { id: "c-ar", name: "Argent" },
+          variantSizes: [{ size: { name: String(s) }, quantity: 1 }],
+          packLines: [],
+        },
+        {
+          id: `v-do-${s}`,
+          unitPrice: 3.2,
+          weight: 0.02,
+          stock: 1000,
+          isPrimary: s === 52,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-do",
+          color: { id: "c-do", name: "Doré" },
+          variantSizes: [{ size: { name: String(s) }, quantity: 1 }],
+          packLines: [],
+        },
+      ]),
+      colorImages: [
+        { path: "/uploads/produits/H30/ar-1.webp", order: 0, colorId: "c-ar" },
+        { path: "/uploads/produits/H30/do-1.webp", order: 0, colorId: "c-do" },
+      ],
+    });
+  }
+
+  it("expose 2 axes Color + Size dans variant_option_sets", () => {
+    const { body } = buildFaireProductPayload(
+      makeRingProduct(),
+      ctx,
+      wholesale,
+      retail,
+      "PUBLISHED",
+    );
+    const sets = body.variant_option_sets as { name: string; values: string[] }[];
+    expect(sets).toHaveLength(2);
+    const byName = new Map(sets.map((s) => [s.name, s.values]));
+    expect(byName.get("Color")?.sort()).toEqual(["Argent", "Doré"]);
+    expect(byName.get("Size")?.sort()).toEqual(["52", "53", "54", "55"]);
+  });
+
+  it("émet une variante Faire par combinaison Couleur × Taille (8 pour H30)", () => {
+    const { variants } = buildFaireProductPayload(
+      makeRingProduct(),
+      ctx,
+      wholesale,
+      retail,
+      "PUBLISHED",
+    );
+    expect(variants).toHaveLength(8);
+    const combos = new Set(
+      variants.map((v) => {
+        const color = v.payload.options.find((o) => o.name === "Color")?.value;
+        const size = v.payload.options.find((o) => o.name === "Size")?.value;
+        return `${color}×${size}`;
+      }),
+    );
+    expect(combos.size).toBe(8);
+    expect(combos.has("Argent×52")).toBe(true);
+    expect(combos.has("Argent×55")).toBe(true);
+    expect(combos.has("Doré×52")).toBe(true);
+    expect(combos.has("Doré×55")).toBe(true);
+  });
+
+  it("chaque variante a exactement 2 options (Color + Size) uniques", () => {
+    const { variants } = buildFaireProductPayload(
+      makeRingProduct(),
+      ctx,
+      wholesale,
+      retail,
+      "PUBLISHED",
+    );
+    for (const v of variants) {
+      expect(v.payload.options).toHaveLength(2);
+      const names = v.payload.options.map((o) => o.name).sort();
+      expect(names).toEqual(["Color", "Size"]);
+    }
+  });
+
+  it("SKU intègre la taille et reste unique pour chaque combinaison", () => {
+    const { variants } = buildFaireProductPayload(
+      makeRingProduct(),
+      ctx,
+      wholesale,
+      retail,
+      "PUBLISHED",
+    );
+    const skus = variants.map((v) => v.sku);
+    expect(new Set(skus).size).toBe(skus.length);
+    for (const v of variants) {
+      const size = v.payload.options.find((o) => o.name === "Size")!.value;
+      expect(v.sku).toMatch(new RegExp(`_${size}_UNIT_`));
+    }
+  });
+
+  it("idempotence_token est unique par combinaison (pas juste par variante BJ)", () => {
+    // Sinon Faire répond « Duplicate idempotence_token » quand plusieurs lignes
+    // partagent le même bjVariantId (cas variante multi-taille).
+    const p = makeProduct({
+      colors: [
+        {
+          id: "v-ar-multi",
+          unitPrice: 3.2,
+          weight: 0.02,
+          stock: 100,
+          isPrimary: false,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-ar",
+          color: { id: "c-ar", name: "Argent" },
+          variantSizes: [
+            { size: { name: "52" }, quantity: 10 },
+            { size: { name: "53" }, quantity: 20 },
+          ],
+          packLines: [],
+        },
+        {
+          id: "v-do-mono",
+          unitPrice: 3.2,
+          weight: 0.02,
+          stock: 100,
+          isPrimary: true,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-do",
+          color: { id: "c-do", name: "Doré" },
+          variantSizes: [{ size: { name: "54" }, quantity: 5 }],
+          packLines: [],
+        },
+      ],
+    });
+    const { variants } = buildFaireProductPayload(p, ctx, wholesale, retail, "PUBLISHED");
+    const tokens = variants.map((v) => v.payload.idempotence_token);
+    expect(new Set(tokens).size).toBe(tokens.length);
+  });
+
+  it("stock envoyé à Faire = quantité de cette taille (pas le stock total de la variante BJ)", () => {
+    const p = makeProduct({
+      colors: [
+        {
+          id: "v-ar-multi",
+          unitPrice: 3.2,
+          weight: 0.02,
+          stock: 9999,
+          isPrimary: false,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-ar",
+          color: { id: "c-ar", name: "Argent" },
+          variantSizes: [
+            { size: { name: "52" }, quantity: 42 },
+            { size: { name: "53" }, quantity: 7 },
+          ],
+          packLines: [],
+        },
+        {
+          id: "v-do-mono",
+          unitPrice: 3.2,
+          weight: 0.02,
+          stock: 3,
+          isPrimary: true,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-do",
+          color: { id: "c-do", name: "Doré" },
+          variantSizes: [{ size: { name: "54" }, quantity: 3 }],
+          packLines: [],
+        },
+      ],
+    });
+    const { variants } = buildFaireProductPayload(p, ctx, wholesale, retail, "PUBLISHED");
+    const argent52 = variants.find(
+      (v) =>
+        v.payload.options.some((o) => o.name === "Color" && o.value === "Argent") &&
+        v.payload.options.some((o) => o.name === "Size" && o.value === "52"),
+    );
+    const argent53 = variants.find(
+      (v) =>
+        v.payload.options.some((o) => o.name === "Color" && o.value === "Argent") &&
+        v.payload.options.some((o) => o.name === "Size" && o.value === "53"),
+    );
+    expect(argent52?.payload.available_quantity).toBe(42);
+    expect(argent53?.payload.available_quantity).toBe(7);
+  });
+
+  it("éclate une variante multi-taille en autant de lignes Faire pointant vers la même variante BJ", () => {
+    const p = makeProduct({
+      colors: [
+        {
+          id: "v-ar-multi",
+          unitPrice: 3.2,
+          weight: 0.02,
+          stock: 100,
+          isPrimary: false,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-ar",
+          color: { id: "c-ar", name: "Argent" },
+          variantSizes: [
+            { size: { name: "52" }, quantity: 10 },
+            { size: { name: "53" }, quantity: 20 },
+            { size: { name: "54" }, quantity: 30 },
+          ],
+          packLines: [],
+        },
+        {
+          id: "v-do-multi",
+          unitPrice: 3.2,
+          weight: 0.02,
+          stock: 100,
+          isPrimary: true,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-do",
+          color: { id: "c-do", name: "Doré" },
+          variantSizes: [
+            { size: { name: "52" }, quantity: 5 },
+            { size: { name: "53" }, quantity: 15 },
+          ],
+          packLines: [],
+        },
+      ],
+    });
+    const { variants } = buildFaireProductPayload(p, ctx, wholesale, retail, "PUBLISHED");
+    expect(variants).toHaveLength(5);
+    const argentLines = variants.filter((v) => v.bjVariantId === "v-ar-multi");
+    expect(argentLines).toHaveLength(3);
+    const doreLines = variants.filter((v) => v.bjVariantId === "v-do-multi");
+    expect(doreLines).toHaveLength(2);
+  });
+
+  it("garde 1 seul axe Color quand toutes les variantes partagent la même taille (ex 'Taille unique')", () => {
+    // Sécurité rétro-compat : les 1051 produits déjà sur Faire ont tous
+    // « Taille unique » comme taille — leur SKU et leur schéma d'options
+    // NE DOIVENT PAS bouger, sinon le prochain resync recréerait tout.
+    const p = makeProduct({
+      colors: [
+        {
+          id: "v-or",
+          unitPrice: 10,
+          weight: 0.02,
+          stock: 5,
+          isPrimary: true,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-or",
+          color: { id: "c-or", name: "Or" },
+          variantSizes: [{ size: { name: "Taille unique" }, quantity: 5 }],
+          packLines: [],
+        },
+        {
+          id: "v-ar",
+          unitPrice: 10,
+          weight: 0.02,
+          stock: 3,
+          isPrimary: false,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-ar",
+          color: { id: "c-ar", name: "Argent" },
+          variantSizes: [{ size: { name: "Taille unique" }, quantity: 3 }],
+          packLines: [],
+        },
+      ],
+    });
+    const { body, variants } = buildFaireProductPayload(p, ctx, wholesale, retail, "PUBLISHED");
+    const sets = body.variant_option_sets as { name: string }[];
+    expect(sets).toHaveLength(1);
+    expect(sets[0].name).toBe("Color");
+    expect(variants).toHaveLength(2);
+    // SKU au format historique (sans taille) → pas de faux diff au resync.
+    for (const v of variants) {
+      expect(v.sku).not.toMatch(/_taille/);
+    }
+  });
+});
