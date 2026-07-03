@@ -3137,11 +3137,15 @@ export default function AdminProductsTable({
     }
 
     setBulkMessage(null);
+    // Setter le libellé AVANT startTransition : sinon la mise à jour est
+    // marquée comme « transition » (basse priorité) et React peut la batcher
+    // avec le setBulkActionLabel(null) de fin — le badge/voile ne rendrait
+    // jamais.
+    setBulkActionLabel(`Modification de ${ids.length} produit${ids.length > 1 ? "s" : ""}…`);
     type BulkAttrResult = Awaited<ReturnType<typeof bulkUpdateProductAttributes>>;
     const result = await new Promise<BulkAttrResult | null>((resolve) => {
       startTransition(async () => {
         try {
-          setBulkActionLabel(`Modification de ${ids.length} produit${ids.length > 1 ? "s" : ""}…`);
           const r = await bulkUpdateProductAttributes(ids, payload);
           const msgs: string[] = [];
           if (r.updated > 0) {
@@ -3839,8 +3843,11 @@ export default function AdminProductsTable({
     });
     if (ok !== true) return;
 
+    // Setter le libellé AVANT startTransition (mise à jour urgente) pour
+    // garantir que le badge/voile de chargement s'affichent bien pendant
+    // l'appel réseau. Cf. commentaire dans handleBulkAttributes.
+    setBulkActionLabel(`Traduction de ${ids.length} produit${plural} en cours…`);
     startTransition(async () => {
-      setBulkActionLabel(`Traduction de ${ids.length} produit${plural} en cours…`);
       try {
         const res = await bulkTranslateProducts(ids);
         const parts: string[] = [];
