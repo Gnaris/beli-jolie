@@ -25,13 +25,34 @@ export interface RotationResult {
   newPrimaryColorId: string | null;
 }
 
+// Verrou par produit : deux appels concurrents sur le même productId
+// partagent la même promesse. Sans ce garde, chacun lit l'état, décide
+// de tourner, puis lance les pushes marketplaces en parallèle — Ankorstore
+// renvoie alors 403 « Status cannot be updated from [started] to [started] »
+// sur les répliques (le POST /operations dédoublonne côté serveur mais le
+// PATCH status=started échoue pour tous sauf le premier).
+const inFlight = new Map<string, Promise<RotationResult>>();
+
 /**
  * Vérifie et applique la rotation auto. Idempotent : appelable plusieurs
- * fois d'affilée sans effet de bord si rien n'a changé.
+ * fois d'affilée sans effet de bord si rien n'a changé. Les appels
+ * concurrents sur le même productId sont dédupliqués via un verrou en
+ * mémoire (le processus Next étant unique via PM2, un Map suffit).
  */
 export async function rotatePrimaryIfNeeded(
   productId: string,
 ): Promise<RotationResult> {
+  const existing = inFlight.get(productId);
+  if (existing) return existing;
+
+  const promise = runRotation(productId).finally(() => {
+    inFlight.delete(productId);
+  });
+  inFlight.set(productId, promise);
+  return promise;
+}
+
+async function runRotation(productId: string): Promise<RotationResult> {
   const product = await prisma.product.findUnique({
     where: { id: productId },
     select: {

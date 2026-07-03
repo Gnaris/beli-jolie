@@ -191,4 +191,75 @@ describe("rotatePrimaryIfNeeded", () => {
     await flushBackground();
     expect(mockPfsUpdate).toHaveBeenCalled();
   });
+
+  it("dédoublonne les appels concurrents sur le même produit (verrou en mémoire)", async () => {
+    // Reproduit la course qui provoquait « Ankorstore API 403: Status cannot
+    // be updated from [started] to [started] » sur le VPS le 2026-07-03 :
+    // trois `rotatePrimaryIfNeeded("A382")` déclenchés dans la même frame
+    // (bulkUpdateVariants + placeOrder + updateVariantQuick), chacun lisait
+    // le même état initial et lançait son propre push Ankorstore.
+    // Avec le verrou, seul le premier appel doit lancer le push.
+    let resolveFind: ((v: unknown) => void) | null = null;
+    mockProductFindUnique.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveFind = r;
+        }),
+    );
+
+    const p1 = rotatePrimaryIfNeeded("p1");
+    const p2 = rotatePrimaryIfNeeded("p1");
+    const p3 = rotatePrimaryIfNeeded("p1");
+
+    // Le second et le troisième appel doivent renvoyer la même promesse que
+    // le premier — pas de nouvel appel Prisma tant que le premier n'a pas
+    // fini.
+    expect(mockProductFindUnique).toHaveBeenCalledTimes(1);
+
+    resolveFind!({
+      id: "p1",
+      primaryColorId: "rouge",
+      pfsProductId: "pfs-1",
+      ankorsProductId: "ank-1",
+      efashionReferenceBase: "REF-EF",
+      colors: [
+        { colorId: "rouge", stock: 0, disabled: false },
+        { colorId: "kaki", stock: 4, disabled: false },
+      ],
+    });
+
+    const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
+    expect(r1).toEqual(r2);
+    expect(r2).toEqual(r3);
+    expect(r1.rotated).toBe(true);
+
+    await flushBackground();
+    // Un seul push par marketplace malgré les 3 appels.
+    expect(mockPfsUpdate).toHaveBeenCalledTimes(1);
+    expect(mockAnkorstoreKickoff).toHaveBeenCalledTimes(1);
+    expect(mockEfashionUpdate).toHaveBeenCalledTimes(1);
+    expect(mockProductUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("libère le verrou après complétion pour permettre une nouvelle rotation ultérieure", async () => {
+    mockProductFindUnique.mockResolvedValue({
+      id: "p1",
+      primaryColorId: "rouge",
+      pfsProductId: "pfs-1",
+      ankorsProductId: null,
+      efashionReferenceBase: null,
+      colors: [
+        { colorId: "rouge", stock: 0, disabled: false },
+        { colorId: "kaki", stock: 4, disabled: false },
+      ],
+    });
+
+    await rotatePrimaryIfNeeded("p1");
+    await flushBackground();
+    await rotatePrimaryIfNeeded("p1");
+    await flushBackground();
+
+    // Chaque cycle indépendant lit à nouveau la BDD.
+    expect(mockProductFindUnique).toHaveBeenCalledTimes(2);
+  });
 });
