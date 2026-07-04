@@ -10,7 +10,11 @@
       "Bash(findstr LISTENING)",
       "Bash(start *)",
       "Bash(npm test *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(ssh *)",
+      "Read(//c/Users/Admin/AppData/Local/Temp/claude/C--Users-Admin-Desktop-beli-jolie/b4e0d965-5901-49c4-afbb-e2bf751b7154/tasks/**)",
+      "PowerShell(Get-Process *)",
+      "Bash(grep -n \"s + i.quantity\\\\|item.quantity} × {fmt\\(item.unitPrice\\)}\\\\|{item.quantity} unités\\\\|{totalUnits} unités\\\\|reduce\\(\\(s, i\\) => s + i.quantity\" components/admin/orders/OrderItemsEditor.tsx)"
     ]
   }
 }

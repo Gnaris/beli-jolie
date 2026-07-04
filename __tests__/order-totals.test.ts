@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { recomputeOrderTotals } from "@/lib/order-totals";
 
 describe("recomputeOrderTotals — sans remise client", () => {
-  it("somme simple HT + TVA + transport", () => {
+  it("somme simple HT + TVA (sur articles + port) + transport", () => {
     const res = recomputeOrderTotals({
       items: [{ lineTotal: 100 }, { lineTotal: 50 }],
       tvaRate: 0.2,
@@ -14,8 +14,9 @@ describe("recomputeOrderTotals — sans remise client", () => {
     expect(res.preDiscountSubtotal).toBe(150);
     expect(res.clientDiscountAmt).toBe(0);
     expect(res.subtotalHT).toBe(150);
-    expect(res.tvaAmount).toBeCloseTo(30, 5);
-    expect(res.totalTTC).toBeCloseTo(190, 5);
+    // TVA sur (150 articles + 10 port) × 20% = 32
+    expect(res.tvaAmount).toBeCloseTo(32, 5);
+    expect(res.totalTTC).toBeCloseTo(192, 5);
   });
 });
 
@@ -39,7 +40,7 @@ describe("recomputeOrderTotals — remise PERCENT", () => {
     expect(res.totalTTC).toBeCloseTo(864, 5);
   });
 
-  it("remise de 100% = total HT à 0, TVA à 0", () => {
+  it("remise de 100% = HT articles à 0, mais TVA sur port restante", () => {
     const res = recomputeOrderTotals({
       items: [{ lineTotal: 100 }],
       tvaRate: 0.2,
@@ -50,8 +51,9 @@ describe("recomputeOrderTotals — remise PERCENT", () => {
 
     expect(res.clientDiscountAmt).toBe(100);
     expect(res.subtotalHT).toBe(0);
-    expect(res.tvaAmount).toBe(0);
-    expect(res.totalTTC).toBe(5); // juste le transport
+    // TVA sur les frais de port seulement : 5 × 20% = 1
+    expect(res.tvaAmount).toBeCloseTo(1, 5);
+    expect(res.totalTTC).toBeCloseTo(6, 5); // port HT + TVA sur port
   });
 });
 
@@ -100,13 +102,14 @@ describe("recomputeOrderTotals — types Prisma Decimal (toNumber)", () => {
     expect(res.preDiscountSubtotal).toBe(150);
     expect(res.clientDiscountAmt).toBe(30);
     expect(res.subtotalHT).toBe(120);
-    expect(res.tvaAmount).toBeCloseTo(24, 5);
-    expect(res.totalTTC).toBeCloseTo(154, 5);
+    // TVA sur (120 + 10 port) × 20% = 26
+    expect(res.tvaAmount).toBeCloseTo(26, 5);
+    expect(res.totalTTC).toBeCloseTo(156, 5);
   });
 });
 
 describe("recomputeOrderTotals — edge cases", () => {
-  it("panier vide → tout à 0 sauf transport", () => {
+  it("panier vide → tout à 0 sauf transport (avec TVA sur port)", () => {
     const res = recomputeOrderTotals({
       items: [],
       tvaRate: 0.2,
@@ -118,7 +121,9 @@ describe("recomputeOrderTotals — edge cases", () => {
     expect(res.preDiscountSubtotal).toBe(0);
     expect(res.clientDiscountAmt).toBe(0);
     expect(res.subtotalHT).toBe(0);
-    expect(res.totalTTC).toBe(10);
+    // Port 10 + TVA 20% dessus = 12
+    expect(res.tvaAmount).toBeCloseTo(2, 5);
+    expect(res.totalTTC).toBeCloseTo(12, 5);
   });
 
   it("clientDiscountValue=0 → pas de remise", () => {
@@ -132,5 +137,48 @@ describe("recomputeOrderTotals — edge cases", () => {
 
     expect(res.clientDiscountAmt).toBe(0);
     expect(res.subtotalHT).toBe(100);
+  });
+});
+
+describe("recomputeOrderTotals — TVA sur frais de port (art. 267 CGI)", () => {
+  it("France 20% : TVA sur articles ET port", () => {
+    const res = recomputeOrderTotals({
+      items: [{ lineTotal: 200 }],
+      tvaRate: 0.2,
+      carrierPrice: 15,
+      clientDiscountType: null,
+      clientDiscountValue: null,
+    });
+
+    // (200 + 15) × 20% = 43
+    expect(res.tvaAmount).toBeCloseTo(43, 5);
+    expect(res.totalTTC).toBeCloseTo(258, 5); // 200 + 15 + 43
+  });
+
+  it("hors UE (tvaRate=0) : pas de TVA sur port non plus", () => {
+    const res = recomputeOrderTotals({
+      items: [{ lineTotal: 200 }],
+      tvaRate: 0,
+      carrierPrice: 15,
+      clientDiscountType: null,
+      clientDiscountValue: null,
+    });
+
+    expect(res.tvaAmount).toBe(0);
+    expect(res.totalTTC).toBeCloseTo(215, 5); // 200 + 15
+  });
+
+  it("B2B intracom exonéré (tvaRate=0) : pas de TVA sur port non plus", () => {
+    // Cas d'un client belge validé exonéré par l'admin.
+    const res = recomputeOrderTotals({
+      items: [{ lineTotal: 500 }],
+      tvaRate: 0,
+      carrierPrice: 20,
+      clientDiscountType: null,
+      clientDiscountValue: null,
+    });
+
+    expect(res.tvaAmount).toBe(0);
+    expect(res.totalTTC).toBeCloseTo(520, 5);
   });
 });

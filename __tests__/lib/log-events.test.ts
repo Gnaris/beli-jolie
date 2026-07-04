@@ -245,6 +245,23 @@ describe("formatErrorBlock", () => {
     expect(out).toContain("Product ref   : ROBE-12345"); // champ custom (humanisé)
   });
 
+  it("affiche error string en Message brut + Cause probable (cas SMTP)", () => {
+    const out = formatErrorBlock({
+      level: "error",
+      message: "[Email] Échec envoi SMTP",
+      meta: {
+        error: "connect ETIMEDOUT 1.2.3.4:587",
+        to: "admin@example.com",
+        subject: "Nouvelle commande",
+      },
+      now: FIXED_DATE,
+    });
+    expect(out).toContain("Message brut  : connect ETIMEDOUT 1.2.3.4:587");
+    expect(out).toContain("Cause probable: Délai d'attente dépassé");
+    expect(out).toContain("To            : admin@example.com");
+    expect(out).not.toContain("Type erreur"); // pas d'Error object → pas de type
+  });
+
   it("humanise les clés camelCase à plusieurs mots", () => {
     const out = formatErrorBlock({
       level: "error",

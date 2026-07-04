@@ -15,6 +15,7 @@ export const metadata: Metadata = { title: "Détail commande — Admin" };
 
 const STATUS_CFG: Record<string, { label: string; badge: string }> = {
   PENDING:   { label: "Nouveau",  badge: "badge badge-warning" },
+  VALIDATED: { label: "Validée",  badge: "badge badge-info"    },
   SHIPPED:   { label: "Expédiée", badge: "badge badge-success" },
   CANCELLED: { label: "Annulée",  badge: "badge badge-error"   },
 };
@@ -51,6 +52,15 @@ export default async function AdminCommandeDetailPage({
 
   const totalArticles = order.items.reduce((s, i) => s + i.quantity, 0);
 
+  // Calcul : y a-t-il des modifications non confirmées (via bouton "Confirmer") ?
+  const lastChangeTs = Math.max(
+    0,
+    ...order.itemModifications.map((m) => m.createdAt.getTime()),
+    ...order.items.filter((i) => i.isCompensation).map((i) => i.createdAt.getTime()),
+  );
+  const notifiedTs = order.clientNotifiedAt?.getTime() ?? 0;
+  const hasUnconfirmedChanges = lastChangeTs > notifiedTs;
+
   return (
     <div className="space-y-6">
 
@@ -82,7 +92,11 @@ export default async function AdminCommandeDetailPage({
             </p>
           </div>
 
-          <OrderStatusActions orderId={order.id} currentStatus={order.status} />
+          <OrderStatusActions
+            orderId={order.id}
+            currentStatus={order.status}
+            hasUnconfirmedChanges={hasUnconfirmedChanges}
+          />
         </div>
       </div>
 
@@ -244,14 +258,29 @@ export default async function AdminCommandeDetailPage({
         </section>
       )}
 
-      {/* ───────── Articles (pleine largeur) ───────── */}
+      {/* ───────── Articles (3 colonnes + résumé) ───────── */}
       <OrderItemsEditor
         orderId={order.id}
-        readOnly={order.status !== "PENDING"}
+        paidAmount={Number(order.totalTTC)}
+        paidSubtotalHT={order.paidSubtotalHT ? Number(order.paidSubtotalHT) : Number(order.subtotalHT)}
+        currentSubtotalHT={Number(order.subtotalHT)}
+        readOnly={order.status !== "PENDING" && order.status !== "VALIDATED"}
+        clientNotifiedAt={order.clientNotifiedAt ? order.clientNotifiedAt.toISOString() : null}
+        hasUnconfirmedChanges={hasUnconfirmedChanges}
         items={order.items.map((item) => ({
-          ...item,
+          id: item.id,
+          productName: item.productName,
+          productRef: item.productRef,
+          colorName: item.colorName,
+          imagePath: item.imagePath,
+          saleType: item.saleType,
+          packQty: item.packQty,
+          size: item.size,
+          sizesJson: item.sizesJson,
           unitPrice: Number(item.unitPrice),
+          quantity: item.quantity,
           lineTotal: Number(item.lineTotal),
+          isCompensation: item.isCompensation,
         }))}
         existingModifications={order.itemModifications.map((mod) => {
           const item = order.items.find((i) => i.id === mod.orderItemId);
@@ -259,8 +288,11 @@ export default async function AdminCommandeDetailPage({
             orderItemId: mod.orderItemId,
             originalQuantity: mod.originalQuantity,
             newQuantity: mod.newQuantity,
-            reason: mod.reason as "OUT_OF_STOCK" | "CLIENT_REQUEST",
+            originalUnitPrice: mod.originalUnitPrice ? Number(mod.originalUnitPrice) : null,
+            newUnitPrice: mod.newUnitPrice ? Number(mod.newUnitPrice) : null,
+            reason: mod.reason as "OUT_OF_STOCK" | "CLIENT_REQUEST" | "COMMERCIAL_GESTURE",
             priceDifference: Number(mod.priceDifference),
+            createdAt: mod.createdAt.toISOString(),
             productName: item?.productName ?? "",
             productRef: item?.productRef ?? "",
             colorName: item?.colorName ?? "",
@@ -270,40 +302,98 @@ export default async function AdminCommandeDetailPage({
         })}
       />
 
-      {/* ───────── Récapitulatif financier (pleine largeur, en bas) ───────── */}
-      <section className="card overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-border table-header">
-          <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
-            Récapitulatif
-          </h2>
-        </div>
-        <div className="px-5 py-5 grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-2 text-sm font-body">
-          <div className="space-y-2">
-            <div className="flex justify-between text-text-secondary">
-              <span>Sous-total HT</span>
-              <span className="font-medium text-text-primary">{fmt(order.subtotalHT)}</span>
+      {/* ───────── Résumé financier (pleine largeur, en bas) ───────── */}
+      {(() => {
+        const currentSubtotalHT = Number(order.subtotalHT);
+        const paidHT = order.paidSubtotalHT ? Number(order.paidSubtotalHT) : currentSubtotalHT;
+        const carrierPriceNum = Number(order.carrierPrice);
+        const tvaRateNum = order.tvaRate;
+        // Détails TVA séparée produits / livraison
+        const tvaProducts = currentSubtotalHT * tvaRateNum;
+        const tvaShipping = carrierPriceNum * tvaRateNum;
+        // Montants clés
+        const paidTTC = (paidHT + carrierPriceNum) * (1 + tvaRateNum);
+        const finalTTC = Number(order.totalTTC);
+        const credit = Math.max(0, paidTTC - finalTTC);
+        const isVatExempt = tvaRateNum === 0;
+        return (
+          <section className="card overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-border table-header flex items-center gap-3">
+              <div className="w-[3px] h-6 bg-blue-500 rounded-sm" />
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-700">Section 5</p>
+                <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
+                  Résumé financier
+                </h2>
+              </div>
             </div>
-            <div className="flex justify-between text-text-secondary">
-              <span>
-                TVA ({order.tvaRate === 0 ? "0% — exonéré" : `${(order.tvaRate * 100).toFixed(0)}%`})
-              </span>
-              <span className="font-medium text-text-primary">{fmt(order.tvaAmount)}</span>
+            <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-border">
+              {/* Détail : sous-totaux / TVA / livraison */}
+              <div className="px-5 py-5 space-y-2 text-sm font-body md:col-span-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
+                  <div className="flex justify-between text-text-secondary">
+                    <span>Sous-total produits HT</span>
+                    <span className="font-medium text-text-primary tabular-nums">{fmt(currentSubtotalHT)}</span>
+                  </div>
+                  <div className="flex justify-between text-text-secondary">
+                    <span>
+                      TVA sur produits ({isVatExempt ? "0 % — exonéré" : `${(tvaRateNum * 100).toFixed(0)} %`})
+                    </span>
+                    <span className="font-medium text-text-primary tabular-nums">{fmt(tvaProducts)}</span>
+                  </div>
+                  <div className="flex justify-between text-text-secondary">
+                    <span>Livraison HT ({order.carrierName})</span>
+                    <span className="font-medium text-text-primary tabular-nums">
+                      {carrierPriceNum === 0 ? "Gratuit" : fmt(carrierPriceNum)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-text-secondary">
+                    <span>
+                      TVA sur livraison ({isVatExempt ? "0 % — exonéré" : `${(tvaRateNum * 100).toFixed(0)} %`})
+                    </span>
+                    <span className="font-medium text-text-primary tabular-nums">{fmt(tvaShipping)}</span>
+                  </div>
+                  {Number(order.clientDiscountAmt) > 0 && (
+                    <div className="flex justify-between text-text-secondary sm:col-span-2">
+                      <span>Remise client</span>
+                      <span className="font-medium text-text-primary tabular-nums">− {fmt(order.clientDiscountAmt)}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="border-t border-border pt-2 mt-2 flex justify-between items-center">
+                  <span className="font-heading font-semibold text-base text-text-primary">Total livré TTC</span>
+                  <span className="font-heading font-semibold text-2xl text-text-primary tabular-nums">
+                    {fmt(finalTTC)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Cartes : 3 montants clés */}
+              <div className="px-5 py-5 space-y-3">
+                <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-700">Payé par le client</p>
+                  <p className="text-2xl font-bold text-blue-800 mt-1 tabular-nums">{fmt(paidTTC)}</p>
+                  <p className="text-[10px] text-blue-700 mt-1">Stripe · {order.paymentStatus === "paid" ? "encaissé" : order.paymentStatus}</p>
+                </div>
+                <div className="p-4 rounded-lg bg-bg-secondary border border-border">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">Montant final commande</p>
+                  <p className="text-2xl font-bold text-text-primary mt-1 tabular-nums">{fmt(finalTTC)}</p>
+                  <p className="text-[10px] text-text-muted mt-1">Après modifications</p>
+                </div>
+                <div className={`p-4 rounded-lg border ${credit > 0.01 ? "bg-error/5 border-error/30" : "bg-success/5 border-success/30"}`}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${credit > 0.01 ? "text-error" : "text-success"}`}>
+                    Avoir à rembourser
+                  </p>
+                  <p className={`text-2xl font-bold mt-1 tabular-nums ${credit > 0.01 ? "text-error" : "text-success"}`}>
+                    {fmt(credit)}
+                  </p>
+                  <p className="text-[10px] mt-1 text-text-muted">= Payé − Montant final</p>
+                </div>
+              </div>
             </div>
-            <div className="flex justify-between text-text-secondary">
-              <span>Livraison ({order.carrierName})</span>
-              <span className="font-medium text-text-primary">
-                {Number(order.carrierPrice) === 0 ? "Gratuit" : fmt(order.carrierPrice)}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center justify-between md:border-l md:border-border md:pl-12 pt-3 md:pt-0 border-t md:border-t-0 border-border">
-            <span className="font-heading font-semibold text-base text-text-primary">Total TTC</span>
-            <span className="font-heading font-semibold text-2xl text-text-primary">
-              {fmt(order.totalTTC)}
-            </span>
-          </div>
-        </div>
-      </section>
+          </section>
+        );
+      })()}
     </div>
   );
 }

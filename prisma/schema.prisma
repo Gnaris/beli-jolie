@@ -934,14 +934,16 @@ model CartItem {
 // ─────────────────────────────────────────────
 
 enum OrderStatus {
-  PENDING // En attente de traitement (côté admin : "Nouveau")
-  SHIPPED // Expédiée
+  PENDING   // En attente de traitement (côté admin : "Nouveau")
+  VALIDATED // Validée par l'admin — prête à expédier
+  SHIPPED   // Expédiée
   CANCELLED // Annulée
 }
 
 enum OrderModificationReason {
-  OUT_OF_STOCK // Rupture de stock
-  CLIENT_REQUEST // À la demande du client
+  OUT_OF_STOCK        // Rupture de stock
+  CLIENT_REQUEST      // À la demande du client
+  COMMERCIAL_GESTURE  // Geste commercial (baisse de prix, article ajouté offert)
 }
 
 // ─────────────────────────────────────────────
@@ -1118,6 +1120,14 @@ model Order {
   promoCode         String?
   promoDiscount     Decimal                 @default(0) @db.Decimal(10, 2)
   creditApplied     Decimal                 @default(0) @db.Decimal(10, 2)
+
+  // Trace de la dernière notification client de modification (rupture / ajustement / ajout)
+  clientNotifiedAt DateTime?
+
+  // Sous-total HT payé initialement (immuable, sert au contrôle de dépassement lors
+  // des modifications post-commande). Null pour les commandes créées avant l'ajout du champ.
+  paidSubtotalHT Decimal? @db.Decimal(12, 2)
+
   // Relations for new features
   stockMovements    StockMovement[]
   claims            Claim[]
@@ -1159,6 +1169,14 @@ model OrderItem {
 
   variantSnapshot String? @db.Text // JSON: snapshot complet de la variante pour traçabilité légale
 
+  // Article ajouté en compensation post-commande (rupture / geste commercial).
+  // false = article initialement commandé par le client, true = ajout admin.
+  isCompensation Boolean @default(false)
+
+  // Référence vers la variante originelle (ProductColor.id). Sert au merge
+  // d'articles identiques ajoutés successivement en compensation.
+  productColorId String?
+
   claimItems    ClaimItem[]
   modifications OrderItemModification[]
 
@@ -1169,17 +1187,20 @@ model OrderItem {
 }
 
 // Modification d'article de commande (traçabilité)
+// Une modification peut concerner la quantité, le prix unitaire, ou les deux.
 model OrderItemModification {
-  id               String                  @id @default(cuid())
-  orderItemId      String
-  orderItem        OrderItem               @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  orderId          String
-  order            Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  originalQuantity Int
-  newQuantity      Int // 0 = rupture totale
-  reason           OrderModificationReason
-  priceDifference  Decimal                 @db.Decimal(12, 2) // montant négatif = avoir dû
-  createdAt        DateTime                @default(now())
+  id                String                  @id @default(cuid())
+  orderItemId       String
+  orderItem         OrderItem               @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  orderId           String
+  order             Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  originalQuantity  Int
+  newQuantity       Int // 0 = rupture totale
+  originalUnitPrice Decimal?                @db.Decimal(12, 2) // null = prix inchangé au moment de la 1re modif
+  newUnitPrice      Decimal?                @db.Decimal(12, 2) // null = prix inchangé
+  reason            OrderModificationReason
+  priceDifference   Decimal                 @db.Decimal(12, 2) // montant négatif = avoir dû
+  createdAt         DateTime                @default(now())
 
   @@index([orderId])
   @@index([orderItemId])

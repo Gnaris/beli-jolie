@@ -18,8 +18,9 @@ const COLORS = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  PENDING: "Nouveau",
-  SHIPPED: "Expédiée",
+  PENDING:   "Nouveau",
+  VALIDATED: "Validée",
+  SHIPPED:   "Expédiée",
   CANCELLED: "Annulée",
 };
 

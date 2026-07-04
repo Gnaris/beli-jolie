@@ -63,8 +63,11 @@ export function recomputeOrderTotals(input: OrderTotalsInput): OrderTotalsResult
   }
 
   const subtotalHT = Math.max(0, preDiscountSubtotal - clientDiscountAmt);
-  const tvaAmount = subtotalHT * input.tvaRate;
-  const totalTTC = subtotalHT + tvaAmount + toNumber(input.carrierPrice);
+  const carrierPriceNum = toNumber(input.carrierPrice);
+  // TVA appliquée aussi sur les frais de port (art. 267 CGI :
+  // le port suit le même régime TVA que les biens vendus).
+  const tvaAmount = (subtotalHT + carrierPriceNum) * input.tvaRate;
+  const totalTTC = subtotalHT + carrierPriceNum + tvaAmount;
 
   return {
     preDiscountSubtotal,

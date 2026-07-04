@@ -1,7 +1,8 @@
 /**
  * Tests P2-01 — transitions de statut de commande.
- * PENDING ↔ SHIPPED (réversible : l'admin peut remettre une commande
- * expédiée en édition). PENDING → CANCELLED reste un état final.
+ * Workflow 3 étapes : PENDING → VALIDATED → SHIPPED avec raccourci direct
+ * PENDING → SHIPPED autorisé. Tous les statuts intermédiaires peuvent
+ * revenir en PENDING pour reprise d'édition. CANCELLED est terminal.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -40,28 +41,34 @@ beforeEach(() => {
 
 describe("updateOrderStatus — transitions autorisées (P2-01)", () => {
   const allowed: Array<[string, string]> = [
+    ["PENDING", "VALIDATED"],
     ["PENDING", "SHIPPED"],
     ["PENDING", "CANCELLED"],
+    ["VALIDATED", "SHIPPED"],
+    ["VALIDATED", "PENDING"],
+    ["VALIDATED", "CANCELLED"],
     ["SHIPPED", "PENDING"],
   ];
 
   for (const [from, to] of allowed) {
     it(`accepte ${from} → ${to}`, async () => {
-      mockPrisma.order.findUnique.mockResolvedValue({ status: from });
+      mockPrisma.order.findUnique.mockResolvedValue({ status: from, itemModifications: [], items: [] });
       await expect(updateOrderStatus("o1", to)).resolves.toBeUndefined();
       expect(mockPrisma.order.update).toHaveBeenCalledOnce();
     });
   }
 
   const forbidden: Array<[string, string]> = [
+    ["SHIPPED", "VALIDATED"],
     ["SHIPPED", "CANCELLED"],
     ["CANCELLED", "PENDING"],
+    ["CANCELLED", "VALIDATED"],
     ["CANCELLED", "SHIPPED"],
   ];
 
   for (const [from, to] of forbidden) {
     it(`refuse ${from} → ${to}`, async () => {
-      mockPrisma.order.findUnique.mockResolvedValue({ status: from });
+      mockPrisma.order.findUnique.mockResolvedValue({ status: from, itemModifications: [], items: [] });
       await expect(updateOrderStatus("o1", to)).rejects.toThrow(
         /Transition impossible/,
       );
@@ -70,7 +77,7 @@ describe("updateOrderStatus — transitions autorisées (P2-01)", () => {
   }
 
   it("idempotent — accepte de re-passer une commande au même statut sans rien changer", async () => {
-    mockPrisma.order.findUnique.mockResolvedValue({ status: "SHIPPED" });
+    mockPrisma.order.findUnique.mockResolvedValue({ status: "SHIPPED", itemModifications: [], items: [] });
     await expect(updateOrderStatus("o1", "SHIPPED")).resolves.toBeUndefined();
   });
 

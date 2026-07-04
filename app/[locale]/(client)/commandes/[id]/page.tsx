@@ -5,8 +5,7 @@ import { Link, redirect } from "@/i18n/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
-import ClientOrderItemsList from "@/components/client/orders/OrderItemsList";
-import OrderModifications from "@/components/client/orders/OrderModifications";
+import OrderColumnsView from "@/components/client/orders/OrderColumnsView";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
 import ReorderButton from "@/components/client/orders/ReorderButton";
 import SuccessToast from "@/components/client/SuccessToast";
@@ -60,8 +59,9 @@ export default async function CommandeDetailPage({
 
   // Étapes de suivi
   const steps: { status: string; label: string; done: boolean }[] = [
-    { status: "PENDING", label: t("statusReceived"),   done: true },
-    { status: "SHIPPED", label: t("statuses.SHIPPED"), done: order.status === "SHIPPED" },
+    { status: "PENDING",   label: t("statusReceived"),     done: true },
+    { status: "VALIDATED", label: t("statuses.VALIDATED"), done: order.status === "VALIDATED" || order.status === "SHIPPED" },
+    { status: "SHIPPED",   label: t("statuses.SHIPPED"),   done: order.status === "SHIPPED" },
   ];
   const isCancelled = order.status === "CANCELLED";
   const totalArticles = order.items.reduce((s, i) => s + i.quantity, 0);
@@ -291,92 +291,66 @@ export default async function CommandeDetailPage({
         />
       </div>
 
-      {/* ───────── Modifications éventuelles ───────── */}
-      {order.itemModifications.length > 0 && (
-        <OrderModifications
-          modifications={order.itemModifications.map((mod) => {
-            const item = order.items.find((i) => i.id === mod.orderItemId);
-            return {
-              orderItemId: mod.orderItemId,
-              originalQuantity: mod.originalQuantity,
-              newQuantity: mod.newQuantity,
-              reason: mod.reason as "OUT_OF_STOCK" | "CLIENT_REQUEST",
-              priceDifference: Number(mod.priceDifference),
-              productName: item?.productName ?? "",
-              productRef: item?.productRef ?? "",
-              colorName: item?.colorName ?? "",
-              imagePath: item?.imagePath ?? null,
-              unitPrice: Number(item?.unitPrice ?? 0),
-            };
-          })}
-        />
-      )}
-
-      {/* ───────── Articles (pleine largeur, gros) ───────── */}
-      <div className="bg-bg-primary border border-border rounded-xl overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-border">
-          <h2 className="font-heading text-sm font-semibold text-text-primary">
-            {t("articleList")} ({totalArticles})
-          </h2>
-        </div>
-        <ClientOrderItemsList
-          items={order.items.map((item) => {
-            const mod = order.itemModifications.find((m) => m.orderItemId === item.id);
-            return {
-              ...item,
+      {/* ───────── Vue 3 colonnes + Résumé de la commande + Résumé financier ───────── */}
+      {(() => {
+        const currentSubtotalHT = Number(order.subtotalHT);
+        const paidHT = order.paidSubtotalHT ? Number(order.paidSubtotalHT) : currentSubtotalHT;
+        const carrierPriceNum = Number(order.carrierPrice);
+        const tvaRateNum = order.tvaRate;
+        const tvaProducts = currentSubtotalHT * tvaRateNum;
+        const tvaShipping = carrierPriceNum * tvaRateNum;
+        const paidTTC = (paidHT + carrierPriceNum) * (1 + tvaRateNum);
+        const finalTTC = Number(order.totalTTC);
+        return (
+          <OrderColumnsView
+            orderNumber={order.orderNumber}
+            paidTTC={paidTTC}
+            finalTTC={finalTTC}
+            subtotalHT={currentSubtotalHT}
+            tvaProducts={tvaProducts}
+            carrierPrice={carrierPriceNum}
+            tvaShipping={tvaShipping}
+            carrierName={order.carrierName}
+            tvaRate={tvaRateNum}
+            clientNotifiedAt={order.clientNotifiedAt ? order.clientNotifiedAt.toISOString() : null}
+            hasCreditNote={!!order.creditNotePath}
+            creditNoteHref={`/api/client/commandes/${order.id}/credit-note`}
+            items={order.items.map((item) => ({
+              id: item.id,
+              productName: item.productName,
+              productRef: item.productRef,
+              colorName: item.colorName,
+              imagePath: item.imagePath,
+              saleType: item.saleType,
+              packQty: item.packQty,
+              size: item.size,
+              sizesJson: item.sizesJson,
               unitPrice: Number(item.unitPrice),
+              quantity: item.quantity,
               lineTotal: Number(item.lineTotal),
-              modification: mod
-                ? {
-                    originalQuantity: mod.originalQuantity,
-                    newQuantity: mod.newQuantity,
-                    reason: mod.reason,
-                  }
-                : null,
-            };
-          })}
-        />
-      </div>
-
-      {/* ───────── Récapitulatif (pleine largeur, en bas) ───────── */}
-      <section className="bg-bg-primary border border-border rounded-xl overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-border">
-          <h2 className="font-heading text-sm font-semibold text-text-primary">{t("totalTTC")}</h2>
-        </div>
-        <div className="px-5 py-5 grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-2 text-sm font-body">
-          <div className="space-y-2">
-            <div className="flex justify-between text-text-secondary">
-              <span>{t("subtotalHT")}</span>
-              <span className="text-text-primary">{Number(order.subtotalHT).toFixed(2)} €</span>
-            </div>
-            <div className="flex justify-between text-text-secondary">
-              <span>
-                {t("shippingCost")} ({order.carrierName})
-              </span>
-              <span className="text-text-primary">
-                {Number(order.carrierPrice) === 0
-                  ? t("free")
-                  : `${Number(order.carrierPrice).toFixed(2)} €`}
-              </span>
-            </div>
-            <div className="flex justify-between text-text-secondary">
-              <span>
-                {t("tva")} ({(order.tvaRate * 100).toFixed(0)} %)
-              </span>
-              <span className="text-text-primary">{Number(order.tvaAmount).toFixed(2)} €</span>
-            </div>
-            {order.tvaRate === 0 && (
-              <p className="text-[10px] text-text-muted font-body">{t("tvaExemptDetail")}</p>
-            )}
-          </div>
-          <div className="flex items-center justify-between md:border-l md:border-border md:pl-12 pt-3 md:pt-0 border-t md:border-t-0 border-border">
-            <span className="font-heading font-semibold text-base text-text-primary">{t("totalTTC")}</span>
-            <span className="font-heading font-semibold text-2xl text-text-primary">
-              {Number(order.totalTTC).toFixed(2)} €
-            </span>
-          </div>
-        </div>
-      </section>
+              isCompensation: item.isCompensation,
+            }))}
+            modifications={order.itemModifications.map((mod) => {
+              const item = order.items.find((i) => i.id === mod.orderItemId);
+              return {
+                orderItemId: mod.orderItemId,
+                originalQuantity: mod.originalQuantity,
+                newQuantity: mod.newQuantity,
+                originalUnitPrice: mod.originalUnitPrice ? Number(mod.originalUnitPrice) : null,
+                newUnitPrice: mod.newUnitPrice ? Number(mod.newUnitPrice) : null,
+                reason: mod.reason as "OUT_OF_STOCK" | "CLIENT_REQUEST" | "COMMERCIAL_GESTURE",
+                priceDifference: Number(mod.priceDifference),
+                createdAt: mod.createdAt.toISOString(),
+                productName: item?.productName ?? "",
+                productRef: item?.productRef ?? "",
+                colorName: item?.colorName ?? "",
+                imagePath: item?.imagePath ?? null,
+                unitPrice: Number(item?.unitPrice ?? 0),
+              };
+            })}
+          />
+        );
+      })()}
 
       {/* ───────── Retour ───────── */}
       <Link

@@ -165,6 +165,18 @@ describe("notifyOrderStatusChange — statut PENDING (confirmation commande)", (
     expect(sentMails[0].subject).toContain("expédiée");
   });
 
+  it("envoie un email « prête à expédier » pour VALIDATED", async () => {
+    prismaMock.order.findUnique.mockResolvedValueOnce(buildFakeOrder());
+
+    await notifyOrderStatusChange({ orderId: "order-1", newStatus: "VALIDATED" });
+
+    expect(sentMails).toHaveLength(1);
+    expect(sentMails[0].to).toBe("client@acme.com");
+    expect(sentMails[0].subject).toContain("prête à être expédiée");
+    expect(sentMails[0].html).toContain("validée");
+    expect(sentMails[0].html).toContain("nouvel email");
+  });
+
   it("envoie toujours un email pour CANCELLED", async () => {
     prismaMock.order.findUnique.mockResolvedValueOnce(buildFakeOrder());
 

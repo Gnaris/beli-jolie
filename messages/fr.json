@@ -619,6 +619,7 @@
     "bankTransferPendingDesc": "Veuillez effectuer le virement bancaire aux coordonnées ci-dessous. La commande sera automatiquement validée dès réception du virement (généralement sous 1 jour ouvré).",
     "statuses": {
       "PENDING": "En attente",
+      "VALIDATED": "Validée",
       "SHIPPED": "Expédiée",
       "CANCELLED": "Annulée"
     },

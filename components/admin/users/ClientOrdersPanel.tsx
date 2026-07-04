@@ -45,6 +45,7 @@ interface Order {
 
 const STATUS_CONFIG: Record<string, { label: string; badge: string }> = {
   PENDING:   { label: "Nouveau",  badge: "badge badge-warning" },
+  VALIDATED: { label: "Validée",  badge: "badge badge-info"    },
   SHIPPED:   { label: "Expédiée", badge: "badge badge-success" },
   CANCELLED: { label: "Annulée",  badge: "badge badge-error"   },
 };

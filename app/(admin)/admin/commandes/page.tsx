@@ -9,9 +9,10 @@ import ExportOrdersButton from "@/components/admin/orders/ExportOrdersButton";
 export const metadata: Metadata = { title: "Commandes — Admin" };
 
 const STATUS_LABELS: Record<string, { label: string; badge: string; dot: string }> = {
-  PENDING:   { label: "Nouveau",  badge: "badge badge-warning", dot: "bg-amber-500" },
+  PENDING:   { label: "Nouveau",  badge: "badge badge-warning", dot: "bg-amber-500"   },
+  VALIDATED: { label: "Validée",  badge: "badge badge-info",    dot: "bg-blue-500"    },
   SHIPPED:   { label: "Expédiée", badge: "badge badge-success", dot: "bg-emerald-500" },
-  CANCELLED: { label: "Annulée",  badge: "badge badge-error",   dot: "bg-red-500" },
+  CANCELLED: { label: "Annulée",  badge: "badge badge-error",   dot: "bg-red-500"     },
 };
 
 const PER_PAGE = 30;

@@ -321,8 +321,10 @@ export async function placeOrder(
     vatExempt: user.vatExempt,
   });
 
-  const tvaAmount = subtotalAfterDiscount * tvaRate;
-  const totalTTC  = subtotalAfterDiscount + tvaAmount + effectiveCarrierPrice;
+  // TVA appliquée aussi sur les frais de port (art. 267 CGI :
+  // le port suit le même régime TVA que les biens vendus).
+  const tvaAmount = (subtotalAfterDiscount + effectiveCarrierPrice) * tvaRate;
+  const totalTTC  = subtotalAfterDiscount + effectiveCarrierPrice + tvaAmount;
 
   // ── Vérifier que le montant payé par Stripe correspond bien au total recalculé.
   //    Tolérance de 1 centime pour absorber les arrondis.

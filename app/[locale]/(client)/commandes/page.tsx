@@ -18,6 +18,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export const STATUS_CONFIG: Record<string, { badgeClass: string }> = {
   PENDING:   { badgeClass: "badge badge-warning" },
+  VALIDATED: { badgeClass: "badge badge-info"    },
   SHIPPED:   { badgeClass: "badge badge-success" },
   CANCELLED: { badgeClass: "badge badge-neutral" },
 };
@@ -106,7 +107,7 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
 
   // Pre-translate status labels
   const statusLabels: Record<string, string> = {};
-  for (const s of ["PENDING", "SHIPPED", "CANCELLED"]) {
+  for (const s of ["PENDING", "VALIDATED", "SHIPPED", "CANCELLED"]) {
     statusLabels[s] = t(`statuses.${s}`);
   }
 

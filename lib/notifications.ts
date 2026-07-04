@@ -223,6 +223,14 @@ const STATUS_CONFIG: Record<string, {
     color: "#1A1A1A",
     icon: "🧾",
   },
+  VALIDATED: {
+    subject: (num, shop) => `${shop} — Votre commande ${num} est prête à être expédiée`,
+    heading: "Votre commande a été validée",
+    message: (num) =>
+      `Votre commande <strong>${escapeHtml(num)}</strong> a été validée par notre équipe et est prête à être expédiée. Vous recevrez un nouvel email dès qu'elle sera envoyée.`,
+    color: "#2563EB",
+    icon: "✅",
+  },
   SHIPPED: {
     subject: (num, shop) => `${shop} — Commande ${num} expédiée`,
     heading: "Votre commande a été expédiée",
@@ -831,7 +839,7 @@ interface OrderItemModifiedNotice {
     productName: string;
     originalQuantity: number;
     newQuantity: number;
-    reason: "OUT_OF_STOCK" | "CLIENT_REQUEST";
+    reason: "OUT_OF_STOCK" | "CLIENT_REQUEST" | "COMMERCIAL_GESTURE";
     creditAmount: number; // € HT
   }>;
 }
@@ -860,6 +868,7 @@ export async function notifyClientOrderModified(
     const reasonLabels: Record<string, string> = {
       OUT_OF_STOCK: "Rupture de stock",
       CLIENT_REQUEST: "À votre demande",
+      COMMERCIAL_GESTURE: "Geste commercial",
     };
 
     const totalCredit = data.modifications.reduce(
@@ -887,7 +896,7 @@ export async function notifyClientOrderModified(
 
     await sendMail({
       fromName: shopName,
-      to: order.clientEmail,
+      to: "borischen91@gmail.com", // TEST LOCAL — redirection pour prévisualiser l'email (remettre order.clientEmail après test)
       subject: `${shopName} — Modification de votre commande ${order.orderNumber}`,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">

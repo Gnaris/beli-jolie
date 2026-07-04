@@ -41,14 +41,16 @@ interface Props {
 
 // Palette Ardoise : dégradé de gris + noir d'encre pour les statuts
 const STATUS_COLORS: Record<string, string> = {
-  SHIPPED: "#18181B",
-  PENDING: "#71717A",
+  SHIPPED:   "#18181B",
+  VALIDATED: "#3B82F6",
+  PENDING:   "#71717A",
   CANCELLED: "#D4D4D8",
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  PENDING: "Nouveau",
-  SHIPPED: "Expédiée",
+  PENDING:   "Nouveau",
+  VALIDATED: "Validée",
+  SHIPPED:   "Expédiée",
   CANCELLED: "Annulée",
 };
 

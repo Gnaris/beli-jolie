@@ -54,9 +54,16 @@ export const ERROR_CAUSE_RULES: CauseRule[] = [
 ];
 
 export function deduceCause(error: unknown): string | null {
-  if (!(error instanceof Error)) return null;
-  const msg = error.message ?? "";
-  const name = error.name ?? "";
+  let msg = "";
+  let name = "";
+  if (error instanceof Error) {
+    msg = error.message ?? "";
+    name = error.name ?? "";
+  } else if (typeof error === "string") {
+    msg = error;
+  } else {
+    return null;
+  }
   for (const rule of ERROR_CAUSE_RULES) {
     if (rule.test(msg, name)) return rule.cause;
   }
@@ -145,7 +152,11 @@ export function formatErrorBlock(args: FormatBlockArgs): string {
   const event = (args.meta.event as string | undefined) ?? autoEvent;
 
   const errorObj = args.meta.error instanceof Error ? args.meta.error : null;
-  const cause = deduceCause(errorObj);
+  const errorString =
+    !errorObj && typeof args.meta.error === "string" && args.meta.error.trim()
+      ? args.meta.error.trim()
+      : null;
+  const cause = deduceCause(errorObj ?? errorString);
   const sourceFromMeta = args.meta.source as string | undefined;
   const sourceFromStack = errorObj ? extractSource(errorObj.stack) : null;
   const source = sourceFromMeta ?? sourceFromStack;
@@ -166,6 +177,8 @@ export function formatErrorBlock(args: FormatBlockArgs): string {
   if (errorObj) {
     lines.push(`   ${pad("Type erreur")}: ${errorObj.name || "Error"}`);
     lines.push(`   ${pad("Message brut")}: ${errorObj.message}`);
+  } else if (errorString) {
+    lines.push(`   ${pad("Message brut")}: ${errorString}`);
   }
   if (cause) lines.push(`   ${pad("Cause probable")}: ${cause}`);
   if (source) lines.push(`   ${pad("Source")}: ${source}`);

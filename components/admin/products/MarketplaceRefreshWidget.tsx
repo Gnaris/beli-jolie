@@ -354,10 +354,10 @@ function OutcomeChip({ label, outcome }: { label: string; outcome: TargetOutcome
 
 // ── Filtres (segmented tabs) ─────────────────────────────────────────
 const FILTER_OPTIONS: { key: StatusFilter; label: string }[] = [
+  { key: "all", label: "Tous" },
   { key: "in_progress", label: "Suivants" },
   { key: "success", label: "Terminés" },
   { key: "error", label: "Erreurs" },
-  { key: "all", label: "Tous" },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -366,7 +366,7 @@ const FILTER_OPTIONS: { key: StatusFilter; label: string }[] = [
 export function MarketplaceRefreshWidget() {
   const { items, clear, stop, isAllFinished, queuedCount } = useMarketplaceRefreshQueue();
   const [minimized, setMinimized] = useState(false);
-  const [filter, setFilter] = useState<StatusFilter>("in_progress");
+  const [filter, setFilter] = useState<StatusFilter>("all");
 
   // Groupes + tri
   const groups = useMemo(() => groupItemsByProduct(items), [items]);
@@ -831,9 +831,7 @@ export function MarketplaceRefreshWidget() {
 // ─────────────────────────────────────────────────────────────────────
 // TIMELINE — liste verticale des groupes
 // ─────────────────────────────────────────────────────────────────────
-// On collapse les groupes lointains au-delà de VISIBLE_TIMELINE_ITEMS pour
-// éviter la liste sans fin. Les collapsés sont regroupés en une ligne récap.
-const VISIBLE_TIMELINE_ITEMS = 6;
+// Tous les groupes sont affichés ; le conteneur parent s'occupe du scroll.
 
 function TimelineList({
   groups,
@@ -844,38 +842,12 @@ function TimelineList({
 }) {
   // On retire le hero de la liste si présent (il est déjà en haut).
   const list = groups.filter((g) => g.productId !== heroGroupId);
-  const visible = list.slice(0, VISIBLE_TIMELINE_ITEMS);
-  const collapsedCount = list.length - visible.length;
-  const lastGroup = collapsedCount > 0 ? list[list.length - 1] : null;
-  const lastSched = lastGroup ? getGroupScheduledFor(lastGroup) : null;
 
   return (
     <ul className="space-y-3 relative">
-      {visible.map((g, idx) => (
-        <TimelineRow key={g.productId} group={g} isNext={idx === 0} dim={idx >= 4} />
+      {list.map((g, idx) => (
+        <TimelineRow key={g.productId} group={g} isNext={idx === 0} dim={false} />
       ))}
-      {collapsedCount > 0 && (
-        <li className="relative flex gap-3 items-start opacity-60">
-          <div className="w-[34px] h-[34px] rounded-full bg-white border border-border flex items-center justify-center shrink-0">
-            <span className="text-[9px] tabular-nums text-text-muted font-semibold">
-              +{collapsedCount}
-            </span>
-          </div>
-          <div className="flex-1 min-w-0 pt-1.5">
-            <p className="text-[11px] text-text-muted">
-              {collapsedCount} autre{collapsedCount > 1 ? "s" : ""} produit{collapsedCount > 1 ? "s" : ""}
-              {lastSched && (
-                <>
-                  {" — dernier à "}
-                  <span className="tabular-nums font-semibold text-text-secondary">
-                    {formatEndClock(lastSched)}
-                  </span>
-                </>
-              )}
-            </p>
-          </div>
-        </li>
-      )}
     </ul>
   );
 }
