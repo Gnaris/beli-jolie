@@ -30,3 +30,24 @@ export function formatQuantityLabel(item: OrderItemLike): string {
   }
   return String(item.quantity);
 }
+
+/**
+ * Filtre les articles par requête libre (référence, nom ou couleur).
+ * Casse ignorée, requête vidée = liste inchangée.
+ */
+export interface OrderItemSearchable {
+  productRef: string;
+  productName: string;
+  colorName: string;
+}
+
+export function filterOrderItemsByQuery<T extends OrderItemSearchable>(items: T[], query: string): T[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return items;
+  return items.filter(
+    (it) =>
+      it.productRef.toLowerCase().includes(q) ||
+      it.productName.toLowerCase().includes(q) ||
+      it.colorName.toLowerCase().includes(q),
+  );
+}

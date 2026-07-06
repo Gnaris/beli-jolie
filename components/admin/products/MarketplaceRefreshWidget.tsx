@@ -6,7 +6,6 @@ import Link from "next/link";
 import { getImageSrc } from "@/lib/image-utils";
 import {
   useMarketplaceRefreshQueue,
-  hasError,
   type MarketplaceRefreshItem,
   type MarketplaceTarget,
   type TargetOutcome,
@@ -21,6 +20,7 @@ import {
   getMarketplaceOutcome,
   getLocalOutcomeForGroup,
   getGroupScheduledFor,
+  getGroupErrors,
   type ProductGroup,
   type StatusFilter,
 } from "@/components/admin/products/marketplaceRefreshGroup";
@@ -91,6 +91,18 @@ function getActionVerb(mode: MarketplaceRefreshItem["mode"]): string {
   if (mode === "publish") return "Publication";
   if (mode === "resync") return "Resynchronisation";
   return "Rafraîchissement";
+}
+
+// Résout le libellé long d'une marketplace pour l'affichage du tooltip.
+type ErrorWithLabel = { marketplace: MarketplaceTarget; label: string; message: string };
+function withLabels(
+  errors: ReturnType<typeof getGroupErrors>,
+): ErrorWithLabel[] {
+  return errors.map((e) => ({
+    marketplace: e.marketplace,
+    label: MARKETPLACE_META[e.marketplace].label,
+    message: e.message,
+  }));
 }
 
 // ── Hook : tick chaque seconde pour rafraîchir les comptes à rebours ──
@@ -216,9 +228,95 @@ function ErrorTooltipPortal({
   );
 }
 
+// ── Tooltip d'erreurs pour toute une ligne produit ────────────────────
+// Affiche la liste des marketplaces en échec avec leur message respectif.
+function RowErrorsTooltipPortal({
+  anchorRect,
+  reference,
+  errors,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  anchorRect: DOMRect;
+  reference: string;
+  errors: ErrorWithLabel[];
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  if (typeof document === "undefined") return null;
+
+  const margin = 8;
+  const width = 340;
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+
+  let left = anchorRect.left + anchorRect.width / 2 - width / 2;
+  left = Math.max(margin, Math.min(left, viewportWidth - width - margin));
+
+  const preferAbove = anchorRect.top > 300;
+  const style: React.CSSProperties = preferAbove
+    ? { position: "fixed", left, bottom: viewportHeight - anchorRect.top + 6, width, zIndex: 9999 }
+    : { position: "fixed", left, top: anchorRect.bottom + 6, width, zIndex: 9999 };
+
+  const handleCopy = async () => {
+    try {
+      const text = errors.map((e) => `${e.label}: ${e.message}`).join("\n\n");
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* noop */
+    }
+  };
+
+  const heading =
+    errors.length === 1
+      ? `Échec sur ${errors[0].label}`
+      : `${errors.length} échecs sur ${reference}`;
+
+  return createPortal(
+    <div
+      role="tooltip"
+      style={style}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className="p-3 bg-red-700 text-white text-[11px] font-body leading-snug rounded-lg shadow-xl max-h-[60vh] overflow-y-auto select-text"
+    >
+      <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-white/20">
+        <span className="font-semibold text-[12px]">{heading}</span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 hover:bg-white/25 text-white text-[10px] font-medium transition-colors"
+          title="Copier les messages d'erreur"
+          aria-label="Copier les messages d'erreur"
+        >
+          {copied ? "Copié" : "Copier"}
+        </button>
+      </div>
+      <div className="space-y-2.5">
+        {errors.map((e) => (
+          <div key={e.marketplace}>
+            {errors.length > 1 && (
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-red-100 mb-0.5">
+                {e.label}
+              </div>
+            )}
+            <div className="whitespace-pre-line break-words select-text cursor-text">
+              {e.message}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ── Pastille marketplace compact (points colorés) ─────────────────────
-// Utilisée dans les rangées de la timeline. Réagit au hover pour montrer
-// l'erreur détaillée si présente.
+// Utilisée dans les rangées de la timeline. Le tooltip d'erreur détaillé
+// est géré au niveau de la ligne produit (RowErrorsTooltipPortal), pas ici.
 function CompactMarketplaceDot({
   item,
   onDim,
@@ -228,12 +326,30 @@ function CompactMarketplaceDot({
 }) {
   const meta = MARKETPLACE_META[item.marketplace];
   const outcome = getMarketplaceOutcome(item);
+  const isErr = outcome && !outcome.ok;
+
+  return (
+    <span className={`relative inline-flex ${onDim ? "opacity-60" : ""}`}>
+      <span
+        className={`w-2 h-2 rounded-full ${meta.dotBg} ${
+          isErr ? "ring-2 ring-red-300" : ""
+        }`}
+        title={meta.label}
+      />
+    </span>
+  );
+}
+
+// ── Pastille marketplace dans le hero (fond translucide sur dégradé) ──
+function HeroMarketplacePill({ item }: { item: MarketplaceRefreshItem }) {
+  const meta = MARKETPLACE_META[item.marketplace];
+  const outcome = getMarketplaceOutcome(item);
   const anchorRef = useRef<HTMLSpanElement | null>(null);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isErr = outcome && !outcome.ok;
-  const errorMsg = isErr ? outcome.message : null;
+  const errorMsg = isErr ? outcome.message || "Erreur non renseignée" : null;
 
   const cancelClose = () => {
     if (closeTimer.current) {
@@ -250,37 +366,6 @@ function CompactMarketplaceDot({
     cancelClose();
     setAnchorRect(anchorRef.current.getBoundingClientRect());
   };
-
-  return (
-    <span
-      ref={anchorRef}
-      className={`relative inline-flex ${onDim ? "opacity-60" : ""}`}
-      onMouseEnter={openTooltip}
-      onMouseLeave={scheduleClose}
-    >
-      <span
-        className={`w-2 h-2 rounded-full ${meta.dotBg} ${
-          isErr ? "ring-2 ring-red-300" : ""
-        }`}
-        title={meta.label}
-      />
-      {errorMsg && anchorRect && (
-        <ErrorTooltipPortal
-          anchorRect={anchorRect}
-          title={`Échec sur ${meta.label}`}
-          message={errorMsg}
-          onMouseEnter={cancelClose}
-          onMouseLeave={scheduleClose}
-        />
-      )}
-    </span>
-  );
-}
-
-// ── Pastille marketplace dans le hero (fond translucide sur dégradé) ──
-function HeroMarketplacePill({ item }: { item: MarketplaceRefreshItem }) {
-  const meta = MARKETPLACE_META[item.marketplace];
-  const outcome = getMarketplaceOutcome(item);
 
   let statusIcon: ReactNode = null;
   if (item.status === "in_progress") {
@@ -312,12 +397,26 @@ function HeroMarketplacePill({ item }: { item: MarketplaceRefreshItem }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 pl-2 pr-2 py-0.5 rounded-md backdrop-blur text-[10px] font-semibold border border-white/25 ${meta.pillBg} ${meta.pillText}`}
-      title={meta.label}
+      ref={anchorRef}
+      onMouseEnter={openTooltip}
+      onMouseLeave={scheduleClose}
+      className={`inline-flex items-center gap-1.5 pl-2 pr-2 py-0.5 rounded-md backdrop-blur text-[10px] font-semibold border ${
+        isErr ? "border-red-300/70 ring-1 ring-red-200/50 cursor-help" : "border-white/25"
+      } ${meta.pillBg} ${meta.pillText}`}
+      title={isErr ? undefined : meta.label}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${meta.pillDot}`} />
       {meta.short}
       {statusIcon}
+      {errorMsg && anchorRect && (
+        <ErrorTooltipPortal
+          anchorRect={anchorRect}
+          title={`Échec sur ${meta.label}`}
+          message={errorMsg}
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
+        />
+      )}
     </span>
   );
 }
@@ -876,10 +975,51 @@ function TimelineRow({
     return order[a.marketplace] - order[b.marketplace];
   });
 
+  // ── Hover tooltip d'erreur au niveau de la ligne complète ────────────
+  // Si le produit a au moins un échec, survoler n'importe où sur la carte
+  // affiche la liste des marketplaces en erreur avec leur message.
+  const errors = isErr ? withLabels(getGroupErrors(group)) : [];
+  const rowRef = useRef<HTMLLIElement | null>(null);
+  const [rowAnchorRect, setRowAnchorRect] = useState<DOMRect | null>(null);
+  const rowCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelRowClose = () => {
+    if (rowCloseTimer.current) {
+      clearTimeout(rowCloseTimer.current);
+      rowCloseTimer.current = null;
+    }
+  };
+  const scheduleRowClose = () => {
+    cancelRowClose();
+    rowCloseTimer.current = setTimeout(() => setRowAnchorRect(null), 200);
+  };
+  const openRowTooltip = () => {
+    if (errors.length === 0 || !rowRef.current) return;
+    cancelRowClose();
+    setRowAnchorRect(rowRef.current.getBoundingClientRect());
+  };
+  const rowErrorTooltip =
+    errors.length > 0 && rowAnchorRect ? (
+      <RowErrorsTooltipPortal
+        anchorRect={rowAnchorRect}
+        reference={group.reference}
+        errors={errors}
+        onMouseEnter={cancelRowClose}
+        onMouseLeave={scheduleRowClose}
+      />
+    ) : null;
+  const rowHoverProps = {
+    onMouseEnter: openRowTooltip,
+    onMouseLeave: scheduleRowClose,
+  };
+
   // Ligne "carte" spéciale pour le prochain planifié (Next).
   if (isNext && isScheduled) {
     return (
-      <li className="relative flex gap-3 items-start">
+      <li
+        ref={rowRef}
+        {...rowHoverProps}
+        className={`relative flex gap-3 items-start ${isErr ? "cursor-help" : ""}`}
+      >
         <div className="relative shrink-0">
           <div className="w-[34px] h-[34px] rounded-full bg-white border-2 border-indigo-500 flex items-center justify-center shadow-sm ring-4 ring-indigo-50">
             <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -943,6 +1083,7 @@ function TimelineRow({
             </div>
           </div>
         </div>
+        {rowErrorTooltip}
       </li>
     );
   }
@@ -985,7 +1126,13 @@ function TimelineRow({
         : "";
 
   return (
-    <li className={`relative flex gap-3 items-start ${dim ? "opacity-70" : ""}`}>
+    <li
+      ref={rowRef}
+      {...rowHoverProps}
+      className={`relative flex gap-3 items-start ${dim ? "opacity-70" : ""} ${
+        isErr ? "cursor-help" : ""
+      }`}
+    >
       <div
         className={`w-[34px] h-[34px] rounded-full bg-white border flex items-center justify-center shrink-0 ${dotClasses}`}
       >
@@ -1040,6 +1187,7 @@ function TimelineRow({
           </div>
         </div>
       </div>
+      {rowErrorTooltip}
     </li>
   );
 }

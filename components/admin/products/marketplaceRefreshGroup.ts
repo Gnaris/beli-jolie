@@ -1,6 +1,7 @@
 import {
   hasError,
   type MarketplaceRefreshItem,
+  type MarketplaceTarget,
   type QueueItemStatus,
   type TargetOutcome,
 } from "@/components/admin/products/MarketplaceRefreshContext";
@@ -128,4 +129,36 @@ export function getGroupScheduledFor(group: ProductGroup): Date | null {
 export function groupIsScheduled(group: ProductGroup, now: Date = new Date()): boolean {
   const s = getGroupScheduledFor(group);
   return s !== null && s > now;
+}
+
+/**
+ * Retourne la liste des échecs marketplace du groupe, triés dans l'ordre
+ * pfs → ankorstore → efashion → faire. Utilisé par le tooltip d'erreur au
+ * survol d'une ligne produit dans le widget de synchro.
+ */
+export interface GroupError {
+  marketplace: MarketplaceTarget;
+  message: string;
+}
+const MARKETPLACE_ERROR_ORDER: Record<MarketplaceTarget, number> = {
+  pfs: 0,
+  ankorstore: 1,
+  efashion: 2,
+  faire: 3,
+};
+export function getGroupErrors(group: ProductGroup): GroupError[] {
+  const sorted = [...group.items].sort(
+    (a, b) => MARKETPLACE_ERROR_ORDER[a.marketplace] - MARKETPLACE_ERROR_ORDER[b.marketplace],
+  );
+  const errors: GroupError[] = [];
+  for (const item of sorted) {
+    const outcome = getMarketplaceOutcome(item);
+    if (outcome && !outcome.ok) {
+      errors.push({
+        marketplace: item.marketplace,
+        message: outcome.message || "Erreur non renseignée",
+      });
+    }
+  }
+  return errors;
 }

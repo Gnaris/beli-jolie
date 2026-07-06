@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo, useEffect } from "react";
+import { useState, useTransition, useMemo, useEffect, useCallback } from "react";
 import Image from "next/image";
 import {
   modifyOrderItems,
@@ -13,7 +13,7 @@ import {
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { getTotalUnits } from "@/lib/order-item-display";
+import { getTotalUnits, filterOrderItemsByQuery } from "@/lib/order-item-display";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -129,6 +129,7 @@ export default function OrderItemsEditor({
 
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const toast = useToast();
   const { confirm } = useConfirm();
 
@@ -353,7 +354,7 @@ export default function OrderItemsEditor({
       )}
 
       {/* ═══ 3 COLONNES ═══ */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
         <OrderedItemsColumn
           items={orderedItems}
           modMap={modMap}
@@ -396,7 +397,11 @@ export default function OrderItemsEditor({
         totalUnits={totalUnits}
         totalModels={totalModels}
         orderId={orderId}
+        onZoomImage={(src) => setZoomedImage(src)}
       />
+
+      {/* Modal image plein écran */}
+      {zoomedImage && <ImageModal src={zoomedImage} onClose={() => setZoomedImage(null)} />}
 
       {/* ═══ Bouton final : Confirmer les modifications ═══ */}
       {!readOnly && hasChanges && hasUnconfirmedChanges && (
@@ -459,13 +464,22 @@ function OrderedItemsColumn({
 }) {
   const totalUnits = items.reduce((s, i) => s + getTotalUnits(i), 0);
   const totalModels = items.filter((i) => i.quantity > 0).length;
+  const [search, setSearch] = useState("");
+
+  // Réinitialiser la recherche quand on sort du mode édition
+  useEffect(() => {
+    if (!editing) setSearch("");
+  }, [editing]);
+
+  const filteredItems = useMemo(() => filterOrderItemsByQuery(items, search), [items, search]);
+
   // paidAmount et previewTotal sont utilisés au niveau parent (bannière globale)
   void paidAmount;
   void previewTotal;
 
   return (
-    <section className="card overflow-hidden">
-      <div className="px-4 py-3 border-b border-border flex items-center gap-3 bg-bg-secondary/30">
+    <section className="card overflow-hidden flex flex-col lg:h-[680px]">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-3 bg-bg-secondary/30 shrink-0">
         <div className="w-[3px] h-6 bg-text-primary rounded-sm shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">Section 1</p>
@@ -492,8 +506,28 @@ function OrderedItemsColumn({
         )}
       </div>
 
-      <div className="divide-y divide-border-light">
-        {items.map((item) => {
+      {editing && (
+        <div className="px-4 py-3 border-b border-border bg-blue-50/40 shrink-0">
+          <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+            Rechercher par référence ou nom
+          </label>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Ex : BR-JO-DOR-BL-1250…"
+            className="w-full mt-1 px-3 py-2 border border-border rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+      )}
+
+      <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-border-light">
+        {filteredItems.length === 0 && search.trim() && (
+          <div className="px-4 py-10 text-center text-xs text-text-muted italic">
+            Aucun article ne correspond à « {search} ».
+          </div>
+        )}
+        {filteredItems.map((item) => {
           const mod = modMap.get(item.id);
           const edit = edits[item.id];
           const currentQty = edit?.newQuantity ?? item.quantity;
@@ -619,8 +653,8 @@ function AddedItemsColumn({
   const totalAdded = items.reduce((s, i) => s + i.lineTotal, 0);
 
   return (
-    <section className="card overflow-hidden">
-      <div className="px-4 py-3 border-b border-border flex items-center gap-3 bg-bg-secondary/30">
+    <section className="card overflow-hidden flex flex-col lg:h-[680px]">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-3 bg-bg-secondary/30 shrink-0">
         <div className="w-[3px] h-6 bg-success rounded-sm shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-success">Section 2</p>
@@ -637,58 +671,60 @@ function AddedItemsColumn({
         )}
       </div>
 
-      {showAddPanel && !readOnly && (
-        <AddCompensationPanel
-          orderId={orderId}
-          paidAmount={paidAmount}
-          currentTotal={currentTotal}
-          creditDue={creditDue}
-          onDone={() => setShowAddPanel(false)}
-        />
-      )}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {showAddPanel && !readOnly && (
+          <AddCompensationPanel
+            orderId={orderId}
+            paidAmount={paidAmount}
+            currentTotal={currentTotal}
+            creditDue={creditDue}
+            onDone={() => setShowAddPanel(false)}
+          />
+        )}
 
-      {items.length === 0 ? (
-        <div className="px-4 py-10 text-center text-xs text-text-muted italic">
-          Aucun article ajouté pour l'instant.
-        </div>
-      ) : (
-        <div className="divide-y divide-border-light">
-          {items.map((item) => (
-            <div key={item.id} className="px-4 py-3.5 flex gap-3 bg-success/5">
-              <ItemThumb src={item.imagePath} alt={item.productName} />
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-semibold text-text-primary leading-snug">{item.productName}</p>
-                <p className="text-[10px] font-mono text-text-muted mt-0.5 truncate">{item.productRef}</p>
-                <div className="flex flex-wrap gap-1 mt-1.5">
-                  <span className="badge badge-neutral">{item.colorName}</span>
-                  <span className="badge badge-success">Compensation</span>
-                </div>
-                <p className="text-[13px] font-semibold text-success mt-1.5 tabular-nums">
-                  + {fmt(item.lineTotal)}{" "}
-                  <span className="text-[10px] text-text-muted font-normal">
-                    {item.saleType === "PACK" && item.packQty
-                      ? `· ${item.quantity} paquet${item.quantity > 1 ? "s" : ""} × ${fmt(item.unitPrice)} = ${getTotalUnits(item)} unités`
-                      : `· ${item.quantity} × ${fmt(item.unitPrice)}`}
-                  </span>
-                </p>
-                {!readOnly && (
-                  <div className="flex gap-2 mt-1">
-                    <button
-                      onClick={() => onRemove(item.id, item.productName)}
-                      disabled={pending}
-                      className="text-[11px] font-semibold text-error underline underline-offset-2"
-                    >
-                      Retirer
-                    </button>
+        {items.length === 0 ? (
+          <div className="px-4 py-10 text-center text-xs text-text-muted italic h-full flex items-center justify-center">
+            Aucun article ajouté pour l&apos;instant.
+          </div>
+        ) : (
+          <div className="divide-y divide-border-light">
+            {items.map((item) => (
+              <div key={item.id} className="px-4 py-3.5 flex gap-3 bg-success/5">
+                <ItemThumb src={item.imagePath} alt={item.productName} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-semibold text-text-primary leading-snug">{item.productName}</p>
+                  <p className="text-[10px] font-mono text-text-muted mt-0.5 truncate">{item.productRef}</p>
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    <span className="badge badge-neutral">{item.colorName}</span>
+                    <span className="badge badge-success">Compensation</span>
                   </div>
-                )}
+                  <p className="text-[13px] font-semibold text-success mt-1.5 tabular-nums">
+                    + {fmt(item.lineTotal)}{" "}
+                    <span className="text-[10px] text-text-muted font-normal">
+                      {item.saleType === "PACK" && item.packQty
+                        ? `· ${item.quantity} paquet${item.quantity > 1 ? "s" : ""} × ${fmt(item.unitPrice)} = ${getTotalUnits(item)} unités`
+                        : `· ${item.quantity} × ${fmt(item.unitPrice)}`}
+                    </span>
+                  </p>
+                  {!readOnly && (
+                    <div className="flex gap-2 mt-1">
+                      <button
+                        onClick={() => onRemove(item.id, item.productName)}
+                        disabled={pending}
+                        className="text-[11px] font-semibold text-error underline underline-offset-2"
+                      >
+                        Retirer
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
 
-      <div className="px-4 py-3 border-t-2 border-success/30 flex items-center justify-between bg-success/5">
+      <div className="px-4 py-3 border-t-2 border-success/30 flex items-center justify-between bg-success/5 shrink-0">
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-success">
           Total ajouts
         </span>
@@ -1210,8 +1246,8 @@ function AdjustedItemsColumn({
   );
 
   return (
-    <section className="card overflow-hidden">
-      <div className="px-4 py-3 border-b border-border flex items-center gap-3 bg-bg-secondary/30">
+    <section className="card overflow-hidden flex flex-col lg:h-[680px]">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-3 bg-bg-secondary/30 shrink-0">
         <div className="w-[3px] h-6 bg-error rounded-sm shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-error">Section 3</p>
@@ -1229,11 +1265,11 @@ function AdjustedItemsColumn({
       </div>
 
       {modifications.length === 0 ? (
-        <div className="px-4 py-10 text-center text-xs text-text-muted italic">
-          Aucun article ajusté pour l'instant.
+        <div className="flex-1 min-h-0 flex items-center justify-center px-4 py-10 text-center text-xs text-text-muted italic">
+          Aucun article ajusté pour l&apos;instant.
         </div>
       ) : (
-        <div className="divide-y divide-border-light">
+        <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-border-light">
           {modifications.map((mod) => {
             const qtyChanged = mod.originalQuantity !== mod.newQuantity;
             const priceChanged = mod.newUnitPrice !== null && mod.originalUnitPrice !== null;
@@ -1314,17 +1350,17 @@ function AdjustedItemsColumn({
 
       {modifications.length > 0 && (
         <>
-          <div className="px-4 py-3 border-t-2 border-error/30 flex items-center justify-between bg-error/5">
+          <div className="px-4 py-3 border-t-2 border-error/30 flex items-center justify-between bg-error/5 shrink-0">
             <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-error">
               Total ajustements
             </span>
             <span className="text-base font-semibold text-error tabular-nums">− {fmt(totalCredit)}</span>
           </div>
 
-          <div className="border-t border-border">
+          <div className="border-t border-border shrink-0 max-h-56 overflow-y-auto">
             <button
               onClick={() => setShowHistory(!showHistory)}
-              className="w-full flex items-center gap-2 px-4 py-2 text-xs text-text-muted hover:bg-bg-secondary/50 transition"
+              className="w-full flex items-center gap-2 px-4 py-2 text-xs text-text-muted hover:bg-bg-secondary/50 transition sticky top-0 bg-bg-primary z-10"
             >
               <span>Historique des modifications</span>
               <span className="badge badge-neutral">{modifications.length}</span>
@@ -1368,20 +1404,25 @@ function SummarySection({
   totalUnits,
   totalModels,
   orderId,
+  onZoomImage,
 }: {
   orderedItems: OrderItemForEdit[];
   compensationItems: OrderItemForEdit[];
   totalUnits: number;
   totalModels: number;
   orderId: string;
+  onZoomImage: (src: string) => void;
 }) {
   const allItems = [...orderedItems, ...compensationItems];
+  const [search, setSearch] = useState("");
+
+  const filteredItems = useMemo(() => filterOrderItemsByQuery(allItems, search), [allItems, search]);
 
   return (
     <section className="card overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-border flex items-center gap-3 bg-bg-secondary/30">
-        <div className="w-[3px] h-6 bg-text-primary rounded-sm" />
-        <div className="flex-1">
+      <div className="px-4 sm:px-5 py-3.5 border-b border-border flex items-center gap-3 flex-wrap bg-bg-secondary/30">
+        <div className="w-[3px] h-6 bg-text-primary rounded-sm shrink-0" />
+        <div className="flex-1 min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">Section 4 — Ce que le client va recevoir</p>
           <h2 className="text-lg font-semibold text-text-primary">Résumé de la commande</h2>
         </div>
@@ -1396,33 +1437,60 @@ function SummarySection({
         </a>
       </div>
 
+      <div className="px-4 sm:px-5 py-3 border-b border-border bg-blue-50/40">
+        <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+          Rechercher par référence ou nom
+        </label>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Ex : BR-JO-DOR-BL-1250…"
+          className="w-full mt-1 px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+      </div>
+
       {allItems.length === 0 ? (
         <div className="px-5 py-10 text-center text-sm text-text-muted italic">
           Aucun article à envoyer.
         </div>
+      ) : filteredItems.length === 0 ? (
+        <div className="px-5 py-10 text-center text-sm text-text-muted italic">
+          Aucun article ne correspond à « {search} ».
+        </div>
       ) : (
-        <div className="divide-y divide-border-light">
-          {allItems.map((item) => (
-            <div key={item.id} className={`px-5 py-3.5 flex gap-3 items-center ${item.isCompensation ? "bg-success/5" : ""}`}>
-              <ItemThumb src={item.imagePath} alt={item.productName} size="sm" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-text-primary">{item.productName}</p>
-                <p className="text-[10px] font-mono text-text-muted mt-0.5">
+        <div className="max-h-[640px] overflow-y-auto divide-y divide-border-light">
+          {filteredItems.map((item) => (
+            <div
+              key={item.id}
+              className={`px-4 sm:px-5 py-4 flex flex-wrap sm:flex-nowrap gap-3 sm:gap-4 items-center ${item.isCompensation ? "bg-success/5" : ""}`}
+            >
+              <ItemThumb
+                src={item.imagePath}
+                alt={item.productName}
+                size="lg"
+                onClick={item.imagePath ? () => onZoomImage(item.imagePath!) : undefined}
+              />
+              <div className="flex-1 min-w-[10rem]">
+                <p className="text-base font-semibold text-text-primary leading-snug">{item.productName}</p>
+                <p className="text-[11px] font-mono text-text-muted mt-1 break-all">
                   {item.productRef} · {item.colorName}
                   {item.isCompensation && <span className="badge badge-success ml-2">Ajouté</span>}
                 </p>
               </div>
-              <p className="text-sm text-text-secondary tabular-nums w-24 text-right">
-                {getTotalUnits(item)} unités
-                {item.saleType === "PACK" && item.packQty && (
-                  <span className="block text-[10px] text-text-muted">
-                    {item.quantity} × ×{item.packQty}
-                  </span>
-                )}
-              </p>
-              <p className={`text-base font-semibold tabular-nums w-24 text-right ${item.isCompensation ? "text-success" : ""}`}>
-                {item.isCompensation ? "+ " : ""}{fmt(item.lineTotal)}
-              </p>
+              <div className="flex items-center justify-between w-full sm:w-auto sm:justify-end gap-4 sm:gap-6">
+                <p className="text-sm text-text-secondary tabular-nums text-left sm:text-right whitespace-nowrap sm:w-24">
+                  {getTotalUnits(item)} unités
+                  {item.saleType === "PACK" && item.packQty && (
+                    <span className="block text-[10px] text-text-muted">
+                      {item.quantity} × ×{item.packQty}
+                    </span>
+                  )}
+                </p>
+                <p className={`text-lg font-semibold tabular-nums text-right whitespace-nowrap sm:w-28 ${item.isCompensation ? "text-success" : ""}`}>
+                  {item.isCompensation ? "+ " : ""}{fmt(item.lineTotal)}
+                </p>
+              </div>
             </div>
           ))}
         </div>
@@ -1435,18 +1503,93 @@ function SummarySection({
 /*  Vignette produit                                                   */
 /* ------------------------------------------------------------------ */
 
-function ItemThumb({ src, alt, size = "md" }: { src: string | null; alt: string; size?: "sm" | "md" }) {
-  const dim = size === "sm" ? 44 : 56;
+function ItemThumb({
+  src,
+  alt,
+  size = "md",
+  onClick,
+}: {
+  src: string | null;
+  alt: string;
+  size?: "sm" | "md" | "lg";
+  onClick?: () => void;
+}) {
+  const dim = size === "sm" ? 44 : size === "lg" ? 88 : 56;
+  const commonClass = "rounded-md bg-bg-secondary shrink-0 overflow-hidden border border-border";
+
+  const inner = src ? (
+    <Image src={src} alt={alt} width={dim} height={dim} className="w-full h-full object-cover transition group-hover:scale-105" />
+  ) : (
+    <div className="w-full h-full flex items-center justify-center text-text-muted text-[9px]">img</div>
+  );
+
+  if (onClick && src) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`${commonClass} group cursor-zoom-in`}
+        style={{ width: dim, height: dim }}
+        aria-label={`Agrandir l'image de ${alt}`}
+      >
+        {inner}
+      </button>
+    );
+  }
+
+  return (
+    <div className={commonClass} style={{ width: dim, height: dim }}>
+      {inner}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Modal image plein écran                                            */
+/* ------------------------------------------------------------------ */
+
+function ImageModal({ src, onClose }: { src: string; onClose: () => void }) {
+  const handleClose = useCallback(() => onClose(), [onClose]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handler);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", handler);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [handleClose]);
+
   return (
     <div
-      className="rounded-md bg-bg-secondary shrink-0 overflow-hidden border border-border"
-      style={{ width: dim, height: dim }}
+      onClick={handleClose}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-4 sm:p-6"
+      role="dialog"
+      aria-modal="true"
     >
-      {src ? (
-        <Image src={src} alt={alt} width={dim} height={dim} className="w-full h-full object-cover" />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center text-text-muted text-[9px]">img</div>
-      )}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative max-w-[95vw] max-h-[95vh] rounded-2xl overflow-hidden bg-white shadow-2xl"
+      >
+        <button
+          type="button"
+          onClick={handleClose}
+          className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/95 shadow-md flex items-center justify-center text-2xl font-bold text-text-primary hover:bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 z-10"
+          aria-label="Fermer"
+        >
+          ×
+        </button>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt=""
+          className="block max-w-[95vw] max-h-[95vh] object-contain"
+        />
+      </div>
     </div>
   );
 }

@@ -9,6 +9,7 @@ import {
   groupMatchesFilter,
   getMarketplaceOutcome,
   getLocalOutcomeForGroup,
+  getGroupErrors,
 } from "@/components/admin/products/marketplaceRefreshGroup";
 
 function makeItem(overrides: Partial<MarketplaceRefreshItem>): MarketplaceRefreshItem {
@@ -308,5 +309,115 @@ describe("getLocalOutcomeForGroup", () => {
       ],
     };
     expect(getLocalOutcomeForGroup(group)).toBeUndefined();
+  });
+});
+
+describe("getGroupErrors", () => {
+  it("retourne une liste vide quand aucun outcome n'est en erreur", () => {
+    const group = {
+      productId: "p1",
+      reference: "REF",
+      productName: "x",
+      firstImage: null,
+      items: [
+        makeItem({ status: "done", pfsOutcome: { ok: true } }),
+        makeItem({
+          id: "b",
+          marketplace: "ankorstore",
+          status: "in_progress",
+        }),
+      ],
+    };
+    expect(getGroupErrors(group)).toEqual([]);
+  });
+
+  it("liste chaque marketplace en échec avec son message", () => {
+    const group = {
+      productId: "p1",
+      reference: "REF",
+      productName: "x",
+      firstImage: null,
+      items: [
+        makeItem({
+          marketplace: "pfs",
+          status: "done",
+          pfsOutcome: { ok: false, kind: "error", message: "PFS bad request" },
+        }),
+        makeItem({
+          id: "b",
+          marketplace: "ankorstore",
+          status: "done",
+          ankorsOutcome: { ok: true },
+        }),
+        makeItem({
+          id: "c",
+          marketplace: "efashion",
+          status: "done",
+          efashionOutcome: { ok: false, kind: "not_found", message: "not found" },
+        }),
+      ],
+    };
+    const errors = getGroupErrors(group);
+    expect(errors).toEqual([
+      { marketplace: "pfs", message: "PFS bad request" },
+      { marketplace: "efashion", message: "not found" },
+    ]);
+  });
+
+  it("trie les erreurs dans l'ordre pfs → ankorstore → efashion → faire", () => {
+    const group = {
+      productId: "p1",
+      reference: "REF",
+      productName: "x",
+      firstImage: null,
+      items: [
+        makeItem({
+          id: "faire",
+          marketplace: "faire",
+          status: "done",
+          faireOutcome: { ok: false, kind: "error", message: "faire err" },
+        }),
+        makeItem({
+          id: "efashion",
+          marketplace: "efashion",
+          status: "done",
+          efashionOutcome: { ok: false, kind: "error", message: "efashion err" },
+        }),
+        makeItem({
+          id: "ankorstore",
+          marketplace: "ankorstore",
+          status: "done",
+          ankorsOutcome: { ok: false, kind: "error", message: "ankorstore err" },
+        }),
+        makeItem({
+          id: "pfs",
+          marketplace: "pfs",
+          status: "done",
+          pfsOutcome: { ok: false, kind: "error", message: "pfs err" },
+        }),
+      ],
+    };
+    expect(getGroupErrors(group).map((e) => e.marketplace)).toEqual([
+      "pfs",
+      "ankorstore",
+      "efashion",
+      "faire",
+    ]);
+  });
+
+  it("remplace un message vide par un libellé lisible", () => {
+    const group = {
+      productId: "p1",
+      reference: "REF",
+      productName: "x",
+      firstImage: null,
+      items: [
+        makeItem({
+          status: "done",
+          pfsOutcome: { ok: false, kind: "error", message: "" },
+        }),
+      ],
+    };
+    expect(getGroupErrors(group)[0].message).toBe("Erreur non renseignée");
   });
 });
