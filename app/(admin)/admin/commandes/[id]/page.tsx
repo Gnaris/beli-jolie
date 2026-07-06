@@ -308,11 +308,15 @@ export default async function AdminCommandeDetailPage({
         const paidHT = order.paidSubtotalHT ? Number(order.paidSubtotalHT) : currentSubtotalHT;
         const carrierPriceNum = Number(order.carrierPrice);
         const tvaRateNum = order.tvaRate;
-        // Détails TVA séparée produits / livraison
-        const tvaProducts = currentSubtotalHT * tvaRateNum;
-        const tvaShipping = carrierPriceNum * tvaRateNum;
-        // Montants clés
-        const paidTTC = (paidHT + carrierPriceNum) * (1 + tvaRateNum);
+        // Détails TVA séparée produits / livraison (arrondis 2 décimales pour rester
+        // cohérent avec le montant réellement facturé à Stripe)
+        const round2 = (n: number) => Math.round(n * 100) / 100;
+        const tvaProducts = round2(currentSubtotalHT * tvaRateNum);
+        const tvaShipping = round2(carrierPriceNum * tvaRateNum);
+        // Payé par le client = recalcul à partir du HT payé, arrondi composant par composant
+        const paidTTC = round2(
+          paidHT + carrierPriceNum + round2(paidHT * tvaRateNum) + round2(carrierPriceNum * tvaRateNum),
+        );
         const finalTTC = Number(order.totalTTC);
         const credit = Math.max(0, paidTTC - finalTTC);
         const isVatExempt = tvaRateNum === 0;
