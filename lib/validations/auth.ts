@@ -4,7 +4,8 @@ import { z } from "zod";
  * Schémas de validation Zod — Authentification
  */
 
-/** Connexion */
+/** Connexion — pas de contrainte de longueur ici (pas d'indice sur la
+ *  politique du mot de passe côté connexion, et compat avec anciens comptes). */
 export const loginSchema = z.object({
   email: z
     .string()
@@ -12,8 +13,7 @@ export const loginSchema = z.object({
     .email("Format d'email invalide."),
   password: z
     .string()
-    .min(1, "Le mot de passe est requis.")
-    .min(8, "Le mot de passe doit contenir au moins 8 caractères."),
+    .min(1, "Le mot de passe est requis."),
 });
 
 /** Inscription BtoB */

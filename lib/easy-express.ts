@@ -76,7 +76,7 @@ export interface RatesInput {
 export interface RatesCarrier {
   carrierId: string;   // base64 opaque ID retourné par Easy-Express
   name:      string;
-  price:     number;   // en euros (déjà converti depuis centimes)
+  price:     number;   // prix HT en euros (converti depuis centimes)
   delay:     string;
   logo:      string;
 }
@@ -149,8 +149,8 @@ export async function fetchEasyExpressRates(
       return {
         carrierId: (c.id ?? "") as string,
         name:      (c.name ?? "") as string,
-        // prix en centimes → euros
-        price:     Math.round(((c.priceIncTax ?? c.price ?? 0) as number) / 100 * 100) / 100,
+        // prix HT en centimes → euros (le TTC est recalculé côté client à partir du taux TVA)
+        price:     Math.round(((c.price ?? 0) as number) / 100 * 100) / 100,
         delay:     (infos.estimatedArrival ?? "3-5 jours") as string,
         logo:      (c.logo ?? "") as string,
       };

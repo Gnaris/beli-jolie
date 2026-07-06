@@ -582,14 +582,21 @@ export async function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
       // Sous-total HT (après remises)
       totalRow("Sous-total HT", fmt(data.subtotalHT), { bold: true });
 
-      // TVA
-      const tvaNote = data.tvaRate === 0 ? " (autoliquidation)" : "";
-      totalRow(`TVA ${tvaLabel(data.tvaRate)}${tvaNote}`, fmt(data.tvaAmount));
+      // Frais de livraison HT (le carrierPrice est stocké en HT depuis la refonte TVA)
+      totalRow(
+        "Frais de livraison HT",
+        data.carrierPrice === 0 ? "Offerts" : fmt(data.carrierPrice),
+        { valueColor: data.carrierPrice === 0 ? C.success : C.primary },
+      );
 
-      // Livraison
-      totalRow("Frais de livraison", data.carrierPrice === 0 ? "Offerts" : fmt(data.carrierPrice), {
-        valueColor: data.carrierPrice === 0 ? C.success : C.primary,
-      });
+      // TVA détaillée : articles / port
+      const tvaProductsAmount = data.subtotalHT * data.tvaRate;
+      const tvaShippingAmount = data.carrierPrice * data.tvaRate;
+      const tvaNote = data.tvaRate === 0 ? " (autoliquidation)" : "";
+      totalRow(`TVA sur articles ${tvaLabel(data.tvaRate)}${tvaNote}`, fmt(tvaProductsAmount));
+      if (data.carrierPrice > 0 && data.tvaRate > 0) {
+        totalRow(`TVA sur port ${tvaLabel(data.tvaRate)}`, fmt(tvaShippingAmount));
+      }
 
       y += 4;
 

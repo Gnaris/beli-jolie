@@ -142,8 +142,10 @@ export async function POST(req: Request) {
   const isPrivateCarrier = carrierId === "private_carrier";
   const finalCarrierPrice = isPrivateCarrier ? 0 : effectiveCarrierPrice;
 
-  const tvaAmount = subtotalAfterDiscount * tvaRate;
-  const totalTTC = subtotalAfterDiscount + tvaAmount + finalCarrierPrice;
+  // TVA appliquée aussi sur les frais de port (art. 267 CGI :
+  // le port suit le même régime TVA que les biens vendus).
+  const tvaAmount = (subtotalAfterDiscount + finalCarrierPrice) * tvaRate;
+  const totalTTC = subtotalAfterDiscount + finalCarrierPrice + tvaAmount;
 
   const amountCents = Math.round(totalTTC * 100);
 

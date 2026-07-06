@@ -24,6 +24,15 @@ La personne qui te parle **n'est pas développeuse** — elle dirige le projet. 
 - **Suggestions** : si une variante peut améliorer la tâche (UX, robustesse, perf), la proposer en plus. Elle décide.
 - **Tests unitaires obligatoires** sur toute nouvelle feature ou modif (Vitest).
 
+### Dev server local (auto-géré par Claude)
+
+Claude **lance et garde tourné** `npm run dev` en arrière-plan lui-même, dès qu'il attaque un chantier qui touche au site (UI, server actions, API). Redémarrer sans demander après :
+- modif de `.env`
+- modif de `prisma/schema.prisma` (+ `npx prisma generate && npx prisma db push` avant)
+- modif de `next.config.ts` ou d'une dépendance native (`sharp`, `pdfkit`, `exceljs`…)
+
+Sortie loggée dans `dev-server.log` (déjà git-ignoré). Ne pas relancer si un dev tourne déjà — vérifier d'abord dans les tâches en arrière-plan.
+
 ### Workflow modification → validation → push
 
 Quand l'utilisatrice demande **corriger / réparer / mettre à jour** quelque chose qui touche au site :

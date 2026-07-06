@@ -365,11 +365,12 @@ function AddressForm({
 // ─────────────────────────────────────────────
 
 function CarrierCard({
-  carrier, selected, onClick,
+  carrier, tvaRate, selected, onClick,
 }: {
-  carrier: Carrier; selected: boolean; onClick: () => void;
+  carrier: Carrier; tvaRate: number; selected: boolean; onClick: () => void;
 }) {
   const t = useTranslations("checkout");
+  const priceTTC = carrier.price * (1 + tvaRate);
   return (
     <button
       type="button"
@@ -393,9 +394,16 @@ function CarrierCard({
           {carrier.delay}
         </p>
       </div>
-      <p className="font-heading font-semibold text-sm text-text-primary shrink-0">
-        {carrier.price === 0 ? t("free") : `${carrier.price.toFixed(2)} €`}
-      </p>
+      <div className="shrink-0 text-right">
+        <p className="font-heading font-semibold text-sm text-text-primary">
+          {carrier.price === 0 ? t("free") : `${carrier.price.toFixed(2)} € HT`}
+        </p>
+        {carrier.price > 0 && tvaRate > 0 && (
+          <p className="text-[11px] text-text-muted font-body mt-0.5">
+            {priceTTC.toFixed(2)} € TTC
+          </p>
+        )}
+      </div>
     </button>
   );
 }
@@ -745,9 +753,13 @@ export default function CheckoutClient({
   })();
   const subtotalAfterDiscount = subtotalHT - clientDiscountAmt;
 
+  // selectedCarrier.price est le prix HT renvoyé par /api/carriers (Easy-Express c.price)
   const effectiveCarrierPrice = clientDiscount?.freeShipping ? 0 : (selectedCarrier?.price ?? 0);
-  const tvaAmount = subtotalAfterDiscount * tvaRate;
-  const totalTTC  = subtotalAfterDiscount + tvaAmount + effectiveCarrierPrice;
+  // TVA appliquée aussi sur les frais de port (art. 267 CGI)
+  const tvaProducts = subtotalAfterDiscount * tvaRate;
+  const tvaShipping = effectiveCarrierPrice * tvaRate;
+  const tvaAmount = tvaProducts + tvaShipping;
+  const totalTTC  = subtotalAfterDiscount + effectiveCarrierPrice + tvaAmount;
 
   // Poids total (pour Easy-Express)
   const totalWeightKg = cart.items.reduce((s, item) => {
@@ -1696,6 +1708,7 @@ export default function CheckoutClient({
                     <CarrierCard
                       key={carrier.id}
                       carrier={carrier}
+                      tvaRate={tvaRate}
                       selected={selectedCarrierId === carrier.id}
                       onClick={() => setSelectedCarrierId(carrier.id)}
                     />
@@ -1717,7 +1730,9 @@ export default function CheckoutClient({
             subtotalAfterDiscount={subtotalAfterDiscount}
             tvaRate={tvaRate}
             tvaLabel={tvaLabel}
-            tvaAmount={tvaAmount}
+            tvaProducts={tvaProducts}
+            tvaShipping={tvaShipping}
+            carrierPriceHT={effectiveCarrierPrice}
             selectedAddr={selectedAddr}
             deliveryMode={deliveryMode}
             selectedCarrier={selectedCarrier}
@@ -1746,7 +1761,8 @@ export default function CheckoutClient({
 
 function SummaryPanel({
   cart, computeUnitPrice: computePrice, subtotalHT, clientDiscountAmt, clientDiscount,
-  subtotalAfterDiscount, tvaLabel, tvaAmount, selectedAddr, deliveryMode,
+  subtotalAfterDiscount, tvaLabel, tvaProducts, tvaShipping, carrierPriceHT,
+  selectedAddr, deliveryMode,
   selectedCarrier, canProceed, totalTTC, orderError, stripeError, cgvAccepted,
   setCgvAccepted, clientSecret, stripeLoading, handleInitiatePayment,
   handlePaymentSuccess, setStripeError, isPending,
@@ -1759,7 +1775,9 @@ function SummaryPanel({
   subtotalAfterDiscount: number;
   tvaRate: number;
   tvaLabel: string;
-  tvaAmount: number;
+  tvaProducts: number;
+  tvaShipping: number;
+  carrierPriceHT: number;
   selectedAddr: Address | null;
   deliveryMode: "delivery" | "pickup" | "private";
   selectedCarrier: Carrier | { id: string; name: string; price: number; delay: string } | null;
@@ -1865,19 +1883,14 @@ function SummaryPanel({
                 </div>
               )}
 
-              <div className="flex justify-between text-text-secondary">
-                <span>{t("tva")} <span className="text-xs text-text-muted">({tvaLabel})</span></span>
-                <span className="font-medium text-text-primary">
-                  {selectedAddr ? `${tvaAmount.toFixed(2)} €` : "—"}
-                </span>
-              </div>
+              {/* Frais de port HT */}
               <div className="flex justify-between text-text-secondary">
                 <span>
                   {deliveryMode === "pickup"
                     ? t("modePickup")
                     : deliveryMode === "private"
                       ? t("modePrivate")
-                      : t("shippingMode")}
+                      : t("shippingHT")}
                 </span>
                 <span className={`font-medium ${
                   (deliveryMode === "pickup" || deliveryMode === "private" || (clientDiscount?.freeShipping && selectedCarrier))
@@ -1889,10 +1902,26 @@ function SummaryPanel({
                     : selectedCarrier
                       ? (clientDiscount?.freeShipping
                           ? t("offered")
-                          : selectedCarrier.price === 0 ? t("free") : `${selectedCarrier.price.toFixed(2)} €`)
+                          : carrierPriceHT === 0 ? t("free") : `${carrierPriceHT.toFixed(2)} €`)
                       : "—"}
                 </span>
               </div>
+
+              {/* TVA sur articles */}
+              <div className="flex justify-between text-text-secondary">
+                <span>{t("tvaProducts")} <span className="text-xs text-text-muted">({tvaLabel})</span></span>
+                <span className="font-medium text-text-primary">
+                  {selectedAddr ? `${tvaProducts.toFixed(2)} €` : "—"}
+                </span>
+              </div>
+
+              {/* TVA sur port */}
+              {selectedAddr && (deliveryMode === "delivery") && !clientDiscount?.freeShipping && selectedCarrier && carrierPriceHT > 0 && (
+                <div className="flex justify-between text-text-secondary">
+                  <span>{t("tvaShipping")} <span className="text-xs text-text-muted">({tvaLabel})</span></span>
+                  <span className="font-medium text-text-primary">{tvaShipping.toFixed(2)} €</span>
+                </div>
+              )}
 
               <div className="border-t border-border pt-3 flex justify-between items-center mt-2">
                 <span className="font-semibold text-text-primary">{t("totalTTC")}</span>

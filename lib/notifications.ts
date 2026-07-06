@@ -339,25 +339,37 @@ export async function notifyOrderStatusChange(
               <tbody>${itemsHtml}</tbody>
             </table>
 
-            <!-- Totaux -->
-            <table style="width:220px;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:13px;">
+            <!-- Totaux (TVA détaillée : articles / port) -->
+            ${(() => {
+              const subHT = Number(order.subtotalHT);
+              const carrierHT = Number(order.carrierPrice);
+              const rate = order.tvaRate;
+              const tvaProducts = subHT * rate;
+              const tvaShipping = carrierHT * rate;
+              const rateLabel = rate === 0 ? "exonéré" : `${(rate * 100).toFixed(0)}%`;
+              return `<table style="width:240px;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:13px;">
               <tr>
                 <td style="padding:4px 0;color:#6B6B6B;">Sous-total HT</td>
-                <td style="padding:4px 0;text-align:right;">${Number(order.subtotalHT).toFixed(2)} €</td>
+                <td style="padding:4px 0;text-align:right;">${subHT.toFixed(2)} €</td>
               </tr>
               <tr>
-                <td style="padding:4px 0;color:#6B6B6B;">TVA (${order.tvaRate === 0 ? "exonéré" : `${(order.tvaRate * 100).toFixed(0)}%`})</td>
-                <td style="padding:4px 0;text-align:right;">${Number(order.tvaAmount).toFixed(2)} €</td>
+                <td style="padding:4px 0;color:#6B6B6B;">Frais de port HT</td>
+                <td style="padding:4px 0;text-align:right;">${carrierHT === 0 ? "Gratuit" : `${carrierHT.toFixed(2)} €`}</td>
               </tr>
               <tr>
-                <td style="padding:4px 0;color:#6B6B6B;">Livraison</td>
-                <td style="padding:4px 0;text-align:right;">${Number(order.carrierPrice) === 0 ? "Gratuit" : `${Number(order.carrierPrice).toFixed(2)} €`}</td>
+                <td style="padding:4px 0;color:#6B6B6B;">TVA sur articles (${rateLabel})</td>
+                <td style="padding:4px 0;text-align:right;">${tvaProducts.toFixed(2)} €</td>
               </tr>
+              ${carrierHT > 0 && rate > 0 ? `<tr>
+                <td style="padding:4px 0;color:#6B6B6B;">TVA sur port (${rateLabel})</td>
+                <td style="padding:4px 0;text-align:right;">${tvaShipping.toFixed(2)} €</td>
+              </tr>` : ""}
               <tr style="border-top:2px solid #1A1A1A;">
                 <td style="padding:8px 0;font-weight:bold;">Total TTC</td>
                 <td style="padding:8px 0;text-align:right;font-weight:bold;">${Number(order.totalTTC).toFixed(2)} €</td>
               </tr>
-            </table>
+            </table>`;
+            })()}
           </div>
 
           <!-- Lien espace client -->
@@ -656,24 +668,36 @@ export async function notifyAdminNewOrder(
             <tbody>${itemsHtml}</tbody>
           </table>
 
-          <table style="width:240px;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:13px;">
+          ${(() => {
+            const subHT = Number(order.subtotalHT);
+            const carrierHT = Number(order.carrierPrice);
+            const rate = order.tvaRate;
+            const tvaProducts = subHT * rate;
+            const tvaShipping = carrierHT * rate;
+            const rateLabel = rate === 0 ? "exonéré" : `${(rate * 100).toFixed(0)}%`;
+            return `<table style="width:260px;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:13px;">
             <tr>
               <td style="padding:4px 0;color:#6B6B6B;">Sous-total HT</td>
-              <td style="padding:4px 0;text-align:right;">${Number(order.subtotalHT).toFixed(2)} €</td>
+              <td style="padding:4px 0;text-align:right;">${subHT.toFixed(2)} €</td>
             </tr>
             <tr>
-              <td style="padding:4px 0;color:#6B6B6B;">TVA</td>
-              <td style="padding:4px 0;text-align:right;">${Number(order.tvaAmount).toFixed(2)} €</td>
+              <td style="padding:4px 0;color:#6B6B6B;">Frais de port HT</td>
+              <td style="padding:4px 0;text-align:right;">${carrierHT === 0 ? "Gratuit" : `${carrierHT.toFixed(2)} €`}</td>
             </tr>
             <tr>
-              <td style="padding:4px 0;color:#6B6B6B;">Livraison</td>
-              <td style="padding:4px 0;text-align:right;">${Number(order.carrierPrice) === 0 ? "Gratuit" : `${Number(order.carrierPrice).toFixed(2)} €`}</td>
+              <td style="padding:4px 0;color:#6B6B6B;">TVA sur articles (${rateLabel})</td>
+              <td style="padding:4px 0;text-align:right;">${tvaProducts.toFixed(2)} €</td>
             </tr>
+            ${carrierHT > 0 && rate > 0 ? `<tr>
+              <td style="padding:4px 0;color:#6B6B6B;">TVA sur port (${rateLabel})</td>
+              <td style="padding:4px 0;text-align:right;">${tvaShipping.toFixed(2)} €</td>
+            </tr>` : ""}
             <tr style="border-top:2px solid #1A1A1A;">
               <td style="padding:8px 0;font-weight:bold;">Total TTC</td>
               <td style="padding:8px 0;text-align:right;font-weight:bold;">${Number(order.totalTTC).toFixed(2)} €</td>
             </tr>
-          </table>
+          </table>`;
+          })()}
 
           <div style="text-align:center;margin-top:28px;">
             <a href="${baseUrl}/admin/commandes/${order.id}"
