@@ -82,14 +82,13 @@ export async function ankorstoreKickoffStandaloneDelete(args: {
       reference,
       skuCount: skus.length,
     });
-    await prisma.ankorstoreOperation.create({
-      data: {
-        id: operationId,
-        productId,
-        type: "DELETE",
-        status: "PENDING",
-        payload: payload as unknown as Prisma.InputJsonValue,
-      },
+    const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
+    await persistAnkorstoreOperation({
+      id: operationId,
+      productId,
+      type: "DELETE",
+      payload: payload as unknown as Prisma.InputJsonValue,
+      context: "Ankorstore Delete",
     });
 
     logger.info("[Ankorstore Delete] Kicked off", {
@@ -146,14 +145,13 @@ export async function ankorstoreKickoffVariantDelete(args: {
       reference,
       skuCount: skus.length,
     });
-    await prisma.ankorstoreOperation.create({
-      data: {
-        id: operationId,
-        productId,
-        type: "DELETE",
-        status: "PENDING",
-        payload: payload as unknown as Prisma.InputJsonValue,
-      },
+    const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
+    await persistAnkorstoreOperation({
+      id: operationId,
+      productId,
+      type: "DELETE",
+      payload: payload as unknown as Prisma.InputJsonValue,
+      context: "Ankorstore Delete",
     });
 
     logger.info("[Ankorstore Delete] Variant-only kickoff", {

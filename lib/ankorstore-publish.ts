@@ -538,14 +538,13 @@ export async function ankorstoreKickoffPublish(
       productId,
       reference: built.payload.reference,
     });
-    await prisma.ankorstoreOperation.create({
-      data: {
-        id: operationId,
-        productId,
-        type: "PUBLISH",
-        status: "PENDING",
-        payload: built.payload as unknown as Prisma.InputJsonValue,
-      },
+    const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
+    await persistAnkorstoreOperation({
+      id: operationId,
+      productId,
+      type: "PUBLISH",
+      payload: built.payload as unknown as Prisma.InputJsonValue,
+      context: "Ankorstore Publish",
     });
 
     logger.info("[Ankorstore Publish] Kicked off", {

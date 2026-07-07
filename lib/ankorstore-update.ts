@@ -920,14 +920,13 @@ export async function ankorstoreKickoffUpdate(
       productId,
       reference: product.reference,
     });
-    await prisma.ankorstoreOperation.create({
-      data: {
-        id: operationId,
-        productId,
-        type: "UPDATE",
-        status: "PENDING",
-        payload: payload as unknown as Prisma.InputJsonValue,
-      },
+    const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
+    await persistAnkorstoreOperation({
+      id: operationId,
+      productId,
+      type: "UPDATE",
+      payload: payload as unknown as Prisma.InputJsonValue,
+      context: "Ankorstore Update",
     });
 
     logger.info("[Ankorstore Update] Kicked off", {

@@ -189,14 +189,13 @@ export async function ankorstoreKickoffRefresh(
       productId,
       reference: product.reference,
     });
-    await prisma.ankorstoreOperation.create({
-      data: {
-        id: operationId,
-        productId,
-        type: "REFRESH_DELETE_OLD",
-        status: "PENDING",
-        payload: payload as unknown as Prisma.InputJsonValue,
-      },
+    const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
+    await persistAnkorstoreOperation({
+      id: operationId,
+      productId,
+      type: "REFRESH_DELETE_OLD",
+      payload: payload as unknown as Prisma.InputJsonValue,
+      context: "Ankorstore Refresh",
     });
 
     logger.info("[Ankorstore Refresh] Kicked off (DELETE_OLD)", {
