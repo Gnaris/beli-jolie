@@ -42,6 +42,15 @@ function toNumber(value: unknown): number {
   return Number(value);
 }
 
+/**
+ * Arrondit un montant vers le bas (floor) au centime.
+ * Choix comptable : notre logiciel de facturation externe arrondit aussi vers
+ * le bas, donc on aligne totalTTC/tvaAmount pour éviter les écarts de 1 ct.
+ */
+export function floorMoney(value: number): number {
+  return Math.floor(value * 100) / 100;
+}
+
 export function recomputeOrderTotals(input: OrderTotalsInput): OrderTotalsResult {
   const preDiscountSubtotal = input.items.reduce(
     (sum, item) => sum + toNumber(item.lineTotal),
@@ -66,8 +75,10 @@ export function recomputeOrderTotals(input: OrderTotalsInput): OrderTotalsResult
   const carrierPriceNum = toNumber(input.carrierPrice);
   // TVA appliquée aussi sur les frais de port (art. 267 CGI :
   // le port suit le même régime TVA que les biens vendus).
-  const tvaAmount = (subtotalHT + carrierPriceNum) * input.tvaRate;
-  const totalTTC = subtotalHT + carrierPriceNum + tvaAmount;
+  // Total et TVA arrondis vers le bas au centime pour rester alignés avec
+  // le logiciel de facturation externe (voir floorMoney).
+  const tvaAmount = floorMoney((subtotalHT + carrierPriceNum) * input.tvaRate);
+  const totalTTC = floorMoney(subtotalHT + carrierPriceNum + (subtotalHT + carrierPriceNum) * input.tvaRate);
 
   return {
     preDiscountSubtotal,

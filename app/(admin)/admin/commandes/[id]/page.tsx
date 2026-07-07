@@ -10,6 +10,7 @@ import CreditNoteUpload from "@/components/admin/orders/CreditNoteUpload";
 import OrderItemsEditor from "@/components/admin/orders/OrderItemsEditor";
 import ShippingSection from "@/components/admin/orders/ShippingSection";
 import { EU_COUNTRIES } from "@/lib/vat";
+import { floorMoney } from "@/lib/order-totals";
 
 export const metadata: Metadata = { title: "Détail commande — Admin" };
 
@@ -261,7 +262,7 @@ export default async function AdminCommandeDetailPage({
       {/* ───────── Articles (3 colonnes + résumé) ───────── */}
       <OrderItemsEditor
         orderId={order.id}
-        paidAmount={Number(order.totalTTC)}
+        paidAmount={floorMoney((Number(order.subtotalHT) + Number(order.carrierPrice)) * (1 + order.tvaRate))}
         paidSubtotalHT={order.paidSubtotalHT ? Number(order.paidSubtotalHT) : Number(order.subtotalHT)}
         currentSubtotalHT={Number(order.subtotalHT)}
         readOnly={order.status !== "PENDING" && order.status !== "VALIDATED"}
@@ -308,16 +309,12 @@ export default async function AdminCommandeDetailPage({
         const paidHT = order.paidSubtotalHT ? Number(order.paidSubtotalHT) : currentSubtotalHT;
         const carrierPriceNum = Number(order.carrierPrice);
         const tvaRateNum = order.tvaRate;
-        // Détails TVA séparée produits / livraison (arrondis 2 décimales pour rester
-        // cohérent avec le montant réellement facturé à Stripe)
-        const round2 = (n: number) => Math.round(n * 100) / 100;
-        const tvaProducts = round2(currentSubtotalHT * tvaRateNum);
-        const tvaShipping = round2(carrierPriceNum * tvaRateNum);
-        // Payé par le client = recalcul à partir du HT payé, arrondi composant par composant
-        const paidTTC = round2(
-          paidHT + carrierPriceNum + round2(paidHT * tvaRateNum) + round2(carrierPriceNum * tvaRateNum),
-        );
-        const finalTTC = Number(order.totalTTC);
+        // TVA et totaux arrondis vers le bas au centime (aligné avec le logiciel
+        // de facturation externe qui arrondit aussi vers le bas).
+        const tvaProducts = floorMoney(currentSubtotalHT * tvaRateNum);
+        const tvaShipping = floorMoney(carrierPriceNum * tvaRateNum);
+        const paidTTC = floorMoney((paidHT + carrierPriceNum) * (1 + tvaRateNum));
+        const finalTTC = floorMoney((currentSubtotalHT + carrierPriceNum) * (1 + tvaRateNum));
         const credit = Math.max(0, paidTTC - finalTTC);
         const isVatExempt = tvaRateNum === 0;
         return (

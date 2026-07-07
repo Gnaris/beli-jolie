@@ -98,7 +98,9 @@ describe("notifyAdminNewOrder", () => {
     expect(sent.subject).toContain("ACME Corp");
     expect(sent.html).toContain("ACME Corp");
     expect(sent.html).toContain("Produit A");
-    expect(sent.html).toContain("126.90");
+    // Total TTC = floor((100 HT + 6.90 port) × 1.20) = floor(128.28) = 128.28
+    // (arrondi vers le bas au centime pour matcher la facturation externe)
+    expect(sent.html).toContain("128.28");
     expect(sent.attachments).toHaveLength(1);
     expect(sent.attachments?.[0].filename).toBe("Commande-K7X9M2PH.pdf");
     expect(sent.attachments?.[0].content).toBe(pdf);

@@ -1,5 +1,36 @@
 import { describe, it, expect } from "vitest";
-import { recomputeOrderTotals } from "@/lib/order-totals";
+import { recomputeOrderTotals, floorMoney } from "@/lib/order-totals";
+
+describe("floorMoney — arrondi vers le bas au centime", () => {
+  it("arrondit vers le bas (jamais vers le haut)", () => {
+    expect(floorMoney(234.024)).toBe(234.02);
+    expect(floorMoney(234.029)).toBe(234.02);
+    expect(floorMoney(234.02)).toBe(234.02);
+    expect(floorMoney(234.03)).toBe(234.03);
+  });
+
+  it("gère les valeurs entières et 0", () => {
+    expect(floorMoney(0)).toBe(0);
+    expect(floorMoney(100)).toBe(100);
+  });
+});
+
+describe("recomputeOrderTotals — arrondi vers le bas (aligné facturation)", () => {
+  it("commande 188.98 HT + port 6.04 + TVA 20% → total 234.02 (pas 234.03)", () => {
+    // Cas réel : commande cmr6p6o4n00dqm34qdukqvuog.
+    // (188.98 + 6.04) × 1.20 = 234.024 → doit s'arrondir vers le bas à 234.02
+    // pour matcher le logiciel de facturation externe.
+    const res = recomputeOrderTotals({
+      items: [{ lineTotal: 188.98 }],
+      tvaRate: 0.2,
+      carrierPrice: 6.04,
+      clientDiscountType: null,
+      clientDiscountValue: null,
+    });
+    expect(res.totalTTC).toBe(234.02);
+    expect(res.tvaAmount).toBe(39.00);
+  });
+});
 
 describe("recomputeOrderTotals — sans remise client", () => {
   it("somme simple HT + TVA (sur articles + port) + transport", () => {

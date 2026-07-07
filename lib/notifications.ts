@@ -14,6 +14,7 @@ import {
 } from "@/lib/cached-data";
 import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
+import { floorMoney } from "@/lib/order-totals";
 
 function escapeHtml(str: string): string {
   return str
@@ -344,8 +345,9 @@ export async function notifyOrderStatusChange(
               const subHT = Number(order.subtotalHT);
               const carrierHT = Number(order.carrierPrice);
               const rate = order.tvaRate;
-              const tvaProducts = subHT * rate;
-              const tvaShipping = carrierHT * rate;
+              const tvaProducts = floorMoney(subHT * rate);
+              const tvaShipping = floorMoney(carrierHT * rate);
+              const total = floorMoney((subHT + carrierHT) * (1 + rate));
               const rateLabel = rate === 0 ? "exonéré" : `${(rate * 100).toFixed(0)}%`;
               return `<table style="width:240px;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:13px;">
               <tr>
@@ -366,7 +368,7 @@ export async function notifyOrderStatusChange(
               </tr>` : ""}
               <tr style="border-top:2px solid #1A1A1A;">
                 <td style="padding:8px 0;font-weight:bold;">Total TTC</td>
-                <td style="padding:8px 0;text-align:right;font-weight:bold;">${Number(order.totalTTC).toFixed(2)} €</td>
+                <td style="padding:8px 0;text-align:right;font-weight:bold;">${total.toFixed(2)} €</td>
               </tr>
             </table>`;
             })()}
@@ -672,8 +674,9 @@ export async function notifyAdminNewOrder(
             const subHT = Number(order.subtotalHT);
             const carrierHT = Number(order.carrierPrice);
             const rate = order.tvaRate;
-            const tvaProducts = subHT * rate;
-            const tvaShipping = carrierHT * rate;
+            const tvaProducts = floorMoney(subHT * rate);
+            const tvaShipping = floorMoney(carrierHT * rate);
+            const total = floorMoney((subHT + carrierHT) * (1 + rate));
             const rateLabel = rate === 0 ? "exonéré" : `${(rate * 100).toFixed(0)}%`;
             return `<table style="width:260px;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:13px;">
             <tr>
@@ -694,7 +697,7 @@ export async function notifyAdminNewOrder(
             </tr>` : ""}
             <tr style="border-top:2px solid #1A1A1A;">
               <td style="padding:8px 0;font-weight:bold;">Total TTC</td>
-              <td style="padding:8px 0;text-align:right;font-weight:bold;">${Number(order.totalTTC).toFixed(2)} €</td>
+              <td style="padding:8px 0;text-align:right;font-weight:bold;">${total.toFixed(2)} €</td>
             </tr>
           </table>`;
           })()}

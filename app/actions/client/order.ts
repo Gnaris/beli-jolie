@@ -9,6 +9,7 @@ import { reinstateStockForOrder } from "@/lib/stock";
 import { rotatePrimaryIfNeeded } from "@/lib/rotate-primary-service";
 import { stockUnitsForCartLine } from "@/lib/stock-units";
 import { resolveVatRate, EU_COUNTRIES } from "@/lib/vat";
+import { floorMoney } from "@/lib/order-totals";
 
 // Erreur typée pour différencier les ruptures de stock des autres erreurs.
 class StockError extends Error {
@@ -323,8 +324,10 @@ export async function placeOrder(
 
   // TVA appliquée aussi sur les frais de port (art. 267 CGI :
   // le port suit le même régime TVA que les biens vendus).
-  const tvaAmount = (subtotalAfterDiscount + effectiveCarrierPrice) * tvaRate;
-  const totalTTC  = subtotalAfterDiscount + effectiveCarrierPrice + tvaAmount;
+  // Arrondi vers le bas au centime pour rester aligné avec le logiciel de
+  // facturation externe (qui arrondit aussi vers le bas).
+  const tvaAmount = floorMoney((subtotalAfterDiscount + effectiveCarrierPrice) * tvaRate);
+  const totalTTC  = floorMoney(subtotalAfterDiscount + effectiveCarrierPrice + (subtotalAfterDiscount + effectiveCarrierPrice) * tvaRate);
 
   // ── Vérifier que le montant payé par Stripe correspond bien au total recalculé.
   //    Tolérance de 1 centime pour absorber les arrondis.

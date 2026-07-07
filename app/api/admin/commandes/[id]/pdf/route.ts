@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateOrderPDF } from "@/lib/pdf-order";
 import { logger } from "@/lib/logger";
+import { floorMoney } from "@/lib/order-totals";
 
 /**
  * GET /api/admin/commandes/[id]/pdf
@@ -58,8 +59,11 @@ export async function GET(
       creditApplied:   Number(order.creditApplied),
       tvaRate:         order.tvaRate,
       subtotalHT:      Number(order.subtotalHT),
-      tvaAmount:       Number(order.tvaAmount),
-      totalTTC:        Number(order.totalTTC),
+      // Recalcul depuis subtotalHT + port + taux : les commandes historiques
+      // avaient un stockage arrondi vers le haut. On aligne systématiquement
+      // sur floorMoney pour matcher le logiciel de facturation externe.
+      tvaAmount:       floorMoney((Number(order.subtotalHT) + Number(order.carrierPrice)) * order.tvaRate),
+      totalTTC:        floorMoney((Number(order.subtotalHT) + Number(order.carrierPrice)) * (1 + order.tvaRate)),
       items: order.items.map((item) => {
         // Extraire categoryName du variantSnapshot si disponible
         let categoryName: string | null = null;

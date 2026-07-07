@@ -755,11 +755,14 @@ export default function CheckoutClient({
 
   // selectedCarrier.price est le prix HT renvoyé par /api/carriers (Easy-Express c.price)
   const effectiveCarrierPrice = clientDiscount?.freeShipping ? 0 : (selectedCarrier?.price ?? 0);
-  // TVA appliquée aussi sur les frais de port (art. 267 CGI)
-  const tvaProducts = subtotalAfterDiscount * tvaRate;
-  const tvaShipping = effectiveCarrierPrice * tvaRate;
-  const tvaAmount = tvaProducts + tvaShipping;
-  const totalTTC  = subtotalAfterDiscount + effectiveCarrierPrice + tvaAmount;
+  // TVA appliquée aussi sur les frais de port (art. 267 CGI).
+  // Arrondi vers le bas au centime pour rester aligné avec le logiciel de
+  // facturation externe (et Stripe, qui charge lui aussi le floor du total).
+  const floor2 = (n: number) => Math.floor(n * 100) / 100;
+  const tvaProducts = floor2(subtotalAfterDiscount * tvaRate);
+  const tvaShipping = floor2(effectiveCarrierPrice * tvaRate);
+  const tvaAmount = floor2((subtotalAfterDiscount + effectiveCarrierPrice) * tvaRate);
+  const totalTTC  = floor2((subtotalAfterDiscount + effectiveCarrierPrice) * (1 + tvaRate));
 
   // Poids total (pour Easy-Express)
   const totalWeightKg = cart.items.reduce((s, item) => {

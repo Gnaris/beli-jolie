@@ -12,6 +12,7 @@ import SuccessToast from "@/components/client/SuccessToast";
 import { STATUS_CONFIG, getTrackingUrl } from "@/app/[locale]/(client)/commandes/page";
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
+import { floorMoney } from "@/lib/order-totals";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -297,15 +298,12 @@ export default async function CommandeDetailPage({
         const paidHT = order.paidSubtotalHT ? Number(order.paidSubtotalHT) : currentSubtotalHT;
         const carrierPriceNum = Number(order.carrierPrice);
         const tvaRateNum = order.tvaRate;
-        const round2 = (n: number) => Math.round(n * 100) / 100;
-        const tvaProducts = round2(currentSubtotalHT * tvaRateNum);
-        const tvaShipping = round2(carrierPriceNum * tvaRateNum);
-        // Payé par le client : recalcul avec arrondi composant par composant
-        // pour rester cohérent avec le montant réellement facturé à Stripe.
-        const paidTTC = round2(
-          paidHT + carrierPriceNum + round2(paidHT * tvaRateNum) + round2(carrierPriceNum * tvaRateNum),
-        );
-        const finalTTC = Number(order.totalTTC);
+        // TVA et totaux arrondis vers le bas au centime (aligné avec le logiciel
+        // de facturation externe qui arrondit aussi vers le bas).
+        const tvaProducts = floorMoney(currentSubtotalHT * tvaRateNum);
+        const tvaShipping = floorMoney(carrierPriceNum * tvaRateNum);
+        const paidTTC = floorMoney((paidHT + carrierPriceNum) * (1 + tvaRateNum));
+        const finalTTC = floorMoney((currentSubtotalHT + carrierPriceNum) * (1 + tvaRateNum));
         return (
           <OrderColumnsView
             orderNumber={order.orderNumber}

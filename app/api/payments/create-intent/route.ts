@@ -144,10 +144,12 @@ export async function POST(req: Request) {
 
   // TVA appliquée aussi sur les frais de port (art. 267 CGI :
   // le port suit le même régime TVA que les biens vendus).
-  const tvaAmount = (subtotalAfterDiscount + finalCarrierPrice) * tvaRate;
-  const totalTTC = subtotalAfterDiscount + finalCarrierPrice + tvaAmount;
+  // Arrondi vers le bas au centime pour rester aligné avec le logiciel de
+  // facturation externe (qui arrondit aussi vers le bas).
+  const rawTotalTTC = subtotalAfterDiscount + finalCarrierPrice + (subtotalAfterDiscount + finalCarrierPrice) * tvaRate;
+  const totalTTC = Math.floor(rawTotalTTC * 100) / 100;
 
-  const amountCents = Math.round(totalTTC * 100);
+  const amountCents = Math.floor(rawTotalTTC * 100);
 
   if (amountCents < 50) {
     return NextResponse.json({ error: "Le montant minimum est de 0,50 €." }, { status: 400 });
