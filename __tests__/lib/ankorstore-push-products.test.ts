@@ -66,6 +66,10 @@ vi.mock("@/lib/ankorstore-api", () => ({
   ankorstoreGetVariants: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock("@/lib/cached-data", () => ({
+  getCachedAnkorstoreEnabled: vi.fn().mockResolvedValue(true),
+}));
+
 // Prisma
 const mockProductFindUnique = vi.fn();
 const mockAnkorstoreOperationCreate = vi.fn().mockResolvedValue({});
@@ -78,6 +82,7 @@ vi.mock("@/lib/prisma", () => ({
     ankorstoreOperation: {
       create: (...args: unknown[]) => mockAnkorstoreOperationCreate(...args),
       updateMany: (...args: unknown[]) => mockAnkorstoreOperationUpdateMany(...args),
+      findFirst: vi.fn().mockResolvedValue(null),
     },
   },
 }));

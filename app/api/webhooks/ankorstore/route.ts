@@ -80,11 +80,31 @@ export async function POST(request: Request) {
   });
 
   // ── Step 3: lookup operation in DB ──
-  const op = await prisma.ankorstoreOperation.findUnique({ where: { id: operationId } });
+  // Ankorstore peut appeler ce webhook AVANT que le persist local se termine
+  // (surtout sur les operations en un seul appel réseau — delete/refresh).
+  // On retry 2× avec pause pour rattraper la race, sinon on ACK 200 pour
+  // qu'Ankorstore n'insiste pas indéfiniment.
+  let op = await prisma.ankorstoreOperation.findUnique({ where: { id: operationId } });
   if (!op) {
-    // Unknown operation — could be a stale/duplicate callback from a previous
-    // deployment. ACK with 200 so Ankorstore doesn't keep retrying.
-    logger.warn("[Ankorstore Webhook] Unknown operationId — ignoring", { operationId });
+    for (let attempt = 1; attempt <= 2 && !op; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+      op = await prisma.ankorstoreOperation.findUnique({ where: { id: operationId } });
+      if (op) {
+        logger.info("[Ankorstore Webhook] Operation resolved after retry", {
+          operationId,
+          attempt,
+        });
+      }
+    }
+  }
+  if (!op) {
+    // Op toujours introuvable après retry — soit callback d'un ancien déploiement,
+    // soit persist définitivement raté (à investiguer si ça se répète).
+    logger.error("[Ankorstore Webhook] Unknown operationId after retry — ACK to stop retries", {
+      operationId,
+      event: body.event,
+      status: body.data?.attributes?.status,
+    });
     return NextResponse.json({ ok: true, reason: "unknown_operation" }, { status: 200 });
   }
 

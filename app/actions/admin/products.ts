@@ -691,6 +691,11 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       ankorsProductId: true,
       efashionReferenceBase: true,
       faireProductId: true,
+      // Compositions actuelles — utilisées pour détecter un changement de
+      // composition sur le save (sinon le badge orange resterait éteint).
+      compositions: {
+        select: { compositionId: true, percentage: true },
+      },
     },
   });
 
@@ -1276,6 +1281,52 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   // à false à la fin — donc cocher la case empêche le badge de rester
   // orange visible (loading prend le pas, puis vert).
   if (oldProduct) {
+    // Signature triée des compositions pour comparer indépendamment de l'ordre.
+    const compositionSig = (
+      list: { compositionId: string; percentage: number }[],
+    ): string =>
+      list
+        .map((c) => `${c.compositionId}:${c.percentage}`)
+        .sort()
+        .join("|");
+    const compositionsChanged =
+      compositionSig(oldProduct.compositions) !==
+      compositionSig(input.compositions);
+
+    // Changement niveau variante : prix / stock / poids / saleType /
+    // packQuantity / override couleur PFS. On compare pour chaque variante
+    // qui existait déjà (dbId présent dans input ET dans oldVariantMap).
+    // Ajouter / retirer une variante compte aussi.
+    let variantsChanged = false;
+    const oldVariantIds = new Set(oldVariantMap.keys());
+    const inputExistingIds = new Set<string>();
+    for (const c of input.colors) {
+      if (c.dbId && oldVariantMap.has(c.dbId)) {
+        inputExistingIds.add(c.dbId);
+        const prev = oldVariantMap.get(c.dbId)!;
+        if (
+          Number(prev.unitPrice) !== Number(c.unitPrice) ||
+          prev.stock !== c.stock
+        ) {
+          variantsChanged = true;
+          break;
+        }
+      } else {
+        // Variante nouvelle (pas de dbId ou id inconnu) → changement
+        variantsChanged = true;
+        break;
+      }
+    }
+    if (!variantsChanged) {
+      // Une variante existante n'est plus dans l'input → suppression
+      for (const oid of oldVariantIds) {
+        if (!inputExistingIds.has(oid)) {
+          variantsChanged = true;
+          break;
+        }
+      }
+    }
+
     const fieldsChanged =
       oldProduct.name !== input.name.trim() ||
       oldProduct.description !== (input.description?.trim() ?? "") ||
@@ -1289,7 +1340,9 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       // la photo principale du produit (Faire racine, PFS, Ankorstore, eFashion).
       // Sans ça, le badge orange « Synchro nécessaire » resterait éteint alors
       // que la photo principale envoyée à la marketplace doit changer.
-      oldProduct.primaryColorId !== resolvedPrimaryAfter;
+      oldProduct.primaryColorId !== resolvedPrimaryAfter ||
+      compositionsChanged ||
+      variantsChanged;
     if (fieldsChanged) {
       const flagsData: Prisma.ProductUpdateInput = {};
       if (oldProduct.pfsProductId) flagsData.pfsSyncRequired = true;
@@ -1339,14 +1392,27 @@ export async function toggleBestSeller(productId: string, isBestSeller: boolean)
 
   const product = await prisma.product.findUnique({
     where: { id: productId },
-    select: { isBestSeller: true },
+    select: {
+      isBestSeller: true,
+      pfsProductId: true,
+      ankorsProductId: true,
+      efashionReferenceBase: true,
+      faireProductId: true,
+    },
   });
   if (!product) return { success: false, error: "Produit introuvable." };
   if (product.isBestSeller === isBestSeller) return { success: true };
 
+  // Poser les drapeaux « Synchro nécessaire » sur les marketplaces liées :
+  // sans ça, l'étoile bascule uniquement en local et n'est jamais renvoyée
+  // à PFS (seul PFS expose une notion d'étoile via STAR/REMOVE_STAR pour
+  // l'instant, mais on prépare le terrain pour les autres si l'API évolue).
+  const flagsData: Prisma.ProductUpdateInput = { isBestSeller };
+  if (product.pfsProductId) flagsData.pfsSyncRequired = true;
+
   await prisma.product.update({
     where: { id: productId },
-    data: { isBestSeller },
+    data: flagsData,
   });
 
   revalidateTag("products", "default");

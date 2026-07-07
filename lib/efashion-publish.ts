@@ -366,6 +366,7 @@ export async function efashionPublishProduct(
         efashionReferenceBase: product.reference,
         efashionLastSyncSnapshot: Prisma.DbNull, // force un resync à la prochaine sync
         efashionLastRefreshedAt: new Date(),
+        efashionSyncRequired: false,
       },
     });
     for (let i = 0; i < product.colors.length && i < productIds.length; i++) {

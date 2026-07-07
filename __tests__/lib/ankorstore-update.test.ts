@@ -54,6 +54,10 @@ vi.mock("@/lib/ankorstore-api", () => ({
   ankorstoreGetVariants: (...args: unknown[]) => mockGetVariants(...args),
 }));
 
+vi.mock("@/lib/cached-data", () => ({
+  getCachedAnkorstoreEnabled: vi.fn().mockResolvedValue(true),
+}));
+
 vi.mock("@/lib/ankorstore-pricing", () => ({
   loadAnkorstorePricingConfig: vi.fn().mockResolvedValue({
     wholesale: { type: "percent", value: 0, rounding: "none" },
@@ -92,6 +96,7 @@ vi.mock("@/lib/prisma", () => ({
     ankorstoreOperation: {
       create: (...args: unknown[]) => mockAnkorstoreOperationCreate(...args),
       updateMany: (...args: unknown[]) => mockAnkorstoreOperationUpdateMany(...args),
+      findFirst: vi.fn().mockResolvedValue(null),
     },
     $transaction: vi.fn().mockResolvedValue([]),
   },

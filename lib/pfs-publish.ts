@@ -735,6 +735,7 @@ export async function pfsPublishProduct(
           // Reset du snapshot — la prochaine sauvegarde déclenchera un sync
           // complet qui calculera le snapshot initial.
           pfsLastSyncSnapshot: Prisma.DbNull,
+          pfsSyncRequired: false,
           ...(allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
         },
       }),

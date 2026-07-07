@@ -41,6 +41,7 @@ import {
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
+import { getCachedAnkorstoreEnabled } from "@/lib/cached-data";
 
 // ─────────────────────────────────────────────
 // Public types
@@ -77,6 +78,16 @@ const MAX_ARCHIVE_RETRIES = 3;
 export async function ankorstoreKickoffRefresh(
   productId: string,
 ): Promise<AnkorstoreRefreshKickoffResult> {
+  // Kill switch : si Ankorstore est désactivé dans Paramètres, refuse
+  // immédiatement — même si l'appelant contourne le worker de la file.
+  if (!(await getCachedAnkorstoreEnabled())) {
+    return {
+      success: false,
+      reason: "error",
+      error: "La marketplace Ankorstore est désactivée dans Paramètres > Marketplaces.",
+    };
+  }
+
   const product = await prisma.product.findUnique({
     where: { id: productId },
     select: { id: true, reference: true, ankorsProductId: true },

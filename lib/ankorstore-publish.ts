@@ -28,6 +28,7 @@ import { buildAnkorstoreShapeProperties } from "@/lib/ankorstore-shape";
 import type { MarkupConfig } from "@/lib/marketplace-pricing";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
+import { getCachedAnkorstoreEnabled } from "@/lib/cached-data";
 import { buildMarketplaceImageUrl } from "@/lib/marketplace-image";
 import { emitProductEvent } from "@/lib/product-events";
 import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
@@ -503,6 +504,15 @@ export async function buildPublishProductInput(productId: string): Promise<
 export async function ankorstoreKickoffPublish(
   productId: string,
 ): Promise<AnkorstoreKickoffResult> {
+  // Kill switch : si la marketplace Ankorstore est désactivée dans Paramètres,
+  // refuse immédiatement — même si l'appelant contourne le worker de la file.
+  if (!(await getCachedAnkorstoreEnabled())) {
+    return {
+      success: false,
+      error: "La marketplace Ankorstore est désactivée dans Paramètres > Marketplaces.",
+    };
+  }
+
   // Refuse if another publish/refresh operation is already in flight for this
   // product — superseding would corrupt the 2-phase refresh chain. A 30-min
   // cutoff lets us recover from genuinely stuck PENDING ops (lost webhook).
@@ -531,8 +541,9 @@ export async function ankorstoreKickoffPublish(
     if (addResp.totalProductsCount === 0) {
       throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");
     }
-    await ankorstoreStartOperation(operationId);
 
+    // Persister l'op en PENDING AVANT le start — sinon le webhook peut arriver
+    // avant l'insert et être ignoré (« unknown_operation »).
     logger.info("[Ankorstore Publish] Persisting PUBLISH row", {
       operationId,
       productId,
@@ -546,6 +557,8 @@ export async function ankorstoreKickoffPublish(
       payload: built.payload as unknown as Prisma.InputJsonValue,
       context: "Ankorstore Publish",
     });
+
+    await ankorstoreStartOperation(operationId);
 
     logger.info("[Ankorstore Publish] Kicked off", {
       operationId,
@@ -642,6 +655,7 @@ export async function ankorstoreFinalizePublish(
         data: {
           ankorsProductId,
           ankorsLastSyncSnapshot: Prisma.DbNull,
+          ankorsSyncRequired: false,
           ...(payload.allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
         },
       }),

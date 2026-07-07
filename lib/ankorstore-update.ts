@@ -54,6 +54,7 @@ import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
 import { buildMarketplaceImageUrl } from "@/lib/marketplace-image";
 import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
+import { getCachedAnkorstoreEnabled } from "@/lib/cached-data";
 
 // ─────────────────────────────────────────────
 // Public types
@@ -417,6 +418,15 @@ export async function ankorstoreKickoffUpdate(
   productId: string,
   options?: { forceFullSync?: boolean; skipRevalidation?: boolean },
 ): Promise<AnkorstoreUpdateKickoffResult> {
+  // Kill switch : si la marketplace Ankorstore est désactivée dans Paramètres,
+  // refuse immédiatement (couvre aussi les PATCH stock/prices synchrones).
+  if (!(await getCachedAnkorstoreEnabled())) {
+    return {
+      success: false,
+      error: "La marketplace Ankorstore est désactivée dans Paramètres > Marketplaces.",
+    };
+  }
+
   const product = await loadProductFull(productId);
   if (!product) return { success: false, error: "Produit introuvable en base" };
   if (!product.ankorsProductId) {
@@ -727,7 +737,29 @@ export async function ankorstoreKickoffUpdate(
       };
     }
 
-    // Cancel any earlier pending update op for this product
+    // Refuse si un PUBLISH ou un REFRESH est déjà en vol pour ce produit :
+    // ces flows ne doivent pas être doublés par une UPDATE parallèle sinon
+    // les deux callbacks se chevauchent et laissent le produit dans un état
+    // incohérent (mauvais ankorsProductId, snapshot corrompu). Cutoff 30 min
+    // pour permettre la récupération d'un vrai callback perdu.
+    const inflightBlocking = await prisma.ankorstoreOperation.findFirst({
+      where: {
+        productId,
+        status: "PENDING",
+        type: { in: ["PUBLISH", "REFRESH_DELETE_OLD", "REFRESH_CREATE_NEW"] },
+        createdAt: { gt: new Date(Date.now() - 30 * 60 * 1000) },
+      },
+    });
+    if (inflightBlocking) {
+      return {
+        success: false,
+        error:
+          "Une opération Ankorstore (publication/rafraîchissement) est déjà en cours sur ce produit. Patientez quelques minutes.",
+      };
+    }
+
+    // Cancel any earlier pending update op for this product (une nouvelle
+    // UPDATE remplace l'ancienne pour éviter les payloads périmés).
     await prisma.ankorstoreOperation.updateMany({
       where: { productId, status: "PENDING", type: "UPDATE" },
       data: { status: "CANCELLED", completedAt: new Date() },
@@ -907,7 +939,6 @@ export async function ankorstoreKickoffUpdate(
     if (addResp.totalProductsCount === 0) {
       throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");
     }
-    await ankorstoreStartOperation(operationId);
 
     const payload: AnkorstoreUpdatePayload = {
       committedSnapshot: committedAfterAsync,
@@ -915,6 +946,8 @@ export async function ankorstoreKickoffUpdate(
       reference: product.reference,
     };
 
+    // Persister l'op en PENDING AVANT le start — sinon le webhook peut arriver
+    // avant l'insert et être ignoré (« unknown_operation »).
     logger.info("[Ankorstore Update] Persisting UPDATE row", {
       operationId,
       productId,
@@ -928,6 +961,8 @@ export async function ankorstoreKickoffUpdate(
       payload: payload as unknown as Prisma.InputJsonValue,
       context: "Ankorstore Update",
     });
+
+    await ankorstoreStartOperation(operationId);
 
     logger.info("[Ankorstore Update] Kicked off", {
       operationId,

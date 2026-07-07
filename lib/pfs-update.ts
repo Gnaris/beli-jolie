@@ -1059,13 +1059,18 @@ export async function pfsUpdateProductInPlace(
             ),
           );
 
-          // Ajoute ces nouvelles variantes au snapshot committé
+          // Ajoute ces nouvelles variantes au snapshot committé.
+          // Passer colorRefMap est indispensable : sans lui, getEffectiveColorRef
+          // retombe sur le nom brut de la couleur (« Doré ») au lieu de la
+          // référence PFS (« DORE ») et le prochain diff croit que la couleur
+          // a changé → recreate inutile de la variante.
           for (const u of newIdUpdates) {
             const variant = variantsToCreate.find((v) => v.bjVariant.id === u.bjVariantId);
             if (variant) {
               committedSnapshot.variants[u.pfsVariantId] = buildVariantSnapshot(
                 variant.bjVariant,
                 pfsMarkup,
+                colorRefMap,
               );
             }
           }
