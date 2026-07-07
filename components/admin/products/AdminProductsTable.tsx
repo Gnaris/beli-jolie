@@ -21,6 +21,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
 import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle";
+import { ProductImportantToggle } from "@/components/admin/products/ProductImportantToggle";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
 import { useEfashionShootingBatch } from "@/components/admin/products/EfashionShootingBatchContext";
 import { useFilterPending } from "@/components/admin/products/FilterPendingContext";
@@ -616,6 +617,8 @@ interface AdminProduct {
   isIncomplete: boolean;
   /** Verrou manuel : si true, désactive le bouton « Rafraîchir ». */
   locked: boolean;
+  /** Marqueur « Important » (favori admin partagé) — étoile visible sur la ligne. */
+  important: boolean;
   categoryName: string;
   subCategoryName: string | null;
   createdAt: string;
@@ -1968,6 +1971,14 @@ function ProductRow({
                   <MpDot label="Faire" active={faireBadgeState.online} syncRequired={product.faireSyncRequired} />
                 )}
               </div>
+            </div>
+            {/* Étoile « Important » : toujours visible si marquée (signal permanent),
+                sinon cachée et révélée au survol de la ligne (comme les autres icônes). */}
+            <div
+              className={`shrink-0 transition-opacity ${product.important ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ProductImportantToggle productId={product.id} initialImportant={product.important} variant="icon" />
             </div>
             {/* Boutons compacts (copie ref + verrou) à droite, discrets, apparaissent au survol */}
             <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>

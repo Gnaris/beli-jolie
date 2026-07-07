@@ -398,6 +398,11 @@ model Product {
   // produit (boutique + marketplaces). Sert à protéger une fiche fragile ou en
   // attente d'arbitrage commercial. Indépendant du statut et des syncs.
   locked                  Boolean               @default(false)
+  // Marqueur « Important » côté admin — équivalent d'un favori partagé entre
+  // tous les comptes ADMIN. Sert à mettre de côté rapidement une fiche
+  // (étoile sur la ligne, filtre « Importants seulement » dans la liste,
+  // option de tri « Importants d'abord »). N'est pas exposé côté public.
+  important               Boolean               @default(false)
   // Produits similaires (M2M self)
   similarProducts         ProductSimilar[]      @relation("PSim_A")
   similarTo               ProductSimilar[]      @relation("PSim_B")
@@ -504,6 +509,7 @@ model Product {
   @@index([status, lastRefreshedAt]) // "new" filter including refreshed products
   @@index([categoryId, status]) // category filter
   @@index([isBestSeller, status]) // bestseller filter
+  @@index([important, createdAt]) // « Important » filter + sort
   @@index([status, name]) // search by name
   @@index([createdAt]) // general date sorting
   @@index([reference]) // exact reference search

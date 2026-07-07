@@ -1387,6 +1387,38 @@ export async function toggleProductLock(
 }
 
 // ─────────────────────────────────────────────
+// Marqueur « Important » côté admin — équivalent d'un favori partagé.
+// Toggle rapide via l'étoile de la ligne (liste) et l'icône de la fiche
+// produit. N'a aucun effet sur les marketplaces ni sur la boutique
+// publique : sert uniquement au filtrage / tri interne admin.
+// ─────────────────────────────────────────────
+
+export async function toggleProductImportant(
+  productId: string,
+  important: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  await requireAdmin();
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { important: true },
+  });
+  if (!product) return { success: false, error: "Produit introuvable." };
+  if (product.important === important) return { success: true };
+
+  await prisma.product.update({
+    where: { id: productId },
+    data: { important },
+  });
+
+  revalidatePath("/admin/produits");
+  revalidatePath(`/admin/produits/${productId}/modifier`);
+  revalidateTag("products", "default");
+
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
 // Supprimer un produit — suppression définitive si jamais vendu,
 // sinon archivage (obligation légale 10 ans + historique commandes)
 // ─────────────────────────────────────────────

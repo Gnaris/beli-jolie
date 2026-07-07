@@ -21,7 +21,8 @@ export type AdminProductsSortValue =
   | "createdDesc"
   | "createdAsc"
   | "modifiedDesc"
-  | "modifiedAsc";
+  | "modifiedAsc"
+  | "importantFirst";
 
 /**
  * Valeurs possibles pour les filtres "Dernier export marketplace" — un filtre
@@ -45,6 +46,11 @@ export interface AdminProductsFilterParams {
   tag?: string;
   composition?: string;
   bestSeller?: string; // "1" | ""
+  /**
+   * Filtre « Importants seulement » (favoris admin). "1" = filtre actif.
+   * Le marqueur `Product.important` est partagé entre tous les comptes admin.
+   */
+  important?: string; // "1" | ""
   refresh?: string; // AdminProductsRefreshValue
   status?: string; // ProductStatus | "DRAFT"
   minPrice?: number | null;
@@ -234,6 +240,10 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
 
   if (params.bestSeller === "1") {
     where.isBestSeller = true;
+  }
+
+  if (params.important === "1") {
+    where.important = true;
   }
 
   const now = params.now ?? new Date();
@@ -456,6 +466,7 @@ export async function findProductIdsWithMissingVariantImages(
  * de tri exposées à l'admin :
  *   - `createdDesc` / `createdAsc` : tri explicite par `createdAt`
  *   - `modifiedDesc` / `modifiedAsc` : tri par `updatedAt`
+ *   - `importantFirst` : `important` desc, puis `createdAt` desc en tie-breaker
  *
  * Sinon on retombe sur le comportement historique via `refresh` :
  * - `dateDesc` / `dateAsc` : `lastRefreshedAt`, `nulls: "last"`, `createdAt` en tie-breaker
@@ -466,11 +477,12 @@ export function buildAdminProductsOrderBy(
   refresh?: string,
   sort?: string,
 ): Prisma.ProductOrderByWithRelationInput[] {
-  // `sort` a la priorité — 4 valeurs reconnues, autres = ignoré (fallback refresh).
+  // `sort` a la priorité — 5 valeurs reconnues, autres = ignoré (fallback refresh).
   if (sort === "createdDesc") return [{ createdAt: "desc" }];
   if (sort === "createdAsc")  return [{ createdAt: "asc" }];
   if (sort === "modifiedDesc") return [{ updatedAt: "desc" }];
   if (sort === "modifiedAsc")  return [{ updatedAt: "asc" }];
+  if (sort === "importantFirst") return [{ important: "desc" }, { createdAt: "desc" }];
 
   if (refresh === "dateDesc") {
     return [

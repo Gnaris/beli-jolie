@@ -76,6 +76,18 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ bestSeller: "" }).isBestSeller).toBeUndefined();
   });
 
+  it("filters « Importants » when important is '1' (favori admin partagé)", () => {
+    expect(buildAdminProductsWhere({ important: "1" }).important).toBe(true);
+  });
+
+  it("ignores the Important filter when value is empty", () => {
+    expect(buildAdminProductsWhere({ important: "" }).important).toBeUndefined();
+  });
+
+  it("does not touch the Important filter when value is anything but '1'", () => {
+    expect(buildAdminProductsWhere({ important: "0" }).important).toBeUndefined();
+  });
+
   it("filters never-refreshed products with refresh=never", () => {
     const where = buildAdminProductsWhere({ refresh: "never" });
     expect(where.lastRefreshedAt).toBeNull();
@@ -670,6 +682,20 @@ describe("buildAdminProductsOrderBy", () => {
   it("ignores sort when it is empty (falls back to refresh handling)", () => {
     // Cas typique : filtre `refresh=recent` + pas de tri explicite → défaut.
     expect(buildAdminProductsOrderBy("recent", "")).toEqual([
+      { createdAt: "desc" },
+    ]);
+  });
+
+  it("sorts Important products first with createdAt desc as tie-breaker for sort=importantFirst", () => {
+    expect(buildAdminProductsOrderBy("", "importantFirst")).toEqual([
+      { important: "desc" },
+      { createdAt: "desc" },
+    ]);
+  });
+
+  it("gives sort=importantFirst priority over a refresh sort value", () => {
+    expect(buildAdminProductsOrderBy("dateDesc", "importantFirst")).toEqual([
+      { important: "desc" },
       { createdAt: "desc" },
     ]);
   });

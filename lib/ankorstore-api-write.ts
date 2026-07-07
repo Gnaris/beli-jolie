@@ -35,11 +35,26 @@ import { logger } from "@/lib/logger";
  *
  * In dev (localhost), Ankorstore can't reach this URL, so callbacks never fire.
  * All Ankorstore testing must happen against the production host.
+ *
+ * Le paramètre `nonce` (aléatoire à chaque appel) rend le body de la requête
+ * POST /catalog/integrations/operations unique. Sans ça, deux créations
+ * d'opération concurrentes avec un payload identique (même operationType,
+ * même source, même callbackUrl) reçoivent le MÊME operationId d'Ankorstore
+ * — leur serveur déduplique les requêtes identiques dans une courte fenêtre.
+ * Résultat : deux produits différents essaient d'ajouter leurs articles à la
+ * même opération, et le second reçoit « Products cannot be added to Operation
+ * with status [started] ». Bug constaté 2026-07-07.
+ * Le webhook ne lit que `secret` — le nonce est ignoré côté serveur.
  */
 export function buildAnkorstoreCallbackUrl(): string {
   const base = (process.env.NEXTAUTH_URL ?? "https://beliandjolie.com").replace(/\/$/, "");
   const secret = process.env.ANKORSTORE_WEBHOOK_SECRET ?? "";
-  return `${base}/api/webhooks/ankorstore?secret=${encodeURIComponent(secret)}`;
+  const nonce = generateNonce();
+  return `${base}/api/webhooks/ankorstore?secret=${encodeURIComponent(secret)}&nonce=${nonce}`;
+}
+
+function generateNonce(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 
 // ─────────────────────────────────────────────

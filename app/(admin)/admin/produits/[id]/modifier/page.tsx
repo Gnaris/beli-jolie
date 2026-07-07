@@ -13,6 +13,7 @@ import type { ProductFormHeaderState, StockState } from "@/components/admin/prod
 import { DraftPageWrapper } from "./DraftPageWrapper";
 import { ProductEditRefreshButton } from "@/components/admin/products/ProductEditRefreshButton";
 import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle";
+import { ProductImportantToggle } from "@/components/admin/products/ProductImportantToggle";
 import { MarketplaceStatusButtons } from "@/components/admin/products/MarketplaceStatusButtons";
 import ProductStatsModal from "@/components/admin/products/ProductStatsModal";
 import {
@@ -473,6 +474,11 @@ export default async function ModifierProduitPage({
                 efashionEnabled={efashionEnabled}
                 hasFaireConfig={hasFaireConfig}
                 faireEnabled={faireEnabled}
+              />
+              <ProductImportantToggle
+                productId={product.id}
+                initialImportant={product.important}
+                variant="button"
               />
               <ProductLockToggle
                 productId={product.id}

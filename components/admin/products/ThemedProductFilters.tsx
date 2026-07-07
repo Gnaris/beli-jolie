@@ -33,10 +33,11 @@ type ThemeKey = "catalogue" | "price" | "status" | "marketplaces" | "sort" | "mo
  * Les 4 autres valeurs sont interprétées par `buildAdminProductsOrderBy`.
  */
 const SORT_OPTS = [
-  { v: "",             label: "Créé — Plus récent d'abord (défaut)" },
-  { v: "createdAsc",   label: "Créé — Plus ancien d'abord" },
-  { v: "modifiedDesc", label: "Modifié — Plus récent d'abord" },
-  { v: "modifiedAsc",  label: "Modifié — Plus ancien d'abord" },
+  { v: "",               label: "Créé — Plus récent d'abord (défaut)" },
+  { v: "createdAsc",     label: "Créé — Plus ancien d'abord" },
+  { v: "modifiedDesc",   label: "Modifié — Plus récent d'abord" },
+  { v: "modifiedAsc",    label: "Modifié — Plus ancien d'abord" },
+  { v: "importantFirst", label: "Importants d'abord" },
 ];
 
 const SORT_VALUES = new Set(SORT_OPTS.map((o) => o.v).filter((v) => v !== ""));
@@ -286,6 +287,7 @@ export default function ThemedProductFilters({
             />
           </div>
           <div className="flex flex-col gap-2">
+            <BoolBtn urlKey="important" label="⭐ Importants seulement" />
             <BoolBtn urlKey="bestSeller" label="Best-sellers uniquement" />
             <BoolBtn urlKey="syncRequired" label="Synchro nécessaire" />
             <BoolBtn urlKey="missingImages" label="Variantes sans image" />
@@ -402,7 +404,7 @@ export default function ThemedProductFilters({
     } else if (theme === "price") {
       ["minPrice", "maxPrice", "stockBelow"].forEach((k) => has(k) && n++);
     } else if (theme === "status") {
-      ["bestSeller", "syncRequired", "missingImages", "locked"].forEach((k) => {
+      ["important", "bestSeller", "syncRequired", "missingImages", "locked"].forEach((k) => {
         if (searchParams.get(k) === "1") n++;
       });
       // `refresh` est un enum ("never" | "recent" | "refreshed") — toute

@@ -6,6 +6,7 @@ import AdminProductsFilters from "@/components/admin/products/AdminProductsFilte
 import ThemedProductFilters from "@/components/admin/products/ThemedProductFilters";
 import AdminProductsTable from "@/components/admin/products/AdminProductsTable";
 import { FilterPendingProvider } from "@/components/admin/products/FilterPendingContext";
+import { AdminProductsFilterPersistence } from "@/components/admin/products/AdminProductsFilterPersistence";
 import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
@@ -179,7 +180,7 @@ function countActiveFilters(p: Record<string, string | undefined>): number {
   const keys = [
     "q", "exactRef", "cat", "subCat", "tag", "composition", "hsCodeId",
     "minPrice", "maxPrice", "dateFrom", "dateTo", "updatedFrom", "updatedTo", "stockBelow",
-    "bestSeller", "refresh", "sort", "locked", "syncRequired", "missingImages",
+    "bestSeller", "important", "refresh", "sort", "locked", "syncRequired", "missingImages",
     "pfsLink", "ankorsLink", "efashionLink", "faireLink",
     "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "microstoreExportedAt",
   ];
@@ -203,6 +204,7 @@ interface PageProps {
     tag?: string;
     composition?: string;
     bestSeller?: string;
+    important?: string;
     refresh?: string;
     sort?: string;
     status?: string;
@@ -303,6 +305,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     tag = "",
     composition = "",
     bestSeller = "",
+    important = "",
     refresh = "",
     sort = "",
     status: statusFilter = "",
@@ -352,6 +355,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     tag,
     composition,
     bestSeller,
+    important,
     refresh,
     status: statusFilter,
     minPrice,
@@ -495,6 +499,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     status:          p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
     isIncomplete:    p.isIncomplete,
     locked:          p.locked,
+    important:       p.important,
     categoryName:    p.category.name,
     subCategoryName: p.subCategories[0]?.name ?? null,
     createdAt:       p.createdAt.toISOString(),
@@ -533,6 +538,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
 
   return (
     <FilterPendingProvider>
+    <AdminProductsFilterPersistence />
     <div className="space-y-5">
       {/* ─── Carte commune Hero + Onglets + Filtres (look maquette Ardoise) ─── */}
       <div className="bg-bg-primary border border-border rounded-2xl shadow-sm">
