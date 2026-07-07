@@ -583,9 +583,6 @@ export function MarketplaceRefreshWidget() {
                   strokeDashoffset={100.5 - (progressPct / 100) * 100.5}
                 />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold tabular-nums">
-                {doneCount}/{totalGroups}
-              </span>
             </span>
           ) : errorsCount > 0 ? (
             <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-100 text-red-700">
