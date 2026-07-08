@@ -2957,6 +2957,7 @@ export default function ProductForm({
               availableColors={localColors}
               onChangeImages={setColorImages}
               primaryColorId={primaryColorId}
+              onChangePrimaryColorId={setPrimaryColorId}
               productReference={reference}
             />
           )}

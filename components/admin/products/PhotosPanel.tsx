@@ -31,6 +31,7 @@ interface Props {
   availableColors: AvailableColor[];
   onChangeImages: (next: ColorImageState[]) => void;
   primaryColorId: string | null;
+  onChangePrimaryColorId: (colorId: string) => void;
   productReference?: string;
 }
 
@@ -42,6 +43,7 @@ export default function PhotosPanel({
   availableColors,
   onChangeImages,
   primaryColorId,
+  onChangePrimaryColorId,
   productReference,
 }: Props) {
   const { confirm } = useConfirm();
@@ -105,6 +107,7 @@ export default function PhotosPanel({
             colorName={row.colorName}
             colorHex={row.colorHex}
             isPrimary={!!row.colorId && row.colorId === primaryColorId}
+            onSetPrimary={() => { if (row.colorId) onChangePrimaryColorId(row.colorId); }}
             availableColors={availableColors}
             colorImages={colorImages}
             onChangeImages={onChangeImages}
@@ -166,6 +169,7 @@ interface PhotoRowProps {
   colorName: string;
   colorHex: string;
   isPrimary: boolean;
+  onSetPrimary: () => void;
   availableColors: AvailableColor[];
   colorImages: ColorImageState[];
   onChangeImages: (next: ColorImageState[]) => void;
@@ -195,6 +199,7 @@ function PhotoRow({
   colorName,
   colorHex,
   isPrimary,
+  onSetPrimary,
   availableColors,
   colorImages,
   onChangeImages,
@@ -368,21 +373,42 @@ function PhotoRow({
         <div className="min-w-0">
           <div className="text-sm font-bold text-text-primary font-body truncate">
             {colorName}
-            {isPrimary && (
-              <span className="ml-1.5 text-[11px] font-medium text-text-muted">
-                principale
+          </div>
+          <div className="mt-1 flex flex-col gap-1">
+            {isPrimary ? (
+              <span
+                className="inline-flex items-center gap-1 self-start rounded-full bg-[#FEF3C7] border border-[#F59E0B] px-2 py-0.5 text-[10.5px] font-semibold text-[#92400E] font-body"
+                title="Couleur principale du produit — sert de vignette sur la boutique et les marketplaces"
+              >
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.539 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.539-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+                Principale
               </span>
+            ) : (
+              <button
+                type="button"
+                onClick={onSetPrimary}
+                title="Définir cette couleur comme couleur principale du produit"
+                aria-label={`Définir ${colorName} comme couleur principale du produit`}
+                className="inline-flex items-center gap-1 self-start rounded-full border border-border bg-bg-primary px-2 py-0.5 text-[10.5px] font-medium text-text-secondary font-body hover:border-[#F59E0B] hover:bg-[#FEF3C7]/40 hover:text-[#92400E] transition-colors cursor-pointer"
+              >
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.539 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.539-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+                Définir comme principale
+              </button>
+            )}
+            {hasNoPhoto && (
+              <div className="text-[10.5px] font-medium text-amber-700 font-body flex items-center gap-1">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z" />
+                </svg>
+                Aucune photo
+              </div>
             )}
           </div>
-          {hasNoPhoto && (
-            <div className="mt-0.5 text-[10.5px] font-medium text-amber-700 font-body flex items-center gap-1">
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z" />
-              </svg>
-              Aucune photo
-            </div>
-          )}
         </div>
       </div>
 

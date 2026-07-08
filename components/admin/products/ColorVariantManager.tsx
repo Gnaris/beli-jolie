@@ -297,6 +297,33 @@ export function computeExistingColorCombos(
   return combos;
 }
 
+/**
+ * Toutes les couleurs uniques utilisées par un produit, dans l'ordre
+ * d'apparition. Contrairement à `computeExistingColorCombos`, inclut aussi
+ * les couleurs présentes uniquement dans des pack-lines multi-couleurs :
+ * une couleur qui n'existe que dans un pack doit rester éligible comme
+ * couleur principale du produit.
+ */
+export function computeUniqueUsedColors(
+  variants: VariantState[],
+): { colorId: string; colorName: string; colorHex: string }[] {
+  const seen = new Set<string>();
+  const list: { colorId: string; colorName: string; colorHex: string }[] = [];
+  const push = (colorId: string, colorName: string, colorHex: string) => {
+    if (!colorId || seen.has(colorId)) return;
+    seen.add(colorId);
+    list.push({ colorId, colorName, colorHex });
+  };
+  for (const v of variants) {
+    if (isMultiColorPack(v)) {
+      for (const l of v.packLines) push(l.colorId, l.colorName, l.colorHex);
+    } else {
+      push(v.colorId, v.colorName, v.colorHex);
+    }
+  }
+  return list;
+}
+
 function defaultVariant(): VariantState {
   return {
     tempId: uid(),
