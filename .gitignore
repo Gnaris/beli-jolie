@@ -61,8 +61,18 @@ docs/superpowers/
 /beli-jolie-vps.tar.gz
 /beli-jolie-vps.zip
 
-# scripts de déploiement locaux (contiennent des secrets de prod)
-/scripts/deploy/
+# scripts de déploiement locaux qui contiennent des secrets ou du contexte
+# machine — les autres fichiers de scripts/deploy/ (multi-boutiques) sont
+# versionnés.
+/scripts/deploy/mount-vps.ps1
+/scripts/deploy/mysql_init.sql
+/scripts/deploy/nginx-beliandjolie.conf
+# fichiers cachés (secrets, credentials, temp) et notes locales
+/scripts/deploy/.*
+/scripts/deploy/*.password
+/scripts/deploy/*_password
+/scripts/deploy/*.html
+/scripts/deploy/*.local
 
 # état local du script de test Ankorstore (id produit de test)
 /scripts/.ankorstore-test-state.json

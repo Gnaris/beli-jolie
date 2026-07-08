@@ -1,0 +1,4 @@
+# Force LF line endings on shell scripts so they run on Linux VPS
+# (evite les erreurs "bad interpreter: /usr/bin/env bash^M").
+*.sh    text eol=lf
+*.bash  text eol=lf
