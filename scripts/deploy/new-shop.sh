@@ -188,6 +188,18 @@ sed -e "s/{{SLUG}}/${SLUG}/g" \
     -e "s/{{DOMAIN}}/${DOMAIN}/g" \
     -e "s/{{PORT}}/${PORT}/g" \
     "${SCRIPT_DIR}/lib/nginx-shop.conf.template" > "${VHOST_FILE}"
+
+# Detecter si www.<domaine> resout aussi vers le VPS. Si non, on retire le
+# www du server_name Nginx pour eviter que Certbot echoue sur ce sous-domaine.
+WWW_ENABLED=0
+if check_www_dns "${DOMAIN}"; then
+  WWW_ENABLED=1
+  log_ok "www.${DOMAIN} resout aussi vers le VPS."
+else
+  log_warn "www.${DOMAIN} ne resout pas ici -> HTTPS pour ${DOMAIN} uniquement."
+  sed -i "s| www\.${DOMAIN}||g" "${VHOST_FILE}"
+fi
+
 ln -sf "${VHOST_FILE}" "${NGINX_ENABLED}/${SLUG}"
 
 nginx -t
@@ -195,8 +207,11 @@ systemctl reload nginx
 log_ok "Vhost HTTP actif pour ${DOMAIN}"
 
 log_step "Certbot -> HTTPS (Let's Encrypt)"
+CERTBOT_DOMAINS=(-d "${DOMAIN}")
+[[ "${WWW_ENABLED}" -eq 1 ]] && CERTBOT_DOMAINS+=(-d "www.${DOMAIN}")
+
 if certbot --nginx \
-    -d "${DOMAIN}" -d "www.${DOMAIN}" \
+    "${CERTBOT_DOMAINS[@]}" \
     --non-interactive --agree-tos --email "${ADMIN_EMAIL}" \
     --redirect; then
   log_ok "HTTPS actif."

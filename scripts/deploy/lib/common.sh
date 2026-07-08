@@ -198,6 +198,17 @@ check_dns() {
   return 0
 }
 
+# Verifie si www.<domain> resout vers l'IP du VPS. Renvoie 0 si oui, 1 sinon.
+check_www_dns() {
+  local domain="$1"
+  local vps_ip
+  vps_ip=$(curl -fs --max-time 5 https://api.ipify.org 2>/dev/null || echo "")
+  [[ -n "${vps_ip}" ]] || return 1
+  local resolved
+  resolved=$(getent hosts "www.${domain}" 2>/dev/null | awk '{print $1}' | head -1)
+  [[ "${resolved}" == "${vps_ip}" ]]
+}
+
 # ------------------------------------------------------------------
 # Lock (pour eviter deploy-all + auto-pull concurrents)
 # ------------------------------------------------------------------
