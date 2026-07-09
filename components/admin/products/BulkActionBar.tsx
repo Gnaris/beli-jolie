@@ -47,6 +47,14 @@ interface Props {
    */
   pendingLabel?: string | null;
   marketplaces: MarketplacesConfig;
+  /**
+   * Nombre de brouillons (OFFLINE) dans la sélection courante. Quand > 0, on
+   * affiche un bouton dédié qui ouvre la modale « Publier brouillons » — celle
+   * qui vérifie côté serveur si chaque brouillon remplit toutes les conditions
+   * pour passer en ligne (image, prix, stock, catégorie, code SH, etc.) et
+   * propose la publication marketplaces dans la foulée.
+   */
+  draftCount?: number;
 
   onStatus: (status: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
   onDelete: () => void;
@@ -56,6 +64,7 @@ interface Props {
   onDeselectAll: () => void;
   onMarketplacePublish: (marketplace: MarketplaceKey, productIds: string[]) => void;
   onMarketplaceSync: (marketplace: MarketplaceKey, productIds: string[]) => void;
+  onPublishDrafts?: () => void;
 }
 
 // ─── Calcul par marketplace ────────────────────────────────────────────────
@@ -141,6 +150,7 @@ export default function BulkActionBar({
   isPending,
   pendingLabel,
   marketplaces,
+  draftCount = 0,
   onStatus,
   onDelete,
   onRefresh,
@@ -149,6 +159,7 @@ export default function BulkActionBar({
   onDeselectAll,
   onMarketplacePublish,
   onMarketplaceSync,
+  onPublishDrafts,
 }: Props) {
   const showPending = Boolean(pendingLabel);
   const [marketplacesOpen, setMarketplacesOpen] = useState(false);
@@ -313,6 +324,32 @@ export default function BulkActionBar({
                 <span className="hidden md:inline">Archiver</span>
               </SegButton>
             </div>
+
+            {/* Bouton dédié brouillons — n'apparaît que si au moins un brouillon
+                est sélectionné. Ouvre une modale qui vérifie côté serveur si
+                chaque brouillon remplit toutes les conditions pour passer en
+                ligne (image, prix, stock, catégorie…) et liste les manques. */}
+            {draftCount > 0 && onPublishDrafts && (
+              <>
+                <Separator />
+                <button
+                  type="button"
+                  onClick={onPublishDrafts}
+                  disabled={isPending}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-all shadow-sm bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-600 hover:to-violet-600 disabled:opacity-50"
+                  title="Vérifier si les brouillons sélectionnés peuvent être mis en ligne et les publier"
+                >
+                  <svg className="w-[15px] h-[15px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="hidden md:inline">Publier brouillons</span>
+                  <span className="md:hidden">Brouillons</span>
+                  <span className="ml-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-white text-violet-700 text-[11px] font-bold tabular-nums">
+                    {draftCount}
+                  </span>
+                </button>
+              </>
+            )}
 
             <Separator />
 

@@ -3943,6 +3943,7 @@ export default function AdminProductsTable({
           efashion: { configured: hasEfashionConfig, enabled: efashionEnabled },
           faire: { configured: hasFaireConfig, enabled: faireEnabled },
         }}
+        draftCount={selectedDraftIds.length}
         onStatus={(status) => handleBulkStatus(status)}
         onDelete={() => handleBulkDelete()}
         onRefresh={handleBulkRefreshCurrent}
@@ -3951,6 +3952,7 @@ export default function AdminProductsTable({
         onDeselectAll={() => setSelectedIds(new Set())}
         onMarketplacePublish={handleBulkMarketplacePublish}
         onMarketplaceSync={handleBulkMarketplaceSync}
+        onPublishDrafts={() => setBulkPublishDraftsOpen(true)}
       />
 
       {/* Message résultat bulk */}
