@@ -9,8 +9,21 @@ set -euo pipefail
 # ------------------------------------------------------------------
 REGISTRY_DIR="/root/.beliboutiques"
 REGISTRY_FILE="${REGISTRY_DIR}/shops.tsv"
+MAIL_REGISTRY_FILE="${REGISTRY_DIR}/mail-accounts.tsv"
 BACKUPS_DIR="${REGISTRY_DIR}/backups"
 LOCK_DIR="${REGISTRY_DIR}/locks"
+
+# Serveur mail (Postfix + Dovecot + OpenDKIM + Sieve)
+MAIL_HOSTNAME="mail.beliandjolie.com"
+POSTFIX_VMAILBOX="/etc/postfix/vmailbox"
+POSTFIX_VIRTUAL_ALIAS="/etc/postfix/virtual"
+DOVECOT_USERS_FILE="/etc/dovecot/users"
+VMAIL_ROOT="/var/vmail"
+VMAIL_UID=5000
+OPENDKIM_KEYS_DIR="/etc/opendkim/keys"
+OPENDKIM_KEY_TABLE="/etc/opendkim/KeyTable"
+OPENDKIM_SIGNING_TABLE="/etc/opendkim/SigningTable"
+DOVECOT_SIEVE_GLOBAL="/etc/dovecot/sieve/global.sieve"
 
 WWW_ROOT="/var/www"
 NGINX_AVAILABLE="/etc/nginx/sites-available"
@@ -207,6 +220,51 @@ check_www_dns() {
   local resolved
   resolved=$(getent hosts "www.${domain}" 2>/dev/null | awk '{print $1}' | head -1)
   [[ "${resolved}" == "${vps_ip}" ]]
+}
+
+# ------------------------------------------------------------------
+# Registre mail (mail-accounts.tsv)
+# ------------------------------------------------------------------
+# Colonnes : email  domain  local_part  forward_to  dkim_selector  created_at
+
+ensure_mail_registry() {
+  mkdir -p "${REGISTRY_DIR}"
+  chmod 700 "${REGISTRY_DIR}"
+  if [[ ! -f "${MAIL_REGISTRY_FILE}" ]]; then
+    printf "email\tdomain\tlocal_part\tforward_to\tdkim_selector\tcreated_at\n" > "${MAIL_REGISTRY_FILE}"
+    chmod 600 "${MAIL_REGISTRY_FILE}"
+    log_ok "Registre mail initialise : ${MAIL_REGISTRY_FILE}"
+  fi
+}
+
+mail_registry_has_email() {
+  local email="$1"
+  awk -F'\t' -v e="${email}" 'NR>1 && $1==e {found=1} END {exit !found}' "${MAIL_REGISTRY_FILE}"
+}
+
+mail_registry_has_domain() {
+  local domain="$1"
+  awk -F'\t' -v d="${domain}" 'NR>1 && $2==d {found=1} END {exit !found}' "${MAIL_REGISTRY_FILE}"
+}
+
+mail_registry_add() {
+  local email="$1" domain="$2" local_part="$3" forward_to="$4" selector="$5"
+  local created_at
+  created_at=$(date --iso-8601=seconds)
+  printf "%s\t%s\t%s\t%s\t%s\t%s\n" \
+    "${email}" "${domain}" "${local_part}" "${forward_to}" "${selector}" "${created_at}" \
+    >> "${MAIL_REGISTRY_FILE}"
+  log_ok "Ajoute au registre mail : ${email}"
+}
+
+mail_registry_remove() {
+  local email="$1"
+  local tmp
+  tmp=$(mktemp)
+  awk -F'\t' -v e="${email}" 'NR==1 || $1!=e' "${MAIL_REGISTRY_FILE}" > "${tmp}"
+  mv "${tmp}" "${MAIL_REGISTRY_FILE}"
+  chmod 600 "${MAIL_REGISTRY_FILE}"
+  log_ok "Retire du registre mail : ${email}"
 }
 
 # ------------------------------------------------------------------

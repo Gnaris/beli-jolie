@@ -15,6 +15,8 @@ il liste toutes les boutiques et est lu par `deploy-all.sh`, `list-shops.sh`, et
 
 ## Scripts disponibles
 
+### Boutiques
+
 | Script            | Role                                                 |
 |-------------------|------------------------------------------------------|
 | `new-shop.sh`     | Cree une nouvelle boutique (clone + BDD + build + Nginx + HTTPS + pm2) |
@@ -22,6 +24,13 @@ il liste toutes les boutiques et est lu par `deploy-all.sh`, `list-shops.sh`, et
 | `list-shops.sh`   | Affiche le tableau de bord (statut, disque, HEAD)    |
 | `remove-shop.sh`  | Backup + suppression totale d'une boutique           |
 | `auto-pull.sh`    | Detecte un nouveau commit et declenche `deploy-all.sh` (a mettre en cron) |
+
+### Mail (Postfix + Dovecot + OpenDKIM + Sieve)
+
+| Script                  | Role                                                     |
+|-------------------------|----------------------------------------------------------|
+| `add-mail-domain.sh`    | Cree une boite `<local>@<domaine>` + forward auto vers un mail perso |
+| `remove-mail-domain.sh` | Backup + suppression d'une boite (nettoie DKIM/Postfix/Dovecot si domaine vide) |
 
 ## Prerequis VPS
 
@@ -149,3 +158,55 @@ pour Beli & Jolie via `pm2-root.service`).
 
 **Certbot echoue avec « unauthorized »** : le DNS ne pointe pas encore vers le
 VPS. Verifier avec `getent hosts <domaine>`.
+
+---
+
+## Mail : creer une boite pour une cliente
+
+Prealable : serveur mail deja installe sur le VPS (Postfix + Dovecot + OpenDKIM
++ Sieve + PostSRSd + Let's Encrypt sur `mail.beliandjolie.com`).
+
+### Creer un compte
+
+```bash
+sudo /var/www/beliandjolie/scripts/deploy/add-mail-domain.sh \
+  bijoux-de-marie.fr contact marie.dupont@gmail.com
+```
+
+Le script :
+1. Ajoute `bijoux-de-marie.fr` aux domaines geres par Postfix.
+2. Genere une cle DKIM 2048 bits propre au domaine.
+3. Migre OpenDKIM en mode multi-domaines (KeyTable/SigningTable) la premiere fois.
+4. Cree le compte Dovecot `contact@bijoux-de-marie.fr` avec un mot de passe genere.
+5. Ajoute une regle Sieve : tout mail arrivant est **stocke localement** ET **transfere** vers `marie.dupont@gmail.com`.
+6. Affiche les 4 DNS a ajouter chez le registrar :
+   - MX -> `mail.beliandjolie.com`
+   - SPF -> `v=spf1 ip4:72.61.106.128 ~all`
+   - DKIM -> valeur affichee (2048 bits)
+   - DMARC -> `v=DMARC1; p=none; rua=mailto:contact@bijoux-de-marie.fr`
+
+La cliente n'a plus qu'a **ajouter ces 4 DNS chez Hostinger** (idealement,
+comme tous les domaines sont sur votre compte, c'est vous qui le faites) et
+tout est operationnel. Elle recoit les mails de sa boutique dans son Gmail
+perso, sans configuration.
+
+**Envoyer des mails** : elle peut aussi ajouter dans son Gmail « Envoyer en
+tant que `contact@bijoux-de-marie.fr` » avec :
+- Serveur SMTP `mail.beliandjolie.com` port `587` STARTTLS
+- Auth `contact@bijoux-de-marie.fr` + le mot de passe genere
+
+### Supprimer un compte
+
+```bash
+sudo /var/www/beliandjolie/scripts/deploy/remove-mail-domain.sh \
+  contact@bijoux-de-marie.fr
+```
+
+Backup du Maildir + de l'entree registre dans `/root/.beliboutiques/backups/`.
+Si c'etait le dernier compte sur le domaine, le domaine est retire de la config
+Postfix, la cle DKIM est archivee et supprimee.
+
+### Registre mail
+
+`/root/.beliboutiques/mail-accounts.tsv` — colonnes : `email`, `domain`,
+`local_part`, `forward_to`, `dkim_selector`, `created_at`.
