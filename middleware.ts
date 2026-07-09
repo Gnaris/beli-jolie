@@ -2,6 +2,8 @@ import createIntlMiddleware from "next-intl/middleware";
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 import { routing } from "@/i18n/routing";
+import { isPreOnboardingAllowed } from "@/lib/onboarding-gating";
+export { isPreOnboardingAllowed } from "@/lib/onboarding-gating";
 
 const intlMiddleware = createIntlMiddleware(routing);
 
@@ -29,7 +31,31 @@ function localeUrl(locale: string, path: string, request: NextRequest): URL {
 // 1 min après chaque (re)démarrage. Mieux vaut retenter à chaque hit jusqu'à
 // avoir un vrai succès, puis cacher 60s.
 let maintenanceCache: { value: boolean; timestamp: number } | null = null;
+let onboardingCache: { completed: boolean; timestamp: number } | null = null;
 const CACHE_TTL_MS = 60_000;
+
+async function getOnboardingCompleted(_requestUrl: string): Promise<boolean> {
+  const now = Date.now();
+  if (onboardingCache && now - onboardingCache.timestamp < CACHE_TTL_MS) {
+    return onboardingCache.completed;
+  }
+  const internalPort = process.env.PORT || "3000";
+  const fetchUrl = `http://127.0.0.1:${internalPort}/api/onboarding-status`;
+  try {
+    const res = await fetch(fetchUrl, { cache: "no-store" });
+    if (!res.ok) {
+      // Fail-safe : on considere l'onboarding fait pour ne pas bloquer une
+      // boutique existante en cas d'incident. On retente au prochain hit.
+      return true;
+    }
+    const data = (await res.json()) as { completed: boolean };
+    onboardingCache = { completed: !!data.completed, timestamp: now };
+    return onboardingCache.completed;
+  } catch {
+    return true;
+  }
+}
+
 
 async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
   if (process.env.NODE_ENV === "development") return false;
@@ -157,6 +183,27 @@ export async function middleware(request: NextRequest) {
 
   // Path "sans locale" pour matcher la logique métier (vide = "/")
   const { locale, rest } = stripLocale(pathname);
+
+  // ── Onboarding gate ───────────────────────────────────────────────────────
+  // Tant que l'admin n'a pas termine (ou skippe) le wizard, la boutique n'est
+  // pas visible pour les visiteurs et les URL client sont invalides. Seuls
+  // sont accessibles : /connexion, /api/auth, /admin/bienvenue (pour l'admin).
+  const onboardingBypassed =
+    isPreOnboardingAllowed(pathname, rest) ||
+    pathname.startsWith("/admin/bienvenue"); // wizard lui-meme
+
+  if (!onboardingBypassed) {
+    const onboardingDone = await getOnboardingCompleted(request.url);
+    if (!onboardingDone) {
+      // Admin authentifie : direction wizard
+      if (isAdmin) {
+        return NextResponse.redirect(new URL("/admin/bienvenue", request.url));
+      }
+      // Visiteur non-admin (ou non-connecte) : direction login
+      const loginUrl = localeUrl(routing.defaultLocale, "/connexion", request);
+      return NextResponse.redirect(loginUrl);
+    }
+  }
 
   // ── Maintenance ───────────────────────────────────────────────────────────
   if (!isMaintenanceBypassed(pathname, rest)) {

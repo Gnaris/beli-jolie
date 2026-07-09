@@ -10,6 +10,9 @@ const mockPrisma = vi.hoisted(() => ({
     findUnique: vi.fn(),
     upsert: vi.fn().mockResolvedValue({}),
   },
+  user: {
+    update: vi.fn().mockResolvedValue({}),
+  },
 }));
 
 const mockSession = vi.hoisted(() => ({
@@ -26,10 +29,12 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
+import bcrypt from "bcryptjs";
 import {
   markStepCompleted,
   completeOnboarding,
   skipOnboarding,
+  updateAdminPassword,
 } from "@/app/actions/admin/onboarding";
 
 describe("markStepCompleted", () => {
@@ -115,5 +120,39 @@ describe("skipOnboarding", () => {
         where: { key: "onboarding_completed_at" },
       }),
     );
+  });
+});
+
+describe("updateAdminPassword", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPrisma.user.update.mockResolvedValue({});
+  });
+
+  it("refuse un mot de passe de moins de 8 caractères", async () => {
+    const res = await updateAdminPassword("court");
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/8 caractères/);
+    expect(mockPrisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it("refuse un mot de passe vide", async () => {
+    const res = await updateAdminPassword("");
+    expect(res.success).toBe(false);
+    expect(mockPrisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it("hash bcrypt le mot de passe et met à jour l'utilisateur", async () => {
+    const res = await updateAdminPassword("motdepasse123");
+    expect(res.success).toBe(true);
+    expect(mockPrisma.user.update).toHaveBeenCalledTimes(1);
+    const call = mockPrisma.user.update.mock.calls[0][0];
+    expect(call.where).toEqual({ id: "admin-1" });
+    const hashed = call.data.password as string;
+    // Le hash bcrypt doit vraiment etre un hash bcrypt (pas le mdp en clair)
+    expect(hashed).not.toBe("motdepasse123");
+    expect(hashed).toMatch(/^\$2[ayb]\$\d{2}\$/); // format bcrypt
+    // Verifier que le hash correspond bien au plaintext
+    expect(await bcrypt.compare("motdepasse123", hashed)).toBe(true);
   });
 });
