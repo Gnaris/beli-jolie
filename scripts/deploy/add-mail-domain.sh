@@ -145,7 +145,7 @@ if ! grep -q "\*@${DOMAIN} " "${OPENDKIM_SIGNING_TABLE}" 2>/dev/null; then
   echo "*@${DOMAIN} default._domainkey.${DOMAIN}" >> "${OPENDKIM_SIGNING_TABLE}"
 fi
 
-DKIM_TXT=$(awk '/"/{gsub(/"/,"",$0); print}' "${key_dir}/default.txt" | tr -d '\n\t' | sed -E 's/  +/ /g')
+DKIM_TXT=$(grep -oE '"[^"]*"' "${key_dir}/default.txt" | tr -d '"' | tr -d '\n' | sed -E 's/ +/ /g;s/^ //;s/ $//')
 
 # ------------------------------------------------------------------
 # 4. Dovecot : creer le compte
@@ -186,7 +186,10 @@ EOF
 fi
 
 sievec "${DOVECOT_SIEVE_GLOBAL}"
-chown vmail:vmail "${DOVECOT_SIEVE_GLOBAL}" "${DOVECOT_SIEVE_GLOBAL%.sieve}.svbin" 2>/dev/null || true
+# Permissions : le binaire doit etre lisible par tout Dovecot, sans qu'il essaie
+# de le recompiler dans un dossier read-only.
+chmod 755 "$(dirname "${DOVECOT_SIEVE_GLOBAL}")"
+chmod 644 "${DOVECOT_SIEVE_GLOBAL}" "${DOVECOT_SIEVE_GLOBAL%.sieve}.svbin" 2>/dev/null || true
 
 # ------------------------------------------------------------------
 # 6. Reload services

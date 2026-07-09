@@ -92,6 +92,7 @@ if [[ -f "${DOVECOT_SIEVE_GLOBAL}" ]]; then
   ' "${DOVECOT_SIEVE_GLOBAL}" > "${tmp}"
   mv "${tmp}" "${DOVECOT_SIEVE_GLOBAL}"
   sievec "${DOVECOT_SIEVE_GLOBAL}"
+  chmod 644 "${DOVECOT_SIEVE_GLOBAL}" "${DOVECOT_SIEVE_GLOBAL%.sieve}.svbin" 2>/dev/null || true
   log_ok "  Regle retiree"
 fi
 
