@@ -88,6 +88,46 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ important: "0" }).important).toBeUndefined();
   });
 
+  it("createdRecent='1' pose createdAt.gte = now - 30j", () => {
+    const now = new Date("2026-07-09T12:00:00Z");
+    const where = buildAdminProductsWhere({ createdRecent: "1", now });
+    const expected = new Date(now);
+    expected.setDate(expected.getDate() - 30);
+    expect(where.createdAt).toEqual({ gte: expected });
+  });
+
+  it("updatedRecent='1' pose updatedAt.gte = now - 30j", () => {
+    const now = new Date("2026-07-09T12:00:00Z");
+    const where = buildAdminProductsWhere({ updatedRecent: "1", now });
+    const expected = new Date(now);
+    expected.setDate(expected.getDate() - 30);
+    expect(where.updatedAt).toEqual({ gte: expected });
+  });
+
+  it("ignore createdRecent / updatedRecent quand la valeur n'est pas '1'", () => {
+    const w = buildAdminProductsWhere({ createdRecent: "", updatedRecent: "0" });
+    expect(w.createdAt).toBeUndefined();
+    expect(w.updatedAt).toBeUndefined();
+  });
+
+  it("createdRecent respecte un dateFrom explicite plus restrictif (garde le max)", () => {
+    const now = new Date("2026-07-09T12:00:00Z");
+    // dateFrom = il y a 5j → plus restrictif que le raccourci (30j)
+    const dateFrom = "2026-07-04";
+    const where = buildAdminProductsWhere({ createdRecent: "1", dateFrom, now });
+    // Le gte doit être la date la plus récente = dateFrom (2026-07-04), pas now-30j
+    expect((where.createdAt as { gte: Date }).gte).toEqual(new Date(dateFrom));
+  });
+
+  it("createdRecent l'emporte sur un dateFrom explicite plus ancien", () => {
+    const now = new Date("2026-07-09T12:00:00Z");
+    // dateFrom = très ancien → moins restrictif que le raccourci (30j)
+    const where = buildAdminProductsWhere({ createdRecent: "1", dateFrom: "2020-01-01", now });
+    const expected = new Date(now);
+    expected.setDate(expected.getDate() - 30);
+    expect((where.createdAt as { gte: Date }).gte).toEqual(expected);
+  });
+
   it("filters never-refreshed products with refresh=never", () => {
     const where = buildAdminProductsWhere({ refresh: "never" });
     expect(where.lastRefreshedAt).toBeNull();

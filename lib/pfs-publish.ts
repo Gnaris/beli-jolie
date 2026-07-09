@@ -38,6 +38,7 @@ import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
 import { requirePfsBrand } from "@/lib/pfs-brand";
+import { matchPfsFamilyId, matchPfsCategoryId } from "@/lib/pfs-family-resolve";
 import { mapLocalToPfsStatus } from "@/lib/pfs-status";
 import { assertNoPfsColorConflicts } from "@/lib/pfs-color-conflicts";
 import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
@@ -278,36 +279,19 @@ async function resolvePfsCategoryIds(category: {
   if (result.pfsCategoryId && result.pfsFamilyId) return result;
 
   try {
-    const pickFr = (labels: Record<string, string> | undefined | null, fallback = ""): string => {
-      if (!labels) return fallback;
-      return labels.fr ?? labels.en ?? Object.values(labels)[0] ?? fallback;
-    };
-
-    // Resolve pfsFamilyId from pfsFamilyName
-    const normalize = (s: string) => s.replace(/_/g, " ").trim().toLowerCase();
-
     if (!result.pfsFamilyId && category.pfsFamilyName) {
       const families = await pfsGetFamilies();
-      const target = normalize(category.pfsFamilyName);
-      const match = families.find((f) => normalize(pickFr(f.labels, f.id)) === target);
-      if (match) result.pfsFamilyId = match.id;
+      result.pfsFamilyId = matchPfsFamilyId(families, category.pfsFamilyName, category.pfsGender);
     }
 
-    // Resolve pfsCategoryId from pfsCategoryName
     if (!result.pfsCategoryId && category.pfsCategoryName) {
       const categories = await pfsGetCategories();
-      const target = normalize(category.pfsCategoryName);
-      const match = categories.find((c) => {
-        const label = normalize(pickFr(c.labels));
-        if (label !== target) return false;
-        // Also match by family if we have a resolved familyId
-        if (result.pfsFamilyId && c.family) {
-          const catFamilyId = typeof c.family === "string" ? c.family : c.family.id;
-          return catFamilyId === result.pfsFamilyId;
-        }
-        return true;
-      });
-      if (match) result.pfsCategoryId = match.id;
+      result.pfsCategoryId = matchPfsCategoryId(
+        categories,
+        category.pfsCategoryName,
+        category.pfsGender,
+        result.pfsFamilyId,
+      );
     }
 
     // Persist resolved IDs to DB for next time

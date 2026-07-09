@@ -17,6 +17,11 @@ import { createProduct, updateProduct, saveProductTranslations, fetchProductForm
 import { VALID_LOCALES, LOCALE_LABELS, NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
 import QuickCreateModal, { QuickCreateType } from "./QuickCreateModal";
+import CategoryEditorModal from "@/components/admin/categories/CategoryEditorModal";
+import ColorEditorModal from "@/components/admin/couleurs/ColorEditorModal";
+import CompositionEditorModal from "@/components/admin/compositions/CompositionEditorModal";
+import SeasonEditorModal from "@/components/admin/seasons/SeasonEditorModal";
+import CountryEditModal from "@/components/admin/manufacturing-countries/CountryEditModal";
 import CustomSelect from "@/components/ui/CustomSelect";
 import HsCodeModal from "@/components/admin/codes-sh/HsCodeModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -1202,7 +1207,13 @@ export default function ProductForm({
   }
 
   // ── Quick-create modal handlers ──────────────────────────────────────
-  function handleModalCreated(item: { id: string; name: string; hex?: string | null; subCategories?: { id: string; name: string }[] }) {
+  function handleModalCreated(item: {
+    id: string;
+    name: string;
+    hex?: string | null;
+    patternImage?: string | null;
+    subCategories?: { id: string; name: string }[];
+  }) {
     if (modalType === "category") {
       const cat = { id: item.id, name: item.name, subCategories: item.subCategories ?? [] };
       setLocalCategories((prev) => [...prev, cat]);
@@ -1227,7 +1238,10 @@ export default function ProductForm({
         return [...updated, { compositionId: item.id, percentage: evenPct }];
       });
     } else if (modalType === "color") {
-      setLocalColors((prev) => [...prev, { id: item.id, name: item.name, hex: item.hex ?? null }]);
+      setLocalColors((prev) => [
+        ...prev,
+        { id: item.id, name: item.name, hex: item.hex ?? null, patternImage: item.patternImage ?? null },
+      ]);
     } else if (modalType === "tag") {
       setLocalTags((prev) => [...prev, { id: item.id, name: item.name }]);
       setTagNames((prev) => (prev.includes(item.name) ? prev : [...prev, item.name]));
@@ -3389,10 +3403,37 @@ export default function ProductForm({
       </form>
       </div>
 
-      {/* ── Quick-create modal ── */}
+      {/* ── Modales canoniques (mêmes que hors fiche produit) ── */}
+      <CategoryEditorModal
+        open={modalType === "category"}
+        onClose={() => setModalType(null)}
+        onCreated={handleModalCreated}
+      />
+      <ColorEditorModal
+        open={modalType === "color"}
+        onClose={() => setModalType(null)}
+        onCreated={handleModalCreated}
+      />
+      <CompositionEditorModal
+        open={modalType === "composition"}
+        onClose={() => setModalType(null)}
+        onCreated={handleModalCreated}
+      />
+      <SeasonEditorModal
+        open={modalType === "season"}
+        onClose={() => setModalType(null)}
+        onCreated={handleModalCreated}
+      />
+      <CountryEditModal
+        open={modalType === "country"}
+        onClose={() => setModalType(null)}
+        onCreated={handleModalCreated}
+      />
+
+      {/* ── Sous-catégorie & mot-clé : pas d'équivalent canonique — mini-modale historique ── */}
       <QuickCreateModal
-        type={modalType ?? "category"}
-        open={modalType !== null}
+        type={modalType === "subcategory" || modalType === "tag" ? modalType : "subcategory"}
+        open={modalType === "subcategory" || modalType === "tag"}
         onClose={() => setModalType(null)}
         onCreated={handleModalCreated}
         categoryId={categoryId}

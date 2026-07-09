@@ -30,6 +30,8 @@ import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketp
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import { formatRelativeDate } from "@/lib/format-date";
 import MarketplaceActionModal from "@/components/admin/products/MarketplaceActionModal";
+import MarketplacePublishConfirmModal from "@/components/admin/products/MarketplacePublishConfirmModal";
+import MarketplaceBulkPublishConfirmModal from "@/components/admin/products/MarketplaceBulkPublishConfirmModal";
 import BulkActionBar, { type MarketplaceKey } from "@/components/admin/products/BulkActionBar";
 
 const MARKETPLACE_LABEL: Record<MarketplaceKey, string> = {
@@ -603,6 +605,63 @@ interface ColorVariant {
   variantSizes?: VariantSizeEntry[];
   color: { name: string; hex: string | null; patternImage?: string | null };
   efashionProductId?: number | null;
+}
+
+// Pastille de couleur avec légende flottante instantanée au survol.
+// La légende est portée dans `document.body` pour éviter les clipping de
+// `overflow-hidden` sur la table (cf. conteneur rounded-2xl overflow-hidden).
+export function ColorSwatch({
+  color,
+}: {
+  color: { name: string; hex: string | null; patternImage?: string | null };
+}) {
+  const [hovered, setHovered] = useState(false);
+  const anchorRef = useRef<HTMLSpanElement | null>(null);
+  const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
+
+  const showTip = () => {
+    if (anchorRef.current) {
+      const r = anchorRef.current.getBoundingClientRect();
+      setCoords({ x: r.left + r.width / 2, y: r.top });
+    }
+    setHovered(true);
+  };
+  const hideTip = () => setHovered(false);
+
+  const bg: React.CSSProperties = color.patternImage
+    ? {
+        backgroundImage: `url(${color.patternImage})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }
+    : { backgroundColor: color.hex ?? "#9CA3AF" };
+
+  return (
+    <>
+      <span
+        ref={anchorRef}
+        onMouseEnter={showTip}
+        onMouseLeave={hideTip}
+        onFocus={showTip}
+        onBlur={hideTip}
+        tabIndex={0}
+        aria-label={color.name}
+        className="inline-block w-[18px] h-[18px] rounded-full border-[1.5px] border-white shadow-[0_0_0_1px_rgba(0,0,0,0.14)] cursor-default outline-none focus:ring-2 focus:ring-emerald-400/60"
+        style={bg}
+      />
+      {hovered && coords && createPortal(
+        <div
+          role="tooltip"
+          className="fixed z-[9999] pointer-events-none px-2 py-1 rounded-md bg-slate-900 text-white text-[11px] font-medium whitespace-nowrap shadow-lg -translate-x-1/2 -translate-y-full"
+          style={{ left: coords.x, top: coords.y - 6 }}
+        >
+          {color.name}
+          <span className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-4 border-transparent border-t-slate-900" />
+        </div>,
+        document.body,
+      )}
+    </>
+  );
 }
 
 interface ProductTranslation {
@@ -1650,18 +1709,20 @@ function ProductRow({
   const [pendingFaireEnqueue, setPendingFaireEnqueue] = useState(false);
   const isFairePublishing = faireBadgeState.loading || pendingFaireEnqueue;
 
+  // État de confirmation « Publier sur X ? » — piloté par une seule modale
+  // partagée (MarketplacePublishConfirmModal). null = fermée.
+  const [publishConfirmFor, setPublishConfirmFor] = useState<
+    "pfs" | "ankorstore" | "efashion" | "faire" | null
+  >(null);
+
   // Demande la création d'une nouvelle fiche sur PFS — même logique que pour
   // Ankorstore mais sans la possibilité de "lier à existant" (pas de modale).
-  const handlePublishPfs = useCallback(async () => {
+  const handlePublishPfs = useCallback(() => {
     if (isPfsPublishing) return;
-    const ok = await confirm({
-      type: "warning",
-      title: "Publier sur Paris Fashion Shop ?",
-      message: `"${product.name}" (${product.reference}) n'est pas encore sur Paris Fashion Shop. Une nouvelle fiche y sera créée avec les infos, photos, prix et stock actuels du produit.`,
-      confirmLabel: "Oui, publier",
-      cancelLabel: "Annuler",
-    });
-    if (ok !== true) return;
+    setPublishConfirmFor("pfs");
+  }, [isPfsPublishing]);
+  const doPublishPfs = useCallback(() => {
+    setPublishConfirmFor(null);
     setPendingPfsEnqueue(true);
     enqueue([
       {
@@ -1674,22 +1735,18 @@ function ProductRow({
         marketplace: "pfs",
       },
     ]);
-  }, [confirm, enqueue, product, isPfsPublishing]);
+  }, [enqueue, product]);
 
   // Demande la création d'une nouvelle fiche sur Ankorstore — appelé depuis le
   // badge "+ Ankorstore" et l'item du menu Actions. On passe par une simple
   // confirmation puis on enqueue : le widget en bas à droite affichera la
   // progression (callback Ankorstore asynchrone, voir CLAUDE.md > mode callback-only).
-  const handlePublishAnkorstore = useCallback(async () => {
+  const handlePublishAnkorstore = useCallback(() => {
     if (isAnkorstorePublishing) return;
-    const ok = await confirm({
-      type: "warning",
-      title: "Publier sur Ankorstore ?",
-      message: `"${product.name}" (${product.reference}) n'est pas encore sur Ankorstore. Une nouvelle fiche y sera créée avec les infos, photos, prix et stock actuels du produit.`,
-      confirmLabel: "Oui, publier",
-      cancelLabel: "Annuler",
-    });
-    if (ok !== true) return;
+    setPublishConfirmFor("ankorstore");
+  }, [isAnkorstorePublishing]);
+  const doPublishAnkorstore = useCallback(() => {
+    setPublishConfirmFor(null);
     setPendingAnkorstoreEnqueue(true);
     enqueue([
       {
@@ -1702,7 +1759,7 @@ function ProductRow({
         marketplace: "ankorstore",
       },
     ]);
-  }, [confirm, enqueue, product, isAnkorstorePublishing]);
+  }, [enqueue, product]);
 
   // Clic 1-clic depuis un badge orange « Synchro nécessaire ». Pas de
   // confirmation : la cliente a déjà vu le badge et choisi délibérément.
@@ -1751,23 +1808,19 @@ function ProductRow({
   // Demande la création d'une nouvelle fiche sur eFashion Paris — appelé depuis
   // le badge "+ eFashion". Même logique qu'Ankorstore (confirmation + enqueue +
   // widget bas-droite), mais le flow eFashion est synchrone (pas de callback).
-  const handlePublishEfashion = useCallback(async () => {
+  const handlePublishEfashion = useCallback(() => {
     if (isEfashionPublishing) return;
-    const ok = await confirm({
-      type: "warning",
-      title: "Publier sur eFashion Paris ?",
-      message: `"${product.name}" (${product.reference}) n'est pas encore sur eFashion Paris. Une nouvelle fiche y sera créée avec les infos, photos, prix et stock actuels du produit.`,
-      confirmLabel: "Oui, publier",
-      cancelLabel: "Annuler",
-    });
-    if (ok !== true) return;
+    setPublishConfirmFor("efashion");
+  }, [isEfashionPublishing]);
+  const doPublishEfashion = useCallback(() => {
+    setPublishConfirmFor(null);
     // Première publication eFashion = ticket de shooting nécessaire → file
     // batch (validation manuelle de l'utilisatrice avant envoi groupé).
     // Pas besoin du lock pendingEfashionEnqueue : l'opération est synchrone
     // côté serveur (un simple upsert en BDD) et la widget eFashion en bas à
     // droite reflètera l'ajout au prochain poll.
     void addToEfashionShootingBatch(product.id, "PUBLISH");
-  }, [confirm, addToEfashionShootingBatch, product, isEfashionPublishing]);
+  }, [addToEfashionShootingBatch, product]);
 
   // Quand la file remonte enfin l'opération en queue/in_progress, on lâche le
   // verrou local : c'est maintenant l'état serveur qui pilote l'affichage.
@@ -1792,16 +1845,12 @@ function ProductRow({
     }
   }, [pendingFaireEnqueue, faireBadgeState.loading]);
 
-  const handlePublishFaire = useCallback(async () => {
+  const handlePublishFaire = useCallback(() => {
     if (isFairePublishing) return;
-    const ok = await confirm({
-      type: "warning",
-      title: "Publier sur Faire ?",
-      message: `"${product.name}" (${product.reference}) n'est pas encore sur Faire. Une nouvelle fiche brouillon y sera créée avec les infos, photos, prix et stock actuels du produit.`,
-      confirmLabel: "Oui, publier",
-      cancelLabel: "Annuler",
-    });
-    if (ok !== true) return;
+    setPublishConfirmFor("faire");
+  }, [isFairePublishing]);
+  const doPublishFaire = useCallback(() => {
+    setPublishConfirmFor(null);
     setPendingFaireEnqueue(true);
     enqueue([
       {
@@ -1814,7 +1863,7 @@ function ProductRow({
         marketplace: "faire",
       },
     ]);
-  }, [confirm, enqueue, product, isFairePublishing]);
+  }, [enqueue, product]);
 
   const handleSyncFaire = useCallback(() => {
     if (isFairePublishing) return;
@@ -1930,6 +1979,15 @@ function ProductRow({
                 )}
               </div>
               <p className="font-mono text-[11px] text-text-muted mt-0.5 truncate">{product.reference}</p>
+              {/* Couleurs attribuées au produit — une pastille par couleur
+                  unique (UNIT + PACK confondus), légende flottante au survol. */}
+              {uniqueColors.length > 0 && (
+                <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                  {uniqueColors.map((v) => (
+                    <ColorSwatch key={v.colorId!} color={v.color} />
+                  ))}
+                </div>
+              )}
               {/* Infos compactes pour mobile : prix + état + marketplaces.
                   Masquées dès qu'on a assez de place pour les colonnes dédiées. */}
               <div className="md:hidden flex items-center gap-2 mt-1.5 flex-wrap">
@@ -2377,7 +2435,10 @@ function ProductRow({
         open={actionModalPfs}
         marketplaceName="Paris Fashion Shop"
         marketplaceCode="PFS"
-        productLabel={`${product.name} · ${product.reference}`}
+        productName={product.name}
+        productReference={product.reference}
+        productImage={product.firstImage}
+        variantsCount={product.colors.length}
         canCreate={eligibility.canPublishPfs && !isPfsPublishing}
         canLink={hasPfsConfig && !product.pfsProductId && !isPfsPublishing}
         createDisabledReason={eligibility.canPublishPfs ? undefined : "Fiche incomplète ou marketplace non configurée"}
@@ -2389,7 +2450,10 @@ function ProductRow({
         open={actionModalAk}
         marketplaceName="Ankorstore"
         marketplaceCode="ANKOR"
-        productLabel={`${product.name} · ${product.reference}`}
+        productName={product.name}
+        productReference={product.reference}
+        productImage={product.firstImage}
+        variantsCount={product.colors.length}
         canCreate={eligibility.canPublishAnkorstore && !isAnkorstorePublishing}
         canLink={showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing}
         createDisabledReason={eligibility.canPublishAnkorstore ? undefined : "Fiche incomplète ou marketplace non configurée"}
@@ -2401,7 +2465,10 @@ function ProductRow({
         open={actionModalEf}
         marketplaceName="eFashion Paris"
         marketplaceCode="EF"
-        productLabel={`${product.name} · ${product.reference}`}
+        productName={product.name}
+        productReference={product.reference}
+        productImage={product.firstImage}
+        variantsCount={product.colors.length}
         canCreate={eligibility.canPublishEfashion && !isEfashionPublishing}
         canLink={showEfashion && !efashionLinked && !isEfashionPublishing}
         createDisabledReason={eligibility.canPublishEfashion ? undefined : "Fiche incomplète ou marketplace non configurée"}
@@ -2413,13 +2480,72 @@ function ProductRow({
         open={actionModalFaire}
         marketplaceName="Faire"
         marketplaceCode="Faire"
-        productLabel={`${product.name} · ${product.reference}`}
+        productName={product.name}
+        productReference={product.reference}
+        productImage={product.firstImage}
+        variantsCount={product.colors.length}
         canCreate={!faireBadgeState.online && !isFairePublishing}
         canLink={showFaire && !faireBadgeState.online && !isFairePublishing}
         createDisabledReason={!faireBadgeState.online ? undefined : "Produit déjà publié"}
         onClose={() => setActionModalFaire(false)}
         onCreate={() => { setActionModalFaire(false); void handlePublishFaire(); }}
         onLink={() => { setActionModalFaire(false); setLinkFaireOpen(true); }}
+      />
+
+      {/* Modale de confirmation « Publier sur X ? » — partagée entre les 4
+          marketplaces. Ouverte par les handlers handlePublishXxx qui posent
+          publishConfirmFor. Le onConfirm exécute doPublishXxx. */}
+      <MarketplacePublishConfirmModal
+        open={publishConfirmFor === "pfs"}
+        marketplaceName="Paris Fashion Shop"
+        marketplaceCode="PFS"
+        productName={product.name}
+        productReference={product.reference}
+        productImage={product.firstImage}
+        variantsCount={product.colors.length}
+        onClose={() => setPublishConfirmFor(null)}
+        onConfirm={doPublishPfs}
+      />
+      <MarketplacePublishConfirmModal
+        open={publishConfirmFor === "ankorstore"}
+        marketplaceName="Ankorstore"
+        marketplaceCode="ANKOR"
+        productName={product.name}
+        productReference={product.reference}
+        productImage={product.firstImage}
+        variantsCount={product.colors.length}
+        onClose={() => setPublishConfirmFor(null)}
+        onConfirm={doPublishAnkorstore}
+      />
+      <MarketplacePublishConfirmModal
+        open={publishConfirmFor === "efashion"}
+        marketplaceName="eFashion Paris"
+        marketplaceCode="EF"
+        productName={product.name}
+        productReference={product.reference}
+        productImage={product.firstImage}
+        variantsCount={product.colors.length}
+        subtitle="Le produit sera ajouté au prochain batch de shooting eFashion."
+        onClose={() => setPublishConfirmFor(null)}
+        onConfirm={doPublishEfashion}
+      />
+      <MarketplacePublishConfirmModal
+        open={publishConfirmFor === "faire"}
+        marketplaceName="Faire"
+        marketplaceCode="Faire"
+        productName={product.name}
+        productReference={product.reference}
+        productImage={product.firstImage}
+        variantsCount={product.colors.length}
+        subtitle="Une nouvelle fiche brouillon sera créée avec les infos actuelles."
+        infoTone="warning"
+        infoMessage={
+          <>
+            La fiche est créée en <strong>brouillon</strong>. Vous pourrez la publier définitivement depuis Faire ensuite.
+          </>
+        }
+        onClose={() => setPublishConfirmFor(null)}
+        onConfirm={doPublishFaire}
       />
     </>
   );
@@ -2557,6 +2683,13 @@ export default function AdminProductsTable({
   // Alimente à la fois le badge dans BulkActionBar et le voile posé sur le
   // tableau. `null` quand aucune action n'est en cours.
   const [bulkActionLabel, setBulkActionLabel] = useState<string | null>(null);
+
+  // Confirmation bulk « Publier N produits sur X ? » — pilotée par une seule
+  // modale partagée (MarketplaceBulkPublishConfirmModal). null = fermée.
+  const [bulkPublishConfirm, setBulkPublishConfirm] = useState<{
+    marketplace: MarketplaceKey;
+    ids: string[];
+  } | null>(null);
 
   const allProducts = products;
 
@@ -3732,22 +3865,22 @@ export default function AdminProductsTable({
   // marketplace configuré, les produits à publier (identifiant marketplace
   // absent + statut ONLINE) ou à synchroniser (drapeau *SyncRequired = true).
 
-  const handleBulkMarketplacePublish = useCallback(async (marketplace: MarketplaceKey, ids: string[]) => {
+  const handleBulkMarketplacePublish = useCallback((marketplace: MarketplaceKey, ids: string[]) => {
     if (ids.length === 0) return;
+    setBulkPublishConfirm({ marketplace, ids });
+  }, []);
+
+  // Exécution effective après confirmation dans la modale bulk.
+  const doBulkMarketplacePublish = useCallback(() => {
+    if (!bulkPublishConfirm) return;
+    const { marketplace, ids } = bulkPublishConfirm;
+    setBulkPublishConfirm(null);
     const count = ids.length;
     const plural = count > 1 ? "s" : "";
     const label = MARKETPLACE_LABEL[marketplace];
 
     // eFashion : première publication = ticket de shooting, pas d'envoi direct.
     if (marketplace === "efashion") {
-      const ok = await confirm({
-        type: "info",
-        title: `Ajouter ${count} produit${plural} au shooting eFashion ?`,
-        message: `Une entrée de shooting sera créée pour chaque produit. L'envoi effectif vers eFashion se validera depuis la fenêtre "eFashion" en bas à droite.`,
-        confirmLabel: "Ajouter au shooting",
-        cancelLabel: "Annuler",
-      });
-      if (ok !== true) return;
       void (async () => {
         try {
           const res = await bulkAddToEfashionShootingBatch(ids, "PUBLISH");
@@ -3765,18 +3898,6 @@ export default function AdminProductsTable({
       })();
       return;
     }
-
-    const asyncNote = marketplace === "ankorstore"
-      ? " La publication Ankorstore est asynchrone : le résultat arrivera dans les minutes qui suivent."
-      : "";
-    const ok = await confirm({
-      type: "warning",
-      title: `Publier ${count} produit${plural} sur ${label} ?`,
-      message: `Une nouvelle fiche sera créée sur ${label} pour chaque produit, avec les infos, photos, prix et stock actuels.${asyncNote}`,
-      confirmLabel: "Oui, publier",
-      cancelLabel: "Annuler",
-    });
-    if (ok !== true) return;
 
     const products = allProducts.filter((p) => ids.includes(p.id));
     const options = { local: false, pfs: false, ankorstore: false, efashion: false, faire: false };
@@ -3798,7 +3919,7 @@ export default function AdminProductsTable({
       `${count} produit${plural} en cours de publication sur ${label}`,
       "Suivi dans la fenêtre en bas à droite.",
     );
-  }, [allProducts, enqueuePfs, toast, refreshEfashionBatch, confirm]);
+  }, [bulkPublishConfirm, allProducts, enqueuePfs, toast, refreshEfashionBatch]);
 
   const handleBulkMarketplaceSync = useCallback(async (marketplace: MarketplaceKey, ids: string[]) => {
     if (ids.length === 0) return;
@@ -4060,6 +4181,74 @@ export default function AdminProductsTable({
           onConfirm={handleBulkPublishDraftsConfirm}
         />
       )}
+
+      {/* Modale de confirmation « Publier N produits sur X ? » — partagée
+          entre les 4 marketplaces, ouverte par handleBulkMarketplacePublish. */}
+      {bulkPublishConfirm && (() => {
+        const { marketplace, ids } = bulkPublishConfirm;
+        const selected = allProducts.filter((p) => ids.includes(p.id)).map((p) => ({
+          id: p.id,
+          name: p.name,
+          firstImage: p.firstImage,
+        }));
+        const marketplaceName = MARKETPLACE_LABEL[marketplace];
+        const code = marketplace === "pfs" ? "PFS"
+          : marketplace === "ankorstore" ? "ANKOR"
+          : marketplace === "efashion" ? "EF"
+          : "Faire";
+
+        if (marketplace === "efashion") {
+          return (
+            <MarketplaceBulkPublishConfirmModal
+              open
+              marketplaceName={marketplaceName}
+              marketplaceCode={code}
+              products={selected}
+              subtitle="Les produits seront ajoutés au prochain batch de shooting eFashion."
+              infoMessage={<>Une entrée de shooting sera créée pour chaque produit. L'envoi effectif se validera depuis la fenêtre <strong>eFashion</strong> en bas à droite.</>}
+              confirmLabel="Ajouter au shooting"
+              onClose={() => setBulkPublishConfirm(null)}
+              onConfirm={doBulkMarketplacePublish}
+            />
+          );
+        }
+
+        if (marketplace === "faire") {
+          return (
+            <MarketplaceBulkPublishConfirmModal
+              open
+              marketplaceName={marketplaceName}
+              marketplaceCode={code}
+              products={selected}
+              subtitle="Une nouvelle fiche brouillon sera créée pour chaque produit."
+              infoTone="warning"
+              infoMessage={<>Les fiches sont créées en <strong>brouillon</strong>. Vous pourrez les publier définitivement depuis Faire ensuite.</>}
+              onClose={() => setBulkPublishConfirm(null)}
+              onConfirm={doBulkMarketplacePublish}
+            />
+          );
+        }
+
+        const asyncNote = marketplace === "ankorstore"
+          ? " La publication Ankorstore est asynchrone : le résultat arrive dans les minutes qui suivent."
+          : "";
+        return (
+          <MarketplaceBulkPublishConfirmModal
+            open
+            marketplaceName={marketplaceName}
+            marketplaceCode={code}
+            products={selected}
+            infoMessage={
+              <>
+                La publication utilise <strong>vos infos, photos, prix et stock actuels</strong> pour chaque produit. Vous pourrez tout modifier après.
+                {asyncNote}
+              </>
+            }
+            onClose={() => setBulkPublishConfirm(null)}
+            onConfirm={doBulkMarketplacePublish}
+          />
+        );
+      })()}
     </div>
   );
 }

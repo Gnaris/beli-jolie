@@ -47,6 +47,7 @@ import { requirePfsBrand } from "@/lib/pfs-brand";
 import { mapLocalToPfsStatus } from "@/lib/pfs-status";
 import { assertNoPfsColorConflicts } from "@/lib/pfs-color-conflicts";
 import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
+import { matchPfsFamilyId, matchPfsCategoryId } from "@/lib/pfs-family-resolve";
 
 export interface PfsRefreshProgress {
   productId: string;
@@ -298,33 +299,19 @@ async function resolvePfsCategoryIds(category: {
   if (result.pfsCategoryId && result.pfsFamilyId) return result;
 
   try {
-    const pickFr = (labels: Record<string, string> | undefined | null, fallback = ""): string => {
-      if (!labels) return fallback;
-      return labels.fr ?? labels.en ?? Object.values(labels)[0] ?? fallback;
-    };
-
-    const normalize = (s: string) => s.replace(/_/g, " ").trim().toLowerCase();
-
     if (!result.pfsFamilyId && category.pfsFamilyName) {
       const families = await pfsGetFamilies();
-      const target = normalize(category.pfsFamilyName);
-      const match = families.find((f) => normalize(pickFr(f.labels, f.id)) === target);
-      if (match) result.pfsFamilyId = match.id;
+      result.pfsFamilyId = matchPfsFamilyId(families, category.pfsFamilyName, category.pfsGender);
     }
 
     if (!result.pfsCategoryId && category.pfsCategoryName) {
       const categories = await pfsGetCategories();
-      const target = normalize(category.pfsCategoryName);
-      const match = categories.find((c) => {
-        const label = normalize(pickFr(c.labels));
-        if (label !== target) return false;
-        if (result.pfsFamilyId && c.family) {
-          const catFamilyId = typeof c.family === "string" ? c.family : c.family.id;
-          return catFamilyId === result.pfsFamilyId;
-        }
-        return true;
-      });
-      if (match) result.pfsCategoryId = match.id;
+      result.pfsCategoryId = matchPfsCategoryId(
+        categories,
+        category.pfsCategoryName,
+        category.pfsGender,
+        result.pfsFamilyId,
+      );
     }
 
     const updates: Record<string, string> = {};

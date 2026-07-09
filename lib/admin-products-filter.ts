@@ -51,6 +51,19 @@ export interface AdminProductsFilterParams {
    * Le marqueur `Product.important` est partagé entre tous les comptes admin.
    */
   important?: string; // "1" | ""
+  /**
+   * Raccourci « Créé récemment » : ne retient que les produits créés dans les
+   * 30 derniers jours (cohérent avec la notion de « Nouveauté » côté public).
+   * Combiné en AND avec `dateFrom` : on garde la borne la plus restrictive.
+   * "1" = filtre actif.
+   */
+  createdRecent?: string; // "1" | ""
+  /**
+   * Raccourci « Modifié récemment » : ne retient que les produits dont
+   * `updatedAt` est dans les 30 derniers jours. Combiné en AND avec
+   * `updatedFrom` : on garde la borne la plus restrictive. "1" = filtre actif.
+   */
+  updatedRecent?: string; // "1" | ""
   refresh?: string; // AdminProductsRefreshValue
   status?: string; // ProductStatus | "DRAFT"
   minPrice?: number | null;
@@ -298,6 +311,24 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     const end = new Date(params.updatedTo);
     end.setHours(23, 59, 59, 999);
     where.updatedAt = { ...(where.updatedAt as object), lte: end };
+  }
+
+  // Raccourcis « récemment » (barre d'onglets) — combinés en AND avec les bornes
+  // date-picker existantes : on garde la borne inférieure la plus restrictive
+  // (le max entre la borne explicite et now - 30j).
+  if (params.createdRecent === "1") {
+    const cutoff = new Date(now);
+    cutoff.setDate(cutoff.getDate() - RECENT_REFRESH_DAYS);
+    const existing = (where.createdAt as { gte?: Date } | undefined)?.gte;
+    const gte = existing && existing > cutoff ? existing : cutoff;
+    where.createdAt = { ...(where.createdAt as object), gte };
+  }
+  if (params.updatedRecent === "1") {
+    const cutoff = new Date(now);
+    cutoff.setDate(cutoff.getDate() - RECENT_REFRESH_DAYS);
+    const existing = (where.updatedAt as { gte?: Date } | undefined)?.gte;
+    const gte = existing && existing > cutoff ? existing : cutoff;
+    where.updatedAt = { ...(where.updatedAt as object), gte };
   }
 
   const stockBelow = params.stockBelow ?? null;

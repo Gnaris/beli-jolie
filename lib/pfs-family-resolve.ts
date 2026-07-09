@@ -54,3 +54,85 @@ export function inferPfsFamilyFromCategoryLabel(
   }
   return null;
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Matcher famille / catégorie PFS (pur, testable)
+ *
+ * Sert les résolveurs `resolvePfsCategoryIds` de `pfs-publish.ts`,
+ * `pfs-update.ts` et `pfs-refresh.ts`. Séparé pour que le filtre par genre
+ * soit couvert par un test unitaire — sans ce filtre, un mapping ambigu
+ * comme « Accessoires » (existe en WOMAN/MAN/KID chez PFS) tombait sur la
+ * mauvaise famille au hasard et rendait la catégorie non publiable.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+interface PfsFamilyLike {
+  id: string;
+  labels: Record<string, string> | null | undefined;
+  gender: string | null | undefined;
+}
+
+interface PfsCategoryLike {
+  id: string;
+  labels: Record<string, string> | null | undefined;
+  gender: string | null | undefined;
+  family: string | { id: string } | null | undefined;
+}
+
+function pickFrLabel(
+  labels: Record<string, string> | null | undefined,
+  fallback = "",
+): string {
+  if (!labels) return fallback;
+  return labels.fr ?? labels.en ?? Object.values(labels)[0] ?? fallback;
+}
+
+function normalizeName(s: string): string {
+  return s.replace(/_/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Retourne l'ID Salesforce de la famille PFS qui correspond au nom donné
+ * pour le genre donné (WOMAN|MAN|KID|SUPPLIES). Retourne null si aucune
+ * famille ne matche. Le filtre par genre est indispensable : plusieurs
+ * familles PFS partagent le même libellé (ex: « Accessoires » existe en
+ * WOMAN, MAN, KID) et sans ce filtre on prend au hasard la première trouvée.
+ */
+export function matchPfsFamilyId(
+  families: PfsFamilyLike[],
+  familyName: string | null | undefined,
+  gender: string | null | undefined,
+): string | null {
+  if (!familyName) return null;
+  const target = normalizeName(familyName);
+  const match = families.find((f) => {
+    if (gender && f.gender && f.gender !== gender) return false;
+    return normalizeName(pickFrLabel(f.labels, f.id)) === target;
+  });
+  return match?.id ?? null;
+}
+
+/**
+ * Retourne l'ID Salesforce de la catégorie PFS qui correspond au nom donné
+ * pour le genre + famille donnés. Filtre à la fois par genre (« Corps » existe
+ * en WOMAN et MAN chez PFS) et par familyId si connu. Retourne null si aucun
+ * match.
+ */
+export function matchPfsCategoryId(
+  categories: PfsCategoryLike[],
+  categoryName: string | null | undefined,
+  gender: string | null | undefined,
+  familyId: string | null | undefined,
+): string | null {
+  if (!categoryName) return null;
+  const target = normalizeName(categoryName);
+  const match = categories.find((c) => {
+    if (normalizeName(pickFrLabel(c.labels)) !== target) return false;
+    if (gender && c.gender && c.gender !== gender) return false;
+    if (familyId && c.family) {
+      const catFamilyId = typeof c.family === "string" ? c.family : c.family.id;
+      if (catFamilyId !== familyId) return false;
+    }
+    return true;
+  });
+  return match?.id ?? null;
+}

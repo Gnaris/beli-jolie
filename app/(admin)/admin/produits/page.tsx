@@ -180,7 +180,7 @@ function countActiveFilters(p: Record<string, string | undefined>): number {
   const keys = [
     "q", "exactRef", "cat", "subCat", "tag", "composition", "hsCodeId",
     "minPrice", "maxPrice", "dateFrom", "dateTo", "updatedFrom", "updatedTo", "stockBelow",
-    "bestSeller", "important", "refresh", "sort", "locked", "syncRequired", "missingImages",
+    "bestSeller", "important", "createdRecent", "updatedRecent", "refresh", "sort", "locked", "syncRequired", "missingImages",
     "pfsLink", "ankorsLink", "efashionLink", "faireLink",
     "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "microstoreExportedAt",
   ];
@@ -205,6 +205,8 @@ interface PageProps {
     composition?: string;
     bestSeller?: string;
     important?: string;
+    createdRecent?: string;
+    updatedRecent?: string;
     refresh?: string;
     sort?: string;
     status?: string;
@@ -306,6 +308,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     composition = "",
     bestSeller = "",
     important = "",
+    createdRecent = "",
+    updatedRecent = "",
     refresh = "",
     sort = "",
     status: statusFilter = "",
@@ -356,6 +360,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     composition,
     bestSeller,
     important,
+    createdRecent,
+    updatedRecent,
     refresh,
     status: statusFilter,
     minPrice,
@@ -451,14 +457,25 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       orderBy: [{ position: "asc" }, { name: "asc" }],
       select: { id: true, name: true },
     }),
-    // Section counts for tabs (lightweight parallel queries)
-    Promise.all([
-      prisma.product.count(),
-      prisma.product.count({ where: { status: "ONLINE" } }),
-      prisma.product.count({ where: { status: "OFFLINE", isIncomplete: false } }),
-      prisma.product.count({ where: { status: "OFFLINE", isIncomplete: true } }),
-      prisma.product.count({ where: { status: "ARCHIVED" } }),
-    ]).then(([all, online, offline, draft, archived]) => ({ all, online, offline, draft, archived })),
+    // Section counts for tabs (lightweight parallel queries).
+    // `recentCutoff` : borne 30j servant aux raccourcis "Créé récemment" et
+    // "Modifié récemment" — même fenêtre que la notion de « Nouveauté ».
+    (() => {
+      const recentCutoff = new Date();
+      recentCutoff.setDate(recentCutoff.getDate() - 30);
+      return Promise.all([
+        prisma.product.count(),
+        prisma.product.count({ where: { status: "ONLINE" } }),
+        prisma.product.count({ where: { status: "OFFLINE", isIncomplete: false } }),
+        prisma.product.count({ where: { status: "OFFLINE", isIncomplete: true } }),
+        prisma.product.count({ where: { status: "ARCHIVED" } }),
+        prisma.product.count({ where: { important: true } }),
+        prisma.product.count({ where: { createdAt: { gte: recentCutoff } } }),
+        prisma.product.count({ where: { updatedAt: { gte: recentCutoff } } }),
+      ]).then(([all, online, offline, draft, archived, important, createdRecent, updatedRecent]) => ({
+        all, online, offline, draft, archived, important, createdRecent, updatedRecent,
+      }));
+    })(),
     getCachedPfsEnabled(),
     getCachedHasAnkorstoreConfig(),
     getCachedAnkorstoreEnabled(),

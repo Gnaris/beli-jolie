@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
 
@@ -14,12 +14,13 @@ interface Props {
   productReference?: string;
   productImage?: string | null;
   variantsCount?: number;
-  canCreate: boolean;
-  canLink: boolean;
-  createDisabledReason?: string;
+  subtitle?: string;
+  infoMessage?: ReactNode;
+  infoTone?: "neutral" | "warning";
+  confirmLabel?: string;
+  busy?: boolean;
   onClose: () => void;
-  onCreate: () => void;
-  onLink: () => void;
+  onConfirm: () => void;
 }
 
 type PaletteKey = "slate" | "sky" | "rose" | "amber";
@@ -38,6 +39,10 @@ const PALETTE: Record<PaletteKey, {
   eyebrow: string;
   dot: string;
   halo: string;
+  infoBg: string;
+  infoBorder: string;
+  infoText: string;
+  infoIcon: string;
 }> = {
   slate: {
     logoGradient: "linear-gradient(135deg, #64748b 0%, #334155 50%, #1e293b 100%)",
@@ -46,6 +51,10 @@ const PALETTE: Record<PaletteKey, {
     eyebrow: "text-slate-700",
     dot: "bg-slate-500",
     halo: "bg-slate-400/30",
+    infoBg: "bg-slate-50",
+    infoBorder: "border-slate-200",
+    infoText: "text-slate-700",
+    infoIcon: "text-slate-500",
   },
   sky: {
     logoGradient: "linear-gradient(135deg, #0ea5e9 0%, #0284c7 50%, #075985 100%)",
@@ -54,6 +63,10 @@ const PALETTE: Record<PaletteKey, {
     eyebrow: "text-sky-700",
     dot: "bg-sky-500",
     halo: "bg-sky-400/30",
+    infoBg: "bg-sky-50",
+    infoBorder: "border-sky-200",
+    infoText: "text-sky-900",
+    infoIcon: "text-sky-600",
   },
   rose: {
     logoGradient: "linear-gradient(135deg, #ec4899 0%, #db2777 50%, #9d174d 100%)",
@@ -62,6 +75,10 @@ const PALETTE: Record<PaletteKey, {
     eyebrow: "text-rose-700",
     dot: "bg-rose-500",
     halo: "bg-rose-400/30",
+    infoBg: "bg-rose-50",
+    infoBorder: "border-rose-200",
+    infoText: "text-rose-900",
+    infoIcon: "text-rose-600",
   },
   amber: {
     logoGradient: "linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #92400e 100%)",
@@ -70,6 +87,10 @@ const PALETTE: Record<PaletteKey, {
     eyebrow: "text-amber-700",
     dot: "bg-amber-500",
     halo: "bg-amber-400/30",
+    infoBg: "bg-amber-50",
+    infoBorder: "border-amber-200",
+    infoText: "text-amber-900",
+    infoIcon: "text-amber-600",
   },
 };
 
@@ -81,7 +102,7 @@ function getInitial(code: MarketplaceCode): string {
   return code.charAt(0).toUpperCase();
 }
 
-export default function MarketplaceActionModal({
+export default function MarketplacePublishConfirmModal({
   open,
   marketplaceName,
   marketplaceCode,
@@ -89,12 +110,13 @@ export default function MarketplaceActionModal({
   productReference,
   productImage,
   variantsCount,
-  canCreate,
-  canLink,
-  createDisabledReason,
+  subtitle,
+  infoMessage,
+  infoTone = "neutral",
+  confirmLabel = "Oui, publier",
+  busy = false,
   onClose,
-  onCreate,
-  onLink,
+  onConfirm,
 }: Props) {
   const [mounted, setMounted] = useState(false);
   const backdrop = useBackdropClose(onClose);
@@ -112,6 +134,16 @@ export default function MarketplaceActionModal({
 
   const palette = PALETTE[PALETTE_BY_CODE[marketplaceCode] ?? "slate"];
   const initial = getInitial(marketplaceCode);
+
+  const defaultSubtitle = `Une nouvelle fiche va être créée avec les infos, photos, prix et stock actuels.`;
+  const defaultInfo = (
+    <>
+      La publication utilise <strong>vos infos, photos, prix et stock actuels</strong>. Vous pourrez tout modifier après.
+    </>
+  );
+
+  // Info tone override — warning force amber pour Faire (brouillon)
+  const infoPalette = infoTone === "warning" ? PALETTE.amber : palette;
 
   return createPortal(
     <div
@@ -141,21 +173,22 @@ export default function MarketplaceActionModal({
             <div className="min-w-0 flex-1">
               <div className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] font-bold ${palette.eyebrow} mb-1`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${palette.dot}`} />
-                Nouvelle publication
+                Confirmation
               </div>
               <h3 className="font-heading text-xl font-bold text-text-primary leading-tight">
-                Publier sur {marketplaceName}
+                Publier sur {marketplaceName}&nbsp;?
               </h3>
               <p className="text-[12.5px] text-text-secondary font-body mt-1">
-                Cette fiche n'est pas encore en ligne sur cette marketplace.
+                {subtitle ?? defaultSubtitle}
               </p>
             </div>
 
             <button
               type="button"
               onClick={onClose}
+              disabled={busy}
               aria-label="Fermer"
-              className="w-8 h-8 rounded-lg text-text-muted hover:bg-bg-secondary hover:text-text-primary flex items-center justify-center shrink-0"
+              className="w-8 h-8 rounded-lg text-text-muted hover:bg-bg-secondary hover:text-text-primary flex items-center justify-center shrink-0 disabled:opacity-50"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -189,118 +222,53 @@ export default function MarketplaceActionModal({
                 </div>
               )}
             </div>
-            {canCreate && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 border border-emerald-200 uppercase tracking-wide shrink-0">
-                Prêt
-              </span>
-            )}
           </div>
         </div>
 
-        {/* Corps : 2 cartes actions */}
-        <div className="p-5 space-y-3">
-          <p className="text-[12.5px] text-text-secondary font-body leading-relaxed">
-            Comment souhaitez-vous ajouter ce produit ?
-          </p>
-
-          {/* Choix 1 : Créer */}
-          <button
-            type="button"
-            onClick={canCreate ? onCreate : undefined}
-            disabled={!canCreate}
-            title={canCreate ? undefined : createDisabledReason}
-            className={`group w-full text-left rounded-2xl p-4 transition-all relative overflow-hidden ${
-              canCreate
-                ? "bg-ink hover:bg-ink/90 shadow-[0_10px_24px_-8px_rgba(15,23,42,0.35)] cursor-pointer"
-                : "bg-bg-secondary border-2 border-border opacity-60 cursor-not-allowed"
-            }`}
-          >
-            {canCreate && (
-              <div className={`absolute -top-6 -right-6 w-24 h-24 rounded-full blur-2xl ${palette.halo} pointer-events-none`} />
-            )}
-            <div className="relative flex items-start gap-3">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                canCreate ? "bg-white/10 text-white ring-1 ring-white/20" : "bg-bg-tertiary text-text-muted"
-              }`}>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className={`font-heading text-[15px] font-bold leading-tight ${canCreate ? "text-white" : "text-text-secondary"}`}>
-                    Créer une nouvelle fiche
-                  </div>
-                  {canCreate && (
-                    <span className="text-[10px] font-bold text-ink bg-emerald-300 px-1.5 py-0.5 rounded uppercase tracking-wide">
-                      Recommandé
-                    </span>
-                  )}
-                </div>
-                <div className={`text-[12px] mt-0.5 leading-snug ${canCreate ? "text-white/70" : "text-text-muted"}`}>
-                  {canCreate
-                    ? `On publie la fiche complète avec ses photos, prix, tailles et couleurs.`
-                    : createDisabledReason ?? "Cette action n'est pas disponible."}
-                </div>
-              </div>
-              {canCreate && (
-                <svg className="w-5 h-5 text-white/60 group-hover:text-white group-hover:translate-x-0.5 transition mt-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              )}
-            </div>
-          </button>
-
-          {/* Choix 2 : Lier */}
-          <button
-            type="button"
-            onClick={canLink ? onLink : undefined}
-            disabled={!canLink}
-            className={`group w-full text-left rounded-2xl p-4 transition-all ${
-              canLink
-                ? "bg-bg-primary border-2 border-border hover:border-ink hover:bg-bg-secondary/50 cursor-pointer"
-                : "bg-bg-secondary border-2 border-border opacity-60 cursor-not-allowed"
-            }`}
-          >
-            <div className="flex items-start gap-3">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ring-1 ${
-                canLink ? "bg-bg-secondary text-text-primary ring-border" : "bg-bg-tertiary text-text-muted ring-border"
-              }`}>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-                </svg>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="font-heading text-[15px] font-bold text-text-primary leading-tight">
-                  Lier à une fiche existante
-                </div>
-                <div className="text-[12px] text-text-secondary font-body mt-0.5 leading-snug">
-                  Elle est déjà sur {marketplaceName} ? On la rattache à ce produit.
-                </div>
-              </div>
-              {canLink && (
-                <svg className="w-5 h-5 text-text-muted group-hover:text-text-primary group-hover:translate-x-0.5 transition mt-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              )}
-            </div>
-          </button>
-        </div>
-
-        {/* Pied */}
-        <div className="px-5 pb-4 flex items-center justify-between gap-3">
-          <div className="text-[11px] text-text-muted flex items-center gap-1.5">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        {/* Bandeau info */}
+        <div className="p-5">
+          <div className={`rounded-2xl border ${infoPalette.infoBg} ${infoPalette.infoBorder} p-3 flex items-start gap-2.5`}>
+            <svg className={`w-4 h-4 ${infoPalette.infoIcon} mt-0.5 shrink-0`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            Vous pouvez modifier après publication.
+            <div className={`text-[12px] ${infoPalette.infoText} leading-snug`}>
+              {infoMessage ?? defaultInfo}
+            </div>
           </div>
+        </div>
+
+        {/* Actions */}
+        <div className="px-5 pb-5 flex items-center justify-end gap-2.5">
           <button
             type="button"
             onClick={onClose}
-            className="text-[12.5px] text-text-secondary hover:text-text-primary font-body font-medium px-3 py-1.5 rounded-lg hover:bg-bg-secondary"
+            disabled={busy}
+            className="text-[13px] text-text-secondary hover:text-text-primary font-body font-medium px-4 py-2.5 rounded-xl hover:bg-bg-secondary disabled:opacity-50"
           >
             Annuler
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="text-[13px] font-bold text-white bg-ink hover:bg-ink/90 px-5 py-2.5 rounded-xl shadow-[0_10px_24px_-8px_rgba(15,23,42,0.35)] inline-flex items-center gap-2 disabled:opacity-60 disabled:cursor-wait"
+          >
+            {busy ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+                  <path fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                </svg>
+                Publication…
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                {confirmLabel}
+              </>
+            )}
           </button>
         </div>
       </div>
