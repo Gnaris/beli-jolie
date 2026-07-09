@@ -205,7 +205,11 @@ export async function middleware(request: NextRequest) {
     if (!isAdmin) {
       return NextResponse.redirect(localeUrl(routing.defaultLocale, "/", request));
     }
-    return passThrough();
+    // Injecter le pathname en request header pour que le layout puisse
+    // decider s'il doit rediriger vers /admin/bienvenue (wizard onboarding).
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-current-path", pathname);
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // ── Espace pro / panier / favoris / commandes (auth requis) ───────────────

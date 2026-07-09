@@ -1,8 +1,10 @@
 import React from "react";
+import { headers } from "next/headers";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { getCachedAdminWarnings, getCachedShopName } from "@/lib/cached-data";
+import { isOnboardingCompleted } from "@/lib/onboarding";
 import type { Metadata } from "next";
 import AdminMobileNav from "@/components/admin/AdminMobileNav";
 import AdminDesktopShell from "@/components/admin/AdminDesktopShell";
@@ -26,6 +28,21 @@ export const metadata: Metadata = {
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") redirect("/fr/connexion");
+
+  // Onboarding wizard : redirection auto vers /admin/bienvenue pour les nouvelles
+  // boutiques (SiteConfig.onboarding_completed_at absent). Beli & Jolie est
+  // seedee comme deja completee — n'est jamais redirigee.
+  const h = await headers();
+  const currentPath = h.get("x-current-path") ?? "/admin";
+  const isOnWizard = currentPath.startsWith("/admin/bienvenue");
+  if (!isOnWizard && !(await isOnboardingCompleted())) {
+    redirect("/admin/bienvenue");
+  }
+
+  // Sur les pages du wizard, on n'affiche PAS le shell admin (sidebar,
+  // widgets, providers marketplace). Le wizard a son propre layout minimaliste
+  // (app/(admin)/admin/bienvenue/layout.tsx).
+  if (isOnWizard) return <>{children}</>;
 
   const initials = session.user.name
     ? session.user.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
