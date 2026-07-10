@@ -10,6 +10,11 @@ const nextConfig: NextConfig = {
   // Défaut Next.js = 10 Mo → l'upload plante en « Failed to fetch ».
   experimental: {
     proxyClientMaxBodySize: "300mb",
+    // Server Actions ont leur propre limite (défaut 1 Mo) qui bloque les
+    // uploads d'images via server actions (logo, bannière, photos onboarding).
+    serverActions: {
+      bodySizeLimit: "50mb",
+    },
   },
 
   // ─── Image optimization ───
