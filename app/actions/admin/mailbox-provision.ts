@@ -2,6 +2,7 @@
 
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { readFile } from "fs/promises";
 import path from "path";
 import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
@@ -11,6 +12,8 @@ import { encryptIfSensitive } from "@/lib/encryption";
 import { logger } from "@/lib/logger";
 
 const execFileAsync = promisify(execFile);
+const VPS_IP = "72.61.106.128";
+const MAIL_HOSTNAME = "mail.beliandjolie.com";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -37,17 +40,51 @@ function extractShopDomain(): string | null {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DOMAIN_REGEX = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
+/**
+ * Génère le récap DNS complet à afficher à la cliente. Contient les 2 records
+ * de « site web » (A + CNAME) qui font pointer le domaine vers le VPS, plus
+ * les 4 records « mail » (MX + SPF + DKIM + DMARC) posés par le serveur mail.
+ * La clé DKIM est lue depuis /etc/opendkim/keys/{domain}/default.txt.
+ */
+async function buildDnsRecap(domain: string, forwardTo: string): Promise<string> {
+  let dkimValue = "(clé DKIM générée — indisponible à la lecture)";
+  try {
+    const dkimFile = `/etc/opendkim/keys/${domain}/default.txt`;
+    const raw = await readFile(dkimFile, "utf8");
+    const chunks = raw.match(/"([^"]*)"/g);
+    if (chunks && chunks.length > 0) {
+      dkimValue = chunks.map((c) => c.slice(1, -1)).join("").replace(/\s+/g, " ").trim();
+    }
+  } catch {
+    // fichier absent ou droits insuffisants : on affiche un texte de secours.
+  }
+
+  return [
+    "Records à ajouter chez le registrar de " + domain + " :",
+    "",
+    "─── SITE WEB (visiteurs) ───",
+    "1) Type: A       Nom: @        Valeur: " + VPS_IP,
+    "2) Type: CNAME   Nom: www      Valeur: " + domain,
+    "",
+    "─── EMAIL (contact@" + domain + ") ───",
+    "3) Type: MX      Nom: @        Priorité: 10   Valeur: " + MAIL_HOSTNAME,
+    "4) Type: TXT     Nom: @        Valeur: \"v=spf1 ip4:" + VPS_IP + " ~all\"",
+    "5) Type: TXT     Nom: default._domainkey",
+    "   Valeur: \"" + dkimValue + "\"",
+    "6) Type: TXT     Nom: _dmarc   Valeur: \"v=DMARC1; p=none; rua=mailto:" + forwardTo + "\"",
+    "",
+    "Comptez 1 à 24 h après avoir ajouté ces lignes pour que tout soit actif.",
+  ].join("\n");
+}
+
 export type MailboxProvisionResult = {
   success: boolean;
   error?: string;
   email?: string;
   domain?: string;
-  nameservers?: string[];
-  /** Vrai si la zone DNS a été créée automatiquement dans bind9. */
-  dnsZoneCreated?: boolean;
+  /** Bloc DNS à ajouter chez le registrar du domaine cliente. */
+  dnsRecap?: string;
 };
-
-const NAMESERVERS = ["ns1.beliandjolie.com", "ns2.beliandjolie.com"];
 
 /**
  * Provisionne une boîte mail `contact@{domaine}` sur le serveur mail du VPS
@@ -165,38 +202,13 @@ export async function provisionShopMailbox(
     revalidatePath("/admin/bienvenue/email");
     revalidatePath("/admin/parametres");
 
-    // Créer automatiquement la zone DNS dans bind9. En cas d'échec on ne
-    // rollback pas la boîte mail : elle reste utilisable, la cliente pourra
-    // toujours poser les DNS à la main (fallback très rare).
-    let dnsZoneCreated = false;
-    try {
-      const dnsScriptPath = path.join(
-        process.cwd(),
-        "scripts",
-        "deploy",
-        "add-dns-zone.sh",
-      );
-      await execFileAsync(
-        "/bin/bash",
-        [dnsScriptPath, domain, forward],
-        { timeout: 60_000, maxBuffer: 512 * 1024 },
-      );
-      dnsZoneCreated = true;
-    } catch (err) {
-      const e = err as { stdout?: string; stderr?: string; message?: string };
-      logger.error("[Mailbox] Échec add-dns-zone.sh (boîte mail créée)", {
-        domain,
-        output: ((e.stdout ?? "") + "\n" + (e.stderr ?? "")).slice(0, 2000),
-      });
-    }
+    // Générer un récap DNS complet (6 lignes) que la cliente devra copier
+    // dans la page DNS de son domaine chez son registrar. On y met à la
+    // fois les records "site" (A + CNAME www) pour que le domaine dirige
+    // vers le VPS, et les records "mail" (MX + SPF + DKIM + DMARC).
+    const dnsRecap = await buildDnsRecap(domain, forward);
 
-    return {
-      success: true,
-      email,
-      domain,
-      nameservers: NAMESERVERS,
-      dnsZoneCreated,
-    };
+    return { success: true, email, domain, dnsRecap };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };
   }
