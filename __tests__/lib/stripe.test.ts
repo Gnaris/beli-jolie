@@ -6,7 +6,16 @@ vi.mock("stripe", () => ({
   },
 }));
 
-describe("lib/stripe (mode simple — env-only)", () => {
+// Mock Prisma pour forcer le fallback vers process.env dans ces tests.
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    siteConfig: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+  },
+}));
+
+describe("lib/stripe (fallback env-only)", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
@@ -61,12 +70,12 @@ describe("lib/stripe (mode simple — env-only)", () => {
     it("retourne NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", async () => {
       process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_test_abc";
       const { getStripePublishableKey } = await import("@/lib/stripe");
-      expect(getStripePublishableKey()).toBe("pk_test_abc");
+      await expect(getStripePublishableKey()).resolves.toBe("pk_test_abc");
     });
 
     it("retourne null si la variable est absente", async () => {
       const { getStripePublishableKey } = await import("@/lib/stripe");
-      expect(getStripePublishableKey()).toBeNull();
+      await expect(getStripePublishableKey()).resolves.toBeNull();
     });
   });
 
@@ -75,18 +84,18 @@ describe("lib/stripe (mode simple — env-only)", () => {
       process.env.STRIPE_SECRET_KEY = "sk_x";
       process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_x";
       const { isStripeConfigured } = await import("@/lib/stripe");
-      expect(isStripeConfigured()).toBe(true);
+      await expect(isStripeConfigured()).resolves.toBe(true);
     });
 
     it("retourne false si une des deux clés manque", async () => {
       process.env.STRIPE_SECRET_KEY = "sk_x";
       const { isStripeConfigured } = await import("@/lib/stripe");
-      expect(isStripeConfigured()).toBe(false);
+      await expect(isStripeConfigured()).resolves.toBe(false);
     });
 
     it("retourne false si les deux clés manquent", async () => {
       const { isStripeConfigured } = await import("@/lib/stripe");
-      expect(isStripeConfigured()).toBe(false);
+      await expect(isStripeConfigured()).resolves.toBe(false);
     });
   });
 

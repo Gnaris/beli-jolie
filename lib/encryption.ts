@@ -22,6 +22,9 @@ export const SENSITIVE_KEYS = new Set([
   "efashion_email",
   "efashion_password",
   "faire_api_key",
+  "stripe_secret_key",
+  "stripe_webhook_secret",
+  "smtp_password",
 ]);
 
 function getEncryptionKey(): Buffer {

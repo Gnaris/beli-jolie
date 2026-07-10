@@ -1,37 +1,129 @@
 import Stripe from "stripe";
+import { prisma } from "@/lib/prisma";
+import { decryptIfSensitive } from "@/lib/encryption";
+
+/**
+ * Configuration Stripe hybride : lit d'abord SiteConfig (BDD chiffrée),
+ * fallback sur les variables d'environnement. Permet à chaque boutique
+ * (clone) de brancher son propre compte Stripe depuis l'UI d'admin sans
+ * toucher au `.env` du serveur.
+ *
+ * Clés SiteConfig (voir `SENSITIVE_KEYS` dans lib/encryption.ts) :
+ * - `stripe_secret_key`     : chiffrée
+ * - `stripe_publishable_key`: en clair (publique par nature)
+ * - `stripe_webhook_secret` : chiffrée
+ */
 
 let _cachedStripe: Stripe | null = null;
+let _cachedSecretKey: string | null = null;
 
-export async function getStripeInstance(): Promise<Stripe> {
-  const secretKey = process.env.STRIPE_SECRET_KEY;
-  if (!secretKey) {
-    throw new Error("Stripe non configuré. STRIPE_SECRET_KEY manquante dans .env.");
+const CONFIG_KEYS = [
+  "stripe_secret_key",
+  "stripe_publishable_key",
+  "stripe_webhook_secret",
+] as const;
+
+type StripeConfig = {
+  secretKey: string | null;
+  publishableKey: string | null;
+  webhookSecret: string | null;
+};
+
+async function readStripeConfig(): Promise<StripeConfig> {
+  let dbMap = new Map<string, string>();
+  try {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: [...CONFIG_KEYS] } },
+    });
+    dbMap = new Map(
+      rows
+        .filter((r) => r.value?.trim())
+        .map((r) => [r.key, decryptIfSensitive(r.key, r.value).trim()]),
+    );
+  } catch {
+    // BDD indisponible (ex. tests unitaires sans Prisma) → fallback env pur.
   }
 
-  if (_cachedStripe) return _cachedStripe;
+  const pick = (dbKey: (typeof CONFIG_KEYS)[number], envKey: string): string | null =>
+    dbMap.get(dbKey) || process.env[envKey]?.trim() || null;
 
+  return {
+    secretKey: pick("stripe_secret_key", "STRIPE_SECRET_KEY"),
+    publishableKey: pick(
+      "stripe_publishable_key",
+      "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY",
+    ),
+    webhookSecret: pick("stripe_webhook_secret", "STRIPE_WEBHOOK_SECRET"),
+  };
+}
+
+export async function getStripeInstance(): Promise<Stripe> {
+  const { secretKey } = await readStripeConfig();
+  if (!secretKey) {
+    throw new Error(
+      "Stripe non configuré. STRIPE_SECRET_KEY manquante dans .env ou dans SiteConfig.",
+    );
+  }
+  if (_cachedStripe && _cachedSecretKey === secretKey) return _cachedStripe;
   _cachedStripe = new Stripe(secretKey);
+  _cachedSecretKey = secretKey;
   return _cachedStripe;
 }
 
 export async function getStripeWebhookSecret(): Promise<string> {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!secret) {
+  const { webhookSecret } = await readStripeConfig();
+  if (!webhookSecret) {
     throw new Error("Stripe webhook secret non configuré (STRIPE_WEBHOOK_SECRET).");
   }
-  return secret;
+  return webhookSecret;
 }
 
-export function getStripePublishableKey(): string | null {
-  return process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || null;
+export async function getStripePublishableKey(): Promise<string | null> {
+  const { publishableKey } = await readStripeConfig();
+  return publishableKey;
 }
 
-export function isStripeConfigured(): boolean {
-  return !!process.env.STRIPE_SECRET_KEY && !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+export async function isStripeConfigured(): Promise<boolean> {
+  const { secretKey, publishableKey } = await readStripeConfig();
+  return !!secretKey && !!publishableKey;
+}
+
+/** État détaillé pour l'UI admin (indique quelle brique manque). */
+export async function getStripeConfigStatus(): Promise<{
+  hasSecret: boolean;
+  hasPublishable: boolean;
+  hasWebhook: boolean;
+  testMode: boolean;
+  ready: boolean;
+  source: "database" | "env" | "none";
+}> {
+  const { secretKey, publishableKey, webhookSecret } = await readStripeConfig();
+
+  let source: "database" | "env" | "none" = "none";
+  try {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: [...CONFIG_KEYS] } },
+      select: { key: true },
+    });
+    if (rows.length > 0) source = "database";
+    else if (secretKey || publishableKey || webhookSecret) source = "env";
+  } catch {
+    if (secretKey || publishableKey || webhookSecret) source = "env";
+  }
+
+  return {
+    hasSecret: !!secretKey,
+    hasPublishable: !!publishableKey,
+    hasWebhook: !!webhookSecret,
+    testMode: !!secretKey?.startsWith("sk_test_"),
+    ready: !!secretKey && !!publishableKey && !!webhookSecret,
+    source,
+  };
 }
 
 export function invalidateStripeCache() {
   _cachedStripe = null;
+  _cachedSecretKey = null;
 }
 
 export function buildStatementDescriptor(shopName: string): string | undefined {

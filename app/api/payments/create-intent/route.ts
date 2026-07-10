@@ -157,7 +157,7 @@ export async function POST(req: Request) {
 
   const shopName = await getCachedShopName();
 
-  if (!isStripeConfigured()) {
+  if (!(await isStripeConfigured())) {
     return NextResponse.json({ error: "Paiement indisponible. Stripe n'est pas configuré." }, { status: 503 });
   }
 

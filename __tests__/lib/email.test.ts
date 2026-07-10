@@ -24,6 +24,16 @@ vi.mock("@/lib/cached-data", () => ({
   getCachedShopName: () => shopNameMock(),
 }));
 
+// Mock Prisma pour forcer le fallback env-only : resolveSmtpConfig lit
+// désormais SiteConfig avant l'env, on veut couper cet accès dans les tests.
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    siteConfig: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+  },
+}));
+
 import {
   sendMail,
   validateSmtpConfig,

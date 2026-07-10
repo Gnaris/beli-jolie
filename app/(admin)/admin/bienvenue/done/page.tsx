@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { getOnboardingStatus } from "@/lib/onboarding";
 import { getCachedShopName } from "@/lib/cached-data";
+import { getStripeConfigStatus } from "@/lib/stripe";
+import { getSmtpConfigStatus } from "@/lib/email";
 import DoneStepButton from "@/components/admin/onboarding/DoneStepButton";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +24,8 @@ export default async function DoneStepPage() {
     bannerRow,
     eeRow,
     docsCount,
+    stripeStatus,
+    smtpStatus,
   ] = await Promise.all([
     getOnboardingStatus(),
     getCachedShopName().catch(() => ""),
@@ -33,17 +37,12 @@ export default async function DoneStepPage() {
       select: { key: true },
     }),
     prisma.legalDocument.count(),
+    getStripeConfigStatus(),
+    getSmtpConfigStatus(),
   ]);
 
-  const stripeOk =
-    !!process.env.STRIPE_SECRET_KEY?.trim() &&
-    !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() &&
-    !!process.env.STRIPE_WEBHOOK_SECRET?.trim();
-  const smtpOk =
-    !!process.env.SMTP_HOST?.trim() &&
-    !!process.env.SMTP_PORT?.trim() &&
-    !!process.env.SMTP_USER?.trim() &&
-    !!process.env.SMTP_PASSWORD?.trim();
+  const stripeOk = stripeStatus.ready;
+  const smtpOk = smtpStatus.ready;
 
   const checks: Check[] = [
     {

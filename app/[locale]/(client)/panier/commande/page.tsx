@@ -52,7 +52,7 @@ export default async function CommandePage() {
 
   if (!cart || cart.items.length === 0) return redirect({href: "/panier", locale});
 
-  if (!isStripeConfigured()) return redirect({href: "/panier", locale});
+  if (!(await isStripeConfigured())) return redirect({href: "/panier", locale});
 
   // Vérification minimum commande (couche serveur — ne peut pas être contournée)
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;

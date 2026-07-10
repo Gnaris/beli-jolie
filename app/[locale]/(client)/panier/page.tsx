@@ -50,7 +50,7 @@ export default async function PanierPage() {
   ]);
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
 
-  const stripeReady = isStripeConfigured();
+  const stripeReady = await isStripeConfigured();
 
   // Sérialiser les Decimal Prisma en number pour le client component
   const serializedCart = cart ? {

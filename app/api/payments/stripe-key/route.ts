@@ -8,7 +8,7 @@ export async function GET() {
   const rateLimited = checkRateLimit({ headers: hdrs }, "stripe-key", 20, 60_000);
   if (rateLimited) return rateLimited;
 
-  const key = getStripePublishableKey();
+  const key = await getStripePublishableKey();
   if (!key) {
     return NextResponse.json({ error: "Stripe non configuré." }, { status: 503 });
   }

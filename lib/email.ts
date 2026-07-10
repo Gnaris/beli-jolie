@@ -148,20 +148,52 @@ function parseSecure(
   return port === 465;
 }
 
-function resolveSmtpConfig(): {
+async function resolveSmtpConfig(): Promise<{
   connection: SmtpConnectionConfig | null;
   fromEmail: string | null;
-} {
-  const host = process.env.SMTP_HOST || null;
-  const port = parsePort(process.env.SMTP_PORT ?? null);
-  const secureRaw = process.env.SMTP_SECURE ?? null;
-  const user = process.env.SMTP_USER || null;
-  const password = process.env.SMTP_PASSWORD || null;
+  fromName: string | null;
+}> {
+  // Lit d'abord SiteConfig (BDD chiffrée), fallback env.
+  const { prisma } = await import("@/lib/prisma");
+  const { decryptIfSensitive } = await import("@/lib/encryption");
 
-  const fromEmail = process.env.SMTP_FROM_EMAIL || user || null;
+  const DB_KEYS = [
+    "smtp_host",
+    "smtp_port",
+    "smtp_secure",
+    "smtp_user",
+    "smtp_password",
+    "smtp_from_email",
+    "smtp_from_name",
+  ] as const;
+
+  let dbMap = new Map<string, string>();
+  try {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: [...DB_KEYS] } },
+    });
+    dbMap = new Map(
+      rows
+        .filter((r) => r.value?.trim())
+        .map((r) => [r.key, decryptIfSensitive(r.key, r.value).trim()]),
+    );
+  } catch {
+    // BDD indisponible → fallback env pur.
+  }
+
+  const pick = (dbKey: string, envKey: string): string | null =>
+    dbMap.get(dbKey) || process.env[envKey]?.trim() || null;
+
+  const host = pick("smtp_host", "SMTP_HOST");
+  const port = parsePort(pick("smtp_port", "SMTP_PORT"));
+  const secureRaw = pick("smtp_secure", "SMTP_SECURE");
+  const user = pick("smtp_user", "SMTP_USER");
+  const password = pick("smtp_password", "SMTP_PASSWORD");
+  const fromEmail = pick("smtp_from_email", "SMTP_FROM_EMAIL") || user;
+  const fromName = pick("smtp_from_name", "SMTP_FROM_NAME");
 
   if (!host || !port || !user || !password) {
-    return { connection: null, fromEmail };
+    return { connection: null, fromEmail, fromName };
   }
 
   return {
@@ -173,6 +205,54 @@ function resolveSmtpConfig(): {
       password,
     },
     fromEmail,
+    fromName,
+  };
+}
+
+/**
+ * État détaillé pour l'UI admin.
+ */
+export async function getSmtpConfigStatus(): Promise<{
+  hasHost: boolean;
+  hasPort: boolean;
+  hasUser: boolean;
+  hasPassword: boolean;
+  hasFromEmail: boolean;
+  ready: boolean;
+  host: string | null;
+  port: string | null;
+  user: string | null;
+  fromEmail: string | null;
+  fromName: string | null;
+  source: "database" | "env" | "none";
+}> {
+  const { connection, fromEmail, fromName } = await resolveSmtpConfig();
+  // Source
+  let source: "database" | "env" | "none" = "none";
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: ["smtp_host", "smtp_user", "smtp_password"] } },
+      select: { key: true },
+    });
+    if (rows.length > 0) source = "database";
+    else if (connection || process.env.SMTP_HOST) source = "env";
+  } catch {
+    if (connection || process.env.SMTP_HOST) source = "env";
+  }
+  return {
+    hasHost: !!connection?.host,
+    hasPort: !!connection?.port,
+    hasUser: !!connection?.user,
+    hasPassword: !!connection?.password,
+    hasFromEmail: !!fromEmail,
+    ready: !!connection,
+    host: connection?.host ?? null,
+    port: connection?.port ? String(connection.port) : null,
+    user: connection?.user ?? null,
+    fromEmail: fromEmail,
+    fromName: fromName,
+    source,
   };
 }
 
@@ -187,7 +267,8 @@ function resolveSmtpConfig(): {
 export async function sendMail(
   params: SendMailParams
 ): Promise<SendMailResult> {
-  const { connection, fromEmail: cfgFromEmail } = resolveSmtpConfig();
+  const { connection, fromEmail: cfgFromEmail, fromName: cfgFromName } =
+    await resolveSmtpConfig();
 
   if (!connection) {
     logger.warn("[email] Configuration SMTP incomplète — email ignoré.");
@@ -200,7 +281,7 @@ export async function sendMail(
     return { sent: false, reason: "no_from" };
   }
 
-  let fromName = params.fromName?.trim() || undefined;
+  let fromName = params.fromName?.trim() || cfgFromName || undefined;
   if (!fromName) {
     try {
       const shopName = (await getCachedShopName()).trim();
