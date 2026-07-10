@@ -100,6 +100,10 @@ fi
 DB_PASSWORD=$(gen_password)
 NEXTAUTH_SECRET=$(gen_secret_base64)
 ENCRYPTION_KEY=$(gen_secret_base64)
+# Clef de chiffrement des Server Actions Next.js. Doit rester stable entre
+# redemarrages sinon toutes les pages deja ouvertes echouent avec
+# « Failed to find Server Action ».
+NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=$(gen_secret_base64)
 ANKORSTORE_WEBHOOK_SECRET=$(gen_secret_base64 | tr -dc 'A-Za-z0-9' | head -c 32)
 ADMIN_PASSWORD=$(gen_password)
 
@@ -139,6 +143,7 @@ NEXTAUTH_SECRET="${NEXTAUTH_SECRET}"
 NEXTAUTH_URL="http://${DOMAIN}"
 
 ENCRYPTION_KEY="${ENCRYPTION_KEY}"
+NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}"
 
 PORT=${PORT}
 HOST=127.0.0.1
