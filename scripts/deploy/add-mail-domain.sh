@@ -162,15 +162,15 @@ chgrp dovecot "${DOVECOT_USERS_FILE}"
 log_ok "  Compte cree"
 
 # ------------------------------------------------------------------
-# 5. Sieve : regle de forward + copie locale
+# 5. Sieve : forward pur (aucune copie locale — zero stockage sur le VPS)
 # ------------------------------------------------------------------
 log_step "Sieve : regle de forward vers ${FORWARD_TO}"
 mkdir -p "$(dirname "${DOVECOT_SIEVE_GLOBAL}")"
 
-# S'assurer que require inclut copy + envelope
-if [[ ! -f "${DOVECOT_SIEVE_GLOBAL}" ]] || ! grep -q '"copy"' "${DOVECOT_SIEVE_GLOBAL}" 2>/dev/null; then
+# S'assurer que le fichier existe avec le require minimal.
+if [[ ! -f "${DOVECOT_SIEVE_GLOBAL}" ]] || ! grep -q '"envelope"' "${DOVECOT_SIEVE_GLOBAL}" 2>/dev/null; then
   cat > "${DOVECOT_SIEVE_GLOBAL}" <<'EOF'
-require ["copy", "envelope"];
+require ["envelope"];
 EOF
 fi
 
@@ -178,9 +178,9 @@ fi
 if ! grep -q "envelope :is \"to\" \"${EMAIL}\"" "${DOVECOT_SIEVE_GLOBAL}"; then
   cat >> "${DOVECOT_SIEVE_GLOBAL}" <<EOF
 
-# Forward automatique pour ${EMAIL} vers ${FORWARD_TO}
+# Forward pur pour ${EMAIL} vers ${FORWARD_TO} (pas de copie locale)
 if envelope :is "to" "${EMAIL}" {
-    redirect :copy "${FORWARD_TO}";
+    redirect "${FORWARD_TO}";
 }
 EOF
 fi
