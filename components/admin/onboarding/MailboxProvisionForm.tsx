@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   provisionShopMailbox,
@@ -22,20 +22,42 @@ type ProvisionResult = {
 export default function MailboxProvisionForm({
   defaultEmail,
   shopDomain,
+  initiallyProvisioned = false,
+  provisionedEmail,
 }: {
   defaultEmail: string;
   shopDomain: string;
+  /** Si vrai, la boîte est déjà provisionnée : on affiche direct la vue post. */
+  initiallyProvisioned?: boolean;
+  /** Adresse contact@ déjà provisionnée (utilisée si initiallyProvisioned=true). */
+  provisionedEmail?: string;
 }) {
   const router = useRouter();
   const toast = useToast();
   const [isPending, startTransition] = useTransition();
   const [email, setEmail] = useState(defaultEmail);
-  const [provision, setProvision] = useState<ProvisionResult | null>(null);
+  const [provision, setProvision] = useState<ProvisionResult | null>(
+    initiallyProvisioned && provisionedEmail
+      ? { ok: true, email: provisionedEmail }
+      : null,
+  );
   const [records, setRecords] = useState<DnsRecordStructured[] | null>(null);
   const [dnsCheck, setDnsCheck] = useState<DnsCheckLine[] | null>(null);
   const [dnsAllOk, setDnsAllOk] = useState(false);
   const [testSent, setTestSent] = useState(false);
   const [notReceivedOpen, setNotReceivedOpen] = useState(false);
+
+  // Au chargement initial (boîte déjà provisionnée) : recharger les 4 DNS
+  // depuis le serveur pour les afficher dans le tableau.
+  useEffect(() => {
+    if (initiallyProvisioned && provisionedEmail && !records) {
+      (async () => {
+        const recs = await getMailboxDnsRecords();
+        if (recs.success && recs.records) setRecords(recs.records);
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initiallyProvisioned, provisionedEmail]);
 
   const canSubmit =
     !!email.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && !isPending;

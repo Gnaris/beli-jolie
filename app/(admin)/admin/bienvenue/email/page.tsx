@@ -1,5 +1,5 @@
-import { getCompanyInfo } from "@/app/actions/admin/company-info";
 import { getSmtpConfigStatus } from "@/lib/email";
+import { prisma } from "@/lib/prisma";
 import WizardStepHeader from "@/components/admin/onboarding/WizardStepHeader";
 import WizardContinueButton from "@/components/admin/onboarding/WizardContinueButton";
 import MailboxProvisionForm from "@/components/admin/onboarding/MailboxProvisionForm";
@@ -17,12 +17,12 @@ function extractShopDomain(): string | null {
 export const dynamic = "force-dynamic";
 
 export default async function EmailStepPage() {
-  const [status, company] = await Promise.all([
+  const [status, forwardRow] = await Promise.all([
     getSmtpConfigStatus(),
-    getCompanyInfo(),
+    prisma.siteConfig.findUnique({ where: { key: "mailbox_forward_to" } }),
   ]);
-  const notifyEmail = company?.email?.trim() || "";
   const shopDomain = extractShopDomain();
+  const forwardTo = forwardRow?.value?.trim() || "";
 
   return (
     <div className="max-w-3xl mx-auto py-4 md:py-6">
@@ -72,8 +72,8 @@ export default async function EmailStepPage() {
           </div>
         </section>
 
-        {/* Provisionnement automatique — sauf si déjà branché */}
-        {!status.ready && shopDomain && (
+        {/* Provisionnement OU récap si déjà branché */}
+        {shopDomain && (
           <section className="rounded-3xl bg-white border border-border p-6 md:p-8 shadow-sm">
             <p className="text-[11px] uppercase tracking-[0.18em] text-sky-600 font-semibold mb-3 flex items-center gap-2">
               <span className="w-1 h-3 bg-sky-500 rounded" /> On s&apos;occupe de tout
@@ -87,14 +87,16 @@ export default async function EmailStepPage() {
               adresse habituelle.
             </p>
             <MailboxProvisionForm
-              defaultEmail={notifyEmail}
+              defaultEmail={forwardTo}
               shopDomain={shopDomain}
+              initiallyProvisioned={status.ready}
+              provisionedEmail={status.fromEmail ?? `contact@${shopDomain}`}
             />
           </section>
         )}
 
         {/* Cas d'erreur : domaine indéterminé */}
-        {!status.ready && !shopDomain && (
+        {!shopDomain && (
           <section className="rounded-3xl bg-white border border-border p-6 md:p-8 shadow-sm">
             <div className="rounded-2xl bg-rose-50 border border-rose-200 p-4 text-sm text-rose-800">
               <p className="font-semibold mb-1">⚠️ Configuration serveur incomplète</p>
