@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteComposition, updateCompositionDirect, updateCompositionPfsRef } from "@/app/actions/admin/compositions";
-import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import CompositionEditorModal from "./CompositionEditorModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -76,12 +75,6 @@ export default function CompositionsManager({
     router.refresh();
   }
 
-  async function handleTranslateAll(translations: Record<string, Record<string, string>>) {
-    const items = Object.entries(translations).map(([id, t]) => ({ id, translations: t }));
-    await batchUpdateTranslations("composition", items);
-    router.refresh();
-  }
-
   return (
     <>
       {/* Recherche + Tout traduire */}
@@ -100,13 +93,13 @@ export default function CompositionsManager({
           </svg>
         </div>
         <TranslateAllButton
+          entityType="composition"
+          section="Compositions"
           items={initialCompositions.map((c) => ({
             id: c.id,
             text: c.name,
             hasTranslations: Object.keys(c.translations).length > 0,
           }))}
-          onTranslated={handleTranslateAll}
-          label="Tout traduire"
           onlyMissing
         />
       </div>

@@ -13,8 +13,7 @@ import {
   updateCategoryFaireTaxonomy,
   updateSubCategoryDirect,
 } from "@/app/actions/admin/categories";
-import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
-import TranslateAllButton from "@/components/admin/TranslateAllButton";
+import CategoriesHeaderActions from "@/components/admin/categories/CategoriesHeaderActions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import MarketplaceMappingBadge from "@/components/admin/MarketplaceMappingBadge";
 
@@ -133,23 +132,6 @@ export default function CategoriesManager({ categories }: { categories: Category
     ),
   ];
 
-  async function handleTranslateAll(translations: Record<string, Record<string, string>>) {
-    const catItems: { id: string; translations: Record<string, string> }[] = [];
-    const subItems: { id: string; translations: Record<string, string> }[] = [];
-
-    for (const [key, t] of Object.entries(translations)) {
-      if (key.startsWith("cat:")) {
-        catItems.push({ id: key.slice(4), translations: t });
-      } else if (key.startsWith("sub:")) {
-        subItems.push({ id: key.slice(4), translations: t });
-      }
-    }
-
-    if (catItems.length > 0) await batchUpdateTranslations("category", catItems);
-    if (subItems.length > 0) await batchUpdateTranslations("subcategory", subItems);
-    router.refresh();
-  }
-
   const GENDER_LABELS: Record<string, string> = {
     WOMAN: "Femme",
     MAN: "Homme",
@@ -174,12 +156,7 @@ export default function CategoriesManager({ categories }: { categories: Category
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
         </div>
-        <TranslateAllButton
-          items={allTranslateItems}
-          onTranslated={handleTranslateAll}
-          label="Tout traduire"
-          onlyMissing
-        />
+        <CategoriesHeaderActions items={allTranslateItems} />
       </div>
 
       {filtered.length === 0 ? (

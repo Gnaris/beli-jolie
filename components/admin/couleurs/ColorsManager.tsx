@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteColor, updateColorDirect } from "@/app/actions/admin/colors";
-import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -107,12 +106,6 @@ export default function ColorsManager({
     }
   }
 
-  async function handleTranslateAll(translations: Record<string, Record<string, string>>) {
-    const items = Object.entries(translations).map(([id, t]) => ({ id, translations: t }));
-    await batchUpdateTranslations("color", items);
-    router.refresh();
-  }
-
   return (
     <>
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -130,13 +123,13 @@ export default function ColorsManager({
           </svg>
         </div>
         <TranslateAllButton
+          entityType="color"
+          section="Couleurs"
           items={initialColors.map((c) => ({
             id: c.id,
             text: c.name,
             hasTranslations: Object.keys(c.translations).length > 0,
           }))}
-          onTranslated={handleTranslateAll}
-          label="Tout traduire"
           onlyMissing
         />
       </div>

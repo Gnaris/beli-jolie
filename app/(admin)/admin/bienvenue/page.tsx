@@ -1,5 +1,6 @@
 import { getCachedShopName } from "@/lib/cached-data";
 import WelcomePasswordForm from "@/components/admin/onboarding/WelcomePasswordForm";
+import WelcomeSplash from "@/components/admin/onboarding/WelcomeSplash";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +8,7 @@ export default async function WelcomePage() {
   const shopName = await getCachedShopName();
   return (
     <div className="max-w-2xl mx-auto py-6 md:py-10">
+      <WelcomeSplash shopName={shopName ?? ""} />
       <div className="text-center mb-8">
         <div className="inline-flex w-20 h-20 items-center justify-center rounded-3xl bg-gradient-to-br from-violet-100 to-indigo-100 text-5xl mb-6 shadow-sm">
           👋

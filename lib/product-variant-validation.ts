@@ -23,6 +23,8 @@ export interface PackLineInput {
   sizeEntries: SizeEntryInput[];
   /** Mapping PFS secondaire propre à cette ligne dans ce pack. null/undefined = utilise le principal. */
   pfsColorRefOverride?: string | null;
+  /** Mapping eFashion secondaire propre à cette ligne dans ce pack. */
+  efashionColorIdOverride?: number | null;
 }
 
 export interface ColorInput {
@@ -40,6 +42,8 @@ export interface ColorInput {
   disabled?: boolean;
   /** Mapping PFS secondaire propre à cette variante. null/undefined = utilise le principal. */
   pfsColorRefOverride?: string | null;
+  /** Mapping eFashion secondaire propre à cette variante. */
+  efashionColorIdOverride?: number | null;
 }
 
 export function isMultiColorPackInput(c: ColorInput): boolean {

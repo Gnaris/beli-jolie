@@ -26,6 +26,7 @@ import {
   getCachedFaireEnabled,
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
+import { getEfashionAnnexes } from "@/lib/efashion-annexes";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 export const dynamic = "force-dynamic";
@@ -152,6 +153,15 @@ export default async function ModifierProduitPage({
   // On stocke la ref (ex: "GOLDEN") et on affiche le label FR (ex: "Doré").
   const pfsColorOptions = hasPfsConfig ? await getPfsColorOptions() : [];
 
+  // Couleurs eFashion pour le sélecteur de mapping secondaire (pendant du PFS).
+  // Best-effort : si l'API eFashion est down / non configurée, liste vide et la
+  // section Mapping eFashion affiche "Couleurs eFashion indisponibles".
+  const efashionColorOptions = hasEfashionConfig
+    ? await getEfashionAnnexes()
+        .then((a) => a.colors.map((c) => ({ id: c.id, label: c.fr || c.en })))
+        .catch(() => [] as { id: number; label: string }[])
+    : [];
+
   // A product is a draft only if it was explicitly created as one (isIncomplete=true)
   // AND was never imported from PFS. Imported products may have isIncomplete=true
   // due to a previous save bug — they should always show as normal "Hors ligne",
@@ -192,6 +202,7 @@ export default async function ModifierProduitPage({
           colorName: line.color?.name ?? "",
           colorHex:  line.color?.hex ?? "#9CA3AF",
           pfsColorRefOverride: line.pfsColorRefOverride ?? null,
+          efashionColorIdOverride: line.efashionColorIdOverride ?? null,
           sizeEntries: line.sizes.map((ls) => ({
             tempId:   uid(),
             sizeId:   ls.sizeId,
@@ -231,6 +242,7 @@ export default async function ModifierProduitPage({
       sku:           pc.sku ?? "",
       disabled:      pc.disabled ?? false,
       pfsColorRefOverride: pc.pfsColorRefOverride ?? null,
+      efashionColorIdOverride: pc.efashionColorIdOverride ?? null,
     };
   });
 
@@ -360,6 +372,7 @@ export default async function ModifierProduitPage({
           hasFaireConfig={hasFaireConfig}
           faireEnabled={faireEnabled}
           pfsColorOptions={pfsColorOptions}
+          efashionColorOptions={efashionColorOptions}
           initialData={{
             reference:         product.reference,
             name:              product.name,

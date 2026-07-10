@@ -13,6 +13,7 @@ export type ProductFormSectionKey =
   | "var"
   | "img"
   | "map"
+  | "map-efashion"
   | "assoc"
   | "note";
 
@@ -43,6 +44,7 @@ const SECTIONS: SectionDef[] = [
   { key: "var", group: "Catalogue", label: "Variantes", hint: "Couleurs, tailles, prix, stock", icon: "🎨", checklistKeys: ["variants", "prices", "weights", "stocks", "sizes"], anchor: "section-var" },
   { key: "img", group: "Catalogue", label: "Photos", hint: "5 photos par couleur", icon: "📷", checklistKeys: ["images"], anchor: "section-img" },
   { key: "map", group: "Catalogue", label: "Mapping PFS", hint: "Correspondance couleurs", icon: "🔗", checklistKeys: [], anchor: "section-map" },
+  { key: "map-efashion", group: "Catalogue", label: "Mapping eFashion", hint: "Correspondance couleurs", icon: "🔗", checklistKeys: [], anchor: "section-map-efashion" },
   { key: "assoc", group: "Diffusion", label: "Produits associés", hint: "Similaires + ensemble", icon: "🧩", checklistKeys: [], anchor: "section-assoc" },
   { key: "note", group: "Interne", label: "Note", hint: "Visible admin uniquement", icon: "📌", checklistKeys: [], anchor: "section-note" },
 ];

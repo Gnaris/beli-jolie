@@ -8,7 +8,6 @@ import {
   updateManufacturingCountryPfsRef,
   updateManufacturingCountryFaireCode,
 } from "@/app/actions/admin/manufacturing-countries";
-import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import CountryEditModal, { type CountryEditModalEditMode } from "./CountryEditModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -77,12 +76,6 @@ export default function ManufacturingCountriesManager({
       .finally(() => setDeletingId(null));
   }
 
-  async function handleTranslateAll(translations: Record<string, Record<string, string>>) {
-    const items = Object.entries(translations).map(([id, t]) => ({ id, translations: t }));
-    await batchUpdateTranslations("manufacturing-country", items);
-    router.refresh();
-  }
-
   const editMode: CountryEditModalEditMode | undefined = editTarget
     ? {
         id: editTarget.id,
@@ -136,13 +129,13 @@ export default function ManufacturingCountriesManager({
           />
         </div>
         <TranslateAllButton
+          entityType="manufacturing-country"
+          section="Pays de fabrication"
           items={initialCountries.map((c) => ({
             id: c.id,
             text: c.name,
             hasTranslations: Object.keys(c.translations).length > 0,
           }))}
-          onTranslated={handleTranslateAll}
-          label="Tout traduire"
           onlyMissing
         />
       </div>

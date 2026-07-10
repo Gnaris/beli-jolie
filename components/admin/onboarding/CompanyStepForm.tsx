@@ -8,6 +8,7 @@ import {
 } from "@/app/actions/admin/company-info";
 import { markStepCompleted } from "@/app/actions/admin/onboarding";
 import { useToast } from "@/components/ui/Toast";
+import { useWizardBranding } from "./WizardBrandingContext";
 
 /**
  * Version wizard, minimale : uniquement les champs indispensables pour
@@ -22,6 +23,7 @@ export default function CompanyStepForm({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
+  const { setShopName: setBrandingShopName } = useWizardBranding();
   const [form, setForm] = useState<CompanyInfoData>({
     shopName: initial?.shopName || "",
     name: initial?.name || "",
@@ -84,7 +86,11 @@ export default function CompanyStepForm({
             <input
               type="text"
               value={form.shopName || ""}
-              onChange={(e) => setForm({ ...form, shopName: e.target.value })}
+              onChange={(e) => {
+                const next = e.target.value;
+                setForm({ ...form, shopName: next });
+                setBrandingShopName(next);
+              }}
               placeholder="Ex : Chez Sophie"
               required
               className={input}

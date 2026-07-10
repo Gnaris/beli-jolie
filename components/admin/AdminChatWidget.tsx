@@ -12,6 +12,7 @@ import {
 } from "@/app/actions/admin/messages";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { playNotificationSound } from "@/lib/notification-sound";
+import { useRightRail } from "@/components/admin/widgets-rail";
 
 // ── Types ──────────────────────────────────────
 interface ConversationSummary {
@@ -34,8 +35,16 @@ interface ChatMessage {
 
 // ── Component ──────────────────────────────────
 export default function AdminChatWidget() {
-  // Panel state
-  const [isOpen, setIsOpen] = useState(false);
+  // Panel state — piloté par le rail droit unifié (useRightRail).
+  const rail = useRightRail();
+  const isOpen = rail.openWidget === "chat";
+  const setIsOpen = useCallback(
+    (next: boolean) => {
+      if (next) rail.open("chat");
+      else rail.close();
+    },
+    [rail],
+  );
   const [view, setView] = useState<"list" | "conversation">("list");
 
   // Conversation list
@@ -67,6 +76,11 @@ export default function AdminChatWidget() {
 
   const toast = useToast();
   const { confirm } = useConfirm();
+
+  // Alimente le badge du rail avec le nombre de messages non lus.
+  useEffect(() => {
+    rail.setBadge("chat", { count: totalUnread, pulse: totalUnread > 0 });
+  }, [totalUnread, rail]);
 
   // ── Cross-tab: only one chat open at a time ──
   const channelRef = useRef<BroadcastChannel | null>(null);
@@ -372,7 +386,13 @@ export default function AdminChatWidget() {
     <>
       {/* ── Chat panel ── */}
       {isOpen && (
-        <div className="fixed bottom-20 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-[400px] h-[520px] max-h-[80vh] bg-bg-primary border border-border rounded-2xl shadow-lg z-[60] flex flex-col overflow-hidden animate-blur-in">
+        <div className="fixed z-[9000] bg-bg-primary shadow-2xl flex flex-col overflow-hidden animate-blur-in
+          /* Desktop ≥ lg : à côté du rail vertical, 400 px */
+          lg:top-4 lg:bottom-4 lg:right-20 lg:w-[400px] lg:rounded-2xl lg:border lg:border-border
+          /* Tablette md-lg : bottom-sheet 60 % au-dessus du dock */
+          md:max-lg:inset-x-4 md:max-lg:bottom-[68px] md:max-lg:top-[40%] md:max-lg:rounded-t-3xl md:max-lg:border md:max-lg:border-border
+          /* Mobile < md : plein écran */
+          max-md:inset-0">
           {/* ── Header ── */}
           <div className="px-4 py-3 border-b border-border bg-bg-primary flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
@@ -596,40 +616,9 @@ export default function AdminChatWidget() {
         </div>
       )}
 
-      {/* ── Floating bubble ── */}
-      <button
-        onClick={() => {
-          const opening = !isOpen;
-          setIsOpen(opening);
-          if (opening) {
-            setView("list");
-            channelRef.current?.postMessage("chat-opened");
-          }
-        }}
-        className="fixed bottom-6 right-4 sm:right-6 z-[60] w-14 h-14 bg-[#1A1A1A] text-white rounded-full shadow-lg hover:bg-[#333] transition-all hover:scale-105 flex items-center justify-center"
-      >
-        {isOpen ? (
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        ) : (
-          <>
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.068.157 2.148.279 3.238.364.466.037.893.281 1.153.671L12 21l2.652-3.978c.26-.39.687-.634 1.153-.671 1.09-.085 2.17-.207 3.238-.364 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"
-              />
-            </svg>
-            {totalUnread > 0 && (
-              <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[20px] h-5 px-1 bg-red-500 text-white text-[11px] font-bold rounded-full animate-pulse">
-                {totalUnread}
-              </span>
-            )}
-          </>
-        )}
-      </button>
+      {/* Le bouton flottant a été retiré : le chat s'ouvre via l'icône « Messages
+          clients » du rail droit. Le rail affiche le badge (totalUnread) via
+          setBadge("chat", ...) plus haut dans ce composant. */}
     </>
   );
 }

@@ -89,6 +89,23 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de la file de traduction (pilote TranslationJob).
+  // Consomme les lots créés par le bouton « Tout traduire » côté admin. Reprend
+  // les PROCESSING orphelins en PENDING au démarrage — la traduction est
+  // idempotente (upsert par entityId + locale).
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startTranslationQueueWorker } = await import("@/lib/translation-queue");
+        startTranslationQueueWorker();
+      } catch (err) {
+        logger.error("[Translation Queue] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

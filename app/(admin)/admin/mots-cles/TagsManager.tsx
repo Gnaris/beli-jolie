@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteTag, updateTagDirect } from "@/app/actions/admin/products";
-import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -75,14 +74,6 @@ export default function TagsManager({ initialTags }: { initialTags: TagItem[] })
     router.refresh();
   }
 
-  async function handleTranslateAll(
-    translations: Record<string, Record<string, string>>,
-  ) {
-    const items = Object.entries(translations).map(([id, t]) => ({ id, translations: t }));
-    await batchUpdateTranslations("tag", items);
-    router.refresh();
-  }
-
   return (
     <>
       {/* ── Barre d'actions ── */}
@@ -112,13 +103,13 @@ export default function TagsManager({ initialTags }: { initialTags: TagItem[] })
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <TranslateAllButton
+            entityType="tag"
+            section="Mots-clés"
             items={initialTags.map((t) => ({
               id: t.id,
               text: t.name,
               hasTranslations: Object.keys(t.translations).length > 0,
             }))}
-            onTranslated={handleTranslateAll}
-            label="Tout traduire"
             onlyMissing
           />
           <button

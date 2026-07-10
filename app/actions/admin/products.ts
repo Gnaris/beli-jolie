@@ -36,6 +36,7 @@ import {
 } from "@/lib/product-variant-validation";
 import { normalizeMicrostoreSubCategoryId } from "@/lib/microstore-subcategory";
 import { validateOverridesNotMatchingPrincipal } from "@/lib/pfs-color-conflicts";
+import { validateEfashionOverridesNotMatchingPrincipal } from "@/lib/efashion-color-conflicts";
 import {
   isProtectedSizeName,
   isProtectedSizeVirtualId,
@@ -265,6 +266,51 @@ function normalizeOverride(value: string | null | undefined): string | null {
   return t ? t : null;
 }
 
+/** Normalise un override eFashion (Int) : conserve les nombres entiers positifs, null sinon. */
+function normalizeEfashionOverride(value: number | null | undefined): number | null {
+  if (value == null) return null;
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const rounded = Math.trunc(value);
+  return rounded > 0 ? rounded : null;
+}
+
+/**
+ * Miroir eFashion de `validatePfsColorOverridesOrThrow` : refuse un override
+ * eFashion identique au mapping principal (`Color.efashionColorId`) de sa
+ * couleur. Throw si violation. Utilisé par create/updateProduct.
+ */
+async function validateEfashionColorOverridesOrThrow(colors: ColorInput[]): Promise<void> {
+  const colorIds = new Set<string>();
+  for (const c of colors) {
+    if (c.colorId && c.efashionColorIdOverride != null) colorIds.add(c.colorId);
+    if (c.packLines) {
+      for (const pl of c.packLines) {
+        if (pl.colorId && pl.efashionColorIdOverride != null) colorIds.add(pl.colorId);
+      }
+    }
+  }
+  if (colorIds.size === 0) return;
+
+  const rows = await prisma.color.findMany({
+    where: { id: { in: [...colorIds] } },
+    select: { id: true, efashionColorId: true },
+  });
+  const principalIdByColorId = new Map<string, number | null>(
+    rows.map((r) => [r.id, r.efashionColorId]),
+  );
+  validateEfashionOverridesNotMatchingPrincipal(
+    colors.map((c) => ({
+      colorId: c.colorId ?? null,
+      efashionColorIdOverride: c.efashionColorIdOverride ?? null,
+      packLines: c.packLines?.map((pl) => ({
+        colorId: pl.colorId,
+        efashionColorIdOverride: pl.efashionColorIdOverride ?? null,
+      })),
+    })),
+    principalIdByColorId,
+  );
+}
+
 // ─────────────────────────────────────────────
 // SKU assignment for all variants of a product
 // ─────────────────────────────────────────────
@@ -370,6 +416,8 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   // Toujours valider les overrides PFS secondaires : un override égal au mapping
   // principal est interdit qu'on soit en draft ou non.
   await validatePfsColorOverridesOrThrow(input.colors);
+  // Idem pour les overrides eFashion.
+  await validateEfashionColorOverridesOrThrow(input.colors);
 
   // Garantir une seule variante primaire avant l'écriture en BDD
   input = { ...input, colors: normalizePrimaryFlag(input.colors) };
@@ -468,16 +516,17 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       : (color.colorId || null);
     const variant = await prisma.productColor.create({
       data: {
-        productId:           product.id,
-        colorId:             primaryColorId,
-        unitPrice:           color.unitPrice,
-        weight:              color.weight,
-        stock:               color.stock,
-        isPrimary:           color.isPrimary,
-        saleType:            color.saleType,
-        packQuantity:        color.packQuantity,
-        disabled:            color.disabled ?? false,
-        pfsColorRefOverride: normalizeOverride(color.pfsColorRefOverride),
+        productId:               product.id,
+        colorId:                 primaryColorId,
+        unitPrice:               color.unitPrice,
+        weight:                  color.weight,
+        stock:                   color.stock,
+        isPrimary:               color.isPrimary,
+        saleType:                color.saleType,
+        packQuantity:            color.packQuantity,
+        disabled:                color.disabled ?? false,
+        pfsColorRefOverride:     normalizeOverride(color.pfsColorRefOverride),
+        efashionColorIdOverride: normalizeEfashionOverride(color.efashionColorIdOverride),
       },
       select: { id: true, colorId: true },
     });
@@ -489,10 +538,11 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         const line = color.packLines[li];
         await prisma.packColorLine.create({
           data: {
-            productColorId:      variant.id,
-            colorId:             line.colorId,
-            position:            li,
-            pfsColorRefOverride: normalizeOverride(line.pfsColorRefOverride),
+            productColorId:          variant.id,
+            colorId:                 line.colorId,
+            position:                li,
+            pfsColorRefOverride:     normalizeOverride(line.pfsColorRefOverride),
+            efashionColorIdOverride: normalizeEfashionOverride(line.efashionColorIdOverride),
             sizes: {
               create: line.sizeEntries.map((se) => ({ sizeId: se.sizeId, quantity: se.quantity })),
             },
@@ -664,6 +714,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   }
   // Toujours valider les overrides PFS secondaires (cf. createProduct).
   await validatePfsColorOverridesOrThrow(input.colors);
+  // Idem pour les overrides eFashion.
+  await validateEfashionColorOverridesOrThrow(input.colors);
 
   // Garantir une seule variante primaire (corrige aussi les produits legacy
   // créés avant le fix où plusieurs variantes pouvaient être marquées primaires).
@@ -764,7 +816,15 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
 
   let txResult: {
     oldStockMap: Map<string, number>;
-    oldVariantMap: Map<string, { stock: number; unitPrice: number; saleType: "UNIT" | "PACK"; packQuantity: number | null; totalPackQty: number }>;
+    oldVariantMap: Map<string, {
+      stock: number;
+      unitPrice: number;
+      saleType: "UNIT" | "PACK";
+      packQuantity: number | null;
+      totalPackQty: number;
+      pfsColorRefOverride: string | null;
+      efashionColorIdOverride: number | null;
+    }>;
     variantIdMap: { colorInput: ColorInput; variantId: string; isNew: boolean }[];
     orphanImagePaths: string[];
     resolvedPrimaryAfter: string | null;
@@ -847,6 +907,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     const existingVariants = await tx.productColor.findMany({
       where: { productId: id },
       select: { id: true, colorId: true, stock: true, unitPrice: true, saleType: true, packQuantity: true,
+        pfsColorRefOverride: true, efashionColorIdOverride: true,
         variantSizes: { select: { quantity: true } },
         packLines: { select: { colorId: true } } },
     });
@@ -858,6 +919,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       saleType: v.saleType as "UNIT" | "PACK",
       packQuantity: v.packQuantity,
       totalPackQty: v.variantSizes?.reduce((s: number, vs: { quantity: number }) => s + vs.quantity, 0) || (v.packQuantity ?? 12),
+      pfsColorRefOverride: v.pfsColorRefOverride ?? null,
+      efashionColorIdOverride: v.efashionColorIdOverride ?? null,
     }]));
     // Verrouillage post-création : on garde colorId / saleType / packQuantity
     // de la base et on ignore ce que le client envoie pour les variantes existantes.
@@ -957,17 +1020,18 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
           where: { id: colorInput.dbId },
           data: {
             // colorId : verrouillé sauf brouillon non publié + UNIT.
-            colorId:             allowColorChange ? colorInput.colorId : existing.colorId,
+            colorId:                 allowColorChange ? colorInput.colorId : existing.colorId,
             // saleType / packQuantity : toujours verrouillés.
-            saleType:            existing.saleType,
-            packQuantity:        existing.packQuantity,
+            saleType:                existing.saleType,
+            packQuantity:            existing.packQuantity,
             // Champs librement modifiables :
-            unitPrice:           colorInput.unitPrice,
-            weight:              colorInput.weight,
-            stock:               colorInput.stock,
-            isPrimary:           colorInput.isPrimary,
-            disabled:            colorInput.disabled ?? false,
-            pfsColorRefOverride: normalizeOverride(colorInput.pfsColorRefOverride),
+            unitPrice:               colorInput.unitPrice,
+            weight:                  colorInput.weight,
+            stock:                   colorInput.stock,
+            isPrimary:               colorInput.isPrimary,
+            disabled:                colorInput.disabled ?? false,
+            pfsColorRefOverride:     normalizeOverride(colorInput.pfsColorRefOverride),
+            efashionColorIdOverride: normalizeEfashionOverride(colorInput.efashionColorIdOverride),
           },
         });
         variantIdMap.push({ colorInput, variantId: colorInput.dbId, isNew: false });
@@ -979,16 +1043,17 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
           : (colorInput.colorId || null);
         const created = await tx.productColor.create({
           data: {
-            productId:           id,
-            colorId:             primaryColorId,
-            unitPrice:           colorInput.unitPrice,
-            weight:              colorInput.weight,
-            stock:               colorInput.stock,
-            isPrimary:           colorInput.isPrimary,
-            saleType:            colorInput.saleType,
-            packQuantity:        colorInput.packQuantity,
-            disabled:            colorInput.disabled ?? false,
-            pfsColorRefOverride: normalizeOverride(colorInput.pfsColorRefOverride),
+            productId:               id,
+            colorId:                 primaryColorId,
+            unitPrice:               colorInput.unitPrice,
+            weight:                  colorInput.weight,
+            stock:                   colorInput.stock,
+            isPrimary:               colorInput.isPrimary,
+            saleType:                colorInput.saleType,
+            packQuantity:            colorInput.packQuantity,
+            disabled:                colorInput.disabled ?? false,
+            pfsColorRefOverride:     normalizeOverride(colorInput.pfsColorRefOverride),
+            efashionColorIdOverride: normalizeEfashionOverride(colorInput.efashionColorIdOverride),
           },
         });
         variantIdMap.push({ colorInput, variantId: created.id, isNew: true });
@@ -1037,10 +1102,11 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
         const line = colorInput.packLines[li];
         await tx.packColorLine.create({
           data: {
-            productColorId:      variantId,
-            colorId:             line.colorId,
-            position:            li,
-            pfsColorRefOverride: normalizeOverride(line.pfsColorRefOverride),
+            productColorId:          variantId,
+            colorId:                 line.colorId,
+            position:                li,
+            pfsColorRefOverride:     normalizeOverride(line.pfsColorRefOverride),
+            efashionColorIdOverride: normalizeEfashionOverride(line.efashionColorIdOverride),
             sizes: {
               create: line.sizeEntries.map((se) => ({ sizeId: se.sizeId, quantity: se.quantity })),
             },
@@ -1065,7 +1131,10 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
         if (!lineId) continue;
         await tx.packColorLine.update({
           where: { id: lineId },
-          data: { pfsColorRefOverride: normalizeOverride(line.pfsColorRefOverride) },
+          data: {
+            pfsColorRefOverride:     normalizeOverride(line.pfsColorRefOverride),
+            efashionColorIdOverride: normalizeEfashionOverride(line.efashionColorIdOverride),
+          },
         });
       }
     }
@@ -1323,9 +1392,13 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       if (c.dbId && oldVariantMap.has(c.dbId)) {
         inputExistingIds.add(c.dbId);
         const prev = oldVariantMap.get(c.dbId)!;
+        const newPfsOverride = normalizeOverride(c.pfsColorRefOverride);
+        const newEfashionOverride = normalizeEfashionOverride(c.efashionColorIdOverride);
         if (
           Number(prev.unitPrice) !== Number(c.unitPrice) ||
-          prev.stock !== c.stock
+          prev.stock !== c.stock ||
+          prev.pfsColorRefOverride !== newPfsOverride ||
+          prev.efashionColorIdOverride !== newEfashionOverride
         ) {
           variantsChanged = true;
           break;
@@ -2675,7 +2748,7 @@ export async function fetchProductFormAttributes() {
     }),
     prisma.color.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
+      select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true, efashionColorId: true },
     }),
     prisma.composition.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -2704,6 +2777,7 @@ export async function fetchProductFormAttributes() {
       hex: c.hex,
       patternImage: c.patternImage,
       pfsColorRef: c.pfsColorRef,
+      efashionColorId: c.efashionColorId,
     })),
     compositions,
     tags,

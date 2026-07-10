@@ -140,6 +140,23 @@ Réf : `app/(admin)/admin/page.tsx`, `parametres` marketplaces, `produits/page.t
 - **Drawers** > modales pour réglages riches (`MarketplaceConfig.tsx`).
 - **Pas d'arc-en-ciel** sur cartes filtres/recherche.
 
+#### Rail widgets (`components/admin/widgets-rail/`)
+Toutes les tâches longues admin (traduction, synchro marketplaces, images, shooting eFashion, chat) passent par un rail unifié. **Grammaire visuelle responsive :**
+
+| Breakpoint | Rail | Tiroir |
+|-----------|------|--------|
+| `≥ lg` (1024) | Vertical sombre à droite, 48 px, toujours visible | Latéral 400 px, glisse depuis la droite, fond de page reste cliquable |
+| `md-lg` (768-1023) | Dock horizontal sombre en bas, 48 px | Bottom-sheet 60 % de l'écran, drag handle en haut, swipe-to-close |
+| `< md` (< 768) | FAB en bas à droite avec halo pulsant | Plein écran, header sticky avec flèche back, swipe-to-close |
+
+- **Palette par widget** : violet=Traduction, sky=Marketplaces, emerald=Images, amber=Shooting eFashion, rose=Chat.
+- **Un seul tiroir ouvert** à la fois (`useRightRail()` context).
+- **Badge chiffré** sur l'icône = tâches actives ; `pulse:true` = halo `animate-ping` pour attirer l'attention.
+- **Tooltip stylisé** au survol (fond `bg-slate-900`, portalé dans `document.body`, même grammaire que `ColorSwatch` dans `AdminProductsTable.tsx`).
+- **Structure de tiroir uniforme** via `DrawerShell` : header coloré + eyebrow uppercase + titre + icône + halo flou + zone scrollable + footer optionnel.
+- **Sections pliables** pour listes longues (marketplaces) : Erreurs + En cours ouvertes par défaut, En attente + Terminés repliées (`<details open>`).
+- **Chat** : ancré en bas du rail avec séparateur `w-6 h-px bg-white/10`, panel décalé à `right-20` sur desktop pour ne pas être sous le rail. Monté uniquement dans `/admin`.
+
 ### Enums Prisma
 - `ProductStatus` : OFFLINE|ONLINE|ARCHIVED|SYNCING
 - `SaleType` : UNIT|PACK

@@ -1,10 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import CreateSeasonTrigger from "./CreateSeasonTrigger";
-import { useToast } from "@/components/ui/Toast";
 
 interface TranslateItem {
   id: string;
@@ -17,29 +14,12 @@ interface Props {
 }
 
 export default function SeasonsHeaderActions({ items }: Props) {
-  const router = useRouter();
-  const toast = useToast();
-
-  async function handleTranslateAll(translations: Record<string, Record<string, string>>) {
-    try {
-      const seasonItems = Object.entries(translations).map(([id, t]) => ({ id, translations: t }));
-      if (seasonItems.length > 0) {
-        await batchUpdateTranslations("season", seasonItems);
-      }
-      router.refresh();
-      toast.success("Traductions enregistrées");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Erreur lors de l'enregistrement.";
-      toast.error("Traduction", message);
-    }
-  }
-
   return (
     <div className="flex gap-2 items-center">
       <TranslateAllButton
+        entityType="season"
+        section="Saisons"
         items={items}
-        onTranslated={handleTranslateAll}
-        label="Tout traduire"
         onlyMissing
       />
       <CreateSeasonTrigger />

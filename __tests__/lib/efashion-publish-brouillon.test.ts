@@ -66,6 +66,10 @@ const publishBulkMock = efashionPublishBrouillonBulk as unknown as ReturnType<ty
 const getMeMock = efashionGetMe as unknown as ReturnType<typeof vi.fn>;
 
 function makeUnitColor(idSuffix = "1") {
+  // 2 couleurs différentes doivent avoir 2 mappings eFashion différents,
+  // sinon le filet de sécurité de conflit (cf. assertNoEfashionColorConflicts
+  // dans efashion-publish.ts) bloque le publish. On dérive l'id du suffix.
+  const efashionColorId = 78 + (Number(idSuffix) - 1) * 10;
   return {
     id: `pc-${idSuffix}`,
     efashionProductId: null,
@@ -76,7 +80,8 @@ function makeUnitColor(idSuffix = "1") {
     packQuantity: null,
     isPrimary: idSuffix === "1",
     disabled: false,
-    color: { id: `color-${idSuffix}`, name: `Couleur ${idSuffix}`, efashionColorId: 78 },
+    efashionColorIdOverride: null,
+    color: { id: `color-${idSuffix}`, name: `Couleur ${idSuffix}`, efashionColorId },
     variantSizes: [
       { quantity: 1, size: { id: "size-1", name: "TU" } },
     ],

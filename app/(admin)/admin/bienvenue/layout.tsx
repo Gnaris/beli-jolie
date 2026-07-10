@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import WizardShell from "@/components/admin/onboarding/WizardShell";
 import { getOnboardingStatus, ONBOARDING_STEPS } from "@/lib/onboarding";
+import { getCompanyInfo } from "@/app/actions/admin/company-info";
 
 export const metadata: Metadata = {
   title: "Bienvenue — Configuration de votre boutique",
@@ -28,21 +29,54 @@ export const WIZARD_STEP_META: Record<
 };
 
 export default async function WizardLayout({ children }: { children: React.ReactNode }) {
-  const [status, h] = await Promise.all([getOnboardingStatus(), headers()]);
+  const [status, h, company] = await Promise.all([
+    getOnboardingStatus(),
+    headers(),
+    getCompanyInfo(),
+  ]);
   const currentPath = h.get("x-current-path") ?? "/admin/bienvenue";
+  const initialShopName = company?.shopName?.trim() ?? "";
 
-  // Le mot de passe personnel ne peut être choisi qu'une seule fois : dès que
-  // l'étape "welcome" est validée, la page racine du wizard redirige vers la
-  // société. L'utilisatrice ne peut plus revenir en arrière ni recliquer sur
-  // ce lien depuis la sidebar (rendu non-cliquable dans WizardShell).
+  // Étape "en cours" = première étape non complétée dans l'ordre du wizard.
+  // Sert à la fois pour la redirection depuis la page racine ET pour bloquer
+  // les accès directs à une étape future via l'URL (parcours linéaire strict).
+  const currentStepId = WIZARD_STEP_ORDER.find(
+    (s) => !status.stepsCompleted.includes(s),
+  );
+  const currentStepPath = currentStepId
+    ? WIZARD_STEP_META[currentStepId].path
+    : "/admin/bienvenue/done";
+
+  // Reprise auto : /admin/bienvenue → étape en cours (après reconnexion).
+  // Verrouillage welcome : dès qu'il est validé, on ne peut plus y revenir.
   if (currentPath === "/admin/bienvenue" && status.stepsCompleted.includes("welcome")) {
-    redirect("/admin/bienvenue/societe");
+    redirect(currentStepPath);
+  }
+
+  // Blocage des étapes futures : si l'utilisatrice tape une URL d'étape au-delà
+  // de son étape en cours, on la ramène à l'étape en cours. On autorise les
+  // étapes déjà complétées (elles ne s'ouvrent pas depuis la sidebar mais
+  // restent accessibles pour relecture éventuelle) et la page "done".
+  if (currentStepId) {
+    const currentIdx = WIZARD_STEP_ORDER.indexOf(currentStepId);
+    const requestedStep = WIZARD_STEP_ORDER.find(
+      (s) =>
+        currentPath === WIZARD_STEP_META[s].path ||
+        currentPath.startsWith(`${WIZARD_STEP_META[s].path}/`),
+    );
+    if (requestedStep) {
+      const requestedIdx = WIZARD_STEP_ORDER.indexOf(requestedStep);
+      if (requestedIdx > currentIdx) {
+        redirect(currentStepPath);
+      }
+    }
   }
 
   return (
     <WizardShell
       currentPath={currentPath}
       stepsCompleted={status.stepsCompleted}
+      initialShopName={initialShopName}
     >
       {children}
     </WizardShell>

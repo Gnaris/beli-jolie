@@ -31,6 +31,10 @@ import { loadEfashionMarkup, computeEfashionPrice } from "@/lib/efashion-pricing
 import { resolveEfashionDeclinaison } from "@/lib/efashion-declinaison-matcher";
 import { efashionPublishBrouillonBulk } from "@/lib/efashion-api-write";
 import { efashionGetMe } from "@/lib/efashion-api";
+import {
+  assertNoEfashionColorConflicts,
+  effectiveEfashionColorId,
+} from "@/lib/efashion-color-conflicts";
 
 /**
  * Construit le suffixe « Dimensions : ... » ajouté à la description envoyée
@@ -100,6 +104,7 @@ export async function efashionPublishProduct(
           packQuantity: true,
           isPrimary: true,
           disabled: true,
+          efashionColorIdOverride: true,
           color: {
             select: { id: true, name: true, efashionColorId: true },
           },
@@ -187,10 +192,30 @@ export async function efashionPublishProduct(
       missing.push(`composition « ${pc.composition.name} » sans id eFashion`);
   }
   for (const c of product.colors) {
-    if (!c.color?.efashionColorId)
+    // Mapping effectif = override secondaire s'il existe, sinon principal.
+    const effectiveColorId = effectiveEfashionColorId({
+      principalId: c.color?.efashionColorId ?? null,
+      overrideId: c.efashionColorIdOverride ?? null,
+    });
+    if (effectiveColorId == null)
       missing.push(`couleur « ${c.color?.name ?? "?"} » sans id eFashion`);
     if (c.variantSizes.length === 0)
       missing.push(`couleur « ${c.color?.name ?? "?"} » sans tailles`);
+  }
+
+  // Filet de sécurité : refuse 2 couleurs différentes qui pointeraient sur le
+  // même ID eFashion effectif (collision côté marketplace).
+  try {
+    assertNoEfashionColorConflicts(
+      product.colors.map((c) => ({
+        color: c.color ? { id: c.color.id, name: c.color.name, efashionColorId: c.color.efashionColorId } : null,
+        efashionColorIdOverride: c.efashionColorIdOverride ?? null,
+        packLines: [],
+      })),
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, error: msg };
   }
 
   if (missing.length > 0) {
@@ -260,7 +285,10 @@ export async function efashionPublishProduct(
     : null;
 
   const couleurs = product.colors.map((c, i) => ({
-    id: c.color!.efashionColorId as number,
+    id: effectiveEfashionColorId({
+      principalId: c.color!.efashionColorId,
+      overrideId: c.efashionColorIdOverride ?? null,
+    }) as number,
     nom: c.color!.name,
     isMain: c.isPrimary || (i === 0 && !product.colors.some((x) => x.isPrimary)),
   }));

@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, PackLineState, PfsColorOption, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack, packLinesColorList, buildVariantDuplicateKey } from "./ColorVariantManager";
 import PhotosPanel from "./PhotosPanel";
 import PfsMappingSection from "./PfsMappingSection";
+import EfashionMappingSection, { type EfashionColorOption } from "./EfashionMappingSection";
 import { detectPfsColorConflicts, formatConflictsMessage } from "@/lib/pfs-color-conflicts";
+import { detectEfashionColorConflicts, formatEfashionConflictsMessage } from "@/lib/efashion-color-conflicts";
 import CompletenessChecklist, { computeChecklist } from "./CompletenessChecklist";
 import ProductFormNav, { ProductFormSectionKey } from "./ProductFormNav";
 import ProductFormSectionPicker from "./ProductFormSectionPicker";
@@ -104,6 +106,8 @@ interface ProductFormProps {
   faireEnabled?: boolean;
   /** Liste des couleurs PFS disponibles (pour le sélecteur de mapping secondaire). */
   pfsColorOptions?: PfsColorOption[];
+  /** Liste des couleurs eFashion disponibles (pour le sélecteur de mapping secondaire). */
+  efashionColorOptions?: EfashionColorOption[];
   /** True when a marketplace sync is already in progress (from DB status on page load) */
   initialSyncing?: boolean;
   initialData?: {
@@ -392,6 +396,7 @@ export default function ProductForm({
   hasFaireConfig = false,
   faireEnabled = false,
   pfsColorOptions,
+  efashionColorOptions,
   initialSyncing = false,
   initialData,
 }: ProductFormProps) {
@@ -763,10 +768,12 @@ export default function ProductForm({
       sizeEntries: v.sizeEntries,
       disabled: v.disabled ?? false,
       pfsColorRefOverride: v.pfsColorRefOverride ?? null,
+      efashionColorIdOverride: v.efashionColorIdOverride ?? null,
       packLines: v.packLines.map((pl) => ({
         colorId: pl.colorId,
         sizeEntries: pl.sizeEntries,
         pfsColorRefOverride: pl.pfsColorRefOverride ?? null,
+        efashionColorIdOverride: pl.efashionColorIdOverride ?? null,
       })),
     })),
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
@@ -1862,6 +1869,7 @@ export default function ProductForm({
               .map((line) => ({
                 colorId: line.colorId,
                 pfsColorRefOverride: line.pfsColorRefOverride ?? null,
+                efashionColorIdOverride: line.efashionColorIdOverride ?? null,
                 sizeEntries: line.sizeEntries
                   .filter((se) => se.sizeId)
                   .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
@@ -1890,6 +1898,7 @@ export default function ProductForm({
           packLines:     packLinesPayload,
           disabled:      v.disabled ?? false,
           pfsColorRefOverride: v.pfsColorRefOverride ?? null,
+          efashionColorIdOverride: v.efashionColorIdOverride ?? null,
         };
       }),
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
@@ -2078,6 +2087,35 @@ export default function ProductForm({
         const pfsConflicts = detectPfsColorConflicts(pfsConflictItems);
         const hasPfsConflict = pfsConflicts.length > 0;
 
+        // Miroir eFashion : même logique de collision entre couleurs différentes
+        // qui partagent le même mapping eFashion effectif.
+        const efashionConflictItems: { key: string; colorId: string | null; label: string; principalId: number | null; overrideId: number | null }[] = [];
+        for (const v of variants) {
+          if (v.saleType === "PACK" && v.packLines.length > 0) {
+            for (const pl of v.packLines) {
+              const ac = localColors.find((c) => c.id === pl.colorId);
+              efashionConflictItems.push({
+                key: `v${v.tempId}-pl${pl.tempId}`,
+                colorId: pl.colorId || null,
+                label: pl.colorName || ac?.name || "Couleur",
+                principalId: ac?.efashionColorId ?? null,
+                overrideId: pl.efashionColorIdOverride ?? null,
+              });
+            }
+          } else {
+            const ac = localColors.find((c) => c.id === v.colorId);
+            efashionConflictItems.push({
+              key: `v${v.tempId}`,
+              colorId: v.colorId || null,
+              label: v.colorName || ac?.name || "Couleur",
+              principalId: ac?.efashionColorId ?? null,
+              overrideId: v.efashionColorIdOverride ?? null,
+            });
+          }
+        }
+        const efashionConflicts = detectEfashionColorConflicts(efashionConflictItems);
+        const hasEfashionConflict = efashionConflicts.length > 0;
+
         const pfsRef = { current: false };
         const ankorstoreRef = { current: false };
         const efashionRef = { current: false };
@@ -2150,7 +2188,7 @@ export default function ProductForm({
           });
         }
 
-        if (showEfashion) {
+        if (showEfashion && !hasEfashionConflict) {
           const efLabel = isArchivingNow && alreadyOnEfashion
             ? "Mettre hors ligne sur eFashion Paris (stock à 0)"
             : alreadyOnEfashion
@@ -2171,6 +2209,12 @@ export default function ProductForm({
               efashionRef.current = v;
             },
           });
+        } else if (showEfashion && hasEfashionConflict) {
+          setError(
+            "Publication eFashion bloquée — " +
+              formatEfashionConflictsMessage(efashionConflicts) +
+              " Définissez un mapping secondaire différent dans la section « Mapping eFashion ».",
+          );
         }
 
         if (showFaire) {
@@ -2946,7 +2990,7 @@ export default function ProductForm({
         </div>
 
         {/* ── Variantes couleur ── */}
-        <section id="section-variants" hidden={!(["var","img","map"] as const).some((k) => k === activeSection)} className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-2xl p-8 space-y-5 shadow-card`}>
+        <section id="section-variants" hidden={!(["var","img","map","map-efashion"] as const).some((k) => k === activeSection)} className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-2xl p-8 space-y-5 shadow-card`}>
           <div className="flex items-center justify-between gap-4 border-b border-border pb-4 flex-wrap">
             <div className="flex items-center gap-3">
               <h2 className="font-heading text-xl font-bold text-text-primary">
@@ -3170,6 +3214,46 @@ export default function ProductForm({
                         if (packLineTempIds.has(pl.tempId)) {
                           packChanged = true;
                           return { ...pl, pfsColorRefOverride: override };
+                        }
+                        return pl;
+                      });
+                      if (packChanged) next = { ...next, packLines: newPackLines };
+                    }
+                    return next;
+                  }),
+                );
+              }}
+            />
+          )}
+
+          {/* ── Mapping eFashion par variante (miroir du PFS) ── */}
+          {hasEfashionConfig && variants.length > 0 && activeSection === "map-efashion" && (
+            <EfashionMappingSection
+              variants={variants}
+              availableColors={localColors}
+              efashionColorOptions={efashionColorOptions ?? []}
+              onChangeOverrideForTargets={(targets, override) => {
+                const variantTempIds = new Set<string>();
+                const packLineTempIds = new Set<string>();
+                for (const t of targets) {
+                  if (t.packLineTempId) {
+                    packLineTempIds.add(t.packLineTempId);
+                  } else {
+                    variantTempIds.add(t.variantTempId);
+                  }
+                }
+                setVariants((prev) =>
+                  prev.map((v) => {
+                    let next: VariantState = v;
+                    if (variantTempIds.has(v.tempId)) {
+                      next = { ...next, efashionColorIdOverride: override };
+                    }
+                    if (next.packLines.length > 0) {
+                      let packChanged = false;
+                      const newPackLines = next.packLines.map((pl) => {
+                        if (packLineTempIds.has(pl.tempId)) {
+                          packChanged = true;
+                          return { ...pl, efashionColorIdOverride: override };
                         }
                         return pl;
                       });

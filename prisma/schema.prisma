@@ -711,6 +711,47 @@ model ImageProcessingJob {
   @@index([createdAt]) // purge des vieux DONE/FAILED
 }
 
+// ── File d'attente des lots de traduction (bouton « Tout traduire ») ─────────
+// Chaque job = 1 lot déclenché par l'admin (ex: 42 couleurs). Le worker traite
+// les items en série, écrit chaque traduction en BDD dès qu'elle est reçue, et
+// expose le mot en cours pour affichage temps réel dans le tiroir.
+enum TranslationJobStatus {
+  PENDING     // attend le worker
+  PROCESSING  // en cours
+  DONE        // terminé (peut avoir des erreurs partielles)
+  FAILED      // erreur bloquante
+}
+
+model TranslationJob {
+  id                     String               @id @default(cuid())
+  // Libellé affiché dans le tiroir (ex: "Couleurs", "Mots-clés").
+  section                String
+  // Type d'entité — sert au worker pour choisir la table de traductions.
+  // Valeurs : color | tag | composition | category | subcategory |
+  // manufacturing-country | season | collection | product
+  entityType             String
+  // Payload : [{id, text}] — texte FR à traduire pour chaque entité.
+  items                  Json
+  totalCount             Int                  @default(0)
+  doneCount              Int                  @default(0)
+  errorCount             Int                  @default(0)
+  status                 TranslationJobStatus @default(PENDING)
+  // Mot actuellement en cours de traduction (pour affichage temps réel).
+  currentItemText        String?              @db.Text
+  currentItemTranslation String?              @db.Text
+  currentLocale          String?
+  // Message d'erreur global si status=FAILED.
+  error                  String?              @db.Text
+  // Timestamp pour cacher du tiroir sans supprimer (audit / retry).
+  dismissedAt            DateTime?
+  createdAt              DateTime             @default(now())
+  startedAt              DateTime?
+  completedAt            DateTime?
+
+  @@index([status, createdAt]) // worker : pick PENDING par ordre d'arrivée
+  @@index([dismissedAt, createdAt]) // UI : liste des jobs actifs
+}
+
 // Traductions automatiques des produits
 model ProductTranslation {
   id          String   @id @default(cuid())
@@ -802,6 +843,9 @@ model ProductColor {
   // Sert à différencier 2 variantes dont les couleurs partagent le même mapping principal.
   // Doit être différent du pfsColorRef principal de la couleur sélectionnée (validé applicatif).
   pfsColorRefOverride String?
+  // Mapping eFashion secondaire propre à cette variante (override de Color.efashionColorId).
+  // Même logique que pfsColorRefOverride, mais avec l'ID entier de la biblio eFashion.
+  efashionColorIdOverride Int?
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
 
@@ -864,6 +908,8 @@ model PackColorLine {
   // Mapping PFS secondaire propre à cette ligne dans ce pack (override de Color.pfsColorRef).
   // Doit être différent du pfsColorRef principal de la couleur sélectionnée (validé applicatif).
   pfsColorRefOverride String?
+  // Override eFashion propre à cette ligne du pack (pendant de pfsColorRefOverride).
+  efashionColorIdOverride Int?
   createdAt           DateTime            @default(now())
 
   @@unique([productColorId, colorId])

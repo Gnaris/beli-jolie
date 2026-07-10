@@ -13,6 +13,7 @@ import {
   getCachedFaireEnabled,
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
+import { getEfashionAnnexes } from "@/lib/efashion-annexes";
 import { CreatePageWrapper, CreatePageChrome } from "./CreatePageWrapper";
 
 export const metadata: Metadata = { title: "Nouveau produit" };
@@ -119,6 +120,11 @@ export default async function NouveauProduitPage({
   ]);
 
   const pfsColorOptions = hasPfsConfig ? await getPfsColorOptions() : [];
+  const efashionColorOptions = hasEfashionConfig
+    ? await getEfashionAnnexes()
+        .then((a) => a.colors.map((c) => ({ id: c.id, label: c.fr || c.en })))
+        .catch(() => [] as { id: number; label: string }[])
+    : [];
 
   const source = dupliquerDe
     ? await prisma.product.findUnique({
@@ -162,6 +168,7 @@ export default async function NouveauProduitPage({
               colorName: line.color?.name ?? "",
               colorHex: line.color?.hex ?? "#9CA3AF",
               pfsColorRefOverride: line.pfsColorRefOverride ?? null,
+              efashionColorIdOverride: line.efashionColorIdOverride ?? null,
               sizeEntries: line.sizes.map((ls) => ({
                 tempId: uid(),
                 sizeId: ls.sizeId,
@@ -200,6 +207,7 @@ export default async function NouveauProduitPage({
           sku: "",
           disabled: false,
           pfsColorRefOverride: pc.pfsColorRefOverride ?? null,
+          efashionColorIdOverride: pc.efashionColorIdOverride ?? null,
         };
       })
     : undefined;
@@ -285,6 +293,7 @@ export default async function NouveauProduitPage({
           hasFaireConfig={hasFaireConfig}
           faireEnabled={faireEnabled}
           pfsColorOptions={pfsColorOptions}
+          efashionColorOptions={efashionColorOptions}
           initialData={initialData}
         />
       </div>

@@ -43,7 +43,9 @@ export async function createCategory(formData: FormData) {
   const category = await prisma.category.create({
     data: { name, slug: toSlug(name), pfsGender, pfsFamilyName, pfsCategoryName },
   });
-  await autoTranslateCategory(category.id, name);
+  // Fire-and-forget : la traduction PFS ne doit pas bloquer le retour de la
+  // server action (le voile de chargement resterait affiché sinon).
+  void autoTranslateCategory(category.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
   revalidateTag("sizes", "default");
@@ -167,7 +169,8 @@ export async function createSubCategory(formData: FormData) {
   const subCategory = await prisma.subCategory.create({
     data: { name, slug: toSlug(name), categoryId },
   });
-  await autoTranslateSubCategory(subCategory.id, name);
+  // Fire-and-forget : idem, la traduction PFS ne doit pas bloquer le retour.
+  void autoTranslateSubCategory(subCategory.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
 }

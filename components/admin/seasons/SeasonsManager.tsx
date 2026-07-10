@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteSeason, updateSeasonDirect, updateSeasonPfsRef } from "@/app/actions/admin/seasons";
-import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -79,12 +78,6 @@ export default function SeasonsManager({
     router.refresh();
   }
 
-  async function handleTranslateAll(translations: Record<string, Record<string, string>>) {
-    const items = Object.entries(translations).map(([id, t]) => ({ id, translations: t }));
-    await batchUpdateTranslations("season", items);
-    router.refresh();
-  }
-
   return (
     <>
       {/* Recherche + Tout traduire */}
@@ -103,13 +96,13 @@ export default function SeasonsManager({
           </svg>
         </div>
         <TranslateAllButton
+          entityType="season"
+          section="Saisons"
           items={initialSeasons.map((s) => ({
             id: s.id,
             text: s.name,
             hasTranslations: Object.keys(s.translations).length > 0,
           }))}
-          onTranslated={handleTranslateAll}
-          label="Tout traduire"
           onlyMissing
         />
       </div>

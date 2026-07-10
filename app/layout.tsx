@@ -16,7 +16,6 @@ import AnnouncementBanner from "@/components/layout/AnnouncementBanner";
 import { ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX } from "@/components/layout/announcement-banner-constants";
 import ChatWidgetLoader from "@/components/client/ChatWidgetLoader";
 import HeartbeatLoader from "@/components/client/HeartbeatLoader";
-import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
 import "./globals.css";
 
 /* ─────────────────────────────────────────────
@@ -147,7 +146,10 @@ export default async function RootLayout({
                   {children}
                   <ChatWidgetLoader businessHours={businessHours} />
                   <HeartbeatLoader />
-                  <AdminChatWidgetLoader />
+                  {/* AdminChatWidgetLoader est désormais monté uniquement dans
+                      le layout /admin (via le rail droit) — sortir cette ligne
+                      évitait un doublon qui plantait sur les pages publiques
+                      car useRightRail() n'existe qu'à l'intérieur du rail. */}
                 </LoadingOverlayProvider>
               </ConfirmProvider>
             </ToastProvider>

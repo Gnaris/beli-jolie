@@ -33,6 +33,8 @@ export interface PackLineState {
   sizeEntries: SizeEntryState[];
   /** Mapping PFS secondaire propre à cette ligne dans ce pack. null/undefined = utilise le principal. */
   pfsColorRefOverride?: string | null;
+  /** Mapping eFashion secondaire propre à cette ligne. null/undefined = utilise le principal. */
+  efashionColorIdOverride?: number | null;
 }
 
 export interface VariantState {
@@ -56,6 +58,8 @@ export interface VariantState {
   disabled: boolean;
   /** Mapping PFS secondaire propre à cette variante. null/undefined = utilise le principal. */
   pfsColorRefOverride?: string | null;
+  /** Mapping eFashion secondaire propre à cette variante. null/undefined = utilise le principal. */
+  efashionColorIdOverride?: number | null;
 }
 
 export interface ColorImageState {
@@ -82,6 +86,8 @@ export interface AvailableColor {
   patternImage?: string | null;
   /** Mapping PFS principal de la couleur (Color.pfsColorRef en BDD). */
   pfsColorRef?: string | null;
+  /** Mapping eFashion principal de la couleur (Color.efashionColorId en BDD). */
+  efashionColorId?: number | null;
 }
 
 /** Option de couleur PFS pour le sélecteur de mapping secondaire. */

@@ -1,38 +1,53 @@
 "use client";
 
+/**
+ * Bouton « Tout traduire » qui envoie un lot dans la file d'attente serveur
+ * (`TranslationJob`) au lieu de traduire de manière synchrone bloquante.
+ *
+ * L'utilisateur voit le progrès en temps réel dans le tiroir Traduction du
+ * rail droit — et peut continuer à travailler pendant que ça tourne.
+ *
+ * Pour les produits (name + description), utiliser `ProductTranslateAllButton`
+ * qui suit un flow différent — cette route ne gère que les entités simples.
+ */
+
 import { useState } from "react";
 import { useDeeplEnabled } from "@/components/admin/DeeplConfigContext";
-import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+import { useToast } from "@/components/ui/Toast";
+import { useRightRail } from "@/components/admin/widgets-rail";
+import type { TranslationEntityType } from "@/lib/translation-queue";
 
 interface TranslateAllItem {
-  /** Unique identifier (entity id) */
   id: string;
-  /** French text to translate */
+  /** Texte FR à traduire. */
   text: string;
-  /** Whether this item already has translations */
+  /** L'item a déjà au moins une traduction (permet d'ignorer). */
   hasTranslations: boolean;
 }
 
 interface TranslateAllButtonProps {
-  /** Items to translate */
+  /** Type d'entité — pilote la persistance côté worker. */
+  entityType: TranslationEntityType;
+  /** Libellé de section affiché dans le tiroir (ex : « Couleurs »). */
+  section: string;
   items: TranslateAllItem[];
-  /** Called with translations for each item: Record<id, Record<locale, string>> */
-  onTranslated: (translations: Record<string, Record<string, string>>) => void;
-  /** Label override */
+  /** Libellé du bouton (défaut « Tout traduire »). */
   label?: string;
-  /** Only translate items that are missing translations */
+  /** Ne traduit que les items sans traduction. */
   onlyMissing?: boolean;
 }
 
 export default function TranslateAllButton({
+  entityType,
+  section,
   items,
-  onTranslated,
   label = "Tout traduire",
   onlyMissing = false,
 }: TranslateAllButtonProps) {
   const translationEnabled = useDeeplEnabled();
-  const [loading, setLoading] = useState(false);
-  const { showLoading, hideLoading } = useLoadingOverlay();
+  const toast = useToast();
+  const rail = useRightRail();
+  const [sending, setSending] = useState(false);
 
   const toTranslate = onlyMissing
     ? items.filter((i) => !i.hasTranslations && i.text.trim())
@@ -41,48 +56,32 @@ export default function TranslateAllButton({
   const missingCount = items.filter((i) => !i.hasTranslations && i.text.trim()).length;
 
   async function handleClick() {
-    if (toTranslate.length === 0) return;
-
-    setLoading(true);
-    showLoading(`Traduction de ${toTranslate.length} élément${toTranslate.length > 1 ? "s" : ""}…`);
-
+    if (toTranslate.length === 0 || sending) return;
+    setSending(true);
     try {
-      // Batch in groups of 25 — l'API PFS accepte plusieurs phrases en un appel
-      const BATCH_SIZE = 25;
-      const allResults: Record<string, Record<string, string>> = {};
-      let completed = 0;
-
-      for (let i = 0; i < toTranslate.length; i += BATCH_SIZE) {
-        const batch = toTranslate.slice(i, i + BATCH_SIZE);
-        const texts = batch.map((item) => item.text);
-
-        const res = await fetch("/api/admin/translate-batch", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ texts }),
-        });
-
-        if (!res.ok) throw new Error("Erreur traduction");
-
-        const data = await res.json();
-        const results: Record<string, string>[] = data.results;
-
-        for (let j = 0; j < batch.length; j++) {
-          if (results[j] && Object.keys(results[j]).length > 0) {
-            allResults[batch[j].id] = results[j];
-          }
-        }
-
-        completed += batch.length;
-        showLoading(`Traduction… ${completed}/${toTranslate.length}`);
+      const res = await fetch("/api/admin/translation-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          section,
+          entityType,
+          items: toTranslate.map((i) => ({ id: i.id, text: i.text })),
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error || "Erreur au démarrage du lot");
       }
-
-      onTranslated(allResults);
-    } catch {
-      // Silent — button remains usable for retry
+      toast.success(
+        "Traduction lancée",
+        `${toTranslate.length} élément${toTranslate.length > 1 ? "s" : ""} — visible dans le tiroir à droite`,
+      );
+      rail.open("translation");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erreur inconnue";
+      toast.error("Traduction", message);
     } finally {
-      setLoading(false);
-      hideLoading();
+      setSending(false);
     }
   }
 
@@ -92,13 +91,18 @@ export default function TranslateAllButton({
     <button
       type="button"
       onClick={handleClick}
-      disabled={loading || toTranslate.length === 0}
+      disabled={sending || toTranslate.length === 0}
       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-bg-dark hover:bg-black text-text-inverse text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-body"
+      title={
+        toTranslate.length === 0
+          ? "Rien à traduire"
+          : `Envoyer ${toTranslate.length} élément${toTranslate.length > 1 ? "s" : ""} dans le tiroir de traduction`
+      }
     >
-      {loading ? (
+      {sending ? (
         <>
           <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          Traduction…
+          Envoi…
         </>
       ) : (
         <>

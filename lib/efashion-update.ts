@@ -171,6 +171,7 @@ export async function efashionUpdateProductInPlace(
           packQuantity: true,
           disabled: true,
           isPrimary: true,
+          efashionColorIdOverride: true,
           variantSizes: {
             select: {
               quantity: true,
@@ -329,7 +330,8 @@ export async function efashionUpdateProductInPlace(
     (c) =>
       c.efashionProductId === null &&
       !c.disabled &&
-      c.color?.efashionColorId != null &&
+      // Mapping effectif = override secondaire s'il existe, sinon principal.
+      (c.efashionColorIdOverride ?? c.color?.efashionColorId ?? null) != null &&
       // Pas de création sans image locale — sinon la couleur arrive vide
       // chez eFashion (observé W124/Fuchsia 10/06/2026 : publish avec
       // photosCount:0 → fiche jamais visible côté acheteurs).
@@ -386,7 +388,8 @@ export async function efashionUpdateProductInPlace(
         }
 
         for (const newColor of colorsToCreate) {
-          const couleurId = newColor.color!.efashionColorId!;
+          // Override eFashion prioritaire sur le mapping principal Color.efashionColorId.
+          const couleurId = (newColor.efashionColorIdOverride ?? newColor.color!.efashionColorId!) as number;
           const couleurName = newColor.color!.name;
           if (usedColorIds.has(couleurId)) {
             // Cas typique : l'admin a supprimé puis re-ajouté la couleur dans
@@ -1115,7 +1118,10 @@ export async function efashionUpdateProductInPlace(
   const localColorIdToEfashion = new Map(colorRows.map((c) => [c.id, c.efashionColorId]));
   for (const lc of linkedColors) {
     if (lc.colorId && lc.efashionProductId) {
-      efIdToColorId.set(lc.efashionProductId, localColorIdToEfashion.get(lc.colorId) ?? null);
+      // Override eFashion prioritaire sur le mapping principal Color.efashionColorId.
+      const principal = localColorIdToEfashion.get(lc.colorId) ?? null;
+      const effective = lc.efashionColorIdOverride ?? principal;
+      efIdToColorId.set(lc.efashionProductId, effective);
     }
   }
 

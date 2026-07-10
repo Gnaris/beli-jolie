@@ -34,10 +34,12 @@ export interface ProductMarketplaceSnapshotInput {
     sizeEntries: unknown;
     disabled?: boolean;
     pfsColorRefOverride?: string | null;
+    efashionColorIdOverride?: number | null;
     packLines: Array<{
       colorId: string | null;
       sizeEntries: unknown;
       pfsColorRefOverride?: string | null;
+      efashionColorIdOverride?: number | null;
     }>;
   }>;
   colorImages: Array<{
@@ -90,10 +92,12 @@ export function buildProductMarketplaceSnapshot(
       sizeEntries: v.sizeEntries,
       disabled: v.disabled ?? false,
       pfsColorRefOverride: v.pfsColorRefOverride ?? null,
+      efashionColorIdOverride: v.efashionColorIdOverride ?? null,
       packLines: v.packLines.map((pl) => ({
         colorId: pl.colorId,
         sizeEntries: pl.sizeEntries,
         pfsColorRefOverride: pl.pfsColorRefOverride ?? null,
+        efashionColorIdOverride: pl.efashionColorIdOverride ?? null,
       })),
     })),
     colorImages: input.colorImages.map((ci) => ({

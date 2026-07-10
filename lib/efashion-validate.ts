@@ -31,6 +31,7 @@ export async function validateEfashionPublishable(
       colors: {
         select: {
           saleType: true,
+          efashionColorIdOverride: true,
           variantSizes: { select: { size: { select: { name: true } } } },
           color: { select: { name: true, efashionColorId: true } },
         },
@@ -71,7 +72,9 @@ export async function validateEfashionPublishable(
       missing.push(`composition « ${pc.composition.name} » sans ID eFashion`);
   }
   for (const c of unitColors) {
-    if (!c.color?.efashionColorId)
+    // Override secondaire prioritaire sur le mapping principal Color.efashionColorId.
+    const effectiveEfashionColorId = c.efashionColorIdOverride ?? c.color?.efashionColorId ?? null;
+    if (effectiveEfashionColorId == null)
       missing.push(`couleur « ${c.color?.name ?? "?"} » sans ID eFashion`);
     if (c.variantSizes.length === 0)
       missing.push(`couleur « ${c.color?.name ?? "?"} » sans tailles`);

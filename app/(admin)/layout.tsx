@@ -12,13 +12,11 @@ import AdminDesktopShell from "@/components/admin/AdminDesktopShell";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
 import { MarketplaceRefreshProvider } from "@/components/admin/products/MarketplaceRefreshContext";
-import { MarketplaceRefreshWidget } from "@/components/admin/products/MarketplaceRefreshWidget";
 import { EfashionShootingBatchProvider } from "@/components/admin/products/EfashionShootingBatchContext";
-import { EfashionShootingBatchWidget } from "@/components/admin/products/EfashionShootingBatchWidget";
-import ImportProgressWidget from "@/components/admin/products/ImportProgressWidget";
 import { RefreshWarningProvider } from "@/components/admin/products/RecentlyRefreshedWarningModal";
 import { IneligibleRefreshProvider } from "@/components/admin/products/IneligibleRefreshModal";
 import { RefreshMarketplacePromptProvider } from "@/components/admin/products/RefreshMarketplaceDialog";
+import { AdminWidgetsRail } from "@/components/admin/widgets-rail";
 import { getCachedSiteConfig, getCachedPfsCredentials } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
@@ -86,7 +84,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <RefreshWarningProvider>
     <IneligibleRefreshProvider>
     <RefreshMarketplacePromptProvider>
-    <div id="admin-theme-wrapper" className="min-h-screen flex bg-[#EEEEF1]">
+    <AdminWidgetsRail>
+    <div id="admin-theme-wrapper" className="min-h-screen flex bg-[#EEEEF1] lg:pr-16 max-lg:pb-20 max-md:pb-24">
 
       <AdminDesktopShell
         shopName={shopName}
@@ -111,10 +110,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </AdminDesktopShell>
 
       <AdminChatWidgetLoader />
-      <MarketplaceRefreshWidget />
-      <EfashionShootingBatchWidget />
-      <ImportProgressWidget />
     </div>
+    </AdminWidgetsRail>
     </RefreshMarketplacePromptProvider>
     </IneligibleRefreshProvider>
     </RefreshWarningProvider>
