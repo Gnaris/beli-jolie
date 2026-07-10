@@ -36,12 +36,18 @@ export default function WizardShell({
   const { confirm } = useConfirm();
   const toast = useToast();
 
-  const activeIndex = Math.max(
-    0,
-    STEPS.findIndex((s) => currentPath === s.path || currentPath.startsWith(`${s.path}/`)),
+  const isDoneStep = currentPath === "/admin/bienvenue/done";
+  const foundIndex = STEPS.findIndex(
+    (s) => currentPath === s.path || currentPath.startsWith(`${s.path}/`),
   );
+  const activeIndex = isDoneStep ? STEPS.length : Math.max(0, foundIndex);
   const totalSteps = STEPS.length;
-  const progressPct = ((activeIndex + 1) / totalSteps) * 100;
+  const progressPct = isDoneStep
+    ? 100
+    : ((activeIndex + 1) / totalSteps) * 100;
+  const stepDisplay = isDoneStep
+    ? `${totalSteps} / ${totalSteps} ✓`
+    : `Étape ${activeIndex + 1} / ${totalSteps}`;
 
   const handleSkip = async () => {
     const ok = await confirm({
@@ -94,9 +100,7 @@ export default function WizardShell({
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
-              <span className="text-sm text-text-secondary">
-                Étape {activeIndex + 1} / {totalSteps}
-              </span>
+              <span className="text-sm text-text-secondary">{stepDisplay}</span>
             </div>
             <button
               onClick={handleSkip}

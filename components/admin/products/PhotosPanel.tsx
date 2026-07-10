@@ -37,6 +37,83 @@ interface Props {
 
 const MAX_SLOTS = 5;
 
+/**
+ * Déplace une photo depuis (fromGroupKey, fromPos) vers (toGroupKey, toPos)
+ * dans une liste `colorImages`. Retourne la nouvelle liste (ou la même
+ * référence si aucun changement n'a lieu).
+ *
+ * - Même couleur : permutation avec la photo cible si le slot est occupé,
+ *   sinon simple changement d'ordre.
+ * - Couleur différente : la photo est retirée de la source (les positions
+ *   restantes se compactent) et ajoutée à la destination — au slot cible
+ *   s'il est libre, sinon au premier slot libre. Si la destination est
+ *   pleine (MAX_SLOTS photos), on ne fait rien.
+ */
+export function movePhotoInColorImages(
+  colorImages: ColorImageState[],
+  fromGroupKey: string,
+  fromPos: number,
+  toGroupKey: string,
+  toPos: number,
+  maxSlots: number = MAX_SLOTS,
+): ColorImageState[] {
+  if (fromGroupKey === toGroupKey && fromPos === toPos) return colorImages;
+  const src = colorImages.find((c) => c.groupKey === fromGroupKey);
+  const dst = colorImages.find((c) => c.groupKey === toGroupKey);
+  if (!src || !dst) return colorImages;
+  const fromIdx = src.orders.indexOf(fromPos);
+  if (fromIdx === -1) return colorImages;
+
+  if (fromGroupKey === toGroupKey) {
+    const toIdx = src.orders.indexOf(toPos);
+    return colorImages.map((c) => {
+      if (c.groupKey !== fromGroupKey) return c;
+      const newOrders = [...c.orders];
+      newOrders[fromIdx] = toPos;
+      if (toIdx !== -1) newOrders[toIdx] = fromPos;
+      return { ...c, orders: newOrders };
+    });
+  }
+
+  if (dst.imagePreviews.length >= maxSlots) return colorImages;
+  const dstOccupied = new Set(dst.orders);
+  let targetPos = dstOccupied.has(toPos) ? -1 : toPos;
+  if (targetPos === -1) {
+    for (let p = 0; p < maxSlots; p++) {
+      if (!dstOccupied.has(p)) { targetPos = p; break; }
+    }
+  }
+  if (targetPos === -1) return colorImages;
+
+  const movedPreview = src.imagePreviews[fromIdx];
+  const movedPath = src.uploadedPaths[fromIdx];
+  const movedPending = src.pendingFiles[fromIdx];
+
+  return colorImages.map((c) => {
+    if (c.groupKey === fromGroupKey) {
+      return {
+        ...c,
+        imagePreviews: c.imagePreviews.filter((_, j) => j !== fromIdx),
+        uploadedPaths: c.uploadedPaths.filter((_, j) => j !== fromIdx),
+        orders: c.orders
+          .filter((_, j) => j !== fromIdx)
+          .map((o) => (o > fromPos ? o - 1 : o)),
+        pendingFiles: c.pendingFiles.filter((_, j) => j !== fromIdx),
+      };
+    }
+    if (c.groupKey === toGroupKey) {
+      return {
+        ...c,
+        imagePreviews: [...c.imagePreviews, movedPreview],
+        uploadedPaths: [...c.uploadedPaths, movedPath],
+        orders: [...c.orders, targetPos],
+        pendingFiles: [...c.pendingFiles, movedPending],
+      };
+    }
+    return c;
+  });
+}
+
 export default function PhotosPanel({
   variants,
   colorImages,
@@ -91,6 +168,11 @@ export default function PhotosPanel({
     return out;
   }, [variants]);
 
+  function movePhoto(fromGroupKey: string, fromPos: number, toGroupKey: string, toPos: number) {
+    const next = movePhotoInColorImages(colorImages, fromGroupKey, fromPos, toGroupKey, toPos);
+    if (next !== colorImages) onChangeImages(next);
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-3">
@@ -111,6 +193,7 @@ export default function PhotosPanel({
             availableColors={availableColors}
             colorImages={colorImages}
             onChangeImages={onChangeImages}
+            onMovePhoto={movePhoto}
             productReference={productReference}
             onZoom={(src, downloadName) => setZoomed({ src, downloadName })}
             onConfirmDelete={async () => {
@@ -173,6 +256,7 @@ interface PhotoRowProps {
   availableColors: AvailableColor[];
   colorImages: ColorImageState[];
   onChangeImages: (next: ColorImageState[]) => void;
+  onMovePhoto: (fromGroupKey: string, fromPos: number, toGroupKey: string, toPos: number) => void;
   onConfirmDelete: () => Promise<boolean | "secondary">;
   productReference?: string;
   onZoom: (src: string, downloadName: string) => void;
@@ -203,6 +287,7 @@ function PhotoRow({
   availableColors,
   colorImages,
   onChangeImages,
+  onMovePhoto,
   onConfirmDelete,
   productReference,
   onZoom,
@@ -306,27 +391,6 @@ function PhotoRow({
     addDroppedFiles(files);
   }
 
-  /**
-   * Déplace la photo présente en `fromPos` vers `toPos`. Si `toPos` est déjà
-   * occupée, on permute les deux (swap). Utilisé pour le drag & drop entre
-   * slots de la même couleur.
-   */
-  function movePhoto(fromPos: number, toPos: number) {
-    if (!state || fromPos === toPos) return;
-    const fromIdx = state.orders.indexOf(fromPos);
-    if (fromIdx === -1) return;
-    const toIdx = state.orders.indexOf(toPos);
-    onChangeImages(
-      colorImages.map((c) => {
-        if (c.groupKey !== groupKey) return c;
-        const newOrders = [...c.orders];
-        newOrders[fromIdx] = toPos;
-        if (toIdx !== -1) newOrders[toIdx] = fromPos;
-        return { ...c, orders: newOrders };
-      }),
-    );
-  }
-
   async function removeAt(position: number) {
     if (!state) return;
     const idx = state.orders.indexOf(position);
@@ -424,11 +488,12 @@ function PhotoRow({
             return (
               <FilledSlot
                 key={pos}
+                groupKey={groupKey}
                 position={pos}
                 src={src}
                 downloadName={downloadName}
                 onRemove={() => removeAt(pos)}
-                onDropReorder={(fromPos) => movePhoto(fromPos, pos)}
+                onDropReorder={(fromGroupKey, fromPos) => onMovePhoto(fromGroupKey, fromPos, groupKey, pos)}
                 onZoom={() => onZoom(src, downloadName)}
               />
             );
@@ -439,7 +504,7 @@ function PhotoRow({
               position={pos}
               disabled={(state?.imagePreviews.length ?? 0) >= MAX_SLOTS}
               onPick={(file) => addFile(file, pos)}
-              onDropReorder={(fromPos) => movePhoto(fromPos, pos)}
+              onDropReorder={(fromGroupKey, fromPos) => onMovePhoto(fromGroupKey, fromPos, groupKey, pos)}
             />
           );
         })}
@@ -449,8 +514,24 @@ function PhotoRow({
 }
 
 const PHOTO_DND_TYPE = "application/x-beli-photo-pos";
+const PHOTO_DND_SEP = "::";
+
+function encodePhotoDnd(groupKey: string, position: number): string {
+  return `${groupKey}${PHOTO_DND_SEP}${position}`;
+}
+
+function decodePhotoDnd(raw: string): { groupKey: string; position: number } | null {
+  if (!raw) return null;
+  const sepIdx = raw.lastIndexOf(PHOTO_DND_SEP);
+  if (sepIdx === -1) return null;
+  const groupKey = raw.slice(0, sepIdx);
+  const position = Number(raw.slice(sepIdx + PHOTO_DND_SEP.length));
+  if (!groupKey || !Number.isFinite(position)) return null;
+  return { groupKey, position };
+}
 
 function FilledSlot({
+  groupKey,
   position,
   src,
   downloadName,
@@ -458,19 +539,21 @@ function FilledSlot({
   onDropReorder,
   onZoom,
 }: {
+  groupKey: string;
   position: number;
   src: string;
   downloadName: string;
   onRemove: () => void;
-  onDropReorder: (fromPos: number) => void;
+  onDropReorder: (fromGroupKey: string, fromPos: number) => void;
   onZoom: () => void;
 }) {
   const isPrimary = position === 0;
   const [isDropTarget, setIsDropTarget] = useState(false);
 
   function handleDragStart(e: React.DragEvent<HTMLDivElement>) {
-    e.dataTransfer.setData(PHOTO_DND_TYPE, String(position));
-    e.dataTransfer.setData("text/plain", String(position));
+    const payload = encodePhotoDnd(groupKey, position);
+    e.dataTransfer.setData(PHOTO_DND_TYPE, payload);
+    e.dataTransfer.setData("text/plain", payload);
     e.dataTransfer.effectAllowed = "move";
   }
 
@@ -488,12 +571,12 @@ function FilledSlot({
 
   function handleDrop(e: React.DragEvent<HTMLDivElement>) {
     const raw = e.dataTransfer.getData(PHOTO_DND_TYPE);
-    if (raw === "") return;
+    const decoded = decodePhotoDnd(raw);
+    if (!decoded) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDropTarget(false);
-    const fromPos = Number(raw);
-    if (Number.isFinite(fromPos)) onDropReorder(fromPos);
+    onDropReorder(decoded.groupKey, decoded.position);
   }
 
   // Empêche le drag natif de démarrer quand on clique sur un bouton d'action
@@ -591,7 +674,7 @@ function EmptySlot({
   position: number;
   disabled: boolean;
   onPick: (file: File) => void;
-  onDropReorder: (fromPos: number) => void;
+  onDropReorder: (fromGroupKey: string, fromPos: number) => void;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDropTarget, setIsDropTarget] = useState(false);
@@ -625,12 +708,12 @@ function EmptySlot({
 
   function handleDrop(e: React.DragEvent<HTMLButtonElement>) {
     const raw = e.dataTransfer.getData(PHOTO_DND_TYPE);
-    if (raw === "") return;
+    const decoded = decodePhotoDnd(raw);
+    if (!decoded) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDropTarget(false);
-    const fromPos = Number(raw);
-    if (Number.isFinite(fromPos)) onDropReorder(fromPos);
+    onDropReorder(decoded.groupKey, decoded.position);
   }
 
   return (

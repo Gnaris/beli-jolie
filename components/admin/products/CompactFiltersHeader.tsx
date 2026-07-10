@@ -143,6 +143,12 @@ export default function CompactFiltersHeader({
     if (syncRequired === "1") out.push({ key: "sync", label: "Synchro nécessaire", remove: ["syncRequired"] });
     const missingImages = p.get("missingImages") ?? "";
     if (missingImages === "1") out.push({ key: "missing-img", label: "Variantes sans image", remove: ["missingImages"] });
+    const translationStatus = p.get("translationStatus") ?? "";
+    if (translationStatus === "untranslated") {
+      out.push({ key: "no-trans", label: "Sans traduction", remove: ["translationStatus"] });
+    } else if (translationStatus === "translated") {
+      out.push({ key: "trans", label: "Traduit", remove: ["translationStatus"] });
+    }
 
     const pfsLink = p.get("pfsLink") ?? "";
     if (pfsLink) out.push({ key: "pfs-link", label: `PFS · ${pfsLink === "linked" ? "lié" : "non lié"}`, remove: ["pfsLink"] });

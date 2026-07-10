@@ -1,185 +1,151 @@
 # CLAUDE.md
 
-Guide de Claude Code pour ce dépôt.
-
 ## À qui tu parles
 
-La personne qui te parle **n'est pas développeuse** — elle dirige le projet. Parle-lui comme à une cliente qui veut savoir ce qui a changé sur son site, pas comme à un collègue technicien :
-- **Pas de jargon** ("fonction", "endpoint", "cache", "schema"…). Si obligé, explique le mot en une phrase de tous les jours.
-- **Dis ce qui change pour elle et ses clients** sur le site, pas ce que tu as touché dans le code.
-- **Court, en français simple.** Pas de longues listes techniques.
-- **Tests proposés = trajets dans le site** (*« Ouvrez l'admin, allez dans Produits… »*) — jamais de commandes terminal.
-- **Détails techniques** restent entre toi et le code.
+Cliente **non-développeuse** qui dirige le projet.
+- Pas de jargon. Français simple. Court.
+- Décris ce qui change **pour elle et ses clients**, pas le code.
+- Tests = trajets dans le site (« Ouvrez l'admin, allez dans… »), jamais de commande terminal.
+- Détails techniques : entre toi et le code.
 
-> **Docs détaillées** : `docs/architecture.md` · `docs/pfs-system.md` · `docs/styling.md` · `docs/pfs-api.md`
+> Docs : `docs/architecture.md` · `docs/pfs-system.md` · `docs/styling.md` · `docs/pfs-api.md`
 
 ---
 
 ## Règles de travail
 
-- **Auto-maintenance CLAUDE.md** : mettre à jour si nouvelle convention/env var importante.
-- **Parallélisation** : sous-agents en parallèle quand les sous-tâches sont indépendantes.
-- **Récap demande** : à la fin de chaque réponse, section **« Ce que vous m'avez demandé »** (1-3 phrases).
-- **Impact croisé** : avant de coder, vérifier si d'autres fonctionnalités peuvent être impactées. Si oui, prévenir **avant** de toucher au code.
-- **Suggestions** : si une variante peut améliorer la tâche (UX, robustesse, perf), la proposer en plus. Elle décide.
-- **Tests unitaires obligatoires** sur toute nouvelle feature ou modif (Vitest).
+- **Auto-MAJ CLAUDE.md** si nouvelle convention/env var.
+- **Parallélisation** : sous-agents indépendants en parallèle.
+- **Récap** à la fin : « Ce que vous m'avez demandé » (1-3 phrases).
+- **Impact croisé** : prévenir **avant** de coder si autre feature impactée.
+- **Suggestions** : proposer variantes UX/perf en plus. Elle décide.
+- **Tests Vitest obligatoires** sur toute feature/modif.
 
-### Dev server local (auto-géré par Claude)
+### Dev server local
+Claude lance et garde `npm run dev` en fond dès qu'il touche au site. Redémarrer sans demander après `.env`, `prisma/schema.prisma` (+ `prisma generate && prisma db push` avant), `next.config.ts`, deps natives (`sharp`, `pdfkit`, `exceljs`). Log dans `dev-server.log` (ignoré). Ne pas relancer si déjà tourné.
 
-Claude **lance et garde tourné** `npm run dev` en arrière-plan lui-même, dès qu'il attaque un chantier qui touche au site (UI, server actions, API). Redémarrer sans demander après :
-- modif de `.env`
-- modif de `prisma/schema.prisma` (+ `npx prisma generate && npx prisma db push` avant)
-- modif de `next.config.ts` ou d'une dépendance native (`sharp`, `pdfkit`, `exceljs`…)
+### Workflow modif → validation → push
+1. Modifier **local uniquement**. Pas de push auto.
+2. Informer + trajet de test.
+3. Attendre décision :
+   - **« Mettre de côté »** → garder pour push groupé.
+   - **« Push en production »** : `git add/commit/push` → SSH `root@72.61.106.128 /var/www/beliandjolie` → `git fetch/reset --hard origin/master` → `npm install` (si deps) + `prisma generate && prisma db push --skip-generate` (si schema) → `NODE_OPTIONS='--max-old-space-size=4096' npm run build` → `pm2 restart beliandjolie` → **vérif visiteur** (`curl -sL` + `<title>`).
+4. L'informer à la fin. Code identique local/GitHub/VPS.
 
-Sortie loggée dans `dev-server.log` (déjà git-ignoré). Ne pas relancer si un dev tourne déjà — vérifier d'abord dans les tâches en arrière-plan.
+**Exception Ankorstore** : push direct prod (callbacks async ne hittent pas localhost).
 
-### Workflow modification → validation → push
+Confirmation **uniquement** avant : suppression données, drop tables, push --force, secrets.
 
-Quand l'utilisatrice demande **corriger / réparer / mettre à jour** quelque chose qui touche au site :
+### Maquette avant tout design
+Dès qu'une demande touche au visuel (couleurs, mise en page, composants, refonte écran, hero, sidebar…) :
+1. HTML autonome dans `C:/Users/Admin/Downloads/` (Tailwind CDN, aucune dépendance repo).
+2. Ouvrir dans navigateur.
+3. Ajuster jusqu'à validation.
+4. Appliquer au vrai code.
 
-1. **Modifier en local uniquement** (`C:\Users\Admin\Desktop\beli-jolie\`). Pas de push automatique.
-2. **À la fin**, l'informer que c'est prêt à tester en local + trajet de test dans le site.
-3. **Attendre sa décision** :
-   - **« Mettre de côté »** → garder local pour push grouper plus tard.
-   - **« Push en production »** → boucle complète :
-     1. `git add` + `git commit` + `git push origin master`
-     2. `ssh root@72.61.106.128` puis `cd /var/www/beliandjolie && git fetch origin master && git reset --hard origin/master`
-     3. `npm install --no-audit --no-fund` (si deps modifiées) + `npx prisma generate && npx prisma db push --skip-generate` (si schema modifié)
-     4. `NODE_OPTIONS='--max-old-space-size=4096' npm run build`
-     5. `pm2 restart beliandjolie`
-     6. **Vérif parcours visiteur** : `curl -sL` sur la route concernée, suivre les redirections, vérifier le `<title>` final — pas juste un endpoint interne.
-4. **L'informer à la fin** dans tous les cas. Code identique aux 3 endroits (local, GitHub, VPS).
+Sauter si elle dit « pas besoin de maquette » ou changement trivial (renommer libellé, faute, padding chiffré).
 
-**Exception Ankorstore** : push direct en prod (les callbacks async ne hittent pas localhost, donc le local ne sert à rien).
-
-Confirmation **uniquement** avant actions vraiment risquées (suppression de données, drop tables, push --force, secrets).
-
-### Maquette avant toute modif de design
-
-Dès qu'une demande touche au **visuel / UI / design** (couleurs, mise en page, composants, refonte d'un écran, nouveau bloc, style d'un tableau, hero, sidebar, etc.) :
-
-1. **Ne pas toucher au vrai code d'abord.** Créer une **maquette HTML autonome** dans `C:/Users/Admin/Downloads/` (fichier unique, Tailwind via CDN si besoin, aucune dépendance au repo).
-2. Ouvrir le fichier dans le navigateur pour qu'elle voie l'aperçu.
-3. **Attendre son retour** : ajustements sur la maquette autant que nécessaire.
-4. **Une fois la maquette validée**, appliquer dans le vrai code du site (`app/`, `components/`…).
-
-Sauter cette étape uniquement si elle dit explicitement « pas besoin de maquette » ou si le changement est trivial (renommer un libellé, corriger une faute, ajuster un padding précis qu'elle a chiffré).
-
-### Procédures en attente (déclenchées par phrase de code)
-
-- **« feu vert journaux »** → exécuter `docs/operations/mysql-binlog-cleanup.md`. Une fois réussie, **supprimer le fichier et retirer cette ligne**.
+### Procédures en attente
+- **« feu vert journaux »** → exécuter `docs/operations/mysql-binlog-cleanup.md`. Une fois OK, supprimer le fichier + retirer cette ligne.
 
 ---
 
 ## Architecture
 
-B2B SaaS e-commerce générique (vente en gros). Stack : **Next.js 16 App Router · MySQL (Prisma) · Tailwind v4 · TypeScript**.
+B2B SaaS e-commerce générique (vente en gros). **Next.js 16 · MySQL/Prisma · Tailwind v4 · TS**.
 
-### Route groups (`app/`)
-
+### Route groups
 | Group | URL | Access |
 |-------|-----|--------|
-| `(auth)` | `/connexion`, `/inscription` | Unauthenticated only |
-| `(admin)` | `/admin/*` | ADMIN role |
-| `(client)` | `/espace-pro/*`, `/panier/*`, `/commandes/*`, `/favoris` | CLIENT APPROVED |
-| *(direct)* | `/produits/*`, `/collections/*`, `/categories` | Public — visiteurs OK, prix masqués si pas APPROVED |
+| `(auth)` | `/connexion`, `/inscription` | Non-auth |
+| `(admin)` | `/admin/*` | ADMIN |
+| `(client)` | `/espace-pro`, `/panier`, `/commandes`, `/favoris` | CLIENT APPROVED |
+| direct | `/produits`, `/collections`, `/categories` | Public — prix masqués si pas APPROVED |
 
-Protection : `middleware.ts` (edge) + group `layout.tsx`. Maintenance avec cache 60s **on success only** (pas de lock 1min sur erreur transitoire).
+Protection : `middleware.ts` (edge) + `layout.tsx`. Maintenance cache 60s **on success only**.
 
-**Visibilité des prix** : `lib/price-visibility.ts` (`canSeePrices(session)`). API publique remet `unitPrice`/`discountPercent` à 0/null si pas autorisé ; filtres `minPrice/maxPrice` ignorés (anti-dichotomie). UI affiche « Connectez-vous pour voir les prix ».
+**Prix visibles** : `lib/price-visibility.ts` (`canSeePrices()`). API remet `unitPrice`/`discountPercent` à 0/null si non autorisé ; filtres `minPrice/maxPrice` ignorés.
 
 ### Layers
-- **Server actions** (`app/actions/admin|client/`) — toutes mutations, `requireAdmin()`/`requireAuth()` obligatoires.
-- **API routes** (`app/api/`) — webhooks, SSE, file-serving.
-- **Lib** (`lib/`) — business logic. Modules clés : `pfs-*`, `ankorstore-*`, `marketplace-pricing.ts`, `storage.ts`, `email.ts`, `cached-data.ts`, `security.ts`, `encryption.ts`, `logger.ts`, `seo.ts`.
-- **Components** — `admin/`, `client/`, `ui/`, `home/`.
+- **Server actions** (`app/actions/`) : mutations. `requireAdmin()`/`requireAuth()` obligatoire.
+- **API routes** (`app/api/`) : webhooks, SSE, file-serving.
+- **Lib** (`lib/`) : logic. Modules : `pfs-*`, `ankorstore-*`, `marketplace-pricing`, `storage`, `email`, `cached-data`, `security`, `encryption`, `logger`, `seo`.
 
 ### Marketplaces (PFS + Ankorstore + eFashion)
+- **IDs** : `Product.pfsProductId`/`ankorsProductId`/`efashionReferenceBase` + `ProductColor.pfsVariantId`/`ankorsVariantId`. `null` = non publié.
+- **`*SyncRequired`** : posé par `updateProduct` (champ clé modifié) et worker images (`lib/image-queue.ts`). Reset par flows sync réussis ou `clearSyncRequiredFlag()`. Badge orange « Synchro nécessaire » dans `MarketplaceStatusButtons` + `AdminProductsTable`. Priorité visuelle : loading > syncRequired > online > offline.
+- **Kill switch Ankorstore** : `getCachedAnkorstoreEnabled()`. PFS toujours actif si configuré.
+- **Modale save** : case par marketplace si produit complet + configurée → enqueue `MarketplaceRefreshWidget`.
+- **Publish vs Update** : `*UpdateProductInPlace()` si ID connu (PATCH + diff snapshot), sinon `*PublishProduct()`. Fallback publish si update échoue.
+- **Diff snapshot** (`pfsLastSyncSnapshot` Json?) : envoie que le delta. Reset `Prisma.DbNull` quand `pfsProductId` change. `null` = sync complète.
+- **Resync forcé** (↻) : `forceFullSync: true`, ne touche pas l'ID.
+- **Best Seller PFS** : au save, STAR/REMOVE_STAR seulement si changé.
+- **Annexes PFS** : LIVE `lib/pfs-annexes.ts` (cache 60min, tag `pfs-annexes`).
+- **Proxy images marketplace** : `/api/marketplace-image?path=…` upscale à 500px si source < 500px (Ankorstore ≥ 500). Fichiers d'origine intacts. Pas pour PFS.
+- **Delete** : PFS = local-only. Ankorstore = auto callback via `ankorstoreKickoffStandaloneDelete()`.
 
-- **Identifiants** : `Product.pfsProductId`/`ankorsProductId`/`efashionReferenceBase` + `ProductColor.pfsVariantId`/`ankorsVariantId`. `null` = non publié.
-- **Drapeaux « Synchronisation nécessaire »** : `Product.pfsSyncRequired` / `ankorsSyncRequired` / `efashionSyncRequired`. Posés à `true` par `updateProduct` (`app/actions/admin/products.ts`) sur changement d'un champ clé d'un produit lié, ET par le worker images (`lib/image-queue.ts`) quand un produit lié reçoit de nouvelles photos. Reset à `false` automatiquement par les flows de sync réussis (`lib/pfs-update.ts`, `lib/pfs-refresh.ts`, `lib/ankorstore-update.ts`, `lib/ankorstore-refresh.ts`, `lib/efashion-update.ts`) ou par `clearSyncRequiredFlag()` (X au survol du badge). Affichés par un badge orange « Synchro nécessaire » dans `MarketplaceStatusButtons` (fiche) et `AdminProductsTable` (liste). Priorité visuelle : `loading > syncRequired > online > offline`. Si la case de la modale de save est cochée, le badge orange ne s'affiche pas (loading prend le pas, puis flag reset).
-- **Kill switch Ankorstore** : `getCachedAnkorstoreEnabled()` (Paramètres > Marketplaces). PFS toujours actif si configuré.
-- **Modale au save produit** : case à cocher par marketplace si produit complet + marketplace configurée → enqueue dans `MarketplaceRefreshWidget`.
-- **Publish vs Update** : `*UpdateProductInPlace()` si ID connu (PATCH avec diff snapshot), sinon `*PublishProduct()`. Fallback publish si update échoue.
-- **Diff snapshot** (`Product.pfsLastSyncSnapshot` Json?) : envoie à PFS seulement ce qui a changé. Reset à `Prisma.DbNull` quand `pfsProductId` change. `null` = sync complète.
-- **Resync forcé** : icône ↻ sur la fiche produit, `forceFullSync: true` → diff complet, ne touche pas l'ID.
-- **Best Seller PFS** : appliqué au save (pas toggle instantané). STAR/REMOVE_STAR seulement si changé.
-- **Annexes PFS** : LIVE via `lib/pfs-annexes.ts` (cache 60min, tag `pfs-annexes`).
-- **Proxy images marketplace** : `/api/marketplace-image?path=...` upscale à 500px si source < 500px (Ankorstore exige ≥ 500px). Fichiers d'origine intacts. Pas appliqué à PFS.
-- **Delete** : PFS = local-only. Ankorstore = propagation auto callback-only via `ankorstoreKickoffStandaloneDelete()`.
-
-### Mode callback-only Ankorstore
-
-Toutes opérations Ankorstore (publish, update, refresh, delete) **asynchrones** : kickoff → retour immédiat avec `operationId` → résultat via webhook (`/api/webhooks/ankorstore`). **Aucun polling Ankorstore.**
-
-- Table `AnkorstoreOperation` (id, productId, type, status, payload, callbackPayload).
-- `ANKORSTORE_WEBHOOK_SECRET` (env var) dans la query string du callback URL.
-- **Dev local** : Ankorstore ne peut pas appeler `localhost` → opérations restent `PENDING`. Tests en prod uniquement.
+### Ankorstore callback-only
+Toutes ops (publish/update/refresh/delete) **async** : kickoff → `operationId` → webhook `/api/webhooks/ankorstore`. **Aucun polling.**
+- Table `AnkorstoreOperation`.
+- `ANKORSTORE_WEBHOOK_SECRET` en query string du callback.
+- **Dev local** : Ankorstore ne hitte pas localhost → PENDING. Tests prod uniquement.
 - UI poll `/api/admin/ankorstore-operations` toutes les 3s.
-- Si callback perdu : op bloquée. Re-cliquer « Publier » relance (annule les anciennes PENDING).
-- PATCH stock/prices restent synchrones (pas besoin de callback).
+- Callback perdu → re-cliquer « Publier » relance (annule anciennes PENDING).
+- PATCH stock/prices restent synchrones.
 
 ### Refresh produit
+Bouton « Rafraîchir » + bulk. Modale : boutique (bump `lastRefreshedAt`) + PFS + Ankorstore. Parallèle 5 max via `MarketplaceRefreshWidget`. `pfsRefreshProduct()` crée ref TEMP, archive l'ancien, renomme. Rollback auto.
+« Nouveauté » = `max(createdAt, lastRefreshedAt) > now - 30j`.
 
-Bouton « Rafraîchir » + bulk. Modale avec cases : boutique (bump `lastRefreshedAt`) + PFS + Ankorstore. Traitement parallèle limité (5 simultanés) via `MarketplaceRefreshWidget`. `pfsRefreshProduct()` crée nouveau produit avec ref TEMP, archive l'ancien, renomme. Rollback auto si échec.
+### Marketplace pricing
+SiteConfig : 3 types (`percent`/`fixed`/`multiplier`), 3 arrondis (`none`/`up`/`down`). Clés : `{marketplace}_price_markup_{type|value|rounding}`. **PACK** : markup sur prix unitaire (total÷qty), arrondi, ×qty. Jamais sur le total.
 
-« Nouveauté » frontend = `max(createdAt, lastRefreshedAt) > now - 30j`.
-
-### Marketplace pricing (`lib/marketplace-pricing.ts`)
-
-Markup par marketplace via SiteConfig : 3 types (`percent`/`fixed`/`multiplier`), 3 arrondis (`none`/`up`/`down`). Clés : `{marketplace}_price_markup_{type|value|rounding}`. **PACK** : markup sur prix unitaire (total ÷ qty), arrondi, puis × qty. Jamais sur le total.
-
-### Import PFS (auto-création des attributs)
-
-`/admin/produits/importer-pfs` — choix produits → import direct. Chaque attribut manquant (composition, pays, saison, taille, couleur, catégorie) est **créé auto à la volée** dans `createOrLinkMapping`. Auto-traduction en arrière-plan via API PFS.
-
-Rattrapage : `npx tsx scripts/enrich-pfs-products.ts`.
+### Import PFS
+`/admin/produits/importer-pfs` — choix → import direct. Chaque attribut manquant (compo, pays, saison, taille, couleur, catégorie) **créé auto** dans `createOrLinkMapping`. Auto-traduction en fond via API PFS. Rattrapage : `npx tsx scripts/enrich-pfs-products.ts`.
 
 ### Import Excel produits
+`/admin/produits/importer` : upload → preview → **récap éditable UI** → job background. **Excel uniquement**.
+- Modèle : 5 lignes en-tête (section/headers/Obligatoire-Facultatif/exemples/données).
+- Composants : `EditableProductCard`, `EntitySelect` (bouton +), `CompositionEditor`, `effective-status.ts`, `QuickCreateModal`.
+- **Overrides** : `ImportOverride` JSON dans `{filePath}.overrides.json`, appliqué après propagation référence.
+- **Quick-create idempotent** : pas de P2002.
 
-`/admin/produits/importer` : upload → preview server → **récap éditable UI** → confirmation → job background. **Format Excel uniquement**.
-
-- Modèle Excel : 5 lignes d'en-tête figées (section / headers / Obligatoire/Facultatif / exemples / données).
-- Composants clés : `EditableProductCard`, `EntitySelect` (avec bouton « + »), `CompositionEditor`, `effective-status.ts` (compteur "Prêts" basé sur l'effective, pas l'analyse serveur initiale), `QuickCreateModal` (réutilise celui de `/admin/produits?tab=categories`).
-- **Overrides** : type `ImportOverride` sérialisé en JSON dans `{filePath}.overrides.json`, appliqué après propagation référence, avant validation.
-- **Quick-create idempotent** : entités existantes → mise à jour des mappings, pas P2002.
+### Onboarding wizard
+`/admin/bienvenue` → 8 étapes (welcome/company/brand/stripe/email/shipping/legal/done). Layout : `app/(admin)/admin/bienvenue/layout.tsx` (rend `WizardShell` client). État : SiteConfig `onboarding_steps_completed` + `onboarding_completed_at`. Actions : `markStepCompleted(step)` / `completeOnboarding()` (= skip). Middleware redirige admin non-fini vers `/admin/bienvenue`.
 
 ### Auth
-
-NextAuth v4, Credentials + JWT (30d). New users = `PENDING` → admin approves. Token : `id`, `role`, `status`, `company`.
+NextAuth v4, Credentials + JWT (30d). New users = `PENDING`. Token : `id`, `role`, `status`, `company`.
 
 ### i18n
-
-next-intl 4.x, **routing par préfixe** (`/fr/...`, `/en/...`). Locales : **fr (défaut) + en**. Auto-translation : **API PFS** (gratuit, lié au compte). Toggle : `auto_translate_enabled`.
-
-- Routes hors i18n : `/admin/*`, `/api/*`, `/maintenance`, `/sitemap.xml`, `/robots.txt`, `/manifest.webmanifest`, `/icon`, `/apple-icon`.
-- Liens admin → public : hardcoder `/fr/...`.
-- Sitemap : 7× chaque URL (1 par locale) avec `alternates.languages`.
-- Sélecteur de langue : `router.replace(pathname, { locale })`.
-- **Mapping PFS pays/composition** : par libellé FR (`pfsCountryRef = "Chine"`). Côté publish, `country_of_manufacture` suit priorité `isoCode → pfsCountryRef → "CN"`.
+next-intl 4.x, préfixe (`/fr/…`, `/en/…`). Locales **fr (défaut) + en**. Auto-translation API PFS (gratuit). Toggle `auto_translate_enabled`.
+- Hors i18n : `/admin/*`, `/api/*`, `/maintenance`, `/sitemap.xml`, `/robots.txt`, `/manifest.webmanifest`, `/icon`, `/apple-icon`.
+- Liens admin → public : hardcoder `/fr/…`.
+- Sitemap : 7× chaque URL + `alternates.languages`.
+- Sélecteur : `router.replace(pathname, { locale })`.
+- Mapping PFS pays/compo : libellé FR. Publish : `country_of_manufacture` priorité `isoCode → pfsCountryRef → "CN"`.
 
 ### Styling
+**Tailwind v4** — theme dans `app/globals.css` `@theme {}`, pas de config JS. **Pas de dark mode**. Flat design + ombres subtiles. Utilities standard.
 
-**Tailwind CSS v4** — pas de `tailwind.config.js`, theme dans `app/globals.css` `@theme {}`. **Pas de dark mode**. Clean flat design avec ombres subtiles. **No claymorphism** — utilities Tailwind standard (`shadow-sm/md/lg`).
-
-#### Style admin "cockpit / SaaS moderne" (par défaut sur tout `/admin`)
-
-Toute nouvelle page ou refonte dans `/admin/*` suit ce langage visuel (référence : `app/(admin)/admin/page.tsx`, `app/(admin)/admin/parametres` tab marketplaces, `app/(admin)/admin/produits/page.tsx`, sidebars). Inspirations : Stripe, Linear, Vercel, Notion. **Ne pas revenir au look flat blanc/gris générique.**
-
-- **Hero de page** : carte `rounded-3xl` avec fond aurora (`bg-gradient-to-br from-{color}-50 via-bg-primary to-bg-primary` + 2-4 halos radiaux pastel superposés). Eyebrow chip arrondi avec pastille colorée + texte uppercase `tracking-[0.18em]`. Titre `font-heading text-2xl/3xl font-bold tracking-tight`. Actions à droite.
-- **KPI tiles (bento)** : `rounded-2xl`, fond pastel dégradé `from-{accent}-50 via-bg-primary to-bg-primary`, **valeur en couleur d'accent** (`text-{accent}-700`), halo flou dans un coin (`absolute -top-10 -right-10 w-24 h-24 rounded-full blur-3xl bg-{accent}-300/30`), icône dans carré teinté `bg-{accent}-100 ring-1 ring-{accent}-200`.
-- **Cartes graphiques / contenu** : `rounded-2xl`, bande dégradée fine en haut (`absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-{accent}-400 to-{accent}-600`), halo coin, eyebrow coloré avec pastille.
-- **Section headers** : barre verticale fine colorée + label uppercase `tracking-[0.18em]` en couleur d'accent.
-- **Navigation** : sections colorées (Principal=dark, Catalogue=emerald, Ventes=sky, Système=violet). État actif = fond dégradé pastel + **barre verticale gauche** colorée + icône colorée. Badges = gradient + shadow.
-- **Brand chips / avatars** : carrés/ronds avec dégradé (`linear-gradient(135deg, ...)`), halo doré subtil, pastille statut verte qui pulse pour "en ligne".
-- **Palette d'accents** (à mapper sémantiquement) : `emerald` (catalogue, succès, revenu), `sky` (commandes, volume), `violet` (système, premium), `amber` (alertes, matériaux), `rose` (stock bas, visuel), `slate` (neutre).
-- **Responsive mobile-first obligatoire** : grids `grid-cols-2 sm:grid-cols-4`, tables → cartes empilées sous `md`, hero stack vertical sur mobile.
-- **Drawers latéraux** plutôt que modales centrées pour les réglages riches (cf. `MarketplaceConfig.tsx`).
-- **Pas de bande dégradée arc-en-ciel** sur les cartes de filtres / recherche — la cliente n'aime pas.
+#### Style admin cockpit (obligatoire sur `/admin`)
+Réf : `app/(admin)/admin/page.tsx`, `parametres` marketplaces, `produits/page.tsx`. Inspi Stripe/Linear/Vercel. **Pas de retour au flat blanc/gris.**
+- **Hero** : `rounded-3xl` aurora (`bg-gradient-to-br from-{c}-50 via-bg-primary` + halos radiaux). Eyebrow chip + pastille + uppercase `tracking-[0.18em]`. Titre `font-heading text-2xl/3xl font-bold`.
+- **KPI tiles** : `rounded-2xl`, fond pastel dégradé, **valeur** en `text-{accent}-700`, halo flou (`absolute -top-10 -right-10 w-24 h-24 rounded-full blur-3xl bg-{accent}-300/30`), icône `bg-{accent}-100 ring-1 ring-{accent}-200`.
+- **Cartes** : `rounded-2xl`, bande dégradée fine en haut, halo coin, eyebrow coloré.
+- **Section headers** : barre verticale colorée + uppercase `tracking-[0.18em]`.
+- **Nav** : Principal=dark, Catalogue=emerald, Ventes=sky, Système=violet. Actif = dégradé pastel + barre gauche + icône colorée.
+- **Brand chips** : dégradé 135°, halo doré, pastille verte pulse pour online.
+- **Palette** : `emerald` (catalogue/revenu), `sky` (commandes), `violet` (système/premium), `amber` (alertes), `rose` (stock bas), `slate` (neutre).
+- **Mobile-first** : `grid-cols-2 sm:grid-cols-4`, tables → cartes sous `md`, hero stack vertical.
+- **Drawers** > modales pour réglages riches (`MarketplaceConfig.tsx`).
+- **Pas d'arc-en-ciel** sur cartes filtres/recherche.
 
 ### Enums Prisma
-
-`ProductStatus` (OFFLINE|ONLINE|ARCHIVED|SYNCING), `SaleType` (UNIT|PACK), `OrderStatus` (PENDING|SHIPPED|CANCELLED — workflow simplifié, PENDING libellé « Nouveau » admin / « En attente » client, seule transition = PENDING → SHIPPED, annulation depuis PENDING seul), `UserRole` (ADMIN|CLIENT), `UserStatus` (PENDING|APPROVED|REJECTED).
+- `ProductStatus` : OFFLINE|ONLINE|ARCHIVED|SYNCING
+- `SaleType` : UNIT|PACK
+- `OrderStatus` : PENDING|SHIPPED|CANCELLED (PENDING = « Nouveau » admin / « En attente » client, seule transition = PENDING→SHIPPED, annulation depuis PENDING)
+- `UserRole` : ADMIN|CLIENT
+- `UserStatus` : PENDING|APPROVED|REJECTED
 
 ---
 
@@ -187,86 +153,86 @@ Toute nouvelle page ou refonte dans `/admin/*` suit ce langage visuel (référen
 
 | Lib | Version | Contrainte |
 |-----|---------|-----------|
-| Next.js | 16.1.6 | `params` = `Promise` (await). `revalidateTag("tag", "default")` = 2 args |
+| Next.js | 16.1.6 | `params` = Promise (await). `revalidateTag(tag, "default")` 2 args |
 | Prisma | 5.22.0 | **PAS v7** |
 | NextAuth | v4 | **PAS v5** |
 | Zod | 4.3.6 | `.issues` PAS `.errors` |
-| Tailwind | v4 | No config file, theme dans `globals.css` |
+| Tailwind | v4 | Pas de config JS |
 | React | 19.2.3 | |
 
-`serverExternalPackages: ["pdfkit", "sharp", "exceljs"]` dans `next.config.ts`. Path alias `@/*` → `./*`.
+`serverExternalPackages: ["pdfkit", "sharp", "exceljs"]` dans `next.config.ts`. Alias `@/*` → `./*`.
 
 ---
 
-## Gotchas critiques
+## Gotchas
 
-### UI / Components
-- **`ssr: false`** interdit dans Server Components → wrapper `"use client"`.
-- **`PublicSidebar.tsx`** = header public (PAS `Navbar.tsx`).
-- **Badges** : toujours `badge badge-*` (success/warning/error/neutral/info/purple).
-- **Dropdowns** : toujours `CustomSelect`, jamais `<select>` natif.
-- **UI context** : `useConfirm()` (ConfirmDialog), `useToast()` (Toast) — pas de default import.
-- **No dark mode** : CSS variables (`bg-bg-primary`, `text-text-primary`, `border-border`).
-- **Touch targets** min 44px, `prefers-reduced-motion` respecté.
+### UI
+- `ssr: false` interdit en Server Component → wrap `"use client"`.
+- `PublicSidebar.tsx` = header public (PAS `Navbar.tsx`).
+- Badges : `badge badge-*` (success/warning/error/neutral/info/purple).
+- Dropdowns : `CustomSelect`, jamais `<select>` natif.
+- `useConfirm()` / `useToast()` (context, pas de default).
+- Pas de dark mode : vars CSS (`bg-bg-primary`, `text-text-primary`, `border-border`).
+- Touch min 44px, `prefers-reduced-motion` respecté.
 
 ### Produits / Variantes
-- **Ne jamais supprimer** un produit `ARCHIVED`.
-- **`Color.patternImage`** prioritaire sur `Color.hex`.
-- **Une variante = une couleur**. `groupKey` = `colorId` (helper `variantGroupKeyFromState()`).
-- **PACK mono-couleur** : `colorId` + `VariantSize`. `unitPrice` = `computeTotalPrice(v)` (total du pack en BDD, pas unitaire).
+- **Jamais supprimer** un `ARCHIVED`.
+- `Color.patternImage` > `Color.hex`.
+- 1 variante = 1 couleur. `groupKey` = `colorId` (helper `variantGroupKeyFromState()`).
+- **PACK mono-couleur** : `colorId` + `VariantSize`. `unitPrice` = `computeTotalPrice(v)` (total BDD).
 - **PACK multi-couleurs** : `PackColorLine[]` + `PackColorLineSize[]`. `variantSizes` vide. Détection : `isMultiColorPack(v)` UI / `c.packLines.length > 0` serveur.
 - **UNIT** : max 1 taille (description, pas sélection client).
-- **OrderItem.sizesJson** : préférer sur `OrderItem.size` legacy.
+- `OrderItem.sizesJson` > `OrderItem.size` legacy.
 
-### Server actions / Caching
-- **`requireAdmin()` / `requireAuth()`** obligatoire.
-- Retour cohérent : `{ success: boolean, error?: string }`.
-- **Cache** : `getCached*` + `revalidateTag(tag, "default")` (2 args Next 16).
-- **TTLs** : 5min (site-config, dashboard), 10min (bestsellers), 60min (categories, colors, tags, collections, sizes, countries, seasons, pfs-annexes).
+### Server actions / Cache
+- `requireAdmin()` / `requireAuth()` obligatoire.
+- Retour : `{ success: boolean, error?: string }`.
+- Cache : `getCached*` + `revalidateTag(tag, "default")` (**2 args Next 16**).
+- TTLs : 5min (site-config, dashboard), 10min (bestsellers), 60min (categories/colors/tags/collections/sizes/countries/seasons/pfs-annexes).
 
 ### Logging
-- **Jamais `console.log/warn/error`** côté serveur → `import { logger } from "@/lib/logger"`.
-- Pour Type erreur + Stack : `logger.error("[X] msg", { error: err })`.
+- **Jamais `console.*`** serveur → `import { logger } from "@/lib/logger"`.
+- Erreur + stack : `logger.error("[X] msg", { error: err })`.
 - `instrumentation.ts` capte `uncaughtException`/`unhandledRejection`.
 
 ### Auth redirect
-- **Login → /admin** : `window.location.href = "/admin"` (full reload), **pas** `router.push()` (le router localisé produirait `/fr/admin` qui est 404).
+- Login → `/admin` : `window.location.href = "/admin"` (full reload), **pas** `router.push()` (produit `/fr/admin` = 404).
 
 ### Encryption
-- `lib/encryption.ts` AES-256-GCM, clé maître = `ENCRYPTION_KEY` (base64 32 bytes).
-- `SENSITIVE_KEYS` = liste des clés SiteConfig chiffrées. Ajouter toute nouvelle clé sensible.
+- `lib/encryption.ts` AES-256-GCM, `ENCRYPTION_KEY` (base64 32B).
+- `SENSITIVE_KEYS` = liste SiteConfig chiffrés. Ajouter toute clé sensible.
 
-### Images & fichiers (stockage local)
-- Module unique : `lib/storage.ts`. Helpers : `productImageDir/BaseName`, `collectionImageDir`, `bannerDir`, `kbisDir`, `invoiceDir`, etc. **Ne jamais hardcoder de path.**
-- **Arbo publique** `public/uploads/` : `produits/`, `collections/`, `motifs-couleurs/`, `banniere/`, `catalogues/`, `bordereaux/`, `reclamations/`.
-- **Arbo privée** `private/uploads/` : `kbis/`, `documents/`, `factures/`, `pieces-jointes-email/`, `avoirs/`, `_image_jobs/` (buffers bruts en attente).
-- Images produit : WebP 3 tailles (large/`-md`/`-thumb`), max 5 par couleur. Lecture compat avec ancien `_md`/`_thumb` via `getImagePaths()`.
-- Renommage auto : `renameProductFolder(oldRef, newRef)` dans la transaction Prisma.
-- Brouillon : `uploads/produits/_brouillon/` si pas encore de référence.
-- DB paths déjà au format URL publique.
-- **PFS image sync** : JPEG uniquement (pas WebP), upload multipart. Logs `[PFS Images]`.
-- **Upload arrière-plan** : `POST /api/admin/products/images` ne fait PLUS sharp en synchrone — écrit le buffer brut dans `private/uploads/_image_jobs/{jobId}.{ext}`, insère un `ImageProcessingJob` (PENDING) et retourne immédiatement le `dbPath` futur. Worker singleton `lib/image-queue.ts` (démarré dans `instrumentation-node.ts`, 3 jobs en parallèle, poll 800 ms) traite chaque job via `processProductImage`. Au boot Node, jobs en PROCESSING repassent en PENDING (idempotent). Quand le dernier job d'un produit lié passe à DONE → pose `*SyncRequired = true`. Pas de widget de progression côté UI (silencieux).
-- Reset data : `npx tsx scripts/wipe-data.ts` (préserve ADMIN, SiteConfig, CompanyInfo, LegalDocument).
+### Images & fichiers
+- Module unique : `lib/storage.ts`. Helpers : `productImageDir/BaseName`, `collectionImageDir`, `bannerDir`, `kbisDir`, `invoiceDir`. **Jamais hardcoder de path.**
+- Public `public/uploads/` : `produits/`, `collections/`, `motifs-couleurs/`, `banniere/`, `catalogues/`, `bordereaux/`, `reclamations/`.
+- Privé `private/uploads/` : `kbis/`, `documents/`, `factures/`, `pieces-jointes-email/`, `avoirs/`, `_image_jobs/`.
+- Produit : WebP 3 tailles (large/`-md`/`-thumb`), max 5/couleur. Compat ancien `_md`/`_thumb` via `getImagePaths()`.
+- Renommage : `renameProductFolder(oldRef, newRef)` dans txn Prisma.
+- Brouillon : `uploads/produits/_brouillon/` si pas de ref.
+- DB paths = URL publique.
+- **PFS image sync** : JPEG (pas WebP), multipart. Logs `[PFS Images]`.
+- **Upload async** : `POST /api/admin/products/images` écrit buffer brut dans `private/uploads/_image_jobs/`, crée `ImageProcessingJob` PENDING, retourne `dbPath` futur. Worker `lib/image-queue.ts` (démarré `instrumentation-node.ts`, 3 parallèle, poll 800ms) traite via `processProductImage`. Au boot, PROCESSING → PENDING (idempotent). Dernier job DONE d'un produit lié → pose `*SyncRequired = true`.
+- Reset : `npx tsx scripts/wipe-data.ts` (préserve ADMIN, SiteConfig, CompanyInfo, LegalDocument).
 
 ### SEO
 - `lib/seo.ts` : `buildAlternates(path)`, `buildOrganizationSchema()`, `buildWebsiteSchema()`.
-- **Organization JSON-LD** rendu **uniquement** dans `app/layout.tsx`. `WebSite` sur home. `Product` + `BreadcrumbList` sur fiche produit.
-- Clés SiteConfig SEO : `site_logo_url`, `social_*_url` (facebook/instagram/linkedin/twitter/youtube/tiktok).
+- Organization JSON-LD **uniquement** dans `app/layout.tsx`. WebSite sur home. Product + BreadcrumbList sur fiche.
+- Clés SEO : `site_logo_url`, `social_*_url`.
 - Favicon dynamique : `app/icon.tsx` + `apple-icon.tsx` via `ImageResponse`.
 
 ### Integrations
-- **SSE** : `lib/product-events.ts` via `globalThis` singleton. Hook : `useProductStream()`.
-- **Easy-Express** : prix en centimes (÷100), poids min 1kg, +5€ marge, transactionId expire vite.
+- **SSE** : `lib/product-events.ts` (`globalThis` singleton). Hook `useProductStream()`.
+- **Easy-Express** : centimes (÷100), poids min 1kg, +5€ marge, `transactionId` expire vite.
 
 ---
 
-## Variables d'environnement
+## Env vars
 
 - **Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ENCRYPTION_KEY`.
-- **Stripe (env-only)** : `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`. Plus de Stripe Connect, plus d'UI admin Paiement.
-- **Email** : `SMTP_HOST/PORT/SECURE/USER/PASSWORD/FROM_EMAIL/FROM_NAME`. Destinataire admin = **Paramètres > Société > Email** (plus de `NOTIFY_EMAIL`).
+- **Stripe (env-only)** : `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+- **Email** : `SMTP_HOST/PORT/SECURE/USER/PASSWORD/FROM_EMAIL/FROM_NAME`. Destinataire admin = Paramètres > Société > Email.
 - **Ankorstore webhook** : `ANKORSTORE_WEBHOOK_SECRET`.
-- **Via UI admin (chiffrés en BDD)** : clé Easy-Express, identifiants PFS (email + mot de passe — réutilisés pour la traduction auto).
+- **Via UI (chiffrés BDD)** : clé Easy-Express, identifiants PFS (email + mdp — réutilisés pour traduction auto).
 
 ---
 
@@ -274,9 +240,9 @@ Toute nouvelle page ou refonte dans `/admin/*` suit ce langage visuel (référen
 
 ```bash
 npm run dev / build / start / lint
-npm run test / test:watch / test:coverage   # Vitest
-npm run test:pfs-smoke                      # PFS smoke tests
-npx prisma db push && npx prisma generate   # Après modif schema, redémarrer dev d'abord
+npm run test / test:watch / test:coverage
+npm run test:pfs-smoke
+npx prisma db push && npx prisma generate
 npx prisma studio
 npx tsx scripts/create-admin.ts
 ```
@@ -285,15 +251,12 @@ Integration tests : `__tests__/integration/` (DB-backed, `fileParallelism: false
 
 ---
 
-## Production (`https://beliandjolie.com`)
+## Production (`beliandjolie.com`)
 
-VPS Hostinger Ubuntu 24.04 LTS. Code dans `/var/www/beliandjolie`. Nginx → Next.js (`127.0.0.1:3000`). PM2 géré par systemd (`pm2-root.service`). MySQL 8, Node 20 LTS, Certbot HTTPS.
+VPS Hostinger Ubuntu 24.04. `/var/www/beliandjolie`. Nginx → Next.js `127.0.0.1:3000`. PM2 systemd (`pm2-root.service`). MySQL 8, Node 20, Certbot.
 
-- **`.env` prod** : `/var/www/beliandjolie/.env`. ⚠️ Lu uniquement au démarrage → `pm2 restart beliandjolie` après modif.
-- **UFW** : seuls 22/80/443 ouverts. SSH par clé uniquement.
-- **Lecteur réseau Windows V:** monté via SSHFS-Win → édition directe `.env` et fichiers du site.
-- **Playwright Chromium** (import PFS) : pas installé par `npm install`. Après deploy initial / upgrade Playwright :
-  ```
-  ssh root@72.61.106.128 "cd /var/www/beliandjolie && npx playwright install --with-deps chromium"
-  ```
-- **Pas dans le repo** : `scripts/deploy/`, `public/uploads/`, `private/uploads/`. **Sauvegarder régulièrement uploads VPS** (rsync/cron).
+- `.env` prod : `/var/www/beliandjolie/.env`. Lu au démarrage → `pm2 restart beliandjolie` après modif.
+- UFW : 22/80/443 seulement. SSH par clé.
+- **V:** = SSHFS-Win → édition directe.
+- **Playwright Chromium** (import PFS) : `ssh root@72.61.106.128 "cd /var/www/beliandjolie && npx playwright install --with-deps chromium"` après deploy initial / upgrade.
+- Hors repo : `scripts/deploy/`, `public/uploads/`, `private/uploads/`. **Sauvegarder uploads VPS** (rsync/cron).

@@ -459,6 +459,49 @@ describe("buildAdminProductsWhere", () => {
     ]);
   });
 
+  describe("Filtre traduction", () => {
+    it("translationStatus='untranslated' → OR par locale non-FR sur translations.none", () => {
+      const where = buildAdminProductsWhere({ translationStatus: "untranslated" });
+      // Aujourd'hui NON_DEFAULT_LOCALES = ["en"] — on vérifie la structure OR pour
+      // rester compatible si d'autres locales sont ajoutées plus tard.
+      expect(where.AND).toEqual([
+        {
+          OR: [{ translations: { none: { locale: "en" } } }],
+        },
+      ]);
+    });
+
+    it("translationStatus='translated' → AND par locale non-FR sur translations.some", () => {
+      const where = buildAdminProductsWhere({ translationStatus: "translated" });
+      expect(where.AND).toEqual([{ translations: { some: { locale: "en" } } }]);
+    });
+
+    it("ignore translationStatus quand vide ou inconnu", () => {
+      expect(buildAdminProductsWhere({ translationStatus: "" }).AND).toBeUndefined();
+      expect(buildAdminProductsWhere({ translationStatus: "lol" }).AND).toBeUndefined();
+    });
+
+    it("translationStatus se combine avec un autre filtre AND (ex. syncRequired) sans les écraser", () => {
+      const where = buildAdminProductsWhere({
+        translationStatus: "untranslated",
+        syncRequired: "1",
+      });
+      expect(where.AND).toEqual([
+        {
+          OR: [
+            { pfsSyncRequired: true },
+            { ankorsSyncRequired: true },
+            { efashionSyncRequired: true },
+            { faireSyncRequired: true },
+          ],
+        },
+        {
+          OR: [{ translations: { none: { locale: "en" } } }],
+        },
+      ]);
+    });
+  });
+
   it("locked='1' restreint à Product.locked=true", () => {
     expect(buildAdminProductsWhere({ locked: "1" }).locked).toBe(true);
   });
@@ -738,5 +781,43 @@ describe("buildAdminProductsOrderBy", () => {
       { important: "desc" },
       { createdAt: "desc" },
     ]);
+  });
+
+  // ─── Raccourcis « récemment » (barre d'onglets) ───
+
+  it("sorts by updatedAt desc when shortcut updatedRecent=1 is active (no sort, no refresh sort)", () => {
+    expect(
+      buildAdminProductsOrderBy("", "", { updatedRecent: "1" }),
+    ).toEqual([{ updatedAt: "desc" }]);
+  });
+
+  it("sorts by createdAt desc when shortcut createdRecent=1 is active", () => {
+    expect(
+      buildAdminProductsOrderBy("", "", { createdRecent: "1" }),
+    ).toEqual([{ createdAt: "desc" }]);
+  });
+
+  it("keeps explicit sort priority over shortcuts (sort=createdAsc + updatedRecent)", () => {
+    expect(
+      buildAdminProductsOrderBy("", "createdAsc", { updatedRecent: "1" }),
+    ).toEqual([{ createdAt: "asc" }]);
+  });
+
+  it("keeps refresh sort priority over shortcuts (refresh=dateDesc + updatedRecent)", () => {
+    expect(
+      buildAdminProductsOrderBy("dateDesc", "", { updatedRecent: "1" }),
+    ).toEqual([
+      { lastRefreshedAt: { sort: "desc", nulls: "last" } },
+      { createdAt: "desc" },
+    ]);
+  });
+
+  it("ignores shortcut values other than \"1\"", () => {
+    expect(
+      buildAdminProductsOrderBy("", "", { updatedRecent: "" }),
+    ).toEqual([{ createdAt: "desc" }]);
+    expect(
+      buildAdminProductsOrderBy("", "", { updatedRecent: "0" }),
+    ).toEqual([{ createdAt: "desc" }]);
   });
 });

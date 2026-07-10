@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 export type AdminProductsRefreshValue =
   | ""
@@ -131,6 +132,15 @@ export interface AdminProductsFilterParams {
   microstoreExportedAt?: string;
   ankorstoreExportedAt?: string;
   faireExportedAt?: string;
+  /**
+   * Filtre « Statut de traduction » — vérifie la présence de traductions pour
+   * chaque locale non-FR (cf. `NON_DEFAULT_LOCALES`). Cohérent avec le comptage
+   * `getCachedAdminWarnings.untranslatedCount` :
+   *   - "untranslated" = au moins une locale non-FR manquante
+   *   - "translated"   = traduction présente pour chaque locale non-FR
+   *   - vide/absent    = pas de filtre
+   */
+  translationStatus?: string;
   /**
    * Filtre sur le code SH (douanier) du produit, désormais en relation
    * avec la bibliothèque HsCode :
@@ -425,6 +435,24 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     ];
   }
 
+  if (params.translationStatus === "translated" && NON_DEFAULT_LOCALES.length > 0) {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      ...NON_DEFAULT_LOCALES.map((locale) => ({
+        translations: { some: { locale } },
+      })),
+    ];
+  } else if (params.translationStatus === "untranslated" && NON_DEFAULT_LOCALES.length > 0) {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      {
+        OR: NON_DEFAULT_LOCALES.map((locale) => ({
+          translations: { none: { locale } },
+        })),
+      },
+    ];
+  }
+
   // Filtres « Dernier export marketplace » — additifs (AND entre marketplaces).
   const exportClauses = [
     buildExportedAtClause("pfs", params.pfsExportedAt, now),
@@ -503,10 +531,17 @@ export async function findProductIdsWithMissingVariantImages(
  * - `dateDesc` / `dateAsc` : `lastRefreshedAt`, `nulls: "last"`, `createdAt` en tie-breaker
  * - `modifiedDesc` / `modifiedAsc` : `updatedAt`
  * - toute autre valeur (`""`, `"never"`, `"recent"`, `"refreshed"`) : `createdAt` desc
+ *
+ * `shortcuts` (raccourcis de la barre d'onglets) aligne le tri sur le raccourci
+ * actif quand ni `sort` ni un tri porté par `refresh` ne sont posés — sans quoi
+ * cliquer « Modifié récemment » filtrerait bien sur les 30 derniers jours mais
+ * afficherait la liste par date de création, incohérent avec le tri « Modifié
+ * le plus récent » du menu Trier.
  */
 export function buildAdminProductsOrderBy(
   refresh?: string,
   sort?: string,
+  shortcuts?: { createdRecent?: string; updatedRecent?: string },
 ): Prisma.ProductOrderByWithRelationInput[] {
   // `sort` a la priorité — 5 valeurs reconnues, autres = ignoré (fallback refresh).
   if (sort === "createdDesc") return [{ createdAt: "desc" }];
@@ -533,5 +568,9 @@ export function buildAdminProductsOrderBy(
   if (refresh === "modifiedAsc") {
     return [{ updatedAt: "asc" }];
   }
+
+  if (shortcuts?.updatedRecent === "1") return [{ updatedAt: "desc" }];
+  if (shortcuts?.createdRecent === "1") return [{ createdAt: "desc" }];
+
   return [{ createdAt: "desc" }];
 }

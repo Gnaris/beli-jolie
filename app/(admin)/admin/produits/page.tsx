@@ -180,7 +180,7 @@ function countActiveFilters(p: Record<string, string | undefined>): number {
   const keys = [
     "q", "exactRef", "cat", "subCat", "tag", "composition", "hsCodeId",
     "minPrice", "maxPrice", "dateFrom", "dateTo", "updatedFrom", "updatedTo", "stockBelow",
-    "bestSeller", "important", "createdRecent", "updatedRecent", "refresh", "sort", "locked", "syncRequired", "missingImages",
+    "bestSeller", "important", "createdRecent", "updatedRecent", "refresh", "sort", "locked", "syncRequired", "missingImages", "translationStatus",
     "pfsLink", "ankorsLink", "efashionLink", "faireLink",
     "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "microstoreExportedAt",
   ];
@@ -230,6 +230,7 @@ interface PageProps {
     microstoreExportedAt?: string;
     ankorstoreExportedAt?: string;
     faireExportedAt?: string;
+    translationStatus?: string;
   }>;
 }
 
@@ -333,6 +334,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     microstoreExportedAt = "",
     ankorstoreExportedAt = "",
     faireExportedAt = "",
+    translationStatus = "",
   } = params;
 
   const exactRef   = exactRefParam === "1";
@@ -383,6 +385,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     microstoreExportedAt,
     ankorstoreExportedAt,
     faireExportedAt,
+    translationStatus,
     productIdsIn,
     productIdsNotIn,
   });
@@ -407,7 +410,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   ] = await Promise.all([
     prisma.product.findMany({
       where,
-      orderBy: buildAdminProductsOrderBy(refresh, sort),
+      orderBy: buildAdminProductsOrderBy(refresh, sort, { createdRecent, updatedRecent }),
       skip:    (currentPage - 1) * perPage,
       take:    perPage,
       include: {

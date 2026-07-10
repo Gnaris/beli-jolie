@@ -62,6 +62,15 @@ const REFRESH_OPTS = [
   { v: "refreshed", label: "Déjà rafraîchi" },
 ];
 
+// Filtre « Traduction » — vérifie la présence d'une traduction pour chaque
+// locale non-FR (aujourd'hui : anglais). Miroir du compteur des avertissements
+// admin.
+const TRANSLATION_OPTS = [
+  { v: "", label: "Tous" },
+  { v: "untranslated", label: "Sans traduction" },
+  { v: "translated", label: "Traduit" },
+];
+
 export default function ThemedProductFilters({
   totalCount, activeCount, categories, tags, compositions, hsCodes,
   hasPfsConfig, hasAnkorstoreConfig, hasEfashionConfig, hasFaireConfig,
@@ -275,6 +284,7 @@ export default function ThemedProductFilters({
 
     if (theme === "status") {
       const refresh = searchParams.get("refresh") ?? "";
+      const translationStatus = searchParams.get("translationStatus") ?? "";
       return (
         <div className="flex flex-col gap-3">
           <div>
@@ -283,6 +293,15 @@ export default function ThemedProductFilters({
               value={refresh}
               onChange={(val) => setParam({ refresh: val })}
               options={REFRESH_OPTS.map((o) => ({ value: o.v, label: o.label }))}
+              size="sm"
+            />
+          </div>
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">Traduction</div>
+            <CustomSelect
+              value={translationStatus}
+              onChange={(val) => setParam({ translationStatus: val })}
+              options={TRANSLATION_OPTS.map((o) => ({ value: o.v, label: o.label }))}
               size="sm"
             />
           </div>
@@ -410,6 +429,7 @@ export default function ThemedProductFilters({
       // `refresh` est un enum ("never" | "recent" | "refreshed") — toute
       // valeur non vide compte comme un filtre actif.
       if (has("refresh")) n++;
+      if (has("translationStatus")) n++;
     } else if (theme === "marketplaces") {
       ["pfsLink", "ankorsLink", "efashionLink", "faireLink",
        "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt"].forEach((k) => has(k) && n++);

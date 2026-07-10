@@ -890,6 +890,11 @@ export default function ProductForm({
       if (!isDirty.current) return;
       const anchor = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;
       if (!anchor) return;
+      // Un lien de téléchargement (attribut `download`) déclenche un download,
+      // pas une navigation — ne pas afficher la garde "modifications non enregistrées".
+      if (anchor.hasAttribute("download")) return;
+      // Idem pour un lien qui s'ouvre dans un nouvel onglet : la page courante reste.
+      if (anchor.target === "_blank") return;
       const href = anchor.getAttribute("href");
       if (!href || href.startsWith("#") || href.startsWith("javascript")) return;
       // Only intercept internal navigation

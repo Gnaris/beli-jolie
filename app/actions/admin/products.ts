@@ -768,6 +768,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     variantIdMap: { colorInput: ColorInput; variantId: string; isNew: boolean }[];
     orphanImagePaths: string[];
     resolvedPrimaryAfter: string | null;
+    imageMappingChanged: boolean;
   } | null = null;
   try {
     txResult = await prisma.$transaction(async (tx) => {
@@ -1079,10 +1080,11 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     // couleur entière supprimée, etc.) avant de reconstruire les entrées.
     // Suppression effective du disque après commit.
     let orphanImagePaths: string[] = [];
+    let imageMappingChanged = false;
     if (input.imagePaths !== undefined) {
       const previousImageRecords = await tx.productColorImage.findMany({
         where: { productId: id },
-        select: { path: true },
+        select: { path: true, colorId: true, order: true },
       });
       const previousPaths = new Set(previousImageRecords.map((r) => r.path));
       const keptPaths = new Set<string>();
@@ -1111,6 +1113,23 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       if (imageData.length > 0) {
         await tx.productColorImage.createMany({ data: imageData });
       }
+
+      // Détection d'un changement du mapping (colorId, order, path) — couvre :
+      // ajout / retrait / réordonnancement dans une couleur, ET déplacement
+      // d'une photo d'une couleur à une autre (même fichier, colorId différent).
+      // Ce flag est utilisé plus bas pour lever `*SyncRequired = true` sur les
+      // marketplaces liées : sans ça, un simple move inter-couleurs ne
+      // déclencherait pas de badge « Synchro nécessaire » et le push n'irait
+      // jamais chercher les nouvelles photos.
+      const previousSig = [...previousImageRecords]
+        .map((r) => `${r.colorId}::${r.order}::${r.path}`)
+        .sort()
+        .join("|");
+      const newSig = imageData
+        .map((r) => `${r.colorId}::${r.order}::${r.path}`)
+        .sort()
+        .join("|");
+      imageMappingChanged = previousSig !== newSig;
     }
 
     // ── Couleur principale (Product.primaryColorId) ──
@@ -1158,7 +1177,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       });
     }
 
-    return { oldStockMap, oldVariantMap, variantIdMap, orphanImagePaths, resolvedPrimaryAfter };
+    return { oldStockMap, oldVariantMap, variantIdMap, orphanImagePaths, resolvedPrimaryAfter, imageMappingChanged };
     }, { timeout: 30000 });
   } catch (err) {
     // Si la transaction échoue après un rename de dossier, on remet le dossier
@@ -1181,7 +1200,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     // Should be unreachable: the transaction either returns a value or throws.
     throw new Error("Erreur interne : transaction sans résultat.");
   }
-  const { oldStockMap, oldVariantMap, variantIdMap, orphanImagePaths, resolvedPrimaryAfter } = txResult;
+  const { oldStockMap, oldVariantMap, variantIdMap, orphanImagePaths, resolvedPrimaryAfter, imageMappingChanged } = txResult;
 
   // ── Suppression effective des fichiers image orphelins (post-transaction) ──
   // Toute image présente en BDD avant le save mais absente de l'état envoyé
@@ -1342,7 +1361,12 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       // que la photo principale envoyée à la marketplace doit changer.
       oldProduct.primaryColorId !== resolvedPrimaryAfter ||
       compositionsChanged ||
-      variantsChanged;
+      variantsChanged ||
+      // Un déplacement de photo entre couleurs (ou réordonnancement, ajout/retrait)
+      // change le mapping (colorId, order, path). On considère ça comme un
+      // changement clé pour que le badge orange s'allume et que le push
+      // marketplaces envoie les nouvelles photos.
+      imageMappingChanged;
     if (fieldsChanged) {
       const flagsData: Prisma.ProductUpdateInput = {};
       if (oldProduct.pfsProductId) flagsData.pfsSyncRequired = true;
