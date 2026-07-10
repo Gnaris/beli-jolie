@@ -10,6 +10,7 @@ import PDFDocument from "pdfkit";
 import sharp from "sharp";
 import { readFile, keyFromDbPath } from "@/lib/storage";
 import { prisma } from "@/lib/prisma";
+import { derivePublicContactEmail } from "@/lib/public-contact-email";
 
 // ─────────────────────────────────────────────
 // Palette — Élégante et professionnelle
@@ -643,7 +644,8 @@ export async function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
       if (addrParts.length > 0) companyLines.push(addrParts.join(", "));
       const contactParts: string[] = [];
       if (company.phone) contactParts.push(company.phone);
-      if (company.email) contactParts.push(company.email);
+      const publicEmail = derivePublicContactEmail(company.email);
+      if (publicEmail) contactParts.push(publicEmail);
       if (company.website) contactParts.push(company.website);
       if (contactParts.length > 0) companyLines.push(contactParts.join(" \u00B7 "));
 

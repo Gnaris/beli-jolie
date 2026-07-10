@@ -107,30 +107,6 @@ export default async function EmailStepPage() {
           </section>
         )}
 
-        {/* Notification admin */}
-        <section className="rounded-3xl bg-white border border-border p-6 md:p-8 shadow-sm">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-sky-600 font-semibold mb-3 flex items-center gap-2">
-            <span className="w-1 h-3 bg-sky-500 rounded" /> Notifications de commandes
-          </p>
-          <h2 className="font-heading text-xl font-bold text-text-primary mb-1">
-            Où on vous prévient d&apos;une nouvelle commande&nbsp;?
-          </h2>
-          <p className="text-sm text-text-secondary mb-4">
-            À chaque nouvelle commande, un email arrive sur cette adresse.
-            Reprise de <strong>votre email de contact</strong> renseigné à
-            l&apos;étape&nbsp;2.
-          </p>
-          <div className="rounded-2xl border border-border bg-bg-secondary/40 px-4 py-3 text-sm">
-            {notifyEmail ? (
-              <span className="text-text-primary font-mono">{notifyEmail}</span>
-            ) : (
-              <span className="text-amber-700">
-                Aucun email renseigné — revenez à l&apos;étape « Société ».
-              </span>
-            )}
-          </div>
-        </section>
-
         <div className="flex justify-end pt-2">
           <WizardContinueButton
             step="email"

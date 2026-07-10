@@ -7,6 +7,7 @@
 
 import PDFDocument from "pdfkit";
 import { getCachedCompanyInfo, getCachedShopName } from "@/lib/cached-data";
+import { derivePublicContactEmail } from "@/lib/public-contact-email";
 
 interface OrderForInvoice {
   orderNumber: string;
@@ -55,7 +56,8 @@ export async function generateInvoicePdf(order: OrderForInvoice): Promise<Buffer
     doc.fontSize(20).font("Helvetica-Bold").text(shopName || "Facture", 50, 50);
     doc.fontSize(10).font("Helvetica").fillColor("#666666");
     if (companyInfo?.address) doc.text(companyInfo.address, 50, 75);
-    if (companyInfo?.email) doc.text(companyInfo.email);
+    const publicEmail = derivePublicContactEmail(companyInfo?.email);
+    if (publicEmail) doc.text(publicEmail);
     if (companyInfo?.siret) doc.text(`SIRET: ${companyInfo.siret}`);
 
     // Invoice info

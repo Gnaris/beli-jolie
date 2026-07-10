@@ -15,6 +15,8 @@ import {
 import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
 import { floorMoney } from "@/lib/order-totals";
+import { decryptIfSensitive } from "@/lib/encryption";
+import { derivePublicContactEmail } from "@/lib/public-contact-email";
 
 function escapeHtml(str: string): string {
   return str
@@ -25,7 +27,30 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
+/**
+ * Destinataire des notifications admin (nouvelle commande, inscription…).
+ * Priorités :
+ * 1. `smtp_from_email` (SiteConfig) — la boîte pro `contact@<domaine>` créée
+ *    par le wizard onboarding. Les mails arrivent dans cette boîte puis sont
+ *    forwardés par Sieve vers le mail perso de la cliente.
+ * 2. `mailbox_forward_to` (SiteConfig) — le mail perso saisi dans le wizard,
+ *    utilisé tant que la boîte pro n'est pas encore provisionnée.
+ * 3. `CompanyInfo.email` (rétrocompat pour les anciennes boutiques).
+ */
 async function resolveNotifyEmail(): Promise<string | null> {
+  try {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: ["smtp_from_email", "mailbox_forward_to"] } },
+      select: { key: true, value: true },
+    });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const smtpFrom = decryptIfSensitive("smtp_from_email", map.get("smtp_from_email") || "").trim();
+    if (smtpFrom) return smtpFrom;
+    const forwardTo = (map.get("mailbox_forward_to") || "").trim();
+    if (forwardTo) return forwardTo;
+  } catch {
+    // fallback silencieux vers CompanyInfo
+  }
   const companyInfo = await getCachedCompanyInfo();
   return companyInfo?.email?.trim() || null;
 }
@@ -382,10 +407,14 @@ export async function notifyOrderStatusChange(
             </a>
           </div>
 
-          ${companyInfo?.email ? `
-          <p style="margin-top:24px;font-size:13px;color:#6B6B6B;text-align:center;">
-            Une question ? Contactez-nous à <a href="mailto:${companyInfo.email}" style="color:${config.color};">${escapeHtml(companyInfo.email)}</a>
-          </p>` : ""}
+          ${(() => {
+            const publicEmail = derivePublicContactEmail(companyInfo?.email);
+            return publicEmail
+              ? `<p style="margin-top:24px;font-size:13px;color:#6B6B6B;text-align:center;">
+            Une question ? Contactez-nous à <a href="mailto:${publicEmail}" style="color:${config.color};">${escapeHtml(publicEmail)}</a>
+          </p>`
+              : "";
+          })()}
         </div>
 
         <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">

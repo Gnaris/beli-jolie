@@ -187,19 +187,6 @@ export default function CompanyStepForm({
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className={label}>Email de contact</label>
-            <input
-              type="email"
-              value={form.email || ""}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              placeholder="contact@maboutique.fr"
-              className={input}
-            />
-            <p className="text-xs text-text-secondary/70 mt-1">
-              Sert aussi à recevoir les notifications de commandes.
-            </p>
-          </div>
-          <div>
             <label className={label}>Téléphone</label>
             <input
               type="text"
@@ -210,6 +197,10 @@ export default function CompanyStepForm({
             />
           </div>
         </div>
+        <p className="text-xs text-text-secondary/70 mt-3">
+          L&apos;email de contact est <strong>créé automatiquement</strong> à
+          l&apos;étape « Emails » sous la forme <span className="font-mono">contact@votre-domaine</span>.
+        </p>
       </section>
 
       <div className="rounded-2xl bg-emerald-50/60 border border-emerald-100 p-4 text-sm text-emerald-800">

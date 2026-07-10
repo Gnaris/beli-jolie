@@ -4,11 +4,13 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { readFile } from "fs/promises";
 import path from "path";
+import { promises as dns } from "dns";
 import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { encryptIfSensitive } from "@/lib/encryption";
+import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
 
 const execFileAsync = promisify(execFile);
@@ -188,6 +190,9 @@ export async function provisionShopMailbox(
       ["smtp_user", email],
       ["smtp_password", password],
       ["smtp_from_email", email],
+      // Mail perso de la cliente : reçoit les notifications forwardées depuis
+      // contact@<domain>. Sert aussi de fallback si smtp_from_email est vide.
+      ["mailbox_forward_to", forward],
     ];
     for (const [key, value] of smtpEntries) {
       const stored = encryptIfSensitive(key, value);
@@ -213,3 +218,225 @@ export async function provisionShopMailbox(
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };
   }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// TEST FORWARD : envoie un mail vers contact@<domaine> pour vérifier que le
+// forward Sieve arrive bien dans la boîte perso de la cliente.
+// ────────────────────────────────────────────────────────────────────────────
+
+export type MailboxTestResult = {
+  success: boolean;
+  error?: string;
+  to?: string;
+  forwardedTo?: string;
+};
+
+export async function sendMailboxTest(): Promise<MailboxTestResult> {
+  try {
+    await requireAdmin();
+    const domain = extractShopDomain();
+    if (!domain) {
+      return { success: false, error: "Domaine indéterminé." };
+    }
+    const to = `contact@${domain}`;
+
+    // Récupère le mail perso pour l'afficher dans le corps du mail.
+    const forwardRow = await prisma.siteConfig.findUnique({
+      where: { key: "mailbox_forward_to" },
+    });
+    const forwardedTo = forwardRow?.value?.trim() || "votre adresse perso";
+
+    await sendMail({
+      to,
+      subject: "✅ Test de votre boîte pro — êtes-vous bien redirigé ?",
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#111;">
+          <h2>Test de réception</h2>
+          <p>Bonjour,</p>
+          <p>
+            Ce mail a été envoyé automatiquement depuis votre boutique vers
+            <strong>${to}</strong>.
+          </p>
+          <p>
+            Si vous le recevez sur <strong>${forwardedTo}</strong>, tout est
+            branché correctement — vos notifications de commandes, messages
+            clients et alertes arriveront désormais dans cette boîte perso.
+          </p>
+          <p style="color:#6B7280;font-size:13px;margin-top:24px;">
+            Si vous ne le voyez pas d'ici quelques minutes, vérifiez votre
+            dossier <em>Spam</em> puis retentez depuis le site.
+          </p>
+        </div>
+      `,
+    });
+    return { success: true, to, forwardedTo };
+  } catch (e) {
+    logger.error("[Mailbox] Test envoi échoué", { error: e });
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Envoi du mail test impossible.",
+    };
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// CHECK DNS : interroge les DNS publics et vérifie MX + SPF + DKIM + DMARC.
+// ────────────────────────────────────────────────────────────────────────────
+
+export type DnsCheckLine = {
+  label: "MX" | "SPF" | "DKIM" | "DMARC";
+  status: "ok" | "missing" | "wrong";
+  detail: string;
+};
+
+export type DnsCheckResult = {
+  success: boolean;
+  error?: string;
+  domain?: string;
+  lines?: DnsCheckLine[];
+  allOk?: boolean;
+};
+
+export async function checkMailboxDns(): Promise<DnsCheckResult> {
+  try {
+    await requireAdmin();
+    const domain = extractShopDomain();
+    if (!domain) return { success: false, error: "Domaine indéterminé." };
+
+    const lines: DnsCheckLine[] = [];
+
+    // MX
+    try {
+      const mx = await dns.resolveMx(domain);
+      if (mx.length === 0) {
+        lines.push({ label: "MX", status: "missing", detail: "Aucun MX déclaré." });
+      } else {
+        const found = mx.find((r) => r.exchange.toLowerCase() === MAIL_HOSTNAME);
+        lines.push(
+          found
+            ? { label: "MX", status: "ok", detail: `Trouvé : ${found.exchange}` }
+            : {
+                label: "MX",
+                status: "wrong",
+                detail: `Attendu ${MAIL_HOSTNAME}, trouvé ${mx.map((r) => r.exchange).join(", ")}`,
+              },
+        );
+      }
+    } catch {
+      lines.push({ label: "MX", status: "missing", detail: "Aucun MX déclaré." });
+    }
+
+    // SPF (TXT @)
+    try {
+      const txts = await dns.resolveTxt(domain);
+      const flat = txts.map((t) => t.join("")).find((s) => s.startsWith("v=spf1"));
+      if (!flat) {
+        lines.push({ label: "SPF", status: "missing", detail: "Aucun SPF déclaré." });
+      } else if (flat.includes(`ip4:${VPS_IP}`)) {
+        lines.push({ label: "SPF", status: "ok", detail: "IP du serveur autorisée." });
+      } else {
+        lines.push({
+          label: "SPF",
+          status: "wrong",
+          detail: `SPF trouvé mais sans ip4:${VPS_IP}.`,
+        });
+      }
+    } catch {
+      lines.push({ label: "SPF", status: "missing", detail: "Aucun SPF déclaré." });
+    }
+
+    // DKIM (TXT default._domainkey.<domain>)
+    try {
+      const txts = await dns.resolveTxt(`default._domainkey.${domain}`);
+      const flat = txts.map((t) => t.join("")).find((s) => s.includes("v=DKIM1"));
+      lines.push(
+        flat
+          ? { label: "DKIM", status: "ok", detail: "Clé DKIM détectée." }
+          : { label: "DKIM", status: "wrong", detail: "TXT trouvé mais pas de v=DKIM1." },
+      );
+    } catch {
+      lines.push({ label: "DKIM", status: "missing", detail: "Aucun DKIM déclaré." });
+    }
+
+    // DMARC (TXT _dmarc.<domain>)
+    try {
+      const txts = await dns.resolveTxt(`_dmarc.${domain}`);
+      const flat = txts.map((t) => t.join("")).find((s) => s.startsWith("v=DMARC1"));
+      lines.push(
+        flat
+          ? { label: "DMARC", status: "ok", detail: "Politique DMARC détectée." }
+          : { label: "DMARC", status: "wrong", detail: "TXT trouvé mais pas de v=DMARC1." },
+      );
+    } catch {
+      lines.push({ label: "DMARC", status: "missing", detail: "Aucun DMARC déclaré." });
+    }
+
+    const allOk = lines.every((l) => l.status === "ok");
+    return { success: true, domain, lines, allOk };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// DNS RECAP STRUCTURÉ : renvoie les 4 lignes DNS mail sous forme d'objets
+// (pour affichage tableau + bouton copier par ligne dans l'UI).
+// ────────────────────────────────────────────────────────────────────────────
+
+export type DnsRecordStructured = {
+  label: "MX" | "SPF" | "DKIM" | "DMARC";
+  type: "MX" | "TXT";
+  name: string;
+  value: string;
+  priority?: number;
+};
+
+export type DnsRecordsResult = {
+  success: boolean;
+  error?: string;
+  domain?: string;
+  records?: DnsRecordStructured[];
+};
+
+export async function getMailboxDnsRecords(): Promise<DnsRecordsResult> {
+  try {
+    await requireAdmin();
+    const domain = extractShopDomain();
+    if (!domain) return { success: false, error: "Domaine indéterminé." };
+
+    // Lire la valeur DKIM depuis /etc/opendkim/keys/<domain>/default.txt
+    let dkimValue = "";
+    try {
+      const raw = await readFile(`/etc/opendkim/keys/${domain}/default.txt`, "utf8");
+      const chunks = raw.match(/"([^"]*)"/g);
+      if (chunks) {
+        dkimValue = chunks.map((c) => c.slice(1, -1)).join("").replace(/\s+/g, " ").trim();
+      }
+    } catch {
+      /* fichier absent = boîte pas encore provisionnée */
+    }
+
+    // Lire le mail forward pour construire le DMARC (rua)
+    const forwardRow = await prisma.siteConfig.findUnique({
+      where: { key: "mailbox_forward_to" },
+    });
+    const forwardTo = forwardRow?.value?.trim() || `contact@${domain}`;
+
+    const records: DnsRecordStructured[] = [
+      { label: "MX", type: "MX", name: "@", priority: 10, value: MAIL_HOSTNAME },
+      { label: "SPF", type: "TXT", name: "@", value: `v=spf1 ip4:${VPS_IP} ~all` },
+      { label: "DKIM", type: "TXT", name: "default._domainkey", value: dkimValue },
+      {
+        label: "DMARC",
+        type: "TXT",
+        name: "_dmarc",
+        value: `v=DMARC1; p=none; rua=mailto:${forwardTo}`,
+      },
+    ];
+
+    return { success: true, domain, records };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
