@@ -1,6 +1,5 @@
 "use client";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import dynamic from "next/dynamic";
 import { createPortal } from "react-dom";
 import ImageDropzone from "./ImageDropzone";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -9,13 +8,9 @@ import ColorSwatch from "@/components/ui/ColorSwatch";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import QuickCreateSizeModal, { type QuickCreateSizeModalResult } from "@/components/admin/products/QuickCreateSizeModal";
+import PackCompositionModal from "@/components/admin/products/PackCompositionModal";
 import { generateSku } from "@/lib/sku";
 import { swapOrDropImageOrder } from "@/lib/image-positions";
-
-// Modale de composition de pack — chargée à l'ouverture seulement.
-const PackCompositionModal = dynamic(
-  () => import("@/components/admin/products/PackCompositionModal"),
-);
 
 // ─────────────────────────────────────────────
 // Exported types

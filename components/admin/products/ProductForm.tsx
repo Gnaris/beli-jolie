@@ -34,6 +34,7 @@ import { getImageSrc } from "@/lib/image-utils";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { getAnkorstoreReferenceSuffixLength } from "@/lib/ankorstore-description";
 import { buildProductMarketplaceSnapshot } from "@/lib/product-marketplace-snapshot";
+import { resolvePrimaryColorId } from "@/lib/product-primary-color";
 
 const DESCRIPTION_MIN_CHARS = 30;
 import type { MarketplaceId } from "@/lib/product-events";
@@ -1981,9 +1982,22 @@ export default function ProductForm({
               validColorIdsAfterSave.add(v.colorId);
             }
           }
-          setColorImages((prev) =>
-            prev.filter((ci) => !ci.colorId || validColorIdsAfterSave.has(ci.colorId)),
+          const filteredColorImages = colorImages.filter(
+            (ci) => !ci.colorId || validColorIdsAfterSave.has(ci.colorId),
           );
+          setColorImages(filteredColorImages);
+          // Si la couleur principale pointait vers une entrée orpheline qui
+          // vient d'être filtrée, on la réaligne DANS LA MÊME PASSE. Sinon
+          // l'effet `[colorImages, primaryColorId]` la réassigne au render
+          // suivant, ce qui casse le snapshot post-save (déjà pris) et
+          // réactive le bouton « Enregistrer les modifications ».
+          const availableColorIdsAfterFilter = filteredColorImages
+            .map((ci) => ci.colorId)
+            .filter((id): id is string => !!id);
+          const resolvedPrimary = resolvePrimaryColorId(primaryColorId, availableColorIdsAfterFilter);
+          if (resolvedPrimary !== primaryColorId) {
+            setPrimaryColorId(resolvedPrimary);
+          }
           // ⚠️ Ne PAS prendre le snapshot ici : les setVariants /
           // setColorImages / setProductStatus qu'on vient d'appeler ne sont
           // pas encore appliqués au render, donc buildSnapshot capturerait

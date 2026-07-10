@@ -96,6 +96,18 @@ export async function updateAdminPassword(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const session = await requireAdminSession();
+    // Verrou : l'étape "welcome" ne peut être franchie qu'une seule fois. Si
+    // elle est déjà marquée comme complétée, on refuse toute nouvelle
+    // définition de mot de passe via ce chemin (le flux « oublié » passe par
+    // Paramètres > Sécurité).
+    const current = await getOnboardingStatus();
+    if (current.stepsCompleted.includes("welcome")) {
+      return {
+        success: false,
+        error:
+          "Le mot de passe a déjà été défini. Utilisez « Mot de passe oublié » depuis la page de connexion pour le remplacer.",
+      };
+    }
     const password = (newPassword ?? "").toString();
     if (password.length < 8) {
       return { success: false, error: "Le mot de passe doit faire au moins 8 caractères." };

@@ -2,7 +2,6 @@ import { getCompanyInfo } from "@/app/actions/admin/company-info";
 import { getSmtpConfigStatus } from "@/lib/email";
 import WizardStepHeader from "@/components/admin/onboarding/WizardStepHeader";
 import WizardContinueButton from "@/components/admin/onboarding/WizardContinueButton";
-import SmtpStepForm from "@/components/admin/onboarding/SmtpStepForm";
 import MailboxProvisionForm from "@/components/admin/onboarding/MailboxProvisionForm";
 
 function extractShopDomain(): string | null {
@@ -23,9 +22,7 @@ export default async function EmailStepPage() {
     getCompanyInfo(),
   ]);
   const notifyEmail = company?.email?.trim() || "";
-  const suggestedTest = notifyEmail || status.fromEmail || "";
   const shopDomain = extractShopDomain();
-  const canProvisionAuto = !!shopDomain && !status.ready;
 
   return (
     <div className="max-w-3xl mx-auto py-4 md:py-6">
@@ -36,15 +33,15 @@ export default async function EmailStepPage() {
         description={
           <>
             Confirmations de commande, mots de passe oubliés, notifications
-            d&apos;expédition&nbsp;: tous ces emails partent depuis votre boîte
-            professionnelle.
+            d&apos;expédition&nbsp;: on crée automatiquement votre boîte pro et
+            on transfère tout vers votre adresse habituelle.
           </>
         }
         accent="sky"
       />
 
       <div className="space-y-6">
-        {/* Status */}
+        {/* Statut */}
         <section
           className={`rounded-3xl border p-6 md:p-8 shadow-sm ${
             status.ready
@@ -52,7 +49,7 @@ export default async function EmailStepPage() {
               : "bg-amber-50/60 border-amber-200"
           }`}
         >
-          <div className="flex items-center gap-3 mb-2">
+          <div className="flex items-center gap-3">
             <div
               className={`w-11 h-11 rounded-xl flex items-center justify-center text-2xl ${
                 status.ready ? "bg-emerald-100" : "bg-amber-100"
@@ -68,66 +65,47 @@ export default async function EmailStepPage() {
               </p>
               <p className="text-sm text-text-secondary">
                 {status.ready
-                  ? `Expéditeur : ${status.fromEmail ?? status.user ?? "?"} — serveur ${status.host ?? "?"}:${status.port ?? "?"}`
-                  : "Renseignez votre boîte pro (Gmail, OVH, votre serveur mail…) ci-dessous."}
+                  ? `Vos emails partent depuis ${status.fromEmail ?? status.user ?? "?"}.`
+                  : "Renseignez votre email principal ci-dessous pour tout brancher automatiquement."}
               </p>
             </div>
           </div>
-          {status.source === "env" && (
-            <p className="text-xs text-text-secondary/70 mt-3">
-              💡 Configuration actuelle : lue dans le fichier <code>.env</code>{" "}
-              du serveur. Remplissez le formulaire ci-dessous pour la migrer en
-              base de données (chiffrée).
-            </p>
-          )}
         </section>
 
-        {/* Provisionnement automatique */}
-        {canProvisionAuto && (
+        {/* Provisionnement automatique — sauf si déjà branché */}
+        {!status.ready && shopDomain && (
           <section className="rounded-3xl bg-white border border-border p-6 md:p-8 shadow-sm">
             <p className="text-[11px] uppercase tracking-[0.18em] text-sky-600 font-semibold mb-3 flex items-center gap-2">
-              <span className="w-1 h-3 bg-sky-500 rounded" /> Solution simple (recommandée)
+              <span className="w-1 h-3 bg-sky-500 rounded" /> On s&apos;occupe de tout
             </p>
             <h2 className="font-heading text-xl font-bold text-text-primary mb-1">
-              Créer <span className="font-mono">contact@{shopDomain}</span> automatiquement
+              Votre boîte <span className="font-mono">contact@{shopDomain}</span>
             </h2>
             <p className="text-sm text-text-secondary mb-4">
-              On s&apos;occupe de tout&nbsp;: la boîte est créée sur notre
-              serveur, et tous les mails sont transférés vers votre adresse
-              principale.
+              On crée automatiquement la boîte sur notre serveur, on la branche
+              à votre site, et tous les mails clients arrivent sur votre
+              adresse habituelle.
             </p>
             <MailboxProvisionForm
               defaultEmail={notifyEmail}
-              shopDomain={shopDomain!}
+              shopDomain={shopDomain}
             />
           </section>
         )}
 
-        {/* Formulaire avancé */}
-        <section className="rounded-3xl bg-white border border-border p-6 md:p-8 shadow-sm">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-sky-600 font-semibold mb-3 flex items-center gap-2">
-            <span className="w-1 h-3 bg-sky-500 rounded" />{" "}
-            {canProvisionAuto ? "Ou brancher votre propre messagerie" : "Configuration SMTP"}
-          </p>
-          {canProvisionAuto && (
-            <p className="text-sm text-text-secondary mb-4">
-              Si vous avez déjà un SMTP (Gmail Workspace, OVH, Sendgrid…),
-              renseignez-le manuellement ici.
-            </p>
-          )}
-          <SmtpStepForm
-            initial={{
-              host: status.host ?? "",
-              port: status.port ?? "",
-              secure: (status.port ?? "") === "465",
-              user: status.user ?? "",
-              fromEmail: status.fromEmail ?? "",
-              fromName: status.fromName ?? "",
-              hasPassword: status.hasPassword,
-            }}
-            defaultTestTo={suggestedTest}
-          />
-        </section>
+        {/* Cas d'erreur : domaine indéterminé */}
+        {!status.ready && !shopDomain && (
+          <section className="rounded-3xl bg-white border border-border p-6 md:p-8 shadow-sm">
+            <div className="rounded-2xl bg-rose-50 border border-rose-200 p-4 text-sm text-rose-800">
+              <p className="font-semibold mb-1">⚠️ Configuration serveur incomplète</p>
+              <p>
+                Le domaine de votre boutique n&apos;a pas pu être déterminé
+                (NEXTAUTH_URL manquant côté serveur). Contactez le support pour
+                brancher la messagerie.
+              </p>
+            </div>
+          </section>
+        )}
 
         {/* Notification admin */}
         <section className="rounded-3xl bg-white border border-border p-6 md:p-8 shadow-sm">
@@ -157,7 +135,7 @@ export default async function EmailStepPage() {
           <WizardContinueButton
             step="email"
             nextPath="/admin/bienvenue/livraison"
-            label="Passer et brancher plus tard"
+            label={status.ready ? "Messagerie prête, continuer" : "Passer et brancher plus tard"}
           />
         </div>
       </div>

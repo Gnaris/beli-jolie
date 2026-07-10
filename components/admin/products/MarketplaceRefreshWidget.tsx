@@ -936,13 +936,20 @@ function TimelineList({
   groups: ProductGroup[];
   heroGroupId: string | null;
 }) {
-  // On retire le hero de la liste si présent (il est déjà en haut).
-  const list = groups.filter((g) => g.productId !== heroGroupId);
-
+  // On garde tous les produits dans la liste — même celui affiché dans le hero.
+  // La liste reste cohérente du début à la fin (sinon la timeline paraît vide
+  // pendant qu'un seul produit est en cours de traitement).
+  // "isNext" = 1er produit non-hero (le prochain à démarrer si un lot est étalé).
+  const nextIndex = groups.findIndex((g) => g.productId !== heroGroupId);
   return (
     <ul className="space-y-3 relative">
-      {list.map((g, idx) => (
-        <TimelineRow key={g.productId} group={g} isNext={idx === 0} dim={false} />
+      {groups.map((g, idx) => (
+        <TimelineRow
+          key={g.productId}
+          group={g}
+          isNext={idx === nextIndex}
+          dim={false}
+        />
       ))}
     </ul>
   );

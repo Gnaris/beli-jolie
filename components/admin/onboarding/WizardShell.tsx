@@ -125,35 +125,61 @@ export default function WizardShell({
                 {STEPS.map((step, i) => {
                   const isActive = i === activeIndex;
                   const isDone = stepsCompleted.includes(step.id);
-                  return (
-                    <li key={step.id}>
-                      <Link
-                        href={step.path}
-                        className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition relative ${
-                          isActive ? "bg-gradient-to-r from-violet-100/60 to-transparent" : "hover:bg-black/[0.03]"
+                  // L'étape « welcome » (mot de passe) est verrouillée dès
+                  // qu'elle est validée : on ne peut plus recliquer dessus.
+                  const isLocked = step.id === "welcome" && isDone;
+                  const rowClass = `flex items-center gap-3 px-3 py-2.5 rounded-xl transition relative ${
+                    isActive
+                      ? "bg-gradient-to-r from-violet-100/60 to-transparent"
+                      : isLocked
+                      ? "opacity-60 cursor-not-allowed"
+                      : "hover:bg-black/[0.03]"
+                  }`;
+                  const content = (
+                    <>
+                      {isActive && (
+                        <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r bg-gradient-to-b from-violet-500 to-indigo-600" />
+                      )}
+                      <span
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                          isDone
+                            ? "bg-emerald-500 text-white"
+                            : isActive
+                            ? "bg-gradient-to-br from-violet-500 to-indigo-600 text-white"
+                            : "bg-gray-100 text-gray-500"
                         }`}
                       >
-                        {isActive && (
-                          <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r bg-gradient-to-b from-violet-500 to-indigo-600" />
-                        )}
-                        <span
-                          className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
-                            isDone
-                              ? "bg-emerald-500 text-white"
-                              : isActive
-                              ? "bg-gradient-to-br from-violet-500 to-indigo-600 text-white"
-                              : "bg-gray-100 text-gray-500"
-                          }`}
-                        >
-                          {isDone ? "✓" : i + 1}
+                        {isDone ? "✓" : i + 1}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-semibold truncate ${isActive ? "text-text-primary" : "text-text-secondary"}`}>
+                          {step.title}
+                        </p>
+                        <p className="text-xs text-text-secondary/70 truncate">
+                          {isLocked ? "Verrouillée" : step.subtitle}
+                        </p>
+                      </div>
+                      {isLocked && (
+                        <span className="text-text-secondary/50" aria-label="Étape verrouillée" title="Étape verrouillée">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                            <rect x="3" y="11" width="18" height="11" rx="2" />
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                          </svg>
                         </span>
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-semibold truncate ${isActive ? "text-text-primary" : "text-text-secondary"}`}>
-                            {step.title}
-                          </p>
-                          <p className="text-xs text-text-secondary/70 truncate">{step.subtitle}</p>
+                      )}
+                    </>
+                  );
+                  return (
+                    <li key={step.id}>
+                      {isLocked ? (
+                        <div className={rowClass} aria-disabled="true">
+                          {content}
                         </div>
-                      </Link>
+                      ) : (
+                        <Link href={step.path} className={rowClass}>
+                          {content}
+                        </Link>
+                      )}
                     </li>
                   );
                 })}

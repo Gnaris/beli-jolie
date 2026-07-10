@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import WizardShell from "@/components/admin/onboarding/WizardShell";
 import { getOnboardingStatus, ONBOARDING_STEPS } from "@/lib/onboarding";
 
@@ -29,6 +30,14 @@ export const WIZARD_STEP_META: Record<
 export default async function WizardLayout({ children }: { children: React.ReactNode }) {
   const [status, h] = await Promise.all([getOnboardingStatus(), headers()]);
   const currentPath = h.get("x-current-path") ?? "/admin/bienvenue";
+
+  // Le mot de passe personnel ne peut être choisi qu'une seule fois : dès que
+  // l'étape "welcome" est validée, la page racine du wizard redirige vers la
+  // société. L'utilisatrice ne peut plus revenir en arrière ni recliquer sur
+  // ce lien depuis la sidebar (rendu non-cliquable dans WizardShell).
+  if (currentPath === "/admin/bienvenue" && status.stepsCompleted.includes("welcome")) {
+    redirect("/admin/bienvenue/societe");
+  }
 
   return (
     <WizardShell
