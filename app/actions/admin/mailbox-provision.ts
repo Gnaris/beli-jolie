@@ -41,8 +41,13 @@ export type MailboxProvisionResult = {
   success: boolean;
   error?: string;
   email?: string;
-  dnsRecap?: string;
+  domain?: string;
+  nameservers?: string[];
+  /** Vrai si la zone DNS a été créée automatiquement dans bind9. */
+  dnsZoneCreated?: boolean;
 };
+
+const NAMESERVERS = ["ns1.beliandjolie.com", "ns2.beliandjolie.com"];
 
 /**
  * Provisionne une boîte mail `contact@{domaine}` sur le serveur mail du VPS
@@ -160,13 +165,38 @@ export async function provisionShopMailbox(
     revalidatePath("/admin/bienvenue/email");
     revalidatePath("/admin/parametres");
 
-    // Extraire uniquement le bloc DNS de la sortie pour l'afficher à l'utilisateur.
-    const dnsBlockMatch = stdout.match(
-      /DNS a ajouter[\s\S]*?╰────────────────────────/,
-    );
-    const dnsRecap = dnsBlockMatch?.[0] ?? stdout.slice(-2000);
+    // Créer automatiquement la zone DNS dans bind9. En cas d'échec on ne
+    // rollback pas la boîte mail : elle reste utilisable, la cliente pourra
+    // toujours poser les DNS à la main (fallback très rare).
+    let dnsZoneCreated = false;
+    try {
+      const dnsScriptPath = path.join(
+        process.cwd(),
+        "scripts",
+        "deploy",
+        "add-dns-zone.sh",
+      );
+      await execFileAsync(
+        "/bin/bash",
+        [dnsScriptPath, domain, forward],
+        { timeout: 60_000, maxBuffer: 512 * 1024 },
+      );
+      dnsZoneCreated = true;
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      logger.error("[Mailbox] Échec add-dns-zone.sh (boîte mail créée)", {
+        domain,
+        output: ((e.stdout ?? "") + "\n" + (e.stderr ?? "")).slice(0, 2000),
+      });
+    }
 
-    return { success: true, email, dnsRecap };
+    return {
+      success: true,
+      email,
+      domain,
+      nameservers: NAMESERVERS,
+      dnsZoneCreated,
+    };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };
   }

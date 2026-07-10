@@ -9,7 +9,9 @@ import { useToast } from "@/components/ui/Toast";
 /**
  * Formulaire 1 clic : « votre email principal » → crée automatiquement
  * `contact@{domaine}` sur le serveur mail + forward vers l'email fourni +
- * sauvegarde SMTP.
+ * pose la zone DNS complète (SPF/DKIM/MX/DMARC + A/www) dans bind9.
+ * L'utilisatrice n'a plus qu'à changer ses nameservers chez son registrar
+ * une seule fois (délégation DNS).
  */
 export default function MailboxProvisionForm({
   defaultEmail,
@@ -25,7 +27,8 @@ export default function MailboxProvisionForm({
   const [result, setResult] = useState<null | {
     ok: boolean;
     email?: string;
-    dnsRecap?: string;
+    nameservers?: string[];
+    dnsZoneCreated?: boolean;
     error?: string;
   }>(null);
 
@@ -37,7 +40,12 @@ export default function MailboxProvisionForm({
     startTransition(async () => {
       const res = await provisionShopMailbox(email.trim());
       if (res.success) {
-        setResult({ ok: true, email: res.email, dnsRecap: res.dnsRecap });
+        setResult({
+          ok: true,
+          email: res.email,
+          nameservers: res.nameservers,
+          dnsZoneCreated: res.dnsZoneCreated,
+        });
         toast.success("Boîte pro créée", `Les mails arrivent maintenant sur ${email.trim()}.`);
         await markStepCompleted("email");
       } else {
@@ -52,6 +60,10 @@ export default function MailboxProvisionForm({
   };
 
   if (result?.ok) {
+    const nameservers = result.nameservers ?? [
+      "ns1.beliandjolie.com",
+      "ns2.beliandjolie.com",
+    ];
     return (
       <div className="space-y-4">
         <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-5">
@@ -61,26 +73,46 @@ export default function MailboxProvisionForm({
           <p className="text-sm text-emerald-800">
             Toute personne qui écrit à{" "}
             <strong className="font-mono">{result.email}</strong> verra son
-            message arriver directement dans <strong>{email}</strong>. Votre
-            site utilisera automatiquement cette boîte pour envoyer les
-            confirmations de commande et les notifications.
+            message arriver dans <strong>{email}</strong>. Votre site utilisera
+            automatiquement cette boîte pour les confirmations et notifications.
           </p>
         </div>
 
-        {result.dnsRecap && (
-          <details className="rounded-2xl border border-border bg-bg-secondary/40 p-4">
-            <summary className="cursor-pointer text-sm font-semibold text-text-primary">
-              🔧 Réglages techniques à ajouter chez votre hébergeur de domaine
-            </summary>
-            <p className="text-xs text-text-secondary my-3">
-              Ces 4 lignes DNS permettent aux emails d&apos;arriver et
-              d&apos;être acceptés par Gmail / Outlook. Copiez-les dans votre
-              interface Hostinger (ou envoyez-nous ce bloc, on s&apos;en occupe).
+        {result.dnsZoneCreated && (
+          <div className="rounded-2xl bg-sky-50 border border-sky-200 p-5">
+            <p className="text-sm font-heading font-bold text-sky-900 mb-2">
+              📡 Une seule action manuelle à faire ensuite
             </p>
-            <pre className="text-xs bg-white border border-border rounded-xl p-3 overflow-auto whitespace-pre-wrap font-mono text-text-primary/80 max-h-96">
-              {result.dnsRecap}
-            </pre>
-          </details>
+            <p className="text-sm text-sky-900/90 mb-3">
+              Chez l&apos;endroit où vous avez acheté <strong className="font-mono">{shopDomain}</strong>{" "}
+              (Hostinger, OVH, Gandi…), ouvrez la page du domaine et changez les
+              <strong> serveurs de noms</strong> pour&nbsp;:
+            </p>
+            <div className="bg-white rounded-xl border border-sky-200 p-3 font-mono text-sm space-y-1">
+              {nameservers.map((ns) => (
+                <div key={ns} className="text-sky-900">
+                  {ns}
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-sky-900/70 mt-3">
+              💡 C&apos;est la seule fois où il faudra le faire. Comptez 1 à 6 h
+              avant que votre boutique soit accessible à vos clients. Tous les
+              réglages techniques (mail, SSL, sous-domaines) se poseront tout
+              seuls ensuite.
+            </p>
+          </div>
+        )}
+
+        {!result.dnsZoneCreated && (
+          <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
+            <p className="font-semibold mb-1">⚠️ Zone DNS non créée</p>
+            <p>
+              La boîte mail fonctionne, mais le serveur DNS n&apos;a pas pu
+              être configuré automatiquement. Contactez le support pour poser
+              les 4 records à la main.
+            </p>
+          </div>
         )}
 
         <div className="flex justify-end pt-2">
@@ -105,9 +137,9 @@ export default function MailboxProvisionForm({
         <p className="font-semibold mb-1">🎁 On crée tout pour vous</p>
         <p className="text-sky-900/80">
           On crée <strong className="font-mono">contact@{shopDomain}</strong>{" "}
-          sur notre serveur, et on branche automatiquement le transfert vers
-          l&apos;adresse email que vous utilisez déjà tous les jours. Aucune
-          config à faire, pas de nouveau mot de passe à retenir.
+          sur notre serveur, on configure les réglages techniques (mail, SSL,
+          anti-spam) et on branche le transfert vers votre adresse email
+          habituelle. Zéro copier-coller.
         </p>
       </div>
 
