@@ -14,6 +14,7 @@ import {
   MIN_MARKETPLACE_WIDTH,
 } from "@/lib/marketplace-image";
 import { logger } from "@/lib/logger";
+import { getCurrentTenantSlug } from "@/lib/tenant";
 
 /**
  * GET /api/marketplace-image?path=/uploads/produits/.../xxx.webp
@@ -60,6 +61,18 @@ export async function GET(request: NextRequest) {
 
   if (!isSafeMarketplaceImagePath(dbPath)) {
     return NextResponse.json({ error: "Chemin invalide." }, { status: 400 });
+  }
+
+  // Isolation multi-tenant : la boutique courante ne peut servir que ses propres
+  // fichiers via ce proxy. Sinon un tenant compromis pourrait exfiltrer les
+  // images d'un autre en devinant le chemin (`/uploads/{other-slug}/...`).
+  const tenantSlug = await getCurrentTenantSlug();
+  if (tenantSlug && !dbPath!.includes(`/uploads/${tenantSlug}/`)) {
+    logger.warn("[Marketplace Image] Chemin hors boutique refusé", {
+      tenantSlug,
+      dbPath,
+    });
+    return NextResponse.json({ error: "Chemin hors boutique." }, { status: 403 });
   }
 
   const sourceKey = keyFromDbPath(dbPath);

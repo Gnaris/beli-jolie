@@ -10,9 +10,13 @@ import { isOnboardingCompleted } from "@/lib/onboarding";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  // Multi-tenant : le middleware passe le tenantId en query param (l'appel est
+  // interne, Host header = 127.0.0.1). Sans param, lecture globale (legacy).
+  const url = new URL(request.url);
+  const tenantId = url.searchParams.get("tenantId");
   try {
-    const completed = await isOnboardingCompleted();
+    const completed = await isOnboardingCompleted(tenantId);
     return NextResponse.json({ completed }, {
       headers: { "Cache-Control": "no-store" },
     });

@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { reportCriticalError, reportSuccess } from "@/lib/health";
+import { tenantScopeExtension } from "@/lib/prisma-tenant-scope";
 
 /**
  * Singleton Prisma Client with health monitoring.
@@ -34,7 +35,7 @@ function createMonitoredClient() {
     console.error("prisma:error", e.message);
   });
 
-  return base.$extends({
+  const monitored = base.$extends({
     query: {
       $allModels: {
         async $allOperations({ args, query }) {
@@ -52,6 +53,14 @@ function createMonitoredClient() {
       },
     },
   });
+
+  // Extension multi-tenant : scope automatiquement les queries au tenant
+  // courant (via `x-tenant-id` header). Peut être désactivée avec
+  // `MULTI_TENANT_SCOPE=off` pour débug ou migration progressive.
+  if (process.env.MULTI_TENANT_SCOPE === "off") {
+    return monitored;
+  }
+  return monitored.$extends(tenantScopeExtension);
 }
 
 /**

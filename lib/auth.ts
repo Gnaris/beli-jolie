@@ -189,6 +189,10 @@ export const authOptions: NextAuthOptions = {
         token.role = (user as { role: Role }).role;
         token.status = (user as { status: UserStatus }).status;
         token.company = (user as { company: string }).company;
+        // Multi-tenant : on grave le tenantId au moment du login. Ainsi un cookie
+        // exporté puis rejoué sur un autre domaine sera refusé par requireAdmin
+        // (voir lib/auth-helpers.ts).
+        token.tenantId = (user as { tenantId?: string | null }).tenantId ?? null;
         token.lastCheckedAt = Date.now();
         token.deleted = false;
         return token;
@@ -210,7 +214,7 @@ export const authOptions: NextAuthOptions = {
         try {
           const fresh = await prisma.user.findUnique({
             where: { id: token.id as string },
-            select: { status: true, role: true, company: true },
+            select: { status: true, role: true, company: true, tenantId: true },
           });
           if (fresh === null) {
             // Utilisateur supprimé : on invalide la session.
@@ -219,6 +223,7 @@ export const authOptions: NextAuthOptions = {
             token.status = fresh.status;
             token.role = fresh.role;
             token.company = fresh.company;
+            token.tenantId = fresh.tenantId ?? null;
             token.lastCheckedAt = now;
           }
         } catch {
@@ -256,6 +261,8 @@ export const authOptions: NextAuthOptions = {
         session.user.role = token.role as Role;
         session.user.status = token.status as UserStatus;
         session.user.company = token.company as string;
+        (session.user as { tenantId?: string | null }).tenantId =
+          (token.tenantId as string | null | undefined) ?? null;
       }
       return session;
     },

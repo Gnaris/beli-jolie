@@ -30,17 +30,60 @@ function localeUrl(locale: string, path: string, request: NextRequest): URL {
 // si on cachait l'erreur 60s, le site resterait bloqué en maintenance pendant
 // 1 min après chaque (re)démarrage. Mieux vaut retenter à chaque hit jusqu'à
 // avoir un vrai succès, puis cacher 60s.
-let maintenanceCache: { value: boolean; timestamp: number } | null = null;
-let onboardingCache: { completed: boolean; timestamp: number } | null = null;
+// Multi-tenant : un cache par tenantId (clé "no-tenant" pour les requêtes hors
+// contexte boutique). Sans ça, l'état maintenance ou onboarding d'une boutique
+// s'appliquait à toutes.
+const maintenanceCache = new Map<string, { value: boolean; timestamp: number }>();
+const onboardingCache = new Map<string, { completed: boolean; timestamp: number }>();
 const CACHE_TTL_MS = 60_000;
 
-async function getOnboardingCompleted(_requestUrl: string): Promise<boolean> {
+// Cache in-memory host → tenant (5 min TTL car les mappings changent peu).
+// En dev local (localhost), on peuple ce cache très vite ; en prod, chaque
+// domaine cliente vit ici après le 1er hit.
+type TenantMapping = { id: string; slug: string; name: string } | { unknown: true };
+const tenantCache = new Map<string, { value: TenantMapping; timestamp: number }>();
+const TENANT_CACHE_TTL_MS = 5 * 60_000;
+
+async function resolveTenantForHost(host: string, requestUrl: string): Promise<TenantMapping> {
+  const key = host.toLowerCase();
   const now = Date.now();
-  if (onboardingCache && now - onboardingCache.timestamp < CACHE_TTL_MS) {
-    return onboardingCache.completed;
+  const cached = tenantCache.get(key);
+  if (cached && now - cached.timestamp < TENANT_CACHE_TTL_MS) {
+    return cached.value;
   }
   const internalPort = process.env.PORT || "3000";
-  const fetchUrl = `http://127.0.0.1:${internalPort}/api/onboarding-status`;
+  const fetchUrl = `http://127.0.0.1:${internalPort}/api/tenant-by-host?host=${encodeURIComponent(key)}`;
+  try {
+    const res = await fetch(fetchUrl, { cache: "no-store" });
+    if (res.status === 404) {
+      const value: TenantMapping = { unknown: true };
+      tenantCache.set(key, { value, timestamp: now });
+      return value;
+    }
+    if (!res.ok) {
+      // BDD injoignable ou autre 5xx : ne pas cacher, retenter au prochain hit.
+      return { unknown: true };
+    }
+    const data = (await res.json()) as { tenantId: string; slug: string; name: string };
+    const value: TenantMapping = { id: data.tenantId, slug: data.slug, name: data.name };
+    tenantCache.set(key, { value, timestamp: now });
+    return value;
+  } catch {
+    // Idem : pas de cache sur exception.
+    return { unknown: true };
+  }
+}
+
+async function getOnboardingCompleted(_requestUrl: string, tenantId: string | null): Promise<boolean> {
+  const key = tenantId ?? "no-tenant";
+  const now = Date.now();
+  const cached = onboardingCache.get(key);
+  if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+    return cached.completed;
+  }
+  const internalPort = process.env.PORT || "3000";
+  const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
+  const fetchUrl = `http://127.0.0.1:${internalPort}/api/onboarding-status${qs}`;
   try {
     const res = await fetch(fetchUrl, { cache: "no-store" });
     if (!res.ok) {
@@ -49,20 +92,22 @@ async function getOnboardingCompleted(_requestUrl: string): Promise<boolean> {
       return true;
     }
     const data = (await res.json()) as { completed: boolean };
-    onboardingCache = { completed: !!data.completed, timestamp: now };
-    return onboardingCache.completed;
+    onboardingCache.set(key, { completed: !!data.completed, timestamp: now });
+    return !!data.completed;
   } catch {
     return true;
   }
 }
 
 
-async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
+async function getMaintenanceStatus(requestUrl: string, tenantId: string | null): Promise<boolean> {
   if (process.env.NODE_ENV === "development") return false;
 
+  const key = tenantId ?? "no-tenant";
   const now = Date.now();
-  if (maintenanceCache && now - maintenanceCache.timestamp < CACHE_TTL_MS) {
-    return maintenanceCache.value;
+  const cached = maintenanceCache.get(key);
+  if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+    return cached.value;
   }
   // Auto-appel HTTP en local : on cible explicitement 127.0.0.1:3000 plutôt
   // que de reconstruire à partir de `requestUrl`. Derrière un reverse proxy
@@ -70,7 +115,8 @@ async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
   // qui échoue car Next.js n'écoute pas en HTTPS sur ce port. Le fail-safe
   // bascule alors le site en maintenance à tort.
   const internalPort = process.env.PORT || "3000";
-  const fetchUrl = `http://127.0.0.1:${internalPort}/api/site-status`;
+  const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
+  const fetchUrl = `http://127.0.0.1:${internalPort}/api/site-status${qs}`;
   try {
     // `cache: "no-store"` : on évite la Data Cache de Next.js (sur disque)
     // qui peut survivre aux rebuilds et garder une vieille réponse "maintenance"
@@ -82,8 +128,8 @@ async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
       return true;
     }
     const data = (await res.json()) as { maintenance: boolean };
-    maintenanceCache = { value: !!data.maintenance, timestamp: now };
-    return maintenanceCache.value;
+    maintenanceCache.set(key, { value: !!data.maintenance, timestamp: now });
+    return !!data.maintenance;
   } catch {
     // Idem : pas de cache sur l'erreur, on retentera.
     return true;
@@ -136,6 +182,69 @@ export function isMaintenanceBypassed(pathname: string, rest: string): boolean {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // ── 0.a Court-circuit pour les endpoints internes appelés par le middleware
+  //         lui-même (tenant-by-host, site-status, onboarding-status). Sans ce
+  //         court-circuit, chaque fetch interne déclenche à nouveau le
+  //         middleware qui refait 3 fetch → explosion exponentielle
+  //         (2+ min par requête externe observés).
+  const isInternalMiddlewareCall =
+    pathname.startsWith("/api/tenant-by-host") ||
+    pathname.startsWith("/api/site-status") ||
+    pathname.startsWith("/api/onboarding-status");
+  if (isInternalMiddlewareCall) {
+    return NextResponse.next();
+  }
+
+  // ── 0.b Résolution multi-tenant (host → boutique) ──────────────────────────
+  // Le middleware pose x-tenant-id / x-tenant-slug / x-tenant-name sur la
+  // request rewrite ; server components, server actions et API routes lisent
+  // ces headers via `lib/tenant.ts::getCurrentTenant()`.
+  //
+  // On saute la résolution pour l'endpoint interne `/api/tenant-by-host` (sinon
+  // boucle infinie) et pour les assets Next.
+  const host = (request.headers.get("host") || "").toLowerCase();
+  const skipTenantResolution =
+    pathname.startsWith("/api/tenant-by-host") ||
+    pathname.startsWith("/_next") ||
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml";
+
+  // Chemins qui contournent la vérification "host inconnu" — ils doivent rester
+  // joignables même depuis un domaine non enregistré (webhooks marketplaces,
+  // callbacks Stripe, endpoints d'auth qui n'ont pas encore de tenant, etc).
+  const isTenantVerificationBypassed =
+    pathname.startsWith("/api/webhooks") ||
+    pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/internal") ||
+    pathname.startsWith("/api/heartbeat") ||
+    pathname.startsWith("/api/report-error");
+
+  let tenantHeaders: Record<string, string> = {};
+  if (!skipTenantResolution && host) {
+    const tenant = await resolveTenantForHost(host, request.url);
+    if ("unknown" in tenant) {
+      // Domaine non enregistré. Le fail-open (laisser passer sans header) est
+      // une vulnérabilité : les routes publiques sans requireCurrentTenant()
+      // renvoient les données GLOBALES au lieu de scoper par boutique.
+      // → En prod, on renvoie 404 sauf pour les chemins bypass ci-dessus.
+      // → En dev, on log et on laisse passer pour faciliter les tests locaux.
+      if (process.env.NODE_ENV === "development") {
+        console.warn(`[middleware] Host inconnu ${host} — pas de tenant résolu`);
+      } else if (!isTenantVerificationBypassed) {
+        return new NextResponse("Boutique introuvable pour ce domaine.", {
+          status: 404,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
+    } else {
+      tenantHeaders = {
+        "x-tenant-id": tenant.id,
+        "x-tenant-slug": tenant.slug,
+        "x-tenant-name": tenant.name,
+      };
+    }
+  }
+
   // ── 1. Routes 100% hors i18n ──────────────────────────────────────────────
   const isUnlocalized =
     pathname.startsWith("/admin") ||
@@ -163,9 +272,27 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Injecte les headers tenant dans la request rewrite, pour que server
+  // components + server actions puissent les relire via `next/headers`.
+  const requestHeadersWithTenant = new Headers(request.headers);
+  for (const [k, v] of Object.entries(tenantHeaders)) {
+    requestHeadersWithTenant.set(k, v);
+  }
+
   // Helper : retourne une "next response" qui conserve les headers posés par
-  // next-intl (locale, cookies de détection éventuels, etc.).
-  const passThrough = () => intlResponse ?? NextResponse.next();
+  // next-intl (locale, cookies de détection éventuels, etc.), avec en plus
+  // les headers tenant injectés dans la request rewrite.
+  const passThrough = () => {
+    if (intlResponse) {
+      // next-intl a déjà construit une réponse ; on la retourne telle quelle.
+      // La request rewrite qu'il génère porte déjà les headers du client, on
+      // ne peut pas facilement injecter tenantHeaders ici sans reconstruire
+      // la réponse. Fallback : on injecte via NextResponse.next() dans les
+      // routes admin/api (voir plus bas), où l'accès tenant est critique.
+      return intlResponse;
+    }
+    return NextResponse.next({ request: { headers: requestHeadersWithTenant } });
+  };
 
   // ── 3. À ce stade : soit la route est unlocalized (admin/api), soit elle a déjà un préfixe
   const token = await getToken({
@@ -192,8 +319,11 @@ export async function middleware(request: NextRequest) {
     isPreOnboardingAllowed(pathname, rest) ||
     pathname.startsWith("/admin/bienvenue"); // wizard lui-meme
 
+  // tenantId courant pour scoper les checks maintenance/onboarding par boutique.
+  const currentTenantId = tenantHeaders["x-tenant-id"] ?? null;
+
   if (!onboardingBypassed) {
-    const onboardingDone = await getOnboardingCompleted(request.url);
+    const onboardingDone = await getOnboardingCompleted(request.url, currentTenantId);
     if (!onboardingDone) {
       // Admin authentifie : direction wizard
       if (isAdmin) {
@@ -207,7 +337,7 @@ export async function middleware(request: NextRequest) {
 
   // ── Maintenance ───────────────────────────────────────────────────────────
   if (!isMaintenanceBypassed(pathname, rest)) {
-    const inMaintenance = await getMaintenanceStatus(request.url);
+    const inMaintenance = await getMaintenanceStatus(request.url, currentTenantId);
     if (inMaintenance && !isAdmin) {
       return NextResponse.redirect(new URL("/maintenance", request.url));
     }
@@ -254,7 +384,7 @@ export async function middleware(request: NextRequest) {
     }
     // Injecter le pathname en request header pour que le layout puisse
     // decider s'il doit rediriger vers /admin/bienvenue (wizard onboarding).
-    const requestHeaders = new Headers(request.headers);
+    const requestHeaders = new Headers(requestHeadersWithTenant);
     requestHeaders.set("x-current-path", pathname);
     return NextResponse.next({ request: { headers: requestHeaders } });
   }

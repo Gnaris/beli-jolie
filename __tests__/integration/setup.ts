@@ -139,6 +139,17 @@ export async function cleanupTestData() {
 
   // Delete test users
   await prisma.user.deleteMany({ where: { email: { startsWith: "test_integ_" } } });
+
+  // Delete test tenants (children first: TenantDomain via cascade, but also explicit for clarity)
+  const testTenantSlugs = await prisma.tenant.findMany({
+    where: { slug: { startsWith: TEST_PREFIX.toLowerCase() } },
+    select: { id: true },
+  });
+  const testTenantIds = testTenantSlugs.map((t) => t.id);
+  if (testTenantIds.length > 0) {
+    await prisma.tenantDomain.deleteMany({ where: { tenantId: { in: testTenantIds } } });
+    await prisma.tenant.deleteMany({ where: { id: { in: testTenantIds } } });
+  }
 }
 
 /**

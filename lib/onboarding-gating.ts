@@ -21,6 +21,8 @@ export function isPreOnboardingAllowed(pathname: string, rest: string): boolean 
     pathname === "/manifest.webmanifest" ||
     pathname === "/icon" ||
     pathname === "/apple-icon" ||
-    pathname === "/favicon.ico"
+    pathname === "/favicon.ico" ||
+    // Dev-only : endpoints de test cross-tenant, gated NODE_ENV=development
+    pathname.startsWith("/api/dev/")
   );
 }

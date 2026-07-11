@@ -13,7 +13,15 @@ import { logger } from "@/lib/logger";
  * Lightweight endpoint used by middleware to check maintenance mode.
  * Now also detects DB failures and triggers auto-maintenance.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  // Multi-tenant : le middleware nous passe explicitement le tenantId en query
+  // param (car cette route est appelée par un fetch interne où le Host header
+  // ne porte pas l'identité de la boutique visiteur). Sans ce param, on lit
+  // la row globale (comportement legacy — à durcir en 400 une fois la phase 6
+  // finie).
+  const url = new URL(request.url);
+  const tenantId = url.searchParams.get("tenantId");
+
   // If auto-maintenance is active in memory, try recovery first
   if (isAutoMaintenanceActive()) {
     const recovered = await attemptAutoRecovery();
@@ -26,9 +34,13 @@ export async function GET() {
   }
 
   try {
-    const config = await prisma.siteConfig.findUnique({
-      where: { key: "maintenance_mode" },
-    });
+    const config = tenantId
+      ? await prisma.siteConfig.findFirst({
+          where: { key: "maintenance_mode", tenantId },
+        })
+      : await prisma.siteConfig.findUnique({
+          where: { key: "maintenance_mode" },
+        });
 
     // DB query succeeded — report success to circuit breaker
     reportSuccess();

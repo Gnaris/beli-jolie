@@ -58,9 +58,13 @@ export function parseStepsCompleted(raw: string | null): OnboardingStep[] {
 }
 
 /** Version rapide : renvoie true si le wizard a deja ete termine (ou skippe). */
-export async function isOnboardingCompleted(): Promise<boolean> {
-  const row = await prisma.siteConfig.findUnique({
-    where: { key: ONBOARDING_COMPLETED_AT_KEY },
-  });
+export async function isOnboardingCompleted(tenantId?: string | null): Promise<boolean> {
+  const row = tenantId
+    ? await prisma.siteConfig.findFirst({
+        where: { key: ONBOARDING_COMPLETED_AT_KEY, tenantId },
+      })
+    : await prisma.siteConfig.findUnique({
+        where: { key: ONBOARDING_COMPLETED_AT_KEY },
+      });
   return !!row?.value;
 }

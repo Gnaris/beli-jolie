@@ -37,55 +37,60 @@ enum ClientDiscountMode {
 }
 
 model User {
-  id                    String              @id @default(cuid())
-  email                 String              @unique
-  password              String
-  firstName             String
-  lastName              String
-  company               String
-  phone                 String
-  siret                 String              @unique
-  kbisPath              String?
-  documentPath          String? // Document libre envoyé lors de l'inscription
-  registrationMessage   String? // Message libre lors de l'inscription
+  id                            String              @id @default(cuid())
+  email                         String              @unique
+  password                      String
+  firstName                     String
+  lastName                      String
+  company                       String
+  phone                         String
+  siret                         String              @unique
+  kbisPath                      String?
+  documentPath                  String? // Document libre envoyé lors de l'inscription
+  registrationMessage           String? // Message libre lors de l'inscription
   // Adresse de la société (saisie à l'inscription)
-  addressStreet         String? // ex: "12 rue des Lilas"
-  addressComplement     String? // ex: "Bâtiment B, 3e étage"
-  addressZip            String? // ex: "75011"
-  addressCity           String? // ex: "Paris"
-  addressCountry        String? // code ISO-2 ex: "FR", "DE", "GP" (Guadeloupe), "US"
-  vatNumber             String? // Numéro TVA intracommunautaire (ex: FR12345678901)
+  addressStreet                 String? // ex: "12 rue des Lilas"
+  addressComplement             String? // ex: "Bâtiment B, 3e étage"
+  addressZip                    String? // ex: "75011"
+  addressCity                   String? // ex: "Paris"
+  addressCountry                String? // code ISO-2 ex: "FR", "DE", "GP" (Guadeloupe), "US"
+  vatNumber                     String? // Numéro TVA intracommunautaire (ex: FR12345678901)
   // Résultat VIES stocké à l'inscription (ou lors d'un re-check admin)
-  viesValid             Boolean?
-  viesName              String?
-  viesAddress           String?
-  viesRequestDate       String?
-  viesError             String? // null = OK, sinon message d'erreur VIES
+  viesValid                     Boolean?
+  viesName                      String?
+  viesAddress                   String?
+  viesRequestDate               String?
+  viesError                     String? // null = OK, sinon message d'erreur VIES
   // Exonération TVA validée manuellement par l'admin (UE hors France uniquement)
-  vatExempt             Boolean             @default(false)
-  vatValidatedAt        DateTime?
-  vatValidatedBy        String? // id de l'admin qui a validé
-  stripeCustomerId      String?             @unique // cus_xxx — requis pour le virement bancaire
-  role                  Role                @default(CLIENT)
-  status                UserStatus          @default(PENDING)
+  vatExempt                     Boolean             @default(false)
+  vatValidatedAt                DateTime?
+  vatValidatedBy                String? // id de l'admin qui a validé
+  stripeCustomerId              String?             @unique // cus_xxx — requis pour le virement bancaire
+  role                          Role                @default(CLIENT)
+  status                        UserStatus          @default(PENDING)
   // Remise commerciale
-  discountType          ClientDiscountType? // null = pas de remise
-  discountValue         Decimal?            @db.Decimal(12, 2) // % ou montant €
-  discountMode          ClientDiscountMode? // null = PERMANENT (rétro-compat)
-  discountMinAmount     Decimal?            @db.Decimal(12, 2) // seuil HT pour mode THRESHOLD
-  discountMinQuantity   Int? // nombre min d'articles pour mode THRESHOLD
-  discountNextOrderUsed Boolean             @default(false) // true = remise NEXT_ORDER déjà utilisée
-  freeShipping                   Boolean             @default(false) // legacy — remplacé par shippingDiscount*
-  shippingDiscountType           ClientDiscountType? // PERCENT ou AMOUNT, null = pas de remise livraison
-  shippingDiscountValue          Decimal?            @db.Decimal(12, 2) // valeur %, montant €
-  shippingDiscountMode           ClientDiscountMode? // null = PERMANENT (rétro-compat)
-  shippingDiscountMinAmount      Decimal?            @db.Decimal(12, 2) // seuil HT pour mode THRESHOLD
-  shippingDiscountMinQuantity    Int? // nombre min d'articles pour mode THRESHOLD
-  shippingDiscountNextOrderUsed  Boolean             @default(false) // true = remise NEXT_ORDER déjà utilisée
-  lastLoginAt           DateTime?
-  lastSeenAt            DateTime? // Heartbeat: dernier ping reçu pendant que le client est sur le site
-  createdAt             DateTime            @default(now())
-  updatedAt             DateTime            @updatedAt
+  discountType                  ClientDiscountType? // null = pas de remise
+  discountValue                 Decimal?            @db.Decimal(12, 2) // % ou montant €
+  discountMode                  ClientDiscountMode? // null = PERMANENT (rétro-compat)
+  discountMinAmount             Decimal?            @db.Decimal(12, 2) // seuil HT pour mode THRESHOLD
+  discountMinQuantity           Int? // nombre min d'articles pour mode THRESHOLD
+  discountNextOrderUsed         Boolean             @default(false) // true = remise NEXT_ORDER déjà utilisée
+  freeShipping                  Boolean             @default(false) // legacy — remplacé par shippingDiscount*
+  shippingDiscountType          ClientDiscountType? // PERCENT ou AMOUNT, null = pas de remise livraison
+  shippingDiscountValue         Decimal?            @db.Decimal(12, 2) // valeur %, montant €
+  shippingDiscountMode          ClientDiscountMode? // null = PERMANENT (rétro-compat)
+  shippingDiscountMinAmount     Decimal?            @db.Decimal(12, 2) // seuil HT pour mode THRESHOLD
+  shippingDiscountMinQuantity   Int? // nombre min d'articles pour mode THRESHOLD
+  shippingDiscountNextOrderUsed Boolean             @default(false) // true = remise NEXT_ORDER déjà utilisée
+  lastLoginAt                   DateTime?
+  lastSeenAt                    DateTime? // Heartbeat: dernier ping reçu pendant que le client est sur le site
+  createdAt                     DateTime            @default(now())
+  updatedAt                     DateTime            @updatedAt
+
+  // Multi-tenant : nullable pendant la migration progressive, deviendra NOT NULL
+  // une fois toutes les lignes existantes backfillées vers le tenant beli-jolie.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
   cart            Cart?
   addresses       ShippingAddress[]
@@ -102,6 +107,8 @@ model User {
   promotionUsages PromotionUsage[]
   productViews    ProductView[]     @relation("ProductViewer")
   priceChanges    PriceHistory[]    @relation("PriceChanger")
+
+  @@index([tenantId])
 }
 
 // ─────────────────────────────────────────────
@@ -116,7 +123,12 @@ model Favorite {
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([userId, productId])
+  @@index([tenantId])
   @@index([userId])
   @@index([productId])
 }
@@ -336,7 +348,12 @@ model ProductComposition {
   product       Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
   composition   Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([productId, compositionId])
+  @@index([tenantId])
 }
 
 // Tags (mots-clés pour recherche)
@@ -365,81 +382,86 @@ model ProductTag {
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@id([productId, tagId])
+  @@index([tenantId])
 }
 
 // Produit principal
 model Product {
-  id                      String                @id @default(cuid())
-  reference               String                @unique
-  name                    String
-  description             String                @db.Text
-  note                    String?               @db.Text
-  categoryId              String
-  category                Category              @relation(fields: [categoryId], references: [id])
-  subCategories           SubCategory[]         @relation("ProductSubCategories")
+  id                          String                @id @default(cuid())
+  reference                   String                @unique
+  name                        String
+  description                 String                @db.Text
+  note                        String?               @db.Text
+  categoryId                  String
+  category                    Category              @relation(fields: [categoryId], references: [id])
+  subCategories               SubCategory[]         @relation("ProductSubCategories")
   // Sous-catégorie choisie pour la colonne "Catégorie" de l'export Microstore.
   // null = catégorie principale (comportement par défaut).
-  microstoreSubCategoryId String?
-  microstoreSubCategory   SubCategory?          @relation("ProductMicrostoreSubCategory", fields: [microstoreSubCategoryId], references: [id], onDelete: SetNull)
-  colors                  ProductColor[]
-  colorImages             ProductColorImage[]
-  compositions            ProductComposition[]
-  collections             CollectionProduct[]
-  favorites               Favorite[]
-  tags                    ProductTag[]
-  translations            ProductTranslation[]
-  catalogs                CatalogProduct[]
-  restockAlerts           RestockAlert[]
-  isBestSeller            Boolean               @default(false)
-  status                  ProductStatus         @default(OFFLINE)
-  isIncomplete            Boolean               @default(false) // Produit incomplet (manque prix, poids, images, etc.)
+  microstoreSubCategoryId     String?
+  microstoreSubCategory       SubCategory?          @relation("ProductMicrostoreSubCategory", fields: [microstoreSubCategoryId], references: [id], onDelete: SetNull)
+  colors                      ProductColor[]
+  colorImages                 ProductColorImage[]
+  compositions                ProductComposition[]
+  collections                 CollectionProduct[]
+  favorites                   Favorite[]
+  tags                        ProductTag[]
+  translations                ProductTranslation[]
+  catalogs                    CatalogProduct[]
+  restockAlerts               RestockAlert[]
+  isBestSeller                Boolean               @default(false)
+  status                      ProductStatus         @default(OFFLINE)
+  isIncomplete                Boolean               @default(false) // Produit incomplet (manque prix, poids, images, etc.)
   // Verrou manuel : quand true, le bouton « Rafraîchir » est désactivé pour ce
   // produit (boutique + marketplaces). Sert à protéger une fiche fragile ou en
   // attente d'arbitrage commercial. Indépendant du statut et des syncs.
-  locked                  Boolean               @default(false)
+  locked                      Boolean               @default(false)
   // Marqueur « Important » côté admin — équivalent d'un favori partagé entre
   // tous les comptes ADMIN. Sert à mettre de côté rapidement une fiche
   // (étoile sur la ligne, filtre « Importants seulement » dans la liste,
   // option de tri « Importants d'abord »). N'est pas exposé côté public.
-  important               Boolean               @default(false)
+  important                   Boolean               @default(false)
   // Produits similaires (M2M self)
-  similarProducts         ProductSimilar[]      @relation("PSim_A")
-  similarTo               ProductSimilar[]      @relation("PSim_B")
+  similarProducts             ProductSimilar[]      @relation("PSim_A")
+  similarTo                   ProductSimilar[]      @relation("PSim_B")
   // Composition produit (ensemble → sous-produits)
-  bundleChildren          ProductBundle[]       @relation("Bundle_Parent")
-  bundleParents           ProductBundle[]       @relation("Bundle_Child")
+  bundleChildren              ProductBundle[]       @relation("Bundle_Parent")
+  bundleParents               ProductBundle[]       @relation("Bundle_Child")
   // Dimensions optionnelles (en mm)
-  dimensionLength         Float?
-  dimensionWidth          Float?
-  dimensionHeight         Float?
-  dimensionDiameter       Float?
-  dimensionCircumference  Float?
+  dimensionLength             Float?
+  dimensionWidth              Float?
+  dimensionHeight             Float?
+  dimensionDiameter           Float?
+  dimensionCircumference      Float?
   // Code SH (Système Harmonisé) — relation vers la bibliothèque HsCode.
   // SetNull : si le code de la bibliothèque est supprimé, le produit perd
   // simplement son code SH.
-  hsCodeId                String?
-  hsCode                  HsCode?               @relation(fields: [hsCodeId], references: [id], onDelete: SetNull)
-  manufacturingCountryId  String?
-  manufacturingCountry    ManufacturingCountry? @relation(fields: [manufacturingCountryId], references: [id], onDelete: SetNull)
-  seasonId                String?
-  season                  Season?               @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  hsCodeId                    String?
+  hsCode                      HsCode?               @relation(fields: [hsCodeId], references: [id], onDelete: SetNull)
+  manufacturingCountryId      String?
+  manufacturingCountry        ManufacturingCountry? @relation(fields: [manufacturingCountryId], references: [id], onDelete: SetNull)
+  seasonId                    String?
+  season                      Season?               @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   // Couleur principale du produit (vue par défaut côté boutique + default_color PFS).
   // Pointe vers une couleur de la liste des variantes OU des packLines.
-  primaryColorId          String?
-  primaryColor            Color?                @relation("ProductPrimaryColor", fields: [primaryColorId], references: [id], onDelete: SetNull)
+  primaryColorId              String?
+  primaryColor                Color?                @relation("ProductPrimaryColor", fields: [primaryColorId], references: [id], onDelete: SetNull)
   // Notice à afficher en bannière quand le système a auto-promu la couleur
   // principale (suite à image manquante / mapping PFS absent / variante supprimée /
   // toutes variantes désactivées). Reset à null quand l'utilisatrice ferme la
   // bannière ou quand une sauvegarde laisse la principale dans un état valide.
   primaryColorPromotionNotice Json?
-  lowStockThreshold       Int?
-  discountPercent         Decimal?              @db.Decimal(5, 2) // Remise en % (ex: 15.00 = -15%). null = pas de remise
-  views                   ProductView[]
-  promotions              PromotionProduct[]
-  createdAt               DateTime              @default(now())
-  updatedAt               DateTime              @updatedAt
-  lastRefreshedAt         DateTime? // Date du dernier "Rafraîchir" (remet en Nouveauté sans toucher createdAt)
+  lowStockThreshold           Int?
+  discountPercent             Decimal?              @db.Decimal(5, 2) // Remise en % (ex: 15.00 = -15%). null = pas de remise
+  views                       ProductView[]
+  promotions                  PromotionProduct[]
+  createdAt                   DateTime              @default(now())
+  updatedAt                   DateTime              @updatedAt
+  lastRefreshedAt             DateTime? // Date du dernier "Rafraîchir" (remet en Nouveauté sans toucher createdAt)
 
   sizeDetailsTu String? // Détail taille unique (ex: "52-56"), champ texte libre envoyé à PFS
 
@@ -503,7 +525,12 @@ model Product {
   ankorstoreLastExportedAt DateTime?
   faireLastExportedAt      DateTime?
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL après backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   // Performance indexes for 78k+ products
+  @@index([tenantId]) // multi-tenant scoping
   @@index([status, createdAt]) // catalog listing (default sort)
   @@index([status, updatedAt]) // "new" filter sort
   @@index([status, lastRefreshedAt]) // "new" filter including refreshed products
@@ -569,6 +596,11 @@ model AnkorstoreOperation {
   createdAt       DateTime           @default(now())
   completedAt     DateTime?
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([productId])
   @@index([status])
   @@index([createdAt])
@@ -628,6 +660,11 @@ model MarketplaceRefreshJob {
   startedAt         DateTime?
   completedAt       DateTime?
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([status])
   @@index([productId])
   @@index([createdAt])
@@ -661,6 +698,11 @@ model EfashionShootingBatchItem {
   mode      EfashionShootingBatchMode
   addedAt   DateTime                  @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([addedAt])
 }
 
@@ -706,6 +748,11 @@ model ImageProcessingJob {
   startedAt   DateTime?
   completedAt DateTime?
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([status, createdAt]) // worker : pick PENDING par ordre d'arrivée
   @@index([productId, status]) // UI : compteur de jobs en cours pour un produit
   @@index([createdAt]) // purge des vieux DONE/FAILED
@@ -716,10 +763,10 @@ model ImageProcessingJob {
 // les items en série, écrit chaque traduction en BDD dès qu'elle est reçue, et
 // expose le mot en cours pour affichage temps réel dans le tiroir.
 enum TranslationJobStatus {
-  PENDING     // attend le worker
-  PROCESSING  // en cours
-  DONE        // terminé (peut avoir des erreurs partielles)
-  FAILED      // erreur bloquante
+  PENDING // attend le worker
+  PROCESSING // en cours
+  DONE // terminé (peut avoir des erreurs partielles)
+  FAILED // erreur bloquante
 }
 
 model TranslationJob {
@@ -748,6 +795,11 @@ model TranslationJob {
   startedAt              DateTime?
   completedAt            DateTime?
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([status, createdAt]) // worker : pick PENDING par ordre d'arrivée
   @@index([dismissedAt, createdAt]) // UI : liste des jobs actifs
 }
@@ -763,7 +815,12 @@ model ProductTranslation {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([productId, locale])
+  @@index([tenantId])
   @@index([productId])
   @@index([locale]) // admin warnings: count by locale
 }
@@ -775,7 +832,12 @@ model ProductSimilar {
   product   Product @relation("PSim_A", fields: [productId], references: [id], onDelete: Cascade)
   similar   Product @relation("PSim_B", fields: [similarId], references: [id], onDelete: Cascade)
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@id([productId, similarId])
+  @@index([tenantId])
 }
 
 // Composition produit (ensemble contient sous-produits, relation directionnelle)
@@ -786,7 +848,12 @@ model ProductBundle {
   parent   Product @relation("Bundle_Parent", fields: [parentId], references: [id], onDelete: Cascade)
   child    Product @relation("Bundle_Child", fields: [childId], references: [id], onDelete: Cascade)
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@id([parentId, childId])
+  @@index([tenantId])
 }
 
 // Deferred similar product links — stores references that don't exist yet at import time.
@@ -797,7 +864,12 @@ model PendingSimilar {
   similarRef String // reference of the target product (may not exist yet)
   createdAt  DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([productRef, similarRef])
+  @@index([tenantId])
   @@index([similarRef])
 }
 
@@ -806,49 +878,54 @@ model PendingSimilar {
 // PACK: une couleur principale + tailles×qty + packQuantity + prix/poids/stock
 //       (ou packLines pour un PACK multi-couleurs — voir PackColorLine)
 model ProductColor {
-  id                  String              @id @default(cuid())
-  productId           String
-  product             Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
-  colorId             String? // Couleur (requise en business logic, nullable en DB pour legacy)
-  color               Color?              @relation(fields: [colorId], references: [id])
-  unitPrice           Decimal             @db.Decimal(12, 2) // Prix HT (par unité ou par paquet)
-  weight              Float // Poids en kg
-  stock               Int                 @default(0)
-  isPrimary           Boolean             @default(false)
-  saleType            SaleType // UNIT ou PACK
-  packQuantity        Int? // Quantité par paquet (null si UNIT)
+  id                      String              @id @default(cuid())
+  productId               String
+  product                 Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  colorId                 String? // Couleur (requise en business logic, nullable en DB pour legacy)
+  color                   Color?              @relation(fields: [colorId], references: [id])
+  unitPrice               Decimal             @db.Decimal(12, 2) // Prix HT (par unité ou par paquet)
+  weight                  Float // Poids en kg
+  stock                   Int                 @default(0)
+  isPrimary               Boolean             @default(false)
+  saleType                SaleType // UNIT ou PACK
+  packQuantity            Int? // Quantité par paquet (null si UNIT)
   // Tailles avec quantités (UNIT, ou PACK mono-couleur)
-  variantSizes        VariantSize[]
+  variantSizes            VariantSize[]
   // Lignes couleur×tailles d'un PACK multi-couleurs.
   // Si présentes, elles SUPPLANTENT colorId/variantSizes pour la composition du paquet.
-  packLines           PackColorLine[]
-  images              ProductColorImage[] // Images (UNIT seulement)
-  cartItems           CartItem[]
-  collectionOverrides CollectionProduct[]
-  restockAlerts       RestockAlert[]
-  stockMovements      StockMovement[]
-  priceHistory        PriceHistory[]
-  disabled            Boolean             @default(false) // Masquer côté client sans supprimer
-  sku                 String?             @unique // SKU universel: {ref}_{couleur}_{UNIT|PACK}_{index}
+  packLines               PackColorLine[]
+  images                  ProductColorImage[] // Images (UNIT seulement)
+  cartItems               CartItem[]
+  collectionOverrides     CollectionProduct[]
+  restockAlerts           RestockAlert[]
+  stockMovements          StockMovement[]
+  priceHistory            PriceHistory[]
+  disabled                Boolean             @default(false) // Masquer côté client sans supprimer
+  sku                     String?             @unique // SKU universel: {ref}_{couleur}_{UNIT|PACK}_{index}
   // Identifiant variante marketplace — renseigné à la publication live
-  pfsVariantId        String?
+  pfsVariantId            String?
   // Identifiant variante Ankorstore — renseigné à la publication live
-  ankorsVariantId     String?
+  ankorsVariantId         String?
   // Identifiant "produit-couleur" eFashion (1 ligne par couleur côté eFashion).
   // Renseigné lors de la liaison manuelle ou de la publication via shooting.
-  efashionProductId   Int?
+  efashionProductId       Int?
   // Identifiant variante Faire ("po_xxx") — renseigné à la publication
-  faireVariantId      String?
+  faireVariantId          String?
   // Mapping PFS secondaire propre à cette variante (override du pfsColorRef de Color).
   // Sert à différencier 2 variantes dont les couleurs partagent le même mapping principal.
   // Doit être différent du pfsColorRef principal de la couleur sélectionnée (validé applicatif).
-  pfsColorRefOverride String?
+  pfsColorRefOverride     String?
   // Mapping eFashion secondaire propre à cette variante (override de Color.efashionColorId).
   // Même logique que pfsColorRefOverride, mais avec l'ID entier de la biblio eFashion.
   efashionColorIdOverride Int?
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([productId, colorId])
   @@index([productId, isPrimary])
   @@index([colorId])
@@ -891,28 +968,38 @@ model VariantSize {
   quantity       Int          @default(1) // nombre de pièces de cette taille
   pricePerUnit   Decimal?     @db.Decimal(12, 2) // prix par unité (PACK only) — null pour UNIT
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([productColorId, sizeId])
+  @@index([tenantId])
   @@index([productColorId])
 }
 
 // Ligne d'un PACK multi-couleurs : une couleur incluse dans le pack avec ses tailles
 // Ex: Pack tricolore = 1× ligne Rouge (S×2, M×3) + 1× ligne Bleu (M×2) + 1× ligne Noir (L×1)
 model PackColorLine {
-  id                  String              @id @default(cuid())
-  productColorId      String
-  productColor        ProductColor        @relation(fields: [productColorId], references: [id], onDelete: Cascade)
-  colorId             String
-  color               Color               @relation(fields: [colorId], references: [id])
-  position            Int                 @default(0) // ordre d'affichage
-  sizes               PackColorLineSize[]
+  id                      String              @id @default(cuid())
+  productColorId          String
+  productColor            ProductColor        @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  colorId                 String
+  color                   Color               @relation(fields: [colorId], references: [id])
+  position                Int                 @default(0) // ordre d'affichage
+  sizes                   PackColorLineSize[]
   // Mapping PFS secondaire propre à cette ligne dans ce pack (override de Color.pfsColorRef).
   // Doit être différent du pfsColorRef principal de la couleur sélectionnée (validé applicatif).
-  pfsColorRefOverride String?
+  pfsColorRefOverride     String?
   // Override eFashion propre à cette ligne du pack (pendant de pfsColorRefOverride).
   efashionColorIdOverride Int?
-  createdAt           DateTime            @default(now())
+  createdAt               DateTime            @default(now())
+
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
   @@unique([productColorId, colorId])
+  @@index([tenantId])
   @@index([productColorId])
   @@index([colorId])
 }
@@ -926,7 +1013,12 @@ model PackColorLineSize {
   size            Size          @relation(fields: [sizeId], references: [id])
   quantity        Int           @default(1)
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([packColorLineId, sizeId])
+  @@index([tenantId])
   @@index([packColorLineId])
 }
 
@@ -946,7 +1038,13 @@ model ProductColorImage {
 
   // Garde-fou : 1 seule image par (productId, colorId, order). Empêche
   // toute future réintroduction de doublons (cf. refonte couleurs niveau produit).
+
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([productId, colorId, order])
+  @@index([tenantId])
   @@index([productId, colorId])
   @@index([productColorId])
 }
@@ -963,6 +1061,12 @@ model Cart {
   items     CartItem[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
 }
 
 // Ligne du panier — liée directement à une variante plate
@@ -976,7 +1080,12 @@ model CartItem {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([cartId, variantId])
+  @@index([tenantId])
   @@index([cartId])
   @@index([variantId]) // variant price change impact queries
 }
@@ -986,16 +1095,16 @@ model CartItem {
 // ─────────────────────────────────────────────
 
 enum OrderStatus {
-  PENDING   // En attente de traitement (côté admin : "Nouveau")
+  PENDING // En attente de traitement (côté admin : "Nouveau")
   VALIDATED // Validée par l'admin — prête à expédier
-  SHIPPED   // Expédiée
+  SHIPPED // Expédiée
   CANCELLED // Annulée
 }
 
 enum OrderModificationReason {
-  OUT_OF_STOCK        // Rupture de stock
-  CLIENT_REQUEST      // À la demande du client
-  COMMERCIAL_GESTURE  // Geste commercial (baisse de prix, article ajouté offert)
+  OUT_OF_STOCK // Rupture de stock
+  CLIENT_REQUEST // À la demande du client
+  COMMERCIAL_GESTURE // Geste commercial (baisse de prix, article ajouté offert)
 }
 
 // ─────────────────────────────────────────────
@@ -1169,9 +1278,9 @@ model Order {
   cgvAcceptedAt DateTime? // Timestamp when client accepted CGV before payment
 
   // Promotion & credit applied
-  promoCode         String?
-  promoDiscount     Decimal                 @default(0) @db.Decimal(10, 2)
-  creditApplied     Decimal                 @default(0) @db.Decimal(10, 2)
+  promoCode     String?
+  promoDiscount Decimal @default(0) @db.Decimal(10, 2)
+  creditApplied Decimal @default(0) @db.Decimal(10, 2)
 
   // Trace de la dernière notification client de modification (rupture / ajustement / ajout)
   clientNotifiedAt DateTime?
@@ -1190,6 +1299,11 @@ model Order {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL après backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([status])
   @@index([userId, createdAt])
   @@index([userId, status]) // client order listing with status filter
@@ -1234,6 +1348,11 @@ model OrderItem {
 
   createdAt DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([orderId])
   @@index([productRef]) // bestseller groupBy + reassort queries
 }
@@ -1254,6 +1373,11 @@ model OrderItemModification {
   priceDifference   Decimal                 @db.Decimal(12, 2) // montant négatif = avoir dû
   createdAt         DateTime                @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([orderId])
   @@index([orderItemId])
 }
@@ -1272,6 +1396,12 @@ model Collection {
   promotions   PromotionCollection[]
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
+
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
 }
 
 model CollectionTranslation {
@@ -1282,7 +1412,12 @@ model CollectionTranslation {
   name         String
   createdAt    DateTime   @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([collectionId, locale])
+  @@index([tenantId])
 }
 
 // Liaison produit ↔ collection avec couleur et ordre d'affichage
@@ -1297,7 +1432,12 @@ model CollectionProduct {
   position     Int           @default(0)
   createdAt    DateTime      @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([collectionId, productId])
+  @@index([tenantId])
   @@index([collectionId])
 }
 
@@ -1319,6 +1459,12 @@ model ShippingAddress {
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
 }
 
 // ─────────────────────────────────────────────
@@ -1338,6 +1484,12 @@ model Catalog {
   products  CatalogProduct[]
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
+
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
 }
 
 model CatalogProduct {
@@ -1351,7 +1503,12 @@ model CatalogProduct {
   selectedImagePath String? // chemin image spécifique à afficher dans ce catalogue (null = première image de la couleur)
   createdAt         DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([catalogId, productId])
+  @@index([tenantId])
 }
 
 // ─────────────────────────────────────────────
@@ -1359,9 +1516,18 @@ model CatalogProduct {
 // ─────────────────────────────────────────────
 
 model SiteConfig {
-  key       String   @id
+  key       String
   value     String   @db.Text
   updatedAt DateTime @updatedAt
+
+  // Multi-tenant : nullable pendant migration progressive.
+  // En phase 3, la PK deviendra composite (tenantId, key) et le code lecteur
+  // sera adapté pour scoper chaque config à sa boutique.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@id([key])
+  @@index([tenantId])
 }
 
 // ─────────────────────────────────────────────
@@ -1376,6 +1542,11 @@ model PasswordResetToken {
   used      Boolean  @default(false)
   createdAt DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([email])
   @@index([token])
 }
@@ -1393,6 +1564,11 @@ model LoginOtp {
   usedAt    DateTime?
   createdAt DateTime  @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([email, createdAt])
 }
 
@@ -1407,6 +1583,11 @@ model LoginAttempt {
   success   Boolean  @default(false)
   createdAt DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([email, createdAt])
   @@index([ip, createdAt])
 }
@@ -1421,6 +1602,11 @@ model AccountLockout {
   permanent    Boolean   @default(false) // Blocage définitif
   updatedAt    DateTime  @updatedAt
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([email])
 }
 
@@ -1437,6 +1623,11 @@ model RegistrationLog {
   company   String
   createdAt DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([ip, createdAt])
   @@index([phone, createdAt])
   @@index([siret, createdAt])
@@ -1486,6 +1677,11 @@ model ImportJob {
   adminId        String
   admin          User            @relation(fields: [adminId], references: [id])
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([adminId])
   @@index([status])
   @@index([createdAt])
@@ -1506,7 +1702,12 @@ model RestockAlert {
   notified       Boolean      @default(false) // true once email sent
   createdAt      DateTime     @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([userId, productId, productColorId])
+  @@index([tenantId])
   @@index([productColorId])
   @@index([notified])
 }
@@ -1526,6 +1727,11 @@ model ImportDraft {
   adminId     String
   admin       User              @relation(fields: [adminId], references: [id])
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([adminId])
   @@index([createdAt])
 }
@@ -1542,7 +1748,12 @@ model TranslationQuota {
   maxChars  Int // 500000
   updatedAt DateTime @updatedAt
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([provider, monthYear])
+  @@index([tenantId])
 }
 
 // ─────────────────────────────────────────────
@@ -1573,6 +1784,13 @@ model CompanyInfo {
   hostEmail   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  // Multi-tenant : nullable pendant migration progressive, deviendra @unique après backfill
+  // (chaque tenant a exactement une fiche société).
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
 }
 
 // ─────────────────────────────────────────────
@@ -1596,6 +1814,12 @@ model LegalDocument {
   versions  LegalDocumentVersion[]
   createdAt DateTime               @default(now())
   updatedAt DateTime               @updatedAt
+
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
 }
 
 model LegalDocumentVersion {
@@ -1607,6 +1831,11 @@ model LegalDocumentVersion {
   changeNote          String? // e.g. "Modification manuelle" or "Mise à jour infos société"
   createdAt           DateTime      @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([documentId, createdAt])
 }
 
@@ -1621,6 +1850,11 @@ model StripeWebhookEvent {
   processed Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([createdAt])
 }
 
@@ -1643,6 +1877,11 @@ model StockMovement {
   createdBy      User?             @relation("StockMovementCreator", fields: [createdById], references: [id])
   createdAt      DateTime          @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([productColorId, createdAt])
   @@index([orderId])
   @@index([type])
@@ -1665,6 +1904,11 @@ model Conversation {
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([userId, status])
   @@index([type, status])
   @@index([updatedAt])
@@ -1683,6 +1927,11 @@ model Message {
   attachments    MessageAttachment[]
   createdAt      DateTime            @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([conversationId, createdAt])
   @@index([senderId])
 }
@@ -1697,6 +1946,11 @@ model MessageAttachment {
   mimeType  String
   createdAt DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([messageId])
 }
 
@@ -1727,6 +1981,11 @@ model Claim {
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([userId, status])
   @@index([status])
   @@index([orderId])
@@ -1743,6 +2002,11 @@ model ClaimItem {
   reason       ClaimItemReason
   reasonDetail String?         @db.Text
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([claimId])
 }
 
@@ -1753,6 +2017,11 @@ model ClaimImage {
   imagePath String
   createdAt DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([claimId])
 }
 
@@ -1767,6 +2036,12 @@ model ClaimReturn {
   adminNote      String?        @db.Text
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
 }
 
 model ClaimReship {
@@ -1780,6 +2055,12 @@ model ClaimReship {
   adminNote      String?        @db.Text
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
 }
 
 // ─────────────────────────────────────────────
@@ -1798,6 +2079,11 @@ model Credit {
   usages          CreditUsage[]
   createdAt       DateTime      @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([userId])
   @@index([claimId])
 }
@@ -1811,6 +2097,11 @@ model CreditUsage {
   amount    Decimal  @db.Decimal(10, 2)
   createdAt DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([creditId])
   @@index([orderId])
 }
@@ -1842,6 +2133,11 @@ model Promotion {
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([type, isActive])
   @@index([code])
   @@index([startsAt, endsAt])
@@ -1854,7 +2150,12 @@ model PromotionCategory {
   categoryId  String
   category    Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([promotionId, categoryId])
+  @@index([tenantId])
 }
 
 model PromotionCollection {
@@ -1864,7 +2165,12 @@ model PromotionCollection {
   collectionId String
   collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([promotionId, collectionId])
+  @@index([tenantId])
 }
 
 model PromotionProduct {
@@ -1874,7 +2180,12 @@ model PromotionProduct {
   productId   String
   product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([promotionId, productId])
+  @@index([tenantId])
 }
 
 model PromotionUsage {
@@ -1888,6 +2199,11 @@ model PromotionUsage {
   discountApplied Decimal   @db.Decimal(10, 2)
   createdAt       DateTime  @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([promotionId])
   @@index([userId])
   @@index([orderId])
@@ -1906,6 +2222,11 @@ model ProductView {
   sessionId String
   createdAt DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([productId, createdAt])
   @@index([productId, sessionId, createdAt])
 }
@@ -1921,6 +2242,11 @@ model PriceHistory {
   changedBy      User         @relation("PriceChanger", fields: [changedById], references: [id])
   createdAt      DateTime     @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
   @@index([productColorId, createdAt])
 }
 
@@ -1938,7 +2264,106 @@ model Visit {
   date            String // Format YYYY-MM-DD (UTC simplifié pour l'agrégation)
   createdAt       DateTime @default(now())
 
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([visitorId, date])
+  @@index([tenantId])
   @@index([date])
   @@index([isAuthenticated, date])
+}
+
+// ─────────────────────────────────────────────
+// Multi-tenant : chaque boutique cliente = un Tenant.
+// La résolution runtime se fait via TenantDomain.host (req.headers.host).
+// Un Tenant peut avoir plusieurs domaines (apex + www + éventuel alias).
+// ─────────────────────────────────────────────
+model Tenant {
+  id        String   @id @default(cuid())
+  slug      String   @unique // "beli-jolie", "issyma"… (utilisé pour uploads/{slug}/…)
+  name      String // Nom affiché ("Beli & Jolie")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  domains      TenantDomain[]
+  users        User[]
+  products     Product[]
+  orders       Order[]
+  companyInfos CompanyInfo[]
+
+  productTranslations        ProductTranslation[]
+  productColors              ProductColor[]
+  productColorImages         ProductColorImage[]
+  productSimilars            ProductSimilar[]
+  productBundles             ProductBundle[]
+  productTags                ProductTag[]
+  productCompositions        ProductComposition[]
+  productViews               ProductView[]
+  priceHistorys              PriceHistory[]
+  carts                      Cart[]
+  cartItems                  CartItem[]
+  visits                     Visit[]
+  pendingSimilars            PendingSimilar[]
+  orderItems                 OrderItem[]
+  orderItemModifications     OrderItemModification[]
+  favorites                  Favorite[]
+  shippingAddresss           ShippingAddress[]
+  claims                     Claim[]
+  claimItems                 ClaimItem[]
+  claimImages                ClaimImage[]
+  claimReturns               ClaimReturn[]
+  claimReships               ClaimReship[]
+  credits                    Credit[]
+  creditUsages               CreditUsage[]
+  collections                Collection[]
+  collectionTranslations     CollectionTranslation[]
+  collectionProducts         CollectionProduct[]
+  promotions                 Promotion[]
+  promotionCategorys         PromotionCategory[]
+  promotionCollections       PromotionCollection[]
+  promotionProducts          PromotionProduct[]
+  promotionUsages            PromotionUsage[]
+  catalogs                   Catalog[]
+  catalogProducts            CatalogProduct[]
+  importJobs                 ImportJob[]
+  importDrafts               ImportDraft[]
+  restockAlerts              RestockAlert[]
+  ankorstoreOperations       AnkorstoreOperation[]
+  marketplaceRefreshJobs     MarketplaceRefreshJob[]
+  efashionShootingBatchItems EfashionShootingBatchItem[]
+  imageProcessingJobs        ImageProcessingJob[]
+  translationJobs            TranslationJob[]
+  stockMovements             StockMovement[]
+  legalDocuments             LegalDocument[]
+  legalDocumentVersions      LegalDocumentVersion[]
+  conversations              Conversation[]
+  messages                   Message[]
+  messageAttachments         MessageAttachment[]
+  passwordResetTokens        PasswordResetToken[]
+  loginOtps                  LoginOtp[]
+  loginAttempts              LoginAttempt[]
+  accountLockouts            AccountLockout[]
+  registrationLogs           RegistrationLog[]
+  translationQuotas          TranslationQuota[]
+  stripeWebhookEvents        StripeWebhookEvent[]
+  variantSizes               VariantSize[]
+  packColorLines             PackColorLine[]
+  packColorLineSizes         PackColorLineSize[]
+  SiteConfig                 SiteConfig[]
+
+  @@index([isActive])
+}
+
+model TenantDomain {
+  id        String   @id @default(cuid())
+  tenantId  String
+  host      String   @unique // "beliandjolie.com", "www.beliandjolie.com", "issyma.com"…
+  isPrimary Boolean  @default(false) // Le domaine canonique de la boutique (celui affiché dans les mails, sitemap…)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
 }

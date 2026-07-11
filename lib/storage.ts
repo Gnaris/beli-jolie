@@ -33,6 +33,11 @@ function privateRoot(): string {
  *
  * Keys starting with "private/" are resolved against <project>/private,
  * everything else under <project>/public.
+ *
+ * Note multi-tenant : les callers passent explicitement un path déjà scopé
+ * (via `withTenantSlug` ou les helpers `xxxDir(ref, tenantSlug)`).
+ * `resolveKey` ne cherche pas à deviner la boutique — il fait juste la
+ * conversion clé → path absolu, en sécurisant contre les échappements.
  */
 function resolveKey(key: string): string {
   const normalized = key.replace(/^[/\\]+/, "");
@@ -238,15 +243,50 @@ export function slugify(input: string): string {
 }
 
 // ─────────────────────────────────────────────
+// Multi-tenant path prefixing
+// ─────────────────────────────────────────────
+
+/**
+ * Injecte un slug de boutique dans une clé de storage :
+ *   "uploads/produits/e807"          → "uploads/{slug}/produits/e807"
+ *   "private/uploads/kbis/abc"       → "private/uploads/{slug}/kbis/abc"
+ *   "/uploads/collections/hero.webp" → "/uploads/{slug}/collections/hero.webp"
+ *
+ * Si la clé porte déjà un slug de boutique connu (auto-détection via prefixe),
+ * on ne double pas le préfixe. Utile pour rester idempotent pendant la
+ * migration progressive des paths.
+ */
+export function withTenantSlug(key: string, tenantSlug: string): string {
+  if (!tenantSlug) return key;
+  const leading = key.startsWith("/") ? "/" : "";
+  const clean = key.replace(/^[/\\]+/, "");
+  if (clean.startsWith(`uploads/${tenantSlug}/`)) return key;
+  if (clean.startsWith(`private/uploads/${tenantSlug}/`)) return key;
+
+  if (clean.startsWith("private/uploads/")) {
+    return `${leading}private/uploads/${tenantSlug}/${clean.slice("private/uploads/".length)}`;
+  }
+  if (clean.startsWith("uploads/")) {
+    return `${leading}uploads/${tenantSlug}/${clean.slice("uploads/".length)}`;
+  }
+  return key;
+}
+
+// ─────────────────────────────────────────────
 // Storage path helpers (new arborescence — see CLAUDE.md)
 // ─────────────────────────────────────────────
 
 /**
  * Directory key for a product's images.
  * `productImageDir("E310B")` → `"uploads/produits/e310b"`.
+ *
+ * Multi-tenant : passe le tenant slug en 2ᵉ argument pour obtenir la version
+ * scopée (`uploads/beli-jolie/produits/e310b`). Sans slug, retourne le path
+ * legacy (utilisé pendant la migration progressive).
  */
-export function productImageDir(reference: string): string {
-  return `uploads/produits/${slugify(reference)}`;
+export function productImageDir(reference: string, tenantSlug?: string): string {
+  const base = `uploads/produits/${slugify(reference)}`;
+  return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
 /**
@@ -271,48 +311,54 @@ export function productImageBaseName(
 }
 
 /** Directory key for a collection's cover images. */
-export function collectionImageDir(slug: string): string {
-  return `uploads/collections/${slugify(slug)}`;
+export function collectionImageDir(slug: string, tenantSlug?: string): string {
+  const base = `uploads/collections/${slugify(slug)}`;
+  return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
 /** Directory key for the homepage banner. */
-export function bannerDir(): string {
-  return "uploads/banniere";
+export function bannerDir(tenantSlug?: string): string {
+  return tenantSlug ? withTenantSlug("uploads/banniere", tenantSlug) : "uploads/banniere";
 }
 
 /** Directory key for the site favicon (browser tab icon, Google results). */
-export function faviconDir(): string {
-  return "uploads/favicon";
+export function faviconDir(tenantSlug?: string): string {
+  return tenantSlug ? withTenantSlug("uploads/favicon", tenantSlug) : "uploads/favicon";
 }
 
 /** Directory key for color pattern images. */
-export function colorPatternDir(): string {
-  return "uploads/motifs-couleurs";
+export function colorPatternDir(tenantSlug?: string): string {
+  return tenantSlug ? withTenantSlug("uploads/motifs-couleurs", tenantSlug) : "uploads/motifs-couleurs";
 }
 
 /** Directory key for chat attachments (lives under uploads/temp). */
-export function chatAttachmentDir(): string {
-  return "uploads/temp/chat";
+export function chatAttachmentDir(tenantSlug?: string): string {
+  const base = "uploads/temp/chat";
+  return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
 /** Directory key for a client's bordereaux (public, lien direct). */
-export function bordereauDir(clientId: string): string {
-  return `uploads/bordereaux/${slugify(clientId)}`;
+export function bordereauDir(clientId: string, tenantSlug?: string): string {
+  const base = `uploads/bordereaux/${slugify(clientId)}`;
+  return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
 /** Directory key for a client's KBIS uploads (private). */
-export function kbisDir(clientId: string): string {
-  return `private/uploads/kbis/${slugify(clientId)}`;
+export function kbisDir(clientId: string, tenantSlug?: string): string {
+  const base = `private/uploads/kbis/${slugify(clientId)}`;
+  return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
 /** Directory key for a client's complementary documents (private). */
-export function clientDocumentsDir(clientId: string): string {
-  return `private/uploads/documents/${slugify(clientId)}`;
+export function clientDocumentsDir(clientId: string, tenantSlug?: string): string {
+  const base = `private/uploads/documents/${slugify(clientId)}`;
+  return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
 /** Directory key for invoices (private), grouped by year. */
-export function invoiceDir(year: number): string {
-  return `private/uploads/factures/${year}`;
+export function invoiceDir(year: number, tenantSlug?: string): string {
+  const base = `private/uploads/factures/${year}`;
+  return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
 /**
@@ -324,18 +370,20 @@ export function invoiceDir(year: number): string {
  * casserait `<img>` côté admin/client. On garde donc `public/uploads/reclamations/`
  * et on note la déviation dans la doc.
  */
-export function claimDir(orderRef: string): string {
-  return `uploads/reclamations/commande-${slugify(orderRef)}`;
+export function claimDir(orderRef: string, tenantSlug?: string): string {
+  const base = `uploads/reclamations/commande-${slugify(orderRef)}`;
+  return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
 /** Directory key for credit notes (private). */
-export function creditNoteDir(): string {
-  return "private/uploads/avoirs";
+export function creditNoteDir(tenantSlug?: string): string {
+  return tenantSlug ? withTenantSlug("private/uploads/avoirs", tenantSlug) : "private/uploads/avoirs";
 }
 
 /** Directory key for email attachments (private), grouped by year-month. */
-export function emailAttachmentDir(yearMonth: string): string {
-  return `private/uploads/pieces-jointes-email/${slugify(yearMonth)}`;
+export function emailAttachmentDir(yearMonth: string, tenantSlug?: string): string {
+  const base = `private/uploads/pieces-jointes-email/${slugify(yearMonth)}`;
+  return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
 // ─────────────────────────────────────────────

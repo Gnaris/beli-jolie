@@ -6,6 +6,43 @@ import { PFS_COLORS } from "@/lib/marketplace-excel/pfs-taxonomy";
 import { hexForPfsColor } from "@/lib/marketplace-excel/pfs-color-hex";
 import { logger } from "@/lib/logger";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+import { getCurrentTenantIdSync } from "@/lib/tenant-als";
+
+/**
+ * Helper multi-tenant : construit une fonction cachée avec des clés et tags
+ * préfixés par le tenant courant, pour éviter le cross-tenant cache leak.
+ *
+ * Bug initial : `unstable_cache(fn, ["favicon"], {tags:["site-config"]})`
+ * partageait la même entrée de cache entre TOUS les tenants, donc le favicon
+ * de Beli & Jolie était servi à toutes les boutiques après le premier hit.
+ *
+ * Cette version rejoue une nouvelle instance de cache par tenant (une Map
+ * mémoïse pour ne pas re-construire à chaque hit).
+ */
+type CachedFn<Args extends unknown[], T> = (...a: Args) => Promise<T>;
+type CacheOpts = { revalidate?: number; tags?: string[] };
+
+function tenantScopedCache<Args extends unknown[], T>(
+  keyBase: string,
+  fn: CachedFn<Args, T>,
+  baseKeyParts: string[],
+  opts: CacheOpts
+): CachedFn<Args, T> {
+  const memo = new Map<string, CachedFn<Args, T>>();
+  return (async (...args: Args): Promise<T> => {
+    const tid = getCurrentTenantIdSync() ?? "global";
+    let cached = memo.get(tid);
+    if (!cached) {
+      const tags = (opts.tags ?? []).map((t) => `${t}:${tid}`);
+      cached = unstable_cache(fn, [...baseKeyParts, tid, ...args.map(String)], {
+        revalidate: opts.revalidate,
+        tags,
+      });
+      memo.set(tid, cached);
+    }
+    return cached(...args);
+  }) as CachedFn<Args, T>;
+}
 
 export interface PfsLiveColor {
   reference: string;   // PFS API reference (e.g. "GOLDEN", "SILVER")
@@ -120,41 +157,59 @@ export const getCachedCompositions = unstable_cache(
 );
 
 // ─── SiteConfig (clé unique — used heavily, short TTL) ─────────────────────────
-// Each key gets its own cache entry to avoid collisions
+// Each key gets its own cache entry, scoped par tenant courant.
+const _siteConfigCache = tenantScopedCache(
+  "site-config",
+  async (key: string) => {
+    const tid = getCurrentTenantIdSync();
+    // findFirst (au lieu de findUnique) car la PK est encore `key` seul :
+    // avec extension multi-tenant on filtre par tenantId auto ; sans
+    // extension (scripts) on retombe sur la row globale.
+    return tid
+      ? prisma.siteConfig.findFirst({ where: { key, tenantId: tid } })
+      : prisma.siteConfig.findUnique({ where: { key } });
+  },
+  ["site-config"],
+  { revalidate: 300, tags: ["site-config"] }
+);
 export function getCachedSiteConfig(key: string) {
-  return unstable_cache(
-    async () => prisma.siteConfig.findUnique({ where: { key } }),
-    [`site-config-${key}`],
-    { revalidate: 300, tags: ["site-config"] }
-  )();
+  return _siteConfigCache(key);
 }
 
 // ─── Business hours (cached 5min) ─────────────────────────────────────────────
+const _businessHoursCache = tenantScopedCache(
+  "business-hours",
+  async () => {
+    const tid = getCurrentTenantIdSync();
+    const row = tid
+      ? await prisma.siteConfig.findFirst({ where: { key: "business_hours", tenantId: tid } })
+      : await prisma.siteConfig.findUnique({ where: { key: "business_hours" } });
+    if (!row?.value) return null;
+    try { return JSON.parse(row.value); } catch { return null; }
+  },
+  ["business-hours"],
+  { revalidate: 300, tags: ["site-config"] }
+);
 export function getCachedBusinessHours() {
-  return unstable_cache(
-    async () => {
-      const row = await prisma.siteConfig.findUnique({ where: { key: "business_hours" } });
-      if (!row?.value) return null;
-      try { return JSON.parse(row.value); } catch { return null; }
-    },
-    ["business-hours"],
-    { revalidate: 300, tags: ["site-config"] }
-  )();
+  return _businessHoursCache();
 }
 
 // ─── Company info (from CompanyInfo, used for shipping, legal, etc.) ─────────
 const DEFAULT_SHOP_NAME = "Ma Boutique";
 
-export const getCachedCompanyInfo = unstable_cache(
+export const getCachedCompanyInfo = tenantScopedCache(
+  "company-info",
   async () => {
-    const info = await prisma.companyInfo.findFirst();
-    return info;
+    // Extension Prisma scope auto par tenantId → findFirst renvoie la fiche
+    // de la boutique courante uniquement.
+    return prisma.companyInfo.findFirst();
   },
   ["company-info"],
   { revalidate: 300, tags: ["company-info"] }
 );
 
-export const getCachedShopName = unstable_cache(
+export const getCachedShopName = tenantScopedCache(
+  "shop-name",
   async () => {
     const info = await prisma.companyInfo.findFirst({ select: { shopName: true } });
     return info?.shopName || DEFAULT_SHOP_NAME;
@@ -171,12 +226,13 @@ export interface CustomFavicon {
   appleIcon: string;
 }
 
-export const getCachedFavicon = unstable_cache(
-  async (): Promise<CustomFavicon | null> => {
-    const row = await prisma.siteConfig.findUnique({
-      where: { key: "site_favicon" },
-      select: { value: true },
-    });
+export const getCachedFavicon = tenantScopedCache<[], CustomFavicon | null>(
+  "site-favicon",
+  async () => {
+    const tid = getCurrentTenantIdSync();
+    const row = tid
+      ? await prisma.siteConfig.findFirst({ where: { key: "site_favicon", tenantId: tid }, select: { value: true } })
+      : await prisma.siteConfig.findUnique({ where: { key: "site_favicon" }, select: { value: true } });
     if (!row?.value) return null;
     try {
       const parsed = JSON.parse(row.value) as Partial<CustomFavicon>;
@@ -193,9 +249,13 @@ export const getCachedFavicon = unstable_cache(
 );
 
 // ─── Easy Express API key (from SiteConfig) ─────────────────────────────────
-export const getCachedEasyExpressApiKey = unstable_cache(
+export const getCachedEasyExpressApiKey = tenantScopedCache(
+  "easy-express-api-key",
   async () => {
-    const row = await prisma.siteConfig.findUnique({ where: { key: "easy_express_api_key" } });
+    const tid = getCurrentTenantIdSync();
+    const row = tid
+      ? await prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key", tenantId: tid } })
+      : await prisma.siteConfig.findUnique({ where: { key: "easy_express_api_key" } });
     return row?.value ? decryptIfSensitive("easy_express_api_key", row.value) : null;
   },
   ["easy-express-api-key"],
@@ -204,12 +264,19 @@ export const getCachedEasyExpressApiKey = unstable_cache(
 
 // ─── Shipping margin (from SiteConfig) ───────────────────────────────────────
 
-export const getCachedShippingMargin = unstable_cache(
+export const getCachedShippingMargin = tenantScopedCache(
+  "shipping-margin",
   async () => {
-    const [typeRow, valueRow] = await Promise.all([
-      prisma.siteConfig.findUnique({ where: { key: "shipping_margin_type" } }),
-      prisma.siteConfig.findUnique({ where: { key: "shipping_margin_value" } }),
-    ]);
+    const tid = getCurrentTenantIdSync();
+    const [typeRow, valueRow] = tid
+      ? await Promise.all([
+          prisma.siteConfig.findFirst({ where: { key: "shipping_margin_type", tenantId: tid } }),
+          prisma.siteConfig.findFirst({ where: { key: "shipping_margin_value", tenantId: tid } }),
+        ])
+      : await Promise.all([
+          prisma.siteConfig.findUnique({ where: { key: "shipping_margin_type" } }),
+          prisma.siteConfig.findUnique({ where: { key: "shipping_margin_value" } }),
+        ]);
     return {
       type: (typeRow?.value as "fixed" | "percent") || "fixed",
       value: Number(valueRow?.value) || 0,
@@ -220,9 +287,12 @@ export const getCachedShippingMargin = unstable_cache(
 );
 
 // ─── PFS configured? (quick check, no decrypt) ─────────────────────────────
-export const getCachedHasPfsConfig = unstable_cache(
+export const getCachedHasPfsConfig = tenantScopedCache(
+  "has-pfs-config",
   async () => {
-    const row = await prisma.siteConfig.findUnique({
+    // Extension scope auto par tenantId : findFirst renvoie null pour un autre
+    // tenant même si la row existe globalement.
+    const row = await prisma.siteConfig.findFirst({
       where: { key: "pfs_email" },
       select: { key: true },
     });
@@ -233,10 +303,8 @@ export const getCachedHasPfsConfig = unstable_cache(
 );
 
 // ─── PFS enabled? ─────────────────────────────────────────────────────────
-// Actif uniquement si : identifiants saisis + marque sélectionnée + pas désactivé
-// manuellement (clé `pfs_enabled` = "false"). Sans marque sélectionnée, toutes
-// les opérations PFS (publish, refresh, update, import) sont verrouillées.
-export const getCachedPfsEnabled = unstable_cache(
+export const getCachedPfsEnabled = tenantScopedCache(
+  "pfs-enabled",
   async () => {
     const rows = await prisma.siteConfig.findMany({
       where: { key: { in: ["pfs_email", "pfs_enabled", "pfs_brand_id", "pfs_brand_name"] } },
@@ -262,8 +330,10 @@ function staticPfsColorFallback(): PfsLiveColor[] {
   }));
 }
 
-export const getCachedPfsColors = unstable_cache(
-  async (): Promise<PfsLiveColor[]> => {
+// Chaque tenant a son propre compte PFS → couleurs live différentes possibles.
+export const getCachedPfsColors = tenantScopedCache<[], PfsLiveColor[]>(
+  "pfs-live-colors",
+  async () => {
     try {
       const colors = await pfsGetColors();
       if (!Array.isArray(colors) || colors.length === 0) {
@@ -293,8 +363,9 @@ export const getCachedPfsColors = unstable_cache(
 // ─── PFS brand (marque sélectionnée pour toutes les opérations PFS) ────────
 // id = identifiant Salesforce PFS (utilisé pour filtrer la liste produits)
 // name = libellé exact (utilisé comme brand_name à la création POST)
-export const getCachedPfsBrand = unstable_cache(
-  async (): Promise<{ id: string; name: string } | null> => {
+export const getCachedPfsBrand = tenantScopedCache<[], { id: string; name: string } | null>(
+  "pfs-brand",
+  async () => {
     const rows = await prisma.siteConfig.findMany({
       where: { key: { in: ["pfs_brand_id", "pfs_brand_name"] } },
       select: { key: true, value: true },
@@ -311,7 +382,8 @@ export const getCachedPfsBrand = unstable_cache(
 
 // ─── PFS live brands (liste des marques du compte, cache 10min) ────────────
 // Utilisé pour alimenter le sélecteur de marque dans Paramètres > Marketplaces.
-export const getCachedPfsBrands = unstable_cache(
+export const getCachedPfsBrands = tenantScopedCache(
+  "pfs-live-brands",
   async () => {
     const { pfsListBrands } = await import("@/lib/pfs-api");
     try {
@@ -337,7 +409,8 @@ async function readPfsCredentialsDirect() {
   };
 }
 
-const _cachedPfsCredentials = unstable_cache(
+const _cachedPfsCredentials = tenantScopedCache(
+  "pfs-credentials",
   readPfsCredentialsDirect,
   ["pfs-credentials"],
   { revalidate: 300, tags: ["site-config"] },
@@ -362,7 +435,8 @@ export async function getCachedPfsCredentials() {
 }
 
 // ─── Ankorstore — credentials, enabled, has-config (mêmes patterns que PFS) ──
-export const getCachedAnkorstoreCredentials = unstable_cache(
+export const getCachedAnkorstoreCredentials = tenantScopedCache(
+  "ankorstore-credentials",
   async () => {
     const rows = await prisma.siteConfig.findMany({
       where: { key: { in: ["ankors_client_id", "ankors_client_secret"] } },
@@ -379,9 +453,10 @@ export const getCachedAnkorstoreCredentials = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-export const getCachedHasAnkorstoreConfig = unstable_cache(
+export const getCachedHasAnkorstoreConfig = tenantScopedCache(
+  "has-ankorstore-config",
   async () => {
-    const row = await prisma.siteConfig.findUnique({
+    const row = await prisma.siteConfig.findFirst({
       where: { key: "ankors_client_id" },
       select: { key: true },
     });
@@ -391,7 +466,8 @@ export const getCachedHasAnkorstoreConfig = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-export const getCachedAnkorstoreEnabled = unstable_cache(
+export const getCachedAnkorstoreEnabled = tenantScopedCache(
+  "ankorstore-enabled",
   async () => {
     const rows = await prisma.siteConfig.findMany({
       where: { key: { in: ["ankors_client_id", "ankors_enabled"] } },
@@ -418,7 +494,8 @@ async function readEfashionCredentialsDirect() {
   };
 }
 
-const _cachedEfashionCredentials = unstable_cache(
+const _cachedEfashionCredentials = tenantScopedCache(
+  "efashion-credentials",
   readEfashionCredentialsDirect,
   ["efashion-credentials"],
   { revalidate: 300, tags: ["site-config"] },
@@ -436,9 +513,10 @@ export async function getCachedEfashionCredentials() {
   }
 }
 
-export const getCachedHasEfashionConfig = unstable_cache(
+export const getCachedHasEfashionConfig = tenantScopedCache(
+  "has-efashion-config",
   async () => {
-    const row = await prisma.siteConfig.findUnique({
+    const row = await prisma.siteConfig.findFirst({
       where: { key: "efashion_email" },
       select: { key: true },
     });
@@ -448,7 +526,8 @@ export const getCachedHasEfashionConfig = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-export const getCachedEfashionEnabled = unstable_cache(
+export const getCachedEfashionEnabled = tenantScopedCache(
+  "efashion-enabled",
   async () => {
     const rows = await prisma.siteConfig.findMany({
       where: { key: { in: ["efashion_email", "efashion_enabled"] } },
@@ -465,14 +544,15 @@ export const getCachedEfashionEnabled = unstable_cache(
 
 // ─── Faire — api key, enabled, has-config (même pattern que PFS/Ankorstore) ──
 async function readFaireApiKeyDirect() {
-  const row = await prisma.siteConfig.findUnique({
+  const row = await prisma.siteConfig.findFirst({
     where: { key: "faire_api_key" },
   });
   if (!row?.value) return null;
   return decryptIfSensitive("faire_api_key", row.value)?.trim() || null;
 }
 
-const _cachedFaireApiKey = unstable_cache(
+const _cachedFaireApiKey = tenantScopedCache(
+  "faire-api-key",
   readFaireApiKeyDirect,
   ["faire-api-key"],
   { revalidate: 300, tags: ["site-config"] },
@@ -490,9 +570,10 @@ export async function getCachedFaireApiKey() {
   }
 }
 
-export const getCachedHasFaireConfig = unstable_cache(
+export const getCachedHasFaireConfig = tenantScopedCache(
+  "has-faire-config",
   async () => {
-    const row = await prisma.siteConfig.findUnique({
+    const row = await prisma.siteConfig.findFirst({
       where: { key: "faire_api_key" },
       select: { key: true },
     });
@@ -502,7 +583,8 @@ export const getCachedHasFaireConfig = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-export const getCachedFaireEnabled = unstable_cache(
+export const getCachedFaireEnabled = tenantScopedCache(
+  "faire-enabled",
   async () => {
     const rows = await prisma.siteConfig.findMany({
       where: { key: { in: ["faire_api_key", "faire_enabled"] } },
@@ -518,14 +600,17 @@ export const getCachedFaireEnabled = unstable_cache(
 );
 
 // ─── Product count (expensive count on 78k rows, cache 5min) ───────────────────
-export const getCachedProductCount = unstable_cache(
+// Extension Prisma scope auto par tenantId, tenantScopedCache par tenant.
+export const getCachedProductCount = tenantScopedCache(
+  "product-count",
   async () => prisma.product.count({ where: { status: "ONLINE" } }),
   ["product-count"],
   { revalidate: 300, tags: ["products"] }
 );
 
 // ─── Bestseller refs (groupBy on orderItems, cache 10min) ──────────────────────
-export const getCachedBestsellerRefs = unstable_cache(
+export const getCachedBestsellerRefs = tenantScopedCache<[number?], string[]>(
+  "bestseller-refs",
   async (limit = 30) => {
     const stats = await prisma.orderItem.groupBy({
       by: ["productRef"],
@@ -542,7 +627,8 @@ export const getCachedBestsellerRefs = unstable_cache(
 // ─── Admin layout warning counts (7 queries, cache 5min) ────────────────────
 const NON_FR_LOCALES = NON_DEFAULT_LOCALES;
 
-export const getCachedAdminWarnings = unstable_cache(
+export const getCachedAdminWarnings = tenantScopedCache(
+  "admin-warnings",
   async () => {
     const [
       totalProducts,
@@ -583,7 +669,8 @@ export const getCachedAdminWarnings = unstable_cache(
 );
 
 // ─── Dashboard aggregate stats (expensive, cache 5min) ──────────────────────
-export const getCachedDashboardStats = unstable_cache(
+export const getCachedDashboardStats = tenantScopedCache(
+  "dashboard-stats",
   async () => {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -655,9 +742,10 @@ export const getCachedDashboardStats = unstable_cache(
 );
 
 
-export const getCachedLowStockCount = unstable_cache(
+export const getCachedLowStockCount = tenantScopedCache(
+  "low-stock-count",
   async () => {
-    const globalThreshold = await prisma.siteConfig.findUnique({
+    const globalThreshold = await prisma.siteConfig.findFirst({
       where: { key: "default_low_stock_threshold" },
     });
     const threshold = globalThreshold ? parseInt(globalThreshold.value, 10) || 5 : 5;
@@ -678,7 +766,8 @@ export const getCachedLowStockCount = unstable_cache(
   { revalidate: 300, tags: ["products"] }
 );
 
-export const getCachedActiveClaimsCount = unstable_cache(
+export const getCachedActiveClaimsCount = tenantScopedCache(
+  "active-claims-count",
   async () => prisma.claim.count({
     where: { status: { in: ["OPEN", "IN_REVIEW", "ACCEPTED", "RETURN_PENDING", "RETURN_SHIPPED", "RETURN_RECEIVED", "RESOLUTION_PENDING"] } },
   }),
@@ -686,7 +775,8 @@ export const getCachedActiveClaimsCount = unstable_cache(
   { revalidate: 300, tags: ["claims"] }
 );
 
-export const getCachedActivePromotions = unstable_cache(
+export const getCachedActivePromotions = tenantScopedCache(
+  "active-promotions",
   async () => {
     const now = new Date();
     return prisma.promotion.findMany({
@@ -703,7 +793,8 @@ export const getCachedActivePromotions = unstable_cache(
 );
 
 // ─── Admin unread message count (cached 60s — was uncached, hitting DB every navigation) ─
-export const getCachedAdminUnreadCount = unstable_cache(
+export const getCachedAdminUnreadCount = tenantScopedCache(
+  "admin-unread-count",
   async () => {
     return prisma.message.count({
       where: {
