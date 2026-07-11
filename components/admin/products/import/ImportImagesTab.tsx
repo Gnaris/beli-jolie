@@ -730,7 +730,19 @@ export default function ImportImagesTab() {
         const data = await res.json();
         const job = data.job;
         setJobStatus(job.status);
-        setJobProgress({ processed: job.processedItems, total: job.totalItems, success: job.successItems, errors: job.errorItems, errorDraftId: job.errorDraftId, errorMessage: job.errorMessage });
+        // Le serveur remplit `totalItems` progressivement (au fur et à mesure
+        // que les lots arrivent). Le client, lui, connaît le vrai total dès
+        // le départ (nombre de fichiers déposés). On garde donc la valeur
+        // client comme plancher pour éviter que l'affichage retombe à 0/0
+        // entre deux lots.
+        setJobProgress((prev) => ({
+          processed: job.processedItems,
+          total: Math.max(prev.total, job.totalItems ?? 0),
+          success: job.successItems,
+          errors: job.errorItems,
+          errorDraftId: job.errorDraftId,
+          errorMessage: job.errorMessage,
+        }));
         if (job.resultDetails?.errorPreview) setErrorPreview(job.resultDetails.errorPreview);
         if (Array.isArray(job.resultDetails?.images)) setSuccessImages(job.resultDetails.images);
       } catch { /* retry */ }
@@ -909,11 +921,13 @@ export default function ImportImagesTab() {
         }
         const data = await res.json();
         setUploadedBatches(i + 1);
-        // Le serveur renvoie l'état courant (cumul de tous les lots déjà traités)
+        // Le serveur renvoie l'état courant (cumul de tous les lots déjà traités).
+        // On garde `filesToImport.length` comme plancher pour `total` afin que
+        // l'affichage ne bouge pas en dents de scie pendant l'upload.
         setJobProgress((prev) => ({
           ...prev,
           processed: typeof data.processed === "number" ? data.processed : prev.processed,
-          total: typeof data.totalImages === "number" ? data.totalImages : prev.total,
+          total: typeof data.totalImages === "number" ? Math.max(prev.total, data.totalImages) : prev.total,
           success: typeof data.success === "number" ? data.success : prev.success,
           errors: typeof data.errors === "number" ? data.errors : prev.errors,
         }));
