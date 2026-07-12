@@ -298,13 +298,12 @@ export interface CustomFavicon {
   appleIcon: string;
 }
 
-export const getCachedFavicon = tenantScopedCache<[], CustomFavicon | null>(
+export const getCachedFavicon = tenantScopedCacheWithTid<[], CustomFavicon | null>(
   "site-favicon",
-  async () => {
-    const tid = getCurrentTenantIdSync();
-    const row = tid
-      ? await prisma.siteConfig.findFirst({ where: { key: "site_favicon", tenantId: tid }, select: { value: true } })
-      : await prisma.siteConfig.findFirst({ where: { key: "site_favicon" }, select: { value: true } });
+  async (tid) => {
+    const row = tid === "global"
+      ? await prisma.siteConfig.findFirst({ where: { key: "site_favicon" }, select: { value: true } })
+      : await prisma.siteConfig.findFirst({ where: { key: "site_favicon", tenantId: tid }, select: { value: true } });
     if (!row?.value) return null;
     try {
       const parsed = JSON.parse(row.value) as Partial<CustomFavicon>;
