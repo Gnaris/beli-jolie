@@ -257,6 +257,20 @@ async function processJob(jobId: string): Promise<void> {
     data: { status: "PROCESSING", startedAt: new Date() },
   });
 
+  // CRITIQUE multi-tenant : le worker tourne hors requête. Sans bind ALS, les
+  // caches d'auth (getCachedPfsCredentials, tokenCacheByTenant, etc.) tombent
+  // en "global" et servent les credentials du 1er tenant qui a écrit — fuite
+  // catastrophique. On wrap tout le corps dans tenantALS.run(job.tenantId).
+  if (job.tenantId) {
+    const { tenantALS } = await import("@/lib/tenant-als");
+    return tenantALS.run(job.tenantId, () => processJobBody(job, jobId));
+  }
+  return processJobBody(job, jobId);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function processJobBody(job: any, jobId: string): Promise<void> {
+
   const items = (job.items as unknown as TranslationJobItem[]) ?? [];
   const entityType = job.entityType as TranslationEntityType;
   let done = 0;

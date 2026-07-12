@@ -20,6 +20,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
+import { tenantALS } from "@/lib/tenant-als";
 
 const POLL_MS = 1000;
 const TOTAL_CONCURRENCY = 5;
@@ -243,9 +244,23 @@ async function processJob(jobId: string): Promise<void> {
   const job = await prisma.marketplaceRefreshJob.findUnique({ where: { id: jobId } });
   if (!job) return;
 
+  // CRITIQUE multi-tenant : le worker tourne hors requête, donc l'ALS est vide.
+  // Sans bind, les caches d'auth marketplaces (PFS/Ankor/eFashion/Faire)
+  // retombent en "global" et servent les credentials du 1er tenant qui a écrit
+  // → push BJ atterrit sur le compte marketplace d'Issyma (et inversement).
+  // On wrap tout le corps de processJob dans tenantALS.run(job.tenantId, ...).
+  if (job.tenantId) {
+    return tenantALS.run(job.tenantId, () => processJobBody(job));
+  }
+  return processJobBody(job);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function processJobBody(job: any): Promise<void> {
   // Garde-fou verrou : un produit verrouillé entre l'enqueue et le traitement
   // ne doit pas être rafraîchi. Couvre les 4 marketplaces (PFS / Ankor /
   // eFashion / Faire) en un seul point — défense en profondeur du guard UI.
+  const jobId = job.id;
   if (job.mode === "REFRESH") {
     const lockState = await prisma.product.findUnique({
       where: { id: job.productId },
