@@ -164,14 +164,32 @@ Toutes les tâches longues admin (traduction, synchro marketplaces, images, shoo
 - `UserRole` : ADMIN|CLIENT
 - `UserStatus` : PENDING|APPROVED|REJECTED
 
-### Multi-tenant (chantier en cours)
-- Extension Prisma `lib/prisma-tenant-scope.ts` scope automatiquement toutes les queries au tenant courant (lu via `getCurrentTenant()` de `lib/tenant.ts`, propagé par ALS `lib/tenant-als.ts`).
-- **Écrire SiteConfig** : `setSiteConfig(key, value)` / `unsetSiteConfig(key)` (helpers `lib/site-config-write.ts`). **Ne jamais** appeler `prisma.siteConfig.upsert({where:{key}})` — PK composite `(tenantId, key)`.
-- **Lire SiteConfig par clé** : `findFirst({where:{key}})`, PAS `findUnique({where:{key}})`.
-- **Autres tables composite** : `Product.reference`, `Order.orderNumber`, `User.email/siret/stripeCustomerId`, `Product.pfsProductId/ankorsProductId/efashionReferenceBase/faireProductId` — utiliser `findFirst({where:{X:...}})` au lieu de `findUnique`. L'extension injecte `tenantId` en `AND`.
-- **Uploads** : passer `tenant.slug` en 2ᵉ arg des helpers `productImageDir`, `collectionImageDir`, `bannerDir`, `faviconDir`, `colorPatternDir`, `chatAttachmentDir`, `bordereauDir`, `kbisDir`, `clientDocumentsDir`, `invoiceDir`, `claimDir`, `creditNoteDir`, `emailAttachmentDir`, `renameProductFolder`, `renameCollectionFolder`. Récup via `const tenant = await requireCurrentTenant()`.
-- **Fire-and-forget** (jobs background sans headers) : capturer `tenant.slug` côté handler HTTP AVANT l'IIFE, passer en paramètre au job.
-- **Scripts CLI** : hors contexte requête → extension passthrough. Passer `tenantId` explicitement pour scope, sinon reads globaux.
+### Multi-tenant (déployé en prod depuis 2026-07-12)
+Prod sert 2 boutiques depuis 1 seul Next.js/PM2/DB : **beliandjolie.com** (tenant `beliandjolie`) + **issyma.fr** (tenant `issyma`, shopName "FORCYMA"). L'ancien install `/var/www/issyma` et `/var/www/demo` sont supprimés.
+
+**Résolution tenant** — Middleware lit `Host:` → mappe via `TenantDomain` → pose `x-tenant-id/slug/name` en headers. `lib/tenant.ts::getCurrentTenant()` + ALS `lib/tenant-als.ts` propagent au reste. Extension Prisma `lib/prisma-tenant-scope.ts` scope auto sur ~60 modèles.
+
+**Écrire SiteConfig** — `setSiteConfig(key, value)` / `unsetSiteConfig(key)` (helpers `lib/site-config-write.ts`). **Ne jamais** `prisma.siteConfig.upsert({where:{key}})` — PK composite `(tenantId, key)`.
+
+**Lire SiteConfig par clé** — `findFirst({where:{key}})`, PAS `findUnique({where:{key}})`.
+
+**Autres tables composite** — `Product.reference`, `Order.orderNumber`, `User.email/siret/stripeCustomerId`, `Product.pfsProductId/ankorsProductId/faireProductId` — utiliser `findFirst({where:{X:...}})` au lieu de `findUnique`. L'extension injecte `tenantId` en `AND`. Sur `Category/SubCategory/Color/Size/Composition/Season/ManufacturingCountry/Tag` idem (@@unique composite depuis 2026-07-13).
+
+**Uploads** — Convention `/uploads/{tenantSlug}/…` (ex: `/uploads/beliandjolie/produits/…`, `/uploads/issyma/produits/…`). Aucune legacy sans prefix. Passer `tenant.slug` en 2ᵉ arg des helpers `productImageDir`, `collectionImageDir`, `bannerDir`, `faviconDir`, `colorPatternDir`, `chatAttachmentDir`, `bordereauDir`, `kbisDir`, `clientDocumentsDir`, `invoiceDir`, `claimDir`, `creditNoteDir`, `emailAttachmentDir`, `renameProductFolder`, `renameCollectionFolder`. Récup via `const tenant = await requireCurrentTenant()`.
+
+**Fire-and-forget** (jobs background hors headers) — Capturer le tenantId côté handler HTTP AVANT l'IIFE, puis wrap dans `tenantALS.run(tenantId, async () => …)`. Sans ça, l'extension retombe en passthrough → fuite marketplace (push BJ atterrit sur compte Issyma). Workers déjà wrappés : `marketplace-queue-worker.processJob`, `translation-queue.processJob`, `efashion-shooting-batch` server action.
+
+**Caches auth marketplaces** — PFS/Ankor/eFashion/Faire/Stripe : **cache PAR tenant** (`Map<tenantId, TokenCache>`). Sinon token du 1er tenant réutilisé partout → catastrophe. Voir `lib/pfs-auth.ts`, `lib/ankorstore-auth.ts`, `lib/efashion-client.ts` (cookie jar), `lib/efashion-auth.ts` (lastLoginAt), `lib/faire-auth.ts` (primedApiKey), `lib/stripe.ts` (instance par clé).
+
+**Caches SiteConfig** — Utiliser `tenantScopedCacheWithTid` (lib/cached-data.ts) qui résout tid via ALS + fallback `headers()`. Le tid doit être **capturé AU CALLSITE** et passé au callback via closure — l'ALS n'est PAS visible dans les callbacks `unstable_cache` (Next 16 parallel rendering). Idem `getCachedSeoConfig` (lib/seo.ts).
+
+**Sitemap / robots / favicon / manifest** — Utiliser le `Host:` header courant comme baseUrl (pas `NEXTAUTH_URL` hardcodée BJ). `app/sitemap.ts`, `app/robots.ts`, `app/icon.tsx`, `app/apple-icon.tsx`, `app/manifest.ts` bindent l'ALS via `await getCurrentTenantId()` en tête.
+
+**Scripts CLI** — Hors requête, extension passthrough. Passer `tenantId` explicitement pour scope, sinon reads globaux. Ex: `MULTI_TENANT_SCOPE=off npx tsx scripts/backfill-tenant-id-all.ts`.
+
+**Onboarding wizard** — Chaque nouveau tenant a son propre onboarding. Le middleware redirige les admins non-onboardés vers `/admin/bienvenue`.
+
+**Chantier futur** — `AccountLockout.email` et `Claim.reference` gardent leur `@unique` global (à basculer en composite si collisions inter-tenants deviennent possibles).
 
 ---
 

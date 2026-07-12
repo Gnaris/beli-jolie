@@ -55,8 +55,6 @@ export async function getPfsToken(): Promise<string> {
   const pfsCreds = await getCachedPfsCredentials();
   const email = pfsCreds.email;
   const password = pfsCreds.password;
-  // DEBUG TEMP — trace tenant + email PFS pour diagnostiquer une fuite
-  console.log(`[PFS-AUTH] tid=${tid} email=${email ?? "NULL"}`);
   if (!email || !password) {
     throw new Error("Identifiants PFS manquants — configurer dans Paramètres > Marketplaces");
   }
