@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-const DEFAULT_TENANT_SLUG = "beli-jolie";
+const DEFAULT_TENANT_SLUG = "beliandjolie";
 const DEFAULT_TENANT_NAME = "Beli & Jolie";
 const DEFAULT_TENANT_HOSTS: Array<{ host: string; isPrimary: boolean }> = [
   { host: "beliandjolie.com", isPrimary: true },

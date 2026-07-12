@@ -9,7 +9,7 @@ import { bindTenantId } from "@/lib/tenant-als";
  * La résolution `host → tenant` est faite par le middleware, qui pose 3 headers
  * sur la requête entrante :
  *   - `x-tenant-id`   : id de la boutique
- *   - `x-tenant-slug` : slug (`beli-jolie`, `issyma`, …), utilisé pour les uploads
+ *   - `x-tenant-slug` : slug (`beliandjolie`, `issyma`, …), utilisé pour les uploads
  *   - `x-tenant-name` : nom affiché
  *
  * En cas d'appel depuis un contexte sans header (jobs cron, scripts…),

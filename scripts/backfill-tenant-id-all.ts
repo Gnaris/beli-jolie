@@ -1,12 +1,12 @@
 /**
  * Backfill tenantId sur tous les modèles multi-tenant.
- * Rattache toutes les lignes existantes (tenantId NULL) au tenant `beli-jolie`.
+ * Rattache toutes les lignes existantes (tenantId NULL) au tenant `beliandjolie`.
  * Idempotent : ne touche que les lignes NULL.
  */
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
-const SLUG = "beli-jolie";
+const SLUG = "beliandjolie";
 
 // Liste alignée avec scripts/propagate-tenant-id.ts + les 4 modèles du vertical slice.
 const MODELS = [

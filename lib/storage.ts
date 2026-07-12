@@ -281,7 +281,7 @@ export function withTenantSlug(key: string, tenantSlug: string): string {
  * `productImageDir("E310B")` → `"uploads/produits/e310b"`.
  *
  * Multi-tenant : passe le tenant slug en 2ᵉ argument pour obtenir la version
- * scopée (`uploads/beli-jolie/produits/e310b`). Sans slug, retourne le path
+ * scopée (`uploads/beliandjolie/produits/e310b`). Sans slug, retourne le path
  * legacy (utilisé pendant la migration progressive).
  */
 export function productImageDir(reference: string, tenantSlug?: string): string {
