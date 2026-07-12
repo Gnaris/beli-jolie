@@ -24,6 +24,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { validateEfashionPublishable } from "@/lib/efashion-validate";
+import { requireCurrentTenant } from "@/lib/tenant";
+import { tenantALS } from "@/lib/tenant-als";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -305,8 +307,13 @@ export async function commitEfashionShootingBatch(): Promise<
   // par les MarketplaceRefreshJob, plus besoin de garder les items du shooting.
   await prisma.efashionShootingBatchItem.deleteMany({});
 
+  // CRITIQUE multi-tenant : capture le tenantId AVANT l'IIFE fire-and-forget,
+  // sinon le runner tourne dans un contexte async sans ALS → creds cache "global"
+  // → fuite vers le compte marketplace d'un autre tenant.
+  const currentTenant = await requireCurrentTenant();
+
   // Fire-and-forget : batch en arrière-plan
-  void (async () => {
+  void tenantALS.run(currentTenant.id, async () => {
     try {
       const { runEfashionShootingBatch } = await import("@/lib/efashion-shooting-batch-runner");
       await runEfashionShootingBatch({
@@ -331,7 +338,7 @@ export async function commitEfashionShootingBatch(): Promise<
         },
       });
     }
-  })();
+  });
 
   revalidatePath("/admin", "layout");
   return {
