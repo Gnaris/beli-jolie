@@ -225,16 +225,12 @@ export const getCachedCompositions = unstable_cache(
 
 // ─── SiteConfig (clé unique — used heavily, short TTL) ─────────────────────────
 // Each key gets its own cache entry, scoped par tenant courant.
-const _siteConfigCache = tenantScopedCache(
+const _siteConfigCache = tenantScopedCacheWithTid(
   "site-config",
-  async (key: string) => {
-    const tid = getCurrentTenantIdSync();
-    // findFirst (au lieu de findUnique) car la PK est encore `key` seul :
-    // avec extension multi-tenant on filtre par tenantId auto ; sans
-    // extension (scripts) on retombe sur la row globale.
-    return tid
-      ? prisma.siteConfig.findFirst({ where: { key, tenantId: tid } })
-      : prisma.siteConfig.findFirst({ where: { key } });
+  async (tid, key: string) => {
+    return tid === "global"
+      ? prisma.siteConfig.findFirst({ where: { key } })
+      : prisma.siteConfig.findFirst({ where: { key, tenantId: tid } });
   },
   ["site-config"],
   { revalidate: 300, tags: ["site-config"] }
@@ -244,13 +240,12 @@ export function getCachedSiteConfig(key: string) {
 }
 
 // ─── Business hours (cached 5min) ─────────────────────────────────────────────
-const _businessHoursCache = tenantScopedCache(
+const _businessHoursCache = tenantScopedCacheWithTid(
   "business-hours",
-  async () => {
-    const tid = getCurrentTenantIdSync();
-    const row = tid
-      ? await prisma.siteConfig.findFirst({ where: { key: "business_hours", tenantId: tid } })
-      : await prisma.siteConfig.findFirst({ where: { key: "business_hours" } });
+  async (tid) => {
+    const row = tid === "global"
+      ? await prisma.siteConfig.findFirst({ where: { key: "business_hours" } })
+      : await prisma.siteConfig.findFirst({ where: { key: "business_hours", tenantId: tid } });
     if (!row?.value) return null;
     try { return JSON.parse(row.value); } catch { return null; }
   },
