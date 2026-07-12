@@ -2,12 +2,14 @@ import { ImageResponse } from "next/og";
 import { getCachedShopName, getCachedFavicon } from "@/lib/cached-data";
 import { readFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { getCurrentTenantId } from "@/lib/tenant";
 
 export const size = { width: 180, height: 180 };
 export const contentType = "image/png";
 export const dynamic = "force-dynamic";
 
 export default async function AppleIcon() {
+  await getCurrentTenantId(); // bind ALS pour scope favicon par tenant
   const custom = await getCachedFavicon();
   if (custom?.appleIcon) {
     try {

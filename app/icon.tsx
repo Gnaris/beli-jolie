@@ -3,6 +3,7 @@ import sharp from "sharp";
 import { getCachedShopName, getCachedFavicon } from "@/lib/cached-data";
 import { readFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { getCurrentTenantId } from "@/lib/tenant";
 
 export const size = { width: 192, height: 192 };
 export const contentType = "image/png";
@@ -12,6 +13,9 @@ export const contentType = "image/png";
 export const dynamic = "force-dynamic";
 
 export default async function Icon() {
+  // Bind ALS AVANT caches — sinon tid=global et les 2 boutiques partagent
+  // le même favicon.
+  await getCurrentTenantId();
   const custom = await getCachedFavicon();
   if (custom?.icon) {
     try {
