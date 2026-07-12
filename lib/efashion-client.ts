@@ -9,6 +9,7 @@
  */
 
 import { logger } from "@/lib/logger";
+import { getCurrentTenantIdSync } from "@/lib/tenant-als";
 
 export const EFASHION_BASE_URL = "https://wapi.efashion-paris.com";
 export const EFASHION_ORIGIN = "https://wholesaler.efashion-paris.com";
@@ -21,7 +22,33 @@ interface CookieEntry {
   expiresAt?: number;
 }
 
-const cookieJar = new Map<string, CookieEntry>();
+// CRITIQUE multi-tenant : cookie jar PAR tenant. Sans ça, la session eFashion
+// du 1er tenant qui s'authentifie est réutilisée par TOUS les tenants suivants
+// → un push BJ part sur le compte eFashion d'Issyma (et inversement).
+const cookieJarByTenant = new Map<string, Map<string, CookieEntry>>();
+
+async function resolveCurrentTenantId(): Promise<string> {
+  let tid = getCurrentTenantIdSync();
+  if (!tid) {
+    try {
+      const { headers } = await import("next/headers");
+      const h = await headers();
+      tid = h.get("x-tenant-id");
+    } catch {
+      // hors requête → clé fallback
+    }
+  }
+  return tid ?? "global";
+}
+
+function getCookieJarForTenant(tid: string): Map<string, CookieEntry> {
+  let jar = cookieJarByTenant.get(tid);
+  if (!jar) {
+    jar = new Map();
+    cookieJarByTenant.set(tid, jar);
+  }
+  return jar;
+}
 
 function parseSetCookie(header: string): { name: string; value: string; expiresAt?: number } | null {
   const semi = header.indexOf(";");
@@ -52,7 +79,7 @@ function parseSetCookie(header: string): { name: string; value: string; expiresA
   return { name, value, expiresAt };
 }
 
-function captureCookies(res: Response): void {
+function captureCookies(res: Response, jar: Map<string, CookieEntry>): void {
   const headersWithCookies = res.headers as Headers & { getSetCookie?: () => string[] };
   const raw =
     typeof headersWithCookies.getSetCookie === "function"
@@ -67,31 +94,35 @@ function captureCookies(res: Response): void {
     const parsed = parseSetCookie(header);
     if (!parsed) continue;
     if (parsed.expiresAt !== undefined && parsed.expiresAt <= Date.now()) {
-      cookieJar.delete(parsed.name);
+      jar.delete(parsed.name);
     } else {
-      cookieJar.set(parsed.name, { value: parsed.value, expiresAt: parsed.expiresAt });
+      jar.set(parsed.name, { value: parsed.value, expiresAt: parsed.expiresAt });
     }
   }
 }
 
-function buildCookieHeader(): string {
+function buildCookieHeaderFor(jar: Map<string, CookieEntry>): string {
   const now = Date.now();
-  for (const [name, entry] of cookieJar) {
+  for (const [name, entry] of jar) {
     if (entry.expiresAt !== undefined && entry.expiresAt <= now) {
-      cookieJar.delete(name);
+      jar.delete(name);
     }
   }
-  return Array.from(cookieJar.entries())
+  return Array.from(jar.entries())
     .map(([name, entry]) => `${name}=${entry.value}`)
     .join("; ");
 }
 
-export function clearEfashionSession(): void {
-  cookieJar.clear();
+export async function clearEfashionSession(): Promise<void> {
+  const tid = await resolveCurrentTenantId();
+  cookieJarByTenant.delete(tid);
 }
 
-export function hasEfashionCookies(): boolean {
-  return buildCookieHeader().length > 0;
+export async function hasEfashionCookies(): Promise<boolean> {
+  const tid = await resolveCurrentTenantId();
+  const jar = cookieJarByTenant.get(tid);
+  if (!jar) return false;
+  return buildCookieHeaderFor(jar).length > 0;
 }
 
 /**
@@ -100,8 +131,8 @@ export function hasEfashionCookies(): boolean {
  */
 export const __testing__ = {
   parseSetCookie,
-  cookieJar,
-  buildCookieHeader,
+  cookieJarByTenant,
+  buildCookieHeaderFor,
 };
 
 /**
@@ -112,6 +143,9 @@ export async function efashionFetch(
   pathOrUrl: string,
   init: RequestInit = {},
 ): Promise<Response> {
+  const tid = await resolveCurrentTenantId();
+  const jar = getCookieJarForTenant(tid);
+
   const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${EFASHION_BASE_URL}${pathOrUrl}`;
   const headers = new Headers(init.headers);
 
@@ -120,11 +154,11 @@ export async function efashionFetch(
   if (!headers.has("User-Agent")) headers.set("User-Agent", DEFAULT_USER_AGENT);
   if (!headers.has("Accept")) headers.set("Accept", "*/*");
 
-  const cookieHeader = buildCookieHeader();
+  const cookieHeader = buildCookieHeaderFor(jar);
   if (cookieHeader) headers.set("Cookie", cookieHeader);
 
   const res = await fetch(url, { ...init, headers });
-  captureCookies(res);
+  captureCookies(res, jar);
   return res;
 }
 

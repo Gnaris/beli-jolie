@@ -13,6 +13,7 @@ import {
   efashionGraphql,
   hasEfashionCookies,
 } from "@/lib/efashion-client";
+import { getCurrentTenantIdSync } from "@/lib/tenant-als";
 import { logger } from "@/lib/logger";
 
 export interface EfashionVendorUser {
@@ -41,14 +42,30 @@ const LOGIN_MUTATION = `
 `;
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
-let lastLoginAt: number | null = null;
+// CRITIQUE multi-tenant : timestamp par tenant. Sinon le login BJ marque
+// "encore frais" pour Issyma qui réutilise la session BJ.
+const lastLoginAtByTenant = new Map<string, number>();
+
+async function resolveCurrentTenantId(): Promise<string> {
+  let tid = getCurrentTenantIdSync();
+  if (!tid) {
+    try {
+      const { headers } = await import("next/headers");
+      const h = await headers();
+      tid = h.get("x-tenant-id");
+    } catch {
+      // hors requête
+    }
+  }
+  return tid ?? "global";
+}
 
 /**
  * Authentifie avec un couple email/mot de passe spécifique sans cacher la session.
  * Utilisé par le bouton « Tester la connexion » dans Paramètres > Marketplaces.
  */
 async function performLogin(email: string, password: string): Promise<EfashionVendorUser> {
-  clearEfashionSession();
+  await clearEfashionSession();
   const data = await efashionGraphql<LoginResult>(LOGIN_MUTATION, {
     email,
     password,
@@ -65,10 +82,12 @@ async function performLogin(email: string, password: string): Promise<EfashionVe
  * (heuristique : TTL local de 30 min OU jar vide).
  */
 export async function ensureEfashionSession(): Promise<EfashionVendorUser> {
+  const tid = await resolveCurrentTenantId();
+  const lastLoginAt = lastLoginAtByTenant.get(tid) ?? null;
   const stillFresh =
     lastLoginAt !== null &&
     Date.now() - lastLoginAt < SESSION_TTL_MS &&
-    hasEfashionCookies();
+    (await hasEfashionCookies());
 
   if (!stillFresh) {
     const creds = await getCachedEfashionCredentials();
@@ -78,23 +97,21 @@ export async function ensureEfashionSession(): Promise<EfashionVendorUser> {
       );
     }
     const user = await performLogin(creds.email, creds.password);
-    lastLoginAt = Date.now();
-    logger.info("[eFashion] Login OK", { idVendeur: user.id_vendeur, boutique: user.nomBoutique });
+    lastLoginAtByTenant.set(tid, Date.now());
+    logger.info("[eFashion] Login OK", { idVendeur: user.id_vendeur, boutique: user.nomBoutique, tid });
     return user;
   }
 
-  // Session encore valide — on n'a pas l'objet user en cache, on retourne
-  // un placeholder minimal. Si l'appelant a besoin de l'info vendeur, qu'il
-  // utilise efashionGetMe() qui fait l'appel `query me`.
   return {} as EfashionVendorUser;
 }
 
 /**
- * Force une réauthentification au prochain appel.
+ * Force une réauthentification au prochain appel (pour le tenant courant).
  */
-export function invalidateEfashionSession(): void {
-  clearEfashionSession();
-  lastLoginAt = null;
+export async function invalidateEfashionSession(): Promise<void> {
+  const tid = await resolveCurrentTenantId();
+  await clearEfashionSession();
+  lastLoginAtByTenant.delete(tid);
 }
 
 /**
@@ -107,9 +124,7 @@ export async function testEfashionCredentials(
 ): Promise<{ valid: boolean; error?: string; vendor?: { id: number; name: string } }> {
   try {
     const user = await performLogin(email, password);
-    // On vide la session — la vraie session sera re-créée au prochain
-    // appel via ensureEfashionSession avec les credentials sauvegardés.
-    invalidateEfashionSession();
+    await invalidateEfashionSession();
     return {
       valid: true,
       vendor: { id: user.id_vendeur, name: user.nomBoutique },

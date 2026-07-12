@@ -216,7 +216,7 @@ async function _fetchWithRetryInner(
 
       // 401 = token expired, invalidate and retry once
       if (res.status === 401 && attempt === 0) {
-        invalidatePfsToken();
+        await invalidatePfsToken();
         const newHeaders = await getPfsHeaders();
         options.headers = newHeaders;
         continue;

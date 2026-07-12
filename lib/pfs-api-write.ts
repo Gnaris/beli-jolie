@@ -109,7 +109,7 @@ async function _fetchWithRetryInner(
       clearTimeout(timeout);
 
       if (res.status === 401 && attempt === 0) {
-        invalidatePfsToken();
+        await invalidatePfsToken();
         const newHeaders = await getPfsHeaders();
         if (options.headers && typeof options.headers === "object") {
           options.headers = { ...options.headers, ...newHeaders } as Record<string, string>;

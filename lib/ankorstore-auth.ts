@@ -8,6 +8,7 @@
  */
 
 import { getCachedAnkorstoreCredentials } from "@/lib/cached-data";
+import { getCurrentTenantIdSync } from "@/lib/tenant-als";
 import { logger } from "@/lib/logger";
 
 export const ANKORSTORE_BASE_URL = "https://www.ankorstore.com/api/v1";
@@ -18,26 +19,26 @@ interface TokenCache {
   expiresAt: number; // timestamp ms
 }
 
-let cachedToken: TokenCache | null = null;
+// CRITIQUE multi-tenant : cache PAR tenant. Sans ça, le token du 1er tenant qui
+// s'authentifie est réutilisé par TOUS les tenants suivants → un push BJ part
+// sur le compte Ankorstore d'Issyma (et inversement).
+const tokenCacheByTenant = new Map<string, TokenCache>();
+const primedCredentialsByTenant = new Map<string, { clientId: string; clientSecret: string }>();
+const pendingAuthByTenant = new Map<string, Promise<string>>();
 
-/**
- * Identifiants pré-amorcés pour usage CLI (scripts npx tsx). Quand renseignés,
- * `getAnkorstoreToken` les utilise directement au lieu d'appeler
- * `getCachedAnkorstoreCredentials` qui dépend de `unstable_cache` (lequel
- * plante hors contexte Next.js avec une erreur « incrementalCache missing »).
- *
- * À amorcer en début de script via `primeAnkorstoreCredentials(...)`.
- */
-let primedCredentials: { clientId: string; clientSecret: string } | null = null;
-
-/**
- * Promise singleton pour le re-auth en cours. Quand plusieurs requêtes
- * tombent en parallèle après expiration du token, elles partagent toutes
- * cette même promise au lieu de lancer chacune leur propre POST /oauth/token
- * (race condition : 2 tokens peuvent être émis, le premier obtenu peut être
- * invalidé par le second). Reset à null dès que la promise se résout.
- */
-let pendingAuth: Promise<string> | null = null;
+async function resolveCurrentTenantId(): Promise<string> {
+  let tid = getCurrentTenantIdSync();
+  if (!tid) {
+    try {
+      const { headers } = await import("next/headers");
+      const h = await headers();
+      tid = h.get("x-tenant-id");
+    } catch {
+      // hors requête → clé fallback (jobs cron/tests)
+    }
+  }
+  return tid ?? "global";
+}
 
 /**
  * Get a valid Ankorstore OAuth2 access token.
@@ -45,21 +46,26 @@ let pendingAuth: Promise<string> | null = null;
  * Concurrent callers share a single auth round-trip.
  */
 export async function getAnkorstoreToken(): Promise<string> {
+  const tid = await resolveCurrentTenantId();
   const bufferMs = 5 * 60 * 1000; // 5 minutes
 
+  const cachedToken = tokenCacheByTenant.get(tid);
   if (cachedToken && cachedToken.expiresAt - bufferMs > Date.now()) {
     return cachedToken.accessToken;
   }
 
-  if (pendingAuth) return pendingAuth;
+  const pending = pendingAuthByTenant.get(tid);
+  if (pending) return pending;
 
-  pendingAuth = (async () => {
+  const primed = primedCredentialsByTenant.get(tid);
+
+  const authPromise = (async () => {
     try {
       let clientId: string | null = null;
       let clientSecret: string | null = null;
-      if (primedCredentials) {
-        clientId = primedCredentials.clientId;
-        clientSecret = primedCredentials.clientSecret;
+      if (primed) {
+        clientId = primed.clientId;
+        clientSecret = primed.clientSecret;
       } else {
         const creds = await getCachedAnkorstoreCredentials();
         clientId = creds.clientId;
@@ -72,19 +78,21 @@ export async function getAnkorstoreToken(): Promise<string> {
         );
       }
 
-      return await authenticateAnkorstore(clientId, clientSecret);
+      return await authenticateAnkorstore(tid, clientId, clientSecret);
     } finally {
-      pendingAuth = null;
+      pendingAuthByTenant.delete(tid);
     }
   })();
 
-  return pendingAuth;
+  pendingAuthByTenant.set(tid, authPromise);
+  return authPromise;
 }
 
 /**
  * Authenticate with specific credentials (used internally and for testing).
  */
 async function authenticateAnkorstore(
+  tid: string,
   clientId: string,
   clientSecret: string
 ): Promise<string> {
@@ -125,45 +133,40 @@ async function authenticateAnkorstore(
   }
 
   const expiresIn = data.expires_in ?? 3600; // seconds, default 1h
-  cachedToken = {
+  tokenCacheByTenant.set(tid, {
     accessToken,
     expiresAt: Date.now() + expiresIn * 1000,
-  };
+  });
 
-  logger.info("[Ankorstore] Token acquired", { expiresIn });
+  logger.info("[Ankorstore] Token acquired", { expiresIn, tid });
   return accessToken;
 }
 
 /**
- * Invalidate the cached token (e.g., after a 401 response).
+ * Invalidate the cached token (e.g., after a 401 response) pour le tenant courant.
  */
-export function invalidateAnkorstoreToken(): void {
-  cachedToken = null;
+export async function invalidateAnkorstoreToken(): Promise<void> {
+  const tid = await resolveCurrentTenantId();
+  tokenCacheByTenant.delete(tid);
 }
 
 /**
- * Amorce le cache de token (usage CLI uniquement).
- * Permet aux scripts qui ne tournent pas dans une requete Next.js de fournir
- * un token deja obtenu, afin que getAnkorstoreToken() court-circuite sans
- * passer par getCachedAnkorstoreCredentials (qui depend de unstable_cache).
+ * Amorce le cache de token (usage CLI uniquement) POUR UN TENANT DONNÉ.
+ * Requiert de passer explicitement le tenantId.
  */
-export function primeAnkorstoreToken(accessToken: string, expiresInSec: number): void {
-  cachedToken = {
+export function primeAnkorstoreToken(tenantId: string, accessToken: string, expiresInSec: number): void {
+  tokenCacheByTenant.set(tenantId, {
     accessToken,
     expiresAt: Date.now() + expiresInSec * 1000,
-  };
+  });
 }
 
 /**
- * Amorce les identifiants Ankorstore pour usage CLI (scripts longs où le
- * token va expirer en cours de route). Une fois amorcés, `getAnkorstoreToken`
- * peut se ré-authentifier seul sans passer par `unstable_cache`.
- *
- * À appeler une fois au démarrage du script, après avoir lu les credentials
- * en clair depuis SiteConfig (déchiffrés via `decryptIfSensitive`).
+ * Amorce les identifiants Ankorstore pour usage CLI (scripts longs) POUR UN
+ * TENANT DONNÉ. Requiert de passer explicitement le tenantId.
  */
-export function primeAnkorstoreCredentials(clientId: string, clientSecret: string): void {
-  primedCredentials = { clientId, clientSecret };
+export function primeAnkorstoreCredentials(tenantId: string, clientId: string, clientSecret: string): void {
+  primedCredentialsByTenant.set(tenantId, { clientId, clientSecret });
 }
 
 /**

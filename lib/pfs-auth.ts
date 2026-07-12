@@ -8,6 +8,7 @@
  */
 
 import { getCachedPfsCredentials } from "@/lib/cached-data";
+import { getCurrentTenantIdSync } from "@/lib/tenant-als";
 
 // TODO(2026-03): Consider moving to env var PFS_BASE_URL for multi-environment support
 const PFS_BASE_URL = "https://wholesaler-api.parisfashionshops.com/api/v1";
@@ -17,14 +18,33 @@ interface TokenCache {
   expiresAt: Date;
 }
 
-let cachedToken: TokenCache | null = null;
+// CRITIQUE multi-tenant : cache PAR tenant. Sans ça, le token du 1er tenant qui
+// s'authentifie est réutilisé par TOUS les tenants suivants → un push BJ part
+// sur le compte PFS d'Issyma (et inversement).
+const tokenCacheByTenant = new Map<string, TokenCache>();
+
+async function resolveCurrentTenantId(): Promise<string> {
+  let tid = getCurrentTenantIdSync();
+  if (!tid) {
+    try {
+      const { headers } = await import("next/headers");
+      const h = await headers();
+      tid = h.get("x-tenant-id");
+    } catch {
+      // hors requête → clé fallback (jobs cron/tests)
+    }
+  }
+  return tid ?? "global";
+}
 
 /**
  * Get a valid PFS Bearer token.
  * Returns cached token if still valid (with 10-min buffer), otherwise re-authenticates.
  */
 export async function getPfsToken(): Promise<string> {
+  const tid = await resolveCurrentTenantId();
   // Check if cached token is still valid (10 min buffer)
+  const cachedToken = tokenCacheByTenant.get(tid);
   if (cachedToken) {
     const bufferMs = 10 * 60 * 1000; // 10 minutes
     if (cachedToken.expiresAt.getTime() - bufferMs > Date.now()) {
@@ -69,15 +89,16 @@ export async function getPfsToken(): Promise<string> {
     expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
   }
 
-  cachedToken = { accessToken, expiresAt };
+  tokenCacheByTenant.set(tid, { accessToken, expiresAt });
   return accessToken;
 }
 
 /**
- * Invalidate the cached token (e.g., after a 401 response).
+ * Invalidate the cached token (e.g., after a 401 response) pour le tenant courant.
  */
-export function invalidatePfsToken(): void {
-  cachedToken = null;
+export async function invalidatePfsToken(): Promise<void> {
+  const tid = await resolveCurrentTenantId();
+  tokenCacheByTenant.delete(tid);
 }
 
 /**

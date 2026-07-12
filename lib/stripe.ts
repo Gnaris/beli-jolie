@@ -14,8 +14,10 @@ import { decryptIfSensitive } from "@/lib/encryption";
  * - `stripe_webhook_secret` : chiffrée
  */
 
-let _cachedStripe: Stripe | null = null;
-let _cachedSecretKey: string | null = null;
+// CRITIQUE multi-tenant : instance Stripe PAR clé secrète (donc par tenant).
+// Sans ça, la 1ère instance créée serait réutilisée pour tous les tenants →
+// paiements BJ atterrissent sur le compte Stripe d'Issyma.
+const stripeInstanceBySecretKey = new Map<string, Stripe>();
 
 const CONFIG_KEYS = [
   "stripe_secret_key",
@@ -81,10 +83,11 @@ export async function getStripeInstance(): Promise<Stripe> {
       "Stripe non configuré. STRIPE_SECRET_KEY manquante dans .env ou dans SiteConfig.",
     );
   }
-  if (_cachedStripe && _cachedSecretKey === secretKey) return _cachedStripe;
-  _cachedStripe = new Stripe(secretKey);
-  _cachedSecretKey = secretKey;
-  return _cachedStripe;
+  const existing = stripeInstanceBySecretKey.get(secretKey);
+  if (existing) return existing;
+  const instance = new Stripe(secretKey);
+  stripeInstanceBySecretKey.set(secretKey, instance);
+  return instance;
 }
 
 export async function getStripeWebhookSecret(): Promise<string> {
@@ -139,8 +142,7 @@ export async function getStripeConfigStatus(): Promise<{
 }
 
 export function invalidateStripeCache() {
-  _cachedStripe = null;
-  _cachedSecretKey = null;
+  stripeInstanceBySecretKey.clear();
 }
 
 export function buildStatementDescriptor(shopName: string): string | undefined {

@@ -147,7 +147,7 @@ async function ankorstoreFetchJson<T>(
 
     // 401 — token expired, invalidate and retry once
     if (res.status === 401 && currentAttempt === 0) {
-      invalidateAnkorstoreToken();
+      await invalidateAnkorstoreToken();
       const freshHeaders = await getAnkorstoreHeaders();
       logger.warn("[Ankorstore] Retry", { status: 401, attempt: 1, path });
       const retryRes = await fetch(url, {

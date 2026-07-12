@@ -12,26 +12,46 @@
  */
 
 import { getCachedFaireApiKey } from "@/lib/cached-data";
+import { getCurrentTenantIdSync } from "@/lib/tenant-als";
 
 export const FAIRE_BASE_URL = "https://www.faire.com/external-api/v2";
 
-/**
- * Identifiant pré-amorcé pour usage CLI (scripts npx tsx), même pattern que
- * `primeAnkorstoreCredentials`. Quand renseigné, `getFaireApiKey` court-circuite
- * `getCachedFaireApiKey` qui dépend de `unstable_cache` (lequel plante hors
- * contexte Next.js avec une erreur « incrementalCache missing »).
- */
-let primedApiKey: string | null = null;
+// CRITIQUE multi-tenant : primed API key PAR tenant. Sans ça, si un script CLI
+// prime la clé Issyma, tous les tenants suivants (dont BJ) l'utilisent.
+const primedApiKeyByTenant = new Map<string, string>();
 
-export function primeFaireApiKey(apiKey: string): void {
-  primedApiKey = apiKey.trim() || null;
+async function resolveCurrentTenantId(): Promise<string> {
+  let tid = getCurrentTenantIdSync();
+  if (!tid) {
+    try {
+      const { headers } = await import("next/headers");
+      const h = await headers();
+      tid = h.get("x-tenant-id");
+    } catch {
+      // hors requête
+    }
+  }
+  return tid ?? "global";
 }
 
 /**
- * Get the Faire API key (decrypted). Returns null si non configurée.
+ * Amorce une clé API pour un tenant spécifique (usage CLI).
+ * Requiert de passer explicitement le tenantId.
+ */
+export function primeFaireApiKey(tenantId: string, apiKey: string): void {
+  const trimmed = apiKey.trim();
+  if (trimmed) primedApiKeyByTenant.set(tenantId, trimmed);
+  else primedApiKeyByTenant.delete(tenantId);
+}
+
+/**
+ * Get the Faire API key (decrypted) POUR LE TENANT COURANT. Returns null si non
+ * configurée.
  */
 export async function getFaireApiKey(): Promise<string | null> {
-  if (primedApiKey) return primedApiKey;
+  const tid = await resolveCurrentTenantId();
+  const primed = primedApiKeyByTenant.get(tid);
+  if (primed) return primed;
   return getCachedFaireApiKey();
 }
 

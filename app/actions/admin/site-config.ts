@@ -474,7 +474,7 @@ export async function updateEfashionCredentials(config: {
 
     // Force réauth au prochain appel API (l'ancienne session devient invalide).
     const { invalidateEfashionSession } = await import("@/lib/efashion-auth");
-    invalidateEfashionSession();
+    await invalidateEfashionSession();
 
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");

@@ -84,7 +84,7 @@ export async function translatePhrases(
       });
 
       if (res.status === 401) {
-        invalidatePfsToken();
+        await invalidatePfsToken();
         throw new Error("PFS translate 401 (token invalidé, retry)");
       }
 
