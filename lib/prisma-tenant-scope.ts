@@ -101,6 +101,15 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "VariantSize",
   "PackColorLine",
   "PackColorLineSize",
+  // Shared libs isolées par tenant depuis 2026-07-12
+  "Category",
+  "SubCategory",
+  "Color",
+  "Size",
+  "Composition",
+  "Season",
+  "ManufacturingCountry",
+  "Tag",
 ]);
 
 /**

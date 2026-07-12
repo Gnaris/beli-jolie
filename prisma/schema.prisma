@@ -155,30 +155,30 @@ enum ProductStatus {
 // Catégorie principale (ex: Colliers, Bracelets)
 model Category {
   id                  String                @id @default(cuid())
-  name                String                @unique
-  slug                String                @unique
+  name                String
+  slug                String
   pfsCategoryId       String? // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
   pfsGender           String? // Genre PFS : WOMAN | MAN | KID | SUPPLIES
   pfsFamilyId         String? // ID famille PFS (ex: "a035J00000185J7QAI")
   pfsFamilyName       String? // Nom lisible de la famille PFS (ex: "Bijoux_Fantaisie") — pour export Excel
   pfsCategoryName     String? // Nom catégorie PFS (ex: "Bagues", "Colliers") — colonne 4 de l'export Excel
-  // eFashion : ID catégorie feuille dans leur arbre 3 niveaux (top > parent > leaf).
-  // Ex: 160102 = Femme > Accessoires > Bijoux > Boucles d'oreilles.
   efashionCategorieId Int?
-  // Faire : taxonomy_type.id (ex: "tx_jewelry_bracelets"). Taxonomie figée
-  // côté Faire (pas d'endpoint public exposé) — saisie manuelle depuis le
-  // portail brand Faire. Voir docs/faire-api.md §12.
   faireTaxonomyId     String?
-  // Faire : code SH douanier (ex: "7117.19.00" pour les bijoux acier,
-  // "6109.10.00" pour t-shirts coton, etc.). Configurable par catégorie
-  // pour rester générique tous types de produits.
   faireHsCode         String?
-  position            Int                   @default(0) // ordre d'affichage manuel (drag & drop admin)
+  position            Int                   @default(0)
   subCategories       SubCategory[]
   products            Product[]
   translations        CategoryTranslation[]
   promotions          PromotionCategory[]
   createdAt           DateTime              @default(now())
+
+  // Multi-tenant : lib scopée par tenant depuis 2026-07-12
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, name])
+  @@unique([tenantId, slug])
+  @@index([tenantId])
 }
 
 model CategoryTranslation {
@@ -200,13 +200,16 @@ model SubCategory {
   categoryId         String
   category           Category                 @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   products           Product[]                @relation("ProductSubCategories")
-  // Inverse de Product.microstoreSubCategory — produits qui ont choisi cette
-  // sous-catégorie comme étiquette d'export Microstore.
   microstoreProducts Product[]                @relation("ProductMicrostoreSubCategory")
   translations       SubCategoryTranslation[]
   createdAt          DateTime                 @default(now())
 
+  // Multi-tenant : lib scopée par tenant depuis 2026-07-12
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
   @@unique([name, categoryId])
+  @@index([tenantId])
 }
 
 model SubCategoryTranslation {
@@ -220,21 +223,28 @@ model SubCategoryTranslation {
   @@unique([subCategoryId, locale])
 }
 
-// Bibliothèque de couleurs réutilisables entre produits
+// Bibliothèque de couleurs réutilisables entre produits (scopée par tenant)
 model Color {
   id                 String              @id @default(cuid())
-  name               String              @unique
+  name               String
   hex                String?
-  patternImage       String? // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
-  pfsColorRef        String? // Référence PFS (ex: "GOLDEN", "SILVER") — utilisée pour publish/refresh
-  efashionColorId    Int? // ID couleur eFashion (biblio officielle, ex: 78=Doré, 22=Argent)
-  position           Int                 @default(0) // ordre d'affichage manuel (drag & drop admin)
+  patternImage       String?
+  pfsColorRef        String?
+  efashionColorId    Int?
+  position           Int                 @default(0)
   createdAt          DateTime            @default(now())
   productColors      ProductColor[]
   colorImages        ProductColorImage[]
   translations       ColorTranslation[]
-  packLineUsages     PackColorLine[] // Utilisations dans un PACK multi-couleurs
-  primaryForProducts Product[]           @relation("ProductPrimaryColor") // Produits dont cette couleur est la principale
+  packLineUsages     PackColorLine[]
+  primaryForProducts Product[]           @relation("ProductPrimaryColor")
+
+  // Multi-tenant : lib scopée par tenant depuis 2026-07-12
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
 }
 
 model ColorTranslation {
@@ -262,22 +272,26 @@ model HsCode {
   products    Product[]
 }
 
-// Pays de fabrication
+// Pays de fabrication (scopé par tenant)
 model ManufacturingCountry {
   id                   String                            @id @default(cuid())
-  name                 String                            @unique
-  isoCode              String?                           @unique // ISO code: "CN", "TR", "FR"
-  pfsCountryRef        String?                           @unique // PFS country reference (ISO code)
-  // eFashion : ID provenance (ex: 1 = Chine, 11 = ?). Pas un code ISO, juste un ID interne.
+  name                 String
+  isoCode              String?
+  pfsCountryRef        String?
   efashionProvenanceId Int?
-  // Faire : code alpha-3 ISO 3166 (ex: "CHN", "FRA", "PRT"). Optionnel — si
-  // null, le site convertit `isoCode` (alpha-2) en alpha-3 via la table
-  // embarquée `lib/faire-country.ts`. Si l'auto-conversion échoue, fallback
-  // global "CHN". Saisi à la main dans la modale pays.
   faireCountryCode     String?
   createdAt            DateTime                          @default(now())
   products             Product[]
   translations         ManufacturingCountryTranslation[]
+
+  // Multi-tenant : lib scopée par tenant depuis 2026-07-12
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, name])
+  @@unique([tenantId, isoCode])
+  @@unique([tenantId, pfsCountryRef])
+  @@index([tenantId])
 }
 
 model ManufacturingCountryTranslation {
@@ -291,17 +305,23 @@ model ManufacturingCountryTranslation {
   @@unique([manufacturingCountryId, locale])
 }
 
-// Saisons (ex: "Printemps/Été 2026", "Automne/Hiver 2025")
+// Saisons (ex: "Printemps/Été 2026", "Automne/Hiver 2025") — scopées par tenant
 model Season {
   id                   String              @id @default(cuid())
-  name                 String              @unique
-  pfsRef               String? // PFS collection reference: "PE2026", "AH2025" — multiple seasons can share the same ref
-  // eFashion : ID collection (ex: 3 = "Toutes les saisons")
+  name                 String
+  pfsRef               String?
   efashionCollectionId Int?
-  position             Int                 @default(0) // ordre d'affichage manuel (drag & drop admin)
+  position             Int                 @default(0)
   createdAt            DateTime            @default(now())
   products             Product[]
   translations         SeasonTranslation[]
+
+  // Multi-tenant : lib scopée par tenant depuis 2026-07-12
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
 }
 
 model SeasonTranslation {
@@ -315,20 +335,24 @@ model SeasonTranslation {
   @@unique([seasonId, locale])
 }
 
-// Bibliothèque de compositions (matériaux)
+// Bibliothèque de compositions (matériaux) — scopée par tenant
 model Composition {
   id                 String                   @id @default(cuid())
-  name               String                   @unique
-  pfsCompositionRef  String? // Référence composition PFS (ex: "ACIERINOXYDABLE") — pour reverse sync
-  // eFashion : ID composition (autocomplete via /shootings/get-composition-autocomplete)
+  name               String
+  pfsCompositionRef  String?
   efashionId         Int?
-  // Faire : libellé matériau en anglais (ex: "Stainless Steel 316L"). Faire
-  // accepte un tableau de chaînes libres dans `materials[]`. Saisi à la main.
   faireMaterialLabel String?
-  position           Int                      @default(0) // ordre d'affichage manuel (drag & drop admin)
+  position           Int                      @default(0)
   createdAt          DateTime                 @default(now())
   products           ProductComposition[]
   translations       CompositionTranslation[]
+
+  // Multi-tenant : lib scopée par tenant depuis 2026-07-12
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
 }
 
 model CompositionTranslation {
@@ -359,13 +383,20 @@ model ProductComposition {
   @@index([tenantId])
 }
 
-// Tags (mots-clés pour recherche)
+// Tags (mots-clés pour recherche) — scopés par tenant
 model Tag {
   id           String           @id @default(cuid())
-  name         String           @unique
+  name         String
   products     ProductTag[]
   translations TagTranslation[]
   createdAt    DateTime         @default(now())
+
+  // Multi-tenant : lib scopée par tenant depuis 2026-07-12
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
 }
 
 model TagTranslation {
@@ -950,15 +981,21 @@ model ProductColor {
 // Nullable en DB pour permettre la création batch puis mapping différé.
 model Size {
   id             String              @id @default(cuid())
-  name           String              @unique
+  name           String
   position       Int                 @default(0)
   pfsSizeRef     String?
   variantSizes   VariantSize[]
-  packLineSizes  PackColorLineSize[] // Tailles utilisées dans une ligne de PACK multi-couleurs
+  packLineSizes  PackColorLineSize[]
   stockMovements StockMovement[]
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
+  // Multi-tenant : lib scopée par tenant depuis 2026-07-12
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
   @@index([pfsSizeRef])
 }
 
@@ -2357,6 +2394,16 @@ model Tenant {
   packColorLines             PackColorLine[]
   packColorLineSizes         PackColorLineSize[]
   SiteConfig                 SiteConfig[]
+
+  // Shared libs isolées par tenant depuis 2026-07-12
+  categories                 Category[]
+  subCategories              SubCategory[]
+  colors                     Color[]
+  sizes                      Size[]
+  compositions               Composition[]
+  seasons                    Season[]
+  manufacturingCountries     ManufacturingCountry[]
+  tags                       Tag[]
 
   @@index([isActive])
 }
