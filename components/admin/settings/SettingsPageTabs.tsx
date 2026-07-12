@@ -12,6 +12,7 @@ const TABS = [
   { key: "horaires",     label: "Horaires",      icon: "M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" },
   { key: "maintenance",  label: "Maintenance",   icon: "M12 9v3.75m0 3.75h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" },
   { key: "livraison",    label: "Livraison",     icon: "M1 3h15v13H1zM16 8h4l3 4v4h-7zM5.5 21a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM18.5 21a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" },
+  { key: "paiement",     label: "Paiement",      icon: "M3 10h18M4.5 6h15a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-10A1.5 1.5 0 0 1 4.5 6zM7 15h4" },
   { key: "marketplaces", label: "Marketplaces",  icon: "M3 21h18M5 21V7l7-4 7 4v14M9 9v.01M9 12v.01M9 15v.01M15 9v.01M15 12v.01M15 15v.01" },
   { key: "traduction",   label: "Traduction",    icon: "M4 5h7M9 3v2M4 9c0 5 4 8 8 8M9 9c-2 4 0 8 4 8M14 5l6 14M17 15h6" },
   { key: "seo",          label: "Référencement", icon: "M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" },
@@ -21,7 +22,7 @@ type TabKey = (typeof TABS)[number]["key"];
 
 const GROUPS: { label: string; keys: TabKey[] }[] = [
   { label: "Site",         keys: ["general", "societe", "catalogue", "carrousels", "stock", "horaires", "maintenance"] },
-  { label: "Intégrations", keys: ["livraison", "marketplaces", "traduction"] },
+  { label: "Intégrations", keys: ["livraison", "paiement", "marketplaces", "traduction"] },
   { label: "Référencement", keys: ["seo"] },
 ];
 

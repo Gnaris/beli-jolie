@@ -8,7 +8,7 @@
 
 export const SETTINGS_TABS = [
   "general", "societe", "catalogue", "carrousels", "stock", "maintenance",
-  "livraison", "marketplaces", "horaires", "traduction", "seo",
+  "livraison", "paiement", "marketplaces", "horaires", "traduction", "seo",
 ] as const;
 
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
@@ -23,6 +23,7 @@ const METADATA: Record<SettingsTab, Metadata> = {
   stock:       { label: "Stock",         description: "Ce que voient vos clients lorsqu'une variante ou un produit est en rupture." },
   maintenance: { label: "Maintenance",   description: "Bloque temporairement l'accès à votre boutique pour effectuer des travaux ou en cas d'incident." },
   livraison:   { label: "Livraison",     description: "Intégration Easy-Express pour créer les bordereaux et marge appliquée aux frais de port refacturés au client." },
+  paiement:    { label: "Paiement",      description: "Clés Stripe pour encaisser les paiements par carte bancaire — chiffrées en base et modifiables à tout moment." },
   marketplaces:{ label: "Marketplaces",  description: "Connectez et pilotez PFS, Ankorstore, eFashion et Faire — prix, marges, publications." },
   horaires:    { label: "Horaires",      description: "Jours et heures d'ouverture affichés sur la page contact et utilisés pour l'assistance client." },
   traduction:  { label: "Traduction",    description: "Traduction automatique français → anglais des noms de produits, descriptions et attributs (via votre compte PFS)." },

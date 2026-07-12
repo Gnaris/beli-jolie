@@ -6,6 +6,7 @@ import {
   getCachedSiteConfig, getCachedPfsBrand, getCachedHasEfashionConfig, getCachedEfashionEnabled,
   getCachedHasFaireConfig, getCachedFaireEnabled,
 } from "@/lib/cached-data";
+import { getStripeConfigStatus } from "@/lib/stripe";
 import { parseDisplayConfig } from "@/lib/product-display";
 import { settingsTabMetadata, isSettingsTab, type SettingsTab } from "@/lib/settings-tabs";
 import SettingsPageTabs from "@/components/admin/settings/SettingsPageTabs";
@@ -23,6 +24,7 @@ import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
 import FaviconConfig from "@/components/admin/settings/FaviconConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
 import ShippingMarginConfig from "@/components/admin/settings/ShippingMarginConfig";
+import StripeSettingsForm from "@/components/admin/settings/StripeSettingsForm";
 import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
 import TranslationProviderStatus from "@/components/admin/settings/TranslationProviderStatus";
@@ -54,6 +56,7 @@ const Ico = {
   translate: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h7M9 3v2M4 9c0 5 4 8 8 8M9 9c-2 4 0 8 4 8M14 5l6 14M17 15h6"/></svg>,
   sparkles:  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.9 5.7h6L15 12.4l1.9 5.7L12 14.3l-4.9 3.8L9 12.4 4.1 8.7h6z"/></svg>,
   search:    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/></svg>,
+  card:      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg>,
 };
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -126,6 +129,7 @@ export default async function ParametresPage({
           {activeTab === "stock"        && <StockTab />}
           {activeTab === "maintenance"  && <MaintenanceTab />}
           {activeTab === "livraison"    && <LivraisonTab />}
+          {activeTab === "paiement"     && <PaiementTab />}
           {activeTab === "marketplaces" && <MarketplacesTab />}
           {activeTab === "horaires"     && <HorairesTab />}
           {activeTab === "traduction"   && <TraductionTab />}
@@ -501,6 +505,48 @@ async function LivraisonTab() {
             </div>
           </div>
         </div>
+      </SettingCard>
+    </CardsStack>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Paiement
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function PaiementTab() {
+  const [status, publishableRow] = await Promise.all([
+    getStripeConfigStatus(),
+    prisma.siteConfig.findFirst({ where: { key: "stripe_publishable_key" } }),
+  ]);
+  const publishable =
+    publishableRow?.value?.trim() ||
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() ||
+    "";
+
+  const cardStatus = status.ready
+    ? { tone: "ok" as const, label: status.testMode ? "Mode TEST" : "Mode LIVE" }
+    : { tone: "off" as const, label: "Non configuré" };
+
+  return (
+    <CardsStack>
+      <SettingCard
+        icon={Ico.card}
+        title="Stripe"
+        description="Les 3 clés Stripe nécessaires pour encaisser les paiements en ligne. Modifiez-les à tout moment — les valeurs sensibles sont chiffrées en base."
+        accent="dark"
+        status={cardStatus}
+      >
+        {status.source === "env" && (
+          <div className="mb-5 rounded-xl bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+            💡 Configuration actuelle lue dans le fichier <code>.env</code> du serveur.
+            Renseignez les clés ci-dessous pour les migrer en base (chiffrées).
+          </div>
+        )}
+        <StripeSettingsForm
+          initialHasSecret={status.hasSecret}
+          initialHasWebhook={status.hasWebhook}
+          initialPublishable={publishable}
+        />
       </SettingCard>
     </CardsStack>
   );
