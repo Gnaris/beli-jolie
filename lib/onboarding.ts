@@ -63,7 +63,7 @@ export async function isOnboardingCompleted(tenantId?: string | null): Promise<b
     ? await prisma.siteConfig.findFirst({
         where: { key: ONBOARDING_COMPLETED_AT_KEY, tenantId },
       })
-    : await prisma.siteConfig.findUnique({
+    : await prisma.siteConfig.findFirst({
         where: { key: ONBOARDING_COMPLETED_AT_KEY },
       });
   return !!row?.value;

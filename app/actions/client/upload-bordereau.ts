@@ -3,6 +3,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { uploadFile, bordereauDir, slugify } from "@/lib/storage";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 import crypto from "node:crypto";
 
@@ -45,6 +46,8 @@ export async function uploadBordereau(
   const session = await getServerSession(authOptions);
   if (!session) return { success: false, error: "Non authentifié." };
 
+  const tenant = await requireCurrentTenant();
+
   const file = formData.get("file");
   if (!(file instanceof File)) {
     return { success: false, error: "Fichier manquant." };
@@ -66,7 +69,7 @@ export async function uploadBordereau(
   const ext = EXTENSIONS[file.type] ?? "bin";
   const orderRef = ((formData.get("orderRef") as string | null) || "").trim();
   const uniqueId = crypto.randomBytes(6).toString("hex");
-  const dir = bordereauDir(session.user.id);
+  const dir = bordereauDir(session.user.id, tenant.slug);
   const filename = orderRef
     ? `commande-${slugify(orderRef)}-${uniqueId}.${ext}`
     : `bordereau-${uniqueId}.${ext}`;

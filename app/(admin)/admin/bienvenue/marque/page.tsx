@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
 
 export default async function BrandStepPage() {
   const [faviconRow, bannerRow] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "site_favicon" } }),
-    prisma.siteConfig.findUnique({ where: { key: "banner_image" } }),
+    prisma.siteConfig.findFirst({ where: { key: "site_favicon" } }),
+    prisma.siteConfig.findFirst({ where: { key: "banner_image" } }),
   ]);
 
   let currentFavicon: { icon: string; appleIcon: string } | null = null;

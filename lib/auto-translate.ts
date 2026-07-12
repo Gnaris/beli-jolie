@@ -16,7 +16,7 @@ const TARGET_LOCALES: Locale[] = NON_DEFAULT_LOCALES;
 
 /** Check if auto-translate is enabled in SiteConfig */
 export async function isAutoTranslateEnabled(): Promise<boolean> {
-  const config = await prisma.siteConfig.findUnique({
+  const config = await prisma.siteConfig.findFirst({
     where: { key: "auto_translate_enabled" },
   });
   return config?.value === "true";

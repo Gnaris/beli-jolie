@@ -14,17 +14,24 @@ const mockRevalidate = vi.hoisted(() => ({
   unstable_cache: <T>(fn: T) => fn,
 }));
 const mockHealth = vi.hoisted(() => ({ clearAutoMaintenance: vi.fn() }));
+const mockSiteConfigWrite = vi.hoisted(() => ({
+  setSiteConfig: vi.fn(),
+  unsetSiteConfig: vi.fn(),
+}));
 
 vi.mock("next-auth", () => ({ getServerSession: mockGetServerSession }));
 vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }));
 vi.mock("next/cache", () => mockRevalidate);
 vi.mock("@/lib/health", () => mockHealth);
+vi.mock("@/lib/site-config-write", () => mockSiteConfigWrite);
 
 import { updateSeoTexts } from "@/app/actions/admin/site-config";
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockPrisma.siteConfig.upsert.mockResolvedValue({});
+  mockSiteConfigWrite.setSiteConfig.mockResolvedValue(undefined);
+  mockSiteConfigWrite.unsetSiteConfig.mockResolvedValue(undefined);
 });
 
 describe("updateSeoTexts", () => {
@@ -32,14 +39,14 @@ describe("updateSeoTexts", () => {
     mockGetServerSession.mockResolvedValueOnce(null);
     const result = await updateSeoTexts({ homeText: "x", produitsText: "y" });
     expect(result.success).toBe(false);
-    expect(mockPrisma.siteConfig.upsert).not.toHaveBeenCalled();
+    expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
   });
 
   it("refuse un client connecté (non admin)", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "CLIENT" } });
     const result = await updateSeoTexts({ homeText: "x", produitsText: "y" });
     expect(result.success).toBe(false);
-    expect(mockPrisma.siteConfig.upsert).not.toHaveBeenCalled();
+    expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
   });
 
   it("upsert les deux clés SiteConfig pour un admin", async () => {
@@ -49,17 +56,15 @@ describe("updateSeoTexts", () => {
       produitsText: "Notre catalogue.",
     });
     expect(result.success).toBe(true);
-    expect(mockPrisma.siteConfig.upsert).toHaveBeenCalledTimes(2);
-    expect(mockPrisma.siteConfig.upsert).toHaveBeenCalledWith({
-      where: { key: "home_seo_text" },
-      update: { value: "Bienvenue chez nous" },
-      create: { key: "home_seo_text", value: "Bienvenue chez nous" },
-    });
-    expect(mockPrisma.siteConfig.upsert).toHaveBeenCalledWith({
-      where: { key: "produits_seo_text" },
-      update: { value: "Notre catalogue." },
-      create: { key: "produits_seo_text", value: "Notre catalogue." },
-    });
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(2);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
+      "home_seo_text",
+      "Bienvenue chez nous",
+    );
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
+      "produits_seo_text",
+      "Notre catalogue.",
+    );
     expect(mockRevalidate.revalidateTag).toHaveBeenCalledWith("site-config", "default");
   });
 
@@ -69,13 +74,13 @@ describe("updateSeoTexts", () => {
     const result = await updateSeoTexts({ homeText: huge, produitsText: "ok" });
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/5000/);
-    expect(mockPrisma.siteConfig.upsert).not.toHaveBeenCalled();
+    expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
   });
 
   it("accepte les textes vides (suppression du bloc côté front)", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
     const result = await updateSeoTexts({ homeText: "", produitsText: "" });
     expect(result.success).toBe(true);
-    expect(mockPrisma.siteConfig.upsert).toHaveBeenCalledTimes(2);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(2);
   });
 });

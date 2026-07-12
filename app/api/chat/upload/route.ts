@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
 import { uploadFile, chatAttachmentDir, slugify } from "@/lib/storage";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 
 const MAX_FILES = 5;
@@ -19,6 +20,8 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Accès non autorisé." }, { status: 401 });
   }
+
+  const tenant = await requireCurrentTenant();
 
   const formData = await request.formData();
   const files = formData.getAll("files") as File[];
@@ -49,7 +52,7 @@ export async function POST(request: NextRequest) {
   try {
     const attachments: { fileName: string; filePath: string; fileSize: number; mimeType: string }[] = [];
 
-    const dir = chatAttachmentDir();
+    const dir = chatAttachmentDir(tenant.slug);
     for (const file of files) {
       const buffer = Buffer.from(await file.arrayBuffer());
       const stamp = Date.now().toString(36);

@@ -68,16 +68,30 @@ export async function POST(request: Request) {
       case "upsertProductCrossTenant": {
         if (!body.targetProductReference) throw new Error("targetProductReference required");
         const cat = await prisma.category.findFirst();
-        const upserted = await prisma.product.upsert({
+        // NOTE: `reference` n'est plus `@unique` seul (remplacé par `@@unique([tenantId, reference])`),
+        // donc `upsert({where:{reference}})` ne compile plus. On simule un upsert manuel — l'objectif
+        // du test est de vérifier que l'extension tenant-scope bloque une écriture cross-tenant, peu
+        // importe la primitive utilisée.
+        const existing = await prisma.product.findFirst({
           where: { reference: body.targetProductReference },
-          update: { name: `UPSERT-HACK-BY-${tenant?.slug ?? "UNKNOWN"}` },
-          create: {
-            reference: body.targetProductReference,
-            name: `New-from-${tenant?.slug ?? "UNKNOWN"}`,
-            description: "Test upsert cross-tenant",
-            categoryId: cat!.id,
-          },
+          select: { id: true },
         });
+        let upserted: unknown;
+        if (existing) {
+          upserted = await prisma.product.update({
+            where: { id: existing.id },
+            data: { name: `UPSERT-HACK-BY-${tenant?.slug ?? "UNKNOWN"}` },
+          });
+        } else {
+          upserted = await prisma.product.create({
+            data: {
+              reference: body.targetProductReference,
+              name: `New-from-${tenant?.slug ?? "UNKNOWN"}`,
+              description: "Test upsert cross-tenant",
+              categoryId: cat!.id,
+            },
+          });
+        }
         result.upserted = upserted;
         break;
       }

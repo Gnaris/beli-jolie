@@ -8,6 +8,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getProductTranslation } from "@/lib/translate";
 import { getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
+import { getCurrentTenantId } from "@/lib/tenant";
 import { getImageSrc } from "@/lib/image-utils";
 import { buildAlternates, getSiteUrl } from "@/lib/seo";
 import { canSeePrices } from "@/lib/price-visibility";
@@ -98,6 +99,7 @@ const getProduct = cache(async (id: string, locale: string) => {
 });
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  await getCurrentTenantId(); // bind ALS avant Prisma / caches
   const { id, locale } = await params;
   const [product, firstImage] = await Promise.all([
     getProduct(id, locale),
@@ -137,6 +139,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function ProduitDetailPage({ params }: PageProps) {
+  await getCurrentTenantId(); // bind ALS avant Prisma / caches
   const { id, locale: routeLocale } = await params;
 
   // Fetch product, session, config, and locale in parallel

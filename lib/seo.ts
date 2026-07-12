@@ -1,6 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { VALID_LOCALES, DEFAULT_LOCALE, type Locale } from "@/i18n/locales";
+import { getCurrentTenantIdSync } from "@/lib/tenant-als";
 
 export interface OrganizationData {
   name: string;
@@ -55,25 +56,56 @@ export function buildAlternates(path: string, currentLocale: string = DEFAULT_LO
   };
 }
 
-export const getCachedSeoConfig = unstable_cache(
-  async () => {
-    const info = await prisma.companyInfo.findFirst();
-    return {
-      shopName: info?.shopName || info?.name || "Ma Boutique",
-      legalName: info?.name || null,
-      email: info?.email ?? null,
-      phone: info?.phone ?? null,
-      address: {
-        street: info?.address ?? null,
-        city: info?.city ?? null,
-        postalCode: info?.postalCode ?? null,
-        country: info?.country ?? null,
+/**
+ * Retourne le seo config du tenant courant.
+ * Scope par tenant : les caches unstable_cache et les tags de revalidation
+ * portent le tenantId, sinon 2 boutiques partagent les mêmes infos SEO
+ * (fuite : email/tel/adresse de la boutique A servis sur la boutique B).
+ */
+const _seoConfigCache = new Map<string, () => Promise<{ shopName: string; legalName: string | null; email: string | null; phone: string | null; address: { street: string | null; city: string | null; postalCode: string | null; country: string | null } }>>();
+
+export async function getCachedSeoConfig() {
+  // Résolution du tenant : ALS d'abord, fallback headers. L'ALS peut être
+  // vide si le server component a été scheduled avant que le parent bind.
+  let tid = getCurrentTenantIdSync();
+  if (!tid) {
+    try {
+      const { headers } = await import("next/headers");
+      const h = await headers();
+      tid = h.get("x-tenant-id");
+    } catch {
+      // script CLI hors requête
+    }
+  }
+  const finalTid = tid ?? "global";
+  let cached = _seoConfigCache.get(finalTid);
+  if (!cached) {
+    const capturedTenantId = finalTid === "global" ? undefined : finalTid;
+    cached = unstable_cache(
+      async () => {
+        const info = await prisma.companyInfo.findFirst({
+          where: capturedTenantId ? { tenantId: capturedTenantId } : undefined,
+        });
+        return {
+          shopName: info?.shopName || info?.name || "Ma Boutique",
+          legalName: info?.name || null,
+          email: info?.email ?? null,
+          phone: info?.phone ?? null,
+          address: {
+            street: info?.address ?? null,
+            city: info?.city ?? null,
+            postalCode: info?.postalCode ?? null,
+            country: info?.country ?? null,
+          },
+        };
       },
-    };
-  },
-  ["seo-config"],
-  { revalidate: 300, tags: ["company-info"] }
-);
+      ["seo-config", finalTid],
+      { revalidate: 300, tags: [`company-info:${finalTid}`] },
+    );
+    _seoConfigCache.set(finalTid, cached);
+  }
+  return cached();
+}
 
 export function buildOrganizationSchema(data: OrganizationData) {
   const schema: Record<string, unknown> = {

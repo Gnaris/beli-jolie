@@ -52,7 +52,7 @@ export async function POST(req: Request) {
   // Réponse générique — on envoie le code uniquement si l'utilisateur est un
   // client non rejeté. Le front affichera un message "si vous ne recevez rien,
   // aucun compte n'est associé à cet email".
-  const user = await prisma.user.findUnique({
+  const user = await prisma.user.findFirst({
     where: { email },
     select: { role: true, status: true },
   });

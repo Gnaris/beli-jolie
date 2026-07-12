@@ -158,9 +158,17 @@ Prévoir ~30 min de coupure des 2 sites pendant la bascule, un soir de faible tr
 
 **Feuille de route récap** :
 
-- [ ] SiteConfig PK composite + refactor 126 findUnique
-- [ ] Uniqueness per-tenant (5 champs à passer en @@unique composite)
-- [ ] Uploads : passer tenant.slug aux 60 callers
-- [ ] Test Vitest isolation cross-tenant
+- [x] SiteConfig PK composite + refactor 135 opérations (session 2026-07-11)
+- [x] Uniqueness per-tenant : User.email/siret/stripeCustomerId, Product.reference/pfsProductId/ankorsProductId/efashionReferenceBase/faireProductId, Order.orderNumber (2026-07-11)
+- [x] Uploads : `tenant.slug` propagé aux ~22 call sites + fonctions lib (`pfs-import`, `import-processor`) (2026-07-11)
+- [x] Test Vitest isolation cross-tenant (`__tests__/integration/cross-tenant-isolation.test.ts`)
+- [ ] Prep local (blocs le run des tests intégration) : MySQL démarré + `npx prisma db push --skip-generate` + `MULTI_TENANT_SCOPE=off npx tsx scripts/backfill-tenant-id-all.ts`
 - [ ] Bascule staging (demo.beliandjolie.com)
 - [ ] Bascule prod (beliandjolie.com + issyma.com) — soir de faible trafic
+
+**Notes post-session 2026-07-11** :
+- Nouveau helper `lib/site-config-write.ts` : `setSiteConfig(key, value)` / `unsetSiteConfig(key)`. À utiliser à la place de `siteConfig.upsert`/`delete` — l'extension multi-tenant scope automatiquement.
+- Sur SiteConfig, `tenantId` est passé NOT NULL (fait partie de la PK composite). Sur User/Product/Order il reste nullable — à flipper NOT NULL en Phase 2, une fois le backfill validé en prod.
+- `AccountLockout.email` et `Claim.reference` gardent leur `@unique` global — à réviser plus tard (potentielle collision entre tenants).
+- Sur les scripts CLI hors contexte requête, `findFirst`/`findMany` retournent globalement (extension passthrough). Passer `tenantId` explicitement au besoin.
+- `getSiteConfig` non fourni comme helper — les lectures passent par `findFirst` directement (l'extension scope). Si on veut un helper, à ajouter plus tard.

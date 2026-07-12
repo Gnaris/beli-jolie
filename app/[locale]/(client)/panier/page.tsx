@@ -46,7 +46,7 @@ export default async function PanierPage() {
 
   const [cart, minConfig] = await Promise.all([
     getCart(),
-    prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
+    prisma.siteConfig.findFirst({ where: { key: "min_order_ht" } }),
   ]);
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
 

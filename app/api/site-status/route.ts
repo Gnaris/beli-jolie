@@ -38,7 +38,7 @@ export async function GET(request: Request) {
       ? await prisma.siteConfig.findFirst({
           where: { key: "maintenance_mode", tenantId },
         })
-      : await prisma.siteConfig.findUnique({
+      : await prisma.siteConfig.findFirst({
           where: { key: "maintenance_mode" },
         });
 

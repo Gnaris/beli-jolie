@@ -101,8 +101,12 @@ export interface PfsImportItem {
 /**
  * Process a PFS import job: import products one by one, update progress,
  * emit SSE events. Callable as fire-and-forget.
+ *
+ * `tenantSlug` doit être capturé au niveau du handler HTTP puis propagé ici :
+ * ce processor tourne en fire-and-forget sans headers de requête, il ne peut
+ * donc pas résoudre le tenant lui-même.
  */
-export async function processPfsImport(jobId: string): Promise<void> {
+export async function processPfsImport(jobId: string, tenantSlug: string): Promise<void> {
   const job = await prisma.importJob.findUnique({ where: { id: jobId } });
   if (!job) {
     logger.error("[PFS Import Processor] Job not found", { jobId });
@@ -212,7 +216,7 @@ export async function processPfsImport(jobId: string): Promise<void> {
       const item = items[i];
 
       try {
-        const result = await approveAndImportPfsProduct(item.pfsId, {
+        const result = await approveAndImportPfsProduct(item.pfsId, tenantSlug, {
           isCancelled: () => jobCancelled,
         });
         success++;

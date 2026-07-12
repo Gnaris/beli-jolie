@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeColorName, parseSizeField, nextAvailableOrder } from "@/lib/import-processor";
 import { processProductImage } from "@/lib/image-processor";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { mkdir } from "fs/promises";
 import path from "path";
 
@@ -31,6 +32,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
+  const tenant = await requireCurrentTenant();
+
   const { id } = await params;
   const draft = await prisma.importDraft.findUnique({ where: { id } });
   if (!draft) return NextResponse.json({ error: "Brouillon introuvable" }, { status: 404 });
@@ -41,7 +44,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (draft.type === "PRODUCTS") {
     return handleProductRowFix(draft, body, session.user.id);
   } else {
-    return handleImageRowFix(draft, body, session.user.id);
+    return handleImageRowFix(draft, body, session.user.id, tenant.slug);
   }
 }
 
@@ -142,7 +145,7 @@ async function handleProductRowFix(
       categoryId = firstCat?.id ?? "";
     }
 
-    const existing = await prisma.product.findUnique({ where: { reference: String(row.reference).toUpperCase() } });
+    const existing = await prisma.product.findFirst({ where: { reference: String(row.reference).toUpperCase() } });
     if (existing) {
       return NextResponse.json({ ok: false, errors: [`La référence "${row.reference}" existe déjà.`] });
     }
@@ -247,7 +250,8 @@ async function handleImageRowFix(
       size?: string;
     };
   },
-  _adminId: string
+  _adminId: string,
+  tenantSlug: string,
 ) {
   const rows = draft.rows as Record<string, unknown>[];
   const row = rows[body.rowIndex];
@@ -374,7 +378,7 @@ async function handleImageRowFix(
   const colorName = colorMeta?.name ?? String(row.color ?? "");
   const stamp = Date.now().toString(36);
   const { productImageDir, productImageBaseName } = await import("@/lib/storage");
-  const destDir = productImageDir(reference);
+  const destDir = productImageDir(reference, tenantSlug);
   const safeFilename = `${productImageBaseName(reference, colorName, position)}-${stamp}`;
 
   try {

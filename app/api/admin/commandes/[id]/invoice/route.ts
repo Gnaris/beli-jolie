@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import path from "path";
 import fs from "fs/promises";
 import { invoiceDir, slugify } from "@/lib/storage";
+import { requireCurrentTenant } from "@/lib/tenant";
 
 // Legacy : ancien dossier plat (lecture pour les factures déjà uploadées
 // avant le passage à la nouvelle arbo). N'est plus utilisé pour écrire.
@@ -30,6 +31,8 @@ export async function POST(
     return NextResponse.json({ error: "Accès non autorisé." }, { status: 401 });
   }
 
+  const tenant = await requireCurrentTenant();
+
   const { id } = await params;
 
   const order = await prisma.order.findUnique({
@@ -52,7 +55,7 @@ export async function POST(
 
   // Nouvelle arbo : private/uploads/factures/{annee}/commande-{ref}.pdf
   const year = (order.createdAt ?? new Date()).getFullYear();
-  const dir = invoiceDir(year);
+  const dir = invoiceDir(year, tenant.slug);
   const orderRefSlug = slugify(order.orderNumber);
   const filename = `commande-${orderRefSlug}.pdf`;
   const key = `${dir}/${filename}`;

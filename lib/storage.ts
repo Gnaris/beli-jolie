@@ -469,13 +469,16 @@ async function renameFilesPrefixedIn(
 export async function renameProductFolder(
   oldRef: string,
   newRef: string,
+  tenantSlug?: string,
 ): Promise<{ renamed: { oldDbPath: string; newDbPath: string }[] }> {
   const oldSlug = slugify(oldRef);
   const newSlug = slugify(newRef);
   if (oldSlug === newSlug) return { renamed: [] };
 
-  const oldDir = `uploads/produits/${oldSlug}`;
-  const newDir = `uploads/produits/${newSlug}`;
+  const legacyOld = `uploads/produits/${oldSlug}`;
+  const legacyNew = `uploads/produits/${newSlug}`;
+  const oldDir = tenantSlug ? withTenantSlug(legacyOld, tenantSlug) : legacyOld;
+  const newDir = tenantSlug ? withTenantSlug(legacyNew, tenantSlug) : legacyNew;
 
   const moved = await renameDirectory(oldDir, newDir);
   if (!moved) return { renamed: [] };
@@ -499,13 +502,16 @@ export async function renameProductFolder(
 export async function renameCollectionFolder(
   oldSlug: string,
   newSlug: string,
+  tenantSlug?: string,
 ): Promise<{ renamed: { oldDbPath: string; newDbPath: string }[] }> {
   const o = slugify(oldSlug);
   const n = slugify(newSlug);
   if (o === n) return { renamed: [] };
 
-  const oldDir = `uploads/collections/${o}`;
-  const newDir = `uploads/collections/${n}`;
+  const legacyOld = `uploads/collections/${o}`;
+  const legacyNew = `uploads/collections/${n}`;
+  const oldDir = tenantSlug ? withTenantSlug(legacyOld, tenantSlug) : legacyOld;
+  const newDir = tenantSlug ? withTenantSlug(legacyNew, tenantSlug) : legacyNew;
 
   const moved = await renameDirectory(oldDir, newDir);
   if (!moved) return { renamed: [] };

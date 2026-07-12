@@ -10,6 +10,7 @@ const mockPrisma = vi.hoisted(() => ({
   siteConfig: {
     upsert: vi.fn(),
     findUnique: vi.fn(),
+    findFirst: vi.fn(),
   },
   product: {
     findMany: vi.fn(),
@@ -21,11 +22,16 @@ const mockRevalidate = vi.hoisted(() => ({
   unstable_cache: <T>(fn: T) => fn,
 }));
 const mockHealth = vi.hoisted(() => ({ clearAutoMaintenance: vi.fn() }));
+const mockSiteConfigWrite = vi.hoisted(() => ({
+  setSiteConfig: vi.fn(),
+  unsetSiteConfig: vi.fn(),
+}));
 
 vi.mock("next-auth", () => ({ getServerSession: mockGetServerSession }));
 vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }));
 vi.mock("next/cache", () => mockRevalidate);
 vi.mock("@/lib/health", () => mockHealth);
+vi.mock("@/lib/site-config-write", () => mockSiteConfigWrite);
 // Évite de charger les modules PFS / Ankorstore lors de l'import de marketplace-refresh
 vi.mock("@/lib/pfs-refresh", () => ({ pfsRefreshProduct: vi.fn() }));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
@@ -37,6 +43,8 @@ import { getRecentlyRefreshedProducts } from "@/app/actions/admin/marketplace-re
 beforeEach(() => {
   vi.clearAllMocks();
   mockPrisma.siteConfig.upsert.mockResolvedValue({});
+  mockSiteConfigWrite.setSiteConfig.mockResolvedValue(undefined);
+  mockSiteConfigWrite.unsetSiteConfig.mockResolvedValue(undefined);
 });
 
 describe("updateRefreshWarning", () => {
@@ -44,14 +52,14 @@ describe("updateRefreshWarning", () => {
     mockGetServerSession.mockResolvedValueOnce(null);
     const result = await updateRefreshWarning(true, 7);
     expect(result.success).toBe(false);
-    expect(mockPrisma.siteConfig.upsert).not.toHaveBeenCalled();
+    expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
   });
 
   it("refuse un client connecté (non admin)", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "CLIENT" } });
     const result = await updateRefreshWarning(true, 7);
     expect(result.success).toBe(false);
-    expect(mockPrisma.siteConfig.upsert).not.toHaveBeenCalled();
+    expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
   });
 
   it("rejette un nombre de jours hors bornes", async () => {
@@ -62,24 +70,22 @@ describe("updateRefreshWarning", () => {
     expect(r2.success).toBe(false);
     const r3 = await updateRefreshWarning(true, NaN);
     expect(r3.success).toBe(false);
-    expect(mockPrisma.siteConfig.upsert).not.toHaveBeenCalled();
+    expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
   });
 
   it("upsert les deux clés SiteConfig pour un admin et tronque les décimales", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
     const result = await updateRefreshWarning(true, 7.9);
     expect(result.success).toBe(true);
-    expect(mockPrisma.siteConfig.upsert).toHaveBeenCalledTimes(2);
-    expect(mockPrisma.siteConfig.upsert).toHaveBeenCalledWith({
-      where: { key: "refresh_warning_enabled" },
-      update: { value: "true" },
-      create: { key: "refresh_warning_enabled", value: "true" },
-    });
-    expect(mockPrisma.siteConfig.upsert).toHaveBeenCalledWith({
-      where: { key: "refresh_warning_days" },
-      update: { value: "7" },
-      create: { key: "refresh_warning_days", value: "7" },
-    });
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(2);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
+      "refresh_warning_enabled",
+      "true",
+    );
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
+      "refresh_warning_days",
+      "7",
+    );
     expect(mockRevalidate.revalidateTag).toHaveBeenCalledWith("site-config", "default");
   });
 
@@ -87,11 +93,10 @@ describe("updateRefreshWarning", () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
     const result = await updateRefreshWarning(false, 14);
     expect(result.success).toBe(true);
-    expect(mockPrisma.siteConfig.upsert).toHaveBeenCalledWith({
-      where: { key: "refresh_warning_enabled" },
-      update: { value: "false" },
-      create: { key: "refresh_warning_enabled", value: "false" },
-    });
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
+      "refresh_warning_enabled",
+      "false",
+    );
   });
 });
 
@@ -103,7 +108,7 @@ describe("getRecentlyRefreshedProducts", () => {
 
   it("retourne enabled=false et items vide quand le garde-fou est désactivé", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
-    mockPrisma.siteConfig.findUnique.mockImplementation(({ where }: { where: { key: string } }) => {
+    mockPrisma.siteConfig.findFirst.mockImplementation(({ where }: { where: { key: string } }) => {
       if (where.key === "refresh_warning_enabled") return Promise.resolve({ value: "false" });
       if (where.key === "refresh_warning_days") return Promise.resolve({ value: "7" });
       return Promise.resolve(null);
@@ -116,7 +121,7 @@ describe("getRecentlyRefreshedProducts", () => {
 
   it("retourne items vide quand aucun produit demandé", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
-    mockPrisma.siteConfig.findUnique.mockImplementation(({ where }: { where: { key: string } }) => {
+    mockPrisma.siteConfig.findFirst.mockImplementation(({ where }: { where: { key: string } }) => {
       if (where.key === "refresh_warning_enabled") return Promise.resolve({ value: "true" });
       if (where.key === "refresh_warning_days") return Promise.resolve({ value: "7" });
       return Promise.resolve(null);
@@ -129,7 +134,7 @@ describe("getRecentlyRefreshedProducts", () => {
 
   it("filtre les produits rafraîchis dans la fenêtre et calcule daysAgo", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
-    mockPrisma.siteConfig.findUnique.mockImplementation(({ where }: { where: { key: string } }) => {
+    mockPrisma.siteConfig.findFirst.mockImplementation(({ where }: { where: { key: string } }) => {
       if (where.key === "refresh_warning_enabled") return Promise.resolve({ value: "true" });
       if (where.key === "refresh_warning_days") return Promise.resolve({ value: "7" });
       return Promise.resolve(null);
@@ -164,7 +169,7 @@ describe("getRecentlyRefreshedProducts", () => {
 
   it("utilise 7 jours par défaut si la clé days est manquante ou invalide", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
-    mockPrisma.siteConfig.findUnique.mockImplementation(({ where }: { where: { key: string } }) => {
+    mockPrisma.siteConfig.findFirst.mockImplementation(({ where }: { where: { key: string } }) => {
       if (where.key === "refresh_warning_enabled") return Promise.resolve({ value: "true" });
       if (where.key === "refresh_warning_days") return Promise.resolve(null);
       return Promise.resolve(null);

@@ -104,12 +104,12 @@ async function generateOrderNumber(): Promise<string> {
     return id;
   };
 
-  // Garantir l'unicité
+  // Garantir l'unicité (findFirst car orderNumber est unique par tenant seulement)
   let orderNumber: string;
   let exists = true;
   do {
     orderNumber = generate();
-    const found = await prisma.order.findUnique({
+    const found = await prisma.order.findFirst({
       where: { orderNumber },
       select: { id: true },
     });
@@ -276,7 +276,7 @@ export async function placeOrder(
   const subtotalAfterDiscount = subtotalHT - clientDiscountAmt;
 
   // Vérification minimum commande (sur le sous-total avant remise, remise = avantage commercial)
-  const minConfig = await prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } });
+  const minConfig = await prisma.siteConfig.findFirst({ where: { key: "min_order_ht" } });
   const minHT = minConfig ? parseFloat(minConfig.value) : 0;
   if (minHT > 0 && subtotalHT < minHT) {
     return { success: false, error: `Montant minimum de commande non atteint. Minimum requis : ${minHT.toFixed(2)} € HT.` };

@@ -71,7 +71,7 @@ export default async function ParametresPage({
 
   // Compte de marketplaces configurées pour le badge du menu
   const [hasPfs, hasAnkor, hasEfashion, hasFaire] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }).then(Boolean),
+    prisma.siteConfig.findFirst({ where: { key: "pfs_email" }, select: { key: true } }).then(Boolean),
     getCachedHasAnkorstoreConfig(),
     getCachedHasEfashionConfig(),
     getCachedHasFaireConfig(),
@@ -141,10 +141,10 @@ export default async function ParametresPage({
    ═══════════════════════════════════════════════════════════════════════════ */
 async function GeneralTab() {
   const [minConfig, bannerImageConfig, announcementConfig, faviconConfig] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
-    prisma.siteConfig.findUnique({ where: { key: "banner_image" } }),
-    prisma.siteConfig.findUnique({ where: { key: "announcement_banner" } }),
-    prisma.siteConfig.findUnique({ where: { key: "site_favicon" } }),
+    prisma.siteConfig.findFirst({ where: { key: "min_order_ht" } }),
+    prisma.siteConfig.findFirst({ where: { key: "banner_image" } }),
+    prisma.siteConfig.findFirst({ where: { key: "announcement_banner" } }),
+    prisma.siteConfig.findFirst({ where: { key: "site_favicon" } }),
   ]);
 
   let currentFavicon: { icon: string; appleIcon: string } | null = null;
@@ -272,12 +272,12 @@ async function SocieteTab() {
    ═══════════════════════════════════════════════════════════════════════════ */
 async function CatalogueTab() {
   const [displayConfigRow, categories, dbCollections, dbTags, refreshWarnEnabledRow, refreshWarnDaysRow] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "product_display_config" } }),
+    prisma.siteConfig.findFirst({ where: { key: "product_display_config" } }),
     prisma.category.findMany({ orderBy: [{ position: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
     prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.siteConfig.findUnique({ where: { key: "refresh_warning_enabled" } }),
-    prisma.siteConfig.findUnique({ where: { key: "refresh_warning_days" } }),
+    prisma.siteConfig.findFirst({ where: { key: "refresh_warning_enabled" } }),
+    prisma.siteConfig.findFirst({ where: { key: "refresh_warning_days" } }),
   ]);
 
   const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
@@ -318,7 +318,7 @@ async function CatalogueTab() {
    ═══════════════════════════════════════════════════════════════════════════ */
 async function CarrouselsTab() {
   const [displayConfigRow, categories, dbSubCategories, dbCollections, dbTags] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "product_display_config" } }),
+    prisma.siteConfig.findFirst({ where: { key: "product_display_config" } }),
     prisma.category.findMany({ orderBy: [{ position: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
     prisma.subCategory.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, category: { select: { name: true } } } }),
     prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -353,7 +353,7 @@ async function CarrouselsTab() {
    TAB : Stock
    ═══════════════════════════════════════════════════════════════════════════ */
 async function StockTab() {
-  const stockVariantsConfig = await prisma.siteConfig.findUnique({
+  const stockVariantsConfig = await prisma.siteConfig.findFirst({
     where: { key: "show_out_of_stock_variants" },
   });
   const showOutOfStockVariants = stockVariantsConfig?.value !== "false";
@@ -400,7 +400,7 @@ async function StockTab() {
    TAB : Maintenance
    ═══════════════════════════════════════════════════════════════════════════ */
 async function MaintenanceTab() {
-  const maintenanceConfig = await prisma.siteConfig.findUnique({ where: { key: "maintenance_mode" } });
+  const maintenanceConfig = await prisma.siteConfig.findFirst({ where: { key: "maintenance_mode" } });
 
   const maintenanceValue = maintenanceConfig?.value ?? "false";
   const inMaintenance = maintenanceValue === "true" || maintenanceValue === "auto";
@@ -447,9 +447,9 @@ async function MaintenanceTab() {
    ═══════════════════════════════════════════════════════════════════════════ */
 async function LivraisonTab() {
   const [eeApiKeyConfig, marginTypeRow, marginValueRow] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "easy_express_api_key" }, select: { key: true } }),
-    prisma.siteConfig.findUnique({ where: { key: "shipping_margin_type" } }),
-    prisma.siteConfig.findUnique({ where: { key: "shipping_margin_value" } }),
+    prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key" }, select: { key: true } }),
+    prisma.siteConfig.findFirst({ where: { key: "shipping_margin_type" } }),
+    prisma.siteConfig.findFirst({ where: { key: "shipping_margin_value" } }),
   ]);
 
   const marginType = (marginTypeRow?.value as "fixed" | "percent") || "fixed";
@@ -527,7 +527,7 @@ async function MarketplacesTab() {
     efaPublished, efaToSync, efaLast,
     faiPublished, faiToSync, faiLast,
   ] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
+    prisma.siteConfig.findFirst({ where: { key: "pfs_email" }, select: { key: true } }),
     prisma.siteConfig.findMany({
       where: { key: { in: ["pfs_price_markup_type", "pfs_price_markup_value", "pfs_price_markup_rounding"] } },
     }),
@@ -637,7 +637,7 @@ async function MarketplacesTab() {
    TAB : Horaires
    ═══════════════════════════════════════════════════════════════════════════ */
 async function HorairesTab() {
-  const row = await prisma.siteConfig.findUnique({ where: { key: "business_hours" } });
+  const row = await prisma.siteConfig.findFirst({ where: { key: "business_hours" } });
   let schedule = null;
   if (row?.value) {
     try { schedule = JSON.parse(row.value); } catch { /* ignore */ }
@@ -660,8 +660,8 @@ async function HorairesTab() {
    ═══════════════════════════════════════════════════════════════════════════ */
 async function TraductionTab() {
   const [pfsEmailRow, autoTranslateConfig] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
-    prisma.siteConfig.findUnique({ where: { key: "auto_translate_enabled" }, select: { value: true } }),
+    prisma.siteConfig.findFirst({ where: { key: "pfs_email" }, select: { key: true } }),
+    prisma.siteConfig.findFirst({ where: { key: "auto_translate_enabled" }, select: { value: true } }),
   ]);
 
   const hasPfs = !!pfsEmailRow;
@@ -717,8 +717,8 @@ async function TraductionTab() {
    ═══════════════════════════════════════════════════════════════════════════ */
 async function SeoTab() {
   const [homeRow, produitsRow] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "home_seo_text" } }),
-    prisma.siteConfig.findUnique({ where: { key: "produits_seo_text" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_seo_text" } }),
+    prisma.siteConfig.findFirst({ where: { key: "produits_seo_text" } }),
   ]);
 
   const shopName = await getCachedShopName();

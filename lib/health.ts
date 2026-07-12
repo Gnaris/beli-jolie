@@ -137,13 +137,13 @@ export async function attemptAutoRecovery(): Promise<boolean> {
     await prisma.$queryRaw`SELECT 1`;
 
     // DB is back! Check if maintenance was auto-triggered (not manual)
-    const config = await prisma.siteConfig.findUnique({
+    const config = await prisma.siteConfig.findFirst({
       where: { key: "maintenance_mode" },
     });
 
     // Only auto-recover if the value is "auto" (we set it to "auto" when auto-triggered)
     if (config?.value === "auto") {
-      await prisma.siteConfig.update({
+      await prisma.siteConfig.updateMany({
         where: { key: "maintenance_mode" },
         data: { value: "false" },
       });
@@ -170,10 +170,6 @@ export async function attemptAutoRecovery(): Promise<boolean> {
  * Persist auto-maintenance to DB (sets value to "auto" to distinguish from manual)
  */
 async function triggerAutoMaintenanceInDB() {
-  const { prisma } = await import("@/lib/prisma");
-  await prisma.siteConfig.upsert({
-    where: { key: "maintenance_mode" },
-    update: { value: "auto" },
-    create: { key: "maintenance_mode", value: "auto" },
-  });
+  const { setSiteConfig } = await import("@/lib/site-config-write");
+  await setSiteConfig("maintenance_mode", "auto");
 }

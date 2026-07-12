@@ -11,7 +11,7 @@ async function main() {
   const email = "sophie.martin+test-order@bijoux-elegance.fr";
 
   // ─── 1. Client de test (recrée à chaque lancement) ───────────────────
-  const existing = await prisma.user.findUnique({
+  const existing = await prisma.user.findFirst({
     where: { email },
     select: { id: true },
   });

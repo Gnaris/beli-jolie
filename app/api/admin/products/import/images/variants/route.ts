@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Référence requise." }, { status: 400 });
   }
 
-  const product = await prisma.product.findUnique({
+  const product = await prisma.product.findFirst({
     where: { reference },
     include: {
       colors: {
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Référence et couleurs requises." }, { status: 400 });
   }
 
-  const product = await prisma.product.findUnique({ where: { reference: body.reference.toUpperCase() } });
+  const product = await prisma.product.findFirst({ where: { reference: body.reference.toUpperCase() } });
   if (!product) {
     return NextResponse.json({ error: "Produit introuvable." }, { status: 404 });
   }

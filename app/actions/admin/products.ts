@@ -20,6 +20,7 @@ import {
   renameProductFolder,
   deleteDirectory,
 } from "@/lib/storage";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { getImagePaths } from "@/lib/image-utils";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { normalizePrimaryFlag } from "@/lib/normalize-primary-flag";
@@ -424,7 +425,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
 
   if (/\s/.test(input.reference)) throw new Error("La référence ne doit pas contenir d'espaces.");
 
-  const existing = await prisma.product.findUnique({ where: { reference: input.reference }, select: { id: true } });
+  const existing = await prisma.product.findFirst({ where: { reference: input.reference }, select: { id: true } });
   if (existing) throw new Error("Cette référence existe déjà.");
 
   // Vérifier que la catégorie existe
@@ -674,6 +675,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
 
 export async function updateProduct(id: string, input: ProductInput): Promise<{ variantDbIds: string[] }> {
   await requireAdmin();
+  const tenant = await requireCurrentTenant();
   input = await resolveProtectedSizeId(input);
 
   // [override-debug] Trace : on log les overrides PFS reçus dans le payload pour
@@ -792,7 +794,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   let folderRenamed = false;
   if (oldRef && oldRef !== newRefUpper) {
     try {
-      const { renamed } = await renameProductFolder(oldRef, newRefUpper);
+      const { renamed } = await renameProductFolder(oldRef, newRefUpper, tenant.slug);
       folderRenameSwaps = renamed;
       folderRenamed = true;
     } catch (err) {
@@ -1253,7 +1255,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     // à son ancien nom pour rester cohérent avec la BDD inchangée.
     if (folderRenamed) {
       try {
-        await renameProductFolder(newRefUpper, oldRef);
+        await renameProductFolder(newRefUpper, oldRef, tenant.slug);
       } catch (rollbackErr) {
         logger.error("[Storage] Failed to rollback product folder rename", {
           productId: id,
@@ -1588,6 +1590,7 @@ export async function toggleProductImportant(
 
 export async function deleteProduct(id: string): Promise<{ action: "deleted" | "archived"; orderCount: number }> {
   await requireAdmin();
+  const tenant = await requireCurrentTenant();
 
   const product = await prisma.product.findUnique({
     where: { id },
@@ -1643,7 +1646,7 @@ export async function deleteProduct(id: string): Promise<{ action: "deleted" | "
   // Supprime aussi le dossier dédié (rapide, propre — supprime également
   // d'éventuels fichiers orphelins qui ne seraient plus référencés en BDD).
   try {
-    await deleteDirectory(productImageDir(product.reference));
+    await deleteDirectory(productImageDir(product.reference, tenant.slug));
   } catch (err) {
     logger.error(`[Storage] Failed to delete product folder for ${id}`, {
       error: err,
@@ -2228,6 +2231,7 @@ export async function bulkDeleteProducts(
   archived: { id: string; reference: string; orderCount: number }[];
 }> {
   await requireAdmin();
+  const tenant = await requireCurrentTenant();
   if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
 
   const products = await prisma.product.findMany({
@@ -2296,7 +2300,7 @@ export async function bulkDeleteProducts(
       .map((p) => p.reference);
     for (const ref of deletableRefs) {
       try {
-        await deleteDirectory(productImageDir(ref));
+        await deleteDirectory(productImageDir(ref, tenant.slug));
       } catch (err) {
         logger.error(`[Storage] Failed to delete product folder for ${ref}`, {
           error: err,

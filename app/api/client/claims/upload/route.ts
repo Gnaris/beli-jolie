@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
-import { uploadFile, claimDir } from "@/lib/storage";
+import { uploadFile, claimDir, withTenantSlug } from "@/lib/storage";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 
 const MAX_FILES = 5;
@@ -24,6 +25,8 @@ export async function POST(request: NextRequest) {
   if (!session || session.user.role !== "CLIENT" || session.user.status !== "APPROVED") {
     return NextResponse.json({ error: "Accès non autorisé." }, { status: 401 });
   }
+
+  const tenant = await requireCurrentTenant();
 
   const formData = await request.formData();
   const files = formData.getAll("images") as File[];
@@ -56,8 +59,8 @@ export async function POST(request: NextRequest) {
     const paths: string[] = [];
     // Si pas d'orderRef, on regroupe par client pour ne pas pourrir la racine.
     const dir = orderRef
-      ? claimDir(orderRef)
-      : `uploads/reclamations/_brouillon/${session.user.id}`;
+      ? claimDir(orderRef, tenant.slug)
+      : withTenantSlug(`uploads/reclamations/_brouillon/${session.user.id}`, tenant.slug);
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];

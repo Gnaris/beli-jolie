@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email requis." }, { status: 400 });
     }
     // Vérifier que l'utilisateur existe
-    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    const user = await prisma.user.findFirst({ where: { email: email.toLowerCase().trim() } });
     // On répond toujours avec succès (sécurité anti-enumeration)
     if (user) {
       const token = await createPasswordResetToken(user.email);

@@ -32,24 +32,29 @@ async function main() {
   console.log(`[seed-demo] Domaines : ${hosts.map((h) => h.host).join(", ")}`);
 
   // 3. Admin demo distinct
+  // email n'est plus unique global (composite tenantId+email) → on ne peut plus
+  // faire un upsert simple. On recherche par (tenantId, email), sinon on crée.
   const adminEmail = "admin-demo@test.local";
   const hash = await bcrypt.hash("demo-password", 10);
-  const admin = await prisma.user.upsert({
-    where: { email: adminEmail },
-    update: {},
-    create: {
-      email: adminEmail,
-      password: hash,
-      firstName: "Admin",
-      lastName: "Demo",
-      company: "Demo Boutique",
-      phone: "+33 0 00 00 00 00",
-      siret: "99999999900099",
-      role: "ADMIN",
-      status: "APPROVED",
-      tenantId: tenant.id,
-    },
+  let admin = await prisma.user.findFirst({
+    where: { email: adminEmail, tenantId: tenant.id },
   });
+  if (!admin) {
+    admin = await prisma.user.create({
+      data: {
+        email: adminEmail,
+        password: hash,
+        firstName: "Admin",
+        lastName: "Demo",
+        company: "Demo Boutique",
+        phone: "+33 0 00 00 00 00",
+        siret: "99999999900099",
+        role: "ADMIN",
+        status: "APPROVED",
+        tenantId: tenant.id,
+      },
+    });
+  }
   console.log(`[seed-demo] Admin : ${admin.email} (tenantId=${admin.tenantId})`);
 
   // 4. CompanyInfo demo (une seule fiche société par boutique)
@@ -75,17 +80,23 @@ async function main() {
     process.exit(1);
   }
   for (const ref of ["DEMO-001", "DEMO-002", "DEMO-003"]) {
-    await prisma.product.upsert({
-      where: { reference: ref },
-      update: {},
-      create: {
-        reference: ref,
-        name: `Produit ${ref}`,
-        description: `Produit test isolation multi-tenant — boutique Demo`,
-        categoryId: anyCategory.id,
-        tenantId: tenant.id,
-      },
+    // NOTE: `reference` n'est plus `@unique` seul (remplacé par `@@unique([tenantId, reference])`),
+    // donc `upsert({where:{reference}})` ne compile plus. On simule un upsert manuel scopé au tenant.
+    const existing = await prisma.product.findFirst({
+      where: { reference: ref, tenantId: tenant.id },
+      select: { id: true },
     });
+    if (!existing) {
+      await prisma.product.create({
+        data: {
+          reference: ref,
+          name: `Produit ${ref}`,
+          description: `Produit test isolation multi-tenant — boutique Demo`,
+          categoryId: anyCategory.id,
+          tenantId: tenant.id,
+        },
+      });
+    }
   }
   console.log(`[seed-demo] 3 produits DEMO-001/002/003 créés`);
 

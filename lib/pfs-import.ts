@@ -1301,6 +1301,7 @@ function findPrimaryVariantIndex(
  */
 export async function approveAndImportPfsProduct(
   pfsId: string,
+  tenantSlug: string,
   options?: ImportCancellationOptions,
 ): Promise<ApprovePfsProductResult> {
   const isCancelled = options?.isCancelled;
@@ -1313,7 +1314,7 @@ export async function approveAndImportPfsProduct(
   if (!product) throw new Error(`Produit PFS introuvable : ${pfsId}`);
 
   const reference = product.reference.trim().toUpperCase();
-  const existing = await prisma.product.findUnique({ where: { reference } });
+  const existing = await prisma.product.findFirst({ where: { reference } });
   if (existing) throw new Error(`Produit déjà importé : ${reference}`);
 
   // ── Phase parallèle 1 : appels PFS qui ne dépendent que du `product`
@@ -1615,7 +1616,7 @@ export async function approveAndImportPfsProduct(
     );
   }
 
-  const destDir = `public/${productImageDir(reference)}`;
+  const destDir = `public/${productImageDir(reference, tenantSlug)}`;
   type ProcessedImage = {
     localVariantId: string;
     colorId: string;
@@ -1772,7 +1773,7 @@ export async function approveAndImportPfsProduct(
       logger.error("[PFS Import] Import failed, cleaning up disk", { reference, err: errMsg });
     }
     try {
-      await deleteDirectory(productImageDir(reference));
+      await deleteDirectory(productImageDir(reference, tenantSlug));
     } catch (cleanupErr) {
       logger.warn("[PFS Import] Disk cleanup failed", {
         reference, err: (cleanupErr as Error).message,

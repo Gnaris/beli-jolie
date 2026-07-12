@@ -164,6 +164,15 @@ Toutes les tâches longues admin (traduction, synchro marketplaces, images, shoo
 - `UserRole` : ADMIN|CLIENT
 - `UserStatus` : PENDING|APPROVED|REJECTED
 
+### Multi-tenant (chantier en cours)
+- Extension Prisma `lib/prisma-tenant-scope.ts` scope automatiquement toutes les queries au tenant courant (lu via `getCurrentTenant()` de `lib/tenant.ts`, propagé par ALS `lib/tenant-als.ts`).
+- **Écrire SiteConfig** : `setSiteConfig(key, value)` / `unsetSiteConfig(key)` (helpers `lib/site-config-write.ts`). **Ne jamais** appeler `prisma.siteConfig.upsert({where:{key}})` — PK composite `(tenantId, key)`.
+- **Lire SiteConfig par clé** : `findFirst({where:{key}})`, PAS `findUnique({where:{key}})`.
+- **Autres tables composite** : `Product.reference`, `Order.orderNumber`, `User.email/siret/stripeCustomerId`, `Product.pfsProductId/ankorsProductId/efashionReferenceBase/faireProductId` — utiliser `findFirst({where:{X:...}})` au lieu de `findUnique`. L'extension injecte `tenantId` en `AND`.
+- **Uploads** : passer `tenant.slug` en 2ᵉ arg des helpers `productImageDir`, `collectionImageDir`, `bannerDir`, `faviconDir`, `colorPatternDir`, `chatAttachmentDir`, `bordereauDir`, `kbisDir`, `clientDocumentsDir`, `invoiceDir`, `claimDir`, `creditNoteDir`, `emailAttachmentDir`, `renameProductFolder`, `renameCollectionFolder`. Récup via `const tenant = await requireCurrentTenant()`.
+- **Fire-and-forget** (jobs background sans headers) : capturer `tenant.slug` côté handler HTTP AVANT l'IIFE, passer en paramètre au job.
+- **Scripts CLI** : hors contexte requête → extension passthrough. Passer `tenantId` explicitement pour scope, sinon reads globaux.
+
 ---
 
 ## Versions critiques

@@ -19,9 +19,10 @@ import bcrypt from "bcryptjs";
 
 type PrismaLike = {
   user: {
-    findFirst: (args: { where: { role: "ADMIN" } }) => Promise<{ email: string } | null>;
-    findUnique: (args: { where: { email: string } }) => Promise<{ id: string } | null>;
-    update: (args: {
+    findFirst: (args: {
+      where: { role?: "ADMIN"; email?: string };
+    }) => Promise<{ id?: string; email?: string } | null>;
+    updateMany: (args: {
       where: { email: string };
       data: { role: "ADMIN"; status: "APPROVED" };
     }) => Promise<unknown>;
@@ -52,12 +53,13 @@ export async function ensureAdmin(
 
   const existingAdmin = await prisma.user.findFirst({ where: { role: "ADMIN" } });
   if (existingAdmin) {
-    return { kind: "already-exists", email: existingAdmin.email };
+    return { kind: "already-exists", email: existingAdmin.email ?? trimmedEmail };
   }
 
-  const existingUser = await prisma.user.findUnique({ where: { email: trimmedEmail } });
+  const existingUser = await prisma.user.findFirst({ where: { email: trimmedEmail } });
   if (existingUser) {
-    await prisma.user.update({
+    // updateMany car email n'est plus unique global (composite tenantId+email).
+    await prisma.user.updateMany({
       where: { email: trimmedEmail },
       data: { role: "ADMIN", status: "APPROVED" },
     });

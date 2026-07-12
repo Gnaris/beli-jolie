@@ -10,7 +10,7 @@ async function main() {
   const email = "marie.bertrand+test@moretti.fr";
 
   // Supprime si déjà existant (cascade → cart, orders…)
-  const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  const existing = await prisma.user.findFirst({ where: { email }, select: { id: true } });
   if (existing) {
     console.log("Client de test déjà présent, suppression pour repartir propre…");
     await prisma.user.delete({ where: { id: existing.id } });

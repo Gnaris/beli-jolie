@@ -30,9 +30,9 @@ export default async function DoneStepPage() {
     getOnboardingStatus(),
     getCachedShopName().catch(() => ""),
     prisma.companyInfo.findFirst(),
-    prisma.siteConfig.findUnique({ where: { key: "site_favicon" } }),
-    prisma.siteConfig.findUnique({ where: { key: "banner_image" } }),
-    prisma.siteConfig.findUnique({
+    prisma.siteConfig.findFirst({ where: { key: "site_favicon" } }),
+    prisma.siteConfig.findFirst({ where: { key: "banner_image" } }),
+    prisma.siteConfig.findFirst({
       where: { key: "easy_express_api_key" },
       select: { key: true },
     }),

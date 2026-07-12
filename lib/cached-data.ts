@@ -22,6 +22,13 @@ import { getCurrentTenantIdSync } from "@/lib/tenant-als";
 type CachedFn<Args extends unknown[], T> = (...a: Args) => Promise<T>;
 type CacheOpts = { revalidate?: number; tags?: string[] };
 
+/**
+ * Version SANS tenant : la fonction ne prend pas tid en param (usage direct).
+ * Note : la fonction interne ne voit PAS le tenant courant — l'extension
+ * Prisma peut échouer à scoper si l'ALS/headers sont perdus dans le
+ * callback unstable_cache. Préférer `tenantScopedCacheWithTid` pour toute
+ * lecture Prisma tenant-scopée.
+ */
 function tenantScopedCache<Args extends unknown[], T>(
   keyBase: string,
   fn: CachedFn<Args, T>,
@@ -39,6 +46,55 @@ function tenantScopedCache<Args extends unknown[], T>(
         tags,
       });
       memo.set(tid, cached);
+    }
+    return cached(...args);
+  }) as CachedFn<Args, T>;
+}
+
+/**
+ * Version qui passe le tid capturé en 1ᵉʳ argument du callback pour
+ * qu'il puisse scoper EXPLICITEMENT ses queries Prisma. Nécessaire pour
+ * les lectures tenant-scopées : à l'intérieur de unstable_cache, l'ALS
+ * peut être vide et l'extension retombe alors en passthrough (fuite).
+ *
+ * Le callback reçoit `(tid, ...args)`. Si `tid === "global"`, l'appel est
+ * hors contexte tenant (script CLI) — la query peut lire globalement.
+ */
+function tenantScopedCacheWithTid<Args extends unknown[], T>(
+  keyBase: string,
+  fn: (tid: string, ...a: Args) => Promise<T>,
+  baseKeyParts: string[],
+  opts: CacheOpts,
+): CachedFn<Args, T> {
+  const memo = new Map<string, (...a: Args) => Promise<T>>();
+  return (async (...args: Args): Promise<T> => {
+    // Résolution robuste du tenant :
+    // 1) ALS (rapide, sync) — peuplé si un caller amont a fait bindTenantId
+    // 2) headers() — fallback fiable dans un server component, quel que soit
+    //    l'ordre d'exécution parallèle des composants.
+    // Sans ce fallback headers, les caches se collent en "global" quand ils
+    // sont appelés depuis un composant scheduled avant le bind du parent
+    // (cas Next 16 : generateMetadata parallèle avec RootLayout).
+    let tid = getCurrentTenantIdSync();
+    if (!tid) {
+      try {
+        const { headers } = await import("next/headers");
+        const h = await headers();
+        tid = h.get("x-tenant-id");
+      } catch {
+        // hors contexte requête (script CLI) : accepte "global".
+      }
+    }
+    const finalTid = tid ?? "global";
+    let cached = memo.get(finalTid);
+    if (!cached) {
+      const tags = (opts.tags ?? []).map((t) => `${t}:${finalTid}`);
+      cached = unstable_cache(
+        (...a: Args) => fn(finalTid, ...a),
+        [...baseKeyParts, finalTid, ...args.map(String)],
+        { revalidate: opts.revalidate, tags },
+      );
+      memo.set(finalTid, cached);
     }
     return cached(...args);
   }) as CachedFn<Args, T>;
@@ -167,7 +223,7 @@ const _siteConfigCache = tenantScopedCache(
     // extension (scripts) on retombe sur la row globale.
     return tid
       ? prisma.siteConfig.findFirst({ where: { key, tenantId: tid } })
-      : prisma.siteConfig.findUnique({ where: { key } });
+      : prisma.siteConfig.findFirst({ where: { key } });
   },
   ["site-config"],
   { revalidate: 300, tags: ["site-config"] }
@@ -183,7 +239,7 @@ const _businessHoursCache = tenantScopedCache(
     const tid = getCurrentTenantIdSync();
     const row = tid
       ? await prisma.siteConfig.findFirst({ where: { key: "business_hours", tenantId: tid } })
-      : await prisma.siteConfig.findUnique({ where: { key: "business_hours" } });
+      : await prisma.siteConfig.findFirst({ where: { key: "business_hours" } });
     if (!row?.value) return null;
     try { return JSON.parse(row.value); } catch { return null; }
   },
@@ -197,21 +253,26 @@ export function getCachedBusinessHours() {
 // ─── Company info (from CompanyInfo, used for shipping, legal, etc.) ─────────
 const DEFAULT_SHOP_NAME = "Ma Boutique";
 
-export const getCachedCompanyInfo = tenantScopedCache(
+export const getCachedCompanyInfo = tenantScopedCacheWithTid(
   "company-info",
-  async () => {
-    // Extension Prisma scope auto par tenantId → findFirst renvoie la fiche
-    // de la boutique courante uniquement.
-    return prisma.companyInfo.findFirst();
+  async (tid) => {
+    // Scope explicite : dans un callback unstable_cache l'ALS est vide et
+    // l'extension retombe en passthrough (fuite cross-tenant si pas de where).
+    return prisma.companyInfo.findFirst({
+      where: tid === "global" ? undefined : { tenantId: tid },
+    });
   },
   ["company-info"],
   { revalidate: 300, tags: ["company-info"] }
 );
 
-export const getCachedShopName = tenantScopedCache(
+export const getCachedShopName = tenantScopedCacheWithTid(
   "shop-name",
-  async () => {
-    const info = await prisma.companyInfo.findFirst({ select: { shopName: true } });
+  async (tid) => {
+    const info = await prisma.companyInfo.findFirst({
+      where: tid === "global" ? undefined : { tenantId: tid },
+      select: { shopName: true },
+    });
     return info?.shopName || DEFAULT_SHOP_NAME;
   },
   ["shop-name"],
@@ -232,7 +293,7 @@ export const getCachedFavicon = tenantScopedCache<[], CustomFavicon | null>(
     const tid = getCurrentTenantIdSync();
     const row = tid
       ? await prisma.siteConfig.findFirst({ where: { key: "site_favicon", tenantId: tid }, select: { value: true } })
-      : await prisma.siteConfig.findUnique({ where: { key: "site_favicon" }, select: { value: true } });
+      : await prisma.siteConfig.findFirst({ where: { key: "site_favicon" }, select: { value: true } });
     if (!row?.value) return null;
     try {
       const parsed = JSON.parse(row.value) as Partial<CustomFavicon>;
@@ -255,7 +316,7 @@ export const getCachedEasyExpressApiKey = tenantScopedCache(
     const tid = getCurrentTenantIdSync();
     const row = tid
       ? await prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key", tenantId: tid } })
-      : await prisma.siteConfig.findUnique({ where: { key: "easy_express_api_key" } });
+      : await prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key" } });
     return row?.value ? decryptIfSensitive("easy_express_api_key", row.value) : null;
   },
   ["easy-express-api-key"],
@@ -274,8 +335,8 @@ export const getCachedShippingMargin = tenantScopedCache(
           prisma.siteConfig.findFirst({ where: { key: "shipping_margin_value", tenantId: tid } }),
         ])
       : await Promise.all([
-          prisma.siteConfig.findUnique({ where: { key: "shipping_margin_type" } }),
-          prisma.siteConfig.findUnique({ where: { key: "shipping_margin_value" } }),
+          prisma.siteConfig.findFirst({ where: { key: "shipping_margin_type" } }),
+          prisma.siteConfig.findFirst({ where: { key: "shipping_margin_value" } }),
         ]);
     return {
       type: (typeRow?.value as "fixed" | "percent") || "fixed",

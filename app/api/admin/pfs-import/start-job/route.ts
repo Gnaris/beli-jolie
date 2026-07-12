@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { processPfsImport, type PfsImportItem } from "@/lib/pfs-import-processor";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 
 export const maxDuration = 300;
@@ -17,6 +18,8 @@ export async function POST(req: NextRequest) {
   if (!session || session.user.role !== "ADMIN") {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
+
+  const tenant = await requireCurrentTenant();
 
   try {
     const body = await req.json();
@@ -54,8 +57,9 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Fire-and-forget
-    processPfsImport(job.id).catch((err) => {
+    // Fire-and-forget — le tenantSlug est capturé ici car le processor
+    // background ne peut plus lire les headers de requête.
+    processPfsImport(job.id, tenant.slug).catch((err) => {
       logger.error("[pfs-import/start-job] Background processing error", {
         jobId: job.id,
         error: err,

@@ -9,6 +9,7 @@ import { logger } from "@/lib/logger";
 // If behind a reverse proxy, configure its limit to at least 300MB for image batches.
 import path from "path";
 import { processImageBatch, finalizeImageImport } from "@/lib/import-processor";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { readdir, writeFile as writeFileAsync } from "fs/promises";
 
 // ─────────────────────────────────────────────
@@ -45,6 +46,8 @@ export async function POST(
   if (!session || session.user.role !== "ADMIN") {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
+
+  const tenant = await requireCurrentTenant();
 
   const { id } = await params;
   const job = await prisma.importJob.findUnique({ where: { id } });
@@ -117,7 +120,7 @@ export async function POST(
             });
             const CHUNK = 20;
             for (let i = 0; i < pending.length; i += CHUNK) {
-              await processImageBatch(id, pending.slice(i, i + CHUNK));
+              await processImageBatch(id, pending.slice(i, i + CHUNK), tenant.slug);
             }
           }
         } catch {
@@ -188,7 +191,7 @@ export async function POST(
     let batchResult = { processed: 0, success: 0, errors: 0 };
     if (batchFilenames.length > 0) {
       try {
-        batchResult = await processImageBatch(id, batchFilenames);
+        batchResult = await processImageBatch(id, batchFilenames, tenant.slug);
       } catch (err) {
         logger.error("[import-jobs] Batch processing error", { error: err });
         // On ne renvoie pas 500 : l'upload du fichier a réussi, le processing

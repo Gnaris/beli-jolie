@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display";
 import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedSiteConfig, getCachedShopName, getCachedCompositions } from "@/lib/cached-data";
+import { getCurrentTenantId } from "@/lib/tenant";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import SearchFilters from "@/components/produits/SearchFilters";
@@ -13,6 +14,7 @@ import ProductsInfiniteScroll from "@/components/produits/ProductsInfiniteScroll
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  await getCurrentTenantId(); // bind ALS avant les caches tenant-scopés
   const { locale } = await params;
   const [shopName, tMeta] = await Promise.all([
     getCachedShopName(),
@@ -127,6 +129,7 @@ async function fetchImages(productIds: string[]) {
 }
 
 export default async function ProduitsPage({ searchParams }: PageProps) {
+  await getCurrentTenantId(); // bind ALS avant Prisma + caches tenant-scopés
   const [t, session, shopName, locale] = await Promise.all([
     getTranslations("products"),
     getServerSession(authOptions),

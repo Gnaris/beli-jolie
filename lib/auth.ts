@@ -57,7 +57,7 @@ export const authOptions: NextAuthOptions = {
         }
 
         // Recherche de l'utilisateur en base
-        const user = await prisma.user.findUnique({
+        const user = await prisma.user.findFirst({
           where: { email },
         });
 
@@ -147,7 +147,7 @@ export const authOptions: NextAuthOptions = {
           throw new Error(INVALID);
         }
 
-        const user = await prisma.user.findUnique({ where: { email } });
+        const user = await prisma.user.findFirst({ where: { email } });
         if (!user) {
           await recordLoginFailure(email, ip);
           throw new Error(INVALID);

@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const prismaMock = {
   siteConfig: {
-    findUnique: vi.fn(),
+    findFirst: vi.fn(),
     findMany: vi.fn(),
   },
   colorTranslation: {
@@ -47,7 +47,7 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 function setAutoTranslate(enabled: boolean) {
-  prismaMock.siteConfig.findUnique.mockImplementation(async ({ where }: { where: { key: string } }) => {
+  prismaMock.siteConfig.findFirst.mockImplementation(async ({ where }: { where: { key: string } }) => {
     if (where.key === "auto_translate_enabled") {
       return { value: enabled ? "true" : "false" };
     }

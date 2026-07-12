@@ -47,7 +47,7 @@ export default async function CommandePage() {
         freeShipping:      true,
       },
     }),
-    prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
+    prisma.siteConfig.findFirst({ where: { key: "min_order_ht" } }),
   ]);
 
   if (!cart || cart.items.length === 0) return redirect({href: "/panier", locale});

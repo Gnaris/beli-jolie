@@ -7,6 +7,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 import { autoTranslateCollection } from "@/lib/auto-translate";
 import { renameCollectionFolder, deleteDirectory, collectionImageDir, deleteFile, keyFromDbPath } from "@/lib/storage";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
@@ -74,6 +75,7 @@ export async function createCollection(formData: FormData) {
 // ─────────────────────────────────────────────
 export async function updateCollection(id: string, formData: FormData) {
   await requireAdmin();
+  const tenant = await requireCurrentTenant();
 
   const raw = {
     name:  formData.get("name")  as string,
@@ -100,7 +102,7 @@ export async function updateCollection(id: string, formData: FormData) {
   let previousImageEffectivePath: string | null = previous?.image ?? null;
   if (previous && previous.name !== parsed.data.name) {
     try {
-      const { renamed } = await renameCollectionFolder(previous.name, parsed.data.name);
+      const { renamed } = await renameCollectionFolder(previous.name, parsed.data.name, tenant.slug);
       folderRenamed = renamed.length > 0;
       // Si l'image actuelle pointe vers l'ancien dossier, swap aussi le path.
       if (newImagePath) {
@@ -132,7 +134,7 @@ export async function updateCollection(id: string, formData: FormData) {
   } catch (err) {
     if (folderRenamed && previous) {
       try {
-        await renameCollectionFolder(parsed.data.name, previous.name);
+        await renameCollectionFolder(parsed.data.name, previous.name, tenant.slug);
       } catch (rollbackErr) {
         logger.error("[Storage] Failed to rollback collection folder rename", {
           collectionId: id,
@@ -193,6 +195,7 @@ export async function updateCollection(id: string, formData: FormData) {
 // ─────────────────────────────────────────────
 export async function deleteCollection(id: string) {
   await requireAdmin();
+  const tenant = await requireCurrentTenant();
 
   const previous = await prisma.collection.findUnique({
     where: { id },
@@ -204,7 +207,7 @@ export async function deleteCollection(id: string) {
   // Suppression du dossier d'images dédié, s'il existe.
   if (previous?.name) {
     try {
-      await deleteDirectory(collectionImageDir(previous.name));
+      await deleteDirectory(collectionImageDir(previous.name, tenant.slug));
     } catch (err) {
       logger.error(`[Storage] Failed to delete collection folder`, {
         collectionId: id,

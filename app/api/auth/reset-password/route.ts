@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Lien invalide ou expiré." }, { status: 400 });
     }
     const hashed = await bcrypt.hash(password, 12);
-    await prisma.user.update({ where: { email: record.email }, data: { password: hashed } });
+    await prisma.user.updateMany({ where: { email: record.email }, data: { password: hashed } });
     await prisma.passwordResetToken.update({ where: { token }, data: { used: true } });
     return NextResponse.json({ success: true });
   } catch (e) {

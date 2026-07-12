@@ -48,7 +48,7 @@ type Report = {
 };
 
 async function applyItem(item: Item, now: Date): Promise<Report> {
-  const product = await prisma.product.findUnique({
+  const product = await prisma.product.findFirst({
     where: { reference: item.ref },
     select: {
       id: true,

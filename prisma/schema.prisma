@@ -38,13 +38,13 @@ enum ClientDiscountMode {
 
 model User {
   id                            String              @id @default(cuid())
-  email                         String              @unique
+  email                         String
   password                      String
   firstName                     String
   lastName                      String
   company                       String
   phone                         String
-  siret                         String              @unique
+  siret                         String
   kbisPath                      String?
   documentPath                  String? // Document libre envoyé lors de l'inscription
   registrationMessage           String? // Message libre lors de l'inscription
@@ -65,7 +65,7 @@ model User {
   vatExempt                     Boolean             @default(false)
   vatValidatedAt                DateTime?
   vatValidatedBy                String? // id de l'admin qui a validé
-  stripeCustomerId              String?             @unique // cus_xxx — requis pour le virement bancaire
+  stripeCustomerId              String? // cus_xxx — requis pour le virement bancaire
   role                          Role                @default(CLIENT)
   status                        UserStatus          @default(PENDING)
   // Remise commerciale
@@ -108,6 +108,9 @@ model User {
   productViews    ProductView[]     @relation("ProductViewer")
   priceChanges    PriceHistory[]    @relation("PriceChanger")
 
+  @@unique([tenantId, email])
+  @@unique([tenantId, siret])
+  @@unique([tenantId, stripeCustomerId])
   @@index([tenantId])
 }
 
@@ -393,7 +396,7 @@ model ProductTag {
 // Produit principal
 model Product {
   id                          String                @id @default(cuid())
-  reference                   String                @unique
+  reference                   String
   name                        String
   description                 String                @db.Text
   note                        String?               @db.Text
@@ -542,16 +545,17 @@ model Product {
   @@index([reference]) // exact reference search
   @@index([manufacturingCountryId]) // country filter
   @@index([seasonId]) // season filter
-  @@index([pfsProductId])
-  @@index([ankorsProductId])
-  @@index([efashionReferenceBase])
-  @@index([faireProductId])
   @@index([primaryColorId])
   @@index([pfsLastExportedAt])
   @@index([efashionLastExportedAt])
   @@index([microstoreLastExportedAt])
   @@index([ankorstoreLastExportedAt])
   @@index([faireLastExportedAt])
+  @@unique([tenantId, reference])
+  @@unique([tenantId, pfsProductId])
+  @@unique([tenantId, ankorsProductId])
+  @@unique([tenantId, faireProductId])
+  @@index([tenantId, efashionReferenceBase]) // NON unique : plusieurs produits BJ (1 par couleur) peuvent partager la même reference_base eFashion
 }
 
 // ─────────────────────────────────────────────
@@ -1213,7 +1217,7 @@ enum DiscountKind {
 // Commande validée par le client
 model Order {
   id          String      @id @default(cuid())
-  orderNumber String      @unique // ex: K7X9M2PH (8 chars aléatoires)
+  orderNumber String // ex: K7X9M2PH (8 chars aléatoires) — unique par tenant (voir @@unique)
   userId      String
   user        User        @relation(fields: [userId], references: [id])
   items       OrderItem[]
@@ -1303,6 +1307,7 @@ model Order {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
+  @@unique([tenantId, orderNumber])
   @@index([tenantId])
   @@index([status])
   @@index([userId, createdAt])
@@ -1520,14 +1525,14 @@ model SiteConfig {
   value     String   @db.Text
   updatedAt DateTime @updatedAt
 
-  // Multi-tenant : nullable pendant migration progressive.
-  // En phase 3, la PK deviendra composite (tenantId, key) et le code lecteur
-  // sera adapté pour scoper chaque config à sa boutique.
-  tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+  // Multi-tenant : PK composite (tenantId, key) — chaque boutique a sa config.
+  // Écritures : passer par `setSiteConfig` / `unsetSiteConfig` (lib/site-config-write.ts)
+  // qui utilisent updateMany+create pour rester compatibles avec l'extension
+  // d'auto-scoping.
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
 
-  @@id([key])
-  @@index([tenantId])
+  @@id([tenantId, key])
 }
 
 // ─────────────────────────────────────────────

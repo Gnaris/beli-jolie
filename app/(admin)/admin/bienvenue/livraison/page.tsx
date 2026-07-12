@@ -8,12 +8,12 @@ export const dynamic = "force-dynamic";
 
 export default async function ShippingStepPage() {
   const [eeRow, marginTypeRow, marginValueRow] = await Promise.all([
-    prisma.siteConfig.findUnique({
+    prisma.siteConfig.findFirst({
       where: { key: "easy_express_api_key" },
       select: { key: true },
     }),
-    prisma.siteConfig.findUnique({ where: { key: "shipping_margin_type" } }),
-    prisma.siteConfig.findUnique({ where: { key: "shipping_margin_value" } }),
+    prisma.siteConfig.findFirst({ where: { key: "shipping_margin_type" } }),
+    prisma.siteConfig.findFirst({ where: { key: "shipping_margin_value" } }),
   ]);
 
   const marginType =

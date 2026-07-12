@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { approveAndImportPfsProduct } from "@/lib/pfs-import";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 
@@ -12,6 +13,8 @@ export async function POST(req: Request) {
   if (!session || session.user?.role !== "ADMIN") {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
+
+  const tenant = await requireCurrentTenant();
 
   let body: unknown;
   try {
@@ -26,7 +29,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await approveAndImportPfsProduct(pfsId.trim());
+    const result = await approveAndImportPfsProduct(pfsId.trim(), tenant.slug);
     revalidateTag("products", "default");
     return NextResponse.json(result);
   } catch (err) {

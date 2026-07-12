@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { prisma } from "@/lib/prisma";
 import { VALID_LOCALES, DEFAULT_LOCALE } from "@/i18n/locales";
+import { getCurrentTenantId } from "@/lib/tenant";
 
 const STATIC_PATHS: { path: string; changeFrequency: "daily" | "weekly" | "monthly" | "yearly"; priority: number }[] = [
   { path: "", changeFrequency: "daily", priority: 1 },
@@ -24,6 +25,10 @@ function buildLanguageMap(baseUrl: string, path: string): Record<string, string>
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  // Bind ALS avant Prisma pour que les findMany soient scopés au tenant courant
+  // (résolu par le middleware via le Host header). Sans ça, le sitemap contient
+  // les produits des 2 boutiques.
+  await getCurrentTenantId();
   const baseUrl = (process.env.NEXTAUTH_URL || "https://example.com").replace(/\/$/, "");
   const now = new Date();
 

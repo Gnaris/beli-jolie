@@ -9,6 +9,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { setSiteConfig } from "@/lib/site-config-write";
 import { encryptIfSensitive } from "@/lib/encryption";
 import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
@@ -196,11 +197,7 @@ export async function provisionShopMailbox(
     ];
     for (const [key, value] of smtpEntries) {
       const stored = encryptIfSensitive(key, value);
-      await prisma.siteConfig.upsert({
-        where: { key },
-        update: { value: stored },
-        create: { key, value: stored },
-      });
+      await setSiteConfig(key, stored);
     }
 
     revalidateTag("site-config", "default");
@@ -241,7 +238,7 @@ export async function sendMailboxTest(): Promise<MailboxTestResult> {
     const to = `contact@${domain}`;
 
     // Récupère le mail perso pour l'afficher dans le corps du mail.
-    const forwardRow = await prisma.siteConfig.findUnique({
+    const forwardRow = await prisma.siteConfig.findFirst({
       where: { key: "mailbox_forward_to" },
     });
     const forwardedTo = forwardRow?.value?.trim() || "votre adresse perso";
@@ -417,7 +414,7 @@ export async function getMailboxDnsRecords(): Promise<DnsRecordsResult> {
     }
 
     // Lire le mail forward pour construire le DMARC (rua)
-    const forwardRow = await prisma.siteConfig.findUnique({
+    const forwardRow = await prisma.siteConfig.findFirst({
       where: { key: "mailbox_forward_to" },
     });
     const forwardTo = forwardRow?.value?.trim() || `contact@${domain}`;

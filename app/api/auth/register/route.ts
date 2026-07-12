@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { uploadFile, kbisDir, clientDocumentsDir, slugify } from "@/lib/storage";
+import { getCurrentTenantSlug } from "@/lib/tenant";
 import { registerSchema } from "@/lib/validations/auth";
 import { notifyNewClientRegistration } from "@/lib/notifications";
 import { checkRegistrationSpam, logRegistration, getClientIp } from "@/lib/security";
@@ -26,6 +27,11 @@ export async function POST(request: NextRequest) {
   // Rate limit : 3 req/min par IP (complément au cooldown 3h anti-spam)
   const rateLimited = checkRateLimit(request, "auth-register", 3, 60_000);
   if (rateLimited) return rateLimited;
+
+  // Peut être null si la requête n'a pas traversé le middleware tenant
+  // (contexte de test unitaire, appel direct sans host mappé). Dans ce cas
+  // on retombe sur le layout legacy sans préfixe boutique.
+  const tenantSlug = (await getCurrentTenantSlug()) ?? undefined;
 
   try {
     const formData = await request.formData();
@@ -61,7 +67,7 @@ export async function POST(request: NextRequest) {
     const data = validation.data;
 
     // Vérification unicité de l'email
-    const existingEmail = await prisma.user.findUnique({
+    const existingEmail = await prisma.user.findFirst({
       where: { email: data.email.toLowerCase().trim() },
     });
     if (existingEmail) {
@@ -72,7 +78,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Vérification unicité du SIRET
-    const existingSiret = await prisma.user.findUnique({
+    const existingSiret = await prisma.user.findFirst({
       where: { siret: data.siret },
     });
     if (existingSiret) {
@@ -161,7 +167,7 @@ export async function POST(request: NextRequest) {
       }
 
       const safeSiret = slugify(data.siret.replace(/\D/g, ""));
-      const dir = kbisDir(safeSiret);
+      const dir = kbisDir(safeSiret, tenantSlug);
       const timestamp = Date.now();
       const filename = `kbis-${timestamp}.${ext}`;
       const key = `${dir}/${filename}`;
@@ -212,7 +218,7 @@ export async function POST(request: NextRequest) {
       }
 
       const safeSiret = slugify(data.siret.replace(/\D/g, ""));
-      const docDir = clientDocumentsDir(safeSiret);
+      const docDir = clientDocumentsDir(safeSiret, tenantSlug);
       const timestamp = Date.now();
       const docFilename = `document-${timestamp}.${docExt}`;
       const docKey = `${docDir}/${docFilename}`;

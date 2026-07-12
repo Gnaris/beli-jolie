@@ -69,6 +69,58 @@ vi.mock("@/lib/logger", () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+// ─── Mock tenant helpers (les server actions appellent requireCurrentTenant, ─
+// impossible sans request scope Next.js). On simule le tenant beli-jolie qui
+// existe déjà en BDD (créé par scripts/seed-default-tenant.ts). Le cache est
+// pré-warm en top-level await ci-dessous pour que l'extension Prisma tenant-scope
+// voie tout de suite un tenantId non-null dès le premier create() dans un test
+// (sinon les rows créées seraient orphelines et casseraient les cleanup FK).
+const DEFAULT_TENANT_SLUG = "beli-jolie";
+let cachedDefaultTenant: { id: string; slug: string; name: string } | null = null;
+async function loadDefaultTenant() {
+  if (cachedDefaultTenant) return cachedDefaultTenant;
+  const { PrismaClient } = await import("@prisma/client");
+  const raw = new PrismaClient();
+  try {
+    const t = await raw.tenant.findUnique({ where: { slug: DEFAULT_TENANT_SLUG } });
+    if (!t) {
+      throw new Error(
+        `[test setup] Tenant ${DEFAULT_TENANT_SLUG} introuvable — lance scripts/seed-default-tenant.ts d'abord.`
+      );
+    }
+    cachedDefaultTenant = { id: t.id, slug: t.slug, name: t.name };
+    return cachedDefaultTenant;
+  } finally {
+    await raw.$disconnect();
+  }
+}
+
+// Top-level await : bloque l'évaluation de setup.ts jusqu'à ce que le tenant
+// soit résolu. Fait au premier import (partagé entre tous les fichiers via ESM cache).
+await loadDefaultTenant();
+
+vi.mock("@/lib/tenant", async () => {
+  return {
+    getCurrentTenantId: async () => (await loadDefaultTenant()).id,
+    getCurrentTenantSlug: async () => (await loadDefaultTenant()).slug,
+    getCurrentTenant: async () => loadDefaultTenant(),
+    requireCurrentTenant: async () => loadDefaultTenant(),
+    resolveTenantByHost: async () => loadDefaultTenant(),
+  };
+});
+
+// L'extension Prisma lit d'abord `getCurrentTenantIdSync` (sync). On patche
+// pour retomber sur le tenant par défaut chargé si l'ALS n'a pas été explicitement
+// bindée par un test (cas des tests d'isolation cross-tenant qui utilisent
+// `tenantALS.run()`). Ordre : ALS d'abord, sinon tenant beli-jolie.
+vi.mock("@/lib/tenant-als", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/tenant-als")>("@/lib/tenant-als");
+  return {
+    ...actual,
+    getCurrentTenantIdSync: () => actual.tenantALS.getStore() ?? cachedDefaultTenant?.id ?? null,
+  };
+});
+
 // ─── Cleanup helpers ─────────────────────────────────────────────
 
 /**

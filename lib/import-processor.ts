@@ -931,7 +931,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
           // Handle similar products
           if (similarRefsList.length > 0) {
             for (const simRef of similarRefsList) {
-              const simProduct = await prisma.product.findUnique({
+              const simProduct = await prisma.product.findFirst({
                 where: { reference: simRef },
                 select: { id: true },
               });
@@ -959,7 +959,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
           });
           if (pendingLinks.length > 0) {
             for (const link of pendingLinks) {
-              const sourceProduct = await prisma.product.findUnique({
+              const sourceProduct = await prisma.product.findFirst({
                 where: { reference: link.productRef },
                 select: { id: true },
               });
@@ -1479,6 +1479,7 @@ async function loadImageImportResolutions(tempDirFull: string): Promise<{
 export async function processImageBatch(
   jobId: string,
   batchFilenames: string[],
+  tenantSlug: string,
 ): Promise<{ processed: number; success: number; errors: number }> {
   const job = await prisma.importJob.findUnique({ where: { id: jobId } });
   if (!job || !job.tempDir) throw new Error("Job introuvable ou tempDir manquant.");
@@ -1593,7 +1594,7 @@ export async function processImageBatch(
           // sont déjà committées.
         });
 
-        const productDir = productImageDir(file.reference);
+        const productDir = productImageDir(file.reference, tenantSlug);
         const stamp = Date.now().toString(36);
         const safeFilename = `${productImageBaseName(file.reference, file.color, file.position)}-${stamp}`;
         const imageBuffer = await readFile(file.filePath);
@@ -1781,7 +1782,7 @@ export async function finalizeImageImport(jobId: string): Promise<void> {
  * traite en chunks via le nouveau pipeline (processImageBatch + finalize).
  * Conservé pour les appels existants (re-run manuel, tests d'intégration).
  */
-export async function processImageImport(jobId: string): Promise<void> {
+export async function processImageImport(jobId: string, tenantSlug: string): Promise<void> {
   try {
     const job = await prisma.importJob.findUnique({ where: { id: jobId } });
     if (!job || !job.tempDir) throw new Error("Job introuvable ou tempDir manquant.");
@@ -1800,7 +1801,7 @@ export async function processImageImport(jobId: string): Promise<void> {
 
     for (let i = 0; i < imageFiles.length; i += IMAGE_BATCH_SIZE) {
       const chunk = imageFiles.slice(i, i + IMAGE_BATCH_SIZE);
-      await processImageBatch(jobId, chunk);
+      await processImageBatch(jobId, chunk, tenantSlug);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 

@@ -7,6 +7,7 @@ import path from "path";
 import { existsSync } from "fs";
 import { processProductImage } from "@/lib/image-processor";
 import { productImageDir, productImageBaseName } from "@/lib/storage";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { normalizeColorName } from "@/lib/import-processor";
 import { logger } from "@/lib/logger";
 
@@ -90,6 +91,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
 
+  const tenant = await requireCurrentTenant();
+
   try {
     const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB per image
 
@@ -155,7 +158,7 @@ export async function POST(req: NextRequest) {
       const { reference, color, position } = parsed;
 
       // Find product by reference
-      const product = await prisma.product.findUnique({
+      const product = await prisma.product.findFirst({
         where: { reference },
         include: {
           colors: {
@@ -226,7 +229,7 @@ export async function POST(req: NextRequest) {
       // Valid — save image to product folder using the new arborescence.
       const matchedVariant = matchingVariants[0];
       const colorId = matchedVariant.colorId;
-      const productDir = productImageDir(reference);
+      const productDir = productImageDir(reference, tenant.slug);
       const stamp = Date.now().toString(36);
       const safeFilename = `${productImageBaseName(reference, color, position)}-${stamp}`;
       const bytes = await file.arrayBuffer();

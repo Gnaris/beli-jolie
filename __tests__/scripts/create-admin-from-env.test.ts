@@ -10,8 +10,7 @@ function makePrismaMock() {
   return {
     user: {
       findFirst: vi.fn(),
-      findUnique: vi.fn(),
-      update: vi.fn(),
+      updateMany: vi.fn(),
       create: vi.fn(),
     },
   };
@@ -26,27 +25,30 @@ describe("ensureAdmin", () => {
 
   it("ne fait rien si un admin existe deja", async () => {
     const prisma = makePrismaMock();
-    prisma.user.findFirst.mockResolvedValue({ email: "old-admin@example.com" });
+    // Le 1er findFirst (role:ADMIN) retourne un admin — le 2e (email) n'est pas appelé.
+    prisma.user.findFirst.mockResolvedValueOnce({ email: "old-admin@example.com" });
 
     const result = await ensureAdmin(prisma, "new@example.com", "password123", fakeHash);
 
     expect(result).toEqual({ kind: "already-exists", email: "old-admin@example.com" });
-    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(prisma.user.findFirst).toHaveBeenCalledTimes(1);
     expect(prisma.user.create).not.toHaveBeenCalled();
-    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(prisma.user.updateMany).not.toHaveBeenCalled();
     expect(fakeHash).not.toHaveBeenCalled();
   });
 
   it("promeut un user existant non-admin en ADMIN + APPROVED", async () => {
     const prisma = makePrismaMock();
-    prisma.user.findFirst.mockResolvedValue(null);
-    prisma.user.findUnique.mockResolvedValue({ id: "user-42" });
-    prisma.user.update.mockResolvedValue({});
+    // 1er findFirst : pas d'admin. 2e findFirst : user existant par email.
+    prisma.user.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "user-42" });
+    prisma.user.updateMany.mockResolvedValue({ count: 1 });
 
     const result = await ensureAdmin(prisma, " marie@shop.fr ", "password123", fakeHash);
 
     expect(result).toEqual({ kind: "promoted", email: "marie@shop.fr" });
-    expect(prisma.user.update).toHaveBeenCalledWith({
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({
       where: { email: "marie@shop.fr" },
       data: { role: "ADMIN", status: "APPROVED" },
     });
@@ -56,8 +58,10 @@ describe("ensureAdmin", () => {
 
   it("cree un nouveau compte ADMIN + APPROVED avec bcrypt", async () => {
     const prisma = makePrismaMock();
-    prisma.user.findFirst.mockResolvedValue(null);
-    prisma.user.findUnique.mockResolvedValue(null);
+    // Les 2 findFirst (admin puis email) retournent null.
+    prisma.user.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
     prisma.user.create.mockResolvedValue({});
 
     const result = await ensureAdmin(prisma, "contact@shop.fr", "s3cretpwd", fakeHash);

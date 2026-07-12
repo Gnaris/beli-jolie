@@ -95,3 +95,9 @@ docs/superpowers/
 /scripts/.faire-docs-diag.html
 /scripts/.faire-docs-diag.png
 /scripts/.faire-product-dump.json
+
+# Dumps prod tirés en local (multi-tenant test)
+/dumps/
+
+# Scripts de dev multi-tenant test (crawl agents + rapports)
+/scripts/dev/multi-tenant-test/

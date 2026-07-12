@@ -37,7 +37,7 @@ async function main() {
   console.log("=== Création du client de test complet ===\n");
 
   // ─── 1. Nettoyer si déjà présent ──────────────────────────────
-  const existing = await prisma.user.findUnique({ where: { email: EMAIL }, select: { id: true } });
+  const existing = await prisma.user.findFirst({ where: { email: EMAIL }, select: { id: true } });
   if (existing) {
     console.log("Ancien compte trouvé, nettoyage…");
     await prisma.orderItemModification.deleteMany({ where: { order: { userId: existing.id } } });

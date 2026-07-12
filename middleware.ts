@@ -203,11 +203,11 @@ export async function middleware(request: NextRequest) {
   // On saute la résolution pour l'endpoint interne `/api/tenant-by-host` (sinon
   // boucle infinie) et pour les assets Next.
   const host = (request.headers.get("host") || "").toLowerCase();
+  // Sitemap et robots.txt DOIVENT être scopés par tenant — chaque boutique
+  // a son propre sitemap. On garde la résolution active pour eux.
   const skipTenantResolution =
     pathname.startsWith("/api/tenant-by-host") ||
-    pathname.startsWith("/_next") ||
-    pathname === "/robots.txt" ||
-    pathname === "/sitemap.xml";
+    pathname.startsWith("/_next");
 
   // Chemins qui contournent la vérification "host inconnu" — ils doivent rester
   // joignables même depuis un domaine non enregistré (webhooks marketplaces,
@@ -281,14 +281,28 @@ export async function middleware(request: NextRequest) {
 
   // Helper : retourne une "next response" qui conserve les headers posés par
   // next-intl (locale, cookies de détection éventuels, etc.), avec en plus
-  // les headers tenant injectés dans la request rewrite.
+  // les headers tenant injectés sur la request rewrite.
+  //
+  // IMPORTANT : intlResponse contient déjà un rewrite (x-middleware-rewrite)
+  // vers le path avec locale. On DOIT ré-injecter les tenant headers sur cette
+  // request rewrite, sinon les pages localisées ne voient pas le tenant et
+  // toute la BDD lue par server components devient un mélange cross-tenant.
   const passThrough = () => {
     if (intlResponse) {
-      // next-intl a déjà construit une réponse ; on la retourne telle quelle.
-      // La request rewrite qu'il génère porte déjà les headers du client, on
-      // ne peut pas facilement injecter tenantHeaders ici sans reconstruire
-      // la réponse. Fallback : on injecte via NextResponse.next() dans les
-      // routes admin/api (voir plus bas), où l'accès tenant est critique.
+      // Copie la response next-intl mais force x-middleware-override-headers
+      // pour que Next.js ajoute nos tenant headers sur la request forwardée
+      // aux server components.
+      for (const [k, v] of Object.entries(tenantHeaders)) {
+        intlResponse.headers.set(`x-middleware-request-${k}`, v);
+      }
+      if (Object.keys(tenantHeaders).length > 0) {
+        const existing = intlResponse.headers.get("x-middleware-override-headers");
+        const newHeaders = Object.keys(tenantHeaders).join(",");
+        intlResponse.headers.set(
+          "x-middleware-override-headers",
+          existing ? `${existing},${newHeaders}` : newHeaders,
+        );
+      }
       return intlResponse;
     }
     return NextResponse.next({ request: { headers: requestHeadersWithTenant } });

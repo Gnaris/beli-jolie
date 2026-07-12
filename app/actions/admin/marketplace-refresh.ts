@@ -226,8 +226,8 @@ export async function getRecentlyRefreshedProducts(
   await requireAdmin();
 
   const [enabledRow, daysRow] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "refresh_warning_enabled" } }),
-    prisma.siteConfig.findUnique({ where: { key: "refresh_warning_days" } }),
+    prisma.siteConfig.findFirst({ where: { key: "refresh_warning_enabled" } }),
+    prisma.siteConfig.findFirst({ where: { key: "refresh_warning_days" } }),
   ]);
 
   const enabled = enabledRow?.value === "true";

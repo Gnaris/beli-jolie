@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function StripeStepPage() {
   const [status, publishableRow] = await Promise.all([
     getStripeConfigStatus(),
-    prisma.siteConfig.findUnique({ where: { key: "stripe_publishable_key" } }),
+    prisma.siteConfig.findFirst({ where: { key: "stripe_publishable_key" } }),
   ]);
   const publishable =
     publishableRow?.value?.trim() ||

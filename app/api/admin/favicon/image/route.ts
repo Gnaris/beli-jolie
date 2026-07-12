@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
 import { uploadFile, faviconDir } from "@/lib/storage";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 
 /**
@@ -19,6 +20,8 @@ export async function POST(request: NextRequest) {
   if (!session || session.user.role !== "ADMIN") {
     return NextResponse.json({ error: "Accès non autorisé." }, { status: 401 });
   }
+
+  const tenant = await requireCurrentTenant();
 
   const formData = await request.formData();
   const file = formData.get("image") as File | null;
@@ -45,7 +48,7 @@ export async function POST(request: NextRequest) {
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const stamp = Date.now().toString(36);
-    const dir = faviconDir();
+    const dir = faviconDir(tenant.slug);
 
     const oriented = sharp(buffer, { failOn: "none" }).rotate();
 

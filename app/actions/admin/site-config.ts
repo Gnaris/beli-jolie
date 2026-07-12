@@ -11,6 +11,7 @@ import { encryptIfSensitive } from "@/lib/encryption";
 import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
 import { deleteFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { setSiteConfig } from "@/lib/site-config-write";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -21,11 +22,7 @@ export async function updateMinOrderHT(value: number): Promise<{ success: boolea
   try {
     await requireAdmin();
     if (value < 0) return { success: false, error: "Le montant doit être positif." };
-    await prisma.siteConfig.upsert({
-      where: { key: "min_order_ht" },
-      update: { value: String(value) },
-      create: { key: "min_order_ht", value: String(value) },
-    });
+    await setSiteConfig("min_order_ht", String(value));
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     return { success: true };
@@ -39,11 +36,7 @@ export async function setMaintenanceMode(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    await prisma.siteConfig.upsert({
-      where: { key: "maintenance_mode" },
-      update: { value: String(enabled) },
-      create: { key: "maintenance_mode", value: String(enabled) },
-    });
+    await setSiteConfig("maintenance_mode", String(enabled));
     // If admin disables maintenance, also clear the auto-maintenance flag
     if (!enabled) {
       clearAutoMaintenance();
@@ -63,11 +56,7 @@ export async function updateBusinessHours(schedule: {
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    await prisma.siteConfig.upsert({
-      where: { key: "business_hours" },
-      update: { value: JSON.stringify(schedule) },
-      create: { key: "business_hours", value: JSON.stringify(schedule) },
-    });
+    await setSiteConfig("business_hours", JSON.stringify(schedule));
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     return { success: true };
@@ -97,16 +86,8 @@ export async function updateSeoTexts(input: {
       return { success: false, error: `Le texte ne doit pas dépasser ${MAX} caractères.` };
     }
     await Promise.all([
-      prisma.siteConfig.upsert({
-        where: { key: "home_seo_text" },
-        update: { value: home },
-        create: { key: "home_seo_text", value: home },
-      }),
-      prisma.siteConfig.upsert({
-        where: { key: "produits_seo_text" },
-        update: { value: produits },
-        create: { key: "produits_seo_text", value: produits },
-      }),
+      setSiteConfig("home_seo_text", home),
+      setSiteConfig("produits_seo_text", produits),
     ]);
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
@@ -122,11 +103,7 @@ export async function updateStockDisplayConfig(config: {
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    await prisma.siteConfig.upsert({
-      where: { key: "show_out_of_stock_variants" },
-      update: { value: String(config.showOutOfStockVariants) },
-      create: { key: "show_out_of_stock_variants", value: String(config.showOutOfStockVariants) },
-    });
+    await setSiteConfig("show_out_of_stock_variants", String(config.showOutOfStockVariants));
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     revalidatePath("/produits");
@@ -152,18 +129,14 @@ export async function updateBannerImage(
   try {
     await requireAdmin();
 
-    const previousRow = await prisma.siteConfig.findUnique({
+    const previousRow = await prisma.siteConfig.findFirst({
       where: { key: "banner_image" },
       select: { value: true },
     });
     const previousPath = previousRow?.value ?? null;
 
     if (imagePath) {
-      await prisma.siteConfig.upsert({
-        where: { key: "banner_image" },
-        update: { value: imagePath },
-        create: { key: "banner_image", value: imagePath },
-      });
+      await setSiteConfig("banner_image", imagePath);
     } else {
       await prisma.siteConfig.deleteMany({ where: { key: "banner_image" } });
     }
@@ -206,7 +179,7 @@ export async function updateFavicon(
     await requireAdmin();
 
     // Read previous paths first so we can purge them from disk after the BDD swap.
-    const previousRow = await prisma.siteConfig.findUnique({
+    const previousRow = await prisma.siteConfig.findFirst({
       where: { key: "site_favicon" },
       select: { value: true },
     });
@@ -220,11 +193,7 @@ export async function updateFavicon(
         return { success: false, error: "Chemins d'image invalides." };
       }
       const value = JSON.stringify({ icon: paths.icon, appleIcon: paths.appleIcon });
-      await prisma.siteConfig.upsert({
-        where: { key: "site_favicon" },
-        update: { value },
-        create: { key: "site_favicon", value },
-      });
+      await setSiteConfig("site_favicon", value);
     } else {
       await prisma.siteConfig.deleteMany({ where: { key: "site_favicon" } });
     }
@@ -267,11 +236,7 @@ export async function updateEasyExpressApiKey(
       await prisma.siteConfig.deleteMany({ where: { key: "easy_express_api_key" } });
     } else {
       const encrypted = encryptIfSensitive("easy_express_api_key", trimmed);
-      await prisma.siteConfig.upsert({
-        where: { key: "easy_express_api_key" },
-        update: { value: encrypted },
-        create: { key: "easy_express_api_key", value: encrypted },
-      });
+      await setSiteConfig("easy_express_api_key", encrypted);
     }
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
@@ -323,11 +288,7 @@ export async function updatePfsCredentials(config: {
       const trimmed = value.trim();
       if (!trimmed) return prisma.siteConfig.deleteMany({ where: { key } });
       const stored = encryptIfSensitive(key, trimmed);
-      return prisma.siteConfig.upsert({
-        where: { key },
-        update: { value: stored },
-        create: { key, value: stored },
-      });
+      return setSiteConfig(key, stored);
     };
 
     await Promise.all([
@@ -346,11 +307,7 @@ export async function updatePfsCredentials(config: {
 export async function togglePfsEnabled(enabled: boolean): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    await prisma.siteConfig.upsert({
-      where: { key: "pfs_enabled" },
-      update: { value: enabled ? "true" : "false" },
-      create: { key: "pfs_enabled", value: enabled ? "true" : "false" },
-    });
+    await setSiteConfig("pfs_enabled", enabled ? "true" : "false");
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     return { success: true };
@@ -429,11 +386,7 @@ export async function updatePfsBrand(config: {
 
     const upsertOrDelete = (key: string, value: string) => {
       if (!value) return prisma.siteConfig.deleteMany({ where: { key } });
-      return prisma.siteConfig.upsert({
-        where: { key },
-        update: { value },
-        create: { key, value },
-      });
+      return setSiteConfig(key, value);
     };
 
     if ((id && !name) || (name && !id)) {
@@ -463,16 +416,8 @@ export async function updateAnkorstoreCredentials(config: {
     await requireAdmin();
     const clientId = config.clientId.trim();
     const clientSecret = config.clientSecret.trim();
-    await prisma.siteConfig.upsert({
-      where: { key: "ankors_client_id" },
-      update: { value: encryptIfSensitive("ankors_client_id", clientId) },
-      create: { key: "ankors_client_id", value: encryptIfSensitive("ankors_client_id", clientId) },
-    });
-    await prisma.siteConfig.upsert({
-      where: { key: "ankors_client_secret" },
-      update: { value: encryptIfSensitive("ankors_client_secret", clientSecret) },
-      create: { key: "ankors_client_secret", value: encryptIfSensitive("ankors_client_secret", clientSecret) },
-    });
+    await setSiteConfig("ankors_client_id", encryptIfSensitive("ankors_client_id", clientId));
+    await setSiteConfig("ankors_client_secret", encryptIfSensitive("ankors_client_secret", clientSecret));
     revalidateTag("site-config", "default");
     return { success: true };
   } catch (err) {
@@ -483,11 +428,7 @@ export async function updateAnkorstoreCredentials(config: {
 export async function toggleAnkorstoreEnabled(enabled: boolean): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    await prisma.siteConfig.upsert({
-      where: { key: "ankors_enabled" },
-      update: { value: enabled ? "true" : "false" },
-      create: { key: "ankors_enabled", value: enabled ? "true" : "false" },
-    });
+    await setSiteConfig("ankors_enabled", enabled ? "true" : "false");
     revalidateTag("site-config", "default");
     return { success: true };
   } catch (err) {
@@ -523,11 +464,7 @@ export async function updateEfashionCredentials(config: {
     const upsertOrDelete = (key: string, value: string) => {
       if (!value) return prisma.siteConfig.deleteMany({ where: { key } });
       const stored = encryptIfSensitive(key, value);
-      return prisma.siteConfig.upsert({
-        where: { key },
-        update: { value: stored },
-        create: { key, value: stored },
-      });
+      return setSiteConfig(key, stored);
     };
 
     await Promise.all([
@@ -552,11 +489,7 @@ export async function toggleEfashionEnabled(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    await prisma.siteConfig.upsert({
-      where: { key: "efashion_enabled" },
-      update: { value: enabled ? "true" : "false" },
-      create: { key: "efashion_enabled", value: enabled ? "true" : "false" },
-    });
+    await setSiteConfig("efashion_enabled", enabled ? "true" : "false");
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     return { success: true };
@@ -589,11 +522,7 @@ export async function updateFaireCredentials(config: {
     if (!apiKey) {
       await prisma.siteConfig.deleteMany({ where: { key: "faire_api_key" } });
     } else {
-      await prisma.siteConfig.upsert({
-        where: { key: "faire_api_key" },
-        update: { value: encryptIfSensitive("faire_api_key", apiKey) },
-        create: { key: "faire_api_key", value: encryptIfSensitive("faire_api_key", apiKey) },
-      });
+      await setSiteConfig("faire_api_key", encryptIfSensitive("faire_api_key", apiKey));
     }
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
@@ -608,11 +537,7 @@ export async function toggleFaireEnabled(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    await prisma.siteConfig.upsert({
-      where: { key: "faire_enabled" },
-      update: { value: enabled ? "true" : "false" },
-      create: { key: "faire_enabled", value: enabled ? "true" : "false" },
-    });
+    await setSiteConfig("faire_enabled", enabled ? "true" : "false");
     revalidateTag("site-config", "default");
     return { success: true };
   } catch (err) {
@@ -668,16 +593,8 @@ export async function updateRefreshWarning(
     }
     const intDays = Math.floor(days);
     await Promise.all([
-      prisma.siteConfig.upsert({
-        where: { key: "refresh_warning_enabled" },
-        update: { value: enabled ? "true" : "false" },
-        create: { key: "refresh_warning_enabled", value: enabled ? "true" : "false" },
-      }),
-      prisma.siteConfig.upsert({
-        where: { key: "refresh_warning_days" },
-        update: { value: String(intDays) },
-        create: { key: "refresh_warning_days", value: String(intDays) },
-      }),
+      setSiteConfig("refresh_warning_enabled", enabled ? "true" : "false"),
+      setSiteConfig("refresh_warning_days", String(intDays)),
     ]);
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
@@ -694,11 +611,7 @@ export async function updateAutoTranslate(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    await prisma.siteConfig.upsert({
-      where: { key: "auto_translate_enabled" },
-      update: { value: enabled ? "true" : "false" },
-      create: { key: "auto_translate_enabled", value: enabled ? "true" : "false" },
-    });
+    await setSiteConfig("auto_translate_enabled", enabled ? "true" : "false");
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     return { success: true };
@@ -785,11 +698,7 @@ export async function updateProductDisplayConfig(
     if (!config || !["date", "custom"].includes(config.catalogMode)) {
       return { success: false, error: "Configuration invalide." };
     }
-    await prisma.siteConfig.upsert({
-      where: { key: "product_display_config" },
-      update: { value: JSON.stringify(config) },
-      create: { key: "product_display_config", value: JSON.stringify(config) },
-    });
+    await setSiteConfig("product_display_config", JSON.stringify(config));
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     revalidatePath("/produits");
@@ -806,14 +715,10 @@ export async function updateCatalogDisplayConfig(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    const row = await prisma.siteConfig.findUnique({ where: { key: "product_display_config" } });
+    const row = await prisma.siteConfig.findFirst({ where: { key: "product_display_config" } });
     const current = parseDisplayConfig(row?.value ?? null);
     const updated: ProductDisplayConfig = { ...current, catalogMode, sections: catalogMode === "custom" ? sections : [] };
-    await prisma.siteConfig.upsert({
-      where: { key: "product_display_config" },
-      update: { value: JSON.stringify(updated) },
-      create: { key: "product_display_config", value: JSON.stringify(updated) },
-    });
+    await setSiteConfig("product_display_config", JSON.stringify(updated));
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     revalidatePath("/produits");
@@ -828,14 +733,10 @@ export async function updateHomepageCarouselsConfig(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    const row = await prisma.siteConfig.findUnique({ where: { key: "product_display_config" } });
+    const row = await prisma.siteConfig.findFirst({ where: { key: "product_display_config" } });
     const current = parseDisplayConfig(row?.value ?? null);
     const updated: ProductDisplayConfig = { ...current, homepageCarousels: carousels };
-    await prisma.siteConfig.upsert({
-      where: { key: "product_display_config" },
-      update: { value: JSON.stringify(updated) },
-      create: { key: "product_display_config", value: JSON.stringify(updated) },
-    });
+    await setSiteConfig("product_display_config", JSON.stringify(updated));
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     revalidatePath("/");
@@ -930,13 +831,7 @@ export async function updateMarketplaceMarkup(
     }
 
     await Promise.all(
-      pairs.map(({ key, value }) =>
-        prisma.siteConfig.upsert({
-          where: { key },
-          update: { value },
-          create: { key, value },
-        })
-      )
+      pairs.map(({ key, value }) => setSiteConfig(key, value))
     );
 
     revalidatePath("/admin/parametres");
@@ -963,16 +858,8 @@ export async function updateShippingMargin(
     if (settings.value < 0) return { success: false, error: "La valeur doit être positive." };
 
     await Promise.all([
-      prisma.siteConfig.upsert({
-        where: { key: "shipping_margin_type" },
-        update: { value: settings.type },
-        create: { key: "shipping_margin_type", value: settings.type },
-      }),
-      prisma.siteConfig.upsert({
-        where: { key: "shipping_margin_value" },
-        update: { value: String(settings.value) },
-        create: { key: "shipping_margin_value", value: String(settings.value) },
-      }),
+      setSiteConfig("shipping_margin_type", settings.type),
+      setSiteConfig("shipping_margin_value", String(settings.value)),
     ]);
 
     revalidatePath("/admin/parametres");
@@ -1004,11 +891,7 @@ export async function updateAnnouncementBanner(
       await prisma.siteConfig.deleteMany({ where: { key: "announcement_banner" } });
     } else {
       const payload = { messages, bgColor: data.bgColor, textColor: data.textColor, speed: data.speed || 8 };
-      await prisma.siteConfig.upsert({
-        where: { key: "announcement_banner" },
-        update: { value: JSON.stringify(payload) },
-        create: { key: "announcement_banner", value: JSON.stringify(payload) },
-      });
+      await setSiteConfig("announcement_banner", JSON.stringify(payload));
     }
 
     revalidatePath("/admin/parametres");

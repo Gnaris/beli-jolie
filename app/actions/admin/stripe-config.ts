@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { encryptIfSensitive } from "@/lib/encryption";
 import { invalidateStripeCache } from "@/lib/stripe";
+import { setSiteConfig } from "@/lib/site-config-write";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -44,11 +45,7 @@ export async function updateStripeConfig(
         continue;
       }
       const stored = encryptIfSensitive(key, value);
-      await prisma.siteConfig.upsert({
-        where: { key },
-        update: { value: stored },
-        create: { key, value: stored },
-      });
+      await setSiteConfig(key, stored);
     }
 
     invalidateStripeCache();

@@ -6,7 +6,9 @@ import {
   productImageDir,
   productImageBaseName,
   slugify,
+  withTenantSlug,
 } from "@/lib/storage";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 
 /**
@@ -35,6 +37,8 @@ export async function POST(request: NextRequest) {
   if (!session || session.user.role !== "ADMIN") {
     return NextResponse.json({ error: "Accès non autorisé." }, { status: 401 });
   }
+
+  const tenant = await requireCurrentTenant();
 
   const formData = await request.formData();
   const file = formData.get("image") as File | null;
@@ -73,13 +77,13 @@ export async function POST(request: NextRequest) {
     let destDir: string;
     let basename: string;
     if (reference) {
-      destDir = productImageDir(reference);
+      destDir = productImageDir(reference, tenant.slug);
       const stamp = Date.now().toString(36);
       const nonce = Math.random().toString(36).slice(2, 6);
       const head = productImageBaseName(reference, color || null, position);
       basename = `${head}-${stamp}${nonce}`;
     } else {
-      destDir = "uploads/produits/_brouillon";
+      destDir = withTenantSlug("uploads/produits/_brouillon", tenant.slug);
       const stamp = Date.now().toString(36);
       const nonce = Math.random().toString(36).slice(2, 6);
       const colorPart = color ? `-${slugify(color)}` : "";

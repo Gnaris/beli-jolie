@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { randomUUID } from "crypto";
 import { uploadFile, deleteFile, keyFromDbPath, colorPatternDir, slugify } from "@/lib/storage";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 
 const MAX_SIZE = 512 * 1024; // 500 KB
@@ -20,6 +21,8 @@ export async function POST(req: NextRequest) {
   if (!session || session.user.role !== "ADMIN") {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
+
+  const tenant = await requireCurrentTenant();
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
@@ -53,7 +56,7 @@ export async function POST(req: NextRequest) {
   const buffer = Buffer.from(await file.arrayBuffer());
   const contentType = CONTENT_TYPE_MAP[ext] || "image/png";
 
-  const dir = colorPatternDir();
+  const dir = colorPatternDir(tenant.slug);
   try {
     await uploadFile(`${dir}/${filename}`, buffer, contentType);
   } catch (err) {

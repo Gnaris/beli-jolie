@@ -17,6 +17,7 @@ import {
 } from "@/lib/ankorstore-match";
 import { autoLinkAnkorstoreVariants } from "@/lib/ankorstore-variant-link";
 import { ankorstoreKickoffUpdate } from "@/lib/ankorstore-update";
+import { requireCurrentTenant } from "@/lib/tenant";
 
 /**
  * Après une liaison fraîche (mass match, manual link, manual variant link),
@@ -674,6 +675,7 @@ export async function createLocalVariantFromAnkorstoreVariant(
   ankorstoreVariantId: string,
 ): Promise<{ success: boolean; error?: string; createdColorId?: string; imageCount?: number }> {
   await requireAdmin();
+  const tenant = await requireCurrentTenant();
 
   try {
     const product = await prisma.product.findUnique({
@@ -773,7 +775,7 @@ export async function createLocalVariantFromAnkorstoreVariant(
             continue;
           }
           const buffer = Buffer.from(await resp.arrayBuffer());
-          const destDir = productImageDir(product.reference);
+          const destDir = productImageDir(product.reference, tenant.slug);
           const baseName = productImageBaseName(product.reference, colorName, i + 1);
           const { dbPath } = await processProductImage(buffer, destDir, baseName);
           dbPaths.push({ path: dbPath, order: i + 1 });

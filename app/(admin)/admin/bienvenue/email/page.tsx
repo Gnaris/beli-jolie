@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 export default async function EmailStepPage() {
   const [status, forwardRow] = await Promise.all([
     getSmtpConfigStatus(),
-    prisma.siteConfig.findUnique({ where: { key: "mailbox_forward_to" } }),
+    prisma.siteConfig.findFirst({ where: { key: "mailbox_forward_to" } }),
   ]);
   const shopDomain = extractShopDomain();
   const forwardTo = forwardRow?.value?.trim() || "";

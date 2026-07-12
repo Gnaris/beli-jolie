@@ -12,6 +12,7 @@ import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
 import { LoadingOverlayProvider } from "@/components/ui/LoadingOverlay";
 import { getCachedShopName, getCachedBusinessHours, getCachedSiteConfig } from "@/lib/cached-data";
 import { getCachedSeoConfig, buildOrganizationSchema, getSiteUrl } from "@/lib/seo";
+import { getCurrentTenantId } from "@/lib/tenant";
 import AnnouncementBanner from "@/components/layout/AnnouncementBanner";
 import { ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX } from "@/components/layout/announcement-banner-constants";
 import ChatWidgetLoader from "@/components/client/ChatWidgetLoader";
@@ -41,6 +42,10 @@ const roboto = Roboto({
    Métadonnées SEO globales
 ───────────────────────────────────────────── */
 export async function generateMetadata(): Promise<Metadata> {
+  // Bind ALS AVANT tout accès cache/BDD — sinon les caches unstable_cache
+  // et l'extension Prisma tombent en "global" et servent la config d'un
+  // tenant à l'autre (fuite cross-tenant).
+  await getCurrentTenantId();
   const shopName = await getCachedShopName();
   const siteUrl = getSiteUrl();
   return {
@@ -83,6 +88,8 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // Idem generateMetadata : bind ALS avant caches.
+  await getCurrentTenantId();
   const [locale, messages, shopName, businessHours, session, announcementRow, seoConfig] = await Promise.all([
     getLocale(),
     getMessages(),

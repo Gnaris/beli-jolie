@@ -10,6 +10,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { setSiteConfig } from "@/lib/site-config-write";
 import {
   ONBOARDING_COMPLETED_AT_KEY,
   ONBOARDING_STEPS,
@@ -45,11 +46,7 @@ export async function markStepCompleted(
       return { success: true };
     }
     const next = [...current.stepsCompleted, step];
-    await prisma.siteConfig.upsert({
-      where: { key: ONBOARDING_STEPS_COMPLETED_KEY },
-      update: { value: JSON.stringify(next) },
-      create: { key: ONBOARDING_STEPS_COMPLETED_KEY, value: JSON.stringify(next) },
-    });
+    await setSiteConfig(ONBOARDING_STEPS_COMPLETED_KEY, JSON.stringify(next));
     revalidateTag("site-config", "default");
     revalidatePath("/admin/bienvenue");
     return { success: true };
@@ -67,11 +64,7 @@ export async function completeOnboarding(): Promise<{ success: boolean; error?: 
   try {
     await requireAdmin();
     const now = new Date().toISOString();
-    await prisma.siteConfig.upsert({
-      where: { key: ONBOARDING_COMPLETED_AT_KEY },
-      update: { value: now },
-      create: { key: ONBOARDING_COMPLETED_AT_KEY, value: now },
-    });
+    await setSiteConfig(ONBOARDING_COMPLETED_AT_KEY, now);
     revalidateTag("site-config", "default");
     revalidatePath("/admin");
     return { success: true };

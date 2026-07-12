@@ -98,13 +98,14 @@ async function main() {
   }
 
   // Vérifier si l'email est déjà pris
-  const existingUser = await prisma.user.findUnique({
+  // findFirst car email n'est plus unique global (composite tenantId+email).
+  const existingUser = await prisma.user.findFirst({
     where: { email },
   });
 
   if (existingUser) {
     // L'utilisateur existe mais n'est pas admin → le promouvoir
-    await prisma.user.update({
+    await prisma.user.updateMany({
       where: { email },
       data: { role: "ADMIN", status: "APPROVED" },
     });
