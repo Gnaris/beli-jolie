@@ -377,11 +377,10 @@ export async function createTagQuick(
   await requireAdmin();
   const name = (translations["fr"] ?? Object.values(translations)[0] ?? "").trim().toLowerCase();
   if (!name) throw new Error("Le nom (FR) est requis.");
-  const created = await prisma.tag.upsert({
-    where: { name },
-    create: { name },
-    update: {},
-  });
+  let created = await prisma.tag.findFirst({ where: { name } });
+  if (!created) {
+    created = await prisma.tag.create({ data: { name } });
+  }
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
     await prisma.tagTranslation.upsert({

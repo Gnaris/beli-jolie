@@ -192,11 +192,16 @@ async function handleProductRowFix(
       const pc = newProduct.colors[0];
       if (pc && sizeEntries.length > 0) {
         for (const entry of sizeEntries) {
-          const sizeEntity = await prisma.size.upsert({
+          let sizeEntity = await prisma.size.findFirst({
             where: { name: entry.name },
-            create: { name: entry.name },
-            update: {},
+            select: { id: true },
           });
+          if (!sizeEntity) {
+            sizeEntity = await prisma.size.create({
+              data: { name: entry.name },
+              select: { id: true },
+            });
+          }
           await prisma.variantSize.create({
             data: {
               productColorId: pc.id,
@@ -310,11 +315,16 @@ async function handleImageRowFix(
     // Create VariantSize if size is provided
     if (cv.size?.trim()) {
       const sizeName = cv.size.trim();
-      const sizeEntity = await prisma.size.upsert({
+      let sizeEntity = await prisma.size.findFirst({
         where: { name: sizeName },
-        create: { name: sizeName },
-        update: {},
+        select: { id: true },
       });
+      if (!sizeEntity) {
+        sizeEntity = await prisma.size.create({
+          data: { name: sizeName },
+          select: { id: true },
+        });
+      }
       await prisma.variantSize.create({
         data: {
           productColorId: newVariant.id,
@@ -327,11 +337,16 @@ async function handleImageRowFix(
 
   // Create new color variant if requested (legacy single-color flow)
   if (!productColorId && body.newColorName && body.newColorHex && productId) {
-    const color = await prisma.color.upsert({
+    let color = await prisma.color.findFirst({
       where: { name: body.newColorName },
-      update: {},
-      create: { name: body.newColorName, hex: body.newColorHex },
+      select: { id: true },
     });
+    if (!color) {
+      color = await prisma.color.create({
+        data: { name: body.newColorName, hex: body.newColorHex },
+        select: { id: true },
+      });
+    }
 
     const newVariant = await prisma.productColor.create({
       data: {

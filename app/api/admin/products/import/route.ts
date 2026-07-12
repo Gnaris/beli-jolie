@@ -260,11 +260,16 @@ async function prepareImport(rows: ProductImportRow[]) {
     }
     // Auto-create missing tags
     for (const tName of missingTags) {
-      const newTag = await prisma.tag.upsert({
+      let newTag = await prisma.tag.findFirst({
         where: { name: tName },
-        update: {},
-        create: { name: tName },
+        select: { id: true },
       });
+      if (!newTag) {
+        newTag = await prisma.tag.create({
+          data: { name: tName },
+          select: { id: true },
+        });
+      }
       tagIds.push(newTag.id);
     }
 
@@ -366,11 +371,16 @@ async function createProductsInBackground(
             if (!pc) continue;
 
             for (const entry of sizeEntries) {
-              const sizeEntity = await tx.size.upsert({
+              let sizeEntity = await tx.size.findFirst({
                 where: { name: entry.name },
-                create: { name: entry.name },
-                update: {},
+                select: { id: true },
               });
+              if (!sizeEntity) {
+                sizeEntity = await tx.size.create({
+                  data: { name: entry.name },
+                  select: { id: true },
+                });
+              }
               await tx.variantSize.create({
                 data: {
                   productColorId: pc.id,

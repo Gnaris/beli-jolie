@@ -670,11 +670,16 @@ export async function processProductImport(jobId: string, maxProducts?: number):
           if (t) {
             tagIds.push(t.id);
           } else {
-            const newTag = await prisma.tag.upsert({
+            let newTag = await prisma.tag.findFirst({
               where: { name: tName },
-              update: {},
-              create: { name: tName },
+              select: { id: true },
             });
+            if (!newTag) {
+              newTag = await prisma.tag.create({
+                data: { name: tName },
+                select: { id: true },
+              });
+            }
             tagIds.push(newTag.id);
             // Fire-and-forget auto-translation for new tags
             autoTranslateTag(newTag.id, tName);
@@ -912,11 +917,16 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                 : sizeEntries;
 
               for (const entry of entriesToWrite) {
-                const sizeEntity = await prisma.size.upsert({
+                let sizeEntity = await prisma.size.findFirst({
                   where: { name: entry.name },
-                  create: { name: entry.name },
-                  update: {},
+                  select: { id: true },
                 });
+                if (!sizeEntity) {
+                  sizeEntity = await prisma.size.create({
+                    data: { name: entry.name },
+                    select: { id: true },
+                  });
+                }
                 await prisma.variantSize.create({
                   data: {
                     productColorId: pc.id,

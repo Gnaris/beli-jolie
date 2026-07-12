@@ -134,12 +134,16 @@ async function resolveProtectedSizeId(input: ProductInput): Promise<ProductInput
       ),
   );
   if (!usesVirtual) return input;
-  const row = await prisma.size.upsert({
+  let row = await prisma.size.findFirst({
     where: { name: PROTECTED_SIZE_NAME },
-    update: {},
-    create: { name: PROTECTED_SIZE_NAME, pfsSizeRef: PROTECTED_SIZE_PFS_REF, position: 0 },
     select: { id: true },
   });
+  if (!row) {
+    row = await prisma.size.create({
+      data: { name: PROTECTED_SIZE_NAME, pfsSizeRef: PROTECTED_SIZE_PFS_REF, position: 0 },
+      select: { id: true },
+    });
+  }
   const swap = (sizeId: string): string => (isProtectedSizeVirtualId(sizeId) ? row.id : sizeId);
   return {
     ...input,
@@ -445,13 +449,13 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   // Upsert tags
   const tagRecords = await Promise.all(
     input.tagNames.map(async (n) => {
-      const tag = await prisma.tag.upsert({
-        where: { name: n.trim().toLowerCase() },
-        create: { name: n.trim().toLowerCase() },
-        update: {},
-      });
+      const normalized = n.trim().toLowerCase();
+      let tag = await prisma.tag.findFirst({ where: { name: normalized } });
+      if (!tag) {
+        tag = await prisma.tag.create({ data: { name: normalized } });
+      }
       // Auto-translate new tags (fire-and-forget, checks if translations exist)
-      autoTranslateTag(tag.id, n.trim().toLowerCase());
+      autoTranslateTag(tag.id, normalized);
       return tag;
     })
   );
@@ -775,13 +779,14 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
 
   // Upsert tags
   const tagRecords = await Promise.all(
-    input.tagNames.map((n) =>
-      prisma.tag.upsert({
-        where: { name: n.trim().toLowerCase() },
-        create: { name: n.trim().toLowerCase() },
-        update: {},
-      })
-    )
+    input.tagNames.map(async (n) => {
+      const normalized = n.trim().toLowerCase();
+      let tag = await prisma.tag.findFirst({ where: { name: normalized } });
+      if (!tag) {
+        tag = await prisma.tag.create({ data: { name: normalized } });
+      }
+      return tag;
+    })
   );
 
   // ── Renommage du dossier d'images si la référence change ───────
@@ -2532,11 +2537,10 @@ export async function createTag(name: string) {
   await requireAdmin();
   const trimmed = name.trim().toLowerCase();
   if (!trimmed) throw new Error("Nom invalide.");
-  const tag = await prisma.tag.upsert({
-    where: { name: trimmed },
-    create: { name: trimmed },
-    update: {},
-  });
+  let tag = await prisma.tag.findFirst({ where: { name: trimmed } });
+  if (!tag) {
+    tag = await prisma.tag.create({ data: { name: trimmed } });
+  }
   revalidatePath("/admin/produits");
   return tag;
 }

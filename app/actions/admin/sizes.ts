@@ -30,7 +30,7 @@ export async function createSize(name: string, pfsSizeRef: string) {
     throw new Error("La référence Paris Fashion Shop est obligatoire.");
   }
 
-  const existing = await prisma.size.findUnique({
+  const existing = await prisma.size.findFirst({
     where: { name: trimmed },
     select: { id: true, name: true, pfsSizeRef: true },
   });
