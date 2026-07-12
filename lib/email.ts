@@ -169,8 +169,24 @@ async function resolveSmtpConfig(): Promise<{
 
   let dbMap = new Map<string, string>();
   try {
+    // Résout tenantId (ALS + fallback headers) pour scoper explicitement.
+    // Sans ça, findMany peut fuiter les rows du tenant voisin et le décrypt
+    // échoue si l'autre tenant a été chiffré avec une autre ENCRYPTION_KEY.
+    let tid: string | null = null;
+    try {
+      const { getCurrentTenantIdSync } = await import("@/lib/tenant-als");
+      tid = getCurrentTenantIdSync();
+      if (!tid) {
+        const { headers } = await import("next/headers");
+        const h = await headers();
+        tid = h.get("x-tenant-id");
+      }
+    } catch { /* hors requête */ }
+
     const rows = await prisma.siteConfig.findMany({
-      where: { key: { in: [...DB_KEYS] } },
+      where: tid
+        ? { tenantId: tid, key: { in: [...DB_KEYS] } }
+        : { key: { in: [...DB_KEYS] } },
     });
     dbMap = new Map(
       rows

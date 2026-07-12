@@ -318,6 +318,9 @@ export const getCachedFavicon = tenantScopedCacheWithTid<[], CustomFavicon | nul
 export const getCachedEasyExpressApiKey = tenantScopedCache(
   "easy-express-api-key",
   async () => {
+    // Cache/extract géré par tenantScopedCache — sans WithTid, on utilise ALS ici
+    // et fallback headers (idem que WithTid). Pour rester rétro-compatible avec
+    // les callers existants qui n'importent pas WithTid, on garde ce pattern.
     const tid = getCurrentTenantIdSync();
     const row = tid
       ? await prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key", tenantId: tid } })
@@ -330,18 +333,17 @@ export const getCachedEasyExpressApiKey = tenantScopedCache(
 
 // ─── Shipping margin (from SiteConfig) ───────────────────────────────────────
 
-export const getCachedShippingMargin = tenantScopedCache(
+export const getCachedShippingMargin = tenantScopedCacheWithTid(
   "shipping-margin",
-  async () => {
-    const tid = getCurrentTenantIdSync();
-    const [typeRow, valueRow] = tid
+  async (tid) => {
+    const [typeRow, valueRow] = tid === "global"
       ? await Promise.all([
-          prisma.siteConfig.findFirst({ where: { key: "shipping_margin_type", tenantId: tid } }),
-          prisma.siteConfig.findFirst({ where: { key: "shipping_margin_value", tenantId: tid } }),
-        ])
-      : await Promise.all([
           prisma.siteConfig.findFirst({ where: { key: "shipping_margin_type" } }),
           prisma.siteConfig.findFirst({ where: { key: "shipping_margin_value" } }),
+        ])
+      : await Promise.all([
+          prisma.siteConfig.findFirst({ where: { key: "shipping_margin_type", tenantId: tid } }),
+          prisma.siteConfig.findFirst({ where: { key: "shipping_margin_value", tenantId: tid } }),
         ]);
     return {
       type: (typeRow?.value as "fixed" | "percent") || "fixed",
@@ -353,13 +355,11 @@ export const getCachedShippingMargin = tenantScopedCache(
 );
 
 // ─── PFS configured? (quick check, no decrypt) ─────────────────────────────
-export const getCachedHasPfsConfig = tenantScopedCache(
+export const getCachedHasPfsConfig = tenantScopedCacheWithTid(
   "has-pfs-config",
-  async () => {
-    // Extension scope auto par tenantId : findFirst renvoie null pour un autre
-    // tenant même si la row existe globalement.
+  async (tid) => {
     const row = await prisma.siteConfig.findFirst({
-      where: { key: "pfs_email" },
+      where: tid === "global" ? { key: "pfs_email" } : { tenantId: tid, key: "pfs_email" },
       select: { key: true },
     });
     return !!row;
@@ -369,11 +369,13 @@ export const getCachedHasPfsConfig = tenantScopedCache(
 );
 
 // ─── PFS enabled? ─────────────────────────────────────────────────────────
-export const getCachedPfsEnabled = tenantScopedCache(
+export const getCachedPfsEnabled = tenantScopedCacheWithTid(
   "pfs-enabled",
-  async () => {
+  async (tid) => {
     const rows = await prisma.siteConfig.findMany({
-      where: { key: { in: ["pfs_email", "pfs_enabled", "pfs_brand_id", "pfs_brand_name"] } },
+      where: tid === "global"
+        ? { key: { in: ["pfs_email", "pfs_enabled", "pfs_brand_id", "pfs_brand_name"] } }
+        : { tenantId: tid, key: { in: ["pfs_email", "pfs_enabled", "pfs_brand_id", "pfs_brand_name"] } },
       select: { key: true, value: true },
     });
     const map = new Map(rows.map(r => [r.key, r.value]));
@@ -429,11 +431,13 @@ export const getCachedPfsColors = tenantScopedCache<[], PfsLiveColor[]>(
 // ─── PFS brand (marque sélectionnée pour toutes les opérations PFS) ────────
 // id = identifiant Salesforce PFS (utilisé pour filtrer la liste produits)
 // name = libellé exact (utilisé comme brand_name à la création POST)
-export const getCachedPfsBrand = tenantScopedCache<[], { id: string; name: string } | null>(
+export const getCachedPfsBrand = tenantScopedCacheWithTid<[], { id: string; name: string } | null>(
   "pfs-brand",
-  async () => {
+  async (tid) => {
     const rows = await prisma.siteConfig.findMany({
-      where: { key: { in: ["pfs_brand_id", "pfs_brand_name"] } },
+      where: tid === "global"
+        ? { key: { in: ["pfs_brand_id", "pfs_brand_name"] } }
+        : { tenantId: tid, key: { in: ["pfs_brand_id", "pfs_brand_name"] } },
       select: { key: true, value: true },
     });
     const map = new Map(rows.map((r) => [r.key, r.value]));
@@ -464,9 +468,11 @@ export const getCachedPfsBrands = tenantScopedCache(
 );
 
 // ─── PFS credentials (from SiteConfig) ──────────────────────────────────────
-async function readPfsCredentialsDirect() {
+async function readPfsCredentialsDirect(tid?: string) {
   const rows = await prisma.siteConfig.findMany({
-    where: { key: { in: ["pfs_email", "pfs_password"] } },
+    where: !tid || tid === "global"
+      ? { key: { in: ["pfs_email", "pfs_password"] } }
+      : { tenantId: tid, key: { in: ["pfs_email", "pfs_password"] } },
   });
   const map = new Map(rows.map((r) => [r.key, decryptIfSensitive(r.key, r.value)]));
   return {
@@ -475,9 +481,9 @@ async function readPfsCredentialsDirect() {
   };
 }
 
-const _cachedPfsCredentials = tenantScopedCache(
+const _cachedPfsCredentials = tenantScopedCacheWithTid(
   "pfs-credentials",
-  readPfsCredentialsDirect,
+  async (tid) => readPfsCredentialsDirect(tid),
   ["pfs-credentials"],
   { revalidate: 300, tags: ["site-config"] },
 );
@@ -501,11 +507,13 @@ export async function getCachedPfsCredentials() {
 }
 
 // ─── Ankorstore — credentials, enabled, has-config (mêmes patterns que PFS) ──
-export const getCachedAnkorstoreCredentials = tenantScopedCache(
+export const getCachedAnkorstoreCredentials = tenantScopedCacheWithTid(
   "ankorstore-credentials",
-  async () => {
+  async (tid) => {
     const rows = await prisma.siteConfig.findMany({
-      where: { key: { in: ["ankors_client_id", "ankors_client_secret"] } },
+      where: tid === "global"
+        ? { key: { in: ["ankors_client_id", "ankors_client_secret"] } }
+        : { tenantId: tid, key: { in: ["ankors_client_id", "ankors_client_secret"] } },
     });
     const map = new Map(
       rows.map((r) => [r.key, decryptIfSensitive(r.key, r.value)?.trim() ?? null]),
@@ -519,11 +527,11 @@ export const getCachedAnkorstoreCredentials = tenantScopedCache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-export const getCachedHasAnkorstoreConfig = tenantScopedCache(
+export const getCachedHasAnkorstoreConfig = tenantScopedCacheWithTid(
   "has-ankorstore-config",
-  async () => {
+  async (tid) => {
     const row = await prisma.siteConfig.findFirst({
-      where: { key: "ankors_client_id" },
+      where: tid === "global" ? { key: "ankors_client_id" } : { tenantId: tid, key: "ankors_client_id" },
       select: { key: true },
     });
     return !!row;
@@ -532,11 +540,13 @@ export const getCachedHasAnkorstoreConfig = tenantScopedCache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-export const getCachedAnkorstoreEnabled = tenantScopedCache(
+export const getCachedAnkorstoreEnabled = tenantScopedCacheWithTid(
   "ankorstore-enabled",
-  async () => {
+  async (tid) => {
     const rows = await prisma.siteConfig.findMany({
-      where: { key: { in: ["ankors_client_id", "ankors_enabled"] } },
+      where: tid === "global"
+        ? { key: { in: ["ankors_client_id", "ankors_enabled"] } }
+        : { tenantId: tid, key: { in: ["ankors_client_id", "ankors_enabled"] } },
       select: { key: true, value: true },
     });
     const map = new Map(rows.map((r) => [r.key, r.value]));
@@ -549,9 +559,11 @@ export const getCachedAnkorstoreEnabled = tenantScopedCache(
 );
 
 // ─── eFashion — credentials, enabled, has-config (même pattern que PFS/Ankorstore) ──
-async function readEfashionCredentialsDirect() {
+async function readEfashionCredentialsDirect(tid?: string) {
   const rows = await prisma.siteConfig.findMany({
-    where: { key: { in: ["efashion_email", "efashion_password"] } },
+    where: !tid || tid === "global"
+      ? { key: { in: ["efashion_email", "efashion_password"] } }
+      : { tenantId: tid, key: { in: ["efashion_email", "efashion_password"] } },
   });
   const map = new Map(rows.map((r) => [r.key, decryptIfSensitive(r.key, r.value)]));
   return {
@@ -560,9 +572,9 @@ async function readEfashionCredentialsDirect() {
   };
 }
 
-const _cachedEfashionCredentials = tenantScopedCache(
+const _cachedEfashionCredentials = tenantScopedCacheWithTid(
   "efashion-credentials",
-  readEfashionCredentialsDirect,
+  async (tid) => readEfashionCredentialsDirect(tid),
   ["efashion-credentials"],
   { revalidate: 300, tags: ["site-config"] },
 );
@@ -579,11 +591,11 @@ export async function getCachedEfashionCredentials() {
   }
 }
 
-export const getCachedHasEfashionConfig = tenantScopedCache(
+export const getCachedHasEfashionConfig = tenantScopedCacheWithTid(
   "has-efashion-config",
-  async () => {
+  async (tid) => {
     const row = await prisma.siteConfig.findFirst({
-      where: { key: "efashion_email" },
+      where: tid === "global" ? { key: "efashion_email" } : { tenantId: tid, key: "efashion_email" },
       select: { key: true },
     });
     return !!row;
@@ -592,11 +604,13 @@ export const getCachedHasEfashionConfig = tenantScopedCache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-export const getCachedEfashionEnabled = tenantScopedCache(
+export const getCachedEfashionEnabled = tenantScopedCacheWithTid(
   "efashion-enabled",
-  async () => {
+  async (tid) => {
     const rows = await prisma.siteConfig.findMany({
-      where: { key: { in: ["efashion_email", "efashion_enabled"] } },
+      where: tid === "global"
+        ? { key: { in: ["efashion_email", "efashion_enabled"] } }
+        : { tenantId: tid, key: { in: ["efashion_email", "efashion_enabled"] } },
       select: { key: true, value: true },
     });
     const map = new Map(rows.map((r) => [r.key, r.value]));
@@ -609,17 +623,17 @@ export const getCachedEfashionEnabled = tenantScopedCache(
 );
 
 // ─── Faire — api key, enabled, has-config (même pattern que PFS/Ankorstore) ──
-async function readFaireApiKeyDirect() {
+async function readFaireApiKeyDirect(tid?: string) {
   const row = await prisma.siteConfig.findFirst({
-    where: { key: "faire_api_key" },
+    where: !tid || tid === "global" ? { key: "faire_api_key" } : { tenantId: tid, key: "faire_api_key" },
   });
   if (!row?.value) return null;
   return decryptIfSensitive("faire_api_key", row.value)?.trim() || null;
 }
 
-const _cachedFaireApiKey = tenantScopedCache(
+const _cachedFaireApiKey = tenantScopedCacheWithTid(
   "faire-api-key",
-  readFaireApiKeyDirect,
+  async (tid) => readFaireApiKeyDirect(tid),
   ["faire-api-key"],
   { revalidate: 300, tags: ["site-config"] },
 );
@@ -636,11 +650,11 @@ export async function getCachedFaireApiKey() {
   }
 }
 
-export const getCachedHasFaireConfig = tenantScopedCache(
+export const getCachedHasFaireConfig = tenantScopedCacheWithTid(
   "has-faire-config",
-  async () => {
+  async (tid) => {
     const row = await prisma.siteConfig.findFirst({
-      where: { key: "faire_api_key" },
+      where: tid === "global" ? { key: "faire_api_key" } : { tenantId: tid, key: "faire_api_key" },
       select: { key: true },
     });
     return !!row;
@@ -649,11 +663,13 @@ export const getCachedHasFaireConfig = tenantScopedCache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-export const getCachedFaireEnabled = tenantScopedCache(
+export const getCachedFaireEnabled = tenantScopedCacheWithTid(
   "faire-enabled",
-  async () => {
+  async (tid) => {
     const rows = await prisma.siteConfig.findMany({
-      where: { key: { in: ["faire_api_key", "faire_enabled"] } },
+      where: tid === "global"
+        ? { key: { in: ["faire_api_key", "faire_enabled"] } }
+        : { tenantId: tid, key: { in: ["faire_api_key", "faire_enabled"] } },
       select: { key: true, value: true },
     });
     const map = new Map(rows.map((r) => [r.key, r.value]));
