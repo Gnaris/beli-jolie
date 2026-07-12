@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { VALID_LOCALES, DEFAULT_LOCALE } from "@/i18n/locales";
 import { getCurrentTenantId } from "@/lib/tenant";
@@ -29,7 +30,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // (résolu par le middleware via le Host header). Sans ça, le sitemap contient
   // les produits des 2 boutiques.
   await getCurrentTenantId();
-  const baseUrl = (process.env.NEXTAUTH_URL || "https://example.com").replace(/\/$/, "");
+  // Base URL = host courant (multi-tenant), sinon fallback NEXTAUTH_URL.
+  let baseUrl = (process.env.NEXTAUTH_URL || "https://example.com").replace(/\/$/, "");
+  try {
+    const h = await headers();
+    const host = h.get("host");
+    if (host) baseUrl = `https://${host}`;
+  } catch {
+    // build time : fallback env
+  }
   const now = new Date();
 
   // ── Pages statiques : 1 entrée par page (avec alternates pour les 7 locales) ──

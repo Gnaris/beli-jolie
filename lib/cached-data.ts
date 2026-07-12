@@ -108,9 +108,15 @@ export interface PfsLiveColor {
 }
 
 // ─── Catégories (avec sous-catégories) ─────────────────────────────────────────
-export const getCachedCategories = unstable_cache(
-  async () =>
+// Multi-tenant : Category est une lib partagée mais on filtre les chips de filtres
+// aux catégories effectivement utilisées par un produit du tenant courant
+// (sinon la boutique A voit les catégories de la boutique B qui a des catégories
+// propres — ex. FORCYMA affichait "Blouse/Jupes/Robes longues" sur BJ).
+export const getCachedCategories = tenantScopedCacheWithTid(
+  "filter-categories",
+  async (tid) =>
     prisma.category.findMany({
+      where: tid === "global" ? undefined : { products: { some: { tenantId: tid } } },
       orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
         subCategories: {
@@ -118,16 +124,17 @@ export const getCachedCategories = unstable_cache(
           select: { id: true, name: true, slug: true },
         },
       },
-      // Lean select — only what filters need
     }),
   ["filter-categories"],
   { revalidate: 60, tags: ["categories"] }
 );
 
 // ─── Collections (id + name only, for filters) ────────────────────────────────
-export const getCachedCollections = unstable_cache(
-  async () =>
+export const getCachedCollections = tenantScopedCacheWithTid(
+  "filter-collections",
+  async (tid) =>
     prisma.collection.findMany({
+      where: tid === "global" ? undefined : { tenantId: tid },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
@@ -136,9 +143,11 @@ export const getCachedCollections = unstable_cache(
 );
 
 // ─── Couleurs ──────────────────────────────────────────────────────────────────
-export const getCachedColors = unstable_cache(
-  async () =>
+export const getCachedColors = tenantScopedCacheWithTid(
+  "filter-colors",
+  async (tid) =>
     prisma.color.findMany({
+      where: tid === "global" ? undefined : { productColors: { some: { tenantId: tid } } },
       orderBy: [{ position: "asc" }, { name: "asc" }],
       select: { id: true, name: true, hex: true, patternImage: true },
     }),
@@ -147,9 +156,11 @@ export const getCachedColors = unstable_cache(
 );
 
 // ─── Tags ──────────────────────────────────────────────────────────────────────
-export const getCachedTags = unstable_cache(
-  async () =>
+export const getCachedTags = tenantScopedCacheWithTid(
+  "filter-tags",
+  async (tid) =>
     prisma.tag.findMany({
+      where: tid === "global" ? undefined : { products: { some: { product: { tenantId: tid } } } },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
