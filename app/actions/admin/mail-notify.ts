@@ -8,11 +8,11 @@ import { prisma } from "@/lib/prisma";
 import {
   MIN_INTERVAL_MINUTES,
   toMinutes,
+  type MailNotifyMode,
   type MailNotifySettings,
   type MailNotifyUnit,
 } from "@/lib/mail-notify-constants";
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { KEY_VERIFIED_EMAIL } from "./admin-personal-email-constants";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -21,20 +21,25 @@ async function requireAdmin() {
   }
 }
 
+function parseMode(raw: string | undefined): MailNotifyMode {
+  if (raw === "summary" || raw === "forward" || raw === "off") return raw;
+  return "off";
+}
+
 /**
- * Lit la config de notification mail non-lus pour le tenant courant.
- * Valeurs par défaut si aucune config posée : désactivé, mode "interval" 1 jour.
+ * Lit la config de notification pour le tenant courant.
+ * L'adresse perso vient de `admin_personal_email` (source de vérité unique).
+ * Valeurs par défaut si aucune config posée : mode "off", intervalle 1 jour.
  */
 export async function getMailNotifySettings(): Promise<MailNotifySettings> {
   const rows = await prisma.siteConfig.findMany({
     where: {
       key: {
         in: [
-          "mail_notify_enabled",
-          "mail_notify_email",
+          "mail_notify_mode",
           "mail_notify_interval_value",
           "mail_notify_interval_unit",
-          "mail_notify_forward_enabled",
+          KEY_VERIFIED_EMAIL,
         ],
       },
     },
@@ -46,14 +51,13 @@ export async function getMailNotifySettings(): Promise<MailNotifySettings> {
   const parsedValue = rawValue ? parseInt(rawValue, 10) : NaN;
   const rawUnit = map.get("mail_notify_interval_unit");
   const unit: MailNotifyUnit =
-    rawUnit === "minute" || rawUnit === "hour" || rawUnit === "day" ? rawUnit : "minute";
+    rawUnit === "minute" || rawUnit === "hour" || rawUnit === "day" ? rawUnit : "hour";
 
   return {
-    enabled: map.get("mail_notify_enabled") === "true",
-    email: map.get("mail_notify_email") || "",
-    intervalValue: Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 30,
+    mode: parseMode(map.get("mail_notify_mode")),
+    intervalValue: Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 1,
     intervalUnit: unit,
-    forwardEnabled: map.get("mail_notify_forward_enabled") === "true",
+    personalEmail: (map.get(KEY_VERIFIED_EMAIL) || "").trim(),
   };
 }
 
@@ -92,18 +96,21 @@ export async function sendMailNotifyTest(): Promise<{
 /**
  * Persiste la config. Efface `mail_notify_last_sent_at` pour repartir sur un
  * cycle neuf de notifications dès qu'un paramètre change.
+ *
+ * Le champ `personalEmail` du form est ignoré ici : il est géré par le flow
+ * OTP séparé (`admin-personal-email.ts`).
  */
 export async function updateMailNotifySettings(
-  data: MailNotifySettings
+  data: Pick<MailNotifySettings, "mode" | "intervalValue" | "intervalUnit">
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
 
-    if (data.enabled) {
-      const email = data.email?.trim();
-      if (!email || !EMAIL_REGEX.test(email)) {
-        return { success: false, error: "Adresse email invalide." };
-      }
+    if (data.mode !== "off" && data.mode !== "summary" && data.mode !== "forward") {
+      return { success: false, error: "Mode de notification invalide." };
+    }
+
+    if (data.mode === "summary") {
       if (!Number.isFinite(data.intervalValue) || data.intervalValue <= 0) {
         return { success: false, error: "L'intervalle doit être supérieur à 0." };
       }
@@ -117,12 +124,26 @@ export async function updateMailNotifySettings(
       }
     }
 
+    // Pour activer une notification, il faut un mail perso vérifié.
+    if (data.mode !== "off") {
+      const persoRow = await prisma.siteConfig.findFirst({
+        where: { key: KEY_VERIFIED_EMAIL },
+        select: { value: true },
+      });
+      const perso = (persoRow?.value || "").trim();
+      if (!perso) {
+        return {
+          success: false,
+          error:
+            "Aucune adresse perso vérifiée. Configurez-la d'abord en haut de cette page.",
+        };
+      }
+    }
+
     await Promise.all([
-      setSiteConfig("mail_notify_enabled", data.enabled ? "true" : "false"),
-      setSiteConfig("mail_notify_email", data.email?.trim() || ""),
+      setSiteConfig("mail_notify_mode", data.mode),
       setSiteConfig("mail_notify_interval_value", String(Math.floor(data.intervalValue))),
       setSiteConfig("mail_notify_interval_unit", data.intervalUnit),
-      setSiteConfig("mail_notify_forward_enabled", data.forwardEnabled ? "true" : "false"),
     ]);
     // Reset du dernier envoi pour repartir de zéro quand la config change.
     await unsetSiteConfig("mail_notify_last_sent_at");

@@ -30,8 +30,7 @@ interface TenantNotifyConfig {
   intervalMs: number;
   lastSentAt: number | null;
   lastUnreadCount: number;
-  notifyEnabled: boolean;
-  forwardEnabled: boolean;
+  mode: "off" | "summary" | "forward";
   lastForwardedUid: number;
   imapHost: string;
   imapUser: string;
@@ -59,13 +58,12 @@ function parseImapHost(raw: string): { host: string; port: number } {
 
 async function loadTenantConfig(tenantId: string): Promise<TenantNotifyConfig | null> {
   const keys = [
-    "mail_notify_enabled",
-    "mail_notify_email",
+    "mail_notify_mode",
+    "admin_personal_email",
     "mail_notify_interval_value",
     "mail_notify_interval_unit",
     "mail_notify_last_sent_at",
     "mail_notify_last_unread_count",
-    "mail_notify_forward_enabled",
     "mail_notify_last_forwarded_uid",
     "smtp_host",
     "smtp_user",
@@ -78,11 +76,12 @@ async function loadTenantConfig(tenantId: string): Promise<TenantNotifyConfig | 
   });
   const map = new Map(rows.map((r) => [r.key, r.value]));
 
-  const enabled = map.get("mail_notify_enabled") === "true";
-  const forwardEnabled = map.get("mail_notify_forward_enabled") === "true";
-  if (!enabled && !forwardEnabled) return null;
+  const rawMode = map.get("mail_notify_mode");
+  const mode: "off" | "summary" | "forward" =
+    rawMode === "summary" || rawMode === "forward" ? rawMode : "off";
+  if (mode === "off") return null;
 
-  const notifyEmail = (map.get("mail_notify_email") || "").trim();
+  const notifyEmail = (map.get("admin_personal_email") || "").trim();
   if (!notifyEmail) return null;
 
   const rawHost = decryptIfSensitive("smtp_host", map.get("smtp_host") || "").trim();
@@ -108,8 +107,7 @@ async function loadTenantConfig(tenantId: string): Promise<TenantNotifyConfig | 
     intervalMs,
     lastSentAt: Number.isFinite(parsedLastSent) && parsedLastSent > 0 ? parsedLastSent : null,
     lastUnreadCount: Number.isFinite(parsedLastUnread) ? parsedLastUnread : 0,
-    notifyEnabled: enabled,
-    forwardEnabled,
+    mode,
     lastForwardedUid: Number.isFinite(parsedLastForwardedUid) ? parsedLastForwardedUid : 0,
     imapHost: rawHost,
     imapUser: rawUser,
@@ -311,7 +309,7 @@ export async function processTenantOnce(
   tenantId: string,
   opts?: { forceSend?: boolean }
 ): Promise<
-  | { action: "notified"; unread: number; forwarded?: number }
+  | { action: "notified"; unread: number }
   | { action: "forwarded-only"; forwarded: number }
   | { action: "skip"; reason: string; unread?: number }
   | { action: "error"; error: string }
@@ -320,9 +318,9 @@ export async function processTenantOnce(
     const cfg = await loadTenantConfig(tenantId);
     if (!cfg) return { action: "skip", reason: "not-enabled" };
 
-    let forwardedCount = 0;
-    // ── Étape 1 : forward des nouveaux mails (indépendant de l'intervalle) ──
-    if (cfg.forwardEnabled) {
+    // Mode "forward" : uniquement le transfert instantané.
+    if (cfg.mode === "forward") {
+      let forwardedCount = 0;
       try {
         const newMails = await fetchNewMails(cfg);
         // Si c'est la 1ʳᵉ activation (lastForwardedUid = 0), on ne rejoue pas
@@ -345,19 +343,15 @@ export async function processTenantOnce(
       } catch (err) {
         logger.warn("[MailNotify] Fetch new mails échoué", { tenantId, error: err });
       }
-    }
-
-    // ── Étape 2 : notification de résumé (respecte l'intervalle) ──
-    if (!cfg.notifyEnabled) {
       if (forwardedCount > 0) return { action: "forwarded-only", forwarded: forwardedCount };
-      return { action: "skip", reason: "notification-disabled" };
+      return { action: "skip", reason: "no-new-mails" };
     }
 
+    // Mode "summary" : résumé périodique du nombre de non-lus.
     const now = Date.now();
     const elapsed = cfg.lastSentAt ? now - cfg.lastSentAt : Infinity;
 
     if (!opts?.forceSend && elapsed < cfg.intervalMs) {
-      if (forwardedCount > 0) return { action: "forwarded-only", forwarded: forwardedCount };
       return {
         action: "skip",
         reason: `interval (${Math.round(elapsed / 1000)}s < ${cfg.intervalMs / 1000}s)`,
@@ -366,17 +360,15 @@ export async function processTenantOnce(
 
     const unread = await countUnread(cfg);
     if (!opts?.forceSend && unread === 0) {
-      if (forwardedCount > 0) return { action: "forwarded-only", forwarded: forwardedCount };
       return { action: "skip", reason: "zero-unread" };
     }
 
     await sendNotification(cfg, unread);
     await persistLastSent(cfg.tenantId, unread);
-    // Reset last_unread_count aussi (déjà fait par persistLastSent)
     if (unread < cfg.lastUnreadCount) {
       await updateLastUnreadOnly(cfg.tenantId, unread);
     }
-    return { action: "notified", unread, forwarded: forwardedCount || undefined };
+    return { action: "notified", unread };
   } catch (e) {
     return { action: "error", error: e instanceof Error ? e.message : String(e) };
   }
@@ -391,7 +383,7 @@ async function tick(): Promise<void> {
     for (const t of tenants) {
       const res = await processTenantOnce(t.id);
       if (res.action === "notified") {
-        logger.info("[MailNotify] Notification envoyée", { tenantId: t.id, unread: res.unread, forwarded: res.forwarded ?? 0 });
+        logger.info("[MailNotify] Notification envoyée", { tenantId: t.id, unread: res.unread });
       } else if (res.action === "forwarded-only") {
         logger.info("[MailNotify] Mails transférés", { tenantId: t.id, forwarded: res.forwarded });
       } else if (res.action === "error") {

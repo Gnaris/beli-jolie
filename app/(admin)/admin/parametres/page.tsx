@@ -33,7 +33,9 @@ import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBa
 import SeoTextsConfig from "@/components/admin/settings/SeoTextsConfig";
 import MailNotifyForm from "@/components/admin/settings/MailNotifyForm";
 import MailboxPasswordResetCard from "@/components/admin/settings/MailboxPasswordResetCard";
+import PersonalEmailCard from "@/components/admin/settings/PersonalEmailCard";
 import { getMailNotifySettings } from "@/app/actions/admin/mail-notify";
+import { getAdminPersonalEmailState } from "@/app/actions/admin/admin-personal-email";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
@@ -846,8 +848,9 @@ async function SeoTab() {
    TAB : Messagerie — notifications mail non lus + reset mdp boîte pro
    ═══════════════════════════════════════════════════════════════════════════ */
 async function MessagerieTab() {
-  const [settings, smtpFromEmailRow, smtpUserRow] = await Promise.all([
+  const [settings, persoState, smtpFromEmailRow, smtpUserRow] = await Promise.all([
     getMailNotifySettings(),
+    getAdminPersonalEmailState(),
     prisma.siteConfig.findFirst({ where: { key: "smtp_from_email" }, select: { value: true } }),
     prisma.siteConfig.findFirst({ where: { key: "smtp_user" }, select: { value: true } }),
   ]);
@@ -859,14 +862,37 @@ async function MessagerieTab() {
     ? decryptIfSensitive("smtp_user", smtpUserRow.value).trim() || null
     : null;
 
+  const verifiedEmail = persoState.verifiedEmail;
+  const verifiedAt = persoState.verifiedAt;
+
   return (
     <CardsStack>
+      {verifiedEmail ? (
+        <PersonalEmailCard verifiedEmail={verifiedEmail} verifiedAt={verifiedAt} />
+      ) : (
+        <SettingCard
+          icon={Ico.bell}
+          title="Adresse e-mail où recevoir"
+          description="Vous n'avez pas encore vérifié d'adresse perso. Terminez le wizard d'accueil pour la configurer."
+          accent="dark"
+        >
+          <Link
+            href="/admin/bienvenue/email"
+            className="inline-flex items-center rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold px-4 py-2 transition"
+          >
+            Configurer maintenant
+          </Link>
+        </SettingCard>
+      )}
+
       <SettingCard
         icon={Ico.bell}
-        title="Notifications mails non lus"
-        description={proEmail
-          ? `Surveille votre boîte pro ${proEmail} et vous prévient sur une autre adresse quand des mails non lus arrivent.`
-          : "Configurez d'abord votre boîte mail pro avant d'activer les notifications."}
+        title="Notifications sur votre mail perso"
+        description={
+          proEmail
+            ? `Envoyées depuis votre boîte pro ${proEmail}. Choisissez entre résumé périodique et transfert instantané.`
+            : "Configurez d'abord votre boîte mail pro avant d'activer les notifications."
+        }
         accent="dark"
       >
         <MailNotifyForm initialSettings={settings} />
@@ -878,7 +904,7 @@ async function MessagerieTab() {
         description="Réinitialisation protégée par un code de sécurité envoyé à votre adresse perso."
         accent="dark"
       >
-        <MailboxPasswordResetCard persoEmail={settings.email || null} mailboxUser={mailboxUser} />
+        <MailboxPasswordResetCard persoEmail={verifiedEmail} mailboxUser={mailboxUser} />
       </SettingCard>
     </CardsStack>
   );

@@ -71,7 +71,7 @@ async function resolveTenantId(): Promise<string> {
 
 async function readPersoEmail(tenantId: string): Promise<string | null> {
   const row = await prisma.siteConfig.findFirst({
-    where: { tenantId, key: "mail_notify_email" },
+    where: { tenantId, key: "admin_personal_email" },
     select: { value: true },
   });
   const val = row?.value?.trim();
@@ -106,7 +106,7 @@ export async function requestMailboxPasswordResetOtp(): Promise<RequestOtpResult
       return {
         success: false,
         error:
-          "Aucun email perso configuré. Renseignez d'abord une adresse dans « Adresse email où recevoir » puis enregistrez.",
+          "Aucune adresse perso vérifiée. Configurez-la d'abord dans la carte « Adresse e-mail où recevoir » en haut de cette page.",
       };
     }
     const mailboxUser = await readMailboxUser(tenantId);

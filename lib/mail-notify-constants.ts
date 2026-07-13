@@ -7,13 +7,20 @@
 
 export type MailNotifyUnit = "minute" | "hour" | "day";
 
+/**
+ * Trois modes exclusifs pour les notifications de la boîte pro.
+ *  - `off`      : rien envoyé sur le mail perso.
+ *  - `summary`  : un e-mail toutes les X unités avec juste le nombre de non lus.
+ *  - `forward`  : chaque mail reçu est retransféré immédiatement avec son contenu.
+ */
+export type MailNotifyMode = "off" | "summary" | "forward";
+
 export interface MailNotifySettings {
-  enabled: boolean;
-  email: string;
+  mode: MailNotifyMode;
   intervalValue: number;
   intervalUnit: MailNotifyUnit;
-  /** Si actif : chaque nouveau mail reçu dans la boîte pro est transféré à `email`. */
-  forwardEnabled: boolean;
+  /** Adresse perso vérifiée où arrivent les notifications (lecture seule ici). */
+  personalEmail: string;
 }
 
 /** Minimum autorisé entre 2 notifications (protection anti-spam Gmail/Outlook). */

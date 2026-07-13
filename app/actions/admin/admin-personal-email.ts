@@ -258,6 +258,94 @@ export async function resetPendingAdminPersonalEmail(): Promise<{
   return { success: true };
 }
 
+/**
+ * Demande de changement du mail perso APRÈS verrouillage initial.
+ *
+ * Contrairement à `sendAdminPersonalEmailOtp` (wizard) qui envoie le code sur
+ * la **nouvelle** adresse, ici on l'envoie sur l'**ancienne** adresse déjà
+ * vérifiée — protection anti-vol : si un attaquant obtient l'accès admin, il
+ * ne peut pas rediriger les codes sur son propre mail.
+ */
+export async function requestPersonalEmailChangeOtp(
+  newEmailRaw: string
+): Promise<SendPersonalEmailOtpResult> {
+  await requireAdmin();
+  const newEmail = (newEmailRaw ?? "").trim().toLowerCase();
+  if (!EMAIL_REGEX.test(newEmail)) {
+    return { success: false, error: "Adresse invalide.", code: "invalid_email" };
+  }
+
+  const state = await getAdminPersonalEmailState();
+  const currentEmail = state.verifiedEmail;
+  if (!currentEmail) {
+    return {
+      success: false,
+      error:
+        "Aucune adresse perso vérifiée à changer. Passez par le wizard d'accueil pour en enregistrer une.",
+      code: "already_verified",
+    };
+  }
+  if (newEmail === currentEmail) {
+    return {
+      success: false,
+      error: "La nouvelle adresse est identique à l'actuelle.",
+      code: "invalid_email",
+    };
+  }
+
+  const shopName = await getCachedShopName();
+  const code = generateCode();
+  const expiresAt = Date.now() + PERSONAL_EMAIL_OTP_TTL_MS;
+
+  const mail = await sendMail({
+    fromName: shopName,
+    to: currentEmail,
+    subject: `Confirmation de changement d'e-mail perso — ${shopName}`,
+    html: buildPersonalEmailChangeOtpHtml({
+      code,
+      shopName,
+      currentEmail,
+      newEmail,
+    }),
+  });
+
+  if (!mail.sent) {
+    logger.warn("[admin-personal-email] Échec envoi OTP changement", {
+      to: currentEmail,
+      reason: mail.reason,
+      error: "error" in mail ? mail.error : undefined,
+    });
+    if (mail.reason === "no_config" || mail.reason === "no_from") {
+      return {
+        success: false,
+        error:
+          "La boîte pro n'est pas configurée — impossible d'envoyer le code.",
+        code: "smtp_not_ready",
+      };
+    }
+    return {
+      success: false,
+      error: "Impossible d'envoyer le code. Réessayez.",
+      code: "send_failed",
+    };
+  }
+
+  await setSiteConfig(KEY_PENDING_EMAIL, newEmail);
+  await setSiteConfig(KEY_OTP_HASH, hashCode(code));
+  await setSiteConfig(KEY_OTP_EXPIRES, String(expiresAt));
+  await setSiteConfig(KEY_OTP_ATTEMPTS, "0");
+
+  revalidateTag("site-config", "default");
+  revalidatePath("/admin/parametres");
+
+  logger.info("[admin-personal-email] OTP de changement envoyé", {
+    to: currentEmail,
+    pending: newEmail,
+  });
+
+  return { success: true, email: newEmail, expiresAt };
+}
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, "&amp;")
@@ -298,6 +386,52 @@ function buildPersonalEmailOtpHtml(p: {
             <div style="font-size:12px;color:#78350F;line-height:1.5">
               <strong>⚠️ Vous n'avez pas demandé ce code ?</strong><br />
               Ignorez ce mail — sans le code, votre adresse ne sera pas enregistrée.
+            </div>
+          </div>
+          <p style="font-size:11px;color:#94A3B8;margin:16px 0 0">
+            Code valable 15 minutes, à usage unique. Ne le partagez avec personne.
+          </p>
+        </div>
+      </div>
+      <p style="font-size:11px;color:#94A3B8;text-align:center;padding:12px 24px;margin:0">
+        ${escapeHtml(p.shopName)} — Notification de sécurité automatique
+      </p>
+    </div>
+  `;
+}
+
+function buildPersonalEmailChangeOtpHtml(p: {
+  code: string;
+  shopName: string;
+  currentEmail: string;
+  newEmail: string;
+}): string {
+  return `
+    <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;background:#F1F5F9;padding:16px">
+      <div style="background:#FFFFFF;border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(15,23,42,0.06)">
+        <div style="background:#FFF7ED;padding:20px 24px;border-bottom:1px solid #FED7AA">
+          <div style="font-size:11px;color:#9A3412;font-weight:700;letter-spacing:1.5px;text-transform:uppercase">${escapeHtml(p.shopName)} · Sécurité</div>
+          <div style="font-size:18px;font-weight:700;color:#0F172A;margin-top:8px;line-height:1.3">
+            Changement d'e-mail personnel
+          </div>
+        </div>
+        <div style="padding:28px 24px">
+          <p style="font-size:14px;line-height:1.6;color:#334155;margin:0 0 12px">Bonjour,</p>
+          <p style="font-size:14px;line-height:1.6;color:#334155;margin:0 0 20px">
+            Vous avez demandé à remplacer votre adresse perso <strong>${escapeHtml(p.currentEmail)}</strong>
+            par <strong>${escapeHtml(p.newEmail)}</strong>. Ce code vous est envoyé sur votre <strong>ancienne</strong>
+            adresse pour confirmer que la demande vient bien de vous.
+          </p>
+          <div style="margin:16px 0 20px;padding:28px 20px;border-radius:16px;background:#FFF7ED;border:2px solid #FED7AA;text-align:center">
+            <div style="font-size:11px;color:#9A3412;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px">Votre code</div>
+            <div style="font-family:'Courier New',ui-monospace,monospace;font-size:36px;font-weight:700;color:#9A3412;letter-spacing:10px">${escapeHtml(p.code)}</div>
+            <div style="font-size:11px;color:#9A3412;margin-top:12px;opacity:0.75">Expire dans 15 minutes</div>
+          </div>
+          <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:12px 14px;margin:20px 0">
+            <div style="font-size:12px;color:#991B1B;line-height:1.5">
+              <strong>⚠️ Vous n'êtes pas à l'origine de cette demande ?</strong><br />
+              N'entrez pas le code. Votre adresse restera <strong>${escapeHtml(p.currentEmail)}</strong>.
+              Changez immédiatement votre mot de passe admin.
             </div>
           </div>
           <p style="font-size:11px;color:#94A3B8;margin:16px 0 0">
