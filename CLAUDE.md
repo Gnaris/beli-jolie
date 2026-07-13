@@ -29,8 +29,17 @@ Claude lance et garde `npm run dev` en fond dès qu'il touche au site. Redémarr
 2. Informer + trajet de test.
 3. Attendre décision :
    - **« Mettre de côté »** → garder pour push groupé.
-   - **« Push en production »** : `git add/commit/push` → SSH `root@72.61.106.128 /var/www/beliandjolie` → `git fetch/reset --hard origin/master` → `npm install` (si deps) + `prisma generate && prisma db push --skip-generate` (si schema) → `NODE_OPTIONS='--max-old-space-size=4096' npm run build` → `pm2 restart beliandjolie` → **vérif visiteur** (`curl -sL` + `<title>`).
+   - **« Push en production »** : **backup prod obligatoire d'abord** (voir bloc ci-dessous) → `git add/commit/push` → SSH `root@72.61.106.128 /var/www/beliandjolie` → `git fetch/reset --hard origin/master` → `npm install` (si deps) + `prisma generate && prisma db push --skip-generate` (si schema) → `NODE_OPTIONS='--max-old-space-size=4096' npm run build` → `pm2 restart beliandjolie` → **vérif visiteur des 2 tenants** (`curl -sL` beliandjolie.com + issyma.fr, vérif `<title>` distinct).
 4. L'informer à la fin. Code identique local/GitHub/VPS.
+
+**Backup avant push prod (obligatoire, sans demander)** — dans `/root/backups/pre-push-YYYYMMDD-HHMMSS/` :
+1. `mkdir -p` du dossier horodaté.
+2. `mysqldump --single-transaction --routines --triggers --events --databases beliandjolie | gzip > db-beliandjolie.sql.gz` (~10 Mo, contient les 2 tenants).
+3. `git rev-parse HEAD > git-head.txt` (pour rollback via `git reset --hard <sha>`).
+4. `git archive --format=tar HEAD | gzip > code-git-head.tar.gz` (snapshot code sans historique).
+5. `cp .env → .env.backup ; chmod 600` (secrets et clés Stripe/PFS/Ankor).
+6. `cp -al public/uploads → uploads-public` + `cp -al private/uploads → uploads-private` (hardlinks : quasi 0 disque, restauration complète possible même après suppression).
+Restauration : `zcat db-beliandjolie.sql.gz | mysql`, `cd /var/www/beliandjolie && git reset --hard $(cat …/git-head.txt)`, `cp .env.backup /var/www/beliandjolie/.env`. Garder au moins 7 jours.
 
 **Exception Ankorstore** : push direct prod (callbacks async ne hittent pas localhost).
 
