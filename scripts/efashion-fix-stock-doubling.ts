@@ -258,9 +258,17 @@ async function main() {
       `   ✏️  ProductColor ${p.productColorId} → override=${p.efActualId}`,
     );
 
-    // 6b) Nettoie le stock orphelin (une entrée par taille de la déclinaison).
-    if (p.orphanIdCouleur !== null && p.orphanSizes.length > 0) {
-      for (const taille of p.orphanSizes) {
+    // 6b) Nettoie le stock orphelin. eFashion peut avoir stocké l'entrée sous
+    // plusieurs libellés de taille selon l'historique (produits anciens qui
+    // ont changé de déclinaison ou qui avaient `null`/`TU` avant l'ajout de
+    // la déclinaison actuelle). On envoie donc value=0 sur tous les libellés
+    // plausibles : chaque taille de la déclinaison courante + null + "TU".
+    // Chaque combinaison qui n'existait pas côté eFashion est un no-op.
+    if (p.orphanIdCouleur !== null) {
+      const tailleAttempts = Array.from(
+        new Set<string | null>([null, "TU", ...p.orphanSizes]),
+      );
+      for (const taille of tailleAttempts) {
         try {
           await efashionUpsertProduitStock({
             id_produit: p.efProductId,
@@ -269,11 +277,11 @@ async function main() {
             taille,
           });
           console.log(
-            `      ↳ orphelin nettoyé : (${p.efProductId}, id_couleur=${p.orphanIdCouleur}, ${taille}) = 0`,
+            `      ↳ orphelin nettoyé : (${p.efProductId}, id_couleur=${p.orphanIdCouleur}, taille=${taille ?? "null"}) = 0`,
           );
         } catch (err) {
           console.log(
-            `      ⚠️  upsertProduitStock(orphelin) KO sur ${taille} : ${err instanceof Error ? err.message : err}`,
+            `      ⚠️  upsertProduitStock(orphelin) KO sur taille=${taille ?? "null"} : ${err instanceof Error ? err.message : err}`,
           );
         }
       }
