@@ -143,6 +143,39 @@ export async function efashionListProducts(opts: {
 }
 
 /**
+ * Une ligne stock côté eFashion — 1 par (id_produit, id_couleur, taille).
+ * L'`id_produit_stock` est stable et sert à cibler une ligne pour
+ * `removeProduitStock` (cf. `lib/efashion-api-write.ts`).
+ */
+export interface EfashionProduitStock {
+  id_produit_stock: number;
+  id_produit: number;
+  id_couleur: number;
+  value: number;
+  taille: string | null;
+}
+
+/**
+ * Liste toutes les lignes stock d'un `id_produit` eFashion (une par couple
+ * couleur+taille). Utile pour repérer les entrées orphelines (id_couleur ou
+ * libellé de taille qui n'ont plus lieu d'être).
+ */
+export async function efashionListProduitStocks(
+  idProduit: number,
+): Promise<EfashionProduitStock[]> {
+  await ensureEfashionSession();
+  const data = await efashionGraphql<{ produitStocks: EfashionProduitStock[] }>(
+    `query ProduitStocks($id: Int!) {
+      produitStocks(id_produit: $id) {
+        id_produit_stock id_produit id_couleur value taille
+      }
+    }`,
+    { id: idProduit },
+  );
+  return data.produitStocks ?? [];
+}
+
+/**
  * Liste **toutes les lignes eFashion dont `reference_base` correspond
  * exactement** à celle demandée, en paginant l'API jusqu'à ce qu'on ait
  * tout ramassé.

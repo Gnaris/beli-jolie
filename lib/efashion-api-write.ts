@@ -148,6 +148,30 @@ export async function efashionUpsertProduitStock(args: {
 }
 
 /**
+ * Supprime **définitivement** une ligne stock (identifiée par son
+ * `id_produit_stock`) côté eFashion.
+ *
+ * Différence avec `upsertProduitStock(value=0)` : upsert met la valeur à 0
+ * mais la ligne reste visible dans l'UI eFashion (avec un stock=0). La
+ * `removeProduitStock` supprime la ligne pour de bon — utile pour nettoyer
+ * les entrées orphelines créées par un ancien id_couleur ou un ancien libellé
+ * de taille qui n'ont plus lieu d'être.
+ *
+ * Pour lister les lignes stock d'un produit-couleur eFashion, utiliser
+ * `efashionListProduitStocks(id_produit)`.
+ */
+export async function efashionRemoveProduitStock(idProduitStock: number): Promise<boolean> {
+  await ensureEfashionSession();
+  const data = await efashionGraphql<{ removeProduitStock: boolean }>(
+    `mutation RemoveProduitStock($id: Int!) {
+      removeProduitStock(id: $id)
+    }`,
+    { id: idProduitStock },
+  );
+  return data.removeProduitStock ?? true;
+}
+
+/**
  * Met à jour plusieurs stocks en un seul appel (batch).
  *
  * ⚠️ Déprécié depuis le 2026-05-30 : eFashion a remplacé cette mutation par

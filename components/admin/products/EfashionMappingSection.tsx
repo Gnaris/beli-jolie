@@ -71,6 +71,12 @@ function principalLabelOf(
   return opt?.label ? `${opt.label} (id ${principalId})` : `id ${principalId}`;
 }
 
+function labelOf(id: number | null, options: EfashionColorOption[]): string {
+  if (id == null) return "—";
+  const opt = options.find((o) => o.id === id);
+  return opt?.label ? `${opt.label} (id ${id})` : `id ${id}`;
+}
+
 export default function EfashionMappingSection({
   variants,
   availableColors,
@@ -226,11 +232,19 @@ export default function EfashionMappingSection({
                   inConflict ? "bg-amber-50/60" : ""
                 }`}
               >
-                <div className="col-span-4 flex items-center gap-2 min-w-0">
+                <div className="col-span-4 flex items-center gap-2 min-w-0 flex-wrap">
                   <ColorSwatch hex={r.colorHex} size={20} rounded="full" border />
                   <span className="text-[13px] font-body text-text-primary truncate">
                     {r.colorName}
                   </span>
+                  {r.overrideId != null && r.overrideId !== r.principalId && (
+                    <span
+                      className="text-[10px] text-sky-700 bg-sky-50 border border-sky-200 rounded px-1.5 py-0.5 font-body"
+                      title="Cette couleur BJ pointe vers une couleur eFashion différente du mapping principal (override secondaire actif)."
+                    >
+                      ↔ {labelOf(r.overrideId, efashionColorOptions)} côté eFashion
+                    </span>
+                  )}
                   {r.hasNameCollision && (
                     <span
                       className="text-[10px] text-amber-700 bg-amber-100 rounded px-1.5 py-0.5 font-body"
@@ -264,7 +278,10 @@ export default function EfashionMappingSection({
                   )}
                   {r.overrideId != null && effective != null && (
                     <p className="text-[10px] text-text-muted font-body mt-1">
-                      Effectif sur eFashion : <span className="font-semibold">id {effective}</span>
+                      Effectif sur eFashion :{" "}
+                      <span className="font-semibold">
+                        {labelOf(effective, efashionColorOptions)}
+                      </span>
                     </p>
                   )}
                 </div>
