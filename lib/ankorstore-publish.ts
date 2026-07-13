@@ -32,6 +32,7 @@ import { getCachedAnkorstoreEnabled } from "@/lib/cached-data";
 import { buildMarketplaceImageUrl } from "@/lib/marketplace-image";
 import { emitProductEvent } from "@/lib/product-events";
 import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
+import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
 
 // ─────────────────────────────────────────────
 // Public types
@@ -194,9 +195,14 @@ import { buildVariantSkus as buildVariantSkusShared } from "@/lib/ankorstore-sku
  * URL envoyée à Ankorstore : passe par /api/marketplace-image qui
  * garantit une largeur ≥ 500px (upscale à la volée si nécessaire,
  * sans modifier le fichier d'origine sur disque).
+ *
+ * `baseUrl` doit être l'URL publique du tenant courant (ex: `https://issyma.fr`)
+ * pour que le proxy accepte le path — sinon les images d'un tenant Issyma
+ * seraient servies depuis `beliandjolie.com` → refus 403 (isolation multi-
+ * tenant du path côté `/api/marketplace-image`).
  */
-function buildPublicImageUrl(dbPath: string): string {
-  return buildMarketplaceImageUrl(dbPath);
+function buildPublicImageUrl(dbPath: string, baseUrl?: string): string {
+  return buildMarketplaceImageUrl(dbPath, baseUrl);
 }
 
 function getVariantStock(variant: FullVariant): number {
@@ -267,6 +273,7 @@ function buildAnkorstoreVariants(
   wholesaleMarkup: MarkupConfig,
   retailMarkup: MarkupConfig,
   imagesByColorId: Map<string, string[]>,
+  imageBaseUrl?: string,
 ): {
   bjVariantId: string;
   sku: string;
@@ -295,7 +302,7 @@ function buildAnkorstoreVariants(
     const paths = imagesByColorId.get(variantColorId) ?? [];
     const variantImages = paths.map((p, idx) => ({
       order: idx + 1,
-      url: buildPublicImageUrl(p),
+      url: buildPublicImageUrl(p, imageBaseUrl),
     }));
 
     if (variant.saleType === "UNIT") {
@@ -403,12 +410,16 @@ export async function buildPublishProductInput(productId: string): Promise<
 
   const imagesByColorId = buildImagesByColorId(product.colorImages);
 
+  const tenantId = await getCurrentTenantIdSafe();
+  const imageBaseUrl = tenantId ? (await getTenantBaseUrl(tenantId)) ?? undefined : undefined;
+
   const variantEntries = buildAnkorstoreVariants(
     product,
     product.colors,
     pricing.wholesale,
     pricing.retail,
     imagesByColorId,
+    imageBaseUrl,
   );
 
   const allVariantsOutOfStock =
@@ -430,11 +441,11 @@ export async function buildPublishProductInput(productId: string): Promise<
     ? (imagesByColorId.get(primaryColorId) ?? [])
     : [];
   const mainImage = primaryColorPaths[0]
-    ? buildPublicImageUrl(primaryColorPaths[0])
+    ? buildPublicImageUrl(primaryColorPaths[0], imageBaseUrl)
     : undefined;
   const productImages = primaryColorPaths.slice(1).map((path, idx) => ({
     order: idx + 2,
-    url: buildPublicImageUrl(path),
+    url: buildPublicImageUrl(path, imageBaseUrl),
   }));
 
   // Poids envoyé en kg sans préciser l'unité : Ankorstore applique "kg"

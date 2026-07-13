@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
-import { bindTenantId } from "@/lib/tenant-als";
+import { bindTenantId, getCurrentTenantIdSync } from "@/lib/tenant-als";
 
 /**
  * Fournit l'accès à la boutique courante côté serveur (server components,
@@ -85,4 +85,46 @@ export async function resolveTenantByHost(host: string): Promise<CurrentTenant |
     slug: mapping.tenant.slug,
     name: mapping.tenant.name,
   };
+}
+
+/**
+ * Résout le tenant courant sans throw : ALS d'abord (safe hors requête), puis
+ * `next/headers` en fallback via try/catch. Utile pour du code fire-and-forget
+ * ou pour les tests unitaires où `headers()` n'est pas disponible.
+ */
+export async function getCurrentTenantIdSafe(): Promise<string | null> {
+  const alsId = getCurrentTenantIdSync();
+  if (alsId) return alsId;
+  try {
+    return await getCurrentTenantId();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Renvoie l'URL de base publique (`https://<host>`) du tenant. Sert notamment
+ * à construire les URLs d'images envoyées aux marketplaces : Faire/Ankorstore
+ * doivent fetcher `https://issyma.fr/api/marketplace-image?...` pour un
+ * produit Issyma, pas `https://beliandjolie.com/...` — sinon le proxy
+ * refuse (isolation multi-tenant du path : cf. `/api/marketplace-image`).
+ *
+ * Ordre de priorité :
+ *   1. Domaine `isPrimary` du tenant.
+ *   2. Premier domaine (ordre `createdAt` asc) — filet quand personne n'a
+ *      encore posé `isPrimary=true` sur un domaine.
+ *   3. `null` — laisser l'appelant retomber sur son fallback (env vars).
+ *
+ * NOTE : pas de scheme http:// en local — cette fonction sert exclusivement
+ * les liens exposés à des marketplaces externes, qui n'atteignent jamais
+ * `localhost`. Toujours `https://`.
+ */
+export async function getTenantBaseUrl(tenantId: string): Promise<string | null> {
+  const domain = await prisma.tenantDomain.findFirst({
+    where: { tenantId },
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    select: { host: true },
+  });
+  if (!domain) return null;
+  return `https://${domain.host}`;
 }

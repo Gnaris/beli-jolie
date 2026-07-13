@@ -616,3 +616,40 @@ describe("buildFaireProductPayload — axe Size activé quand ≥ 2 tailles dist
     }
   });
 });
+
+describe("buildFaireProductPayload — imageBaseUrl (multi-tenant)", () => {
+  it("préfixe les URLs images avec le baseUrl du tenant quand fourni", () => {
+    const { body, variants } = buildFaireProductPayload(
+      makeProduct(),
+      ctx,
+      wholesale,
+      retail,
+      "PUBLISHED",
+      undefined,
+      "https://issyma.fr",
+    );
+    const productImages = (body.images as { url: string }[]) ?? [];
+    expect(productImages.length).toBeGreaterThan(0);
+    for (const img of productImages) {
+      expect(img.url).toMatch(/^https:\/\/issyma\.fr\/api\/marketplace-image\?/);
+    }
+    for (const v of variants) {
+      for (const img of v.payload.images ?? []) {
+        expect(img.url).toMatch(/^https:\/\/issyma\.fr\/api\/marketplace-image\?/);
+      }
+    }
+  });
+
+  it("retombe sur le fallback env quand baseUrl absent", () => {
+    // Sans baseUrl explicite, buildMarketplaceImageUrl lit NEXTAUTH_URL puis
+    // fallback https://beliandjolie.com. On vérifie juste que l'URL est bien
+    // construite sur ce fallback (le hostname exact dépend de l'env de test).
+    const { body } = buildFaireProductPayload(makeProduct(), ctx, wholesale, retail, "PUBLISHED");
+    const productImages = (body.images as { url: string }[]) ?? [];
+    expect(productImages.length).toBeGreaterThan(0);
+    for (const img of productImages) {
+      expect(img.url).not.toMatch(/^https:\/\/issyma\.fr\//);
+      expect(img.url).toContain("/api/marketplace-image?");
+    }
+  });
+});

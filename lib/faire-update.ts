@@ -47,6 +47,7 @@ import {
   type FairePriceUpdate,
 } from "@/lib/faire-prices";
 import { loadMarketplaceMarkupConfigs } from "@/lib/marketplace-pricing";
+import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
 
 export type FaireUpdateResult =
   | { success: true; diff: FaireSyncDiff; noop: boolean }
@@ -234,6 +235,8 @@ export async function faireUpdateProduct(
   // « Duplicate variants with same options ». Pour les publish (POST), au
   // contraire, le salt timestamp évite le cache d'erreurs sur des produits
   // DELETED.
+  const tenantId = await getCurrentTenantIdSafe();
+  const imageBaseUrl = tenantId ? (await getTenantBaseUrl(tenantId)) ?? undefined : undefined;
   const { body, variants, productImageUrls } = buildFaireProductPayload(
     product,
     ctx,
@@ -241,6 +244,7 @@ export async function faireUpdateProduct(
     configs.faireRetail,
     lifecycleState === "UNPUBLISHED" ? "PUBLISHED" : lifecycleState,
     `update-${meta.faireProductId}`,
+    imageBaseUrl,
   );
   // Override le lifecycle dans le body (publish met DRAFT par défaut).
   body.lifecycle_state = lifecycleState;

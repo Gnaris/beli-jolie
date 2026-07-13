@@ -55,6 +55,7 @@ import { emitProductEvent } from "@/lib/product-events";
 import { buildMarketplaceImageUrl } from "@/lib/marketplace-image";
 import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
 import { getCachedAnkorstoreEnabled } from "@/lib/cached-data";
+import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
 
 // ─────────────────────────────────────────────
 // Public types
@@ -232,9 +233,14 @@ function buildVariantSku(
  * URL envoyée à Ankorstore : passe par /api/marketplace-image qui
  * garantit une largeur ≥ 500px (upscale à la volée si nécessaire,
  * sans modifier le fichier d'origine sur disque).
+ *
+ * `baseUrl` doit être l'URL publique du tenant courant (ex: `https://issyma.fr`)
+ * pour que le proxy accepte le path — sinon les images d'un tenant Issyma
+ * seraient servies depuis `beliandjolie.com` → refus 403 (isolation multi-
+ * tenant du path côté `/api/marketplace-image`).
  */
-function buildPublicImageUrl(dbPath: string): string {
-  return buildMarketplaceImageUrl(dbPath);
+function buildPublicImageUrl(dbPath: string, baseUrl?: string): string {
+  return buildMarketplaceImageUrl(dbPath, baseUrl);
 }
 
 function getPackColorLabel(variant: FullVariant): string {
@@ -778,6 +784,14 @@ export async function ankorstoreKickoffUpdate(
       if (!imagesByColorId.has(img.colorId)) imagesByColorId.set(img.colorId, []);
       imagesByColorId.get(img.colorId)!.push(img.path);
     }
+
+    // Domaine du tenant courant pour construire les URLs images envoyées à AS.
+    // Sans ça, Issyma publierait des URLs `https://beliandjolie.com/...` que
+    // le proxy `/api/marketplace-image` refuse en 403 (isolation multi-tenant
+    // du path).
+    const tenantId = await getCurrentTenantIdSafe();
+    const imageBaseUrl = tenantId ? (await getTenantBaseUrl(tenantId)) ?? undefined : undefined;
+
     // Images niveau produit : UNIQUEMENT celles de la couleur principale.
     // Les autres couleurs ont leurs images attachées à leur variante.
     // Spec Ankorstore : `main_image` porte l'order 1 implicite, donc `images`
@@ -788,11 +802,11 @@ export async function ankorstoreKickoffUpdate(
       ? (imagesByColorId.get(primaryColorId) ?? [])
       : [];
     const mainImage = primaryColorPaths[0]
-      ? buildPublicImageUrl(primaryColorPaths[0])
+      ? buildPublicImageUrl(primaryColorPaths[0], imageBaseUrl)
       : undefined;
     const productImages = primaryColorPaths.slice(1).map((path, idx) => ({
       order: idx + 2,
-      url: buildPublicImageUrl(path),
+      url: buildPublicImageUrl(path, imageBaseUrl),
     }));
     // Poids en kg sans unit_code (cf. lib/ankorstore-shape.ts pour les détails).
     const weightKg = firstVariant?.weight && firstVariant.weight > 0
@@ -865,7 +879,7 @@ export async function ankorstoreKickoffUpdate(
         const paths = imagesByColorId.get(variantColorId) ?? [];
         const variantImages = paths.map((p, idx) => ({
           order: idx + 1,
-          url: buildPublicImageUrl(p),
+          url: buildPublicImageUrl(p, imageBaseUrl),
         }));
         return {
           sku,

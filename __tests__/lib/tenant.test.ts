@@ -10,8 +10,14 @@ vi.mock("next/headers", () => ({
 }));
 
 const findUniqueMock = vi.fn();
+const findFirstMock = vi.fn();
 vi.mock("@/lib/prisma", () => ({
-  prisma: { tenantDomain: { findUnique: (...a: unknown[]) => findUniqueMock(...a) } },
+  prisma: {
+    tenantDomain: {
+      findUnique: (...a: unknown[]) => findUniqueMock(...a),
+      findFirst: (...a: unknown[]) => findFirstMock(...a),
+    },
+  },
 }));
 
 import {
@@ -20,6 +26,7 @@ import {
   getCurrentTenant,
   requireCurrentTenant,
   resolveTenantByHost,
+  getTenantBaseUrl,
 } from "@/lib/tenant";
 
 function fakeHeaders(entries: Record<string, string | null>) {
@@ -34,6 +41,7 @@ describe("lib/tenant", () => {
   beforeEach(() => {
     mockHeaders.mockReset();
     findUniqueMock.mockReset();
+    findFirstMock.mockReset();
   });
 
   describe("getCurrentTenantId", () => {
@@ -118,6 +126,24 @@ describe("lib/tenant", () => {
         tenant: { id: "t1", slug: "beli-jolie", name: "Beli & Jolie", isActive: false },
       });
       expect(await resolveTenantByHost("beliandjolie.com")).toBeNull();
+    });
+  });
+
+  describe("getTenantBaseUrl", () => {
+    it("renvoie https://<primary host> quand un TenantDomain existe", async () => {
+      findFirstMock.mockResolvedValue({ host: "issyma.fr" });
+      const url = await getTenantBaseUrl("t-issyma");
+      expect(url).toBe("https://issyma.fr");
+      expect(findFirstMock).toHaveBeenCalledWith({
+        where: { tenantId: "t-issyma" },
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+        select: { host: true },
+      });
+    });
+
+    it("renvoie null quand aucun TenantDomain n'existe", async () => {
+      findFirstMock.mockResolvedValue(null);
+      expect(await getTenantBaseUrl("t-nope")).toBeNull();
     });
   });
 });

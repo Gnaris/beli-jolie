@@ -44,6 +44,7 @@ import {
   type FaireVariantSnapshot,
 } from "@/lib/faire-sync-diff";
 import { buildFaireImageUrl } from "@/lib/marketplace-image";
+import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
 
 // ─────────────────────────────────────────────
 // Types
@@ -376,6 +377,14 @@ export function buildFaireProductPayload(
   retailConfig: MarkupConfig,
   lifecycleState: "DRAFT" | "PUBLISHED" = "DRAFT",
   idempotenceSalt: string = Date.now().toString(36),
+  /**
+   * URL de base publique du tenant courant (ex : `https://issyma.fr`). Utilisée
+   * pour bâtir les URLs `/api/marketplace-image?...` envoyées à Faire. Sans ce
+   * paramètre, le fallback env (`NEXTAUTH_URL` = `beliandjolie.com` en prod)
+   * ferait pointer les images Issyma sur le domaine BJ → refus 403 côté proxy
+   * (isolation multi-tenant du path).
+   */
+  imageBaseUrl?: string,
 ): {
   body: Record<string, unknown>;
   variants: FaireVariantPayload[];
@@ -422,7 +431,10 @@ export function buildFaireProductPayload(
     // côté galerie de la variante. Sans ça, Faire conserve l'ordre historique
     // des images existantes même quand on PATCH avec un nouveau tableau.
     const images = imgPaths.length > 0
-      ? imgPaths.slice(0, 5).map((p, idx) => ({ url: buildFaireImageUrl(p), sequence: idx }))
+      ? imgPaths.slice(0, 5).map((p, idx) => ({
+          url: buildFaireImageUrl(p, imageBaseUrl),
+          sequence: idx,
+        }))
       : undefined;
 
     // measurements (schéma `ExternalMeasurementsV2`, cf. docs/faire-api.md §6).
@@ -573,7 +585,7 @@ export function buildFaireProductPayload(
   //
   // `sequence` (0, 1, 2…) reste utile pour l'ordre dans la galerie complète.
   const productImages = galleryPaths.map((p, idx) => ({
-    url: buildFaireImageUrl(p),
+    url: buildFaireImageUrl(p, imageBaseUrl),
     sequence: idx,
     ...(idx === 0 ? { tags: ["Hero"] } : {}),
   }));
@@ -784,6 +796,17 @@ export function buildPublishContext(
 // Main entry
 // ─────────────────────────────────────────────
 
+/**
+ * Résout l'URL de base à envoyer à Faire pour les images du tenant courant.
+ * Sans tenant résolu (jobs cron/scripts), on renvoie `undefined` — le helper
+ * `buildFaireImageUrl` retombera alors sur `NEXTAUTH_URL` / fallback env.
+ */
+async function resolveTenantImageBaseUrl(): Promise<string | undefined> {
+  const tenantId = await getCurrentTenantIdSafe();
+  if (!tenantId) return undefined;
+  return (await getTenantBaseUrl(tenantId)) ?? undefined;
+}
+
 export async function fairePublishProduct(
   productId: string,
   options: { lifecycleState?: "DRAFT" | "PUBLISHED" } = {},
@@ -833,12 +856,15 @@ export async function fairePublishProduct(
 
   const configs = await loadMarketplaceMarkupConfigs();
   const lifecycleState = options.lifecycleState ?? "DRAFT";
+  const imageBaseUrl = await resolveTenantImageBaseUrl();
   const { body, variants, productImagesCount, productImageUrls } = buildFaireProductPayload(
     product,
     ctx,
     configs.faireWholesale,
     configs.faireRetail,
     lifecycleState,
+    undefined,
+    imageBaseUrl,
   );
 
   // Validation locale (rejet rapide avant l'aller-retour HTTP).
