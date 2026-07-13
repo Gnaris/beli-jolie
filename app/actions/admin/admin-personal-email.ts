@@ -8,6 +8,20 @@ import { setSiteConfig, unsetSiteConfig } from "@/lib/site-config-write";
 import { sendMail } from "@/lib/email";
 import { getCachedShopName } from "@/lib/cached-data";
 import { logger } from "@/lib/logger";
+import {
+  PERSONAL_EMAIL_OTP_TTL_MS,
+  PERSONAL_EMAIL_OTP_MAX_ATTEMPTS,
+  PERSONAL_EMAIL_OTP_LENGTH,
+  KEY_VERIFIED_EMAIL,
+  KEY_VERIFIED_AT,
+  KEY_PENDING_EMAIL,
+  KEY_OTP_HASH,
+  KEY_OTP_EXPIRES,
+  KEY_OTP_ATTEMPTS,
+  type AdminPersonalEmailState,
+  type SendPersonalEmailOtpResult,
+  type VerifyPersonalEmailOtpResult,
+} from "./admin-personal-email-constants";
 
 /**
  * Vérification et verrouillage du mail perso de l'admin.
@@ -28,16 +42,6 @@ import { logger } from "@/lib/logger";
  */
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-export const PERSONAL_EMAIL_OTP_TTL_MS = 15 * 60 * 1000;
-export const PERSONAL_EMAIL_OTP_MAX_ATTEMPTS = 5;
-export const PERSONAL_EMAIL_OTP_LENGTH = 6;
-
-export const KEY_VERIFIED_EMAIL = "admin_personal_email";
-export const KEY_VERIFIED_AT = "admin_personal_email_verified_at";
-export const KEY_PENDING_EMAIL = "admin_personal_email_pending";
-export const KEY_OTP_HASH = "admin_personal_email_otp_hash";
-export const KEY_OTP_EXPIRES = "admin_personal_email_otp_expires";
-export const KEY_OTP_ATTEMPTS = "admin_personal_email_otp_attempts";
 
 function generateCode(): string {
   const max = 10 ** PERSONAL_EMAIL_OTP_LENGTH;
@@ -50,19 +54,6 @@ function generateCode(): string {
 function hashCode(code: string): string {
   return crypto.createHash("sha256").update(code).digest("hex");
 }
-
-export type AdminPersonalEmailState = {
-  /** Mail perso confirmé et verrouillé, s'il existe. */
-  verifiedEmail: string | null;
-  /** Timestamp ms du verrouillage, s'il existe. */
-  verifiedAt: number | null;
-  /** Mail perso en cours de vérification, s'il existe. */
-  pendingEmail: string | null;
-  /** Timestamp ms d'expiration du code en cours, s'il existe. */
-  otpExpiresAt: number | null;
-  /** Nombre de tentatives déjà consommées sur le code en cours. */
-  otpAttempts: number;
-};
 
 export async function getAdminPersonalEmailState(): Promise<AdminPersonalEmailState> {
   const { tenant } = await requireAdmin();
@@ -93,18 +84,6 @@ export async function getAdminPersonalEmailState(): Promise<AdminPersonalEmailSt
     otpAttempts: Number.isFinite(attempts) && attempts >= 0 ? attempts : 0,
   };
 }
-
-export type SendPersonalEmailOtpResult =
-  | { success: true; email: string; expiresAt: number }
-  | {
-      success: false;
-      error: string;
-      code:
-        | "invalid_email"
-        | "already_verified"
-        | "smtp_not_ready"
-        | "send_failed";
-    };
 
 /**
  * Envoie (ou renvoie) un OTP au mail perso saisi. Efface toute vérification
@@ -174,19 +153,6 @@ export async function sendAdminPersonalEmailOtp(
 
   return { success: true, email, expiresAt };
 }
-
-export type VerifyPersonalEmailOtpResult =
-  | { success: true; email: string }
-  | {
-      success: false;
-      error: string;
-      code:
-        | "no_pending"
-        | "expired"
-        | "too_many_attempts"
-        | "invalid_code";
-      attemptsRemaining?: number;
-    };
 
 /**
  * Vérifie le code saisi contre le hash stocké. Si OK : verrouille le mail

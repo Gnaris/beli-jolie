@@ -82,6 +82,8 @@ import {
   verifyAdminPersonalEmailOtp,
   resetPendingAdminPersonalEmail,
   getAdminPersonalEmailState,
+} from "@/app/actions/admin/admin-personal-email";
+import {
   KEY_VERIFIED_EMAIL,
   KEY_VERIFIED_AT,
   KEY_PENDING_EMAIL,
@@ -90,7 +92,7 @@ import {
   KEY_OTP_ATTEMPTS,
   PERSONAL_EMAIL_OTP_TTL_MS,
   PERSONAL_EMAIL_OTP_MAX_ATTEMPTS,
-} from "@/app/actions/admin/admin-personal-email";
+} from "@/app/actions/admin/admin-personal-email-constants";
 
 function seedVerifiedEmail(email: string) {
   store.siteConfig.push({ tenantId: TENANT_ID, key: KEY_VERIFIED_EMAIL, value: email });

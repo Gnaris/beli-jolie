@@ -6,8 +6,8 @@ import {
   sendAdminPersonalEmailOtp,
   verifyAdminPersonalEmailOtp,
   resetPendingAdminPersonalEmail,
-  type AdminPersonalEmailState,
 } from "@/app/actions/admin/admin-personal-email";
+import type { AdminPersonalEmailState } from "@/app/actions/admin/admin-personal-email-constants";
 import { markStepCompleted } from "@/app/actions/admin/onboarding";
 import { useToast } from "@/components/ui/Toast";
 
