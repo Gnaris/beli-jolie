@@ -96,7 +96,7 @@ export async function computeUnmappedAttributes(
   const [
     catPfs, catEf, catFaire, catTotal,
     colPfs, colEf, colTotal,
-    compPfs, compEf, compFaire, compTotal,
+    compPfs, compEf, compTotal,
     seaPfs, seaEf, seaTotal,
     sizPfs, sizTotal,
     couPfs, couEf, couFaire, couTotal,
@@ -118,14 +118,13 @@ export async function computeUnmappedAttributes(
       flags.pfs && { pfsColorRef: null },
       flags.efashion && { efashionColorId: null },
     ]),
-    // Compositions
+    // Compositions — Faire n'a pas de mapping composition (le libellé FR est
+    // envoyé tel quel dans la description), donc pas de comptage Faire ici.
     safeCount(flags.pfs, prisma.composition, { ...scope, pfsCompositionRef: null }),
     safeCount(flags.efashion, prisma.composition, { ...scope, efashionId: null }),
-    safeCount(flags.faire, prisma.composition, { ...scope, faireMaterialLabel: null }),
     countWithOr(prisma.composition, scope, [
       flags.pfs && { pfsCompositionRef: null },
       flags.efashion && { efashionId: null },
-      flags.faire && { faireMaterialLabel: null },
     ]),
     // Saisons
     safeCount(flags.pfs, prisma.season, { ...scope, pfsRef: null }),
@@ -158,7 +157,7 @@ export async function computeUnmappedAttributes(
 
   const categories = buildCount({ pfs: catPfs, efashion: catEf, faire: catFaire }, catTotal);
   const colors = buildCount({ pfs: colPfs, efashion: colEf }, colTotal);
-  const compositions = buildCount({ pfs: compPfs, efashion: compEf, faire: compFaire }, compTotal);
+  const compositions = buildCount({ pfs: compPfs, efashion: compEf }, compTotal);
   const seasons = buildCount({ pfs: seaPfs, efashion: seaEf }, seaTotal);
   const sizes = buildCount({ pfs: sizPfs }, sizTotal);
   const countries = buildCount({ pfs: couPfs, efashion: couEf, faire: couFaire }, couTotal);

@@ -487,6 +487,7 @@
     "paymentCard": "Carte bancaire",
     "paymentTransfer": "Virement bancaire",
     "paymentTransferInfo": "Coordonnées bancaires transmises par email après confirmation.",
+    "paymentPurchaseOrder": "Bon de commande",
     "vatNumber": "N° TVA intracommunautaire",
     "vatVerifying": "Vérification...",
     "vatValid": "Numéro TVA valide — autoliquidation applicable",

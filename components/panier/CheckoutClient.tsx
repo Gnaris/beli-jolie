@@ -12,6 +12,7 @@ import { updateBillingInfo } from "@/app/actions/client/billing";
 import { uploadBordereau } from "@/app/actions/client/upload-bordereau";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import CustomSelect from "@/components/ui/CustomSelect";
+import CardPreview3D, { type CardBrand, type NumberStatus } from "@/components/panier/CardPreview3D";
 import { isBillingComplete, findAddressMatchingBilling } from "@/lib/shipping-billing-match";
 
 const COUNTRY_CODES = [
@@ -160,64 +161,6 @@ function computeUnitPrice(v: VariantData): number {
   return Math.max(0, base * (1 - discountPercent / 100));
 }
 
-// ─────────────────────────────────────────────
-// Stepper
-// ─────────────────────────────────────────────
-
-function CheckoutStepper({ currentStep }: { currentStep: number }) {
-  const t = useTranslations("cart");
-  const steps = [
-    { label: t("stepCart"), href: "/panier" },
-    { label: t("stepCheckout"), href: "/panier/commande" },
-    { label: t("stepConfirmation"), href: null },
-  ];
-
-  return (
-    <nav className="flex items-center justify-center gap-0 mb-8 md:mb-10">
-      {steps.map((step, i) => {
-        const isActive = i === currentStep;
-        const isDone = i < currentStep;
-        return (
-          <div key={step.label} className="flex items-center">
-            {i > 0 && (
-              <div className={`w-8 sm:w-14 h-px mx-1 sm:mx-2 transition-colors ${isDone ? "bg-bg-dark" : "bg-border"}`} />
-            )}
-            <div className="flex items-center gap-2">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold font-body transition-all shrink-0 ${
-                isActive
-                  ? "bg-bg-dark text-white"
-                  : isDone
-                    ? "bg-bg-dark text-white"
-                    : "bg-bg-tertiary text-text-muted"
-              }`}>
-                {isDone ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                ) : (
-                  i + 1
-                )}
-              </div>
-              {step.href && (isDone || isActive) ? (
-                <Link href={step.href} className={`text-sm font-body font-medium transition-colors hidden sm:block ${
-                  isActive ? "text-text-primary" : "text-text-secondary hover:text-text-primary"
-                }`}>
-                  {step.label}
-                </Link>
-              ) : (
-                <span className={`text-sm font-body font-medium hidden sm:block ${
-                  isActive ? "text-text-primary" : "text-text-muted"
-                }`}>
-                  {step.label}
-                </span>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </nav>
-  );
-}
 
 // ─────────────────────────────────────────────
 // Section header with completion indicator
@@ -446,8 +389,17 @@ function StripePaymentForm({
   const [ready, setReady] = useState({ number: false, expiry: false, cvc: false });
   const [focused, setFocused] = useState<string | null>(null);
   const [cardBrand, setCardBrand] = useState<string>("unknown");
+  const [numberStatus, setNumberStatus] = useState<NumberStatus>("empty");
 
   const allReady = ready.number && ready.expiry && ready.cvc;
+
+  // Cast Stripe's brand string to our CardBrand union. Stripe returns things like
+  // "visa" / "mastercard" / "amex" / "discover" / "diners" / "jcb" / "unionpay" / "unknown".
+  const previewBrand: CardBrand = ((): CardBrand => {
+    const b = cardBrand as CardBrand;
+    if (["visa", "mastercard", "amex", "discover", "diners", "jcb", "unionpay"].includes(b)) return b;
+    return "unknown";
+  })();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -511,6 +463,20 @@ function StripePaymentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Aperçu 3D de la carte — Stripe ne nous transmet PAS le numéro/nom/expiration
+          (sandbox PCI). On affiche donc la marque + un statut visuel (vide/en cours/complet)
+          et on retourne la carte quand le CVC est focus. Nom & expiration restent vides. */}
+      <div className="flex justify-center mb-2 motion-reduce:animate-none">
+        <CardPreview3D
+          brand={previewBrand}
+          numberStatus={numberStatus}
+          holderName=""
+          expMonth=""
+          expYear=""
+          cvcFocused={focused === "cvc"}
+        />
+      </div>
+
       {/* Card fields — clean light design */}
       <div className="space-y-3">
         {/* Card number */}
@@ -540,7 +506,10 @@ function StripePaymentForm({
               onReady={() => setReady((r) => ({ ...r, number: true }))}
               onFocus={() => setFocused("number")}
               onBlur={() => setFocused(null)}
-              onChange={(e) => setCardBrand(e.brand ?? "unknown")}
+              onChange={(e) => {
+                setCardBrand(e.brand ?? "unknown");
+                setNumberStatus(e.empty ? "empty" : e.complete ? "complete" : "partial");
+              }}
             />
           </div>
         </div>
@@ -635,6 +604,7 @@ export default function CheckoutClient({
   const router = useRouter();
   const t = useTranslations("checkout");
   const tCommon = useTranslations("common");
+  const tCart = useTranslations("cart");
   const locale = useLocale();
   const countryOptions = useCountryOptions();
   const [isPending, startTransition] = useTransition();
@@ -1123,12 +1093,93 @@ export default function CheckoutClient({
   const section2Complete = !!selectedAddr;
   const section3Complete = !!selectedCarrier && privateCarrierComplete;
 
-  return (
-    <div className="container-site py-10 md:py-14">
-      {/* Stepper */}
-      <CheckoutStepper currentStep={1} />
+  // ── Wizard 3 étapes ────────────────────────────────────────────────────────
+  // Étape 1 = Livraison (adresse + mode/transporteur)
+  // Étape 2 = Facturation (identité + SIRET/TVA + adresse fact.)
+  // Étape 3 = Paiement (méthode + Stripe si carte)
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
+  // Méthode de paiement affichée. Seule « card » est câblée en bout à bout
+  // pour l'instant : virement / bon de commande sont désactivés (visibles mais
+  // non sélectionnables). Aucun placeholder de logique n'est ajouté.
+  const [paymentMethod, setPaymentMethod] = useState<"card" | "transfer" | "purchase_order">("card");
+  // Drawer récapitulatif (mobile). Sur desktop la colonne reste visible en sticky.
+  const [summaryDrawerOpen, setSummaryDrawerOpen] = useState(false);
 
-      {/* En-tête */}
+  // Livraison OK = adresse choisie + mode/transporteur complet
+  const step1Ready = section2Complete && section3Complete;
+  // Facturation OK = infos identité de base présentes
+  const step2Ready = section1Complete;
+
+  function goToStep(target: 1 | 2 | 3) {
+    if (target === wizardStep) return;
+    // Avancer : bloquer si l'étape courante n'est pas prête.
+    if (target > wizardStep) {
+      if (wizardStep === 1 && !step1Ready) return;
+      if (wizardStep === 2 && !step2Ready) return;
+    }
+    setWizardStep(target);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  const itemCount = cart.items.reduce((s, i) => s + i.quantity, 0);
+
+  return (
+    <div className="container-site py-6 md:py-10">
+      {/* Barre de progression 3 étapes (mockup wizard) */}
+      <div className="mb-8 md:mb-10">
+        <div className="flex items-center gap-2 sm:gap-3 max-w-2xl mx-auto">
+          {([
+            { n: 1, label: t("shippingAddressTitle") },
+            { n: 2, label: t("billingTitle") },
+            { n: 3, label: t("securePayment") },
+          ] as const).map((step, idx) => {
+            const done = wizardStep > step.n;
+            const current = wizardStep === step.n;
+            return (
+              <div key={step.n} className="flex items-center gap-2 sm:gap-3 flex-1 last:flex-none">
+                <button
+                  type="button"
+                  onClick={() => goToStep(step.n)}
+                  aria-current={current ? "step" : undefined}
+                  aria-label={`${step.n}/3 — ${step.label}`}
+                  className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full grid place-items-center font-heading font-bold text-sm transition-all shrink-0 ${
+                    done || current
+                      ? "bg-bg-dark text-white border-2 border-bg-dark"
+                      : "bg-bg-primary text-text-muted border-2 border-border"
+                  } ${current ? "ring-4 ring-bg-dark/10" : ""}`}
+                >
+                  {done ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    step.n
+                  )}
+                </button>
+                <div className="hidden sm:block text-left min-w-0">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+                    {`${step.n}/3`}
+                  </div>
+                  <div className={`font-body font-semibold text-xs truncate ${current || done ? "text-text-primary" : "text-text-muted"}`}>
+                    {step.label}
+                  </div>
+                </div>
+                {idx < 2 && (
+                  <div className="relative flex-1 h-0.5 bg-border overflow-hidden rounded">
+                    <div
+                      className={`absolute inset-0 bg-bg-dark origin-left transition-transform duration-500 ${
+                        done ? "scale-x-100" : "scale-x-0"
+                      }`}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* En-tête : titre + bouton panier flottant (mobile) */}
       <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="font-heading text-2xl md:text-3xl font-bold text-text-primary">
@@ -1138,23 +1189,42 @@ export default function CheckoutClient({
             {t("finalizeDesc")}
           </p>
         </div>
-        <Link href="/panier"
-          className="inline-flex items-center gap-1.5 text-sm font-body text-text-muted hover:text-text-primary transition-colors group">
-          <svg className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-          </svg>
-          {t("backToCart")}
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link href="/panier"
+            className="hidden md:inline-flex items-center gap-1.5 text-sm font-body text-text-muted hover:text-text-primary transition-colors group">
+            <svg className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+            </svg>
+            {t("backToCart")}
+          </Link>
+          {/* Bouton panier — visible < lg (colonne récap masquée) */}
+          <button
+            type="button"
+            onClick={() => setSummaryDrawerOpen(true)}
+            className="lg:hidden inline-flex items-center gap-2 px-4 h-11 rounded-full bg-bg-dark text-white text-sm font-body font-semibold hover:opacity-90 transition-opacity"
+            aria-label={t("summaryTitle")}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            <span>{t("summaryTitle")}</span>
+            {canProceed && (
+              <span className="ml-1 px-2 py-0.5 rounded-full bg-white text-text-primary text-[11px] font-mono">
+                {totalTTC.toFixed(2)} €
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-start">
 
-        {/* ── Colonne principale ─────────────────── */}
+        {/* ── Colonne principale (étape courante uniquement) ───── */}
         <div className="lg:col-span-2 space-y-6">
 
-          {/* ── 1. Adresse de facturation ── */}
-          <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
-            <SectionHeader step={1} title={t("billingTitle")} complete={section1Complete}>
+          {/* ── ÉTAPE 2 · Facturation ── */}
+          <section className={`bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm ${wizardStep === 2 ? "" : "hidden"}`}>
+            <SectionHeader step={2} title={t("billingTitle")} complete={section1Complete}>
               <button type="button" onClick={() => setEditingInfo((v) => !v)}
                 className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors">
                 {editingInfo ? t("close") : t("edit")}
@@ -1254,9 +1324,9 @@ export default function CheckoutClient({
             )}
           </section>
 
-          {/* ── 2. Adresse de livraison ── */}
-          <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
-            <SectionHeader step={2} title={t("shippingAddressTitle")} complete={section2Complete}>
+          {/* ── ÉTAPE 1 · Livraison → adresse ── */}
+          <section className={`bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm ${wizardStep === 1 ? "" : "hidden"}`}>
+            <SectionHeader step={1} title={t("shippingAddressTitle")} complete={section2Complete}>
               {!showAddressForm && (
                 <button type="button" onClick={() => { setEditingAddrId(null); setShowAddressForm(true); }}
                   className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1.5">
@@ -1422,9 +1492,9 @@ export default function CheckoutClient({
             </div>
           </section>
 
-          {/* ── 3. Mode de livraison ── */}
-          <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
-            <SectionHeader step={3} title={t("deliveryModeTitle")} complete={section3Complete} />
+          {/* ── ÉTAPE 1 · Livraison → mode + transporteur ── */}
+          <section className={`bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm ${wizardStep === 1 ? "" : "hidden"}`}>
+            <SectionHeader step={1} title={t("deliveryModeTitle")} complete={section3Complete} />
             <div className="p-5 space-y-4">
               {/* Choix livraison / retrait / transporteur privé */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1720,10 +1790,190 @@ export default function CheckoutClient({
               )}
             </div>
           </section>
+
+          {/* ── ÉTAPE 3 · Paiement ── */}
+          {wizardStep === 3 && (
+            <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
+              <SectionHeader step={3} title={t("securePayment")} complete={false} />
+              <div className="p-5 space-y-5">
+                {/* Choix de la méthode de paiement (radios en tuiles) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod("card")}
+                    aria-pressed={paymentMethod === "card"}
+                    className={`rounded-2xl border-2 p-4 text-center transition-all ${
+                      paymentMethod === "card"
+                        ? "border-bg-dark bg-bg-dark text-white"
+                        : "border-border bg-bg-primary hover:border-border-dark text-text-primary"
+                    }`}
+                  >
+                    <svg className="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <rect x="2" y="6" width="20" height="12" rx="2" />
+                      <path strokeLinecap="round" d="M2 10h20" />
+                    </svg>
+                    <div className="font-body font-semibold text-sm">{t("paymentCard")}</div>
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    aria-disabled
+                    className="rounded-2xl border-2 border-border bg-bg-secondary/60 p-4 text-center opacity-60 cursor-not-allowed"
+                    title=""
+                  >
+                    <svg className="w-6 h-6 mx-auto mb-1 text-text-muted" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 10V19M8 10V19M12 10V19M16 10V19M20 10V19M2 10L12 4L22 10M2 20H22" />
+                    </svg>
+                    <div className="font-body font-semibold text-sm text-text-muted">{t("paymentTransfer")}</div>
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    aria-disabled
+                    className="rounded-2xl border-2 border-border bg-bg-secondary/60 p-4 text-center opacity-60 cursor-not-allowed"
+                  >
+                    <svg className="w-6 h-6 mx-auto mb-1 text-text-muted" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <div className="font-body font-semibold text-sm text-text-muted">{t("paymentPurchaseOrder")}</div>
+                  </button>
+                </div>
+
+                {/* Bloc paiement carte (Stripe) */}
+                {paymentMethod === "card" && (
+                  <div className="space-y-4">
+                    {(orderError || stripeError) && (
+                      <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] text-xs font-body px-3 py-2 rounded-lg">
+                        {orderError || stripeError}
+                      </div>
+                    )}
+
+                    {!canProceed && (
+                      <p className="text-xs text-text-muted font-body text-center py-2">
+                        {t("selectAddressCarrierForPayment")}
+                      </p>
+                    )}
+
+                    {canProceed && !clientSecret && (
+                      <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={cgvAccepted}
+                          onChange={(e) => setCgvAccepted(e.target.checked)}
+                          className="checkbox-custom mt-0.5 shrink-0"
+                        />
+                        <span className="text-xs text-text-secondary font-body leading-relaxed">
+                          {t("cgvAcceptanceBefore")}
+                          <Link href="/cgv" target="_blank" className="text-accent underline hover:text-accent-dark">
+                            {t("cgvLinkLabel")}
+                          </Link>
+                          {t("cgvAcceptanceMiddle")}
+                          <Link href="/confidentialite" target="_blank" className="text-accent underline hover:text-accent-dark">
+                            {t("privacyLinkLabel")}
+                          </Link>
+                          {t("cgvAcceptanceAfter")}
+                        </span>
+                      </label>
+                    )}
+
+                    {canProceed && !clientSecret && !stripeLoading && (
+                      <button
+                        type="button"
+                        onClick={handleInitiatePayment}
+                        disabled={!cgvAccepted}
+                        className="btn-primary w-full justify-center h-12 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                            d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+                        </svg>
+                        {t("proceedToPayment")} — {totalTTC.toFixed(2)} €
+                      </button>
+                    )}
+
+                    {canProceed && stripeLoading && (
+                      <div className="flex items-center justify-center py-4 gap-2 text-text-muted">
+                        <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        <span className="text-xs font-body">{t("preparingPayment")}</span>
+                      </div>
+                    )}
+
+                    {canProceed && clientSecret && (
+                      <Elements
+                        stripe={getStripePromise()}
+                        options={{
+                          clientSecret,
+                          appearance: {
+                            theme: "stripe",
+                            variables: {
+                              colorPrimary: "#1A1A1A",
+                              colorBackground: "#FFFFFF",
+                              colorText: "#1A1A1A",
+                              colorDanger: "#DC2626",
+                              fontFamily: "var(--font-roboto), system-ui, sans-serif",
+                              borderRadius: "8px",
+                            },
+                          },
+                          locale: locale === "fr" ? "fr" : "en",
+                        }}
+                      >
+                        <StripePaymentForm
+                          onSuccess={handlePaymentSuccess}
+                          onError={setStripeError}
+                          disabled={isPending}
+                          clientSecret={clientSecret}
+                        />
+                      </Elements>
+                    )}
+
+                    {isPending && (
+                      <div className="flex items-center justify-center py-2 gap-2 text-text-muted">
+                        <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        <span className="text-xs font-body">{t("creatingOrder")}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* ── Boutons navigation wizard ── */}
+          <div className="flex items-center justify-between gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => (wizardStep === 1 ? router.push("/panier") : goToStep((wizardStep - 1) as 1 | 2))}
+              className="btn-ghost h-11 px-4 text-sm"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+              {wizardStep === 1 ? t("backToCart") : tCommon("previous")}
+            </button>
+            {wizardStep < 3 && (
+              <button
+                type="button"
+                onClick={() => goToStep((wizardStep + 1) as 2 | 3)}
+                disabled={(wizardStep === 1 && !step1Ready) || (wizardStep === 2 && !step2Ready)}
+                className="btn-primary h-11 px-6 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {tCommon("next")}
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* ── Récapitulatif ───────────────────────── */}
-        <div>
+        {/* ── Récapitulatif — sticky desktop, drawer mobile ─────── */}
+        <div className="hidden lg:block">
           <SummaryPanel
             cart={cart}
             computeUnitPrice={computeUnitPrice}
@@ -1741,19 +1991,66 @@ export default function CheckoutClient({
             selectedCarrier={selectedCarrier}
             canProceed={canProceed}
             totalTTC={totalTTC}
-            orderError={orderError}
-            stripeError={stripeError}
-            cgvAccepted={cgvAccepted}
-            setCgvAccepted={setCgvAccepted}
-            clientSecret={clientSecret}
-            stripeLoading={stripeLoading}
-            handleInitiatePayment={handleInitiatePayment}
-            handlePaymentSuccess={handlePaymentSuccess}
-            setStripeError={setStripeError}
-            isPending={isPending}
           />
         </div>
       </div>
+
+      {/* ── Drawer récapitulatif (mobile / tablette) ── */}
+      {summaryDrawerOpen && (
+        <div
+          className="fixed inset-0 z-40 lg:hidden bg-bg-dark/40 backdrop-blur-sm transition-opacity"
+          onClick={() => setSummaryDrawerOpen(false)}
+          aria-hidden
+        />
+      )}
+      <aside
+        className={`fixed top-0 right-0 h-full w-full max-w-md bg-bg-primary shadow-2xl z-50 lg:hidden flex flex-col transition-transform duration-300 motion-reduce:transition-none ${
+          summaryDrawerOpen ? "translate-x-0" : "translate-x-full"
+        }`}
+        aria-hidden={!summaryDrawerOpen}
+      >
+        <div className="bg-bg-dark text-white p-5 flex items-start justify-between">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted mb-1">
+              {t("summaryTitle")}
+            </div>
+            <div className="font-heading text-lg font-semibold">
+              {tCart("categoryItemsCount", { count: itemCount })}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSummaryDrawerOpen(false)}
+            className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 grid place-items-center"
+            aria-label={tCommon("close")}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <SummaryPanel
+            cart={cart}
+            computeUnitPrice={computeUnitPrice}
+            subtotalHT={subtotalHT}
+            clientDiscountAmt={clientDiscountAmt}
+            clientDiscount={clientDiscount}
+            subtotalAfterDiscount={subtotalAfterDiscount}
+            tvaRate={tvaRate}
+            tvaLabel={tvaLabel}
+            tvaProducts={tvaProducts}
+            tvaShipping={tvaShipping}
+            carrierPriceHT={effectiveCarrierPrice}
+            selectedAddr={selectedAddr}
+            deliveryMode={deliveryMode}
+            selectedCarrier={selectedCarrier}
+            canProceed={canProceed}
+            totalTTC={totalTTC}
+            embedded
+          />
+        </div>
+      </aside>
     </div>
   );
 }
@@ -1766,9 +2063,8 @@ function SummaryPanel({
   cart, computeUnitPrice: computePrice, subtotalHT, clientDiscountAmt, clientDiscount,
   subtotalAfterDiscount, tvaLabel, tvaProducts, tvaShipping, carrierPriceHT,
   selectedAddr, deliveryMode,
-  selectedCarrier, canProceed, totalTTC, orderError, stripeError, cgvAccepted,
-  setCgvAccepted, clientSecret, stripeLoading, handleInitiatePayment,
-  handlePaymentSuccess, setStripeError, isPending,
+  selectedCarrier, canProceed, totalTTC,
+  embedded = false,
 }: {
   cart: CartData;
   computeUnitPrice: (v: VariantData) => number;
@@ -1786,46 +2082,26 @@ function SummaryPanel({
   selectedCarrier: Carrier | { id: string; name: string; price: number; delay: string } | null;
   canProceed: boolean;
   totalTTC: number;
-  orderError: string;
-  stripeError: string;
-  cgvAccepted: boolean;
-  setCgvAccepted: (v: boolean) => void;
-  clientSecret: string | null;
-  stripeLoading: boolean;
-  handleInitiatePayment: () => void;
-  handlePaymentSuccess: (piId: string) => void;
-  setStripeError: (v: string) => void;
-  isPending: boolean;
+  /** true = affiché dans le drawer mobile (pas de wrapper sticky, pas de header). */
+  embedded?: boolean;
 }) {
   const t = useTranslations("checkout");
-  const tCart = useTranslations("cart");
-  const locale = useLocale();
-  const [mobileOpen, setMobileOpen] = useState(true);
-  const itemCount = cart.items.reduce((s, i) => s + i.quantity, 0);
+
+  const wrapperClass = embedded
+    ? ""
+    : "bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden sticky top-24";
 
   return (
-    <div className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden sticky top-24">
-      {/* Header — clickable on mobile to toggle */}
-      <button
-        type="button"
-        onClick={() => setMobileOpen((v) => !v)}
-        className="w-full px-5 py-4 border-b border-border-light bg-bg-secondary/50 flex items-center justify-between lg:cursor-default"
-      >
-        <h3 className="font-heading text-sm font-semibold text-text-primary">
-          {t("summaryTitle")}
-        </h3>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-body text-text-muted lg:hidden">
-            {tCart("categoryItemsCount", { count: itemCount })} {canProceed ? `— ${totalTTC.toFixed(2)} \u20AC` : ""}
-          </span>
-          <svg className={`w-4 h-4 text-text-muted transition-transform lg:hidden ${mobileOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+    <div className={wrapperClass}>
+      {!embedded && (
+        <div className="w-full px-5 py-4 border-b border-border bg-bg-secondary/50 flex items-center justify-between">
+          <h3 className="font-heading text-sm font-semibold text-text-primary">
+            {t("summaryTitle")}
+          </h3>
         </div>
-      </button>
+      )}
 
-      <div className={`${mobileOpen ? "block" : "hidden"} lg:block`}>
-
+      <div>
             {/* Articles */}
             <div className="px-5 py-4 space-y-2 border-b border-border">
               {cart.items.map((item) => {
@@ -1934,115 +2210,6 @@ function SummaryPanel({
               </div>
             </div>
 
-            {/* Paiement Stripe */}
-            <div className="px-5 pb-5 space-y-3">
-              {(orderError || stripeError) && (
-                <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] text-xs font-body px-3 py-2 rounded-lg">
-                  {orderError || stripeError}
-                </div>
-              )}
-
-              {!canProceed && (
-                <p className="text-xs text-text-muted font-body text-center py-2">
-                  {t("selectAddressCarrierForPayment")}
-                </p>
-              )}
-
-              {/* CGV acceptance checkbox */}
-              {canProceed && !clientSecret && (
-                <label className="flex items-start gap-2.5 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={cgvAccepted}
-                    onChange={(e) => setCgvAccepted(e.target.checked)}
-                    className="checkbox-custom mt-0.5 shrink-0"
-                  />
-                  <span className="text-xs text-text-secondary font-body leading-relaxed">
-                    {t("cgvAcceptanceBefore")}
-                    <Link href="/cgv" target="_blank" className="text-accent underline hover:text-accent-dark">
-                      {t("cgvLinkLabel")}
-                    </Link>
-                    {t("cgvAcceptanceMiddle")}
-                    <Link href="/confidentialite" target="_blank" className="text-accent underline hover:text-accent-dark">
-                      {t("privacyLinkLabel")}
-                    </Link>
-                    {t("cgvAcceptanceAfter")}
-                  </span>
-                </label>
-              )}
-
-              {/* Bouton pour lancer le paiement — visible tant que le formulaire Stripe n'est pas affiché */}
-              {canProceed && !clientSecret && !stripeLoading && (
-                <button
-                  type="button"
-                  onClick={handleInitiatePayment}
-                  disabled={!cgvAccepted}
-                  className="btn-primary w-full justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                      d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
-                  </svg>
-                  {t("proceedToPayment")} — {totalTTC.toFixed(2)} €
-                </button>
-              )}
-
-              {canProceed && stripeLoading && (
-                <div className="flex items-center justify-center py-4 gap-2 text-text-muted">
-                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  <span className="text-xs font-body">{t("preparingPayment")}</span>
-                </div>
-              )}
-
-              {canProceed && clientSecret && (
-                <>
-                  <div className="border-t border-border pt-3">
-                    <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body mb-3">
-                      {t("securePayment")}
-                    </p>
-                  </div>
-                  <Elements
-                    stripe={getStripePromise()}
-                    options={{
-                      clientSecret,
-                      appearance: {
-                        theme: "stripe",
-                        variables: {
-                          colorPrimary: "#1A1A1A",
-                          colorBackground: "#FFFFFF",
-                          colorText: "#1A1A1A",
-                          colorDanger: "#DC2626",
-                          fontFamily: "var(--font-roboto), system-ui, sans-serif",
-                          borderRadius: "8px",
-                        },
-                      },
-                      locale: locale === "fr" ? "fr" : "en",
-                    }}
-                  >
-                    <StripePaymentForm
-                      onSuccess={handlePaymentSuccess}
-                      onError={setStripeError}
-                      disabled={isPending}
-                      clientSecret={clientSecret}
-                    />
-                  </Elements>
-                </>
-              )}
-
-              {isPending && (
-                <div className="flex items-center justify-center py-2 gap-2 text-text-muted">
-                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  <span className="text-xs font-body">{t("creatingOrder")}</span>
-                </div>
-              )}
-
-            </div>
           </div>
         </div>
     );

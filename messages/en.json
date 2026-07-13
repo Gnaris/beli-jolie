@@ -487,6 +487,7 @@
     "paymentCard": "Credit card",
     "paymentTransfer": "Bank transfer",
     "paymentTransferInfo": "Bank details sent by email after confirmation.",
+    "paymentPurchaseOrder": "Purchase order",
     "vatNumber": "Intra-Community VAT Number",
     "vatVerifying": "Verifying...",
     "vatValid": "Valid VAT number — reverse charge applicable",

@@ -1,20 +1,18 @@
 import { prisma } from "@/lib/prisma";
-import { getStripeConfigStatus } from "@/lib/stripe";
+import { getStripeAccountInfo } from "@/lib/stripe";
 import WizardStepHeader from "@/components/admin/onboarding/WizardStepHeader";
 import WizardContinueButton from "@/components/admin/onboarding/WizardContinueButton";
 import StripeStepForm from "@/components/admin/onboarding/StripeStepForm";
+import StripeAccountStatusCard from "@/components/admin/onboarding/StripeAccountStatusCard";
 
 export const dynamic = "force-dynamic";
 
 export default async function StripeStepPage() {
-  const [status, publishableRow] = await Promise.all([
-    getStripeConfigStatus(),
+  const [info, publishableRow] = await Promise.all([
+    getStripeAccountInfo(),
     prisma.siteConfig.findFirst({ where: { key: "stripe_publishable_key" } }),
   ]);
-  const publishable =
-    publishableRow?.value?.trim() ||
-    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() ||
-    "";
+  const publishable = publishableRow?.value?.trim() || "";
 
   return (
     <div className="max-w-3xl mx-auto py-4 md:py-6">
@@ -33,45 +31,7 @@ export default async function StripeStepPage() {
       />
 
       <div className="space-y-6">
-        {/* Status card */}
-        <section
-          className={`rounded-3xl border p-6 md:p-8 shadow-sm ${
-            status.ready
-              ? "bg-emerald-50/60 border-emerald-200"
-              : "bg-amber-50/60 border-amber-200"
-          }`}
-        >
-          <div className="flex items-center gap-3 mb-2">
-            <div
-              className={`w-11 h-11 rounded-xl flex items-center justify-center text-2xl ${
-                status.ready ? "bg-emerald-100" : "bg-amber-100"
-              }`}
-            >
-              {status.ready ? "✅" : "⏳"}
-            </div>
-            <div>
-              <p className="font-heading text-lg font-bold text-text-primary">
-                {status.ready
-                  ? "Stripe est branché"
-                  : "Stripe n'est pas encore branché"}
-              </p>
-              <p className="text-sm text-text-secondary">
-                {status.ready
-                  ? status.testMode
-                    ? "Mode TEST actif — utilisez la carte 4242 4242 4242 4242 pour essayer."
-                    : "Mode LIVE — les paiements arrivent sur votre compte Stripe."
-                  : "Renseignez vos 3 clés Stripe pour activer le paiement en ligne."}
-              </p>
-            </div>
-          </div>
-          {status.source === "env" && (
-            <p className="text-xs text-text-secondary/70 mt-3">
-              💡 Configuration actuelle : lue dans le fichier <code>.env</code>{" "}
-              du serveur. Remplissez le formulaire ci-dessous pour la migrer en
-              base de données (chiffrée).
-            </p>
-          )}
-        </section>
+        <StripeAccountStatusCard info={info} />
 
         {/* Guide compact */}
         <section className="rounded-3xl bg-white border border-border p-6 md:p-8 shadow-sm">
@@ -118,8 +78,8 @@ export default async function StripeStepPage() {
             <span className="w-1 h-3 bg-amber-500 rounded" /> Vos clés Stripe
           </p>
           <StripeStepForm
-            initialHasSecret={status.hasSecret}
-            initialHasWebhook={status.hasWebhook}
+            initialHasSecret={info.keysFromDb.hasSecret}
+            initialHasWebhook={info.keysFromDb.hasWebhook}
             initialPublishable={publishable}
           />
         </section>

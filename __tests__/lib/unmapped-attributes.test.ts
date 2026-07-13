@@ -26,7 +26,6 @@ function compositionCount(where: any) {
   if (where.OR) return counts.get("composition:total") ?? 0;
   if (where.pfsCompositionRef === null) return counts.get("composition:pfs") ?? 0;
   if (where.efashionId === null) return counts.get("composition:efashion") ?? 0;
-  if (where.faireMaterialLabel === null) return counts.get("composition:faire") ?? 0;
   return 0;
 }
 function seasonCount(where: any) {

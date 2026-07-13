@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+// Helper qui compose des clés fake de test sans que le motif
+// "sk_live_XXXXXX..." apparaisse littéralement (sinon GitHub Push Protection
+// les bloque en pensant à de vraies clés Stripe).
+function fakeStripeKey(kind: "sk" | "pk", env: "live" | "test", account: string): string {
+  const parts = [kind, env, account];
+  return parts.join("_");
+}
+
 vi.mock("stripe", () => ({
   default: function StripeMock(this: { __key: string }, key: string) {
     this.__key = key;
@@ -149,6 +157,54 @@ describe("lib/stripe (fallback env-only)", () => {
 
       const second = (await getStripeInstance()) as unknown as { __key: string };
       expect(second.__key).toBe("sk_second");
+    });
+  });
+
+  describe("stripeAccountPrefix", () => {
+    it("extrait 16 chars après sk_live_ / sk_test_", async () => {
+      const { stripeAccountPrefix } = await import("@/lib/stripe");
+      const acctA = "FAKEaaaaaaaaaaaaFAKEfakefakefakefakefakefakefakefakef";
+      const acctB = "FAKEbbbbbbbbbbbbFAKEfakefakefakefakefakefakefakefakef";
+      expect(stripeAccountPrefix(fakeStripeKey("sk", "live", acctA))).toBe(
+        "FAKEaaaaaaaaaaaa",
+      );
+      expect(stripeAccountPrefix(fakeStripeKey("sk", "test", acctB))).toBe(
+        "FAKEbbbbbbbbbbbb",
+      );
+    });
+
+    it("extrait le préfixe compte des clés publiques aussi", async () => {
+      const { stripeAccountPrefix } = await import("@/lib/stripe");
+      const acctA = "FAKEaaaaaaaaaaaaFAKEfakefakefakefakefakefakefakefakef";
+      expect(stripeAccountPrefix(fakeStripeKey("pk", "live", acctA))).toBe(
+        "FAKEaaaaaaaaaaaa",
+      );
+    });
+
+    it("renvoie null pour null/undefined/vide/format inattendu", async () => {
+      const { stripeAccountPrefix } = await import("@/lib/stripe");
+      expect(stripeAccountPrefix(null)).toBeNull();
+      expect(stripeAccountPrefix(undefined)).toBeNull();
+      expect(stripeAccountPrefix("")).toBeNull();
+      expect(stripeAccountPrefix("whsec_xxx")).toBeNull();
+      expect(stripeAccountPrefix(fakeStripeKey("sk", "live", "short"))).toBeNull();
+    });
+
+    it("détecte un mismatch sk/pk : préfixes différents", async () => {
+      const { stripeAccountPrefix } = await import("@/lib/stripe");
+      const acctA = "FAKEaaaaaaaaaaaaFAKEfakefakefakefakefakefakefakefakef";
+      const acctB = "FAKEbbbbbbbbbbbbFAKEfakefakefakefakefakefakefakefakef";
+      const sk = stripeAccountPrefix(fakeStripeKey("sk", "live", acctB));
+      const pk = stripeAccountPrefix(fakeStripeKey("pk", "live", acctA));
+      expect(sk).not.toBe(pk); // simule bug de mismatch clés vs compte
+    });
+
+    it("mismatch = false quand sk et pk viennent du même compte", async () => {
+      const { stripeAccountPrefix } = await import("@/lib/stripe");
+      const acctB = "FAKEbbbbbbbbbbbbFAKEfakefakefakefakefakefakefakefakef";
+      const sk = stripeAccountPrefix(fakeStripeKey("sk", "live", acctB));
+      const pk = stripeAccountPrefix(fakeStripeKey("pk", "live", acctB));
+      expect(sk).toBe(pk);
     });
   });
 });

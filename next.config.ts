@@ -4,7 +4,7 @@ import createNextIntlPlugin from "next-intl/plugin";
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pdfkit", "sharp", "exceljs", "playwright"],
+  serverExternalPackages: ["pdfkit", "sharp", "exceljs", "playwright", "imapflow"],
 
   // Lots d'images d'import produits (jusqu'à 50 fichiers par requête).
   // Défaut Next.js = 10 Mo → l'upload plante en « Failed to fetch ».

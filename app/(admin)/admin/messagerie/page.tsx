@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { getCachedShopName } from "@/lib/cached-data";
+import { prisma } from "@/lib/prisma";
+import { decryptIfSensitive } from "@/lib/encryption";
 import MessagerieFrame from "@/components/admin/MessagerieFrame";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -7,9 +9,23 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: `Messagerie — ${shopName} Admin` };
 }
 
-const WEBMAIL_URL = "https://mail.beliandjolie.com";
+const WEBMAIL_BASE = "https://mail.beliandjolie.com";
 
-export default function MessageriePage() {
+async function resolveProEmail(): Promise<string | null> {
+  const row = await prisma.siteConfig.findFirst({
+    where: { key: "smtp_from_email" },
+    select: { value: true },
+  });
+  if (!row?.value) return null;
+  return decryptIfSensitive("smtp_from_email", row.value).trim() || null;
+}
+
+export default async function MessageriePage() {
+  const proEmail = await resolveProEmail();
+  const webmailUrl = proEmail
+    ? `${WEBMAIL_BASE}/?_user=${encodeURIComponent(proEmail)}`
+    : WEBMAIL_BASE;
+
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -20,7 +36,7 @@ export default function MessageriePage() {
           </p>
         </div>
         <a
-          href={WEBMAIL_URL}
+          href={webmailUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 border border-zinc-200 hover:border-zinc-300 rounded-lg px-3 py-1.5 bg-white transition-colors"
@@ -32,7 +48,7 @@ export default function MessageriePage() {
         </a>
       </div>
 
-      <MessagerieFrame src={WEBMAIL_URL} />
+      <MessagerieFrame src={webmailUrl} />
     </div>
   );
 }

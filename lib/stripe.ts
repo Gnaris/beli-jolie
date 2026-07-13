@@ -108,6 +108,147 @@ export async function isStripeConfigured(): Promise<boolean> {
   return !!secretKey && !!publishableKey;
 }
 
+/**
+ * Extrait le préfixe « compte Stripe » (ex. `51TrMm244zIFhBc1`) d'une clé
+ * secrète ou publique. Toutes les clés d'un même compte Stripe partagent ce
+ * préfixe — utile pour détecter que sk et pk ne viennent pas du même compte.
+ */
+export function stripeAccountPrefix(key: string | null | undefined): string | null {
+  if (!key) return null;
+  const m = key.match(/^(?:sk|pk)_(?:live|test)_([0-9A-Za-z]{16})/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Etat des 3 clés Stripe **en BDD uniquement**, scopé au tenant courant.
+ * Sert au formulaire onboarding : évite d'afficher « déjà en place » quand la
+ * valeur ne vient que du fallback `.env` (piège pour un tenant secondaire).
+ */
+export async function getStripeConfigDbState(): Promise<{
+  hasSecret: boolean;
+  hasPublishable: boolean;
+  hasWebhook: boolean;
+}> {
+  const empty = { hasSecret: false, hasPublishable: false, hasWebhook: false };
+  try {
+    let tid: string | null = null;
+    try {
+      const { getCurrentTenantIdSync } = await import("@/lib/tenant-als");
+      tid = getCurrentTenantIdSync();
+      if (!tid) {
+        const { headers } = await import("next/headers");
+        const h = await headers();
+        tid = h.get("x-tenant-id");
+      }
+    } catch {
+      /* hors requête */
+    }
+    if (!tid) return empty;
+    const rows = await prisma.siteConfig.findMany({
+      where: { tenantId: tid, key: { in: [...CONFIG_KEYS] } },
+      select: { key: true, value: true },
+    });
+    const present = new Set(
+      rows.filter((r) => r.value?.trim()).map((r) => r.key),
+    );
+    return {
+      hasSecret: present.has("stripe_secret_key"),
+      hasPublishable: present.has("stripe_publishable_key"),
+      hasWebhook: present.has("stripe_webhook_secret"),
+    };
+  } catch {
+    return empty;
+  }
+}
+
+export type StripeAccountInfo = {
+  /** true = les 3 clés sont résolues (BDD ou env). N'implique pas qu'elles matchent. */
+  configured: boolean;
+  /** Etat BDD-only du tenant courant (le vrai « déjà en place »). */
+  keysFromDb: { hasSecret: boolean; hasPublishable: boolean; hasWebhook: boolean };
+  /** sk et pk viennent de deux comptes Stripe différents (paiement impossible). */
+  mismatch: boolean;
+  secretAccountPrefix: string | null;
+  publishableAccountPrefix: string | null;
+  /** Détail du compte Stripe résolu via `accounts.retrieve()`. */
+  account: {
+    id: string;
+    name: string;
+    email: string | null;
+    testMode: boolean;
+    chargesEnabled: boolean;
+    payoutsEnabled: boolean;
+  } | null;
+  accountError: string | null;
+};
+
+/**
+ * Interroge Stripe (`accounts.retrieve()`) pour connaître le compte réellement
+ * branché : nom commercial, email, mode LIVE/TEST. Détecte aussi le cas où la
+ * clé secrète et la clé publique appartiennent à deux comptes différents.
+ */
+export async function getStripeAccountInfo(): Promise<StripeAccountInfo> {
+  const [{ secretKey, publishableKey, webhookSecret }, keysFromDb] =
+    await Promise.all([readStripeConfig(), getStripeConfigDbState()]);
+
+  const secretAccountPrefix = stripeAccountPrefix(secretKey);
+  const publishableAccountPrefix = stripeAccountPrefix(publishableKey);
+  const mismatch =
+    !!secretAccountPrefix &&
+    !!publishableAccountPrefix &&
+    secretAccountPrefix !== publishableAccountPrefix;
+
+  const configured = !!secretKey && !!publishableKey && !!webhookSecret;
+
+  if (!secretKey || mismatch) {
+    return {
+      configured,
+      keysFromDb,
+      mismatch,
+      secretAccountPrefix,
+      publishableAccountPrefix,
+      account: null,
+      accountError: null,
+    };
+  }
+
+  try {
+    const stripe = await getStripeInstance();
+    const acct = await stripe.accounts.retrieve();
+    const name =
+      acct.business_profile?.name ||
+      acct.settings?.dashboard?.display_name ||
+      acct.email ||
+      acct.id;
+    return {
+      configured,
+      keysFromDb,
+      mismatch,
+      secretAccountPrefix,
+      publishableAccountPrefix,
+      account: {
+        id: acct.id,
+        name,
+        email: acct.email ?? null,
+        testMode: secretKey.startsWith("sk_test_"),
+        chargesEnabled: !!acct.charges_enabled,
+        payoutsEnabled: !!acct.payouts_enabled,
+      },
+      accountError: null,
+    };
+  } catch (err) {
+    return {
+      configured,
+      keysFromDb,
+      mismatch,
+      secretAccountPrefix,
+      publishableAccountPrefix,
+      account: null,
+      accountError: err instanceof Error ? err.message : "Erreur Stripe.",
+    };
+  }
+}
+
 /** État détaillé pour l'UI admin (indique quelle brique manque). */
 export async function getStripeConfigStatus(): Promise<{
   hasSecret: boolean;
