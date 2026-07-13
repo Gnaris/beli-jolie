@@ -9,6 +9,7 @@ import { authOptions } from "@/lib/auth";
 import SessionProvider from "@/components/providers/SessionProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
+import { OtpConfirmProvider } from "@/components/ui/OtpConfirmDialog";
 import { LoadingOverlayProvider } from "@/components/ui/LoadingOverlay";
 import { getCachedShopName, getCachedBusinessHours, getCachedSiteConfig } from "@/lib/cached-data";
 import { getCachedSeoConfig, buildOrganizationSchema, getSiteUrl } from "@/lib/seo";
@@ -149,15 +150,17 @@ export default async function RootLayout({
           <SessionProvider session={session}>
             <ToastProvider>
               <ConfirmProvider>
-                <LoadingOverlayProvider>
-                  {children}
-                  <ChatWidgetLoader businessHours={businessHours} />
-                  <HeartbeatLoader />
-                  {/* AdminChatWidgetLoader est désormais monté uniquement dans
-                      le layout /admin (via le rail droit) — sortir cette ligne
-                      évitait un doublon qui plantait sur les pages publiques
-                      car useRightRail() n'existe qu'à l'intérieur du rail. */}
-                </LoadingOverlayProvider>
+                <OtpConfirmProvider>
+                  <LoadingOverlayProvider>
+                    {children}
+                    <ChatWidgetLoader businessHours={businessHours} />
+                    <HeartbeatLoader />
+                    {/* AdminChatWidgetLoader est désormais monté uniquement dans
+                        le layout /admin (via le rail droit) — sortir cette ligne
+                        évitait un doublon qui plantait sur les pages publiques
+                        car useRightRail() n'existe qu'à l'intérieur du rail. */}
+                  </LoadingOverlayProvider>
+                </OtpConfirmProvider>
               </ConfirmProvider>
             </ToastProvider>
           </SessionProvider>

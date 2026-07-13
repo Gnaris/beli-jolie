@@ -31,6 +31,9 @@ import TranslationProviderStatus from "@/components/admin/settings/TranslationPr
 import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig";
 import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBannerConfig";
 import SeoTextsConfig from "@/components/admin/settings/SeoTextsConfig";
+import MailNotifyForm from "@/components/admin/settings/MailNotifyForm";
+import MailboxPasswordResetCard from "@/components/admin/settings/MailboxPasswordResetCard";
+import { getMailNotifySettings } from "@/app/actions/admin/mail-notify";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
@@ -57,6 +60,7 @@ const Ico = {
   sparkles:  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.9 5.7h6L15 12.4l1.9 5.7L12 14.3l-4.9 3.8L9 12.4 4.1 8.7h6z"/></svg>,
   search:    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/></svg>,
   card:      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg>,
+  bell:      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
 };
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -134,6 +138,7 @@ export default async function ParametresPage({
           {activeTab === "horaires"     && <HorairesTab />}
           {activeTab === "traduction"   && <TraductionTab />}
           {activeTab === "seo"          && <SeoTab />}
+          {activeTab === "messagerie"   && <MessagerieTab />}
         </div>
       </div>
     </div>
@@ -237,7 +242,14 @@ async function GeneralTab() {
    TAB : Société
    ═══════════════════════════════════════════════════════════════════════════ */
 async function SocieteTab() {
-  const companyInfo = await prisma.companyInfo.findFirst();
+  const [companyInfo, smtpFromEmailRow] = await Promise.all([
+    prisma.companyInfo.findFirst(),
+    prisma.siteConfig.findFirst({ where: { key: "smtp_from_email" }, select: { value: true } }),
+  ]);
+  const { decryptIfSensitive } = await import("@/lib/encryption");
+  const proEmail = smtpFromEmailRow?.value
+    ? decryptIfSensitive("smtp_from_email", smtpFromEmailRow.value).trim() || null
+    : null;
 
   return (
     <SettingCard
@@ -246,7 +258,7 @@ async function SocieteTab() {
       description="Nom de la boutique, raison sociale, coordonnées et adresse expéditeur Easy-Express"
       accent="dark"
     >
-      <CompanyInfoForm initialData={companyInfo ? {
+      <CompanyInfoForm proEmail={proEmail} initialData={companyInfo ? {
         shopName: companyInfo.shopName ?? undefined,
         name: companyInfo.name,
         legalForm: companyInfo.legalForm ?? undefined,
@@ -558,6 +570,7 @@ async function PaiementTab() {
 async function MarketplacesTab() {
   const [
     pfsConfig, markupRows, pfsBrand,
+    pfsOutOfStockDeactivateRow, pfsOutOfStockActionRow,
     hasAnkorstoreConfig, ankorstoreEnabled,
     ankorstoreWholesaleType, ankorstoreWholesaleValue, ankorstoreWholesaleRounding,
     ankorstoreRetailType, ankorstoreRetailValue, ankorstoreRetailRounding,
@@ -578,6 +591,8 @@ async function MarketplacesTab() {
       where: { key: { in: ["pfs_price_markup_type", "pfs_price_markup_value", "pfs_price_markup_rounding"] } },
     }),
     getCachedPfsBrand(),
+    getCachedSiteConfig("pfs_out_of_stock_deactivate_variant"),
+    getCachedSiteConfig("pfs_out_of_stock_product_action"),
     getCachedHasAnkorstoreConfig(),
     getCachedAnkorstoreEnabled(),
     getCachedSiteConfig("ankorstore_wholesale_markup_type"),
@@ -630,6 +645,14 @@ async function MarketplacesTab() {
     <MarketplaceConfig
       hasPfsConfig={!!pfsConfig}
       pfsBrand={pfsBrand}
+      pfsOutOfStock={{
+        deactivateVariant: pfsOutOfStockDeactivateRow?.value === "false" ? false : true,
+        productAction:
+          pfsOutOfStockActionRow?.value === "deleted" ||
+          pfsOutOfStockActionRow?.value === "draft"
+            ? pfsOutOfStockActionRow.value
+            : "archived",
+      }}
       hasAnkorstoreConfig={hasAnkorstoreConfig}
       ankorstoreEnabled={ankorstoreEnabled}
       hasEfashionConfig={hasEfashionConfig}
@@ -814,6 +837,48 @@ async function SeoTab() {
         <p className="text-[11.5px] text-text-muted font-body mt-3">
           L'aperçu est indicatif — Google peut choisir d'afficher d'autres extraits selon la recherche du visiteur.
         </p>
+      </SettingCard>
+    </CardsStack>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Messagerie — notifications mail non lus + reset mdp boîte pro
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function MessagerieTab() {
+  const [settings, smtpFromEmailRow, smtpUserRow] = await Promise.all([
+    getMailNotifySettings(),
+    prisma.siteConfig.findFirst({ where: { key: "smtp_from_email" }, select: { value: true } }),
+    prisma.siteConfig.findFirst({ where: { key: "smtp_user" }, select: { value: true } }),
+  ]);
+  const { decryptIfSensitive } = await import("@/lib/encryption");
+  const proEmail = smtpFromEmailRow?.value
+    ? decryptIfSensitive("smtp_from_email", smtpFromEmailRow.value).trim() || null
+    : null;
+  const mailboxUser = smtpUserRow?.value
+    ? decryptIfSensitive("smtp_user", smtpUserRow.value).trim() || null
+    : null;
+
+  return (
+    <CardsStack>
+      <SettingCard
+        icon={Ico.bell}
+        title="Notifications mails non lus"
+        description={proEmail
+          ? `Surveille votre boîte pro ${proEmail} et vous prévient sur une autre adresse quand des mails non lus arrivent.`
+          : "Configurez d'abord votre boîte mail pro avant d'activer les notifications."}
+        accent="dark"
+      >
+        <MailNotifyForm initialSettings={settings} />
+      </SettingCard>
+
+      <SettingCard
+        icon={Ico.lock}
+        title="Sécurité — mot de passe boîte pro"
+        description="Réinitialisation protégée par un code de sécurité envoyé à votre adresse perso."
+        accent="dark"
+      >
+        <MailboxPasswordResetCard persoEmail={settings.email || null} mailboxUser={mailboxUser} />
       </SettingCard>
     </CardsStack>
   );

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import {
   provisionShopMailbox,
   sendMailboxTest,
@@ -10,7 +9,6 @@ import {
   type DnsCheckLine,
   type DnsRecordStructured,
 } from "@/app/actions/admin/mailbox-provision";
-import { markStepCompleted } from "@/app/actions/admin/onboarding";
 import { useToast } from "@/components/ui/Toast";
 
 type ProvisionResult = {
@@ -32,7 +30,6 @@ export default function MailboxProvisionForm({
   /** Adresse contact@ déjà provisionnée (utilisée si initiallyProvisioned=true). */
   provisionedEmail?: string;
 }) {
-  const router = useRouter();
   const toast = useToast();
   const [isPending, startTransition] = useTransition();
   const [email, setEmail] = useState(defaultEmail);
@@ -69,7 +66,8 @@ export default function MailboxProvisionForm({
       if (res.success) {
         setProvision({ ok: true, email: res.email });
         toast.success("Boîte pro créée", `Les mails arrivent maintenant sur ${email.trim()}.`);
-        await markStepCompleted("email");
+        // markStepCompleted("email") est déclenché plus tard par
+        // AdminPersonalEmailStep une fois le mail perso vérifié.
         const recs = await getMailboxDnsRecords();
         if (recs.success && recs.records) setRecords(recs.records);
       } else {
@@ -126,10 +124,6 @@ export default function MailboxProvisionForm({
     } catch {
       toast.error("Copie impossible", "Sélectionnez et copiez à la main.");
     }
-  };
-
-  const handleContinue = () => {
-    router.push("/admin/bienvenue/livraison");
   };
 
   // ══════════════════════════════════════════════════════════════════════
@@ -378,23 +372,6 @@ export default function MailboxProvisionForm({
         )}
       </div>
 
-      <div className="flex justify-end pt-2">
-        <button
-          type="button"
-          onClick={handleContinue}
-          className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl text-white font-semibold text-base shadow-lg bg-gradient-to-br from-sky-500 to-blue-600 hover:brightness-105 transition"
-        >
-          Continuer
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M13 7l5 5m0 0l-5 5m5-5H6"
-            />
-          </svg>
-        </button>
-      </div>
     </div>
   );
 }

@@ -316,6 +316,37 @@ export async function togglePfsEnabled(enabled: boolean): Promise<{ success: boo
   }
 }
 
+const PFS_OUT_OF_STOCK_ACTIONS = new Set(["archived", "deleted", "draft"]);
+
+/**
+ * Enregistre le comportement PFS en rupture de stock :
+ *  - `deactivateVariant` : désactive la variante sur PFS quand stock=0
+ *  - `productAction` : archived | deleted | draft (quand toutes les variantes sont à 0)
+ */
+export async function updatePfsOutOfStockConfig(config: {
+  deactivateVariant: boolean;
+  productAction: "archived" | "deleted" | "draft";
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    if (!PFS_OUT_OF_STOCK_ACTIONS.has(config.productAction)) {
+      return { success: false, error: "Action produit invalide." };
+    }
+    await Promise.all([
+      setSiteConfig(
+        "pfs_out_of_stock_deactivate_variant",
+        config.deactivateVariant ? "true" : "false",
+      ),
+      setSiteConfig("pfs_out_of_stock_product_action", config.productAction),
+    ]);
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
 export async function validatePfsCredentials(config: {
   email: string;
   password: string;

@@ -6,9 +6,12 @@ import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface CompanyInfoFormProps {
   initialData: CompanyInfoData | null;
+  /** Email pro de la boutique (contact@…). L'affichage est verrouillé sur cette
+   *  valeur — la cliente ne peut pas modifier l'email de contact depuis l'admin. */
+  proEmail: string | null;
 }
 
-const FIELDS: { key: keyof CompanyInfoData; label: string; placeholder: string; required?: boolean; colSpan?: number }[] = [
+const FIELDS: { key: keyof CompanyInfoData; label: string; placeholder: string; required?: boolean; colSpan?: number; locked?: boolean; hint?: string }[] = [
   { key: "shopName", label: "Nom de la boutique", placeholder: "Ex: Ma Boutique", colSpan: 2 },
   { key: "name", label: "Raison sociale", placeholder: "Ex: Ma Société SAS", required: true, colSpan: 2 },
   { key: "legalForm", label: "Forme juridique", placeholder: "Ex: SAS, SARL, EURL..." },
@@ -22,7 +25,7 @@ const FIELDS: { key: keyof CompanyInfoData; label: string; placeholder: string; 
   { key: "country", label: "Pays", placeholder: "France" },
   { key: "phone", label: "Téléphone", placeholder: "Ex: 01 23 45 67 89" },
   { key: "whatsapp", label: "WhatsApp", placeholder: "Ex: +33 6 12 34 56 78" },
-  { key: "email", label: "Email de contact", placeholder: "Ex: contact@example.com" },
+  { key: "email", label: "Email de contact", placeholder: "Ex: contact@example.com", locked: true, hint: "Adresse pro de la boutique — non modifiable, gérée automatiquement." },
   { key: "website", label: "Site web", placeholder: "Ex: www.example.com" },
   { key: "director", label: "Directeur de publication", placeholder: "Ex: Jean Dupont", colSpan: 2 },
   { key: "hostName", label: "Hébergeur (nom)", placeholder: "Ex: Vercel Inc." },
@@ -31,7 +34,7 @@ const FIELDS: { key: keyof CompanyInfoData; label: string; placeholder: string; 
   { key: "hostEmail", label: "Hébergeur (email)", placeholder: "Ex: privacy@vercel.com" },
 ];
 
-export default function CompanyInfoForm({ initialData }: CompanyInfoFormProps) {
+export default function CompanyInfoForm({ initialData, proEmail }: CompanyInfoFormProps) {
   const [form, setForm] = useState<CompanyInfoData>({
     shopName: initialData?.shopName || "",
     name: initialData?.name || "",
@@ -46,7 +49,7 @@ export default function CompanyInfoForm({ initialData }: CompanyInfoFormProps) {
     country: initialData?.country || "France",
     phone: initialData?.phone || "",
     whatsapp: initialData?.whatsapp || "",
-    email: initialData?.email || "",
+    email: proEmail || initialData?.email || "",
     website: initialData?.website || "",
     director: initialData?.director || "",
     hostName: initialData?.hostName || "",
@@ -79,22 +82,44 @@ export default function CompanyInfoForm({ initialData }: CompanyInfoFormProps) {
   return (
     <form onSubmit={handleSubmit}>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {FIELDS.map((field) => (
-          <div key={field.key} className={field.colSpan === 2 ? "sm:col-span-2" : ""}>
-            <label className="field-label">
-              {field.label}
-              {field.required && <span className="text-red-500 ml-0.5">*</span>}
-            </label>
-            <input
-              type="text"
-              value={form[field.key] || ""}
-              onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}
-              placeholder={field.placeholder}
-              required={field.required}
-              className="field-input"
-            />
-          </div>
-        ))}
+        {FIELDS.map((field) => {
+          const isLocked = field.locked;
+          const displayValue = isLocked && field.key === "email"
+            ? (proEmail || "Non configuré — voir onglet Email")
+            : form[field.key] || "";
+          return (
+            <div key={field.key} className={field.colSpan === 2 ? "sm:col-span-2" : ""}>
+              <label className="field-label flex items-center gap-1.5">
+                {field.label}
+                {field.required && <span className="text-red-500 ml-0.5">*</span>}
+                {isLocked && (
+                  <span
+                    title="Champ verrouillé — géré automatiquement"
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide bg-zinc-100 text-zinc-500 border border-zinc-200 rounded-full px-1.5 py-0.5 ml-1"
+                  >
+                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                    </svg>
+                    Auto
+                  </span>
+                )}
+              </label>
+              <input
+                type="text"
+                value={displayValue}
+                onChange={isLocked ? undefined : (e) => setForm({ ...form, [field.key]: e.target.value })}
+                placeholder={field.placeholder}
+                required={field.required}
+                readOnly={isLocked}
+                disabled={isLocked}
+                className={`field-input ${isLocked ? "bg-zinc-50 text-zinc-500 cursor-not-allowed" : ""}`}
+              />
+              {field.hint && (
+                <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">{field.hint}</p>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {message && (

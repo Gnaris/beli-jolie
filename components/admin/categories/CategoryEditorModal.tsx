@@ -225,6 +225,7 @@ export default function CategoryEditorModal({
         pfsCategoryName,
         defaultPfsCategoryId ?? null,
         efashionCreateId,
+        faireTaxonomyId,
       );
       onCreated?.(result);
       onClose();

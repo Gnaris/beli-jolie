@@ -61,6 +61,7 @@ export async function createCategoryQuick(
   pfsCategoryName?: string | null,
   pfsCategoryId?: string | null,
   efashionCategorieId?: number | null,
+  faireTaxonomyId?: string | null,
 ): Promise<{ id: string; name: string; subCategories: { id: string; name: string }[] }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
@@ -84,6 +85,7 @@ export async function createCategoryQuick(
         pfsCategoryName: pfsCategoryName?.trim() || null,
         pfsCategoryId: pfsCategoryId?.trim() || null,
         ...(efashionCategorieId !== undefined ? { efashionCategorieId } : {}),
+        ...(faireTaxonomyId !== undefined ? { faireTaxonomyId: faireTaxonomyId?.trim() || null } : {}),
       },
     });
     for (const [locale, value] of Object.entries(translations)) {
@@ -115,6 +117,7 @@ export async function createCategoryQuick(
       pfsCategoryName: pfsCategoryName?.trim() || null,
       pfsCategoryId: pfsCategoryId?.trim() || null,
       efashionCategorieId: efashionCategorieId ?? null,
+      faireTaxonomyId: faireTaxonomyId?.trim() || null,
     },
   });
   for (const [locale, value] of Object.entries(translations)) {

@@ -64,7 +64,7 @@ const nextConfig: NextConfig = {
       "img-src 'self' data: blob: https://*.stripe.com https://static.parisfashionshops.com https://cdn.parisfashionshops.com https://img.ankorstore.com",
       "font-src 'self'",
       "connect-src 'self' https://api.stripe.com https://wholesaler-api.parisfashionshops.com",
-      "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+      "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://mail.beliandjolie.com",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",

@@ -4,6 +4,22 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { decryptIfSensitive } from "@/lib/encryption";
+
+/**
+ * L'email de contact société est verrouillé sur l'adresse pro de la boutique
+ * (smtp_from_email). La cliente ne peut pas la modifier depuis l'admin — elle
+ * suit automatiquement la boîte pro configurée pour l'envoi de mails.
+ */
+async function resolveProEmail(): Promise<string | null> {
+  const row = await prisma.siteConfig.findFirst({
+    where: { key: "smtp_from_email" },
+    select: { value: true },
+  });
+  if (!row?.value) return null;
+  const decrypted = decryptIfSensitive("smtp_from_email", row.value).trim();
+  return decrypted || null;
+}
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -49,6 +65,10 @@ export async function updateCompanyInfo(
 
     const existing = await prisma.companyInfo.findFirst();
 
+    // Force l'email de contact = adresse pro de la boutique (non modifiable
+    // par la cliente depuis l'admin). Ignore tout email envoyé par le client.
+    const proEmail = await resolveProEmail();
+
     if (existing) {
       await prisma.companyInfo.update({
         where: { id: existing.id },
@@ -66,7 +86,7 @@ export async function updateCompanyInfo(
           country: data.country?.trim() || "France",
           phone: data.phone?.trim() || null,
           whatsapp: data.whatsapp?.trim() || null,
-          email: data.email?.trim() || null,
+          email: proEmail,
           website: data.website?.trim() || null,
           director: data.director?.trim() || null,
           hostName: data.hostName?.trim() || null,
@@ -91,7 +111,7 @@ export async function updateCompanyInfo(
           country: data.country?.trim() || "France",
           phone: data.phone?.trim() || null,
           whatsapp: data.whatsapp?.trim() || null,
-          email: data.email?.trim() || null,
+          email: proEmail,
           website: data.website?.trim() || null,
           director: data.director?.trim() || null,
           hostName: data.hostName?.trim() || null,

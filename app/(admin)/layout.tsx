@@ -3,7 +3,8 @@ import { headers } from "next/headers";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
-import { getCachedAdminWarnings, getCachedShopName } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedShopName, getCachedUnmappedAttributes } from "@/lib/cached-data";
+import { formatAttrLabel, type UnmappedAttributes } from "@/lib/unmapped-attributes";
 import { isOnboardingCompleted } from "@/lib/onboarding";
 import type { Metadata } from "next";
 import AdminMobileNav from "@/components/admin/AdminMobileNav";
@@ -52,11 +53,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     warnings,
     pfsCreds,
     autoTranslateConfig,
+    unmapped,
   ] = await Promise.all([
     getCachedShopName(),
     getCachedAdminWarnings(),
     getCachedPfsCredentials(),
     getCachedSiteConfig("auto_translate_enabled"),
+    getCachedUnmappedAttributes(),
   ]);
 
   const {
@@ -73,9 +76,40 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const autoTranslateEnabled = translationEnabled && autoTranslateConfig?.value === "true";
   const totalAttributeWarnings = untranslatedCount + unusedColorsCount + unusedCompositionsCount + unusedTagsCount + untranslatedCategoriesCount + untranslatedSubCategoriesCount;
 
-  const warningCounts: Record<string, { count: number; tooltip: string } | undefined> = {
-    "/admin/produits": totalAttributeWarnings > 0 ? { count: totalAttributeWarnings, tooltip: `${totalAttributeWarnings} élément${totalAttributeWarnings > 1 ? "s" : ""} nécessitant attention` } : undefined,
-  };
+  const warningCounts: Record<string, { count: number; tooltip: string; title?: string; reasons?: string[]; hint?: string } | undefined> = {};
+
+  // ─── Sous-items catalogue : alerte mapping marketplaces ────────────────
+  const subEntries: Array<[string, keyof Omit<UnmappedAttributes, "totalUnmapped">, string]> = [
+    ["/admin/categories", "categories", "Ouvrir la page Catégories pour compléter les liens."],
+    ["/admin/couleurs", "colors", "Ouvrir la page Couleurs pour compléter les liens."],
+    ["/admin/compositions", "compositions", "Ouvrir la page Compositions pour compléter les liens."],
+    ["/admin/saisons", "seasons", "Ouvrir la page Saisons pour compléter les liens."],
+    ["/admin/tailles", "sizes", "Ouvrir la page Tailles pour compléter les liens."],
+    ["/admin/pays", "countries", "Ouvrir la page Pays d'origine pour compléter les liens."],
+    ["/admin/codes-sh", "shCodes", "Ouvrir la page Codes SH pour compléter les liens."],
+  ];
+  for (const [href, kind, hint] of subEntries) {
+    const attr = unmapped[kind];
+    if (attr.total > 0) {
+      const title = formatAttrLabel(kind, attr.total);
+      warningCounts[href] = { count: attr.total, title, tooltip: title, reasons: attr.reasons, hint };
+    }
+  }
+
+  // ─── Parent Produits : cumul traductions + mappings ─────────────────────
+  const totalCombined = totalAttributeWarnings + unmapped.totalUnmapped;
+  if (totalCombined > 0) {
+    const parentReasons: string[] = [];
+    if (totalAttributeWarnings > 0) parentReasons.push(`${totalAttributeWarnings} traduction${totalAttributeWarnings > 1 ? "s" : ""} manquante${totalAttributeWarnings > 1 ? "s" : ""}`);
+    if (unmapped.totalUnmapped > 0) parentReasons.push(`${unmapped.totalUnmapped} attribut${unmapped.totalUnmapped > 1 ? "s" : ""} sans mapping`);
+    warningCounts["/admin/produits"] = {
+      count: totalCombined,
+      tooltip: `${totalCombined} élément${totalCombined > 1 ? "s" : ""} nécessitant attention`,
+      title: `${totalCombined} élément${totalCombined > 1 ? "s" : ""} à traiter`,
+      reasons: parentReasons,
+      hint: "Détail par ligne dans le sous-menu.",
+    };
+  }
 
   return (
     <DeeplConfigProvider enabled={translationEnabled} autoTranslateEnabled={autoTranslateEnabled}>
@@ -85,7 +119,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <IneligibleRefreshProvider>
     <RefreshMarketplacePromptProvider>
     <AdminWidgetsRail>
-    <div id="admin-theme-wrapper" className="min-h-screen flex bg-[#EEEEF1] lg:pr-16 max-lg:pb-20 max-md:pb-24">
+    <div id="admin-theme-wrapper" className="min-h-screen flex bg-[#EEEEF1] pb-24">
 
       <AdminDesktopShell
         shopName={shopName}
@@ -98,8 +132,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           userName={session.user.name ?? "Admin"}
           initials={initials}
           warnings={{
-            "/admin/produits":     totalAttributeWarnings > 0 ? totalAttributeWarnings : 0,
-            "/admin/commandes":    pendingOrdersCount,
+            ...Object.fromEntries(
+              Object.entries(warningCounts)
+                .filter(([, w]) => w && w.count > 0)
+                .map(([href, w]) => [href, w!.count]),
+            ),
+            "/admin/commandes": pendingOrdersCount,
           }}
           shopName={shopName}
         />

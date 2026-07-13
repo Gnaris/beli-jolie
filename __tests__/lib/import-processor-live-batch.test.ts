@@ -51,6 +51,7 @@ type DbProduct = {
   pfsProductId: string | null;
   ankorsProductId: string | null;
   efashionReferenceBase: string | null;
+  faireProductId: string | null;
   colors: Array<{ id: string; colorId: string; saleType: "UNIT" | "PACK"; color: { id: string; name: string; hex: string | null; patternImage: string | null } }>;
 };
 type DbJob = {
@@ -161,7 +162,7 @@ function setupJob(tempDirRelative: string) {
   };
 }
 
-function addProduct(ref: string, colorName: string, opts: Partial<Pick<DbProduct, "pfsProductId" | "ankorsProductId" | "efashionReferenceBase">> = {}): DbProduct {
+function addProduct(ref: string, colorName: string, opts: Partial<Pick<DbProduct, "pfsProductId" | "ankorsProductId" | "efashionReferenceBase" | "faireProductId">> = {}): DbProduct {
   const product: DbProduct = {
     id: `prod-${ref}`,
     reference: ref,
@@ -169,6 +170,7 @@ function addProduct(ref: string, colorName: string, opts: Partial<Pick<DbProduct
     pfsProductId: opts.pfsProductId ?? null,
     ankorsProductId: opts.ankorsProductId ?? null,
     efashionReferenceBase: opts.efashionReferenceBase ?? null,
+    faireProductId: opts.faireProductId ?? null,
     colors: [
       {
         id: `pc-${ref}-${colorName}`,
@@ -365,5 +367,41 @@ describe("finalizeImageImport", () => {
     await finalizeImageImport("job-1");
 
     expect(dbState.productUpdates).toHaveLength(0);
+  });
+
+  it("pose faireSyncRequired sur un produit lié à Faire", async () => {
+    setupJob(".");
+    addProduct("REF001", "Doré", { faireProductId: "p_faire_42" });
+    writeFakeImage("REF001 Doré 1.jpg");
+    await processImageBatch("job-1", ["REF001 Doré 1.jpg"]);
+
+    await finalizeImageImport("job-1");
+
+    const flagged = dbState.productUpdates.find((u) => u.id === "prod-REF001");
+    expect(flagged).toBeDefined();
+    expect(flagged!.data).toEqual({ faireSyncRequired: true });
+  });
+
+  it("pose les 4 flags marketplace quand tous les IDs sont liés", async () => {
+    setupJob(".");
+    addProduct("REF001", "Doré", {
+      pfsProductId: "pfs-1",
+      ankorsProductId: "ank-1",
+      efashionReferenceBase: "ef-1",
+      faireProductId: "p_faire_1",
+    });
+    writeFakeImage("REF001 Doré 1.jpg");
+    await processImageBatch("job-1", ["REF001 Doré 1.jpg"]);
+
+    await finalizeImageImport("job-1");
+
+    const flagged = dbState.productUpdates.find((u) => u.id === "prod-REF001");
+    expect(flagged).toBeDefined();
+    expect(flagged!.data).toEqual({
+      pfsSyncRequired: true,
+      ankorsSyncRequired: true,
+      efashionSyncRequired: true,
+      faireSyncRequired: true,
+    });
   });
 });

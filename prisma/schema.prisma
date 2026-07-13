@@ -1615,6 +1615,30 @@ model LoginOtp {
 }
 
 // ─────────────────────────────────────────────
+// Sécurité — Code OTP pour actions destructives sur produits
+// (suppression, rafraîchissement, archivage). Le mail arrive
+// sur l'adresse pro configurée en Paramètres > Société.
+// ─────────────────────────────────────────────
+
+model AdminActionOtp {
+  id         String    @id @default(cuid())
+  adminId    String    // User.id de l'admin qui a déclenché l'action
+  action     String    // "delete" | "refresh" | "archive"
+  productIds Json      // Liste des ID produits concernés (string[])
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  usedAt    DateTime?
+  createdAt  DateTime  @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([adminId, createdAt])
+}
+
+// ─────────────────────────────────────────────
 // Sécurité — Tentatives de connexion (brute force)
 // ─────────────────────────────────────────────
 
@@ -2385,6 +2409,7 @@ model Tenant {
   messageAttachments         MessageAttachment[]
   passwordResetTokens        PasswordResetToken[]
   loginOtps                  LoginOtp[]
+  adminActionOtps            AdminActionOtp[]
   loginAttempts              LoginAttempt[]
   accountLockouts            AccountLockout[]
   registrationLogs           RegistrationLog[]

@@ -1,13 +1,18 @@
 "use client";
 
 /**
- * Tiroir « Synchro marketplaces » — Version C validée :
- *  - Erreurs (rouge) + En cours (bleu clair) ouvertes par défaut
- *  - En attente (gris) + Terminés (vert) refermés par défaut
- *  - Vue compact : 1 ligne par produit avec 4 pastilles P/A/E/F
+ * Tiroir « Synchro marketplaces » — Section Erreurs en cartes détaillées
+ * (variante 2 validée le 2026-07-13, maquette
+ * `Downloads/maquette-widget-erreurs-marketplace.html` onglet « Variante 2 »).
  *
- * Alimenté par `useMarketplaceRefreshQueue()` — même contexte que l'ancien
- * widget flottant, seule la présentation change.
+ *  - Erreurs (rouge)   : cartes groupées par produit, un bloc par marketplace
+ *                        en échec (badge coloré + message + bouton Réessayer).
+ *  - En cours (bleu)   : vue compact 1 ligne / produit avec 4 pastilles P/A/E/F.
+ *  - En attente (gris) : idem, replié par défaut.
+ *  - Terminés (vert)   : idem, replié par défaut.
+ *
+ * Alimenté par `useMarketplaceRefreshQueue()` — le retry ré-enfile un item
+ * identique via `enqueue()` (mode/marketplace/options figés au push initial).
  */
 
 import { useEffect } from "react";
@@ -18,6 +23,8 @@ import {
   isItemActive,
   hasError,
   type MarketplaceRefreshItem,
+  type MarketplaceTarget,
+  type TargetOutcome,
 } from "@/components/admin/products/MarketplaceRefreshContext";
 
 const MARKETPLACES_ICON = (
@@ -48,7 +55,7 @@ function classify(item: MarketplaceRefreshItem): Section {
 
 export function MarketplacesDrawer() {
   const { openWidget, close, setBadge } = useRightRail();
-  const { items, clear, runningCount, queuedCount } = useMarketplaceRefreshQueue();
+  const { items, clear, enqueue, runningCount, queuedCount } = useMarketplaceRefreshQueue();
 
   const groups: Groups = { errors: [], active: [], queued: [], done: [] };
   for (const item of items) groups[classify(item)].push(item);
@@ -74,6 +81,9 @@ export function MarketplacesDrawer() {
       : totalProcessed > 0
       ? `${totalProcessed} terminé${totalProcessed > 1 ? "s" : ""}`
       : "Aucun lot";
+
+  // Groupement des erreurs par produit pour la vue en cartes
+  const errorGroups = groupErrorsByProduct(groups.errors);
 
   return (
     <DrawerShell
@@ -118,7 +128,7 @@ export function MarketplacesDrawer() {
       ) : (
         <>
           {totalPlanned > 0 && (
-            <div className="px-4 py-2 border-b border-slate-100">
+            <div className="px-4 py-2 border-b border-slate-100 bg-white">
               <div className="relative h-1.5 bg-slate-100 rounded-full overflow-hidden">
                 <div
                   className="absolute inset-y-0 left-0 bg-gradient-to-r from-sky-500 to-sky-400 rounded-full transition-all duration-500"
@@ -127,11 +137,34 @@ export function MarketplacesDrawer() {
               </div>
             </div>
           )}
-          {groups.errors.length > 0 && (
-            <Section title="Erreurs" tone="rose" count={groups.errors.length} defaultOpen>
-              {groups.errors.map((it) => (
-                <ItemRow key={it.id} item={it} />
-              ))}
+          {errorGroups.length > 0 && (
+            <Section
+              title="Erreurs"
+              tone="rose"
+              count={groups.errors.length}
+              defaultOpen
+            >
+              <div className="p-3 space-y-3">
+                {errorGroups.map((group) => (
+                  <ErrorCard
+                    key={group.productId}
+                    group={group}
+                    onRetry={(item) => {
+                      enqueue([
+                        {
+                          productId: item.productId,
+                          reference: item.reference,
+                          productName: item.productName,
+                          firstImage: item.firstImage,
+                          options: item.options,
+                          mode: item.mode,
+                          marketplace: item.marketplace,
+                        },
+                      ]);
+                    }}
+                  />
+                ))}
+              </div>
             </Section>
           )}
           {groups.active.length > 0 && (
@@ -162,7 +195,7 @@ export function MarketplacesDrawer() {
 }
 
 // ────────────────────────────────────────────────────────
-// Sections pliables (Version C)
+// Sections pliables
 // ────────────────────────────────────────────────────────
 
 const TONE_CLASSES = {
@@ -201,7 +234,209 @@ function Section({
 }
 
 // ────────────────────────────────────────────────────────
-// Ligne produit (vue compact avec 4 pastilles)
+// Cartes d'erreur (variante 2)
+// ────────────────────────────────────────────────────────
+
+interface ErrorGroup {
+  productId: string;
+  productName: string;
+  reference: string;
+  firstImage: string | null;
+  latestCompletedAt: string | null;
+  items: MarketplaceRefreshItem[];
+}
+
+/**
+ * Regroupe les items en erreur par produit. Garde l'ordre d'arrivée initial
+ * du produit (position de son 1er item dans la file), et à l'intérieur d'un
+ * groupe les items sont triés par ordre chronologique.
+ */
+export function groupErrorsByProduct(
+  items: ReadonlyArray<MarketplaceRefreshItem>,
+): ErrorGroup[] {
+  const groupsByProduct = new Map<string, ErrorGroup>();
+  for (const item of items) {
+    const existing = groupsByProduct.get(item.productId);
+    if (existing) {
+      existing.items.push(item);
+      // Conserve la donnée de photo/nom la plus récente
+      if (item.firstImage) existing.firstImage = item.firstImage;
+      if (item.productName) existing.productName = item.productName;
+      if (item.completedAt) {
+        if (!existing.latestCompletedAt || item.completedAt > existing.latestCompletedAt) {
+          existing.latestCompletedAt = item.completedAt;
+        }
+      }
+    } else {
+      groupsByProduct.set(item.productId, {
+        productId: item.productId,
+        productName: item.productName,
+        reference: item.reference,
+        firstImage: item.firstImage,
+        latestCompletedAt: item.completedAt ?? null,
+        items: [item],
+      });
+    }
+  }
+  return [...groupsByProduct.values()];
+}
+
+const MARKETPLACE_LABEL: Record<MarketplaceTarget, string> = {
+  pfs: "PFS",
+  ankorstore: "Ankor",
+  efashion: "eFashion",
+  faire: "Faire",
+};
+
+const MARKETPLACE_PILL_CLASS: Record<MarketplaceTarget, string> = {
+  pfs: "bg-gradient-to-r from-sky-500 to-blue-600 text-white",
+  ankorstore: "bg-gradient-to-r from-pink-400 to-pink-500 text-white",
+  efashion: "bg-gradient-to-r from-amber-500 to-orange-500 text-white",
+  faire: "bg-gradient-to-r from-slate-800 to-slate-900 text-white",
+};
+
+function modeTitle(mode: MarketplaceRefreshItem["mode"], kind: "not_found" | "error"): string {
+  if (kind === "not_found") return "Produit introuvable";
+  if (mode === "publish") return "Publication échouée";
+  if (mode === "resync") return "Resynchronisation échouée";
+  return "Refresh échoué";
+}
+
+function ErrorCard({
+  group,
+  onRetry,
+}: {
+  group: ErrorGroup;
+  onRetry: (item: MarketplaceRefreshItem) => void;
+}) {
+  const errorCount = group.items.length;
+  return (
+    <div className="bg-white rounded-xl border border-rose-200 overflow-hidden shadow-sm">
+      {/* Header carte : photo + nom + timestamp / compteur */}
+      <div className="px-3 py-2 bg-gradient-to-r from-rose-50 to-white border-b border-rose-100 flex items-center gap-2">
+        {group.firstImage ? (
+          <img
+            src={group.firstImage}
+            alt=""
+            className="w-8 h-8 rounded-lg object-cover bg-slate-100 flex-shrink-0 ring-1 ring-slate-200"
+          />
+        ) : (
+          <div className="w-8 h-8 rounded-lg bg-slate-100 ring-1 ring-slate-200 flex items-center justify-center flex-shrink-0">
+            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.6}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
+            </svg>
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <p
+            className="text-xs font-semibold truncate text-slate-800"
+            title={group.productName || group.reference}
+          >
+            {group.productName || group.reference}
+          </p>
+          <p className="text-[10px] text-slate-500 truncate">{group.reference}</p>
+        </div>
+        {errorCount > 1 ? (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 font-semibold flex-shrink-0">
+            ×{errorCount}
+          </span>
+        ) : group.latestCompletedAt ? (
+          <span className="text-[10px] text-slate-500 flex-shrink-0">
+            {relativeTime(group.latestCompletedAt)}
+          </span>
+        ) : null}
+      </div>
+      {/* Corps : 1 bloc par marketplace en erreur */}
+      <div className="p-3 space-y-2 divide-y divide-rose-100">
+        {group.items.map((item, idx) => (
+          <ErrorBlock
+            key={item.id}
+            item={item}
+            onRetry={() => onRetry(item)}
+            isFirst={idx === 0}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ErrorBlock({
+  item,
+  onRetry,
+  isFirst,
+}: {
+  item: MarketplaceRefreshItem;
+  onRetry: () => void;
+  isFirst: boolean;
+}) {
+  const outcome = failingOutcome(item);
+  const title = outcome
+    ? modeTitle(item.mode, outcome.ok === false ? outcome.kind : "error")
+    : "Erreur inconnue";
+  const message = outcome && outcome.ok === false ? outcome.message : "Aucun détail renvoyé.";
+  return (
+    <div className={`space-y-1.5 ${isFirst ? "" : "pt-2"}`}>
+      <div className="flex items-center gap-1.5">
+        <span
+          className={`inline-flex items-center px-1.5 h-4 rounded text-[9px] font-bold tracking-wide ${
+            MARKETPLACE_PILL_CLASS[item.marketplace]
+          }`}
+        >
+          {MARKETPLACE_LABEL[item.marketplace]}
+        </span>
+        <span className="text-[11px] font-semibold text-rose-700">{title}</span>
+      </div>
+      <p className="text-xs text-slate-700 leading-relaxed break-words">{message}</p>
+      <div>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full bg-rose-600 text-white font-semibold hover:bg-rose-700 transition"
+        >
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0114-5.5M20 15a8 8 0 01-14 5.5" />
+          </svg>
+          Réessayer
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function failingOutcome(item: MarketplaceRefreshItem): TargetOutcome | undefined {
+  const target = item.marketplace;
+  const outcome =
+    target === "pfs"
+      ? item.pfsOutcome
+      : target === "ankorstore"
+      ? item.ankorsOutcome
+      : target === "efashion"
+      ? item.efashionOutcome
+      : item.faireOutcome;
+  if (outcome && outcome.ok === false) return outcome;
+  // Fallback : cherche un outcome en échec sur les autres slots (job legacy multi-cibles)
+  for (const o of [item.pfsOutcome, item.ankorsOutcome, item.efashionOutcome, item.faireOutcome]) {
+    if (o && o.ok === false) return o;
+  }
+  return undefined;
+}
+
+function relativeTime(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "";
+  const diffMs = Date.now() - then;
+  if (diffMs < 60_000) return "à l'instant";
+  const min = Math.floor(diffMs / 60_000);
+  if (min < 60) return `il y a ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `il y a ${h} h`;
+  const d = Math.floor(h / 24);
+  return `il y a ${d} j`;
+}
+
+// ────────────────────────────────────────────────────────
+// Ligne produit compact (En cours / En attente / Terminés)
 // ────────────────────────────────────────────────────────
 
 function pillClass(outcome: MarketplaceRefreshItem["pfsOutcome"]): string {

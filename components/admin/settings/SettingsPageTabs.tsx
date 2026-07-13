@@ -16,6 +16,7 @@ const TABS = [
   { key: "marketplaces", label: "Marketplaces",  icon: "M3 21h18M5 21V7l7-4 7 4v14M9 9v.01M9 12v.01M9 15v.01M15 9v.01M15 12v.01M15 15v.01" },
   { key: "traduction",   label: "Traduction",    icon: "M4 5h7M9 3v2M4 9c0 5 4 8 8 8M9 9c-2 4 0 8 4 8M14 5l6 14M17 15h6" },
   { key: "seo",          label: "Référencement", icon: "M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" },
+  { key: "messagerie",   label: "Messagerie",    icon: "M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -23,6 +24,7 @@ type TabKey = (typeof TABS)[number]["key"];
 const GROUPS: { label: string; keys: TabKey[] }[] = [
   { label: "Site",         keys: ["general", "societe", "catalogue", "carrousels", "stock", "horaires", "maintenance"] },
   { label: "Intégrations", keys: ["livraison", "paiement", "marketplaces", "traduction"] },
+  { label: "Communication", keys: ["messagerie"] },
   { label: "Référencement", keys: ["seo"] },
 ];
 

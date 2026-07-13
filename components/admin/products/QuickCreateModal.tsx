@@ -482,7 +482,7 @@ export default function QuickCreateModal({
 
       let result: { id: string; name: string; hex?: string | null; patternImage?: string | null; subCategories?: { id: string; name: string }[] };
       if (type === "category") {
-        result = await createCategoryQuick(names, pfsGender, pfsFamilyName, pfsCategoryName, defaultPfsCategoryId ?? null, efashionCreateId);
+        result = await createCategoryQuick(names, pfsGender, pfsFamilyName, pfsCategoryName, defaultPfsCategoryId ?? null, efashionCreateId, faireTaxonomyId);
       } else if (type === "subcategory") {
         if (!categoryId) throw new Error("Catégorie parente requise.");
         result = await createSubCategoryQuick(names, categoryId);

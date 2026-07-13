@@ -13,6 +13,7 @@ type NavItem = {
   href: string;
   icon: string;
   soon?: boolean;
+  external?: boolean;
   children?: { label: string; href: string }[];
 };
 type NavSection = { title: string; items: NavItem[] };
@@ -56,6 +57,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: "Système",
     items: [
+      { label: "Messagerie", href: "/admin/messagerie", icon: "M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" },
       { label: "Documents légaux", href: "/admin/documents-legaux", icon: "M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" },
       { label: "Paramètres", href: "/admin/parametres", icon: "M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z M15 12a3 3 0 11-6 0 3 3 0 016 0z" },
     ],
@@ -243,8 +245,9 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                             <span className="flex-1 truncate">{item.label}</span>
                           </Link>
                           {warningCount > 0 && item.href !== "/admin/commandes" && (
-                            <span className="flex items-center gap-1 text-[10.5px] rounded-full px-1.5 py-0.5 font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-                              ⚠ {warningCount}
+                            <span className="flex items-center gap-1.5 shrink-0">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                              <span className="text-[11.5px] font-semibold text-amber-700">{warningCount}</span>
                             </span>
                           )}
                           <button
@@ -266,6 +269,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                             <span className="absolute left-[21px] top-1 bottom-1 w-px bg-zinc-200" />
                             {item.children!.map((c) => {
                               const subActive = isItemActive(pathname, c.href);
+                              const subCount = warnings[c.href] ?? 0;
                               return (
                                 <Link
                                   key={c.href}
@@ -281,7 +285,13 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                                     className="absolute left-[21px] top-1/2 w-2 h-px"
                                     style={{ background: subActive ? "#18181B" : "#D4D4D8", transform: "translateY(-0.5px)" }}
                                   />
-                                  {c.label}
+                                  <span className="flex-1 truncate">{c.label}</span>
+                                  {subCount > 0 && (
+                                    <span className="flex items-center gap-1 shrink-0">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                      <span className="text-[11px] font-semibold text-amber-700">{subCount}</span>
+                                    </span>
+                                  )}
                                 </Link>
                               );
                             })}
@@ -296,6 +306,8 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                       key={item.href}
                       href={item.href}
                       onClick={() => setOpen(false)}
+                      target={item.external ? "_blank" : undefined}
+                      rel={item.external ? "noopener noreferrer" : undefined}
                       className={`relative flex items-center gap-3 px-3 py-2.5 text-[13.5px] font-body rounded-xl transition-colors ${
                         active
                           ? "bg-zinc-100 text-zinc-900 font-semibold"
@@ -309,14 +321,20 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d={item.icon} />
                       </svg>
                       <span className="flex-1">{item.label}</span>
+                      {item.external && (
+                        <svg className="w-3 h-3 shrink-0 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                        </svg>
+                      )}
                       {item.href === "/admin/commandes" && warningCount > 0 && (
                         <span className="flex items-center justify-center text-[11px] rounded-full min-w-[22px] h-[22px] px-1.5 font-bold bg-sky-100 text-sky-700 border border-sky-200">
                           {warningCount}
                         </span>
                       )}
                       {item.href !== "/admin/commandes" && warningCount > 0 && (
-                        <span className="flex items-center gap-1 text-[10.5px] rounded-full px-1.5 py-0.5 font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-                          ⚠ {warningCount}
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          <span className="text-[11.5px] font-semibold text-amber-700">{warningCount}</span>
                         </span>
                       )}
                     </Link>

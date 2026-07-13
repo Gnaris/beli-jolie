@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import WizardShell from "@/components/admin/onboarding/WizardShell";
-import { getOnboardingStatus, ONBOARDING_STEPS } from "@/lib/onboarding";
+import { getOnboardingStatus, isOnboardingCompleted, ONBOARDING_STEPS } from "@/lib/onboarding";
 import { getCompanyInfo } from "@/app/actions/admin/company-info";
 
 export const metadata: Metadata = {
@@ -29,6 +29,14 @@ export const WIZARD_STEP_META: Record<
 };
 
 export default async function WizardLayout({ children }: { children: React.ReactNode }) {
+  // Une fois l'onboarding termine (ou skippe), le wizard n'est plus accessible.
+  // Sinon un admin qui retape /admin/bienvenue/... dans son URL pourrait
+  // resoumettre les etapes et casser sa config (Stripe, e-mail, livraison...).
+  // Pour re-configurer, la boutique passe par /admin/parametres.
+  if (await isOnboardingCompleted()) {
+    redirect("/admin");
+  }
+
   const [status, h, company] = await Promise.all([
     getOnboardingStatus(),
     headers(),

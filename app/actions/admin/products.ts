@@ -21,6 +21,10 @@ import {
   deleteDirectory,
 } from "@/lib/storage";
 import { requireCurrentTenant } from "@/lib/tenant";
+import {
+  guardAdminActionOtp,
+  applyPauseChoice,
+} from "@/lib/admin-action-otp";
 import { getImagePaths } from "@/lib/image-utils";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { normalizePrimaryFlag } from "@/lib/normalize-primary-flag";
@@ -1825,10 +1829,33 @@ export async function previewBulkPublishDrafts(
 
 export async function bulkUpdateProductStatus(
   productIds: string[],
-  status: "ONLINE" | "OFFLINE" | "ARCHIVED"
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED",
+  otpCheck?: {
+    otpId: string;
+    code: string;
+    pauseChoice?: "15min" | "1h" | "24h" | null;
+  } | null,
 ): Promise<{ success: string[]; errors: { id: string; reference: string; reason: string }[] }> {
-  await requireAdmin();
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") {
+    throw new Error("Accès non autorisé.");
+  }
   if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
+
+  // ─── Vérification OTP uniquement pour l'archivage (destructif côté marketplaces) ───
+  if (status === "ARCHIVED") {
+    const tenantForGuard = await requireCurrentTenant();
+    await guardAdminActionOtp({
+      action: "archive",
+      productIds,
+      adminId: session.user.id,
+      tenantId: tenantForGuard.id,
+      otp: otpCheck ? { otpId: otpCheck.otpId, code: otpCheck.code } : null,
+    });
+    if (otpCheck?.pauseChoice !== undefined && otpCheck.pauseChoice !== null) {
+      await applyPauseChoice(tenantForGuard.id, otpCheck.pauseChoice);
+    }
+  }
 
   const success: string[] = [];
   const errors: { id: string; reference: string; reason: string }[] = [];
@@ -2231,13 +2258,33 @@ export async function previewProductDeletion(productIds: string[]): Promise<{
 
 export async function bulkDeleteProducts(
   productIds: string[],
+  otpCheck?: {
+    otpId: string;
+    code: string;
+    pauseChoice?: "15min" | "1h" | "24h" | null;
+  } | null,
 ): Promise<{
   deleted: number;
   archived: { id: string; reference: string; orderCount: number }[];
 }> {
-  await requireAdmin();
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") {
+    throw new Error("Accès non autorisé.");
+  }
   const tenant = await requireCurrentTenant();
   if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
+
+  // ─── Vérification OTP (sauf si pause active) ───
+  await guardAdminActionOtp({
+    action: "delete",
+    productIds,
+    adminId: session.user.id,
+    tenantId: tenant.id,
+    otp: otpCheck ? { otpId: otpCheck.otpId, code: otpCheck.code } : null,
+  });
+  if (otpCheck?.pauseChoice !== undefined && otpCheck.pauseChoice !== null) {
+    await applyPauseChoice(tenant.id, otpCheck.pauseChoice);
+  }
 
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },

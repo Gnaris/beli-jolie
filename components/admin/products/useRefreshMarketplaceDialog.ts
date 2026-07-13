@@ -12,6 +12,8 @@ import {
   getRecentlyRefreshedProducts,
   type MarketplaceRefreshOptions,
 } from "@/app/actions/admin/marketplace-refresh";
+import { verifyAdminActionOtpForRefresh } from "@/app/actions/admin/admin-action-otp";
+import { useOtpConfirm } from "@/components/ui/OtpConfirmDialog";
 import { useRefreshWarning } from "@/components/admin/products/RecentlyRefreshedWarningModal";
 import { useIneligibleRefresh } from "@/components/admin/products/IneligibleRefreshModal";
 import { useRefreshMarketplacePrompt } from "@/components/admin/products/RefreshMarketplaceDialog";
@@ -56,6 +58,54 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
   const { ask: askWarning } = useRefreshWarning();
   const { ask: askIneligible } = useIneligibleRefresh();
   const { ask: askRefreshOptions } = useRefreshMarketplacePrompt();
+  const { confirm: otpConfirm } = useOtpConfirm();
+
+  /**
+   * Vérification OTP avant rafraîchissement (bypass silencieux uniquement si
+   * la pause OTP est active). L'OTP est exigé même pour un refresh local
+   * seul — la cliente a choisi de sécuriser tous les rafraîchissements.
+   * Retourne `true` si on peut continuer, `false` si l'admin a annulé ou si
+   * le code est invalide.
+   */
+  const requireOtpForRefresh = useCallback(
+    async (
+      products: Array<{ productId: string; reference: string; productName: string }>,
+      _options: MarketplaceRefreshOptions,
+    ): Promise<boolean> => {
+      const productIds = products.map((p) => p.productId);
+      const otpRes = await otpConfirm({
+        action: "refresh",
+        title:
+          products.length === 1
+            ? "Confirmer le rafraîchissement"
+            : `Rafraîchir ${products.length} produits`,
+        message:
+          products.length === 1
+            ? "L'ancienne fiche marketplace sera archivée et une nouvelle republiée."
+            : "Chaque fiche sera archivée puis republiée avec un ID neuf.",
+        productIds,
+        productLabels: products.map((p) => ({
+          reference: p.reference,
+          name: p.productName,
+        })),
+        confirmLabel: "Rafraîchir",
+      });
+      if (!otpRes.confirmed) return false;
+      if (otpRes.otp) {
+        const verify = await verifyAdminActionOtpForRefresh({
+          otpId: otpRes.otp.otpId,
+          code: otpRes.otp.code,
+          productIds,
+        });
+        if (!verify.success) {
+          toast.error("Vérification échouée", verify.error ?? "Code invalide.");
+          return false;
+        }
+      }
+      return true;
+    },
+    [otpConfirm, toast],
+  );
 
   // Sépare la sélection en éligibles / non éligibles selon le statut local
   // (ONLINE + complet). Vérifié en premier car instantané et déterministe.
@@ -184,6 +234,10 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       const options = await askOptions(1, target.productName);
       if (!options) return false;
 
+      // Vérification OTP (bypass si pause active ou refresh local-only)
+      const otpOk = await requireOtpForRefresh([target], options);
+      if (!otpOk) return false;
+
       // If only local (no marketplace), run directly — it's instant
       if (
         options.local &&
@@ -280,7 +334,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       }
       return true;
     },
-    [applyRecentWarning, askOptions, enqueue, addToEfashionShootingBatch, toast, filterOutInFlight, splitByEligibility],
+    [applyRecentWarning, askOptions, enqueue, addToEfashionShootingBatch, toast, filterOutInFlight, splitByEligibility, requireOtpForRefresh],
   );
 
   const refreshBulk = useCallback(
@@ -337,6 +391,10 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       }
       const options = await askOptions(filtered.length, filtered[0]?.productName);
       if (!options) return false;
+
+      // Vérification OTP (bypass si pause active ou refresh local-only)
+      const otpOk = await requireOtpForRefresh(filtered, options);
+      if (!otpOk) return false;
 
       if (
         options.local &&
@@ -437,7 +495,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       }
       return true;
     },
-    [applyRecentWarning, askOptions, enqueue, addToEfashionShootingBatch, toast, filterOutInFlight, splitByEligibility, askIneligible],
+    [applyRecentWarning, askOptions, enqueue, addToEfashionShootingBatch, toast, filterOutInFlight, splitByEligibility, askIneligible, requireOtpForRefresh],
   );
 
   return { refreshSingle, refreshBulk };

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import WizardStepHeader from "@/components/admin/onboarding/WizardStepHeader";
 import WizardContinueButton from "@/components/admin/onboarding/WizardContinueButton";
 import MailboxProvisionForm from "@/components/admin/onboarding/MailboxProvisionForm";
+import AdminPersonalEmailStep from "@/components/admin/onboarding/AdminPersonalEmailStep";
+import { getAdminPersonalEmailState } from "@/app/actions/admin/admin-personal-email";
 
 function extractShopDomain(): string | null {
   const url = process.env.NEXTAUTH_URL?.trim();
@@ -17,12 +19,14 @@ function extractShopDomain(): string | null {
 export const dynamic = "force-dynamic";
 
 export default async function EmailStepPage() {
-  const [status, forwardRow] = await Promise.all([
+  const [status, forwardRow, personalEmail] = await Promise.all([
     getSmtpConfigStatus(),
     prisma.siteConfig.findFirst({ where: { key: "mailbox_forward_to" } }),
+    getAdminPersonalEmailState(),
   ]);
   const shopDomain = extractShopDomain();
   const forwardTo = forwardRow?.value?.trim() || "";
+  const personalEmailLocked = !!personalEmail.verifiedEmail;
 
   return (
     <div className="max-w-3xl mx-auto py-4 md:py-6">
@@ -109,11 +113,41 @@ export default async function EmailStepPage() {
           </section>
         )}
 
+        {/*
+          Mail perso — ne s'affiche QUE si la boîte pro est prête. On envoie
+          l'OTP via cette boîte pro, donc pas de sens de saisir un mail perso
+          avant. Verrouillage OTP requis pour continuer le wizard.
+        */}
+        {status.ready && (
+          <AdminPersonalEmailStep
+            initialState={personalEmail}
+            defaultSuggestedEmail={forwardTo}
+          />
+        )}
+
+        {!personalEmailLocked && status.ready && (
+          <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-900">
+            <p className="font-semibold mb-1">🔐 Vérification obligatoire</p>
+            <p>
+              Vous ne pourrez continuer qu&apos;après avoir confirmé votre
+              e-mail perso avec le code à 6 chiffres. C&apos;est votre filet
+              de sécurité au cas où l&apos;accès à la boîte pro serait perdu.
+            </p>
+          </div>
+        )}
+
         <div className="flex justify-end pt-2">
           <WizardContinueButton
             step="email"
             nextPath="/admin/bienvenue/livraison"
-            label={status.ready ? "Messagerie prête, continuer" : "Passer et brancher plus tard"}
+            label={
+              personalEmailLocked
+                ? "Continuer"
+                : status.ready
+                  ? "Vérifiez d'abord votre mail perso"
+                  : "Créez d'abord votre boîte pro"
+            }
+            disabled={!personalEmailLocked}
           />
         </div>
       </div>

@@ -97,6 +97,15 @@ Toutes ops (publish/update/refresh/delete) **async** : kickoff → `operationId`
 Bouton « Rafraîchir » + bulk. Modale : boutique (bump `lastRefreshedAt`) + PFS + Ankorstore. Parallèle 5 max via `MarketplaceRefreshWidget`. `pfsRefreshProduct()` crée ref TEMP, archive l'ancien, renomme. Rollback auto.
 « Nouveauté » = `max(createdAt, lastRefreshedAt) > now - 30j`.
 
+### Vérification par code OTP (actions destructives)
+Filet de sécurité contre les bugs de propagation marketplace : toute suppression, rafraîchissement marketplace ou archivage passe par `<OtpConfirmDialog>` → code 6 chiffres envoyé sur la boîte pro (`smtp_from_email`, forwardée sur le mail perso).
+- Table Prisma : `AdminActionOtp` (id, adminId, action, productIds JSON, codeHash, expiresAt, attempts, usedAt). TTL 15 min, 5 tentatives max.
+- Lib : `lib/admin-action-otp.ts` (`createOtpForAction`, `verifyAndConsumeOtp`, `guardAdminActionOtp`, `isOtpPauseActive`, `applyPauseChoice`).
+- Server actions : `requestAdminActionOtp`, `verifyAdminActionOtpForRefresh`, `setAdminActionOtpPause` (`app/actions/admin/admin-action-otp.ts`). `bulkDeleteProducts` + `bulkUpdateProductStatus(ARCHIVED)` acceptent `otpCheck?` en 2ᵉ/3ᵉ arg et appellent `guardAdminActionOtp` en début.
+- Refresh (bulk et unitaire) : vérif client-side dans `useRefreshMarketplaceDialog.requireOtpForRefresh` (bypass silencieux si options local-only sans marketplace ciblée).
+- Pause : menu déroulant dans la modale, options 15min/1h/24h. Stockée `SiteConfig[admin_action_otp_pause_until]` (timestamp ms). Bypass silencieux tant qu'active. Défaut = « Toujours prévenir ».
+- Provider `<OtpConfirmProvider>` monté globalement dans `app/layout.tsx`.
+
 ### Marketplace pricing
 SiteConfig : 3 types (`percent`/`fixed`/`multiplier`), 3 arrondis (`none`/`up`/`down`). Clés : `{marketplace}_price_markup_{type|value|rounding}`. **PACK** : markup sur prix unitaire (total÷qty), arrondi, ×qty. Jamais sur le total.
 
@@ -140,22 +149,24 @@ Réf : `app/(admin)/admin/page.tsx`, `parametres` marketplaces, `produits/page.t
 - **Drawers** > modales pour réglages riches (`MarketplaceConfig.tsx`).
 - **Pas d'arc-en-ciel** sur cartes filtres/recherche.
 
-#### Rail widgets (`components/admin/widgets-rail/`)
-Toutes les tâches longues admin (traduction, synchro marketplaces, images, shooting eFashion, chat) passent par un rail unifié. **Grammaire visuelle responsive :**
+#### Widget flottant (`components/admin/widgets-rail/`)
+Toutes les tâches longues admin (traduction, synchro marketplaces, images, shooting eFashion, chat) passent par un **widget flottant unique** en bas à droite (refonte validée 2026-07-13, remplace l'ancien rail latéral). **Grammaire visuelle responsive :**
 
-| Breakpoint | Rail | Tiroir |
-|-----------|------|--------|
-| `≥ lg` (1024) | Vertical sombre à droite, 48 px, toujours visible | Latéral 400 px, glisse depuis la droite, fond de page reste cliquable |
-| `md-lg` (768-1023) | Dock horizontal sombre en bas, 48 px | Bottom-sheet 60 % de l'écran, drag handle en haut, swipe-to-close |
-| `< md` (< 768) | FAB en bas à droite avec halo pulsant | Plein écran, header sticky avec flèche back, swipe-to-close |
+| Breakpoint | Widget | Tiroir |
+|-----------|--------|--------|
+| `≥ md` (768+) | FAB noir 56 px en bas à droite → clic déploie 5 mini-boutons colorés empilés vers le haut | Panneau flottant 400 × 620 px ancré au-dessus du FAB (`bottom-24 right-6`) |
+| `< md` (< 768) | FAB en bas à droite avec halo pulsant | Plein écran, header sticky avec flèche back |
 
 - **Palette par widget** : violet=Traduction, sky=Marketplaces, emerald=Images, amber=Shooting eFashion, rose=Chat.
 - **Un seul tiroir ouvert** à la fois (`useRightRail()` context).
-- **Badge chiffré** sur l'icône = tâches actives ; `pulse:true` = halo `animate-ping` pour attirer l'attention.
-- **Tooltip stylisé** au survol (fond `bg-slate-900`, portalé dans `document.body`, même grammaire que `ColorSwatch` dans `AdminProductsTable.tsx`).
-- **Structure de tiroir uniforme** via `DrawerShell` : header coloré + eyebrow uppercase + titre + icône + halo flou + zone scrollable + footer optionnel.
+- **Badge cumul** sur le FAB fermé = somme des files ; halo `animate-ping` autour du FAB si au moins une file signale `pulse:true`.
+- **Badge par mini-bouton** = compteur individuel, fond blanc avec ring coloré.
+- **Backdrop léger + blur** derrière le mini-menu ouvert (clic ou ESC ferme). **Aucun backdrop** derrière un tiroir (page cliquable pendant qu'une tâche tourne).
+- **Tooltip stylisé** au survol du mini-bouton (fond `bg-slate-900`, portalé dans `document.body`).
+- **Structure de tiroir uniforme** via `DrawerShell` : header aurora coloré (dégradé foncé + halo flou, texte blanc) + eyebrow uppercase + titre + icône + zone scrollable + footer optionnel.
 - **Sections pliables** pour listes longues (marketplaces) : Erreurs + En cours ouvertes par défaut, En attente + Terminés repliées (`<details open>`).
-- **Chat** : ancré en bas du rail avec séparateur `w-6 h-px bg-white/10`, panel décalé à `right-20` sur desktop pour ne pas être sous le rail. Monté uniquement dans `/admin`.
+- **Chat** : géré par `AdminChatWidget.tsx` (composant séparé, branché sur `useRightRail().openWidget === "chat"`). Monté uniquement dans `/admin`.
+- **Layout admin** : le wrapper `#admin-theme-wrapper` a un `pb-24` pour ne pas cacher le contenu bas de page derrière le FAB, mais **pas** de `pr-*` — la largeur est intégrale.
 
 ### Enums Prisma
 - `ProductStatus` : OFFLINE|ONLINE|ARCHIVED|SYNCING
@@ -274,7 +285,7 @@ Prod sert 2 boutiques depuis 1 seul Next.js/PM2/DB : **beliandjolie.com** (tenan
 
 - **Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ENCRYPTION_KEY`.
 - **Stripe (env-only)** : `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
-- **Email** : `SMTP_HOST/PORT/SECURE/USER/PASSWORD/FROM_EMAIL/FROM_NAME`. Destinataire admin = Paramètres > Société > Email.
+- **Email** : `SMTP_*` retirés des `.env` depuis 2026-07-13 — chaque tenant a sa **propre config SMTP en BDD** (SiteConfig chiffré). Envoi via serveur mail interne Postfix/Dovecot sur `mail.beliandjolie.com:587`. Boîtes `contact@beliandjolie.com` et `contact@issyma.fr` avec quota 5 Go/boîte. `provisionShopMailbox()` (app/actions/admin/mailbox-provision.ts) sait créer une boîte + config auto pour un **nouveau tenant** — **nécessite `scripts/deploy/add-mail-domain.sh` (à créer, cf. TODO ci-dessous)**. Roundcube webmail à `https://mail.beliandjolie.com` (accessible via lien « Messagerie » dans admin sidebar Système).
 - **Ankorstore webhook** : `ANKORSTORE_WEBHOOK_SECRET`.
 - **Via UI (chiffrés BDD)** : clé Easy-Express, identifiants PFS (email + mdp — réutilisés pour traduction auto).
 

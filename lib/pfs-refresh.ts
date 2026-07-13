@@ -45,6 +45,7 @@ import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { emitProductEvent } from "@/lib/product-events";
 import { requirePfsBrand } from "@/lib/pfs-brand";
 import { mapLocalToPfsStatus } from "@/lib/pfs-status";
+import { getPfsOutOfStockConfig } from "@/lib/pfs-out-of-stock-config";
 import { assertNoPfsColorConflicts } from "@/lib/pfs-color-conflicts";
 import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
 import { matchPfsFamilyId, matchPfsCategoryId } from "@/lib/pfs-family-resolve";
@@ -393,6 +394,7 @@ export async function pfsRefreshProduct(
 
   const markupConfigs = await loadMarketplaceMarkupConfigs();
   const pfsMarkup = markupConfigs.pfs;
+  const outOfStockCfg = await getPfsOutOfStockConfig();
 
   // Load PFS color label → reference mapping (e.g. "Doré" → "DORE")
   const colorRefMap = await buildColorLabelToRefMap();
@@ -476,7 +478,7 @@ export async function pfsRefreshProduct(
             price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
             weight: variant.weight,
             stock_qty: variant.stock ?? 0,
-            is_active: (variant.stock ?? 0) > 0,
+            is_active: outOfStockCfg.deactivateVariant ? (variant.stock ?? 0) > 0 : true,
           },
         });
       }
@@ -528,7 +530,7 @@ export async function pfsRefreshProduct(
             price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
             weight: variant.weight,
             stock_qty: variant.stock ?? 0,
-            is_active: (variant.stock ?? 0) > 0,
+            is_active: outOfStockCfg.deactivateVariant ? (variant.stock ?? 0) > 0 : true,
             packs: packEntries,
           },
         });
@@ -601,13 +603,19 @@ export async function pfsRefreshProduct(
         );
       }
 
-      // PFS forces stock 300 on creation with stock 0 — patch back afterwards
+      // PFS forces stock 300 on creation with stock 0 — patch back afterwards.
+      // Le `is_active` dépend de la config (désactiver la variante en rupture
+      // ou la laisser visible marquée en rupture).
       if (createdVariantIds.length === variantCreateData.length) {
         const zeroStockPatches: PfsVariantUpdateData[] = [];
         for (let i = 0; i < variantCreateData.length; i++) {
           const vid = createdVariantIds[i];
           if (variantCreateData[i].pfsData.stock_qty === 0 && vid) {
-            zeroStockPatches.push({ variant_id: vid, stock_qty: 0, is_active: false });
+            zeroStockPatches.push({
+              variant_id: vid,
+              stock_qty: 0,
+              is_active: outOfStockCfg.deactivateVariant ? false : true,
+            });
           }
         }
         if (zeroStockPatches.length > 0) {
@@ -801,12 +809,18 @@ export async function pfsRefreshProduct(
     await pfsUpdateProduct(newPfsProductId, { reference_code: product.reference });
     logger.info("[PFS Refresh] New product renamed to real ref", { newPfsProductId, ref: product.reference });
 
-    const targetPfsStatus = mapLocalToPfsStatus(product.status, allVariantsOutOfStock);
+    const targetPfsStatus = mapLocalToPfsStatus(
+      product.status,
+      allVariantsOutOfStock,
+      outOfStockCfg.productAction,
+    );
 
     if (targetPfsStatus === "READY_FOR_SALE") {
       report("Mise en ligne...");
     } else if (targetPfsStatus === "ARCHIVED") {
       report("Archivage sur PFS...");
+    } else if (targetPfsStatus === "DELETED") {
+      report("Suppression sur PFS (rupture totale)...");
     } else {
       report("Mise en brouillon sur PFS...");
     }
@@ -819,7 +833,11 @@ export async function pfsRefreshProduct(
     await pfsUpdateStatus([{ id: newPfsProductId, status: targetPfsStatus }]);
 
     // Si la case best-seller est cochée, poser l'étoile sur le nouveau produit PFS
-    if (product.isBestSeller && targetPfsStatus !== "ARCHIVED") {
+    if (
+      product.isBestSeller &&
+      targetPfsStatus !== "ARCHIVED" &&
+      targetPfsStatus !== "DELETED"
+    ) {
       report("Mise en avant sur PFS...");
       try {
         await pfsUpdateStatus([{ id: newPfsProductId, status: "STAR" }]);

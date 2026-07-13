@@ -5,12 +5,15 @@ import { resolve } from "node:path";
 // Sur la liste produits admin, les badges marketplace (PFS / Ankorstore /
 // eFashion / Faire) sont rendus inline par 4 helpers locaux (MarketplaceBadge,
 // AnkorstoreBadge, EfashionBadge, FaireBadge) — pas par le composant partagé
-// StatusBadge. Chaque badge a 4-5 états (publishing, sync, published,
-// non-publié avec actions, non-publié défaut).
+// StatusBadge. Chaque badge a 4 états visibles (publishing, syncRequired,
+// published/linked, non-publié).
 //
-// Pour que la cliente puisse scanner la colonne Marketplace verticalement,
-// chaque badge doit avoir au moins min-w-[7.5rem] (120 px) — taille calée
-// sur le plus long libellé courant (« Ankorstore · Synchro »).
+// Depuis la refonte responsive validée le 2026-07-13 : les badges desktop
+// affichent juste le libellé (PFS/EF/ANKOR/Faire) — plus de sous-libellé
+// "en ligne / à sync / hors ligne". La couleur du fond suffit à indiquer
+// l'état. Pour que la cliente puisse scanner la colonne verticalement, tous
+// les badges doivent avoir la même dimension : w-[62px] h-[36px].
+
 const SRC = readFileSync(
   resolve(
     __dirname,
@@ -19,40 +22,62 @@ const SRC = readFileSync(
   "utf8",
 );
 
-describe("AdminProductsTable — badges marketplace de largeur uniforme", () => {
-  // Compte les classNames de badge marketplace qui contiennent min-w-[7.5rem].
-  // 4 marketplaces × 5 états ≈ 20 instances, plus 4 wrappers Publier+Lier.
-  const allBadges = (SRC.match(/inline-flex items-center justify-center gap-1[^"]*min-w-\[7\.5rem\]/g) ?? []).length;
+describe("AdminProductsTable — badges marketplace de largeur uniforme (62×36)", () => {
+  // Compte toutes les occurrences de la paire w-[62px] h-[36px] côte à côte.
+  const badgeSize = (SRC.match(/w-\[62px\] h-\[36px\]/g) ?? []).length;
 
-  it("applique min-w-[7.5rem] sur les états publishing (4 marketplaces)", () => {
-    // 3 indigo (PFS/Ankorstore/eFashion) + 1 rose (Faire)
-    const publishing =
-      (SRC.match(/min-w-\[7\.5rem\] rounded text-\[10px\] font-semibold bg-\[#EEF2FF\]/g) ?? []).length +
-      (SRC.match(/min-w-\[7\.5rem\] rounded text-\[10px\] font-semibold bg-\[#FCE7F3\]/g) ?? []).length;
-    expect(publishing).toBe(4);
+  it("applique w-[62px] h-[36px] sur les 19 emplacements attendus (4 MP × 4 états + 2 fallbacks + Microstore)", () => {
+    // 4 badges × 4 états (publishing, sync, published, not-published) = 16
+    // + 2 fallbacks (EF/Faire quand marketplace non-configurée) = 2
+    // + 1 badge Microstore = 1
+    // → 19 emplacements
+    expect(badgeSize).toBe(19);
   });
 
-  it("applique min-w-[7.5rem] sur les états syncRequired (4 marketplaces)", () => {
-    const sync = (SRC.match(/min-w-\[7\.5rem\] rounded text-\[10px\] font-semibold bg-\[#FFF7ED\]/g) ?? []).length;
-    expect(sync).toBe(4);
-  });
-
-  it("applique min-w-[7.5rem] sur les états published (4 marketplaces)", () => {
-    const published = (SRC.match(/min-w-\[7\.5rem\] rounded text-\[10px\] font-semibold bg-\[#F0FDF4\]/g) ?? []).length;
+  it("les 4 badges 'published' partagent le même fond vert #F0FDF4", () => {
+    const published = (SRC.match(/w-\[62px\] h-\[36px\] rounded-md text-\[11[.5]*px\] font-semibold bg-\[#F0FDF4\]/g) ?? []).length;
     expect(published).toBe(4);
   });
 
-  it("applique min-w-[7.5rem] sur les états Non publié par défaut (4 marketplaces)", () => {
-    const def = (SRC.match(/min-w-\[7\.5rem\] rounded text-\[10px\] font-semibold bg-bg-secondary/g) ?? []).length;
-    expect(def).toBe(4);
+  it("les 4 badges 'syncRequired' partagent le même fond orange #FFF7ED", () => {
+    const sync = (SRC.match(/w-\[62px\] h-\[36px\] rounded-md text-\[11[.5]*px\] font-semibold bg-\[#FFF7ED\]/g) ?? []).length;
+    expect(sync).toBe(4);
   });
 
-  it("applique min-w-[7.5rem] sur le wrapper Publier+Lier (4 marketplaces)", () => {
-    const wrapper = (SRC.match(/<span className="inline-flex items-center justify-center gap-1 min-w-\[7\.5rem\]">/g) ?? []).length;
-    expect(wrapper).toBe(4);
+  it("les 4 badges 'publishing' partagent le même style loading (indigo ou rose)", () => {
+    const indigo = (SRC.match(/w-\[62px\] h-\[36px\] rounded-md text-\[10px\] font-semibold bg-\[#EEF2FF\]/g) ?? []).length;
+    const rose   = (SRC.match(/w-\[62px\] h-\[36px\] rounded-md text-\[10px\] font-semibold bg-\[#FCE7F3\]/g) ?? []).length;
+    expect(indigo + rose).toBe(4);
   });
 
-  it("totalise au moins 20 emplacements aligné min-w-[7.5rem]", () => {
-    expect(allBadges).toBeGreaterThanOrEqual(20);
+  it("les badges 'not published' avec action utilisent le rouge #FEF2F2 (≥ 4 emplacements)", () => {
+    // 4 badges cliquables (state = onActionClick défini) — variantes dans le ternaire className
+    // + éventuellement d'autres surfaces d'action rouge (bandeaux publication échouée).
+    const notPub = (SRC.match(/bg-\[#FEF2F2\] text-\[#DC2626\]/g) ?? []).length;
+    expect(notPub).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe("AdminProductsTable — badges desktop ne contiennent PLUS le sous-libellé", () => {
+  it("aucun badge published ne contient formatRelativeDate en sous-libellé", () => {
+    // Après la refonte, la date passe dans le tooltip (title=...) uniquement.
+    // Le sous-libellé <span className="text-[8.5px]"> a été retiré.
+    const subLabel = (SRC.match(/text-\[8\.5px\] opacity-70 font-medium tabular-nums/g) ?? []).length;
+    expect(subLabel).toBe(0);
+  });
+
+  it("aucun badge syncRequired ne contient le texte '· Synchro' visible", () => {
+    // Le texte "PFS · Synchro" / "Faire · Synchro" a été retiré du contenu.
+    // L'état syncRequired est signalé uniquement par la couleur orange + la pastille pulsante.
+    expect(SRC).not.toMatch(/PFS · Synchro/);
+    expect(SRC).not.toMatch(/EF · Synchro/);
+    expect(SRC).not.toMatch(/ANKOR · Synchro/);
+    expect(SRC).not.toMatch(/Faire · Synchro/);
+  });
+
+  it("garde la date de dernier export dans le tooltip (title=…dernier export…)", () => {
+    // La date de sync n'est pas perdue : elle est déplacée dans le title.
+    const tooltips = (SRC.match(/dernier export \$\{formatRelativeDate\(lastExportedAt\)\}/g) ?? []).length;
+    expect(tooltips).toBe(4);
   });
 });

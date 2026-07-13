@@ -68,6 +68,12 @@ export default function CategoriesMasterDetail({
   const [subModalCatId, setSubModalCatId] = useState<string | null>(null);
   const [editSub, setEditSub] = useState<{ sub: Sub; catId: string } | null>(null);
   const [editFocusMarketplace, setEditFocusMarketplace] = useState<"pfs" | "efashion" | "faire" | undefined>(undefined);
+  // ID d'une catégorie tout juste créée dont on veut la sélection différée :
+  // items n'inclut la nouvelle cat qu'après router.refresh(), on sélectionne
+  // au bon moment (voir useEffect ci-dessous). Sans ce délai, la sélection
+  // arrivait avant les items → le useEffect de repli croyait la sélection
+  // orpheline et lançait router.replace() en boucle.
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
 
   function handleReorder(newOrderedIds: string[]) {
     const positionMap = new Map(newOrderedIds.map((id, i) => [id, i]));
@@ -94,15 +100,32 @@ export default function CategoriesMasterDetail({
     }
   }, [urlSelectedId, selectedId]);
 
-  // Si l'URL pointe une catégorie introuvable, on rabat sur la première
+  // Si l'URL pointe une catégorie introuvable, on rabat sur la première.
+  // On skippe le repli quand une création est en vol (pendingSelectId) :
+  // l'ID de la nouvelle cat n'est légitimement pas encore dans items, il ne
+  // faut pas croire à un orphelin. On utilise history.replaceState (comme
+  // handleSelect) au lieu de router.replace pour éviter un re-render serveur.
   useEffect(() => {
+    if (pendingSelectId) return;
     if (selectedId && !items.some((c) => c.id === selectedId)) {
       setSelectedId(items[0]?.id ?? null);
       const params = new URLSearchParams(searchParams.toString());
       params.delete("cat");
-      router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+      window.history.replaceState(null, "", `${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
     }
-  }, [selectedId, items, pathname, router, searchParams]);
+  }, [selectedId, items, pathname, searchParams, pendingSelectId]);
+
+  // Sélection différée : quand la nouvelle catégorie apparaît enfin dans
+  // items (après router.refresh()), on l'active + on synchronise l'URL.
+  useEffect(() => {
+    if (!pendingSelectId) return;
+    if (!items.some((c) => c.id === pendingSelectId)) return;
+    setSelectedId(pendingSelectId);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("cat", pendingSelectId);
+    window.history.replaceState(null, "", `${pathname}?${params.toString()}`);
+    setPendingSelectId(null);
+  }, [pendingSelectId, items, pathname, searchParams]);
 
   function handleSelect(id: string) {
     setSelectedId(id);
@@ -238,7 +261,7 @@ export default function CategoriesMasterDetail({
         onClose={() => setCreateOpen(false)}
         onCreated={(created) => {
           setCreateOpen(false);
-          if (created?.id) handleSelect(created.id);
+          if (created?.id) setPendingSelectId(created.id);
           router.refresh();
         }}
       />

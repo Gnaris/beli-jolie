@@ -101,6 +101,9 @@ interface FullProduct {
   dimensionLength: number | null;
   dimensionWidth: number | null;
   dimensionHeight: number | null;
+  // Détail texte associé à la "Taille Unique" (ex : "38-42"), rendu en fin de
+  // description Faire : « Taille Unique (38-42) ».
+  sizeDetailsTu: string | null;
 }
 
 // ─────────────────────────────────────────────
@@ -166,6 +169,7 @@ export async function loadFaireProductFull(productId: string): Promise<FullProdu
       dimensionLength: true,
       dimensionWidth: true,
       dimensionHeight: true,
+      sizeDetailsTu: true,
     },
   }) as unknown as FullProduct | null;
 }
@@ -690,6 +694,8 @@ export function buildPublishContext(
     | "dimensionLength"
     | "dimensionWidth"
     | "dimensionHeight"
+    | "colors"
+    | "sizeDetailsTu"
   >,
 ): {
   ok: boolean;
@@ -717,17 +723,49 @@ export function buildPublishContext(
   const countryAlpha2 = rawAlpha2 ?? "CN"; // fallback raisonnable pour catalogue made-in-China
   const countryUsedFallback = rawAlpha2 == null;
 
-  // Description = description produit + composition (toujours) appendue
-  // automatiquement. Le code SH reste sur la variante via `tariff_code` mais
-  // n'est plus écrit en bas de description (pas pertinent pour l'acheteuse).
-  // Les dimensions sont envoyées dans le champ structuré `measurements` au
-  // niveau variante (cf. buildFaireProductPayload).
+  // Nom du pays en anglais pour la mention « Made in ... » en fin de description
+  // (audience Faire = acheteuses US/UK, français peu compris). On résout via
+  // Intl.DisplayNames pour éviter une table maison isoCode → nom. On ne prend
+  // PAS le fallback CN : si la cliente n'a pas renseigné de pays de fabrication
+  // sur le produit, on préfère ne rien afficher plutôt qu'un « Made in China »
+  // erroné (autres tenants, produits FR, etc.).
+  let madeInCountryEn: string | null = null;
+  if (rawAlpha2) {
+    try {
+      const displayNames = new Intl.DisplayNames(["en"], { type: "region" });
+      madeInCountryEn = displayNames.of(rawAlpha2) ?? null;
+    } catch {
+      madeInCountryEn = null;
+    }
+  }
+
+  // Tailles disponibles pour la mention « Taille : X » / « Tailles : X, Y, Z »
+  // / « Taille Unique (XX-YY) ». On ignore les variantes PACK (Faire ne reçoit
+  // que du UNIT — cf. filtre en amont) et on dédup au niveau du builder.
+  const sizes: string[] = [];
+  for (const c of product.colors) {
+    if (c.saleType !== "UNIT") continue;
+    for (const s of c.variantSizes) {
+      if (s.size?.name) sizes.push(s.size.name);
+    }
+  }
+
+  // Description = description produit + composition + tailles + « Made in … »
+  // appendus automatiquement. Le code SH reste sur la variante via
+  // `tariff_code` mais n'est plus écrit en bas de description (pas pertinent
+  // pour l'acheteuse). Les dimensions sont envoyées dans le champ structuré
+  // `measurements` au niveau variante (cf. buildFaireProductPayload).
   const description = buildFaireDescription(
     product.description ?? "",
     product.compositions.map((c) => ({
       name: c.composition.name,
       percentage: Number(c.percentage),
     })),
+    {
+      sizes,
+      sizeDetailsTu: product.sizeDetailsTu,
+      madeInCountryEn,
+    },
   );
 
   return {

@@ -18,6 +18,7 @@ import { processProductImage } from "@/lib/image-processor";
 import { productImageDir, productImageBaseName } from "@/lib/storage";
 import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
+import { computeMarketplaceSyncFlags } from "@/lib/marketplace-sync-flag";
 import path from "path";
 
 // ─────────────────────────────────────────────
@@ -1724,7 +1725,7 @@ export async function finalizeImageImport(jobId: string): Promise<void> {
     name: string;
     imageCount: number;
     coverPath: string;
-    linkedTo: { pfs: boolean; ankorstore: boolean; efashion: boolean };
+    linkedTo: { pfs: boolean; ankorstore: boolean; efashion: boolean; faire: boolean };
   }> = [];
 
   if (touchedProductIds.length > 0) {
@@ -1738,6 +1739,7 @@ export async function finalizeImageImport(jobId: string): Promise<void> {
         pfsProductId: true,
         ankorsProductId: true,
         efashionReferenceBase: true,
+        faireProductId: true,
       },
     });
 
@@ -1746,6 +1748,7 @@ export async function finalizeImageImport(jobId: string): Promise<void> {
         pfs: !!p.pfsProductId,
         ankorstore: !!p.ankorsProductId,
         efashion: !!p.efashionReferenceBase,
+        faire: !!p.faireProductId,
       };
       const images = state.importedImages.filter((i) => i.productId === p.id);
       productMarketplaces.push({
@@ -1757,10 +1760,12 @@ export async function finalizeImageImport(jobId: string): Promise<void> {
         linkedTo,
       });
 
-      const flagPatch: { pfsSyncRequired?: true; ankorsSyncRequired?: true; efashionSyncRequired?: true } = {};
-      if (linkedTo.pfs) flagPatch.pfsSyncRequired = true;
-      if (linkedTo.ankorstore) flagPatch.ankorsSyncRequired = true;
-      if (linkedTo.efashion) flagPatch.efashionSyncRequired = true;
+      const flagPatch = computeMarketplaceSyncFlags({
+        pfsProductId: p.pfsProductId,
+        ankorsProductId: p.ankorsProductId,
+        efashionReferenceBase: p.efashionReferenceBase,
+        faireProductId: p.faireProductId,
+      });
       if (Object.keys(flagPatch).length > 0) {
         await prisma.product.update({ where: { id: p.id }, data: flagPatch }).catch((e) => {
           logger.error("[import-processor] Échec pose du flag SyncRequired", { error: e, productId: p.id });

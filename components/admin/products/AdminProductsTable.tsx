@@ -17,6 +17,7 @@ import { deleteProductsOnPfs, deleteProductsOnAnkorstore, deleteProductsOnEfashi
 import { bulkAddToEfashionShootingBatch } from "@/app/actions/admin/efashion-shooting-batch";
 import BulkEditAttributesModal, { type BulkEditOptions, type BulkEditPayload } from "@/components/admin/products/BulkEditAttributesModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useOtpConfirm } from "@/components/ui/OtpConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
@@ -281,25 +282,24 @@ function MarketplaceBadge({
           e.stopPropagation();
           onSyncClick?.();
         }}
-        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
         title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Paris Fashion Shop"
       >
         <span className="relative inline-flex">
           <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
           <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
         </span>
-        PFS · Synchro
+        PFS
       </button>
     );
   }
   if (published) {
     return (
       <span
-        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] leading-tight"
+        className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
         title={lastExportedAt ? `Publié sur Paris Fashion Shop — dernier export ${formatRelativeDate(lastExportedAt)}` : "Publié sur Paris Fashion Shop"}
       >
-        <span>PFS</span>
-        {lastExportedAt && <span className="text-[8.5px] opacity-70 font-medium tabular-nums">{formatRelativeDate(lastExportedAt)}</span>}
+        PFS
       </span>
     );
   }
@@ -313,7 +313,7 @@ function MarketplaceBadge({
         onActionClick();
       }}
       disabled={!onActionClick}
-      className={`inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold leading-tight transition-colors ${
+      className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold transition-colors ${
         onActionClick
           ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
           : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
@@ -368,25 +368,24 @@ function AnkorstoreBadge({
           e.stopPropagation();
           onSyncClick?.();
         }}
-        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
         title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Ankorstore"
       >
         <span className="relative inline-flex">
           <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
           <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
         </span>
-        ANKOR · Synchro
+        ANKOR
       </button>
     );
   }
   if (published) {
     return (
       <span
-        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] leading-tight"
+        className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
         title={lastExportedAt ? `Publié sur Ankorstore — dernier export ${formatRelativeDate(lastExportedAt)}` : "Publié sur Ankorstore"}
       >
-        <span>ANKOR</span>
-        {lastExportedAt && <span className="text-[8.5px] opacity-70 font-medium tabular-nums">{formatRelativeDate(lastExportedAt)}</span>}
+        ANKOR
       </span>
     );
   }
@@ -400,7 +399,7 @@ function AnkorstoreBadge({
         onActionClick();
       }}
       disabled={!onActionClick}
-      className={`inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold leading-tight transition-colors ${
+      className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold transition-colors ${
         onActionClick
           ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
           : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
@@ -455,25 +454,24 @@ function EfashionBadge({
           e.stopPropagation();
           onSyncClick?.();
         }}
-        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
         title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à eFashion Paris"
       >
         <span className="relative inline-flex">
           <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
           <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
         </span>
-        EF · Synchro
+        EF
       </button>
     );
   }
   if (linked) {
     return (
       <span
-        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] leading-tight"
+        className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
         title={lastExportedAt ? `Lié à eFashion Paris — dernier export ${formatRelativeDate(lastExportedAt)}` : "Lié à eFashion Paris"}
       >
-        <span>EF</span>
-        {lastExportedAt && <span className="text-[8.5px] opacity-70 font-medium tabular-nums">{formatRelativeDate(lastExportedAt)}</span>}
+        EF
       </span>
     );
   }
@@ -487,7 +485,7 @@ function EfashionBadge({
         onActionClick();
       }}
       disabled={!onActionClick}
-      className={`inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold leading-tight transition-colors ${
+      className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold transition-colors ${
         onActionClick
           ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
           : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
@@ -542,25 +540,24 @@ function FaireBadge({
           e.stopPropagation();
           onSyncClick?.();
         }}
-        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
         title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Faire"
       >
         <span className="relative inline-flex">
           <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
           <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
         </span>
-        Faire · Synchro
+        Faire
       </button>
     );
   }
   if (published) {
     return (
       <span
-        className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] leading-tight"
+        className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
         title={lastExportedAt ? `Publié sur Faire — dernier export ${formatRelativeDate(lastExportedAt)}` : "Publié sur Faire"}
       >
-        <span>Faire</span>
-        {lastExportedAt && <span className="text-[8.5px] opacity-70 font-medium tabular-nums">{formatRelativeDate(lastExportedAt)}</span>}
+        Faire
       </span>
     );
   }
@@ -574,7 +571,7 @@ function FaireBadge({
         onActionClick();
       }}
       disabled={!onActionClick}
-      className={`inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold leading-tight transition-colors ${
+      className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold transition-colors ${
         onActionClick
           ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
           : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
@@ -766,6 +763,37 @@ export function countVariantDirtyEdits(edits: VariantDirtyEdits): number {
   return n;
 }
 
+// ─── Helpers Prix HT unitaire vs total ─────────────────────────────────────
+// La BDD stocke `unitPrice` différemment selon saleType :
+//   - UNIT : prix par pièce (unité = total).
+//   - PACK : prix total du paquet = unitaire × somme des quantités des tailles
+//     (cf. `computeTotalPrice()` dans ColorVariantManager).
+// Dans le tiroir, colonne « Prix HT » = unitaire (éditable),
+// « Prix HT Total » = total (lecture seule).
+export function computeVariantPackTotalQty(
+  variant: {
+    saleType: "UNIT" | "PACK";
+    packQuantity: number | null;
+    variantSizes?: { quantity: number }[];
+  },
+  packOverride?: number,
+): number {
+  if (variant.saleType !== "PACK") return 1;
+  const fromSizes = variant.variantSizes?.reduce((s, vs) => s + vs.quantity, 0) ?? 0;
+  if (fromSizes > 0) return fromSizes;
+  const fromPack = packOverride ?? variant.packQuantity ?? 0;
+  return fromPack > 0 ? fromPack : 1;
+}
+
+// Classe CSS de la ligne variante dans le tiroir : fond rouge pastel quand le
+// stock est à 0 (y compris en édition en attente), sinon hover neutre.
+export function computeVariantRowClass(stock: number): string {
+  const base = "border-t border-border-light transition-colors";
+  return stock === 0
+    ? `${base} bg-red-100/70 hover:bg-red-200/60`
+    : `${base} hover:bg-bg-primary/60`;
+}
+
 // ─── Cellule éditable au simple clic ────────────────────────────────────────
 // Rend un <span> cliquable qui bascule en <input> custom au clic. Entrée /
 // blur -> commit ; Échap -> annule cette édition en cours (sans toucher aux
@@ -897,6 +925,32 @@ function VariantRow({
     [onCommitCell, variant.id],
   );
 
+  // Prix : la BDD stocke le TOTAL pour un PACK et l'UNITAIRE pour un UNIT.
+  // Dans le tiroir on montre le prix par pièce (colonne « Prix HT ») et le
+  // total du paquet à part (colonne « Prix HT Total », lecture seule).
+  const isPackVariant = variant.saleType === "PACK";
+  const packTotalQty = computeVariantPackTotalQty(variant, packCurrent);
+  const unitPriceOrig = isPackVariant
+    ? Math.round((priceOrig / packTotalQty) * 100) / 100
+    : priceOrig;
+  const unitPriceCurrent = isPackVariant
+    ? Math.round((priceCurrent / packTotalQty) * 100) / 100
+    : priceCurrent;
+  // L'admin édite l'unitaire ; on retransforme en total avant persistance.
+  const commitUnitPrice = useCallback(
+    (field: VariantField, newUnitValue: number, _origUnitValue: number) => {
+      if (field !== "price") {
+        commit(field, newUnitValue, _origUnitValue);
+        return;
+      }
+      const newTotal = isPackVariant
+        ? Math.round(newUnitValue * packTotalQty * 100) / 100
+        : newUnitValue;
+      commit("price", newTotal, priceOrig);
+    },
+    [commit, isPackVariant, packTotalQty, priceOrig],
+  );
+
   // Puce colorée du stock : vert, ambre (≤5), rouge (0).
   const stockDotColor =
     stockCurrent === 0 ? "#DC2626" : stockCurrent <= 5 ? "#D97706" : "#16A34A";
@@ -912,7 +966,7 @@ function VariantRow({
     : { backgroundColor: variant.color.hex ?? "#9CA3AF" };
 
   return (
-    <tr className="border-t border-border-light transition-colors hover:bg-bg-primary/60">
+    <tr className={computeVariantRowClass(stockCurrent)}>
       {/* Couleur */}
       <td className="px-4 py-3">
         <div className="flex items-center gap-2.5">
@@ -965,22 +1019,38 @@ function VariantRow({
         )}
       </td>
 
-      {/* Prix HT */}
+      {/* Prix HT — unitaire (éditable) */}
       <td className="px-4 py-3 text-right">
         <VariantEditableCell
           variantId={variant.id}
           field="price"
-          currentValue={priceCurrent}
-          originalValue={priceOrig}
+          currentValue={unitPriceCurrent}
+          originalValue={unitPriceOrig}
           isInt={false}
           dirty={dirtyPrice}
-          ariaLabel={`Prix HT — ${variant.color.name}`}
-          onCommit={commit}
+          ariaLabel={`Prix HT unitaire — ${variant.color.name}`}
+          onCommit={commitUnitPrice}
         >
           <span className="font-semibold text-text-primary">
-            {priceCurrent.toFixed(2).replace(".", ",")} €
+            {unitPriceCurrent.toFixed(2).replace(".", ",")} €
           </span>
         </VariantEditableCell>
+      </td>
+
+      {/* Prix HT Total — lecture seule (pertinent pour PACK) */}
+      <td className="px-4 py-3 text-right">
+        {isPackVariant ? (
+          <span
+            className={`text-xs font-body font-medium tabular-nums ${
+              dirtyPrice ? "text-emerald-700" : "text-text-secondary"
+            }`}
+            title="Prix HT total du paquet (calculé)"
+          >
+            {priceCurrent.toFixed(2).replace(".", ",")} €
+          </span>
+        ) : (
+          <span className="text-xs text-text-muted">—</span>
+        )}
       </td>
 
       {/* Stock */}
@@ -1949,14 +2019,17 @@ function ProductRow({
               className="shrink-0"
               aria-label={`Modifier ${product.name}`}
             >
+              {/* Photo agrandie sur tablette (md → lg) — layout "Photo large"
+                  validé maquette 2026-07-13. Reste 44px sur mobile et desktop
+                  pour conserver la densité du tableau. */}
               {product.firstImage ? (
                 <img
                   src={product.firstImage}
                   alt={product.name}
-                  className="w-11 h-11 object-cover rounded-lg border border-border shadow-sm"
+                  className="w-11 h-11 md:w-[68px] md:h-[68px] lg:w-11 lg:h-11 object-cover rounded-lg border border-border shadow-sm"
                 />
               ) : (
-                <div className="w-11 h-11 bg-bg-tertiary rounded-lg border border-border flex items-center justify-center">
+                <div className="w-11 h-11 md:w-[68px] md:h-[68px] lg:w-11 lg:h-11 bg-bg-tertiary rounded-lg border border-border flex items-center justify-center">
                   <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M13.5 12h.008v.008H13.5V12zm0 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 9V7.5a2.25 2.25 0 012.25-2.25h15A2.25 2.25 0 0121 7.5v9a2.25 2.25 0 01-2.25 2.25H4.5A2.25 2.25 0 012.25 21z" />
                   </svg>
@@ -2015,15 +2088,18 @@ function ProductRow({
                 </span>
               </div>
               {/* Badges marketplaces compacts pour mobile + tablette (< lg).
-                  Non-interactifs : simple aperçu du statut de publication.
-                  Les vraies actions sont accessibles via le menu ⋮. */}
-              <div className="lg:hidden flex items-center gap-1 mt-1.5 flex-wrap">
-                <MpDot label="PFS" active={hasPfsConfig && !!product.pfsProductId} syncRequired={product.pfsSyncRequired} />
+                  Format A validé maquette 2026-07-13 : les 4 badges (PFS/EF/AK/Faire)
+                  restent alignés horizontalement sur leur propre ligne (flex-nowrap),
+                  chaque badge en flex-1 pour se répartir équitablement la largeur
+                  disponible et garantir qu'aucun ne déborde. Non-interactifs :
+                  simple aperçu du statut. Les actions passent par le menu ⋮. */}
+              <div className="lg:hidden flex items-stretch gap-1 mt-1.5 w-full flex-nowrap">
+                <MpDot label="PFS" active={hasPfsConfig && pfsBadgeState.online} syncRequired={product.pfsSyncRequired && !pfsBadgeState.justPublishedOk} />
                 {showEfashion && (
-                  <MpDot label="EF" active={efashionLinked} syncRequired={product.efashionSyncRequired} />
+                  <MpDot label="EF" active={efashionBadgeState.online} syncRequired={product.efashionSyncRequired && !efashionBadgeState.justPublishedOk} />
                 )}
                 {showAnkorstore && (
-                  <MpDot label="AK" active={!!product.ankorsProductId} syncRequired={product.ankorsSyncRequired} />
+                  <MpDot label="AK" active={ankorstoreBadgeState.online} syncRequired={product.ankorsSyncRequired && !ankorstoreBadgeState.justPublishedOk} />
                 )}
                 {showFaire && (
                   <MpDot label="Faire" active={faireBadgeState.online} syncRequired={product.faireSyncRequired} />
@@ -2104,12 +2180,12 @@ function ProductRow({
           ) : (
             <div className="flex flex-row gap-1 items-start flex-wrap">
               <MarketplaceBadge
-                published={!!product.pfsProductId}
+                published={pfsBadgeState.online}
                 publishing={isPfsPublishing}
-                syncRequired={product.pfsSyncRequired && !isPfsPublishing}
+                syncRequired={product.pfsSyncRequired && !isPfsPublishing && !pfsBadgeState.justPublishedOk}
                 lastExportedAt={product.pfsLastExportedAt}
                 onActionClick={
-                  hasPfsConfig && !product.pfsProductId && !isPfsPublishing
+                  hasPfsConfig && !pfsBadgeState.online && !isPfsPublishing
                     ? () => setActionModalPfs(true)
                     : undefined
                 }
@@ -2117,29 +2193,29 @@ function ProductRow({
               />
               {showEfashion ? (
                 <EfashionBadge
-                  linked={efashionLinked}
+                  linked={efashionBadgeState.online}
                   publishing={isEfashionPublishing}
-                  syncRequired={product.efashionSyncRequired && !isEfashionPublishing}
+                  syncRequired={product.efashionSyncRequired && !isEfashionPublishing && !efashionBadgeState.justPublishedOk}
                   lastExportedAt={product.efashionLastExportedAt}
                   onActionClick={
-                    showEfashion && !efashionLinked && !isEfashionPublishing
+                    showEfashion && !efashionBadgeState.online && !isEfashionPublishing
                       ? () => setActionModalEf(true)
                       : undefined
                   }
                   onSyncClick={handleSyncEfashion}
                 />
               ) : (
-                <span className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border leading-tight">
+                <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-secondary text-text-muted border border-border">
                   EF
                 </span>
               )}
               <AnkorstoreBadge
-                published={!!product.ankorsProductId}
+                published={ankorstoreBadgeState.online}
                 publishing={isAnkorstorePublishing}
-                syncRequired={product.ankorsSyncRequired && !isAnkorstorePublishing}
+                syncRequired={product.ankorsSyncRequired && !isAnkorstorePublishing && !ankorstoreBadgeState.justPublishedOk}
                 lastExportedAt={product.ankorstoreLastExportedAt}
                 onActionClick={
-                  showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing
+                  showAnkorstore && !ankorstoreBadgeState.online && !isAnkorstorePublishing
                     ? () => setActionModalAk(true)
                     : undefined
                 }
@@ -2159,13 +2235,13 @@ function ProductRow({
                   onSyncClick={handleSyncFaire}
                 />
               ) : (
-                <span className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border leading-tight">
+                <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-bg-secondary text-text-muted border border-border">
                   Faire
                 </span>
               )}
               {/* Microstore : pas d'API → badge neutre, pas de date ni d'action */}
               <span
-                className="inline-flex flex-col items-center justify-center gap-px w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-bg-tertiary text-text-secondary border border-border-strong leading-tight"
+                className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-tertiary text-text-secondary border border-border-strong"
                 title="Microstore — pas d'API, géré manuellement"
               >
                 MC
@@ -2351,6 +2427,7 @@ function ProductRow({
                       <th className="px-4 py-3 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Type</th>
                       <th className="px-4 py-3 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Tailles</th>
                       <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT</th>
+                      <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT Total</th>
                       <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Stock</th>
                       <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Poids</th>
                     </tr>
@@ -2665,6 +2742,7 @@ export default function AdminProductsTable({
   const router = useRouter();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
+  const { confirm: otpConfirm } = useOtpConfirm();
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const showEfashion = !!(hasEfashionConfig && efashionEnabled);
   const showFaire = !!(hasFaireConfig && faireEnabled);
@@ -3084,6 +3162,27 @@ export default function AdminProductsTable({
     });
     if (!confirmed) return;
 
+    // ─── Vérification par code OTP uniquement pour l'archivage ───
+    let otpForServer: { otpId: string; code: string; pauseChoice?: "15min" | "1h" | "24h" | null } | null = null;
+    if (status === "ARCHIVED") {
+      const otpLabels = ids
+        .map((id) => {
+          const p = allProducts.find((x) => x.id === id);
+          return p ? { reference: p.reference, name: p.name } : null;
+        })
+        .filter((x): x is { reference: string; name: string } => x !== null);
+      const otpRes = await otpConfirm({
+        action: "archive",
+        title: `${label.title} ${count} produit${count > 1 ? "s" : ""}`,
+        message: "Un code de sécurité vient d'être envoyé sur votre boîte mail pro pour confirmer l'archivage.",
+        productIds: ids,
+        productLabels: otpLabels,
+        confirmLabel: label.title,
+      });
+      if (!otpRes.confirmed) return;
+      otpForServer = otpRes.otp;
+    }
+
     setBulkMessage(null);
     const bulkVerb =
       status === "ONLINE" ? "Mise en ligne" :
@@ -3094,7 +3193,7 @@ export default function AdminProductsTable({
     await new Promise<void>((resolve) => {
       startTransition(async () => {
         try {
-          const result = await bulkUpdateProductStatus(ids, status);
+          const result = await bulkUpdateProductStatus(ids, status, otpForServer);
           successIds = result.success;
 
           const msgs: string[] = [];
@@ -3600,6 +3699,24 @@ export default function AdminProductsTable({
     });
     if (!confirmed) return;
 
+    // ─── Vérification par code OTP (envoyé par mail) ───
+    const otpLabels = ids
+      .map((id) => {
+        const p = allProducts.find((x) => x.id === id);
+        return p ? { reference: p.reference, name: p.name } : null;
+      })
+      .filter((x): x is { reference: string; name: string } => x !== null);
+    const otpAction = archiveCount === 0 ? "delete" : archiveCount > 0 && deleteCount === 0 ? "archive" : "delete";
+    const otpRes = await otpConfirm({
+      action: otpAction,
+      title: title,
+      message: "Un code de sécurité vient d'être envoyé sur votre boîte mail pro pour confirmer cette action.",
+      productIds: ids,
+      productLabels: otpLabels,
+      confirmLabel,
+    });
+    if (!otpRes.confirmed) return;
+
     const confirmPfsDelete = pfsRef.current && pfsCandidates.length > 0;
     const confirmAnkorsDelete = ankorsRef.current && ankorsCandidates.length > 0;
     const confirmEfashionDelete = efashionRef.current && efashionCandidates.length > 0;
@@ -3639,7 +3756,7 @@ export default function AdminProductsTable({
           }
         }
 
-        const result = await bulkDeleteProducts(ids);
+        const result = await bulkDeleteProducts(ids, otpRes.otp ?? null);
 
         const msgs: string[] = [];
         if (result.deleted > 0) msgs.push(`${result.deleted} produit${result.deleted > 1 ? "s" : ""} supprimé${result.deleted > 1 ? "s" : ""} définitivement`);
@@ -4305,19 +4422,30 @@ function BulkActionOverlay({ label }: { label: string | null }) {
 }
 
 /**
- * Pastille compacte statut marketplace, utilisée dans la colonne Produit sur
- * mobile + tablette (< lg) où la colonne Marketplaces dédiée est masquée.
- * Non-interactive : simple indicateur. Les actions passent par le menu ⋮.
+ * Badge compact marketplace pour mobile + tablette (< lg) où la colonne
+ * Marketplaces dédiée est masquée. Non-interactive : simple indicateur.
+ * Les actions passent par le menu ⋮ ou la fiche produit.
+ *
+ * Rendu = mêmes codes couleur que les vrais badges desktop (vert/orange/gris)
+ * + petit point coloré pour un rappel visuel de l'état. Alignés horizontalement
+ * en flex-nowrap pour que les 4 (PFS/EF/AK/Faire) tiennent sur une seule ligne
+ * quelle que soit la largeur (Format A validé maquette 2026-07-13).
  */
 function MpDot({ label, active, syncRequired }: { label: string; active: boolean; syncRequired: boolean }) {
-  const cls = syncRequired && active
-    ? "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA]"
+  const isSync = active && syncRequired;
+  const cls = isSync
+    ? "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA]"
     : active
       ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
       : "bg-bg-secondary text-text-muted border-border";
+  const dotCls = isSync ? "bg-[#F97316]" : active ? "bg-[#22C55E]" : "bg-slate-300";
   return (
-    <span className={`inline-flex items-center justify-center px-1.5 h-5 rounded text-[9.5px] font-semibold border leading-none ${cls}`}>
-      {label}
+    <span
+      className={`inline-flex items-center justify-center gap-1 flex-1 min-w-0 px-1.5 h-6 rounded-md text-[10.5px] font-semibold border leading-none ${cls}`}
+      title={`${label} — ${isSync ? "synchronisation nécessaire" : active ? "en ligne" : "hors ligne"}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotCls}`} />
+      <span className="truncate">{label}</span>
     </span>
   );
 }

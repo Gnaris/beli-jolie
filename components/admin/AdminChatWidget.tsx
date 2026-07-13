@@ -387,10 +387,8 @@ export default function AdminChatWidget() {
       {/* ── Chat panel ── */}
       {isOpen && (
         <div className="fixed z-[9000] bg-bg-primary shadow-2xl flex flex-col overflow-hidden animate-blur-in
-          /* Desktop ≥ lg : à côté du rail vertical, 400 px */
-          lg:top-4 lg:bottom-4 lg:right-20 lg:w-[400px] lg:rounded-2xl lg:border lg:border-border
-          /* Tablette md-lg : bottom-sheet 60 % au-dessus du dock */
-          md:max-lg:inset-x-4 md:max-lg:bottom-[68px] md:max-lg:top-[40%] md:max-lg:rounded-t-3xl md:max-lg:border md:max-lg:border-border
+          /* Desktop + tablette ≥ md : panneau flottant 400 × 620 px au-dessus du FAB */
+          md:bottom-24 md:right-6 md:w-[400px] md:h-[620px] md:max-h-[calc(100vh-8rem)] md:rounded-3xl md:border md:border-border
           /* Mobile < md : plein écran */
           max-md:inset-0">
           {/* ── Header ── */}

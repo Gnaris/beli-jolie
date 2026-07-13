@@ -106,6 +106,22 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de notification "mails non lus". Tick 60s.
+  // Envoie un mail à l'adresse perso de la cliente quand la boîte pro
+  // contient de nouveaux messages non lus, selon la config du tenant.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startMailNotifyWorker } = await import("@/lib/mail-notify-worker");
+        startMailNotifyWorker();
+      } catch (err) {
+        logger.error("[MailNotify] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

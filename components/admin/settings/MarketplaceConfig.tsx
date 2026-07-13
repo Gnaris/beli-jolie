@@ -8,6 +8,7 @@ import {
   updateFaireCredentials, validateFaireCredentials, toggleFaireEnabled,
   updateMarketplaceMarkup,
   loadPfsBrands, updatePfsBrand,
+  updatePfsOutOfStockConfig,
 } from "@/app/actions/admin/site-config";
 import { applyMarketplaceMarkup, applyFaireMarkupWithClamp, type MarkupType, type RoundingMode } from "@/lib/marketplace-pricing-shared";
 import { MARKETPLACES_BRAND, brandGradient, type MarketplaceKey } from "@/lib/marketplaces-brand";
@@ -27,9 +28,17 @@ interface MarketplaceStats {
   lastSyncAt: string | null;
 }
 
+export type PfsOutOfStockProductAction = "archived" | "deleted" | "draft";
+
+export interface PfsOutOfStockUiConfig {
+  deactivateVariant: boolean;
+  productAction: PfsOutOfStockProductAction;
+}
+
 interface Props {
   hasPfsConfig: boolean;
   pfsBrand: { id: string; name: string } | null;
+  pfsOutOfStock: PfsOutOfStockUiConfig;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
   hasEfashionConfig: boolean;
@@ -694,6 +703,7 @@ function Field({ label, type, value, onChange, placeholder, disabled, hint }: {
 export default function MarketplaceConfig({
   hasPfsConfig,
   pfsBrand: initialPfsBrand,
+  pfsOutOfStock: initialPfsOutOfStock,
   hasAnkorstoreConfig,
   ankorstoreEnabled: initialAnkorstoreEnabled,
   hasEfashionConfig,
@@ -711,6 +721,11 @@ export default function MarketplaceConfig({
   const [isSavingPfs, startSavingPfs] = useTransition();
   const [isValidatingPfs, startValidatingPfs] = useTransition();
   const [pfsMarkup, setPfsMarkup] = useState<MarkupState>(markupSettings.pfs);
+
+  // PFS out-of-stock behavior
+  const [pfsOosDeactivate, setPfsOosDeactivate] = useState<boolean>(initialPfsOutOfStock.deactivateVariant);
+  const [pfsOosAction, setPfsOosAction] = useState<PfsOutOfStockProductAction>(initialPfsOutOfStock.productAction);
+  const [isSavingPfsOos, startSavingPfsOos] = useTransition();
 
   // PFS brand
   const [pfsBrand, setPfsBrand] = useState<{ id: string; name: string } | null>(initialPfsBrand);
@@ -871,6 +886,19 @@ export default function MarketplaceConfig({
       } finally { hideLoading(); }
     });
   }
+  function handlePfsOosSave() {
+    showLoading();
+    startSavingPfsOos(async () => {
+      try {
+        const r = await updatePfsOutOfStockConfig({
+          deactivateVariant: pfsOosDeactivate,
+          productAction: pfsOosAction,
+        });
+        if (r.success) toast.success("Enregistré", "Comportement en rupture mis à jour.");
+        else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
+      } finally { hideLoading(); }
+    });
+  }
 
   // ── Ankorstore handlers ─────────────────────────────────────────────────────
   function handleAnkValidate() {
@@ -1001,100 +1029,295 @@ export default function MarketplaceConfig({
     return "ok";
   }
 
+  const rows: {
+    brandKey: MarketplaceKey;
+    subtitle: string;
+    status: "ok" | "warn" | "off" | "checking";
+    enabled: boolean;
+    stats: MarketplaceStats;
+    onOpenSettings: () => void;
+    ctaLabel: string;
+  }[] = [
+    {
+      brandKey: "pfs",
+      subtitle: pfsBrand ? `Marque · ${pfsBrand.name}` : hasPfsConfig ? "Marque à choisir" : "Non configuré",
+      status: pfsCardStatus(),
+      enabled: hasPfsConfig && !!pfsBrand,
+      stats: stats.pfs,
+      onOpenSettings: () => setDrawerKey("pfs"),
+      ctaLabel: hasPfsConfig ? "Réglages" : "Configurer",
+    },
+    {
+      brandKey: "ankorstore",
+      subtitle: hasAnkorstoreConfig ? (ankEnabled ? "Callback async" : "Désactivé") : "Non configuré",
+      status: simpleStatus(hasAnkorstoreConfig, ankStatus),
+      enabled: hasAnkorstoreConfig && ankEnabled,
+      stats: stats.ankorstore,
+      onOpenSettings: () => setDrawerKey("ankorstore"),
+      ctaLabel: hasAnkorstoreConfig ? "Réglages" : "Configurer",
+    },
+    {
+      brandKey: "efashion",
+      subtitle: hasEfashionConfig ? (efaEnabled ? (efaVendor ? `Vendeur · ${efaVendor.name}` : "GraphQL") : "Désactivé") : "Non configuré",
+      status: simpleStatus(hasEfashionConfig, efaStatus),
+      enabled: hasEfashionConfig && efaEnabled,
+      stats: stats.efashion,
+      onOpenSettings: () => setDrawerKey("efashion"),
+      ctaLabel: hasEfashionConfig ? "Réglages" : "Configurer",
+    },
+    {
+      brandKey: "faire",
+      subtitle: hasFaireConfig ? (faiEnabled ? "Marketplace B2B" : "Désactivé") : "Non configuré",
+      status: simpleStatus(hasFaireConfig, faiStatus),
+      enabled: hasFaireConfig && faiEnabled,
+      stats: stats.faire,
+      onOpenSettings: () => setDrawerKey("faire"),
+      ctaLabel: hasFaireConfig ? "Réglages" : "Configurer",
+    },
+  ];
+
+  const statusBadge = (status: "ok" | "warn" | "off" | "checking", enabled: boolean) => {
+    if (status === "off") {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-bg-tertiary text-text-secondary text-xs px-2.5 py-1 font-medium">
+          <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+          Non configuré
+        </span>
+      );
+    }
+    if (status === "checking") {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 text-amber-800 text-xs px-2.5 py-1 font-medium">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+          Vérification
+        </span>
+      );
+    }
+    if (status === "warn") {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 text-amber-800 text-xs px-2.5 py-1 font-medium">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+          À vérifier
+        </span>
+      );
+    }
+    if (!enabled) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-bg-tertiary text-text-secondary text-xs px-2.5 py-1 font-medium">
+          <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+          Désactivé
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 text-emerald-800 text-xs px-2.5 py-1 font-medium">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+        Actif
+      </span>
+    );
+  };
+
   return (
-    <div className="space-y-6">
-      {/* ── Aperçu prix : input partagé ─────────────────────────────────── */}
-      <CockpitStrip {...cockpit} />
+    <div className="space-y-5">
+      {/* ── Tableau marketplaces ────────────────────────────────────────── */}
+      <div className="rounded-3xl border border-border bg-bg-primary p-4 sm:p-6 shadow-sm">
+        <div className="mb-4 flex items-center gap-2">
+          <Icons.Box className="w-4 h-4 text-text-muted" />
+          <h3 className="font-heading text-[13px] font-semibold uppercase tracking-wider text-text-secondary">
+            Vos marketplaces
+          </h3>
+        </div>
 
-      {/* ── Bandeau aperçu : input prix HT partagé ─────────────────────── */}
-      <div className="rounded-2xl border border-border bg-bg-primary p-4 sm:p-5 shadow-sm flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2 shrink-0">
-          <Icons.Calculator className="w-4 h-4 text-text-muted" />
-          <span className="font-body text-xs font-semibold uppercase tracking-wider text-text-secondary">
-            Aperçu prix · simulez avec
-          </span>
+        {/* Desktop table */}
+        <div className="hidden md:block overflow-hidden rounded-2xl border border-border-light">
+          <table className="w-full text-sm">
+            <thead className="bg-bg-secondary text-[11px] uppercase tracking-wider text-text-secondary">
+              <tr>
+                <th className="py-3 pl-5 pr-3 text-left font-semibold">Marketplace</th>
+                <th className="py-3 px-3 text-left font-semibold">Statut</th>
+                <th className="py-3 px-3 text-right font-semibold">En ligne</th>
+                <th className="py-3 px-3 text-right font-semibold">À synchroniser</th>
+                <th className="py-3 px-3 text-right font-semibold">Dernière sync</th>
+                <th className="py-3 pl-3 pr-5" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-light bg-bg-primary">
+              {rows.map((row) => {
+                const dimmed = row.status === "off" || !row.enabled;
+                return (
+                  <tr
+                    key={row.brandKey}
+                    className={`hover:bg-bg-secondary/60 transition-colors ${dimmed ? "opacity-70" : ""}`}
+                  >
+                    <td className="py-4 pl-5 pr-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="scale-75 origin-left -my-2">
+                          <Logo brandKey={row.brandKey} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-body text-sm font-semibold text-text-primary truncate">
+                            {MARKETPLACES_BRAND[row.brandKey].name}
+                          </div>
+                          <div className="font-body text-[11px] text-text-muted truncate">
+                            {row.subtitle}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-4 px-3">{statusBadge(row.status, row.enabled)}</td>
+                    <td className="py-4 px-3 text-right tabular-nums font-body text-sm font-semibold text-text-primary">
+                      {row.status === "off" ? "—" : row.stats.published.toLocaleString("fr-FR")}
+                    </td>
+                    <td className="py-4 px-3 text-right tabular-nums font-body text-sm">
+                      {row.status === "off" || row.stats.toSync === 0 ? (
+                        <span className="text-text-muted">—</span>
+                      ) : (
+                        <span className="text-amber-700 font-medium">{row.stats.toSync}</span>
+                      )}
+                    </td>
+                    <td className="py-4 px-3 text-right font-body text-xs text-text-muted">
+                      {formatRelative(row.stats.lastSyncAt)}
+                    </td>
+                    <td className="py-4 pl-3 pr-5 text-right">
+                      <button
+                        type="button"
+                        onClick={row.onOpenSettings}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg-primary px-3 py-1.5 text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors"
+                      >
+                        <Icons.Settings className="w-3.5 h-3.5" />
+                        {row.ctaLabel}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            min={0}
-            step="0.5"
-            value={previewHT}
-            onChange={(e) => setPreviewHT(Math.max(0, Number(e.target.value) || 0))}
-            className="w-28 h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-base font-heading font-semibold focus:outline-none focus:ring-2 focus:ring-bg-dark/15 transition-shadow tabular-nums"
-          />
-          <span className="font-body text-sm text-text-secondary">€ HT en boutique</span>
+
+        {/* Mobile cards */}
+        <div className="md:hidden space-y-3">
+          {rows.map((row) => {
+            const dimmed = row.status === "off" || !row.enabled;
+            return (
+              <button
+                key={row.brandKey}
+                type="button"
+                onClick={row.onOpenSettings}
+                className={`w-full rounded-2xl border border-border-light bg-bg-primary p-4 text-left hover:bg-bg-secondary/60 transition-colors ${dimmed ? "opacity-70" : ""}`}
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="scale-75 origin-left -my-2">
+                    <Logo brandKey={row.brandKey} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-body text-sm font-semibold text-text-primary truncate">
+                      {MARKETPLACES_BRAND[row.brandKey].name}
+                    </div>
+                    <div className="font-body text-[11px] text-text-muted truncate">{row.subtitle}</div>
+                  </div>
+                  {statusBadge(row.status, row.enabled)}
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg bg-bg-secondary/50 py-2">
+                    <div className="font-heading text-base font-semibold tabular-nums text-text-primary">
+                      {row.status === "off" ? "—" : row.stats.published.toLocaleString("fr-FR")}
+                    </div>
+                    <div className="text-[10px] uppercase tracking-wider text-text-muted mt-0.5">En ligne</div>
+                  </div>
+                  <div className="rounded-lg bg-bg-secondary/50 py-2">
+                    <div className={`font-heading text-base font-semibold tabular-nums ${row.stats.toSync > 0 ? "text-amber-700" : "text-text-muted"}`}>
+                      {row.status === "off" ? "—" : row.stats.toSync || "—"}
+                    </div>
+                    <div className="text-[10px] uppercase tracking-wider text-text-muted mt-0.5">À sync</div>
+                  </div>
+                  <div className="rounded-lg bg-bg-secondary/50 py-2">
+                    <div className="font-body text-[11px] text-text-primary leading-tight pt-1">
+                      {formatRelative(row.stats.lastSyncAt)}
+                    </div>
+                    <div className="text-[10px] uppercase tracking-wider text-text-muted mt-0.5">Sync</div>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
         </div>
-        <div className="flex-1 min-w-[180px]">
-          <p className="font-body text-xs text-text-muted leading-relaxed">
-            Tapez un prix : chaque carte vous montre ce qu&apos;il devient une fois envoyé à la marketplace, avec votre majoration et vos arrondis appliqués.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={handleSaveMarkup}
-          disabled={isSavingMarkup}
-          className="shrink-0 inline-flex items-center gap-2 h-10 px-5 rounded-xl bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 shadow-sm"
-        >
-          {isSavingMarkup ? <><Icons.Loader className="w-4 h-4" /> Enregistrement…</> : "Sauvegarder les prix"}
-        </button>
       </div>
 
-      {/* ── Grille de cartes principales ────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <MarketplaceCard
-          brandKey="pfs"
-          hasConfig={hasPfsConfig}
-          status={pfsCardStatus()}
-          enabled={hasPfsConfig && !!pfsBrand}
-          stats={stats.pfs}
-          previewHT={previewHT}
-          previewLines={previews.pfs}
-          badge={pfsBrand ? { text: `Marque · ${pfsBrand.name}`, tone: "ok" } : (hasPfsConfig ? { text: "Marque à choisir", tone: "warn" } : undefined)}
-          onOpenSettings={() => setDrawerKey("pfs")}
-        />
-        <MarketplaceCard
-          brandKey="ankorstore"
-          hasConfig={hasAnkorstoreConfig}
-          status={simpleStatus(hasAnkorstoreConfig, ankStatus)}
-          enabled={ankEnabled}
-          enabledControl={{ onToggle: handleAnkToggle, toggling: isTogglingAnk }}
-          stats={stats.ankorstore}
-          previewHT={previewHT}
-          previewLines={previews.ankorstore}
-          onOpenSettings={() => setDrawerKey("ankorstore")}
-        />
-        <MarketplaceCard
-          brandKey="faire"
-          hasConfig={hasFaireConfig}
-          status={simpleStatus(hasFaireConfig, faiStatus)}
-          enabled={faiEnabled}
-          enabledControl={{ onToggle: handleFaiToggle, toggling: isTogglingFai }}
-          stats={stats.faire}
-          previewHT={previewHT}
-          previewLines={previews.faire}
-          extraNote="Faire impose un prix public ≥ 2× le prix de gros — ajusté automatiquement."
-          onOpenSettings={() => setDrawerKey("faire")}
-        />
-        <MarketplaceCard
-          brandKey="efashion"
-          hasConfig={hasEfashionConfig}
-          status={simpleStatus(hasEfashionConfig, efaStatus)}
-          enabled={efaEnabled}
-          enabledControl={{ onToggle: handleEfaToggle, toggling: isTogglingEfa }}
-          stats={stats.efashion}
-          previewHT={previewHT}
-          previewLines={previews.efashion}
-          badge={efaVendor ? { text: `Vendeur · ${efaVendor.name}`, tone: "info" } : undefined}
-          onOpenSettings={() => setDrawerKey("efashion")}
-        />
-      </div>
-
-      {/* ── Microstore (différent) ─────────────────────────────────────── */}
+      {/* ── Microstore (export Excel séparé) ────────────────────────────── */}
       <MicrostoreCard
         previewLines={previews.microstore.map((l) => ({ label: l.label, value: l.value }))}
         onOpenSettings={() => setDrawerKey("microstore")}
       />
+
+      {/* ── Aperçu prix HT (accordéon replié par défaut) ────────────────── */}
+      <details className="group rounded-2xl border border-border bg-bg-primary shadow-sm">
+        <summary className="cursor-pointer list-none px-5 py-4 flex flex-wrap items-center justify-between gap-3 hover:bg-bg-secondary/40 rounded-2xl">
+          <div className="flex items-center gap-2.5">
+            <Icons.Calculator className="w-4 h-4 text-text-muted" />
+            <span className="font-heading text-[13px] font-semibold uppercase tracking-wider text-text-secondary">
+              Aperçu prix HT
+            </span>
+            <span className="font-body text-xs text-text-muted">
+              — voir comment un prix devient sur chaque marketplace
+            </span>
+          </div>
+          <span className="font-body text-[11px] text-text-muted uppercase tracking-wider group-open:hidden">Déplier</span>
+          <span className="font-body text-[11px] text-text-muted uppercase tracking-wider hidden group-open:inline">Replier</span>
+        </summary>
+        <div className="px-5 pb-5 pt-1 space-y-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                step="0.5"
+                value={previewHT}
+                onChange={(e) => setPreviewHT(Math.max(0, Number(e.target.value) || 0))}
+                className="w-28 h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-base font-heading font-semibold focus:outline-none focus:ring-2 focus:ring-bg-dark/15 transition-shadow tabular-nums"
+              />
+              <span className="font-body text-sm text-text-secondary">€ HT en boutique</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveMarkup}
+              disabled={isSavingMarkup}
+              className="ml-auto shrink-0 inline-flex items-center gap-2 h-10 px-5 rounded-xl bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 shadow-sm"
+            >
+              {isSavingMarkup ? <><Icons.Loader className="w-4 h-4" /> Enregistrement…</> : "Sauvegarder les prix"}
+            </button>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-border-light">
+            <table className="w-full text-sm">
+              <thead className="bg-bg-secondary text-[11px] uppercase tracking-wider text-text-secondary">
+                <tr>
+                  <th className="py-2.5 pl-4 pr-3 text-left font-semibold">Marketplace</th>
+                  <th className="py-2.5 px-3 text-left font-semibold">Ce qui est envoyé</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-light bg-bg-primary">
+                {(["pfs", "ankorstore", "efashion", "faire", "microstore"] as const).map((key) => (
+                  <tr key={key}>
+                    <td className="py-2.5 pl-4 pr-3 font-body text-xs font-medium text-text-primary">
+                      {MARKETPLACES_BRAND[key].name}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        {previews[key].map((line, i) => (
+                          <span key={i} className="font-body text-xs text-text-secondary">
+                            <span className="text-text-muted">{line.label} · </span>
+                            <span className="font-semibold tabular-nums text-text-primary">{line.value}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
 
       {/* ═══════════════════ DRAWERS ═══════════════════ */}
       <Drawer open={drawerKey === "pfs"} onClose={() => setDrawerKey(null)} brandKey="pfs">
@@ -1183,6 +1406,84 @@ export default function MarketplaceConfig({
         <DrawerSection icon={<Icons.Bolt className="w-4 h-4" />} title="Majoration prix HT" subtitle="Appliquée à tous les prix envoyés à PFS.">
           <MarkupRow label="Prix HT" state={pfsMarkup} onChange={setPfsMarkup} />
           <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
+        </DrawerSection>
+
+        <DrawerSection
+          icon={<Icons.Box className="w-4 h-4" />}
+          title="Comportement en rupture de stock"
+          subtitle="Ce qui se passe côté Paris Fashion Shops quand le stock d'une variante — ou de toutes les variantes d'un produit — passe à 0."
+        >
+          <div className="space-y-3">
+            <div className="rounded-xl border border-border-light bg-bg-secondary/40 p-3.5">
+              <p className="font-body text-xs font-medium text-text-primary mb-1">
+                Variante à stock 0
+              </p>
+              <p className="font-body text-[11px] text-text-muted mb-3">
+                Désactiver = la couleur disparaît de la fiche PFS. Laisser active = la couleur reste visible, marquée en rupture.
+              </p>
+              <div className="flex rounded-lg border border-border overflow-hidden h-9">
+                <button
+                  type="button"
+                  onClick={() => setPfsOosDeactivate(true)}
+                  className={`flex-1 text-xs font-body font-medium transition-colors ${
+                    pfsOosDeactivate ? "bg-bg-dark text-text-inverse" : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
+                  }`}
+                >
+                  Désactiver la variante
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPfsOosDeactivate(false)}
+                  className={`flex-1 text-xs font-body font-medium transition-colors ${
+                    !pfsOosDeactivate ? "bg-bg-dark text-text-inverse" : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
+                  }`}
+                >
+                  Laisser active
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border-light bg-bg-secondary/40 p-3.5">
+              <p className="font-body text-xs font-medium text-text-primary mb-1">
+                Toutes les variantes en rupture
+              </p>
+              <p className="font-body text-[11px] text-text-muted mb-3">
+                Ce que devient le produit sur PFS quand plus aucune couleur n'a de stock. Réversible dès qu'une variante repasse en stock.
+              </p>
+              <div className="flex rounded-lg border border-border overflow-hidden h-9">
+                {(
+                  [
+                    { value: "archived" as const, label: "Archiver" },
+                    { value: "deleted" as const, label: "Supprimer" },
+                    { value: "draft" as const, label: "Brouillon" },
+                  ]
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setPfsOosAction(opt.value)}
+                    className={`flex-1 text-xs font-body font-medium transition-colors ${
+                      pfsOosAction === opt.value
+                        ? "bg-bg-dark text-text-inverse"
+                        : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={handlePfsOosSave}
+              disabled={isSavingPfsOos}
+              className="inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+            >
+              {isSavingPfsOos ? <><Icons.Loader className="w-3.5 h-3.5" /> Enregistrement…</> : "Sauvegarder"}
+            </button>
+          </div>
         </DrawerSection>
       </Drawer>
 

@@ -30,6 +30,7 @@ import {
 } from "@/lib/pfs-api-write";
 import { pfsGetVariants, pfsCheckReference } from "@/lib/pfs-api";
 import { mapLocalToPfsStatus } from "@/lib/pfs-status";
+import { getPfsOutOfStockConfig } from "@/lib/pfs-out-of-stock-config";
 import {
   applyMarketplaceMarkup,
   loadMarketplaceMarkupConfigs,
@@ -325,7 +326,9 @@ function buildVariantCreateData(
   variant: FullVariant,
   colorRefMap: Map<string, string>,
   pfsMarkup?: MarkupConfig,
+  deactivateOnZeroStock = true,
 ): PfsVariantCreateData | null {
+  const isActive = deactivateOnZeroStock ? (variant.stock ?? 0) > 0 : true;
   if (variant.saleType === "UNIT") {
     const colorRef = getEffectiveColorRef(variant, colorRefMap);
     if (!colorRef) return null;
@@ -337,7 +340,7 @@ function buildVariantCreateData(
       price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
       weight: variant.weight,
       stock_qty: variant.stock ?? 0,
-      is_active: (variant.stock ?? 0) > 0,
+      is_active: isActive,
     };
   }
 
@@ -383,7 +386,7 @@ function buildVariantCreateData(
       price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
       weight: variant.weight,
       stock_qty: variant.stock ?? 0,
-      is_active: (variant.stock ?? 0) > 0,
+      is_active: isActive,
       packs: packEntries,
     };
   }
@@ -499,6 +502,7 @@ function buildVariantSnapshot(
   variant: FullVariant,
   pfsMarkup?: MarkupConfig,
   colorRefMap?: Map<string, string>,
+  deactivateOnZeroStock = true,
 ): PfsVariantSnapshot {
   const stock = variant.stock ?? 0;
   const effective = getEffectiveColorRef(variant, colorRefMap) ?? undefined;
@@ -507,7 +511,7 @@ function buildVariantSnapshot(
     price: getPfsUnitPrice(variant, pfsMarkup),
     stock,
     weight: variant.weight,
-    isActive: stock > 0,
+    isActive: deactivateOnZeroStock ? stock > 0 : true,
     colorRef: effective,
     saleType: variant.saleType,
     packSignature: computePackSignatureFromEntries(packEntries),
@@ -588,6 +592,7 @@ export async function pfsUpdateProductInPlace(
   const markupConfigs = await loadMarketplaceMarkupConfigs();
   const pfsMarkup = markupConfigs.pfs;
   const colorRefMap = await buildColorLabelToRefMap();
+  const outOfStockCfg = await getPfsOutOfStockConfig();
 
   // Filet de sécurité : refuse de mettre à jour si conflit de mapping PFS.
   assertNoPfsColorConflicts(product.colors, colorRefMap);
@@ -616,7 +621,11 @@ export async function pfsUpdateProductInPlace(
     }
 
     const allVariantsOutOfStock = product.colors.every((v) => (v.stock ?? 0) === 0);
-    const targetStatus = mapLocalToPfsStatus(product.status, allVariantsOutOfStock);
+    const targetStatus = mapLocalToPfsStatus(
+      product.status,
+      allVariantsOutOfStock,
+      outOfStockCfg.productAction,
+    );
 
     // Couleur principale = Product.primaryColorId (avec fallback isPrimary pour les produits non migrés).
     const primaryColorIdResolved = getProductPrimaryColorId({
@@ -636,7 +645,12 @@ export async function pfsUpdateProductInPlace(
     const nextVariantsSnap: Record<string, PfsVariantSnapshot> = {};
     for (const variant of product.colors) {
       if (variant.pfsVariantId) {
-        nextVariantsSnap[variant.pfsVariantId] = buildVariantSnapshot(variant, pfsMarkup, colorRefMap);
+        nextVariantsSnap[variant.pfsVariantId] = buildVariantSnapshot(
+          variant,
+          pfsMarkup,
+          colorRefMap,
+          outOfStockCfg.deactivateVariant,
+        );
       }
     }
     const nextImagesSnap = buildImagesSnapshot(product, colorIdToPfsRef);
@@ -758,7 +772,12 @@ export async function pfsUpdateProductInPlace(
         localPfsVariantIds.add(variant.pfsVariantId);
       } else {
         // New variant → create
-        const pfsData = buildVariantCreateData(variant, colorRefMap, pfsMarkup);
+        const pfsData = buildVariantCreateData(
+          variant,
+          colorRefMap,
+          pfsMarkup,
+          outOfStockCfg.deactivateVariant,
+        );
         if (pfsData) {
           variantsToCreate.push({ bjVariant: variant, pfsData });
         }
@@ -877,7 +896,12 @@ export async function pfsUpdateProductInPlace(
       }
 
       if (colorChanged || saleTypeChanged || packSignatureChanged) {
-        const pfsData = buildVariantCreateData(item.bjVariant, colorRefMap, pfsMarkup);
+        const pfsData = buildVariantCreateData(
+          item.bjVariant,
+          colorRefMap,
+          pfsMarkup,
+          outOfStockCfg.deactivateVariant,
+        );
         if (pfsData) {
           logger.info("[PFS Update] Variant scheduled for recreate", {
             pfsVariantId: item.pfsVariantId,
@@ -905,7 +929,7 @@ export async function pfsUpdateProductInPlace(
         price_eur_ex_vat: getPfsUnitPrice(bjVariant, pfsMarkup),
         stock_qty: bjVariant.stock ?? 0,
         weight: bjVariant.weight,
-        is_active: (bjVariant.stock ?? 0) > 0,
+        is_active: outOfStockCfg.deactivateVariant ? (bjVariant.stock ?? 0) > 0 : true,
       }));
 
       try {
@@ -979,10 +1003,17 @@ export async function pfsUpdateProductInPlace(
             where: { id: item.bjVariant.id },
             data: { pfsVariantId: newId },
           });
-          // Si stock = 0 sur la nouvelle variante, force is_active=false côté PFS.
+          // Si stock = 0 sur la nouvelle variante, repatche stock=0 (PFS peut
+          // réécrire à 300). Le `is_active` dépend de la config.
           if (item.pfsData.stock_qty === 0) {
             try {
-              await pfsPatchVariants([{ variant_id: newId, stock_qty: 0, is_active: false }]);
+              await pfsPatchVariants([
+                {
+                  variant_id: newId,
+                  stock_qty: 0,
+                  is_active: outOfStockCfg.deactivateVariant ? false : true,
+                },
+              ]);
             } catch { /* ignore */ }
           }
           // Snapshot : retire l'ancien id, ajoute le nouveau avec la nouvelle couleur
@@ -991,6 +1022,7 @@ export async function pfsUpdateProductInPlace(
             item.bjVariant,
             pfsMarkup,
             colorRefMap,
+            outOfStockCfg.deactivateVariant,
           );
           logger.info("[PFS Update] Recreated variant with new color", {
             oldPfsVariantId: item.oldPfsVariantId,
@@ -1059,22 +1091,24 @@ export async function pfsUpdateProductInPlace(
                 variant.bjVariant,
                 pfsMarkup,
                 colorRefMap,
+                outOfStockCfg.deactivateVariant,
               );
             }
           }
         }
 
-        // Patch zero-stock new variants to set is_active=false
+        // PFS peut réécrire stock=300 lors du create quand stock_qty=0 →
+        // repatche systématique. Le `is_active` dépend de la config.
         const zeroStockPatches: PfsVariantUpdateData[] = [];
         for (let i = 0; i < variantsToCreate.length; i++) {
           const vid = variantIds[i];
           if (variantsToCreate[i].pfsData.stock_qty === 0 && vid) {
-            zeroStockPatches.push({ variant_id: vid, stock_qty: 0, is_active: false });
-            // Reflète is_active=false dans le snapshot committé
+            const isActive = outOfStockCfg.deactivateVariant ? false : true;
+            zeroStockPatches.push({ variant_id: vid, stock_qty: 0, is_active: isActive });
             if (committedSnapshot.variants[vid]) {
               committedSnapshot.variants[vid] = {
                 ...committedSnapshot.variants[vid],
-                isActive: false,
+                isActive,
               };
             }
           }
@@ -1253,6 +1287,8 @@ export async function pfsUpdateProductInPlace(
         report("Mise en ligne...");
       } else if (targetStatus === "ARCHIVED") {
         report("Archivage sur PFS...");
+      } else if (targetStatus === "DELETED") {
+        report("Suppression sur PFS (rupture totale)...");
       } else {
         report("Mise en brouillon sur PFS...");
       }
