@@ -17,6 +17,7 @@ const {
   productUpdateMock,
   productColorUpdateManyMock,
   colorUpdateManyMock,
+  colorFindManyMock,
   transactionMock,
   efashionGetMeMock,
   efashionListProductsMock,
@@ -27,6 +28,10 @@ const {
   productUpdateMock: vi.fn().mockResolvedValue({}),
   productColorUpdateManyMock: vi.fn().mockResolvedValue({}),
   colorUpdateManyMock: vi.fn().mockResolvedValue({}),
+  // Nécessaire depuis 2026-07-13 : linkEfashionProductManually précharge le
+  // mapping global BJ (Color.efashionColorId) pour décider s'il doit poser
+  // ProductColor.efashionColorIdOverride (fix du double stock côté eFashion).
+  colorFindManyMock: vi.fn().mockResolvedValue([]),
   transactionMock: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
     cb({
       product: { update: vi.fn().mockResolvedValue({}) },
@@ -46,7 +51,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     product: { findUnique: findUniqueMock, update: productUpdateMock },
     productColor: { updateMany: productColorUpdateManyMock },
-    color: { updateMany: colorUpdateManyMock },
+    color: { updateMany: colorUpdateManyMock, findMany: colorFindManyMock },
     $transaction: transactionMock,
   },
 }));

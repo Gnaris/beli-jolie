@@ -465,6 +465,21 @@ export async function linkEfashionProductManually(
     });
     if (!product) return { success: false, error: "Produit introuvable." };
 
+    // Précharge le mapping global BJ (Color.efashionColorId) pour toutes les
+    // couleurs à lier. Sert à décider, pour chaque lien, si on doit poser
+    // l'override sur ProductColor (cas où id_couleur du produit eFashion
+    // existant ≠ mapping global BJ — sinon la sync stock pousserait sur un
+    // id_couleur différent et créerait une entrée orpheline côté eFashion,
+    // ce qui aboutit à un double stock affiché).
+    const colorIdsToLink = Array.from(new Set(links.map((l) => l.localColorId)));
+    const linkedColorRows = await prisma.color.findMany({
+      where: { id: { in: colorIdsToLink } },
+      select: { id: true, efashionColorId: true },
+    });
+    const globalEfashionColorIdByLocalId = new Map(
+      linkedColorRows.map((c) => [c.id, c.efashionColorId]),
+    );
+
     await prisma.$transaction(async (tx) => {
       // Stocke la reference_base + reset snapshot pour forcer le full resync.
       await tx.product.update({
@@ -477,12 +492,31 @@ export async function linkEfashionProductManually(
 
       // Pour chaque couleur, retrouve la ProductColor et pose efashionProductId.
       // On efface d'abord tous les efashionProductId de ce produit pour repartir propre.
+      // On efface aussi tous les efashionColorIdOverride précédents pour ne pas
+      // trainer un override obsolète d'une liaison antérieure.
       await tx.productColor.updateMany({
         where: { productId },
-        data: { efashionProductId: null },
+        data: { efashionProductId: null, efashionColorIdOverride: null },
       });
 
       for (const l of links) {
+        // Décide de l'override d'id_couleur à poser sur la ProductColor.
+        //
+        // Contexte : le push de stock (lib/efashion-update.ts) utilise
+        // `ProductColor.efashionColorIdOverride ?? Color.efashionColorId`.
+        // Si le mapping global BJ diffère de l'id_couleur du produit eFashion
+        // qu'on lie, il faut poser l'override, sinon eFashion recevra un
+        // upsertProduitStock sur un id_couleur différent de celui déjà en
+        // place → 2ᵉ entrée de stock créée → total affiché = ancien + nouveau.
+        const globalId = globalEfashionColorIdByLocalId.get(l.localColorId) ?? null;
+        const overrideNeeded =
+          l.efashionColorId !== undefined &&
+          l.efashionColorId !== null &&
+          globalId !== null &&
+          globalId !== l.efashionColorId
+            ? l.efashionColorId
+            : null;
+
         // eFashion ne gère qu'1 ligne par couleur et ne synchronise que les
         // variantes UNIT (cf. lib/efashion-publish.ts, lib/efashion-update.ts).
         // On pose donc l'efashionProductId UNIQUEMENT sur les ProductColor de
@@ -490,10 +524,16 @@ export async function linkEfashionProductManually(
         // restent à null pour éviter tout double-envoi à la sync.
         await tx.productColor.updateMany({
           where: { productId, colorId: l.localColorId, saleType: "UNIT" },
-          data: { efashionProductId: l.efashionProductId },
+          data: {
+            efashionProductId: l.efashionProductId,
+            efashionColorIdOverride: overrideNeeded,
+          },
         });
 
-        // Met aussi l'efashionColorId sur la Color si pas déjà rempli
+        // Met aussi l'efashionColorId sur la Color si pas déjà rempli — c'est
+        // le mapping global BJ, on ne l'écrase jamais (les autres produits qui
+        // l'utilisaient garderaient leur cohérence). Si un mapping global
+        // existait déjà mais diffère, on a déjà posé l'override plus haut.
         if (l.efashionColorId) {
           await tx.color.updateMany({
             where: { id: l.localColorId, efashionColorId: null },
