@@ -1,5 +1,20 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { parseUserAgent } from "@/lib/admin-login-notify";
+
+vi.mock("@/lib/email", () => ({
+  sendMail: vi.fn(),
+}));
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    siteConfig: { findFirst: vi.fn() },
+  },
+}));
+vi.mock("@/lib/cached-data", () => ({
+  getCachedShopName: vi.fn(async () => "Beli Jolie"),
+}));
+vi.mock("@/lib/logger", () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
 
 describe("parseUserAgent", () => {
   it("détecte Chrome sur Windows", () => {
@@ -41,5 +56,99 @@ describe("parseUserAgent", () => {
     const bizarre = "X".repeat(200);
     const out = parseUserAgent(bizarre);
     expect(out.length).toBeLessThanOrEqual(100);
+  });
+});
+
+import { sendAdminLoginNotification } from "@/lib/admin-login-notify";
+import { sendMail } from "@/lib/email";
+import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
+
+const sendMailMock = sendMail as unknown as ReturnType<typeof vi.fn>;
+const findFirstMock = prisma.siteConfig.findFirst as unknown as ReturnType<typeof vi.fn>;
+
+describe("sendAdminLoginNotification", () => {
+  beforeEach(() => {
+    sendMailMock.mockReset();
+    findFirstMock.mockReset();
+    (logger.warn as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  it("skip silencieux si aucun mail perso configuré", async () => {
+    findFirstMock.mockResolvedValueOnce(null);
+    await sendAdminLoginNotification({
+      tenantId: "t1",
+      adminEmail: "admin@example.com",
+      ip: "1.2.3.4",
+      userAgent: "Mozilla/5.0",
+    });
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it("skip silencieux si valeur SiteConfig vide", async () => {
+    findFirstMock.mockResolvedValueOnce({ value: "   " });
+    await sendAdminLoginNotification({
+      tenantId: "t1",
+      adminEmail: "admin@example.com",
+      ip: "1.2.3.4",
+      userAgent: "Mozilla/5.0",
+    });
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it("appelle sendMail avec les bons arguments", async () => {
+    findFirstMock.mockResolvedValueOnce({ value: "perso@gmail.com" });
+    sendMailMock.mockResolvedValueOnce({ sent: true, id: "abc" });
+
+    await sendAdminLoginNotification({
+      tenantId: "t1",
+      adminEmail: "admin@example.com",
+      ip: "1.2.3.4",
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    });
+
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const args = sendMailMock.mock.calls[0][0];
+    expect(args.to).toBe("perso@gmail.com");
+    expect(args.subject).toContain("Nouvelle connexion admin");
+    expect(args.subject).toContain("Beli Jolie");
+    expect(args.html).toContain("admin@example.com");
+    expect(args.html).toContain("1.2.3.4");
+    expect(args.html).toContain("Chrome sur Windows");
+  });
+
+  it("ne throw pas si sendMail retourne sent:false", async () => {
+    findFirstMock.mockResolvedValueOnce({ value: "perso@gmail.com" });
+    sendMailMock.mockResolvedValueOnce({
+      sent: false,
+      reason: "smtp_error",
+      error: "timeout",
+    });
+
+    await expect(
+      sendAdminLoginNotification({
+        tenantId: "t1",
+        adminEmail: "admin@example.com",
+        ip: "1.2.3.4",
+        userAgent: "Mozilla/5.0",
+      })
+    ).resolves.toBeUndefined();
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it("ne throw pas si sendMail lève", async () => {
+    findFirstMock.mockResolvedValueOnce({ value: "perso@gmail.com" });
+    sendMailMock.mockRejectedValueOnce(new Error("boom"));
+
+    await expect(
+      sendAdminLoginNotification({
+        tenantId: "t1",
+        adminEmail: "admin@example.com",
+        ip: "1.2.3.4",
+        userAgent: "Mozilla/5.0",
+      })
+    ).resolves.toBeUndefined();
+    expect(logger.warn).toHaveBeenCalled();
   });
 });
