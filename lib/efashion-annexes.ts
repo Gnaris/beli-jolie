@@ -9,9 +9,8 @@
  * modification de SiteConfig eFashion ou au pied levé via revalidateTag).
  */
 
-import { unstable_cache } from "next/cache";
-
 import { ensureEfashionSession } from "@/lib/efashion-auth";
+import { tenantScopedCacheWithTid } from "@/lib/cached-data";
 import { efashionGraphql } from "@/lib/efashion-client";
 import { logger } from "@/lib/logger";
 
@@ -64,6 +63,14 @@ export interface EfashionPack {
   quantity: number;
 }
 
+/** Marque (= `id_vendeur_marque`) rattachée au compte vendeur eFashion.
+ *  Chaque vendeur a au moins une marque marquée `defaut: true`. */
+export interface EfashionMarque {
+  id: number;
+  label: string;
+  isDefault: boolean;
+}
+
 export interface EfashionAnnexes {
   categories: EfashionCategoryNode[];
   provenances: EfashionProvenance[];
@@ -71,6 +78,7 @@ export interface EfashionAnnexes {
   declinaisons: EfashionDeclinaison[];
   colors: EfashionColor[];
   packs: EfashionPack[];
+  marques: EfashionMarque[];
   /** Compositions pré-chargées (~190 items). L'autocomplete reste utilisable
    * pour la recherche au fil de la frappe, mais on n'est plus obligé de
    * dépendre du réseau pour montrer une liste. */
@@ -288,6 +296,11 @@ async function loadAnnexesDirect(): Promise<EfashionAnnexes> {
       label: p.label,
       quantity: Number(p.value) || 1,
     })),
+    marques: (refData.marques ?? []).map((m) => ({
+      id: m.id,
+      label: m.label,
+      isDefault: Boolean(m.defaut),
+    })),
     compositions: (refData.compositions ?? []).map((c) => ({
       id: c.id,
       label: c.libelle,
@@ -296,10 +309,14 @@ async function loadAnnexesDirect(): Promise<EfashionAnnexes> {
   };
 }
 
-const cachedAnnexes = unstable_cache(loadAnnexesDirect, ["efashion-annexes"], {
-  revalidate: 3600,
-  tags: ["efashion-annexes"],
-});
+// Cache PAR tenant : chaque boutique voit ses propres packs / marques / couleurs vendeur.
+// Sans ça, la 1ʳᵉ boutique qui remplit le cache fait fuiter ses annexes vers les autres.
+const cachedAnnexes = tenantScopedCacheWithTid(
+  "efashion-annexes",
+  async (_tid) => loadAnnexesDirect(),
+  ["efashion-annexes"],
+  { revalidate: 3600, tags: ["efashion-annexes"] },
+);
 
 export async function getEfashionAnnexes(): Promise<EfashionAnnexes> {
   try {
@@ -324,6 +341,58 @@ export async function getEfashionAnnexes(): Promise<EfashionAnnexes> {
  */
 export async function getEfashionAnnexesFresh(): Promise<EfashionAnnexes> {
   return loadAnnexesDirect();
+}
+
+/**
+ * Fonction pure (testable sans réseau) : sélectionne l'`id_vendeur_marque`
+ * et l'`id_pack` à partir des listes brutes de la boutique.
+ *
+ * Le lookup se base sur `quantity` (valeur numérique), PAS sur `label` :
+ * eFashion réutilise le libellé "1" pour plusieurs packs de quantités
+ * différentes (observé chez Issyma : label "1" pour quantity=3 ET quantity=1).
+ */
+export function pickEfashionVendorPresets(
+  marques: EfashionMarque[],
+  packs: EfashionPack[],
+  desiredPackQuantity: number,
+): { marque: number; pack: number } | { error: string } {
+  const marque =
+    marques.find((m) => m.isDefault)?.id ?? marques[0]?.id;
+  if (!marque) {
+    return {
+      error: "Aucune marque configurée sur votre compte eFashion.",
+    };
+  }
+  const pack = packs.find((p) => p.quantity === desiredPackQuantity);
+  if (!pack) {
+    const available = packs.map((p) => `${p.quantity}`).join(", ");
+    return {
+      error:
+        `Aucun pack de ${desiredPackQuantity} unité(s) sur votre compte eFashion. ` +
+        `Packs disponibles : ${available || "aucun"}. ` +
+        `Créez-le dans votre back-office eFashion puis relancez la publication.`,
+    };
+  }
+  return { marque, pack: pack.id };
+}
+
+/**
+ * Résout les identifiants `id_vendeur_marque` + `id_pack` propres à la
+ * boutique courante pour publier un produit chez eFashion.
+ *
+ * Ces IDs sont **différents par vendeur** — impossible de les hardcoder.
+ * Retourne `{ error }` si aucune marque configurée ou si aucun pack ne
+ * matche la quantité demandée — le caller doit remonter l'erreur.
+ */
+export async function resolveEfashionVendorPresets(
+  desiredPackQuantity: number,
+): Promise<{ marque: number; pack: number } | { error: string }> {
+  const annexes = await getEfashionAnnexes();
+  return pickEfashionVendorPresets(
+    annexes.marques,
+    annexes.packs,
+    desiredPackQuantity,
+  );
 }
 
 /**

@@ -34,6 +34,7 @@ import { loadEfashionMarkup, computeEfashionPrice } from "@/lib/efashion-pricing
 import { resolveEfashionDeclinaison } from "@/lib/efashion-declinaison-matcher";
 import { efashionPublishBrouillonBulk } from "@/lib/efashion-api-write";
 import { efashionGetMe } from "@/lib/efashion-api";
+import { resolveEfashionVendorPresets } from "@/lib/efashion-annexes";
 
 export interface EfashionBatchPublishItemResult {
   productId: string;
@@ -211,17 +212,24 @@ async function prepareProduct(productId: string): Promise<
     percentage: pc.percentage,
   }));
 
+  // Résolution des IDs propres au vendeur eFashion courant (id_vendeur_marque
+  // + id_pack). Ces IDs varient d'une boutique à l'autre — impossible à
+  // hardcoder. Voir `resolveEfashionVendorPresets` pour la logique de lookup.
+  const desiredPackQuantity = primaryColor.packQuantity ?? 1;
+  const presets = await resolveEfashionVendorPresets(desiredPackQuantity);
+  if ("error" in presets) return { ok: false, error: presets.error };
+
   const draftReference: EfashionMelDraftReference = {
     id: `bj-${productId}-${Date.now()}`,
     reference: product.reference,
-    marque: "3228",
+    marque: String(presets.marque),
     poids: String(primaryColor.weight),
     categorie: String(product.category!.efashionCategorieId!),
     venduPar: unitColorsRaw.length > 1 ? "couleurs" : "tailles",
     collection: String(product.season!.efashionCollectionId!),
     paysOrigine: String(product.manufacturingCountry!.efashionProvenanceId!),
     taillePaquet: String(declRes.match.declinaisonId),
-    quantitePaquet: String(primaryColor.packQuantity ?? 12744),
+    quantitePaquet: String(presets.pack),
     stock: "",
     prix: String(efashionPrice),
     prixReduit: "",

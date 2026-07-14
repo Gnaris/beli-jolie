@@ -55,6 +55,9 @@ vi.mock("@/lib/efashion-api-write", () => ({
 vi.mock("@/lib/efashion-api", () => ({
   efashionGetMe: vi.fn().mockResolvedValue({ id_vendeur: 2017 }),
 }));
+vi.mock("@/lib/efashion-annexes", () => ({
+  resolveEfashionVendorPresets: vi.fn().mockResolvedValue({ marque: 3228, pack: 12744 }),
+}));
 
 import { prisma } from "@/lib/prisma";
 import { efashionPublishProduct } from "@/lib/efashion-publish";

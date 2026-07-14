@@ -6,7 +6,7 @@ import { PFS_COLORS } from "@/lib/marketplace-excel/pfs-taxonomy";
 import { hexForPfsColor } from "@/lib/marketplace-excel/pfs-color-hex";
 import { logger } from "@/lib/logger";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
-import { getCurrentTenantIdSync } from "@/lib/tenant-als";
+import { getCurrentTenantIdSync, tenantALS } from "@/lib/tenant-als";
 
 /**
  * Helper multi-tenant : construit une fonction cachée avec des clés et tags
@@ -23,36 +23,7 @@ type CachedFn<Args extends unknown[], T> = (...a: Args) => Promise<T>;
 type CacheOpts = { revalidate?: number; tags?: string[] };
 
 /**
- * Version SANS tenant : la fonction ne prend pas tid en param (usage direct).
- * Note : la fonction interne ne voit PAS le tenant courant — l'extension
- * Prisma peut échouer à scoper si l'ALS/headers sont perdus dans le
- * callback unstable_cache. Préférer `tenantScopedCacheWithTid` pour toute
- * lecture Prisma tenant-scopée.
- */
-function tenantScopedCache<Args extends unknown[], T>(
-  keyBase: string,
-  fn: CachedFn<Args, T>,
-  baseKeyParts: string[],
-  opts: CacheOpts
-): CachedFn<Args, T> {
-  const memo = new Map<string, CachedFn<Args, T>>();
-  return (async (...args: Args): Promise<T> => {
-    const tid = getCurrentTenantIdSync() ?? "global";
-    let cached = memo.get(tid);
-    if (!cached) {
-      const tags = (opts.tags ?? []).map((t) => `${t}:${tid}`);
-      cached = unstable_cache(fn, [...baseKeyParts, tid, ...args.map(String)], {
-        revalidate: opts.revalidate,
-        tags,
-      });
-      memo.set(tid, cached);
-    }
-    return cached(...args);
-  }) as CachedFn<Args, T>;
-}
-
-/**
- * Version qui passe le tid capturé en 1ᵉʳ argument du callback pour
+ * Cache multi-tenant : passe le tid capturé en 1ᵉʳ argument du callback pour
  * qu'il puisse scoper EXPLICITEMENT ses queries Prisma. Nécessaire pour
  * les lectures tenant-scopées : à l'intérieur de unstable_cache, l'ALS
  * peut être vide et l'extension retombe alors en passthrough (fuite).
@@ -60,7 +31,7 @@ function tenantScopedCache<Args extends unknown[], T>(
  * Le callback reçoit `(tid, ...args)`. Si `tid === "global"`, l'appel est
  * hors contexte tenant (script CLI) — la query peut lire globalement.
  */
-function tenantScopedCacheWithTid<Args extends unknown[], T>(
+export function tenantScopedCacheWithTid<Args extends unknown[], T>(
   keyBase: string,
   fn: (tid: string, ...a: Args) => Promise<T>,
   baseKeyParts: string[],
@@ -315,16 +286,12 @@ export const getCachedFavicon = tenantScopedCacheWithTid<[], CustomFavicon | nul
 );
 
 // ─── Easy Express API key (from SiteConfig) ─────────────────────────────────
-export const getCachedEasyExpressApiKey = tenantScopedCache(
+export const getCachedEasyExpressApiKey = tenantScopedCacheWithTid(
   "easy-express-api-key",
-  async () => {
-    // Cache/extract géré par tenantScopedCache — sans WithTid, on utilise ALS ici
-    // et fallback headers (idem que WithTid). Pour rester rétro-compatible avec
-    // les callers existants qui n'importent pas WithTid, on garde ce pattern.
-    const tid = getCurrentTenantIdSync();
-    const row = tid
-      ? await prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key", tenantId: tid } })
-      : await prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key" } });
+  async (tid) => {
+    const row = tid === "global"
+      ? await prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key" } })
+      : await prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key", tenantId: tid } });
     return row?.value ? decryptIfSensitive("easy_express_api_key", row.value) : null;
   },
   ["easy-express-api-key"],
@@ -399,30 +366,35 @@ function staticPfsColorFallback(): PfsLiveColor[] {
 }
 
 // Chaque tenant a son propre compte PFS → couleurs live différentes possibles.
-export const getCachedPfsColors = tenantScopedCache<[], PfsLiveColor[]>(
+// tenantALS.run(tid, …) : rebinder l'ALS dans le callback unstable_cache pour
+// que pfs-auth (Map<tid, TokenCache>) trouve le bon compte PFS.
+export const getCachedPfsColors = tenantScopedCacheWithTid<[], PfsLiveColor[]>(
   "pfs-live-colors",
-  async () => {
-    try {
-      const colors = await pfsGetColors();
-      if (!Array.isArray(colors) || colors.length === 0) {
-        logger.warn("[PFS colors] empty response, using static fallback");
+  async (tid) => {
+    const run = async () => {
+      try {
+        const colors = await pfsGetColors();
+        if (!Array.isArray(colors) || colors.length === 0) {
+          logger.warn("[PFS colors] empty response, using static fallback");
+          return staticPfsColorFallback();
+        }
+        return colors.map((c) => {
+          const frLabel = c.labels?.fr?.trim() || c.reference;
+          return {
+            reference: c.reference,
+            value: c.value || "",
+            image: c.image ?? null,
+            label: frLabel,
+          };
+        });
+      } catch (err) {
+        logger.warn("[PFS colors] live fetch failed, using static fallback", {
+          error: err,
+        });
         return staticPfsColorFallback();
       }
-      return colors.map((c) => {
-        const frLabel = c.labels?.fr?.trim() || c.reference;
-        return {
-          reference: c.reference,
-          value: c.value || "",
-          image: c.image ?? null,
-          label: frLabel,
-        };
-      });
-    } catch (err) {
-      logger.warn("[PFS colors] live fetch failed, using static fallback", {
-        error: err,
-      });
-      return staticPfsColorFallback();
-    }
+    };
+    return tid === "global" ? run() : tenantALS.run(tid, run);
   },
   ["pfs-live-colors"],
   { revalidate: 3600, tags: ["pfs-colors"] }
@@ -452,16 +424,19 @@ export const getCachedPfsBrand = tenantScopedCacheWithTid<[], { id: string; name
 
 // ─── PFS live brands (liste des marques du compte, cache 10min) ────────────
 // Utilisé pour alimenter le sélecteur de marque dans Paramètres > Marketplaces.
-export const getCachedPfsBrands = tenantScopedCache(
+export const getCachedPfsBrands = tenantScopedCacheWithTid(
   "pfs-live-brands",
-  async () => {
+  async (tid) => {
     const { pfsListBrands } = await import("@/lib/pfs-api");
-    try {
-      return await pfsListBrands();
-    } catch (err) {
-      logger.warn("[PFS brands] live fetch failed", { error: err });
-      return [];
-    }
+    const run = async () => {
+      try {
+        return await pfsListBrands();
+      } catch (err) {
+        logger.warn("[PFS brands] live fetch failed", { error: err });
+        return [];
+      }
+    };
+    return tid === "global" ? run() : tenantALS.run(tid, run);
   },
   ["pfs-live-brands"],
   { revalidate: 600, tags: ["pfs-brands"] }
@@ -682,23 +657,27 @@ export const getCachedFaireEnabled = tenantScopedCacheWithTid(
 );
 
 // ─── Product count (expensive count on 78k rows, cache 5min) ───────────────────
-// Extension Prisma scope auto par tenantId, tenantScopedCache par tenant.
-export const getCachedProductCount = tenantScopedCache(
+// Scope explicite : dans unstable_cache l'ALS est vide, l'extension Prisma
+// retombe en passthrough (fuite cross-tenant).
+export const getCachedProductCount = tenantScopedCacheWithTid(
   "product-count",
-  async () => prisma.product.count({ where: { status: "ONLINE" } }),
+  async (tid) => prisma.product.count({
+    where: tid === "global" ? { status: "ONLINE" } : { status: "ONLINE", tenantId: tid },
+  }),
   ["product-count"],
   { revalidate: 300, tags: ["products"] }
 );
 
 // ─── Bestseller refs (groupBy on orderItems, cache 10min) ──────────────────────
-export const getCachedBestsellerRefs = tenantScopedCache<[number?], string[]>(
+export const getCachedBestsellerRefs = tenantScopedCacheWithTid<[number?], string[]>(
   "bestseller-refs",
-  async (limit = 30) => {
+  async (tid, limit = 30) => {
     const stats = await prisma.orderItem.groupBy({
       by: ["productRef"],
       _sum: { quantity: true },
       orderBy: { _sum: { quantity: "desc" } },
       take: limit,
+      where: tid === "global" ? undefined : { tenantId: tid },
     });
     return stats.map((s) => s.productRef);
   },
@@ -709,9 +688,10 @@ export const getCachedBestsellerRefs = tenantScopedCache<[number?], string[]>(
 // ─── Admin layout warning counts (7 queries, cache 5min) ────────────────────
 const NON_FR_LOCALES = NON_DEFAULT_LOCALES;
 
-export const getCachedAdminWarnings = tenantScopedCache(
+export const getCachedAdminWarnings = tenantScopedCacheWithTid(
   "admin-warnings",
-  async () => {
+  async (tid) => {
+    const scoped = tid === "global" ? {} : { tenantId: tid };
     const [
       totalProducts,
       fullyTranslatedProducts,
@@ -722,16 +702,19 @@ export const getCachedAdminWarnings = tenantScopedCache(
       untranslatedSubCategoriesCount,
       pendingOrdersCount,
     ] = await Promise.all([
-      prisma.product.count(),
+      prisma.product.count({ where: scoped }),
       prisma.product.count({
-        where: { AND: NON_FR_LOCALES.map((locale) => ({ translations: { some: { locale } } })) },
+        where: {
+          ...scoped,
+          AND: NON_FR_LOCALES.map((locale) => ({ translations: { some: { locale } } })),
+        },
       }),
-      prisma.color.count({ where: { translations: { none: {} } } }),
-      prisma.composition.count({ where: { translations: { none: {} } } }),
-      prisma.tag.count({ where: { translations: { none: {} } } }),
-      prisma.category.count({ where: { translations: { none: {} } } }),
-      prisma.subCategory.count({ where: { translations: { none: {} } } }),
-      prisma.order.count({ where: { status: "PENDING" } }),
+      prisma.color.count({ where: { ...scoped, translations: { none: {} } } }),
+      prisma.composition.count({ where: { ...scoped, translations: { none: {} } } }),
+      prisma.tag.count({ where: { ...scoped, translations: { none: {} } } }),
+      prisma.category.count({ where: { ...scoped, translations: { none: {} } } }),
+      prisma.subCategory.count({ where: { ...scoped, translations: { none: {} } } }),
+      prisma.order.count({ where: { ...scoped, status: "PENDING" } }),
     ]);
 
     const untranslatedCount = totalProducts - fullyTranslatedProducts;
@@ -763,12 +746,13 @@ export const getCachedUnmappedAttributes = tenantScopedCacheWithTid(
 );
 
 // ─── Dashboard aggregate stats (expensive, cache 5min) ──────────────────────
-export const getCachedDashboardStats = tenantScopedCache(
+export const getCachedDashboardStats = tenantScopedCacheWithTid(
   "dashboard-stats",
-  async () => {
+  async (tid) => {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOf6MonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const scoped = tid === "global" ? {} : { tenantId: tid };
 
     const [
       totalClients,
@@ -783,31 +767,32 @@ export const getCachedDashboardStats = tenantScopedCache(
       orderStatusRaw,
       topProductsRaw,
     ] = await Promise.all([
-      prisma.user.count({ where: { role: "CLIENT" } }),
-      prisma.user.count({ where: { status: "APPROVED", role: "CLIENT" } }),
-      prisma.order.count(),
+      prisma.user.count({ where: { ...scoped, role: "CLIENT" } }),
+      prisma.user.count({ where: { ...scoped, status: "APPROVED", role: "CLIENT" } }),
+      prisma.order.count({ where: scoped }),
       prisma.order.aggregate({
         _sum: { totalTTC: true },
-        where: { status: { not: "CANCELLED" } },
+        where: { ...scoped, status: { not: "CANCELLED" } },
       }),
-      prisma.product.count(),
-      prisma.collection.count(),
-      prisma.order.count({ where: { status: "PENDING" } }),
+      prisma.product.count({ where: scoped }),
+      prisma.collection.count({ where: scoped }),
+      prisma.order.count({ where: { ...scoped, status: "PENDING" } }),
       prisma.order.aggregate({
         _sum: { totalTTC: true },
-        where: { createdAt: { gte: startOfDay }, status: { not: "CANCELLED" } },
+        where: { ...scoped, createdAt: { gte: startOfDay }, status: { not: "CANCELLED" } },
       }),
       prisma.order.findMany({
-        where: { createdAt: { gte: startOf6MonthsAgo }, status: { not: "CANCELLED" } },
+        where: { ...scoped, createdAt: { gte: startOf6MonthsAgo }, status: { not: "CANCELLED" } },
         select: { createdAt: true, totalTTC: true },
         take: 1000,
       }),
-      prisma.order.groupBy({ by: ["status"], _count: true }),
+      prisma.order.groupBy({ by: ["status"], _count: true, where: scoped }),
       prisma.orderItem.groupBy({
         by: ["productName"],
         _sum: { quantity: true },
         orderBy: { _sum: { quantity: "desc" } },
         take: 5,
+        where: scoped,
       }),
     ]);
 
@@ -836,16 +821,17 @@ export const getCachedDashboardStats = tenantScopedCache(
 );
 
 
-export const getCachedLowStockCount = tenantScopedCache(
+export const getCachedLowStockCount = tenantScopedCacheWithTid(
   "low-stock-count",
-  async () => {
-    const globalThreshold = await prisma.siteConfig.findFirst({
-      where: { key: "default_low_stock_threshold" },
-    });
+  async (tid) => {
+    const globalThreshold = tid === "global"
+      ? await prisma.siteConfig.findFirst({ where: { key: "default_low_stock_threshold" } })
+      : await prisma.siteConfig.findFirst({ where: { key: "default_low_stock_threshold", tenantId: tid } });
     const threshold = globalThreshold ? parseInt(globalThreshold.value, 10) || 5 : 5;
 
     const count = await prisma.product.count({
       where: {
+        ...(tid === "global" ? {} : { tenantId: tid }),
         status: { in: ["ONLINE", "OFFLINE"] },
         colors: {
           some: {
@@ -860,21 +846,25 @@ export const getCachedLowStockCount = tenantScopedCache(
   { revalidate: 300, tags: ["products"] }
 );
 
-export const getCachedActiveClaimsCount = tenantScopedCache(
+export const getCachedActiveClaimsCount = tenantScopedCacheWithTid(
   "active-claims-count",
-  async () => prisma.claim.count({
-    where: { status: { in: ["OPEN", "IN_REVIEW", "ACCEPTED", "RETURN_PENDING", "RETURN_SHIPPED", "RETURN_RECEIVED", "RESOLUTION_PENDING"] } },
+  async (tid) => prisma.claim.count({
+    where: {
+      ...(tid === "global" ? {} : { tenantId: tid }),
+      status: { in: ["OPEN", "IN_REVIEW", "ACCEPTED", "RETURN_PENDING", "RETURN_SHIPPED", "RETURN_RECEIVED", "RESOLUTION_PENDING"] },
+    },
   }),
   ["active-claims-count"],
   { revalidate: 300, tags: ["claims"] }
 );
 
-export const getCachedActivePromotions = tenantScopedCache(
+export const getCachedActivePromotions = tenantScopedCacheWithTid(
   "active-promotions",
-  async () => {
+  async (tid) => {
     const now = new Date();
     return prisma.promotion.findMany({
       where: {
+        ...(tid === "global" ? {} : { tenantId: tid }),
         isActive: true,
         startsAt: { lte: now },
         OR: [{ endsAt: null }, { endsAt: { gte: now } }],
@@ -887,11 +877,12 @@ export const getCachedActivePromotions = tenantScopedCache(
 );
 
 // ─── Admin unread message count (cached 60s — was uncached, hitting DB every navigation) ─
-export const getCachedAdminUnreadCount = tenantScopedCache(
+export const getCachedAdminUnreadCount = tenantScopedCacheWithTid(
   "admin-unread-count",
-  async () => {
+  async (tid) => {
     return prisma.message.count({
       where: {
+        ...(tid === "global" ? {} : { tenantId: tid }),
         senderRole: "CLIENT",
         readAt: null,
         conversation: { type: "SUPPORT" },

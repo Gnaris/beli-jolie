@@ -53,6 +53,9 @@ vi.mock("@/lib/efashion-api", () => ({
 vi.mock("@/lib/efashion-update", () => ({
   efashionUpdateProductInPlace: vi.fn().mockResolvedValue({ success: true }),
 }));
+vi.mock("@/lib/efashion-annexes", () => ({
+  resolveEfashionVendorPresets: vi.fn().mockResolvedValue({ marque: 3228, pack: 12744 }),
+}));
 
 import { prisma } from "@/lib/prisma";
 import { efashionPublishProductsBatch } from "@/lib/efashion-publish-batch";
