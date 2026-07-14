@@ -113,6 +113,39 @@ describe("computeMarketplaceCounts — panneau Marketplaces dynamique", () => {
     expect(counts.pfs.publish).toHaveLength(0);
     expect(counts.ankorstore.publish.map((x) => x.id)).toEqual(["1"]);
   });
+
+  it("alreadyOn liste tous les produits ayant un ID marketplace (sert au bouton Synchroniser forcé)", () => {
+    // La cliente veut pouvoir cliquer « Synchroniser » même quand aucun produit
+    // n'a le drapeau orange « Synchro nécessaire ». Le fallback = tous ceux
+    // déjà sur la marketplace, peu importe leur statut ONLINE/OFFLINE.
+    const products = [
+      mkProduct({ id: "1", pfsProductId: "pfs-1", status: "ONLINE" }),
+      mkProduct({ id: "2", pfsProductId: "pfs-2", status: "OFFLINE" }),
+      mkProduct({ id: "3", pfsProductId: null,     status: "ONLINE" }), // pas encore publié
+      mkProduct({ id: "4", pfsProductId: "pfs-4", status: "ARCHIVED" }),
+    ];
+    const counts = computeMarketplaceCounts(products);
+    expect(counts.pfs.alreadyOn.map((p) => p.id).sort()).toEqual(["1", "2", "4"]);
+    expect(counts.pfs.publish.map((p) => p.id)).toEqual(["3"]); // ONLINE non publié
+  });
+
+  it("alreadyOn respecte le filtre in-flight (n'affiche pas une resynchro forcée sur une op en cours)", () => {
+    const products = [
+      mkProduct({ id: "1", ankorsProductId: "ank-1" }),
+      mkProduct({ id: "2", ankorsProductId: "ank-2" }),
+    ];
+    const counts = computeMarketplaceCounts(products, { ankorstore: new Set(["1"]) });
+    expect(counts.ankorstore.alreadyOn.map((p) => p.id)).toEqual(["2"]);
+  });
+
+  it("alreadyOn est vide quand aucun produit sélectionné n'est sur cette marketplace", () => {
+    const products = [
+      mkProduct({ id: "1", faireProductId: null }),
+      mkProduct({ id: "2", faireProductId: null }),
+    ];
+    const counts = computeMarketplaceCounts(products);
+    expect(counts.faire.alreadyOn).toHaveLength(0);
+  });
 });
 
 describe("isMarketplaceAvailable — visibilité des cartes selon config", () => {

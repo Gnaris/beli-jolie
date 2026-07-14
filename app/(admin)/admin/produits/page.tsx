@@ -399,6 +399,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     hsCodeRows,
     manufacturingCountries,
     seasons,
+    collectionsList,
+    allTagsForBulk,
     sectionCounts,
     hasPfsConfig,
     hasAnkorstoreConfig,
@@ -458,6 +460,22 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     }),
     prisma.season.findMany({
       orderBy: [{ position: "asc" }, { name: "asc" }],
+      select: { id: true, name: true },
+    }),
+    // Collections pour la modale « Ajouter à une collection » (menu Plus)
+    prisma.collection.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        _count: { select: { products: true } },
+      },
+    }),
+    // Tous les tags (y compris ceux jamais assignés) pour la modale « Ajouter/
+    // retirer des tags ». `getCachedTags` filtre les tags orphelins pour le
+    // panneau de filtres — ici on veut la liste complète.
+    prisma.tag.findMany({
+      orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
     // Section counts for tabs (lightweight parallel queries).
@@ -637,6 +655,12 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
           manufacturingCountries: manufacturingCountries.map((c) => ({ id: c.id, name: c.name })),
           seasons: seasons.map((s) => ({ id: s.id, name: s.name })),
         }}
+        availableTags={allTagsForBulk.map((t) => ({ id: t.id, name: t.name }))}
+        availableCollections={collectionsList.map((c) => ({
+          id: c.id,
+          name: c.name,
+          productCount: c._count.products,
+        }))}
       />
 
       {/* Pagination */}

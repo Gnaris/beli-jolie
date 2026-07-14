@@ -10,12 +10,17 @@ import {
   bulkUpdateProductAttributes,
   bulkDeleteProducts,
   bulkTranslateProducts,
+  bulkAddTagsToProducts,
+  bulkRemoveTagsFromProducts,
   previewProductDeletion,
   updateVariantQuick,
 } from "@/app/actions/admin/products";
+import { bulkAddProductsToCollection } from "@/app/actions/admin/collections";
 import { deleteProductsOnPfs, deleteProductsOnAnkorstore, deleteProductsOnEfashion, deleteProductsOnFaire } from "@/app/actions/admin/marketplace-delete";
 import { bulkAddToEfashionShootingBatch } from "@/app/actions/admin/efashion-shooting-batch";
 import BulkEditAttributesModal, { type BulkEditOptions, type BulkEditPayload } from "@/components/admin/products/BulkEditAttributesModal";
+import BulkTagsModal, { type BulkTagsOption } from "@/components/admin/products/BulkTagsModal";
+import BulkAddToCollectionModal, { type BulkCollectionOption } from "@/components/admin/products/BulkAddToCollectionModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useOtpConfirm } from "@/components/ui/OtpConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
@@ -234,6 +239,21 @@ export function shouldShowDraftMarketplaceNotice(p: {
   efashionLinked: boolean;
 }): boolean {
   return p.isIncomplete && !p.pfsProductId && !p.ankorsProductId && !p.efashionLinked;
+}
+
+/**
+ * Renvoie les IDs des produits sélectionnés qui sont de VRAIS brouillons —
+ * càd `status === "OFFLINE"` ET `isIncomplete === true`. Utilisé par le bouton
+ * « Publier brouillons » de la barre d'actions bulk : un produit simplement mis
+ * hors ligne par l'admin (fiche complète, ex T166E) ne doit PAS déclencher ce
+ * bouton, car il n'y a rien à finaliser. Exporté pour les tests unitaires.
+ */
+export function computeSelectedDraftIds<
+  T extends { id: string; status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING"; isIncomplete: boolean },
+>(products: readonly T[], selectedIds: ReadonlySet<string>): string[] {
+  return products
+    .filter((p) => selectedIds.has(p.id) && p.status === "OFFLINE" && p.isIncomplete)
+    .map((p) => p.id);
 }
 
 // ─── Marketplace publish badge ─────────────────────────────────────────────────
@@ -716,6 +736,10 @@ interface Props {
   faireEnabled: boolean;
   /** Listes pour la modale d'édition en masse (catégorie, code SH, etc.) */
   bulkEditOptions: BulkEditOptions;
+  /** Tags disponibles pour la modale « Ajouter / retirer des tags » du menu Plus. */
+  availableTags: BulkTagsOption[];
+  /** Collections disponibles pour la modale « Ajouter à une collection » du menu Plus. */
+  availableCollections: BulkCollectionOption[];
 }
 
 // ─── Variant dirty-edit helpers ─────────────────────────────────────────────
@@ -2726,6 +2750,8 @@ export default function AdminProductsTable({
   hasFaireConfig,
   faireEnabled,
   bulkEditOptions,
+  availableTags,
+  availableCollections,
 }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -2739,6 +2765,8 @@ export default function AdminProductsTable({
   const { isFiltering } = useFilterPending();
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [bulkPublishDraftsOpen, setBulkPublishDraftsOpen] = useState(false);
+  const [bulkTagsOpen, setBulkTagsOpen] = useState(false);
+  const [bulkCollectionOpen, setBulkCollectionOpen] = useState(false);
   const router = useRouter();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
@@ -3001,12 +3029,11 @@ export default function AdminProductsTable({
     toast,
   ]);
 
-  // Sélection filtrée sur les brouillons (OFFLINE) — sert au bouton « Publier
-  // brouillons sur marketplaces ». Le bouton n'apparaît que si la sélection
-  // courante contient au moins un produit OFFLINE.
-  const selectedDraftIds = allProducts
-    .filter((p) => selectedIds.has(p.id) && p.status === "OFFLINE")
-    .map((p) => p.id);
+  // Sélection filtrée sur les vrais brouillons (OFFLINE + fiche incomplète).
+  // Sert au bouton « Publier brouillons sur marketplaces » — un produit
+  // simplement mis « Hors ligne » par l'admin (fiche complète) N'EST PAS un
+  // brouillon et ne doit pas déclencher ce bouton. Voir helper testable.
+  const selectedDraftIds = computeSelectedDraftIds(allProducts, selectedIds);
 
   const handleBulkPublishDraftsConfirm = useCallback(
     async (decision: {
@@ -4118,6 +4145,141 @@ export default function AdminProductsTable({
     });
   }, [selectedIds, confirm, toast, startTransition]);
 
+  // ─── Best-seller en masse ───────────────────────────────────────────────
+  // Réutilise `bulkUpdateProductAttributes({ isBestSeller })` qui pose déjà
+  // `pfsSyncRequired=true` sur les produits liés à PFS. Confirmation légère
+  // via useConfirm() puis toast récapitulatif.
+  const handleBulkSetBestSeller = useCallback(async (isBestSeller: boolean) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const plural = ids.length > 1 ? "s" : "";
+    const action = isBestSeller ? "marquer" : "retirer";
+    const ok = await confirm({
+      type: "info",
+      title: `${isBestSeller ? "Marquer" : "Retirer"} ${ids.length} produit${plural} comme best-seller${plural} ?`,
+      message: isBestSeller
+        ? "L'étoile sera ajoutée. Les produits déjà publiés sur PFS seront marqués « Synchro nécessaire »."
+        : "L'étoile sera retirée. Les produits déjà publiés sur PFS seront marqués « Synchro nécessaire ».",
+      confirmLabel: `Oui, ${action}`,
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+
+    setBulkActionLabel(
+      `${isBestSeller ? "Marquage" : "Retrait"} best-seller de ${ids.length} produit${plural}…`,
+    );
+    startTransition(async () => {
+      try {
+        const r = await bulkUpdateProductAttributes(ids, { isBestSeller });
+        if (r.updated > 0 && r.errors.length === 0) {
+          toast.success(
+            `${r.updated} produit${r.updated > 1 ? "s" : ""} modifié${r.updated > 1 ? "s" : ""}`,
+            isBestSeller ? "Étoile best-seller ajoutée." : "Étoile best-seller retirée.",
+          );
+        } else if (r.errors.length > 0) {
+          toast.error(
+            `${r.errors.length} produit${r.errors.length > 1 ? "s" : ""} en erreur`,
+            r.errors.slice(0, 3).map((e) => e.reference).join(", "),
+          );
+        } else {
+          toast.info("Aucun changement", "Les produits étaient déjà dans cet état.");
+        }
+      } catch (e) {
+        toast.error("Modification impossible", e instanceof Error ? e.message : "Erreur inconnue.");
+      } finally {
+        setBulkActionLabel(null);
+      }
+    });
+  }, [selectedIds, confirm, toast, startTransition]);
+
+  // ─── Tags en masse ──────────────────────────────────────────────────────
+  // Ouvert par le menu Plus. Handler appelé par la modale BulkTagsModal.
+  const handleBulkTagsApply = useCallback(
+    async (mode: "add" | "remove", tagIds: string[]) => {
+      const ids = Array.from(selectedIds);
+      if (ids.length === 0 || tagIds.length === 0) {
+        setBulkTagsOpen(false);
+        return;
+      }
+      const plural = ids.length > 1 ? "s" : "";
+      setBulkActionLabel(
+        mode === "add"
+          ? `Ajout de tags à ${ids.length} produit${plural}…`
+          : `Retrait de tags de ${ids.length} produit${plural}…`,
+      );
+      startTransition(async () => {
+        try {
+          if (mode === "add") {
+            const r = await bulkAddTagsToProducts(ids, tagIds);
+            toast.success(
+              `${r.linksCreated} lien${r.linksCreated > 1 ? "s" : ""} ajouté${r.linksCreated > 1 ? "s" : ""}`,
+              `${r.tagsCount} tag${r.tagsCount > 1 ? "s" : ""} sur ${r.productsCount} produit${r.productsCount > 1 ? "s" : ""}.`,
+            );
+          } else {
+            const r = await bulkRemoveTagsFromProducts(ids, tagIds);
+            toast.success(
+              `${r.linksRemoved} lien${r.linksRemoved > 1 ? "s" : ""} retiré${r.linksRemoved > 1 ? "s" : ""}`,
+              `${r.tagsCount} tag${r.tagsCount > 1 ? "s" : ""} sur ${r.productsCount} produit${r.productsCount > 1 ? "s" : ""}.`,
+            );
+          }
+        } catch (e) {
+          toast.error(
+            "Modification des tags impossible",
+            e instanceof Error ? e.message : "Erreur inconnue.",
+          );
+        } finally {
+          setBulkActionLabel(null);
+          setBulkTagsOpen(false);
+        }
+      });
+    },
+    [selectedIds, toast, startTransition],
+  );
+
+  // ─── Ajout à une collection en masse ─────────────────────────────────────
+  // Seuls les produits ONLINE peuvent rejoindre une collection (parité avec
+  // addProductToCollection unitaire). Le count des ignorés est remonté par
+  // le retour de la server action.
+  const handleBulkAddToCollection = useCallback(
+    async (collectionId: string) => {
+      const ids = Array.from(selectedIds);
+      if (ids.length === 0) {
+        setBulkCollectionOpen(false);
+        return;
+      }
+      setBulkActionLabel(`Ajout à la collection…`);
+      startTransition(async () => {
+        try {
+          const r = await bulkAddProductsToCollection(collectionId, ids);
+          if (r.added > 0) {
+            toast.success(
+              `${r.added} produit${r.added > 1 ? "s" : ""} ajouté${r.added > 1 ? "s" : ""} à la collection`,
+              r.skipped > 0
+                ? `${r.skipped} ignoré${r.skipped > 1 ? "s" : ""} (brouillon/archivé).`
+                : undefined,
+            );
+          } else if (r.skipped > 0) {
+            toast.info(
+              "Aucun produit ajouté",
+              `${r.skipped} produit${r.skipped > 1 ? "s" : ""} ignoré${r.skipped > 1 ? "s" : ""} car brouillon ou archivé.`,
+            );
+          } else {
+            toast.info("Aucun changement", "Les produits étaient déjà dans cette collection.");
+          }
+        } catch (e) {
+          toast.error(
+            "Ajout à la collection impossible",
+            e instanceof Error ? e.message : "Erreur inconnue.",
+          );
+        } finally {
+          setBulkActionLabel(null);
+          setBulkCollectionOpen(false);
+        }
+      });
+    },
+    [selectedIds, toast, startTransition],
+  );
+
   const handleBulkRefreshCurrent = useCallback(async () => {
     const selectedProductsPayload = allProducts
       .filter((p) => selectedIds.has(p.id))
@@ -4191,6 +4353,9 @@ export default function AdminProductsTable({
         onMarketplacePublish={handleBulkMarketplacePublish}
         onMarketplaceSync={handleBulkMarketplaceSync}
         onPublishDrafts={() => setBulkPublishDraftsOpen(true)}
+        onSetBestSeller={handleBulkSetBestSeller}
+        onOpenTagsModal={() => setBulkTagsOpen(true)}
+        onOpenCollectionModal={() => setBulkCollectionOpen(true)}
       />
 
       {/* Message résultat bulk */}
@@ -4279,6 +4444,27 @@ export default function AdminProductsTable({
         options={bulkEditOptions}
         onCancel={() => setBulkEditOpen(false)}
         onApply={handleBulkAttributes}
+        isPending={isPending}
+      />
+
+      {/* Modale « Tags en masse » — ajouter / retirer plusieurs tags à la fois */}
+      <BulkTagsModal
+        open={bulkTagsOpen}
+        selectedCount={selectedIds.size}
+        tags={availableTags}
+        onCancel={() => setBulkTagsOpen(false)}
+        onApply={handleBulkTagsApply}
+        isPending={isPending}
+      />
+
+      {/* Modale « Ajouter à une collection » — un seul choix, brouillons ignorés */}
+      <BulkAddToCollectionModal
+        open={bulkCollectionOpen}
+        selectedCount={selectedIds.size}
+        onlineCount={allProducts.filter((p) => selectedIds.has(p.id) && p.status === "ONLINE").length}
+        collections={availableCollections}
+        onCancel={() => setBulkCollectionOpen(false)}
+        onApply={handleBulkAddToCollection}
         isPending={isPending}
       />
 

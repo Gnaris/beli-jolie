@@ -267,6 +267,71 @@ export async function addProductToCollection(
 }
 
 // ─────────────────────────────────────────────
+// Ajouter en masse plusieurs produits à une collection
+// (les brouillons/archivés sont ignorés — cf. addProductToCollection).
+// ─────────────────────────────────────────────
+export async function bulkAddProductsToCollection(
+  collectionId: string,
+  productIds: string[],
+): Promise<{ added: number; skipped: number; skippedReferences: string[] }> {
+  await requireAdmin();
+  if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
+  if (productIds.length > 1000) throw new Error("Maximum 1000 produits à la fois.");
+
+  const collection = await prisma.collection.findUnique({
+    where: { id: collectionId },
+    select: { id: true },
+  });
+  if (!collection) throw new Error("Collection introuvable.");
+
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, reference: true, status: true },
+  });
+  if (products.length === 0) throw new Error("Aucun produit trouvé.");
+
+  // Seuls les produits ONLINE peuvent rejoindre une collection publique
+  // (parité avec addProductToCollection unitaire).
+  const eligible = products.filter((p) => p.status === "ONLINE");
+  const skippedRefs = products.filter((p) => p.status !== "ONLINE").map((p) => p.reference);
+
+  if (eligible.length === 0) {
+    return { added: 0, skipped: skippedRefs.length, skippedReferences: skippedRefs };
+  }
+
+  const maxPos = await prisma.collectionProduct.aggregate({
+    where: { collectionId },
+    _max: { position: true },
+  });
+  let position = (maxPos._max.position ?? -1) + 1;
+
+  const data = eligible.map((p) => ({
+    collectionId,
+    productId: p.id,
+    colorId: null,
+    position: position++,
+  }));
+
+  // skipDuplicates : si le produit est déjà dans la collection on ne casse pas.
+  const result = await prisma.collectionProduct.createMany({
+    data,
+    skipDuplicates: true,
+  });
+
+  revalidatePath(`/admin/collections/${collectionId}/modifier`);
+  revalidatePath("/admin/collections");
+  revalidatePath(`/collections/${collectionId}`);
+  revalidatePath("/collections");
+  revalidateTag("collections", "default");
+
+  return {
+    added: result.count,
+    skipped: skippedRefs.length,
+    skippedReferences: skippedRefs,
+  };
+}
+
+// ─────────────────────────────────────────────
 // Retirer un produit d'une collection
 // ─────────────────────────────────────────────
 export async function removeProductFromCollection(

@@ -1659,19 +1659,24 @@ model LoginAttempt {
 }
 
 // Verrouillage progressif par email
+// Multi-tenant : unique composite (tenantId, email) — un compteur d'échecs par
+// boutique. Sinon un même email présent sur 2 tenants provoque un mismatch
+// à l'upsert (deux boutiques totalement étanches côté visiteur).
+// tenantId reste nullable côté Prisma pour cohérence avec le reste du schema
+// (l'extension prisma-tenant-scope l'injecte à runtime).
 model AccountLockout {
   id           String    @id @default(cuid())
-  email        String    @unique
+  email        String
   failureCount Int       @default(0) // Nombre total d'échecs consécutifs
   lockoutLevel Int       @default(0) // Palier actuel (0=pas verrouillé, 1=1min, 2=5min, ...)
   lockedUntil  DateTime? // Null = pas verrouillé
   permanent    Boolean   @default(false) // Blocage définitif
   updatedAt    DateTime  @updatedAt
 
-  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
+  @@unique([tenantId, email])
   @@index([tenantId])
   @@index([email])
 }
@@ -2024,9 +2029,13 @@ model MessageAttachment {
 // SAV / Réclamations
 // ─────────────────────────────────────────────
 
+// Multi-tenant : reference unique composite (tenantId, reference) —
+// deux boutiques indépendantes peuvent avoir chacune une réclamation
+// CLM-000001 sans collision. tenantId nullable côté Prisma comme le
+// reste du schema (l'extension prisma-tenant-scope l'injecte à runtime).
 model Claim {
   id           String           @id @default(cuid())
-  reference    String           @unique
+  reference    String
   type         ClaimType
   status       ClaimStatus      @default(OPEN)
   userId       String
@@ -2047,10 +2056,10 @@ model Claim {
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
-  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
+  @@unique([tenantId, reference])
   @@index([tenantId])
   @@index([userId, status])
   @@index([status])

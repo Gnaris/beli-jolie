@@ -65,6 +65,16 @@ interface Props {
   onMarketplacePublish: (marketplace: MarketplaceKey, productIds: string[]) => void;
   onMarketplaceSync: (marketplace: MarketplaceKey, productIds: string[]) => void;
   onPublishDrafts?: () => void;
+  /**
+   * Bascule le drapeau best-seller sur toute la sélection. Impacte PFS :
+   * pose `pfsSyncRequired=true` sur les produits déjà publiés (cf.
+   * bulkUpdateProductAttributes côté server action).
+   */
+  onSetBestSeller: (isBestSeller: boolean) => void;
+  /** Ouvre la modale « Tags en masse » (ajouter / retirer). */
+  onOpenTagsModal: () => void;
+  /** Ouvre la modale « Ajouter à une collection ». */
+  onOpenCollectionModal: () => void;
 }
 
 // ─── Calcul par marketplace ────────────────────────────────────────────────
@@ -87,20 +97,30 @@ function computeMarketplaceCounts(
   const notInFlight = (mp: MarketplaceKey) => (p: BulkBarProduct) =>
     !inFlight?.[mp]?.has(p.id);
 
+  // `publish` : produits ONLINE et complets, pas encore poussés sur cette marketplace.
+  // `sync`    : produits avec le drapeau orange « Synchro nécessaire » (delta à envoyer).
+  // `alreadyOn` : produits déjà présents sur la marketplace (ID rempli). Sert au bouton
+  //   « Synchroniser » toujours actif : quand `sync` est vide, on autorise une resynchro
+  //   forcée sur tous ces produits (pratique quand la cliente veut « tout ré-envoyer par
+  //   sécurité »). On exclut les opérations déjà en vol pour ne pas doublonner.
   const pfsToPublish = products.filter((p) => !p.pfsProductId && eligibleForPublish(p) && notInFlight("pfs")(p));
   const pfsToSync = products.filter((p) => p.pfsSyncRequired && notInFlight("pfs")(p));
+  const pfsAlreadyOn = products.filter((p) => !!p.pfsProductId && notInFlight("pfs")(p));
   const ankorsToPublish = products.filter((p) => !p.ankorsProductId && eligibleForPublish(p) && notInFlight("ankorstore")(p));
   const ankorsToSync = products.filter((p) => p.ankorsSyncRequired && notInFlight("ankorstore")(p));
+  const ankorsAlreadyOn = products.filter((p) => !!p.ankorsProductId && notInFlight("ankorstore")(p));
   const efashionToPublish = products.filter((p) => !p.efashionReferenceBase && eligibleForPublish(p) && notInFlight("efashion")(p));
   const efashionToSync = products.filter((p) => p.efashionSyncRequired && notInFlight("efashion")(p));
+  const efashionAlreadyOn = products.filter((p) => !!p.efashionReferenceBase && notInFlight("efashion")(p));
   const faireToPublish = products.filter((p) => !p.faireProductId && eligibleForPublish(p) && notInFlight("faire")(p));
   const faireToSync = products.filter((p) => p.faireSyncRequired && notInFlight("faire")(p));
+  const faireAlreadyOn = products.filter((p) => !!p.faireProductId && notInFlight("faire")(p));
 
   return {
-    pfs: { publish: pfsToPublish, sync: pfsToSync },
-    ankorstore: { publish: ankorsToPublish, sync: ankorsToSync },
-    efashion: { publish: efashionToPublish, sync: efashionToSync },
-    faire: { publish: faireToPublish, sync: faireToSync },
+    pfs: { publish: pfsToPublish, sync: pfsToSync, alreadyOn: pfsAlreadyOn },
+    ankorstore: { publish: ankorsToPublish, sync: ankorsToSync, alreadyOn: ankorsAlreadyOn },
+    efashion: { publish: efashionToPublish, sync: efashionToSync, alreadyOn: efashionAlreadyOn },
+    faire: { publish: faireToPublish, sync: faireToSync, alreadyOn: faireAlreadyOn },
   };
 }
 
@@ -160,10 +180,16 @@ export default function BulkActionBar({
   onMarketplacePublish,
   onMarketplaceSync,
   onPublishDrafts,
+  onSetBestSeller,
+  onOpenTagsModal,
+  onOpenCollectionModal,
 }: Props) {
   const showPending = Boolean(pendingLabel);
   const [marketplacesOpen, setMarketplacesOpen] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
+  // Sous-menu best-seller : true = on affiche les 2 choix (Marquer / Retirer)
+  // dans le menu Plus. Se remet à false à chaque ouverture du menu.
+  const [bestSellerSubOpen, setBestSellerSubOpen] = useState(false);
   const barRef = useRef<HTMLDivElement | null>(null);
 
   const someSelected = selectedProducts.length > 0;
@@ -173,8 +199,14 @@ export default function BulkActionBar({
     if (!someSelected) {
       setMarketplacesOpen(false);
       setPlusOpen(false);
+      setBestSellerSubOpen(false);
     }
   }, [someSelected]);
+
+  // Reset le sous-menu best-seller quand on ferme le menu Plus.
+  useEffect(() => {
+    if (!plusOpen) setBestSellerSubOpen(false);
+  }, [plusOpen]);
 
   useEffect(() => {
     if (!marketplacesOpen && !plusOpen) return;
@@ -448,12 +480,78 @@ export default function BulkActionBar({
                   />
                   <div className="border-t border-border-light" />
                   <div className="px-4 pt-2 pb-1.5 text-[10px] uppercase tracking-wider font-semibold text-text-muted">
-                    À venir
+                    Organisation
                   </div>
-                  <MenuItemDisabled title="Marquer best-seller" hint="Bientôt disponible" />
-                  <MenuItemDisabled title="Dupliquer" hint="Bientôt disponible" />
-                  <MenuItemDisabled title="Ajouter à une collection" hint="Bientôt disponible" />
-                  <MenuItemDisabled title="Ajouter / retirer des tags" hint="Bientôt disponible" />
+
+                  {/* Best-seller : sous-menu à 2 choix (Marquer / Retirer).
+                      Réutilise `bulkUpdateProductAttributes({ isBestSeller })` :
+                      pose `pfsSyncRequired=true` sur les produits déjà publiés. */}
+                  {bestSellerSubOpen ? (
+                    <div className="bg-amber-50/40 border-y border-amber-100">
+                      <button
+                        type="button"
+                        onClick={() => setBestSellerSubOpen(false)}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-[11px] text-amber-800 hover:bg-amber-50 font-medium"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                        </svg>
+                        Retour
+                      </button>
+                      <MenuItem
+                        icon={<svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+                        iconClass="bg-amber-100 text-amber-700"
+                        title="Marquer best-seller"
+                        hint="Ajoute l'étoile · resync PFS auto"
+                        onClick={() => {
+                          setPlusOpen(false);
+                          onSetBestSeller(true);
+                        }}
+                      />
+                      <MenuItem
+                        icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+                        iconClass="bg-slate-100 text-slate-600"
+                        title="Retirer best-seller"
+                        hint="Enlève l'étoile · resync PFS auto"
+                        onClick={() => {
+                          setPlusOpen(false);
+                          onSetBestSeller(false);
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <MenuItem
+                      icon={<svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+                      iconClass="bg-amber-50 text-amber-700"
+                      title="Best-seller"
+                      hint="Marquer ou retirer l'étoile"
+                      onClick={() => setBestSellerSubOpen(true)}
+                    />
+                  )}
+
+                  {/* Tags — modale (ajouter OU retirer une liste de tags) */}
+                  <MenuItem
+                    icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" /><path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" /></svg>}
+                    iconClass="bg-fuchsia-50 text-fuchsia-700"
+                    title="Ajouter / retirer des tags"
+                    hint="Modifier les mots-clés"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      onOpenTagsModal();
+                    }}
+                  />
+
+                  {/* Collection — modale (les brouillons/archivés sont ignorés côté serveur) */}
+                  <MenuItem
+                    icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" /></svg>}
+                    iconClass="bg-emerald-50 text-emerald-700"
+                    title="Ajouter à une collection"
+                    hint="Choix parmi les collections existantes"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      onOpenCollectionModal();
+                    }}
+                  />
                 </div>
               )}
 
@@ -572,18 +670,6 @@ function MenuItem({
   );
 }
 
-function MenuItemDisabled({ title, hint }: { title: string; hint?: string }) {
-  return (
-    <div className="flex items-center gap-3 px-4 py-2 text-left text-sm opacity-50 cursor-not-allowed">
-      <div className="w-7 h-7 rounded-lg bg-slate-100 flex-shrink-0" />
-      <div className="flex-1 min-w-0">
-        <div className="font-medium text-text-primary">{title}</div>
-        {hint && <div className="text-xs text-text-muted truncate">{hint}</div>}
-      </div>
-    </div>
-  );
-}
-
 // ─── Panneau Marketplaces ──────────────────────────────────────────────────
 
 export function isMarketplaceAvailable(k: MarketplaceKey, cfg: MarketplacesConfig): boolean {
@@ -642,18 +728,26 @@ function MarketplacePanel({
 
       {order.filter((k) => {
         if (!isMarketplaceAvailable(k, marketplaces)) return false;
-        return counts[k].publish.length + counts[k].sync.length > 0;
+        // Ligne visible si on peut publier OU si au moins un produit sélectionné
+        // est déjà sur la marketplace (permet la resynchro forcée). Sinon rien à
+        // faire pour cette marketplace, on la cache.
+        return counts[k].publish.length + counts[k].alreadyOn.length > 0;
       }).length === 0 ? (
         <div className="p-6 text-center text-sm text-text-muted">
-          Tous les produits sélectionnés sont déjà à jour sur les marketplaces configurés.
+          Aucune action possible : les produits sélectionnés ne sont sur aucune marketplace configurée.
         </div>
       ) : (
         order.map((k) => {
           if (!isMarketplaceAvailable(k, marketplaces)) return null;
-          const { publish, sync } = counts[k];
-          if (publish.length === 0 && sync.length === 0) return null;
+          const { publish, sync, alreadyOn } = counts[k];
+          if (publish.length === 0 && alreadyOn.length === 0) return null;
           const meta = MARKETPLACE_META[k];
-          const actionCount = (publish.length > 0 ? 1 : 0) + (sync.length > 0 ? 1 : 0);
+          const hasFlagged = sync.length > 0;
+          // Cible du bouton Synchroniser : les produits avec drapeau orange si
+          // présents, sinon tous ceux déjà sur la marketplace (resynchro forcée).
+          const syncTargets = hasFlagged ? sync : alreadyOn;
+          const canSync = syncTargets.length > 0;
+          const actionCount = (publish.length > 0 ? 1 : 0) + (canSync ? 1 : 0);
           return (
             <div key={k} className="px-5 py-4 border-b border-border-light last:border-b-0">
               <div className="flex items-center justify-between mb-3">
@@ -692,13 +786,26 @@ function MarketplacePanel({
                 ) : (
                   <EmptyCard label="Rien à publier" hint="Tout est déjà en ligne" />
                 )}
-                {sync.length > 0 ? (
+                {canSync && (
                   <button
                     type="button"
-                    onClick={() => onSync(k, sync)}
-                    className="flex items-center gap-3 p-3 rounded-xl border border-border hover:border-amber-300 hover:bg-amber-50/50 transition-all text-left"
+                    onClick={() => onSync(k, syncTargets)}
+                    className={`flex items-center gap-3 p-3 rounded-xl border border-border transition-all text-left ${
+                      hasFlagged
+                        ? "hover:border-amber-300 hover:bg-amber-50/50"
+                        : "hover:border-slate-300 hover:bg-slate-50/70"
+                    }`}
+                    title={
+                      hasFlagged
+                        ? `Envoyer les changements en attente sur ${meta.label}`
+                        : `Forcer la resynchro de tous les produits déjà sur ${meta.label}`
+                    }
                   >
-                    <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center flex-shrink-0">
+                    <div
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        hasFlagged ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
                       </svg>
@@ -706,12 +813,18 @@ function MarketplacePanel({
                     <div className="flex-1 min-w-0">
                       <div className="text-[13px] font-semibold text-text-primary">Synchroniser</div>
                       <div className="text-[11px] text-text-muted">
-                        <b className="text-amber-700">{sync.length} produit{sync.length > 1 ? "s" : ""}</b> avec changement à envoyer
+                        {hasFlagged ? (
+                          <>
+                            <b className="text-amber-700">{sync.length} produit{sync.length > 1 ? "s" : ""}</b> avec changement à envoyer
+                          </>
+                        ) : (
+                          <>
+                            <b className="text-slate-600">{alreadyOn.length} produit{alreadyOn.length > 1 ? "s" : ""}</b> — resynchro forcée
+                          </>
+                        )}
                       </div>
                     </div>
                   </button>
-                ) : (
-                  <EmptyCard label="Aucune synchro" hint="Tout est à jour" />
                 )}
               </div>
             </div>

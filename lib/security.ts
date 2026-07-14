@@ -10,6 +10,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { getCurrentTenantId } from "@/lib/tenant";
 
 // ─────────────────────────────────────────────
 // Login — Lockout progressif
@@ -40,7 +41,9 @@ const MAX_ATTEMPTS_BEFORE_LOCKOUT = 3;
 export async function checkLoginLockout(email: string): Promise<string | null> {
   const normalizedEmail = email.toLowerCase().trim();
 
-  const lockout = await prisma.accountLockout.findUnique({
+  // Multi-tenant : l'extension Prisma injecte tenantId en AND. findFirst car
+  // email n'est plus @unique global — c'est @@unique([tenantId, email]).
+  const lockout = await prisma.accountLockout.findFirst({
     where: { email: normalizedEmail },
   });
 
@@ -67,16 +70,18 @@ export async function checkLoginLockout(email: string): Promise<string | null> {
  */
 export async function recordLoginFailure(email: string, ip: string): Promise<void> {
   const normalizedEmail = email.toLowerCase().trim();
+  const tenantId = await getCurrentTenantId();
+  if (!tenantId) return; // hors requête → pas de scoping fiable, on ignore
 
   // Log de la tentative
   await prisma.loginAttempt.create({
     data: { email: normalizedEmail, ip, success: false },
   });
 
-  // Upsert le lockout
+  // Upsert le lockout — clé composite (tenantId, email), un compteur par boutique
   const lockout = await prisma.accountLockout.upsert({
-    where: { email: normalizedEmail },
-    create: { email: normalizedEmail, failureCount: 1, lockoutLevel: 0 },
+    where: { tenantId_email: { tenantId, email: normalizedEmail } },
+    create: { tenantId, email: normalizedEmail, failureCount: 1, lockoutLevel: 0 },
     update: { failureCount: { increment: 1 } },
   });
 
@@ -98,13 +103,13 @@ export async function recordLoginFailure(email: string, ip: string): Promise<voi
   if (durationSec === -1) {
     // Blocage permanent
     await prisma.accountLockout.update({
-      where: { email: normalizedEmail },
+      where: { tenantId_email: { tenantId, email: normalizedEmail } },
       data: { lockoutLevel: newLevel, permanent: true, lockedUntil: null },
     });
   } else if (durationSec > 0) {
     const lockedUntil = new Date(Date.now() + durationSec * 1000);
     await prisma.accountLockout.update({
-      where: { email: normalizedEmail },
+      where: { tenantId_email: { tenantId, email: normalizedEmail } },
       data: { lockoutLevel: newLevel, lockedUntil },
     });
   }

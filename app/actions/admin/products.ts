@@ -2580,6 +2580,78 @@ export async function getAllTags() {
   return prisma.tag.findMany({ orderBy: { name: "asc" } });
 }
 
+// ─────────────────────────────────────────────
+// Ajouter/retirer des tags en masse sur plusieurs produits.
+// Idempotent : ajouter un tag déjà présent est un no-op (skipDuplicates).
+// Aucune propagation marketplace : les tags sont internes à la boutique.
+// ─────────────────────────────────────────────
+
+export async function bulkAddTagsToProducts(
+  productIds: string[],
+  tagIds: string[],
+): Promise<{ productsCount: number; tagsCount: number; linksCreated: number }> {
+  await requireAdmin();
+  if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
+  if (tagIds.length === 0) throw new Error("Aucun tag sélectionné.");
+  if (productIds.length > 1000) throw new Error("Maximum 1000 produits à la fois.");
+
+  const [products, tags] = await Promise.all([
+    prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true } }),
+    prisma.tag.findMany({ where: { id: { in: tagIds } }, select: { id: true } }),
+  ]);
+  if (products.length === 0) throw new Error("Aucun produit trouvé.");
+  if (tags.length === 0) throw new Error("Aucun tag trouvé.");
+
+  const data = products.flatMap((p) =>
+    tags.map((t) => ({ productId: p.id, tagId: t.id })),
+  );
+
+  const result = await prisma.productTag.createMany({ data, skipDuplicates: true });
+
+  revalidatePath("/admin/produits");
+  revalidatePath("/produits");
+  revalidateTag("products", "default");
+  for (const p of products) {
+    emitProductEvent({ type: "PRODUCT_UPDATED", productId: p.id });
+  }
+
+  return {
+    productsCount: products.length,
+    tagsCount: tags.length,
+    linksCreated: result.count,
+  };
+}
+
+export async function bulkRemoveTagsFromProducts(
+  productIds: string[],
+  tagIds: string[],
+): Promise<{ productsCount: number; tagsCount: number; linksRemoved: number }> {
+  await requireAdmin();
+  if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
+  if (tagIds.length === 0) throw new Error("Aucun tag sélectionné.");
+  if (productIds.length > 1000) throw new Error("Maximum 1000 produits à la fois.");
+
+  const result = await prisma.productTag.deleteMany({
+    where: {
+      productId: { in: productIds },
+      tagId: { in: tagIds },
+    },
+  });
+
+  revalidatePath("/admin/produits");
+  revalidatePath("/produits");
+  revalidateTag("products", "default");
+  for (const pid of productIds) {
+    emitProductEvent({ type: "PRODUCT_UPDATED", productId: pid });
+  }
+
+  return {
+    productsCount: productIds.length,
+    tagsCount: tagIds.length,
+    linksRemoved: result.count,
+  };
+}
+
 export async function createTag(name: string) {
   await requireAdmin();
   const trimmed = name.trim().toLowerCase();

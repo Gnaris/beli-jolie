@@ -44,20 +44,27 @@ export default function CountriesMasterDetail({ initialCountries }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<CountryItem | null>(null);
 
+  // Sync URL → state, uniquement si l'ID de l'URL existe encore dans la liste.
+  // Sans ce garde, supprimer le pays affiché fait ping-pong avec l'effet
+  // de repli ci-dessous → boucle infinie de re-render.
   useEffect(() => {
-    if (urlSelectedId && urlSelectedId !== selectedId) {
+    if (
+      urlSelectedId &&
+      urlSelectedId !== selectedId &&
+      initialCountries.some((c) => c.id === urlSelectedId)
+    ) {
       setSelectedId(urlSelectedId);
     }
-  }, [urlSelectedId, selectedId]);
+  }, [urlSelectedId, selectedId, initialCountries]);
 
   useEffect(() => {
     if (selectedId && !initialCountries.some((c) => c.id === selectedId)) {
       setSelectedId(initialCountries[0]?.id ?? null);
       const params = new URLSearchParams(searchParams.toString());
       params.delete("country");
-      router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+      window.history.replaceState(null, "", `${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
     }
-  }, [selectedId, initialCountries, pathname, router, searchParams]);
+  }, [selectedId, initialCountries, pathname, searchParams]);
 
   function handleSelect(id: string) {
     setSelectedId(id);

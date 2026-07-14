@@ -49,12 +49,18 @@ export default function CompositionsMasterDetail({
   const [editTarget, setEditTarget] = useState<CompositionRow | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
-  // Sync URL → state (deep-link, back/forward)
+  // Sync URL → state, uniquement si l'ID de l'URL existe encore dans items.
+  // Sans ce garde, supprimer la composition affichée fait ping-pong avec
+  // l'effet de repli ci-dessous → boucle infinie de re-render.
   useEffect(() => {
-    if (urlSelectedId && urlSelectedId !== selectedId) {
+    if (
+      urlSelectedId &&
+      urlSelectedId !== selectedId &&
+      items.some((c) => c.id === urlSelectedId)
+    ) {
       setSelectedId(urlSelectedId);
     }
-  }, [urlSelectedId, selectedId]);
+  }, [urlSelectedId, selectedId, items]);
 
   // Rabat sur la première composition si l'URL pointe une entrée introuvable
   useEffect(() => {
@@ -62,9 +68,9 @@ export default function CompositionsMasterDetail({
       setSelectedId(items[0]?.id ?? null);
       const params = new URLSearchParams(searchParams.toString());
       params.delete("composition");
-      router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+      window.history.replaceState(null, "", `${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
     }
-  }, [selectedId, items, pathname, router, searchParams]);
+  }, [selectedId, items, pathname, searchParams]);
 
   function handleSelect(id: string) {
     setSelectedId(id);

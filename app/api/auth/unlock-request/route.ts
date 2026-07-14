@@ -6,6 +6,7 @@ import {
 } from "@/lib/cached-data";
 import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
+import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 
 /**
  * POST /api/auth/unlock-request
@@ -23,8 +24,10 @@ export async function POST(request: NextRequest) {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Vérifier que le compte est bien verrouillé
-    const lockout = await prisma.accountLockout.findUnique({
+    // Vérifier que le compte est bien verrouillé — findFirst car email
+    // n'est plus @unique global (composite tenantId+email). L'extension
+    // Prisma injecte tenantId en AND.
+    const lockout = await prisma.accountLockout.findFirst({
       where: { email: normalizedEmail },
     });
 
@@ -41,6 +44,7 @@ export async function POST(request: NextRequest) {
     const notifyEmail = companyInfo?.email?.trim() || null;
 
     if (notifyEmail) {
+      const baseUrl = await getCurrentTenantBaseUrl();
       await sendMail({
         fromName: shopName,
         to: notifyEmail,
@@ -52,7 +56,7 @@ export async function POST(request: NextRequest) {
             suite à de trop nombreuses tentatives de connexion échouées.</p>
             <p>L'utilisateur demande un déblocage.</p>
             <div style="margin-top:20px;">
-              <a href="${process.env.NEXTAUTH_URL}/admin/utilisateurs"
+              <a href="${baseUrl}/admin/utilisateurs"
                  style="background:#1A1A1A;color:#fff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;">
                 Gérer les utilisateurs →
               </a>

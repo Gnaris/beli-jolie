@@ -49,20 +49,28 @@ export default function SeasonsMasterDetail({
   const [editTarget, setEditTarget] = useState<SeasonRow | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
+  // Sync URL → state, mais UNIQUEMENT si l'ID de l'URL existe encore dans items.
+  // Sans ce garde, la suppression de la saison affichée fait ping-pong entre
+  // cet effet (qui repose selectedId sur l'URL obsolète) et l'effet de repli
+  // ci-dessous (qui repose selectedId sur items[0] + nettoie l'URL).
   useEffect(() => {
-    if (urlSelectedId && urlSelectedId !== selectedId) {
+    if (
+      urlSelectedId &&
+      urlSelectedId !== selectedId &&
+      items.some((s) => s.id === urlSelectedId)
+    ) {
       setSelectedId(urlSelectedId);
     }
-  }, [urlSelectedId, selectedId]);
+  }, [urlSelectedId, selectedId, items]);
 
   useEffect(() => {
     if (selectedId && !items.some((s) => s.id === selectedId)) {
       setSelectedId(items[0]?.id ?? null);
       const params = new URLSearchParams(searchParams.toString());
       params.delete("season");
-      router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+      window.history.replaceState(null, "", `${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
     }
-  }, [selectedId, items, pathname, router, searchParams]);
+  }, [selectedId, items, pathname, searchParams]);
 
   function handleSelect(id: string) {
     setSelectedId(id);

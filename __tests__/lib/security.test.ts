@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // Mock Prisma — vi.hoisted ensures the variable is available when vi.mock factory runs
 const mockPrisma = vi.hoisted(() => ({
   accountLockout: {
-    findUnique: vi.fn(),
+    findFirst: vi.fn(),
     upsert: vi.fn(),
     update: vi.fn(),
     deleteMany: vi.fn(),
@@ -24,6 +24,11 @@ const mockPrisma = vi.hoisted(() => ({
 
 vi.mock("@/lib/prisma", () => ({
   prisma: mockPrisma,
+}));
+
+// Mock tenant helper — recordLoginFailure/checkLoginLockout scope par tenant
+vi.mock("@/lib/tenant", () => ({
+  getCurrentTenantId: vi.fn(async () => "tenant-test"),
 }));
 
 import {
@@ -44,13 +49,13 @@ describe("lib/security", () => {
 
   describe("checkLoginLockout", () => {
     it("should return null when no lockout exists", async () => {
-      mockPrisma.accountLockout.findUnique.mockResolvedValue(null);
+      mockPrisma.accountLockout.findFirst.mockResolvedValue(null);
       const result = await checkLoginLockout("user@test.com");
       expect(result).toBeNull();
     });
 
     it("should return permanent block message", async () => {
-      mockPrisma.accountLockout.findUnique.mockResolvedValue({
+      mockPrisma.accountLockout.findFirst.mockResolvedValue({
         email: "user@test.com",
         permanent: true,
         lockedUntil: null,
@@ -62,7 +67,7 @@ describe("lib/security", () => {
 
     it("should return temporary block message when locked", async () => {
       const lockedUntil = new Date(Date.now() + 300_000); // 5 min from now
-      mockPrisma.accountLockout.findUnique.mockResolvedValue({
+      mockPrisma.accountLockout.findFirst.mockResolvedValue({
         email: "user@test.com",
         permanent: false,
         lockedUntil,
@@ -75,7 +80,7 @@ describe("lib/security", () => {
 
     it("should return null when lockout has expired", async () => {
       const lockedUntil = new Date(Date.now() - 1000); // expired 1s ago
-      mockPrisma.accountLockout.findUnique.mockResolvedValue({
+      mockPrisma.accountLockout.findFirst.mockResolvedValue({
         email: "user@test.com",
         permanent: false,
         lockedUntil,
@@ -86,16 +91,16 @@ describe("lib/security", () => {
     });
 
     it("should normalize email to lowercase", async () => {
-      mockPrisma.accountLockout.findUnique.mockResolvedValue(null);
+      mockPrisma.accountLockout.findFirst.mockResolvedValue(null);
       await checkLoginLockout("User@TEST.COM");
-      expect(mockPrisma.accountLockout.findUnique).toHaveBeenCalledWith({
+      expect(mockPrisma.accountLockout.findFirst).toHaveBeenCalledWith({
         where: { email: "user@test.com" },
       });
     });
 
     it("should format duration in hours", async () => {
       const lockedUntil = new Date(Date.now() + 7200_000); // 2 hours
-      mockPrisma.accountLockout.findUnique.mockResolvedValue({
+      mockPrisma.accountLockout.findFirst.mockResolvedValue({
         email: "user@test.com",
         permanent: false,
         lockedUntil,
@@ -109,7 +114,7 @@ describe("lib/security", () => {
   // ─── recordLoginFailure ────────────────────────────────────────
 
   describe("recordLoginFailure", () => {
-    it("should create login attempt and upsert lockout", async () => {
+    it("should create login attempt and upsert lockout scoped by tenant", async () => {
       mockPrisma.loginAttempt.create.mockResolvedValue({});
       mockPrisma.accountLockout.upsert.mockResolvedValue({
         failureCount: 0,
@@ -121,7 +126,11 @@ describe("lib/security", () => {
       expect(mockPrisma.loginAttempt.create).toHaveBeenCalledWith({
         data: { email: "user@test.com", ip: "1.2.3.4", success: false },
       });
-      expect(mockPrisma.accountLockout.upsert).toHaveBeenCalled();
+      expect(mockPrisma.accountLockout.upsert).toHaveBeenCalledWith({
+        where: { tenantId_email: { tenantId: "tenant-test", email: "user@test.com" } },
+        create: { tenantId: "tenant-test", email: "user@test.com", failureCount: 1, lockoutLevel: 0 },
+        update: { failureCount: { increment: 1 } },
+      });
     });
 
     it("should not trigger lockout before 3 failures", async () => {
@@ -148,7 +157,7 @@ describe("lib/security", () => {
       await recordLoginFailure("user@test.com", "1.2.3.4");
 
       expect(mockPrisma.accountLockout.update).toHaveBeenCalledWith({
-        where: { email: "user@test.com" },
+        where: { tenantId_email: { tenantId: "tenant-test", email: "user@test.com" } },
         data: expect.objectContaining({
           lockoutLevel: 1,
           lockedUntil: expect.any(Date),
@@ -157,10 +166,9 @@ describe("lib/security", () => {
     });
 
     it("ne se déclenche PAS au 2e échec (P2-07 — anti-régression du double-comptage)", async () => {
-      // Avec l'ancien bug `+1`, ce cas verrouillait à tort.
       mockPrisma.loginAttempt.create.mockResolvedValue({});
       mockPrisma.accountLockout.upsert.mockResolvedValue({
-        failureCount: 2, // 2e échec
+        failureCount: 2,
         lockoutLevel: 0,
       });
 
@@ -179,7 +187,7 @@ describe("lib/security", () => {
       await recordLoginFailure("user@test.com", "1.2.3.4");
 
       expect(mockPrisma.accountLockout.update).toHaveBeenCalledWith({
-        where: { email: "user@test.com" },
+        where: { tenantId_email: { tenantId: "tenant-test", email: "user@test.com" } },
         data: expect.objectContaining({
           lockoutLevel: 11,
           permanent: true,
@@ -255,7 +263,6 @@ describe("lib/security", () => {
     it("should check all criteria in parallel", async () => {
       mockPrisma.registrationLog.count.mockResolvedValue(0);
       await checkRegistrationSpam("1.1.1.1", "a@b.com", "06", "123");
-      // 4 parallel counts: IP, phone, siret, email
       expect(mockPrisma.registrationLog.count).toHaveBeenCalledTimes(4);
     });
   });

@@ -41,20 +41,27 @@ export default function HsCodesMasterDetail({ initialItems }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<HsCodeItem | null>(null);
 
+  // Sync URL → state, uniquement si l'ID de l'URL existe encore dans items.
+  // Sans ce garde, supprimer le code SH affiché fait ping-pong avec l'effet
+  // de repli ci-dessous → boucle infinie de re-render.
   useEffect(() => {
-    if (urlSelectedId && urlSelectedId !== selectedId) {
+    if (
+      urlSelectedId &&
+      urlSelectedId !== selectedId &&
+      items.some((i) => i.id === urlSelectedId)
+    ) {
       setSelectedId(urlSelectedId);
     }
-  }, [urlSelectedId, selectedId]);
+  }, [urlSelectedId, selectedId, items]);
 
   useEffect(() => {
     if (selectedId && !items.some((i) => i.id === selectedId)) {
       setSelectedId(items[0]?.id ?? null);
       const params = new URLSearchParams(searchParams.toString());
       params.delete("code");
-      router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+      window.history.replaceState(null, "", `${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
     }
-  }, [selectedId, items, pathname, router, searchParams]);
+  }, [selectedId, items, pathname, searchParams]);
 
   function handleSelect(id: string) {
     setSelectedId(id);

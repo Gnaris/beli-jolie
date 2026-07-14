@@ -58,12 +58,18 @@ export default function SizesMasterDetail({ initialSizes, pfsSizes }: Props) {
   const [renameTarget, setRenameTarget] = useState<SizeItem | null>(null);
   const [mappingModal, setMappingModal] = useState<SizeItem | null>(null);
 
-  // Sync URL → state (deep-link, back/forward)
+  // Sync URL → state, uniquement si l'ID de l'URL existe encore dans sizes.
+  // Sans ce garde, supprimer la taille affichée fait ping-pong avec l'effet
+  // de repli ci-dessous → boucle infinie de re-render.
   useEffect(() => {
-    if (urlSelectedId && urlSelectedId !== selectedId) {
+    if (
+      urlSelectedId &&
+      urlSelectedId !== selectedId &&
+      sizes.some((s) => s.id === urlSelectedId)
+    ) {
       setSelectedId(urlSelectedId);
     }
-  }, [urlSelectedId, selectedId]);
+  }, [urlSelectedId, selectedId, sizes]);
 
   // Rabat sur la première taille si l'URL pointe une entrée introuvable
   useEffect(() => {
@@ -71,9 +77,9 @@ export default function SizesMasterDetail({ initialSizes, pfsSizes }: Props) {
       setSelectedId(sizes[0]?.id ?? null);
       const params = new URLSearchParams(searchParams.toString());
       params.delete("size");
-      router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+      window.history.replaceState(null, "", `${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
     }
-  }, [selectedId, sizes, pathname, router, searchParams]);
+  }, [selectedId, sizes, pathname, searchParams]);
 
   // Ordre trié (orphelins PFS en tête, puis position croissante) — utilisé
   // par la Detail pane pour connaître le rang courant et les bornes des flèches.

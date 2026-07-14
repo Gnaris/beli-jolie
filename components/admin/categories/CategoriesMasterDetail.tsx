@@ -93,12 +93,18 @@ export default function CategoriesMasterDetail({
     });
   }
 
-  // Sync URL → state (deep-link, back/forward)
+  // Sync URL → state (deep-link, back/forward), uniquement si l'ID de l'URL
+  // existe encore dans items. Sans ce garde, supprimer la catégorie affichée
+  // ferait ping-pong avec l'effet de repli ci-dessous → boucle infinie.
   useEffect(() => {
-    if (urlSelectedId && urlSelectedId !== selectedId) {
+    if (
+      urlSelectedId &&
+      urlSelectedId !== selectedId &&
+      items.some((c) => c.id === urlSelectedId)
+    ) {
       setSelectedId(urlSelectedId);
     }
-  }, [urlSelectedId, selectedId]);
+  }, [urlSelectedId, selectedId, items]);
 
   // Si l'URL pointe une catégorie introuvable, on rabat sur la première.
   // On skippe le repli quand une création est en vol (pendingSelectId) :
