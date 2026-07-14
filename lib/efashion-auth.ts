@@ -45,6 +45,11 @@ const SESSION_TTL_MS = 30 * 60 * 1000;
 // CRITIQUE multi-tenant : timestamp par tenant. Sinon le login BJ marque
 // "encore frais" pour Issyma qui réutilise la session BJ.
 const lastLoginAtByTenant = new Map<string, number>();
+// CRITIQUE concurrence : sans in-flight, N workers parallèles voient tous
+// stillFresh=false et déclenchent N performLogin() qui chacun font
+// clearEfashionSession() → cookies invalidés en cascade → 401 (incident
+// Issyma 14/07/2026 — 5 logins simultanés à 18:07:25).
+const loginInFlightByTenant = new Map<string, Promise<EfashionVendorUser>>();
 
 async function resolveCurrentTenantId(): Promise<string> {
   let tid = getCurrentTenantIdSync();
@@ -89,7 +94,12 @@ export async function ensureEfashionSession(): Promise<EfashionVendorUser> {
     Date.now() - lastLoginAt < SESSION_TTL_MS &&
     (await hasEfashionCookies());
 
-  if (!stillFresh) {
+  if (stillFresh) return {} as EfashionVendorUser;
+
+  const existing = loginInFlightByTenant.get(tid);
+  if (existing) return existing;
+
+  const p = (async () => {
     const creds = await getCachedEfashionCredentials();
     if (!creds.email || !creds.password) {
       throw new Error(
@@ -100,9 +110,13 @@ export async function ensureEfashionSession(): Promise<EfashionVendorUser> {
     lastLoginAtByTenant.set(tid, Date.now());
     logger.info("[eFashion] Login OK", { idVendeur: user.id_vendeur, boutique: user.nomBoutique, tid });
     return user;
+  })();
+  loginInFlightByTenant.set(tid, p);
+  try {
+    return await p;
+  } finally {
+    loginInFlightByTenant.delete(tid);
   }
-
-  return {} as EfashionVendorUser;
 }
 
 /**
@@ -112,6 +126,7 @@ export async function invalidateEfashionSession(): Promise<void> {
   const tid = await resolveCurrentTenantId();
   await clearEfashionSession();
   lastLoginAtByTenant.delete(tid);
+  loginInFlightByTenant.delete(tid);
 }
 
 /**

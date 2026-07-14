@@ -343,6 +343,17 @@ export async function efashionPublishProductsBatch(
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // CRITIQUE : sans ces push, le runner reçoit un tableau vide et laisse les
+    // MarketplaceRefreshJob bloqués en IN_PROGRESS pour toujours (incident
+    // Issyma 14/07/2026 — token 401 → check-references throw → 2 produits
+    // coincés dans le widget eFashion).
+    for (const p of prepared) {
+      results.push({
+        productId: p.productId,
+        success: false,
+        error: `check-references-exists : ${msg}`,
+      });
+    }
     return {
       success: false,
       results,

@@ -62,11 +62,13 @@ import { efashionPublishProductsBatch } from "@/lib/efashion-publish-batch";
 import {
   efashionSaveMelDraft,
   efashionSaveMelChoice,
+  efashionCheckReferencesExist,
 } from "@/lib/efashion-shootings";
 
 const findUniqueMock = prisma.product.findUnique as unknown as ReturnType<typeof vi.fn>;
 const saveDraftMock = efashionSaveMelDraft as unknown as ReturnType<typeof vi.fn>;
 const saveChoiceMock = efashionSaveMelChoice as unknown as ReturnType<typeof vi.fn>;
+const checkReferencesMock = efashionCheckReferencesExist as unknown as ReturnType<typeof vi.fn>;
 
 function makeProduct(
   productId: string,
@@ -148,6 +150,24 @@ describe("efashionPublishProductsBatch", () => {
     const p2Result = res.results.find((r) => r.productId === "p2");
     expect(p1Result?.efashionProductIds).toEqual([1001, 1002]);
     expect(p2Result?.efashionProductIds).toEqual([2001, 2002, 2003]);
+  });
+
+  it("marque chaque produit préparé en échec quand check-references throw (bug jobs bloqués Issyma 14/07)", async () => {
+    findUniqueMock
+      .mockResolvedValueOnce(makeProduct("p1", "REF1", 1))
+      .mockResolvedValueOnce(makeProduct("p2", "REF2", 1));
+    checkReferencesMock.mockRejectedValueOnce(new Error("HTTP 401 Unauthorized"));
+
+    const res = await efashionPublishProductsBatch(["p1", "p2"]);
+
+    expect(res.success).toBe(false);
+    expect(res.results).toHaveLength(2);
+    expect(res.results.every((r) => !r.success)).toBe(true);
+    expect(res.results.map((r) => r.productId).sort()).toEqual(["p1", "p2"]);
+    for (const r of res.results) {
+      expect(r.error).toContain("check-references-exists");
+    }
+    expect(saveDraftMock).not.toHaveBeenCalled();
   });
 
   it("rejette les produits avec mappings manquants sans bloquer les autres", async () => {
