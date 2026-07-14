@@ -196,6 +196,45 @@ export const authOptions: NextAuthOptions = {
 
   callbacks: {
     /**
+     * redirect callback — résout `callbackUrl` sur le domaine du tenant courant
+     *
+     * Sans ce callback, NextAuth v4 préfixe les URLs relatives (ex : `signOut({
+     * callbackUrl: "/" })`) avec `NEXTAUTH_URL` qui est fixée à un unique
+     * domaine (`beliandjolie.com` en prod). Résultat : un client qui se
+     * déconnecte depuis `issyma.fr` finit sur `beliandjolie.com`.
+     *
+     * On reconstruit ici l'origin depuis le `Host:` header courant. Le fallback
+     * `baseUrl` (= `NEXTAUTH_URL`) reste actif si `headers()` n'est pas
+     * disponible (contextes hors requête).
+     */
+    async redirect({ url, baseUrl }) {
+      let origin = baseUrl;
+      try {
+        const { headers } = await import("next/headers");
+        const h = await headers();
+        const host = h.get("host");
+        if (host) {
+          const forwarded = h.get("x-forwarded-proto");
+          const proto = forwarded
+            ? forwarded.split(",")[0]!.trim()
+            : host.startsWith("localhost") || host.startsWith("127.0.0.1")
+              ? "http"
+              : "https";
+          origin = `${proto}://${host}`;
+        }
+      } catch {
+        /* headers indisponibles → fallback baseUrl */
+      }
+      if (url.startsWith("/")) return `${origin}${url}`;
+      try {
+        if (new URL(url).origin === origin) return url;
+      } catch {
+        /* URL invalide → fallback origin */
+      }
+      return origin;
+    },
+
+    /**
      * jwt callback — enrichit le token avec les données custom
      * Appelé à chaque création/refresh de token. Lors d'un `update()` côté
      * client, on relit le statut/role en base pour propager une approbation

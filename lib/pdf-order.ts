@@ -194,6 +194,7 @@ export async function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
     },
   });
   const shopName = company?.shopName || company?.name || "Ma Boutique";
+  const publicEmail = await derivePublicContactEmail(company?.email);
 
   // Prefetch all item images from local storage in parallel
   const imageBuffers = new Map<string, Buffer>();
@@ -644,7 +645,6 @@ export async function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
       if (addrParts.length > 0) companyLines.push(addrParts.join(", "));
       const contactParts: string[] = [];
       if (company.phone) contactParts.push(company.phone);
-      const publicEmail = derivePublicContactEmail(company.email);
       if (publicEmail) contactParts.push(publicEmail);
       if (company.website) contactParts.push(company.website);
       if (contactParts.length > 0) companyLines.push(contactParts.join(" \u00B7 "));

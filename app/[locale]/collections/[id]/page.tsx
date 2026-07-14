@@ -22,10 +22,14 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     select: { name: true, image: true },
   });
   if (!col) return {};
-  const shopName = await getCachedShopName();
+  const [shopName, siteUrl, alternates] = await Promise.all([
+    getCachedShopName(),
+    getSiteUrl(),
+    buildAlternates(`/collections/${id}`, locale),
+  ]);
   const title = `${col.name} — Collections ${shopName}`;
   const description = `Découvrez la collection ${col.name} sur ${shopName}. Sélection grossiste pour professionnels.`;
-  const imageUrl = col.image ? (col.image.startsWith("http") ? col.image : `${getSiteUrl()}${col.image}`) : null;
+  const imageUrl = col.image ? (col.image.startsWith("http") ? col.image : `${siteUrl}${col.image}`) : null;
 
   return {
     title,
@@ -35,7 +39,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       description,
       type: "website",
       siteName: shopName,
-      url: `${getSiteUrl()}/${locale}/collections/${id}`,
+      url: `${siteUrl}/${locale}/collections/${id}`,
       ...(imageUrl && { images: [{ url: imageUrl, alt: col.name }] }),
     },
     twitter: {
@@ -44,7 +48,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       description,
       ...(imageUrl && { images: [imageUrl] }),
     },
-    alternates: buildAlternates(`/collections/${id}`, locale),
+    alternates,
   };
 }
 

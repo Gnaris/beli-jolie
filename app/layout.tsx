@@ -48,7 +48,7 @@ export async function generateMetadata(): Promise<Metadata> {
   // tenant à l'autre (fuite cross-tenant).
   await getCurrentTenantId();
   const shopName = await getCachedShopName();
-  const siteUrl = getSiteUrl();
+  const siteUrl = await getSiteUrl();
   return {
     metadataBase: new URL(siteUrl),
     title: {
@@ -103,7 +103,7 @@ export default async function RootLayout({
 
   const organizationJsonLd = buildOrganizationSchema({
     name: shopName,
-    url: getSiteUrl(),
+    url: await getSiteUrl(),
     description: `${shopName} — plateforme grossiste B2B pour professionnels.`,
     email: seoConfig.email,
     phone: seoConfig.phone,

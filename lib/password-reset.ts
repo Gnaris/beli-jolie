@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
+import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 
 export function generateResetToken(): string {
   return crypto.randomBytes(32).toString("hex");
@@ -24,8 +25,8 @@ export async function createPasswordResetToken(email: string): Promise<string> {
 
 export async function sendPasswordResetEmail(email: string, token: string): Promise<void> {
   const shopName = await getCachedShopName();
-  const { NEXTAUTH_URL } = process.env;
-  const resetUrl = `${NEXTAUTH_URL}/reinitialiser-mot-de-passe?token=${token}`;
+  const baseUrl = await getCurrentTenantBaseUrl();
+  const resetUrl = `${baseUrl}/reinitialiser-mot-de-passe?token=${token}`;
 
   const result = await sendMail({
     fromName: shopName,

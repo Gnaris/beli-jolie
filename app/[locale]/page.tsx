@@ -19,20 +19,22 @@ import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
-  const [shopName, tMeta] = await Promise.all([
+  const [shopName, tMeta, siteUrl, alternates] = await Promise.all([
     getCachedShopName(),
     getTranslations({ locale, namespace: "meta" }),
+    getSiteUrl(),
+    buildAlternates("/", locale),
   ]);
   return {
     title: tMeta("homeTitle", { shopName }),
     description: tMeta("homeDescription", { shopName }),
-    alternates: buildAlternates("/", locale),
+    alternates,
     openGraph: {
       type: "website",
       siteName: shopName,
       title: tMeta("homeTitle", { shopName }),
       description: tMeta("homeOgDescription", { shopName }),
-      url: `${getSiteUrl()}/${locale}`,
+      url: `${siteUrl}/${locale}`,
     },
   };
 }
@@ -317,7 +319,7 @@ export default async function HomePage() {
   }
 
   // JSON-LD WebSite (avec SearchAction). Organization est rendu dans le layout racine, pas de doublon.
-  const webSiteJsonLd = buildWebsiteSchema({ name: shopName, url: getSiteUrl() });
+  const webSiteJsonLd = buildWebsiteSchema({ name: shopName, url: await getSiteUrl() });
 
   return (
     <div className="min-h-screen bg-bg-secondary relative">

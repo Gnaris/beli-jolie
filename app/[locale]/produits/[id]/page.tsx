@@ -11,6 +11,7 @@ import { getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { getImageSrc } from "@/lib/image-utils";
 import { buildAlternates, getSiteUrl } from "@/lib/seo";
+import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 import { canSeePrices } from "@/lib/price-visibility";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
@@ -112,7 +113,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   if (!product) return { title: "Produit introuvable" };
 
-  const shopName = await getCachedShopName();
+  const [shopName, siteUrl, alternates] = await Promise.all([
+    getCachedShopName(),
+    getSiteUrl(),
+    buildAlternates(`/produits/${id}`, locale),
+  ]);
   const title = `${product.name} — ${shopName}`;
   const description = product.description.slice(0, 160).replace(/\n/g, " ");
   const imageUrl = firstImage ? getImageSrc(firstImage.path, "large") : null;
@@ -125,7 +130,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       description,
       type: "website",
       siteName: shopName,
-      url: `${getSiteUrl()}/${locale}/produits/${id}`,
+      url: `${siteUrl}/${locale}/produits/${id}`,
       ...(imageUrl && { images: [{ url: imageUrl, width: 800, height: 800, alt: product.name }] }),
     },
     twitter: {
@@ -134,7 +139,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       description,
       ...(imageUrl && { images: [imageUrl] }),
     },
-    alternates: buildAlternates(`/produits/${id}`, locale),
+    alternates,
   };
 }
 
@@ -302,7 +307,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     ? Math.min(...filteredColors.map((c) => Number(c.unitPrice)))
     : 0;
   const firstImg = colorImages[0]?.path;
-  const siteUrl = process.env.NEXTAUTH_URL || "";
+  const siteUrl = await getCurrentTenantBaseUrl();
   const productJsonLd = {
     "@context": "https://schema.org",
     "@type": "Product",
@@ -329,8 +334,8 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [
-      { "@type": "ListItem", position: 1, name: "Produits", item: `${process.env.NEXTAUTH_URL || ""}/produits` },
-      { "@type": "ListItem", position: 2, name: translatedCategoryName, item: `${process.env.NEXTAUTH_URL || ""}/produits?cat=${product.categoryId}` },
+      { "@type": "ListItem", position: 1, name: "Produits", item: `${siteUrl}/produits` },
+      { "@type": "ListItem", position: 2, name: translatedCategoryName, item: `${siteUrl}/produits?cat=${product.categoryId}` },
       { "@type": "ListItem", position: 3, name: translated.name },
     ],
   };

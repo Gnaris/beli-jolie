@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { VALID_LOCALES, DEFAULT_LOCALE, type Locale } from "@/i18n/locales";
 import { getCurrentTenantIdSync } from "@/lib/tenant-als";
+import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 
 export interface OrganizationData {
   name: string;
@@ -17,13 +18,17 @@ export interface OrganizationData {
   };
 }
 
-export function getSiteUrl(): string {
-  const raw = process.env.NEXTAUTH_URL || "https://example.com";
-  return raw.replace(/\/$/, "");
+/**
+ * URL publique du tenant courant, sans slash final. Multi-tenant : lit le
+ * `Host:` header courant plutôt que `NEXTAUTH_URL` (qui est fixée à un unique
+ * domaine et servirait le même canonical/OG à toutes les boutiques).
+ */
+export async function getSiteUrl(): Promise<string> {
+  return await getCurrentTenantBaseUrl();
 }
 
-export function absoluteUrl(path: string): string {
-  const base = getSiteUrl();
+export async function absoluteUrl(path: string): Promise<string> {
+  const base = await getSiteUrl();
   if (!path.startsWith("/")) return `${base}/${path}`;
   return `${base}${path}`;
 }
@@ -38,12 +43,12 @@ export function absoluteUrl(path: string): string {
  * Retourne le canonical = URL avec préfixe de la locale courante,
  * et un set d'alternates languages pointant vers chaque variante par locale.
  */
-export function buildAlternates(path: string, currentLocale: string = DEFAULT_LOCALE): {
-  canonical: string;
-  languages: Record<string, string>;
-} {
+export async function buildAlternates(
+  path: string,
+  currentLocale: string = DEFAULT_LOCALE,
+): Promise<{ canonical: string; languages: Record<string, string> }> {
   const cleanPath = path === "/" ? "" : path;
-  const base = getSiteUrl();
+  const base = await getSiteUrl();
   const languages: Record<string, string> = {
     "x-default": `${base}/${DEFAULT_LOCALE}${cleanPath}`,
   };

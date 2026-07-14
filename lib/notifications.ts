@@ -17,6 +17,7 @@ import { logger } from "@/lib/logger";
 import { floorMoney } from "@/lib/order-totals";
 import { decryptIfSensitive } from "@/lib/encryption";
 import { derivePublicContactEmail } from "@/lib/public-contact-email";
+import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 
 function escapeHtml(str: string): string {
   return str
@@ -70,9 +71,10 @@ interface NewClientInfo {
 export async function notifyNewClientRegistration(
   client: NewClientInfo
 ): Promise<void> {
-  const [shopName, notifyEmail] = await Promise.all([
+  const [shopName, notifyEmail, baseUrl] = await Promise.all([
     getCachedShopName(),
     resolveNotifyEmail(),
+    getCurrentTenantBaseUrl(),
   ]);
   if (!notifyEmail) {
     logger.warn("[notifications] Aucun email destinataire configuré — email ignoré.");
@@ -140,7 +142,7 @@ export async function notifyNewClientRegistration(
         ${kbisNote}
         ${docNote}
         <div style="margin-top:20px;">
-          <a href="${process.env.NEXTAUTH_URL}/admin/utilisateurs"
+          <a href="${baseUrl}/admin/utilisateurs"
              style="background:#1A1A1A;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;">
             Examiner le dossier →
           </a>
@@ -180,7 +182,7 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
     if (alerts.length === 0) return;
 
     const shopName = await getCachedShopName();
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = await getCurrentTenantBaseUrl();
 
     for (const alert of alerts) {
       const productUrl = `${baseUrl}/fr/produits/${alert.product.id}`;
@@ -303,7 +305,7 @@ export async function notifyOrderStatusChange(
       return;
     }
 
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = await getCurrentTenantBaseUrl();
 
     // Tracking info (for SHIPPED status)
     const trackingHtml =
@@ -407,8 +409,8 @@ export async function notifyOrderStatusChange(
             </a>
           </div>
 
-          ${(() => {
-            const publicEmail = derivePublicContactEmail(companyInfo?.email);
+          ${await (async () => {
+            const publicEmail = await derivePublicContactEmail(companyInfo?.email);
             return publicEmail
               ? `<p style="margin-top:24px;font-size:13px;color:#6B6B6B;text-align:center;">
             Une question ? Contactez-nous à <a href="mailto:${publicEmail}" style="color:${config.color};">${escapeHtml(publicEmail)}</a>
@@ -452,7 +454,7 @@ export async function notifyAdminNewMessage(params: {
   if (!notifyEmail) return;
 
   const ref = `CONV-${conversationId.slice(-8).toUpperCase()}`;
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const baseUrl = await getCurrentTenantBaseUrl();
 
   await sendMail({
     fromName: shopName || "Boutique",
@@ -490,7 +492,7 @@ export async function notifyClientNewReply(params: {
   const shopName = await getCachedShopName();
 
   const ref = `CONV-${conversationId.slice(-8).toUpperCase()}`;
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const baseUrl = await getCurrentTenantBaseUrl();
 
   await sendMail({
     fromName: shopName || "Boutique",
@@ -532,7 +534,7 @@ export async function notifyAdminNewClaim(params: {
   ]);
   if (!notifyEmail) return;
 
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const baseUrl = await getCurrentTenantBaseUrl();
 
   await sendMail({
     fromName: shopName || "Boutique",
@@ -574,7 +576,7 @@ export async function notifyClientClaimUpdate(params: {
   const { clientEmail, clientName, claimReference, newStatus, message, claimId } = params;
   const shopName = await getCachedShopName();
 
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const baseUrl = await getCurrentTenantBaseUrl();
   const statusLabels: Record<string, string> = {
     IN_REVIEW: "en cours d'examen",
     ACCEPTED: "acceptee",
@@ -639,7 +641,7 @@ export async function notifyAdminNewOrder(
       return;
     }
 
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = await getCurrentTenantBaseUrl();
 
     const itemsHtml = order.items
       .map(
@@ -779,7 +781,7 @@ export async function notifyClientAccountApproved(params: {
 }): Promise<void> {
   try {
     const shopName = await getCachedShopName();
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = await getCurrentTenantBaseUrl();
 
     await sendMail({
       fromName: shopName,
@@ -919,7 +921,7 @@ export async function notifyClientOrderModified(
     }
 
     const shopName = await getCachedShopName();
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = await getCurrentTenantBaseUrl();
 
     const reasonLabels: Record<string, string> = {
       OUT_OF_STOCK: "Rupture de stock",
@@ -952,7 +954,7 @@ export async function notifyClientOrderModified(
 
     await sendMail({
       fromName: shopName,
-      to: "borischen91@gmail.com", // TEST LOCAL — redirection pour prévisualiser l'email (remettre order.clientEmail après test)
+      to: order.clientEmail,
       subject: `${shopName} — Modification de votre commande ${order.orderNumber}`,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">

@@ -18,55 +18,55 @@ describe("lib/seo", () => {
   });
 
   describe("getSiteUrl", () => {
-    it("returns NEXTAUTH_URL without trailing slash", () => {
+    it("returns NEXTAUTH_URL without trailing slash", async () => {
       process.env.NEXTAUTH_URL = "https://shop.example.com/";
-      expect(getSiteUrl()).toBe("https://shop.example.com");
+      expect(await getSiteUrl()).toBe("https://shop.example.com");
     });
 
-    it("falls back to placeholder when NEXTAUTH_URL is missing", () => {
+    it("falls back to localhost when NEXTAUTH_URL is missing", async () => {
       delete process.env.NEXTAUTH_URL;
-      expect(getSiteUrl()).toBe("https://example.com");
+      expect(await getSiteUrl()).toBe("http://localhost:3000");
     });
   });
 
   describe("absoluteUrl", () => {
-    it("prepends base for paths starting with /", () => {
-      expect(absoluteUrl("/produits/123")).toBe("https://shop.example.com/produits/123");
+    it("prepends base for paths starting with /", async () => {
+      expect(await absoluteUrl("/produits/123")).toBe("https://shop.example.com/produits/123");
     });
 
-    it("inserts a slash when path is missing one", () => {
-      expect(absoluteUrl("produits")).toBe("https://shop.example.com/produits");
+    it("inserts a slash when path is missing one", async () => {
+      expect(await absoluteUrl("produits")).toBe("https://shop.example.com/produits");
     });
   });
 
   describe("buildAlternates", () => {
-    it("canonical reflects the locale of the current page", () => {
-      const altsFr = buildAlternates("/produits/abc", "fr");
+    it("canonical reflects the locale of the current page", async () => {
+      const altsFr = await buildAlternates("/produits/abc", "fr");
       expect(altsFr.canonical).toBe("https://shop.example.com/fr/produits/abc");
-      const altsEn = buildAlternates("/produits/abc", "en");
+      const altsEn = await buildAlternates("/produits/abc", "en");
       expect(altsEn.canonical).toBe("https://shop.example.com/en/produits/abc");
     });
 
-    it("x-default points to the French version", () => {
-      const alts = buildAlternates("/", "en");
+    it("x-default points to the French version", async () => {
+      const alts = await buildAlternates("/", "en");
       expect(alts.languages["x-default"]).toBe("https://shop.example.com/fr");
     });
 
-    it("emits one alternate per supported locale", () => {
-      const alts = buildAlternates("/produits/abc", "fr");
+    it("emits one alternate per supported locale", async () => {
+      const alts = await buildAlternates("/produits/abc", "fr");
       for (const locale of VALID_LOCALES) {
         expect(alts.languages[locale]).toBe(`https://shop.example.com/${locale}/produits/abc`);
       }
     });
 
-    it("handles the home path correctly (no double slash)", () => {
-      const alts = buildAlternates("/", "fr");
+    it("handles the home path correctly (no double slash)", async () => {
+      const alts = await buildAlternates("/", "fr");
       expect(alts.canonical).toBe("https://shop.example.com/fr");
       expect(alts.languages.fr).toBe("https://shop.example.com/fr");
     });
 
-    it("uses 'fr' as default locale when none is provided", () => {
-      const alts = buildAlternates("/produits");
+    it("uses 'fr' as default locale when none is provided", async () => {
+      const alts = await buildAlternates("/produits");
       expect(alts.canonical).toBe("https://shop.example.com/fr/produits");
     });
   });

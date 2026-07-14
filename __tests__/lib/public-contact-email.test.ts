@@ -11,33 +11,33 @@ describe("derivePublicContactEmail", () => {
     else process.env.NEXTAUTH_URL = original;
   });
 
-  it("dérive contact@<domaine> depuis NEXTAUTH_URL en https", () => {
+  it("dérive contact@<domaine> depuis le domaine du tenant en https", async () => {
     process.env.NEXTAUTH_URL = "https://issyma.fr";
-    expect(derivePublicContactEmail(null)).toBe("contact@issyma.fr");
+    expect(await derivePublicContactEmail(null)).toBe("contact@issyma.fr");
   });
 
-  it("retire le www.", () => {
+  it("retire le www.", async () => {
     process.env.NEXTAUTH_URL = "https://www.demo.beliandjolie.com";
-    expect(derivePublicContactEmail(null)).toBe("contact@demo.beliandjolie.com");
+    expect(await derivePublicContactEmail(null)).toBe("contact@demo.beliandjolie.com");
   });
 
-  it("fallback sur companyEmail si NEXTAUTH_URL absent", () => {
-    expect(derivePublicContactEmail("legacy@boutique.fr")).toBe("legacy@boutique.fr");
+  it("fallback sur companyEmail si NEXTAUTH_URL absent", async () => {
+    expect(await derivePublicContactEmail("legacy@boutique.fr")).toBe("legacy@boutique.fr");
   });
 
-  it("prio NEXTAUTH_URL même si companyEmail fourni", () => {
+  it("prio domaine tenant même si companyEmail fourni", async () => {
     process.env.NEXTAUTH_URL = "https://issyma.fr";
-    expect(derivePublicContactEmail("legacy@boutique.fr")).toBe("contact@issyma.fr");
+    expect(await derivePublicContactEmail("legacy@boutique.fr")).toBe("contact@issyma.fr");
   });
 
-  it("retourne null si rien", () => {
-    expect(derivePublicContactEmail(null)).toBe(null);
-    expect(derivePublicContactEmail("")).toBe(null);
-    expect(derivePublicContactEmail(undefined)).toBe(null);
+  it("retourne null si rien", async () => {
+    expect(await derivePublicContactEmail(null)).toBe(null);
+    expect(await derivePublicContactEmail("")).toBe(null);
+    expect(await derivePublicContactEmail(undefined)).toBe(null);
   });
 
-  it("fallback si URL invalide", () => {
+  it("fallback si URL invalide", async () => {
     process.env.NEXTAUTH_URL = "pas-une-url";
-    expect(derivePublicContactEmail("fallback@x.fr")).toBe("fallback@x.fr");
+    expect(await derivePublicContactEmail("fallback@x.fr")).toBe("fallback@x.fr");
   });
 });
