@@ -43,6 +43,7 @@ import {
 } from "@/lib/pfs-family-resolve";
 import { PROTECTED_SIZE_NAME, PROTECTED_SIZE_PFS_REF, isProtectedSizeName } from "@/lib/protected-sizes";
 import { requirePfsBrand } from "@/lib/pfs-brand";
+import { loadPfsImportPriceMarkup, applyImportMarkupToUnitPrice } from "@/lib/pfs-import-price-markup";
 
 // Re-export pour ne pas casser les imports existants de `pfs-import`.
 export { sanitizePfsFamilyName, inferPfsFamilyFromCategoryLabel };
@@ -1310,6 +1311,10 @@ export async function approveAndImportPfsProduct(
   // Marque PFS obligatoire (blocage clair si non sélectionnée).
   await requirePfsBrand();
 
+  // Majoration à appliquer au prix reçu de PFS (défaut : no-op).
+  // Réglable dans /admin/produits/importer-pfs (carte en haut de page).
+  const importPriceMarkup = await loadPfsImportPriceMarkup();
+
   const product: PfsProduct | undefined = await getCachedPfsProductById(pfsId);
   if (!product) throw new Error(`Produit PFS introuvable : ${pfsId}`);
 
@@ -1673,7 +1678,7 @@ export async function approveAndImportPfsProduct(
           data: {
             productId: productRow.id,
             colorId: pv.rv.colorId,
-            unitPrice: pv.rv.unitPrice,
+            unitPrice: applyImportMarkupToUnitPrice(pv.rv.unitPrice, pv.rv.packQuantity, importPriceMarkup),
             weight: pv.rv.weight,
             stock: pv.rv.stock,
             isPrimary: pv.isPrimary,

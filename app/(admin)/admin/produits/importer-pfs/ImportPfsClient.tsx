@@ -5,6 +5,10 @@ import Link from "next/link";
 import { useToast } from "@/components/ui/Toast";
 import { useProductStream } from "@/hooks/useProductStream";
 import type { ImportablePfsProduct } from "@/lib/pfs-import";
+import { PfsImportMarkupCard } from "./PfsImportMarkupCard";
+import type { MarkupState } from "@/components/admin/settings/MarkupRow";
+
+const NO_MARKUP: MarkupState = { type: "percent", value: 0, rounding: "none" };
 
 type Step = "products" | "import";
 type ImportMode = "browse" | "byRef";
@@ -45,7 +49,13 @@ interface PfsJob {
   } | null;
 }
 
-export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
+export default function ImportPfsClient({
+  embedded,
+  initialImportMarkup = NO_MARKUP,
+}: {
+  embedded?: boolean;
+  initialImportMarkup?: MarkupState;
+}) {
   const toast = useToast();
   const [step, setStep] = useState<Step>("products");
   const [productLimit, setProductLimit] = useState<string>("");
@@ -310,6 +320,11 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
             <p className="page-subtitle font-body">Récupérez les produits PFS qui ne sont pas encore dans votre catalogue</p>
           </div>
         </>
+      )}
+
+      {/* Carte majoration — visible uniquement en mode standalone */}
+      {!embedded && step === "products" && (
+        <PfsImportMarkupCard initial={initialImportMarkup} />
       )}
 
       {/* Stepper — 2 étapes */}
