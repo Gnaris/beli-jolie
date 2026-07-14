@@ -5,10 +5,17 @@ import Link from "next/link";
 import ImportProductsTab from "@/components/admin/products/import/ImportProductsTab";
 import ImportImagesTab from "@/components/admin/products/import/ImportImagesTab";
 import ImportPfsClient from "@/app/(admin)/admin/produits/importer-pfs/ImportPfsClient";
+import type { MarkupState } from "@/components/admin/settings/MarkupRow";
 
 type Tab = "products" | "images" | "pfs";
 
-export default function ImportPageClient({ hasPfsConfig }: { hasPfsConfig: boolean }) {
+export default function ImportPageClient({
+  hasPfsConfig,
+  initialImportMarkup,
+}: {
+  hasPfsConfig: boolean;
+  initialImportMarkup: MarkupState;
+}) {
   const [activeTab, setActiveTab] = useState<Tab>("products");
 
   return (
@@ -84,7 +91,7 @@ export default function ImportPageClient({ hasPfsConfig }: { hasPfsConfig: boole
       <div>
         {activeTab === "products" && <ImportProductsTab />}
         {activeTab === "images" && <ImportImagesTab />}
-        {activeTab === "pfs" && <ImportPfsClient embedded />}
+        {activeTab === "pfs" && <ImportPfsClient embedded initialImportMarkup={initialImportMarkup} />}
       </div>
     </div>
   );

@@ -322,8 +322,8 @@ export default function ImportPfsClient({
         </>
       )}
 
-      {/* Carte majoration — visible uniquement en mode standalone */}
-      {!embedded && step === "products" && (
+      {/* Carte majoration — visible en haut, sauf pendant un import en cours */}
+      {step === "products" && (
         <PfsImportMarkupCard initial={initialImportMarkup} />
       )}
 
