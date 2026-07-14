@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { checkLoginLockout, recordLoginFailure, recordLoginSuccess } from "@/lib/security";
 import { verifyLoginOtp } from "@/lib/login-otp";
+import { sendAdminLoginNotification } from "@/lib/admin-login-notify";
+import { tenantALS } from "@/lib/tenant-als";
 import type { Role, UserStatus } from "@prisma/client";
 
 /**
@@ -93,6 +95,22 @@ export const authOptions: NextAuthOptions = {
           recordLoginSuccess(email, ip),
           prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }),
         ]);
+
+        // Notification connexion admin sur le mail perso vérifié (fire-and-forget,
+        // ne bloque jamais le login même si SMTP est down). tenantALS.run est
+        // obligatoire ici car l'IIFE continue après la fin du scope requête.
+        if (user.role === "ADMIN" && user.tenantId) {
+          const tenantId = user.tenantId;
+          const userAgent = req?.headers?.["user-agent"]?.toString() || "inconnu";
+          void tenantALS.run(tenantId, () =>
+            sendAdminLoginNotification({
+              tenantId,
+              adminEmail: user.email,
+              ip,
+              userAgent,
+            })
+          );
+        }
 
         // Retour de l'utilisateur (sans le mot de passe)
         return {
