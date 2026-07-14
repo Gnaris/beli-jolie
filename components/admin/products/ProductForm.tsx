@@ -1014,9 +1014,6 @@ export default function ProductForm({
     }
   }, [colorImages, primaryColorId]);
 
-  // ── Composition picker state ─────────────────────────────────────────
-  const [newCompId, setNewCompId] = useState("");
-
   // ── Locale tabs ──────────────────────────────────────────────────────
   const [activeLocale, setActiveLocale] = useState("fr");
   const [translations, setTranslations] = useState<Record<string, TranslationState>>(() => {
@@ -1186,13 +1183,12 @@ export default function ProductForm({
   // ── Composition helpers ──────────────────────────────────────────────
   const totalPct = compositions.reduce((sum, c) => sum + parseFloat(c.percentage || "0"), 0);
 
-  function addComposition() {
-    if (!newCompId) return;
-    if (compositions.some((c) => c.compositionId === newCompId)) return;
+  function addComposition(compId: string) {
+    if (!compId) return;
+    if (compositions.some((c) => c.compositionId === compId)) return;
     const evenPct = String(Math.round(100 / (compositions.length + 1)));
     const updated = compositions.map((c) => ({ ...c, percentage: evenPct }));
-    setCompositions([...updated, { compositionId: newCompId, percentage: evenPct }]);
-    setNewCompId("");
+    setCompositions([...updated, { compositionId: compId, percentage: evenPct }]);
   }
 
   function updateCompositionPct(compositionId: string, pct: string) {
@@ -2863,26 +2859,21 @@ export default function ProductForm({
                 }
               />
 
-              <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
-                <div className="flex-1">
-                  <CustomSelect
-                    value={newCompId}
-                    onChange={(v) => setNewCompId(v)}
-                    options={[
-                      { value: "", label: "— Choisir un matériau —" },
-                      ...localCompositions
-                        .filter((c) => !compositions.some((x) => x.compositionId === c.id))
-                        .map((c) => ({ value: c.id, label: c.name })),
-                    ]}
-                    placeholder="— Choisir un matériau —"
-                    loading={!attributesLoaded}
-                    emptyMessage="Aucune composition n'est créée"
-                    searchable
-                  />
-                </div>
-                <button type="button" onClick={addComposition} disabled={!newCompId}
-                  className="px-4 py-2.5 bg-bg-dark text-text-inverse text-sm font-medium rounded-lg hover:bg-[#000000] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 font-body"
-                >Ajouter</button>
+              <div>
+                <CustomSelect
+                  value=""
+                  onChange={(v) => { if (v) addComposition(v); }}
+                  options={[
+                    { value: "", label: "— Choisir un matériau —" },
+                    ...localCompositions
+                      .filter((c) => !compositions.some((x) => x.compositionId === c.id))
+                      .map((c) => ({ value: c.id, label: c.name })),
+                  ]}
+                  placeholder="— Choisir un matériau —"
+                  loading={!attributesLoaded}
+                  emptyMessage="Aucune composition n'est créée"
+                  searchable
+                />
               </div>
 
               {attributesLoaded && localCompositions.length === 0 && (
