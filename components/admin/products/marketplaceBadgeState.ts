@@ -38,13 +38,18 @@ export function findLatestOpForProduct(
   return undefined;
 }
 
-// Fenêtre de grâce après une sync réussie pendant laquelle on cache le badge
-// orange même si les props serveur disent encore syncRequired=true. Couvre le
-// délai entre "op done" et l'aboutissement du router.refresh (~800 ms de debounce
-// dans MarketplaceRefreshContext + aller-retour serveur). Au-delà, on refait
-// confiance à syncRequired — si l'utilisatrice modifie le produit après coup,
-// l'alerte orange réapparaît normalement.
-const RECENT_SYNC_WINDOW_MS = 5_000;
+// Fenêtre de grâce après une sync réussie pendant laquelle on garde le badge
+// vert (justPublishedOk) et on cache le badge orange même si les props serveur
+// disent encore syncRequired=true. Couvre le délai entre "op done" et
+// l'aboutissement du router.refresh (~800 ms de debounce dans
+// MarketplaceRefreshContext + aller-retour RSC serveur). Sur /admin/produits,
+// la re-render RSC peut prendre plusieurs secondes (tableau lourd, nombreux
+// tenants, jointures) — 30 s couvre largement le pire cas et évite le
+// « flash rouge » entre la fin du push et l'arrivée du pfsProductId côté
+// client. Au-delà, on refait confiance à serverProductId / syncRequired —
+// si l'utilisatrice modifie ou délie le produit après coup, l'affichage
+// reflète l'état réel.
+const RECENT_SYNC_WINDOW_MS = 30_000;
 
 export function computeMarketplaceBadgeState(
   serverProductId: string | null,

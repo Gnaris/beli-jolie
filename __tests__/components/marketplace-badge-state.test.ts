@@ -162,11 +162,26 @@ describe("computeMarketplaceBadgeState", () => {
     const op = baseItem({
       status: "done",
       ankorsOutcome: { ok: true, archived: false },
-      completedAt: new Date(now - 60_000).toISOString(),
+      completedAt: new Date(now - 90_000).toISOString(),
     });
     const state = computeMarketplaceBadgeState(null, op, "ankorstore", false, now);
     expect(state.justPublishedOk).toBe(false);
     expect(state.online).toBe(false);
+  });
+
+  it("stays online for at least 20 s after publish OK — évite le flash rouge quand la RSC de /admin/produits met plusieurs secondes à renvoyer le nouveau pfsProductId", () => {
+    // Régression 2026-07-15 : la fenêtre était à 5 s et la RSC de /admin/produits
+    // (tableau lourd) pouvait dépasser ce délai → badge repassait rouge
+    // quelques secondes avant de redevenir vert. Fenêtre bumpée à 30 s.
+    const now = 1_700_000_000_000;
+    const op = baseItem({
+      status: "done",
+      ankorsOutcome: { ok: true, archived: false },
+      completedAt: new Date(now - 20_000).toISOString(),
+    });
+    const state = computeMarketplaceBadgeState(null, op, "ankorstore", false, now);
+    expect(state.justPublishedOk).toBe(true);
+    expect(state.online).toBe(true);
   });
 });
 
@@ -276,7 +291,7 @@ describe("computeMarketplaceBadgeState — syncRequired", () => {
       mode: "resync",
       status: "done",
       ankorsOutcome: { ok: true, archived: false },
-      completedAt: new Date(now - 60_000).toISOString(),
+      completedAt: new Date(now - 90_000).toISOString(),
     });
     const state = computeMarketplaceBadgeState(
       "ankors-123",

@@ -3,9 +3,12 @@
 /**
  * Châssis uniforme d'un tiroir — 2 mises en forme responsive.
  *
- *  ≥ md (tablette + desktop)  : panneau flottant 400 × 620 px ancré au-dessus
+ *  ≥ md (tablette + desktop)  : panneau flottant 440 × 760 px ancré au-dessus
  *                               du FAB en bas à droite (façon téléphone). Le
  *                               fond de page reste cliquable — pas de backdrop.
+ *                               Dimensions passées de 400×620 à 440×760 le
+ *                               2026-07-15 pour aérer marketplaces / eFashion
+ *                               / chat / images.
  *  < md (mobile)              : plein écran, header sticky avec flèche back.
  *
  * Header aurora coloré (dégradé foncé + halo flou) — validé par la cliente le
@@ -83,8 +86,8 @@ export function DrawerShell({
   return (
     <div
       className={`fixed z-[9000] transition-all duration-300 ease-out
-        /* Desktop + tablette ≥ md : panneau flottant 400 × 620 px ancré au-dessus du FAB */
-        md:bottom-24 md:right-6 md:w-[400px] md:h-[620px] md:max-h-[calc(100vh-8rem)]
+        /* Desktop + tablette ≥ md : panneau flottant 440 × 760 px ancré au-dessus du FAB */
+        md:bottom-24 md:right-6 md:w-[440px] md:h-[760px] md:max-h-[calc(100vh-8rem)]
         ${visible ? "md:translate-y-0 md:opacity-100" : "md:translate-y-4 md:opacity-0"}
         /* Mobile < md : plein écran, glisse depuis le bas */
         max-md:inset-x-0 max-md:top-0 max-md:bottom-0
