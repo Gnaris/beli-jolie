@@ -9,6 +9,25 @@ import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import { getCurrentTenantIdSync, tenantALS } from "@/lib/tenant-als";
 
 /**
+ * Résout le tenant courant sans dépendre du cache :
+ * ALS d'abord, puis headers(). Utilisé par les fallbacks quand
+ * `unstable_cache` throw (contexte hors Next.js — script CLI).
+ * Ne jamais retourner "global" pour laisser la lecture Prisma décider
+ * (les callers ont un `where` explicite qui accepte tid undefined).
+ */
+async function resolveTidForFallback(): Promise<string | undefined> {
+  const fromALS = getCurrentTenantIdSync();
+  if (fromALS) return fromALS;
+  try {
+    const { headers } = await import("next/headers");
+    const h = await headers();
+    return h.get("x-tenant-id") ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Helper multi-tenant : construit une fonction cachée avec des clés et tags
  * préfixés par le tenant courant, pour éviter le cross-tenant cache leak.
  *
@@ -61,7 +80,14 @@ export function tenantScopedCacheWithTid<Args extends unknown[], T>(
     if (!cached) {
       const tags = (opts.tags ?? []).map((t) => `${t}:${finalTid}`);
       cached = unstable_cache(
-        (...a: Args) => fn(finalTid, ...a),
+        // CRITIQUE : rebinde l'ALS avec finalTid dans le callback.
+        // `unstable_cache` exécute le callback dans un scope où l'ALS
+        // parente est perdue → sans ce rebind, tout appel interne qui lit
+        // le tenant via `getCurrentTenantIdSync()` retombe à "global" et
+        // fuit d'un tenant à l'autre (incident BJ 15/07/2026 : cache
+        // efashion-annexes de BJ rempli avec les packs d'Issyma parce que
+        // `ensureEfashionSession` lisait `global` credentials).
+        (...a: Args) => tenantALS.run(finalTid, () => fn(finalTid, ...a)),
         [...baseKeyParts, finalTid, ...args.map(String)],
         { revalidate: opts.revalidate, tags },
       );
@@ -475,7 +501,9 @@ export async function getCachedPfsCredentials() {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
     if (msg.includes("incrementalCache") || msg.includes("unstable_cache")) {
-      return await readPfsCredentialsDirect();
+      // Fallback hors Next.js runtime : réutilise le tid courant sinon
+      // la lecture retombe unscopée et renvoie les creds d'un autre tenant.
+      return await readPfsCredentialsDirect(await resolveTidForFallback());
     }
     throw err;
   }
@@ -560,7 +588,9 @@ export async function getCachedEfashionCredentials() {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
     if (msg.includes("incrementalCache") || msg.includes("unstable_cache")) {
-      return await readEfashionCredentialsDirect();
+      // Fallback hors Next.js runtime : réutilise le tid courant sinon
+      // la lecture retombe unscopée et renvoie les creds d'un autre tenant.
+      return await readEfashionCredentialsDirect(await resolveTidForFallback());
     }
     throw err;
   }
@@ -619,7 +649,9 @@ export async function getCachedFaireApiKey() {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
     if (msg.includes("incrementalCache") || msg.includes("unstable_cache")) {
-      return await readFaireApiKeyDirect();
+      // Fallback hors Next.js runtime : réutilise le tid courant sinon
+      // la lecture retombe unscopée et renvoie la clé d'un autre tenant.
+      return await readFaireApiKeyDirect(await resolveTidForFallback());
     }
     throw err;
   }
