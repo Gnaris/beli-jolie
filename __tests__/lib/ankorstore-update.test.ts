@@ -737,7 +737,7 @@ describe("ankorstoreKickoffUpdate — garde-fou anti double-kickoff", () => {
     const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
     const result = await ankorstoreKickoffUpdate("product-1", { forceFullSync: true });
 
-    expect(result).toEqual({ success: true, operationId: "op-inflight" });
+    expect(result).toEqual({ success: true, operationId: "op-inflight", archived: false });
     expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
     expect(mockAddProductsToOperation).not.toHaveBeenCalled();
     expect(mockStartOperation).not.toHaveBeenCalled();

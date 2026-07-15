@@ -456,7 +456,7 @@ export async function ankorstoreKickoffUpdate(
       productId,
       operationId: existingPending.id,
     });
-    return { success: true, operationId: existingPending.id };
+    return { success: true, operationId: existingPending.id, archived: false };
   }
 
   const product = await loadProductFull(productId);
