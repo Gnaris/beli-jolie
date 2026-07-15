@@ -461,6 +461,24 @@ export async function faireUpdateProduct(
         }),
       ),
     );
+    // Le payload Faire a été construit AVANT la réconciliation avec
+    // `buildFaireProductPayload`, qui pose `id: <vid>` sur les variantes
+    // ayant un `faireVariantId` en BDD. Pour les stales, ce `id` inconnu
+    // de Faire fait rejeter le PATCH consolidé avec « Invalid product
+    // variant IDs ». On le retire pour que Faire les traite comme des
+    // créations.
+    const staleSkus = new Set(staleFaireVariantIds.map((s) => s.sku));
+    const bodyRecord = body as Record<string, unknown>;
+    if (Array.isArray(bodyRecord.variants)) {
+      bodyRecord.variants = (bodyRecord.variants as Record<string, unknown>[]).map((v) => {
+        const sku = typeof v.sku === "string" ? v.sku : "";
+        if (staleSkus.has(sku) && "id" in v) {
+          const { id: _omit, ...rest } = v;
+          return rest;
+        }
+        return v;
+      });
+    }
   }
 
   const newVariantsToCreate = variants.filter((v) => !faireVariantIdBySku.has(v.sku));

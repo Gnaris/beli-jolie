@@ -180,7 +180,10 @@ beforeEach(() => {
           available_quantity: 1000,
         },
         {
-          // Pas de `id` → nouvelle variante après purge du vid stale.
+          // buildFaireProductPayload s'exécute AVANT la réconciliation et
+          // pose le `id` stale sur la variante Écru (car `bjVariant.faireVariantId
+          // = STALE_VID` en BDD). Le flow doit stripper ce `id` avant PATCH.
+          id: STALE_VID,
           sku: STALE_SKU,
           options: [{ name: "Color", value: "Écru" }],
           active: true,
@@ -321,10 +324,14 @@ describe("faireUpdateProduct — réconciliation vids stales", () => {
     };
     expect(body.variant_option_sets).toBeTruthy();
     expect(body.variants).toBeTruthy();
-    // La variante Écru est renvoyée SANS `id` (nouvelle création côté Faire).
+    // La variante Écru doit être envoyée SANS `id` — sinon Faire répond
+    // « Invalid product variant IDs: [po_grj7cer22b] » (HTTP 400).
     const ecruEntry = body.variants!.find((v) => v.sku === STALE_SKU);
     expect(ecruEntry).toBeTruthy();
     expect(ecruEntry!.id).toBeUndefined();
+    // La variante Blanc, elle, garde son vid valide (mise à jour).
+    const blancEntry = body.variants!.find((v) => v.sku === OK_SKU);
+    expect(blancEntry!.id).toBe(OK_VID);
   });
 
   it("persiste le nouveau faireVariantId retourné par Faire pour la variante recréée", async () => {
