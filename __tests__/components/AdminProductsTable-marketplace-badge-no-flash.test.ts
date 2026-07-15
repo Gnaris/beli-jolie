@@ -54,11 +54,26 @@ describe("AdminProductsTable — pas de flash rouge entre op done et RSC refresh
     expect(SRC).toMatch(/<MpDot label="AK"[\s\S]{0,120}active=\{ankorstoreBadgeState\.online\}/);
   });
 
-  it("les 3 badges ajoutent !xxxBadgeState.justPublishedOk pour ne pas flasher orange non plus", () => {
-    // Après un publish/resync réussi, product.pfsSyncRequired peut être encore
-    // stale dans les props RSC — on doit le masquer tant que justPublishedOk est vrai.
-    expect(SRC).toMatch(/pfsSyncRequired && !isPfsPublishing && !pfsBadgeState\.justPublishedOk/);
-    expect(SRC).toMatch(/ankorsSyncRequired && !isAnkorstorePublishing && !ankorstoreBadgeState\.justPublishedOk/);
-    expect(SRC).toMatch(/efashionSyncRequired && !isEfashionPublishing && !efashionBadgeState\.justPublishedOk/);
+  it("les 4 badges lisent syncRequired depuis xxxBadgeState.syncRequired (fenêtre de grâce 5s post-sync)", () => {
+    // Après une sync réussie (mode publish/refresh/resync), product.xxxSyncRequired
+    // peut être encore stale dans les props RSC le temps du router.refresh —
+    // xxxBadgeState.syncRequired intègre déjà la fenêtre de grâce completedRecentlyOk
+    // qui couvre les 3 modes, contrairement à justPublishedOk qui ne couvre que publish.
+    expect(SRC).toMatch(/syncRequired=\{pfsBadgeState\.syncRequired && !pendingPfsEnqueue\}/);
+    expect(SRC).toMatch(/syncRequired=\{ankorstoreBadgeState\.syncRequired && !pendingAnkorstoreEnqueue\}/);
+    expect(SRC).toMatch(/syncRequired=\{efashionBadgeState\.syncRequired && !pendingEfashionEnqueue\}/);
+    expect(SRC).toMatch(/syncRequired=\{faireBadgeState\.syncRequired && !pendingFaireEnqueue\}/);
+    // Régression : ne plus recalculer syncRequired à partir des props RSC brutes
+    expect(SRC).not.toMatch(/product\.pfsSyncRequired && !isPfsPublishing && !pfsBadgeState\.justPublishedOk/);
+    expect(SRC).not.toMatch(/product\.ankorsSyncRequired && !isAnkorstorePublishing && !ankorstoreBadgeState\.justPublishedOk/);
+    expect(SRC).not.toMatch(/product\.efashionSyncRequired && !isEfashionPublishing && !efashionBadgeState\.justPublishedOk/);
+  });
+
+  it("computeMarketplaceBadgeState reçoit bien product.xxxSyncRequired en 4e arg pour activer la fenêtre de grâce", () => {
+    // Sans ce 4e arg, xxxBadgeState.syncRequired vaut toujours false (defaut).
+    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.pfsProductId,\s*pfsOp,\s*"pfs",\s*product\.pfsSyncRequired,?\s*\)/);
+    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.ankorsProductId,\s*ankorstoreOp,\s*"ankorstore",\s*product\.ankorsSyncRequired,?\s*\)/);
+    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*efashionLinked \? "linked" : null,\s*efashionOp,\s*"efashion",\s*product\.efashionSyncRequired,?\s*\)/);
+    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.faireProductId,\s*faireOp,\s*"faire",\s*product\.faireSyncRequired,?\s*\)/);
   });
 });

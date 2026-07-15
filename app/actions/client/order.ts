@@ -6,7 +6,6 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { reinstateStockForOrder } from "@/lib/stock";
-import { rotatePrimaryIfNeeded } from "@/lib/rotate-primary-service";
 import { stockUnitsForCartLine } from "@/lib/stock-units";
 import { resolveVatRate, EU_COUNTRIES } from "@/lib/vat";
 import { floorMoney } from "@/lib/order-totals";
@@ -561,21 +560,6 @@ export async function placeOrder(
       error: err,
     });
     return { success: false, error: "Impossible de finaliser la commande. Merci de réessayer." };
-  }
-
-  // Rotation auto couleur principale : pour chaque produit dont une variante
-  // a été décrémentée. Si la primaire vient de tomber à 0, on bascule sur
-  // la prochaine couleur en stock + push marketplaces (fire-and-forget).
-  const productIdsToCheck = [
-    ...new Set(cart.items.map((item) => item.variant.productId)),
-  ];
-  for (const pid of productIdsToCheck) {
-    rotatePrimaryIfNeeded(pid).catch((err) => {
-      logger.error("[placeOrder] rotatePrimaryIfNeeded failed", {
-        productId: pid,
-        error: err,
-      });
-    });
   }
 
   // ── 4-6. Easy-Express + PDF + Email ────────────────────────────────────

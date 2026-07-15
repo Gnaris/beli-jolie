@@ -66,7 +66,6 @@ vi.mock("@/lib/efashion-color-conflicts", () => ({
   validateEfashionOverridesNotMatchingPrincipal: vi.fn(),
 }));
 vi.mock("@/lib/microstore-subcategory", () => ({ normalizeMicrostoreSubCategoryId: vi.fn() }));
-vi.mock("@/lib/rotate-primary-service", () => ({ rotatePrimaryIfNeeded: vi.fn() }));
 vi.mock("@/lib/product-variant-validation", () => ({
   validateVariants: vi.fn(),
   validateVariantBounds: vi.fn(),

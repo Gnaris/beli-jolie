@@ -78,68 +78,95 @@ describe("computeMarketplaceBadgeState", () => {
   });
 
   it("turns online when publish succeeds — even before server id is updated", () => {
+    const now = 1_700_000_000_000;
     const op = baseItem({
       status: "done",
       ankorsOutcome: { ok: true, archived: false },
+      completedAt: new Date(now - 500).toISOString(),
     });
-    const state = computeMarketplaceBadgeState(null, op, "ankorstore");
+    const state = computeMarketplaceBadgeState(null, op, "ankorstore", false, now);
     expect(state.loading).toBe(false);
     expect(state.online).toBe(true);
     expect(state.justPublishedOk).toBe(true);
   });
 
   it("stays offline when publish fails", () => {
+    const now = 1_700_000_000_000;
     const op = baseItem({
       status: "done",
       ankorsOutcome: { ok: false, kind: "error", message: "boom" },
+      completedAt: new Date(now - 500).toISOString(),
     });
-    const state = computeMarketplaceBadgeState(null, op, "ankorstore");
+    const state = computeMarketplaceBadgeState(null, op, "ankorstore", false, now);
     expect(state.loading).toBe(false);
     expect(state.online).toBe(false);
     expect(state.justPublishedOk).toBe(false);
   });
 
   it("a resync-mode op does not flip the badge to online by itself", () => {
+    const now = 1_700_000_000_000;
     const op = baseItem({
       mode: "resync",
       status: "done",
       ankorsOutcome: { ok: true, archived: false },
+      completedAt: new Date(now - 500).toISOString(),
     });
-    const state = computeMarketplaceBadgeState(null, op, "ankorstore");
+    const state = computeMarketplaceBadgeState(null, op, "ankorstore", false, now);
     expect(state.justPublishedOk).toBe(false);
     expect(state.online).toBe(false);
   });
 
   it("a refresh-mode op does not flip the badge to online by itself", () => {
+    const now = 1_700_000_000_000;
     const op = baseItem({
       mode: "refresh",
       status: "done",
       ankorsOutcome: { ok: true, archived: false },
+      completedAt: new Date(now - 500).toISOString(),
     });
-    const state = computeMarketplaceBadgeState(null, op, "ankorstore");
+    const state = computeMarketplaceBadgeState(null, op, "ankorstore", false, now);
     expect(state.justPublishedOk).toBe(false);
     expect(state.online).toBe(false);
   });
 
   it("stays online when server id is set even if the latest publish op failed", () => {
+    const now = 1_700_000_000_000;
     const op = baseItem({
       status: "done",
       ankorsOutcome: { ok: false, kind: "error", message: "boom" },
+      completedAt: new Date(now - 500).toISOString(),
     });
-    const state = computeMarketplaceBadgeState("ankors-existing", op, "ankorstore");
+    const state = computeMarketplaceBadgeState("ankors-existing", op, "ankorstore", false, now);
     expect(state.online).toBe(true);
   });
 
   it("reads the PFS outcome when target is pfs", () => {
+    const now = 1_700_000_000_000;
     const op = baseItem({
       marketplace: "pfs",
       status: "done",
       pfsOutcome: { ok: true, archived: false },
       ankorsOutcome: undefined,
+      completedAt: new Date(now - 500).toISOString(),
     });
-    const state = computeMarketplaceBadgeState(null, op, "pfs");
+    const state = computeMarketplaceBadgeState(null, op, "pfs", false, now);
     expect(state.justPublishedOk).toBe(true);
     expect(state.online).toBe(true);
+  });
+
+  it("falls back to !!serverProductId once justPublishedOk grace window expires — allows unlink to reflect immediately", () => {
+    // Régression : après un délier, l'ancienne op "publish done" restait dans la file
+    // et forçait online=true perpétuellement, même après que serverProductId ait été
+    // remis à null. Passée la fenêtre de grâce, on refait confiance au serverProductId.
+    const now = 1_700_000_000_000;
+    const op = baseItem({
+      status: "done",
+      ankorsOutcome: { ok: true, archived: false },
+      completedAt: new Date(now - 60_000).toISOString(),
+    });
+    const state = computeMarketplaceBadgeState(null, op, "ankorstore", false, now);
+    expect(state.justPublishedOk).toBe(false);
+    expect(state.online).toBe(false);
   });
 });
 
@@ -168,21 +195,25 @@ describe("computeMarketplaceBadgeState — syncRequired", () => {
   });
 
   it("syncRequired hidden right after a successful publish (justPublishedOk takes precedence)", () => {
+    const now = 1_700_000_000_000;
     const op = baseItem({
       status: "done",
       ankorsOutcome: { ok: true, archived: false },
+      completedAt: new Date(now - 500).toISOString(),
     });
-    const state = computeMarketplaceBadgeState("ankors-123", op, "ankorstore", true);
+    const state = computeMarketplaceBadgeState("ankors-123", op, "ankorstore", true, now);
     expect(state.justPublishedOk).toBe(true);
     expect(state.syncRequired).toBe(false);
   });
 
   it("syncRequired stays visible when latest op failed and produit toujours marqué à synchroniser", () => {
+    const now = 1_700_000_000_000;
     const op = baseItem({
       status: "done",
       ankorsOutcome: { ok: false, kind: "error", message: "boom" },
+      completedAt: new Date(now - 500).toISOString(),
     });
-    const state = computeMarketplaceBadgeState("ankors-123", op, "ankorstore", true);
+    const state = computeMarketplaceBadgeState("ankors-123", op, "ankorstore", true, now);
     expect(state.online).toBe(true);
     // L'op a échoué (justPublishedOk=false, loading=false) → le badge orange
     // reste visible pour inviter à re-essayer la sync.

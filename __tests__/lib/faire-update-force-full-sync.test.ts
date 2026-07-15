@@ -231,4 +231,83 @@ describe("faireUpdateProduct — forceFullSync", () => {
     }[];
     expect(updates.map((u) => u.sku).sort()).toEqual([...VARIANT_SKUS].sort());
   });
+
+  it("avec forceFullSync=true : pousse les images des variantes via PATCH /variants/{id} après DELETE des anciennes", async () => {
+    // Régression PS3 : l'ajout d'une nouvelle image sur une variante ne
+    // partait jamais vers Faire, même après clic sur « Synchroniser ». Le
+    // diff « null prev » excluait par défaut les images pour éviter l'erreur
+    // « 2 images principales ». Depuis, `forceFullSync` demande explicitement
+    // au diff d'inclure les images (le DELETE préalable évite le doublon).
+    buildFaireProductPayloadSpy.mockReturnValueOnce({
+      body: { name: "Bracelet", lifecycle_state: "PUBLISHED" },
+      variants: VARIANT_SKUS.map((sku) => ({
+        bjVariantId: `v-${sku}`,
+        sku,
+        wholesalePriceCents: 800,
+        retailPriceCents: 2000,
+        payload: {
+          sku,
+          name: sku === "BJ-OR" ? "Or" : "Argent",
+          active: true,
+          options: [{ name: "Color", value: sku === "BJ-OR" ? "Or" : "Argent" }],
+          prices: [],
+          idempotence_token: sku,
+          available_quantity: 5,
+          images: [
+            { url: `https://example.com/${sku}-1.jpg?format=jpeg&minWidth=1000` },
+            { url: `https://example.com/${sku}-2.jpg?format=jpeg&minWidth=1000` },
+          ],
+        },
+      })),
+      optionValues: ["Or", "Argent"],
+      productImagesCount: 0,
+      productImageUrls: [],
+    });
+    // GET produit (pour récupérer les IDs d'images existantes côté Faire).
+    faireFetchSpy.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if ((init?.method ?? "GET") === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => "",
+          json: async () => ({
+            variants: VARIANT_SKUS.map((sku) => ({
+              id: `po_${sku}`,
+              sku,
+              images: [{ id: `img_old_${sku}` }],
+            })),
+          }),
+        };
+      }
+      return { ok: true, status: 200, text: async () => "", json: async () => ({}) };
+    });
+
+    const res = await faireUpdateProduct("p-1", { forceFullSync: true });
+    expect(res.success).toBe(true);
+
+    const calls = faireFetchSpy.mock.calls as [string, { method?: string }?][];
+
+    // 1. On DELETE les anciennes images de chaque variante avant de re-PATCH.
+    for (const sku of VARIANT_SKUS) {
+      const deleted = calls.some(([url, init]) =>
+        url.includes(`/variants/${encodeURIComponent(`po_${sku}`)}/images/${encodeURIComponent(`img_old_${sku}`)}`) &&
+        init?.method === "DELETE",
+      );
+      expect(deleted, `DELETE image ancienne pour ${sku}`).toBe(true);
+    }
+
+    // 2. Chaque variante reçoit un PATCH avec ses NOUVELLES images.
+    for (const sku of VARIANT_SKUS) {
+      const patch = calls.find(([url, init]) =>
+        url.endsWith(`/variants/${encodeURIComponent(`po_${sku}`)}`) &&
+        init?.method === "PATCH",
+      );
+      expect(patch, `PATCH variant ${sku} envoyé`).toBeTruthy();
+      const body = JSON.parse((patch![1] as { body: string }).body) as {
+        images?: { url: string }[];
+      };
+      expect(body.images).toHaveLength(2);
+      expect(body.images![0].url).toContain(`${sku}-1.jpg`);
+    }
+  });
 });

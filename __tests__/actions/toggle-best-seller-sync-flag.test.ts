@@ -69,9 +69,6 @@ vi.mock("@/lib/pfs-api", () => ({ pfsCheckReference: vi.fn() }));
 vi.mock("@/lib/ankorstore-api-write", () => ({
   ankorstoreDeleteProduct: vi.fn(),
 }));
-vi.mock("@/lib/rotate-primary-service", () => ({
-  rotatePrimaryIfNeeded: vi.fn(),
-}));
 
 import { toggleBestSeller } from "@/app/actions/admin/products";
 

@@ -41,16 +41,27 @@ function snap(overrides: Partial<FaireSyncSnapshot> = {}): FaireSyncSnapshot {
 }
 
 describe("diffSnapshots", () => {
-  it("traite null prev comme tout-à-envoyer SAUF les images (évite '2 images principales')", () => {
+  it("traite null prev comme tout-à-envoyer SAUF les images par défaut (évite '2 images principales')", () => {
     const d = diffSnapshots(null, snap());
     expect(d.productChanged).toBe(true);
     expect(d.lifecycleChanged).toBe(true);
     expect(d.variantsAdded).toEqual(["sku1"]);
-    // Images NE doivent PAS être re-poussées sur snapshot null : Faire
-    // déduplique par contenu et refuse les re-uploads de mêmes URLs.
+    // Images NE doivent PAS être re-poussées sur snapshot null par défaut :
+    // Faire déduplique par contenu et refuse les re-uploads de mêmes URLs.
     expect(d.productImagesChanged).toBe(false);
     expect(d.variantsImagesChanged).toEqual([]);
     expect(diffIsEmpty(d)).toBe(false);
+  });
+
+  it("avec options.forceImages=true et null prev : marque les images produit ET variantes comme changées", () => {
+    // Utilisé par le bouton « Synchroniser » (resynchro forcée) : le flow
+    // update DELETE les images existantes côté Faire avant le PATCH, donc
+    // l'erreur « 2 images principales » ne peut pas se produire.
+    const d = diffSnapshots(null, snap(), { forceImages: true });
+    expect(d.productImagesChanged).toBe(true);
+    expect(d.variantsImagesChanged).toEqual(["sku1"]);
+    expect(d.productChanged).toBe(true);
+    expect(d.variantsAdded).toEqual(["sku1"]);
   });
 
   it("diff vide quand rien n'a changé", () => {

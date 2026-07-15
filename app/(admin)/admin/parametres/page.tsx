@@ -6,7 +6,7 @@ import {
   getCachedSiteConfig, getCachedPfsBrand, getCachedHasEfashionConfig, getCachedEfashionEnabled,
   getCachedHasFaireConfig, getCachedFaireEnabled,
 } from "@/lib/cached-data";
-import { getStripeConfigStatus } from "@/lib/stripe";
+import { getStripeAccountInfo, getStripeConfigStatus } from "@/lib/stripe";
 import { parseDisplayConfig } from "@/lib/product-display";
 import { settingsTabMetadata, isSettingsTab, type SettingsTab } from "@/lib/settings-tabs";
 import SettingsPageTabs from "@/components/admin/settings/SettingsPageTabs";
@@ -25,6 +25,7 @@ import FaviconConfig from "@/components/admin/settings/FaviconConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
 import ShippingMarginConfig from "@/components/admin/settings/ShippingMarginConfig";
 import StripeSettingsForm from "@/components/admin/settings/StripeSettingsForm";
+import StripeAccountStatusCard from "@/components/admin/onboarding/StripeAccountStatusCard";
 import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
 import TranslationProviderStatus from "@/components/admin/settings/TranslationProviderStatus";
@@ -528,9 +529,13 @@ async function LivraisonTab() {
    TAB : Paiement
    ═══════════════════════════════════════════════════════════════════════════ */
 async function PaiementTab() {
-  const [status, publishableRow] = await Promise.all([
+  const [status, publishableRow, accountInfo] = await Promise.all([
     getStripeConfigStatus(),
     prisma.siteConfig.findFirst({ where: { key: "stripe_publishable_key" } }),
+    // Interroge Stripe pour récupérer le nom du compte/société branché.
+    // Sans cette carte, la cliente ne voyait que « Mode LIVE/TEST » et ne
+    // savait pas à quel compte Stripe le site était relié.
+    getStripeAccountInfo(),
   ]);
   const publishable =
     publishableRow?.value?.trim() ||
@@ -543,6 +548,7 @@ async function PaiementTab() {
 
   return (
     <CardsStack>
+      <StripeAccountStatusCard info={accountInfo} />
       <SettingCard
         icon={Ico.card}
         title="Stripe"

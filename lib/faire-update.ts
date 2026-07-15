@@ -261,8 +261,14 @@ export async function faireUpdateProduct(
   // En resynchro forcée, on force `prev = null` pour que le diff considère tout
   // comme à pousser (champs produit, variantes, lifecycle). On garde toutefois
   // le snapshot réel pour les fallback (résolution d'ID Faire de variante par SKU).
+  // `forceImages: true` demande au diff de marquer aussi les images comme
+  // changées — le flow ci-dessous DELETE les anciennes images côté Faire
+  // avant le PATCH, ce qui évite l'erreur « 2 images principales » qui est
+  // la raison pour laquelle le diff « null prev » les excluait par défaut.
   const prevSnapshot = forceFullSync ? null : realPrevSnapshot;
-  const diff = diffSnapshots(prevSnapshot, nextSnapshot);
+  const diff = diffSnapshots(prevSnapshot, nextSnapshot, {
+    forceImages: forceFullSync,
+  });
 
   if (diffIsEmpty(diff)) {
     // Rien à pousser côté Faire, mais on enregistre quand même le nouveau

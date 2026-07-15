@@ -44,10 +44,14 @@ describe("AdminProductsTable — badges marketplace de largeur uniforme (62×36)
     expect(sync).toBe(4);
   });
 
-  it("les 4 badges 'publishing' partagent le même style loading (indigo ou rose)", () => {
+  it("les 4 badges 'publishing' partagent tous le même fond indigo #EEF2FF (cohérent pendant le chargement)", () => {
+    // Historique : Faire utilisait un fond rose (#FCE7F3) qui cassait la
+    // lecture de la colonne pendant les push groupés — aligné sur les 3 autres
+    // marketplaces le 2026-07-15.
     const indigo = (SRC.match(/w-\[62px\] h-\[36px\] rounded-md text-\[10px\] font-semibold bg-\[#EEF2FF\]/g) ?? []).length;
     const rose   = (SRC.match(/w-\[62px\] h-\[36px\] rounded-md text-\[10px\] font-semibold bg-\[#FCE7F3\]/g) ?? []).length;
-    expect(indigo + rose).toBe(4);
+    expect(indigo).toBe(4);
+    expect(rose).toBe(0);
   });
 
   it("les badges 'not published' avec action utilisent le rouge #FEF2F2 (≥ 4 emplacements)", () => {

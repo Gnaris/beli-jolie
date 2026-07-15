@@ -433,6 +433,32 @@ export async function ankorstoreKickoffUpdate(
     };
   }
 
+  // Garde-fou anti double-kickoff : si un update est déjà en cours pour ce produit
+  // (créé il y a moins de 60s), on renvoie son operationId au lieu d'en créer un
+  // nouveau. Sans ça, deux flows concurrents (auto-rotate + file, ou double-clic
+  // rapide) enchaînent 2 POST /operations ; Ankorstore déduplique côté serveur
+  // et renvoie le MÊME operationId, puis le second PATCH status=started tape sur
+  // une op déjà en `pending` → 403 « cannot be updated from [pending] to [started] ».
+  // 60s couvre le temps de traversée queue + push complet sans risque de coller
+  // un vieux PENDING orphelin (le worker sweep les IN_PROGRESS au boot).
+  const dedupeCutoff = new Date(Date.now() - 60 * 1000);
+  const existingPending = await prisma.ankorstoreOperation.findFirst({
+    where: {
+      productId,
+      status: "PENDING",
+      type: "UPDATE",
+      createdAt: { gt: dedupeCutoff },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (existingPending) {
+    logger.info("[Ankorstore Update] Deduped — recent PENDING op exists", {
+      productId,
+      operationId: existingPending.id,
+    });
+    return { success: true, operationId: existingPending.id };
+  }
+
   const product = await loadProductFull(productId);
   if (!product) return { success: false, error: "Produit introuvable en base" };
   if (!product.ankorsProductId) {

@@ -70,18 +70,26 @@ export function computeMarketplaceBadgeState(
     op.status === "awaiting_callback";
 
   const outcome = outcomeForTarget(op, target);
+
+  // Une opération réussie est considérée "récente" tant que router.refresh
+  // n'a pas eu le temps de rapatrier l'état serveur (~800 ms de debounce +
+  // aller-retour RSC). Au-delà de RECENT_SYNC_WINDOW_MS on refait confiance
+  // au serverProductId — c'est indispensable pour que le badge tombe en
+  // "non lié" après un délier : sinon l'ancienne op "publish done" continue
+  // à forcer online=true et le badge reste vert alors que le produit est
+  // délié.
+  const isRecent =
+    !!op.completedAt && now - Date.parse(op.completedAt) < RECENT_SYNC_WINDOW_MS;
+
   const justPublishedOk =
-    op.mode === "publish" && op.status === "done" && outcome?.ok === true;
+    op.mode === "publish" && op.status === "done" && outcome?.ok === true && isRecent;
 
   // Toute sync (publish/resync/refresh) réussie récemment doit masquer
   // l'orange le temps que router.refresh rapatrie syncRequired=false depuis le
   // serveur — évite le flash "Synchro nécessaire" entre la fin de l'op et le
   // rafraîchissement RSC.
   const completedRecentlyOk =
-    op.status === "done" &&
-    outcome?.ok === true &&
-    !!op.completedAt &&
-    now - Date.parse(op.completedAt) < RECENT_SYNC_WINDOW_MS;
+    op.status === "done" && outcome?.ok === true && isRecent;
 
   const online = !!serverProductId || justPublishedOk;
 

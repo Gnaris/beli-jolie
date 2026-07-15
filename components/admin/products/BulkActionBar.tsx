@@ -266,6 +266,18 @@ export default function BulkActionBar({
     return n;
   }, [mpCounts, marketplaces]);
 
+  // Bouton actif dès qu'il y a de quoi ouvrir le panneau : publier, synchro
+  // avec drapeau, OU produits déjà sur une marketplace (resynchro forcée).
+  // Sinon le bouton apparaissait grisé alors qu'on pouvait quand même
+  // « Synchroniser » les produits déjà en ligne sur les marketplaces.
+  const hasAnyMarketplaceAction = useMemo(() => {
+    if (mpActionsTotal > 0) return true;
+    return (["pfs", "ankorstore", "efashion", "faire"] as MarketplaceKey[]).some((k) => {
+      if (!isMarketplaceAvailable(k, marketplaces)) return false;
+      return mpCounts[k].alreadyOn.length > 0;
+    });
+  }, [mpActionsTotal, mpCounts, marketplaces]);
+
   const productIds = useMemo(() => selectedProducts.map((p) => p.id), [selectedProducts]);
 
   return (
@@ -395,7 +407,7 @@ export default function BulkActionBar({
                 }}
                 disabled={isPending}
                 className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-all shadow-sm disabled:opacity-50 ${
-                  mpActionsTotal > 0
+                  hasAnyMarketplaceAction
                     ? "bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white hover:from-fuchsia-600 hover:to-violet-600"
                     : "bg-slate-100 text-slate-500 cursor-not-allowed"
                 }`}

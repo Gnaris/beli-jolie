@@ -30,8 +30,10 @@
 // dans le PATCH. Faire déduplique les images par contenu : envoyer la même URL à
 // la racine ET sur une variante déclenche « 2 images principales » (HTTP 400).
 // Conséquence : sur un snapshot null (post-reset), on N'ENVOIE PLUS les images
-// dans le PATCH — l'état Faire est gardé tel quel. Pour forcer un re-upload des
-// images, utiliser scripts/faire-refresh-variant-images.ts.
+// dans le PATCH par défaut — l'état Faire est gardé tel quel. Pour forcer un
+// re-upload (bouton « Synchroniser » = resynchro complète), passer
+// `options.forceImages: true` à `diffSnapshots` : le flow update prendra alors
+// soin de DELETE les images côté Faire avant le PATCH pour éviter le doublon.
 export const FAIRE_SNAPSHOT_VERSION = 6 as const;
 
 export interface FaireProductFieldsSnapshot {
@@ -184,19 +186,25 @@ export function diffVariantSnapshot(
 export function diffSnapshots(
   prev: FaireSyncSnapshot | null,
   next: FaireSyncSnapshot,
+  options?: { forceImages?: boolean },
 ): FaireSyncDiff {
   if (!prev || prev.schemaVersion !== FAIRE_SNAPSHOT_VERSION) {
-    // Snapshot inexistant ou périmé : tout est considéré comme à pousser
-    // SAUF les images. On ne peut pas comparer avec l'état réel de Faire sans
-    // un GET (Faire renvoie des CDN URLs qui ne correspondent pas aux nôtres),
-    // et re-pousser systématiquement les images déclenche l'erreur « 2 images
-    // principales ». On laisse donc Faire conserver ses images existantes ;
-    // pour forcer un re-upload, passer par scripts/faire-refresh-variant-images.ts.
+    // Snapshot inexistant ou périmé : tout est considéré comme à pousser.
+    // Cas des images :
+    //   - défaut : on NE renvoie PAS les images (`productImagesChanged=false`,
+    //     `variantsImagesChanged=[]`). Faire déduplique par contenu et refuse
+    //     les re-uploads (« 2 images principales »).
+    //   - `options.forceImages=true` : cas du bouton « Synchroniser » /
+    //     resynchro forcée demandée par l'admin. Le flow update DELETE les
+    //     images existantes côté Faire avant le PATCH pour éviter le doublon,
+    //     puis renvoie les nouvelles URLs — c'est le seul moyen de propager
+    //     un ajout ou une modification d'image depuis l'admin.
+    const forceImages = options?.forceImages === true;
     return {
       productChanged: true,
-      productImagesChanged: false,
+      productImagesChanged: forceImages,
       variantsChanged: Object.keys(next.variants),
-      variantsImagesChanged: [],
+      variantsImagesChanged: forceImages ? Object.keys(next.variants) : [],
       variantsAdded: Object.keys(next.variants),
       variantsRemoved: [],
       inventoryOnlyChanged: [],

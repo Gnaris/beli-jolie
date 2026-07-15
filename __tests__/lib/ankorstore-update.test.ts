@@ -703,3 +703,81 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Garde-fou anti double-kickoff (bug prod 15/07/2026)
+//
+// Reproduit la course rotation auto + queue worker qui produisait
+// « 403 Status cannot be updated from [pending] to [started] » :
+// deux `ankorstoreKickoffUpdate` concurrents pour le même produit
+// finissaient par recevoir le MÊME operationId d'Ankorstore (dedup
+// serveur) et le second PATCH status=started tapait sur une op déjà
+// en `pending`.
+// ─────────────────────────────────────────────────────────────────────
+describe("ankorstoreKickoffUpdate — garde-fou anti double-kickoff", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCreateCatalogOperation.mockResolvedValue({ operationId: "op-fresh" });
+    mockAddProductsToOperation.mockResolvedValue({ totalProductsCount: 1 });
+    mockStartOperation.mockResolvedValue(undefined);
+    mockProductUpdate.mockResolvedValue({});
+    mockAnkorstoreOperationCreate.mockResolvedValue({});
+    mockAnkorstoreOperationUpdateMany.mockResolvedValue({ count: 0 });
+  });
+
+  it("op UPDATE PENDING récente (< 60s) → renvoie l'op existante sans appel Ankor", async () => {
+    vi.mocked(prisma.ankorstoreOperation.findFirst).mockResolvedValueOnce({
+      id: "op-inflight",
+      productId: "product-1",
+      type: "UPDATE",
+      status: "PENDING",
+      createdAt: new Date(Date.now() - 5_000),
+    } as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1", { forceFullSync: true });
+
+    expect(result).toEqual({ success: true, operationId: "op-inflight" });
+    expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
+    expect(mockAddProductsToOperation).not.toHaveBeenCalled();
+    expect(mockStartOperation).not.toHaveBeenCalled();
+    expect(mockAnkorstoreOperationCreate).not.toHaveBeenCalled();
+  });
+
+  it("aucune op PENDING récente → kickoff normal (nouvelle op créée)", async () => {
+    vi.mocked(prisma.ankorstoreOperation.findFirst).mockResolvedValue(null);
+    const prevSnapshot = makeSnapshot();
+    const product = makeProduct({ ankorsLastSyncSnapshot: prevSnapshot });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1", { forceFullSync: true });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.operationId).toBe("op-fresh");
+    expect(mockCreateCatalogOperation).toHaveBeenCalledWith("update");
+    expect(mockStartOperation).toHaveBeenCalledWith("op-fresh");
+  });
+
+  it("filtre PENDING par productId + type=UPDATE + fenêtre 60s", async () => {
+    vi.mocked(prisma.ankorstoreOperation.findFirst).mockResolvedValue(null);
+    const prevSnapshot = makeSnapshot();
+    const product = makeProduct({ ankorsLastSyncSnapshot: prevSnapshot });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    await ankorstoreKickoffUpdate("product-1", { forceFullSync: true });
+
+    const call = vi.mocked(prisma.ankorstoreOperation.findFirst).mock.calls[0];
+    const where = (call?.[0] as { where: Record<string, unknown> } | undefined)?.where;
+    expect(where?.productId).toBe("product-1");
+    expect(where?.status).toBe("PENDING");
+    expect(where?.type).toBe("UPDATE");
+    const createdAt = where?.createdAt as { gt?: Date } | undefined;
+    expect(createdAt?.gt).toBeInstanceOf(Date);
+    const ageMs = Date.now() - (createdAt?.gt as Date).getTime();
+    expect(ageMs).toBeGreaterThanOrEqual(59_000);
+    expect(ageMs).toBeLessThanOrEqual(61_000);
+  });
+});

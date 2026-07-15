@@ -535,7 +535,7 @@ function FaireBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#FCE7F3] text-[#9D174D] border border-[#FBCFE8] leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
         title="Publication Faire en cours…"
       >
         <svg
@@ -1772,7 +1772,12 @@ function ProductRow({
   // file/exécution/attente du callback. Verrou local supplémentaire pour le
   // bref instant entre le clic et la mise à jour de la file (anti-double-clic).
   const pfsOp = findLatestOpForProduct(queueItems, product.id, "pfs");
-  const pfsBadgeState = computeMarketplaceBadgeState(product.pfsProductId, pfsOp, "pfs");
+  const pfsBadgeState = computeMarketplaceBadgeState(
+    product.pfsProductId,
+    pfsOp,
+    "pfs",
+    product.pfsSyncRequired,
+  );
   const [pendingPfsEnqueue, setPendingPfsEnqueue] = useState(false);
   const isPfsPublishing = pfsBadgeState.loading || pendingPfsEnqueue;
 
@@ -1781,6 +1786,7 @@ function ProductRow({
     product.ankorsProductId,
     ankorstoreOp,
     "ankorstore",
+    product.ankorsSyncRequired,
   );
   const [pendingAnkorstoreEnqueue, setPendingAnkorstoreEnqueue] = useState(false);
   const isAnkorstorePublishing = ankorstoreBadgeState.loading || pendingAnkorstoreEnqueue;
@@ -1790,6 +1796,7 @@ function ProductRow({
     efashionLinked ? "linked" : null,
     efashionOp,
     "efashion",
+    product.efashionSyncRequired,
   );
   const [pendingEfashionEnqueue, setPendingEfashionEnqueue] = useState(false);
   const isEfashionPublishing = efashionBadgeState.loading || pendingEfashionEnqueue;
@@ -1799,6 +1806,7 @@ function ProductRow({
     product.faireProductId,
     faireOp,
     "faire",
+    product.faireSyncRequired,
   );
   const [pendingFaireEnqueue, setPendingFaireEnqueue] = useState(false);
   const isFairePublishing = faireBadgeState.loading || pendingFaireEnqueue;
@@ -2118,15 +2126,15 @@ function ProductRow({
                   disponible et garantir qu'aucun ne déborde. Non-interactifs :
                   simple aperçu du statut. Les actions passent par le menu ⋮. */}
               <div className="lg:hidden flex items-stretch gap-1 mt-1.5 w-full flex-nowrap">
-                <MpDot label="PFS" active={hasPfsConfig && pfsBadgeState.online} syncRequired={product.pfsSyncRequired && !pfsBadgeState.justPublishedOk} />
+                <MpDot label="PFS" active={hasPfsConfig && pfsBadgeState.online} syncRequired={pfsBadgeState.syncRequired} />
                 {showEfashion && (
-                  <MpDot label="EF" active={efashionBadgeState.online} syncRequired={product.efashionSyncRequired && !efashionBadgeState.justPublishedOk} />
+                  <MpDot label="EF" active={efashionBadgeState.online} syncRequired={efashionBadgeState.syncRequired} />
                 )}
                 {showAnkorstore && (
-                  <MpDot label="AK" active={ankorstoreBadgeState.online} syncRequired={product.ankorsSyncRequired && !ankorstoreBadgeState.justPublishedOk} />
+                  <MpDot label="AK" active={ankorstoreBadgeState.online} syncRequired={ankorstoreBadgeState.syncRequired} />
                 )}
                 {showFaire && (
-                  <MpDot label="Faire" active={faireBadgeState.online} syncRequired={product.faireSyncRequired} />
+                  <MpDot label="Faire" active={faireBadgeState.online} syncRequired={faireBadgeState.syncRequired} />
                 )}
               </div>
             </div>
@@ -2206,7 +2214,7 @@ function ProductRow({
               <MarketplaceBadge
                 published={pfsBadgeState.online}
                 publishing={isPfsPublishing}
-                syncRequired={product.pfsSyncRequired && !isPfsPublishing && !pfsBadgeState.justPublishedOk}
+                syncRequired={pfsBadgeState.syncRequired && !pendingPfsEnqueue}
                 lastExportedAt={product.pfsLastExportedAt}
                 onActionClick={
                   hasPfsConfig && !pfsBadgeState.online && !isPfsPublishing
@@ -2219,7 +2227,7 @@ function ProductRow({
                 <EfashionBadge
                   linked={efashionBadgeState.online}
                   publishing={isEfashionPublishing}
-                  syncRequired={product.efashionSyncRequired && !isEfashionPublishing && !efashionBadgeState.justPublishedOk}
+                  syncRequired={efashionBadgeState.syncRequired && !pendingEfashionEnqueue}
                   lastExportedAt={product.efashionLastExportedAt}
                   onActionClick={
                     showEfashion && !efashionBadgeState.online && !isEfashionPublishing
@@ -2236,7 +2244,7 @@ function ProductRow({
               <AnkorstoreBadge
                 published={ankorstoreBadgeState.online}
                 publishing={isAnkorstorePublishing}
-                syncRequired={product.ankorsSyncRequired && !isAnkorstorePublishing && !ankorstoreBadgeState.justPublishedOk}
+                syncRequired={ankorstoreBadgeState.syncRequired && !pendingAnkorstoreEnqueue}
                 lastExportedAt={product.ankorstoreLastExportedAt}
                 onActionClick={
                   showAnkorstore && !ankorstoreBadgeState.online && !isAnkorstorePublishing
@@ -2249,7 +2257,7 @@ function ProductRow({
                 <FaireBadge
                   published={faireBadgeState.online}
                   publishing={isFairePublishing}
-                  syncRequired={product.faireSyncRequired && !isFairePublishing && !faireBadgeState.justPublishedOk}
+                  syncRequired={faireBadgeState.syncRequired && !pendingFaireEnqueue}
                   lastExportedAt={product.faireLastExportedAt}
                   onActionClick={
                     showFaire && !faireBadgeState.online && !isFairePublishing
