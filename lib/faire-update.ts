@@ -285,39 +285,67 @@ export async function faireUpdateProduct(
   // Pour les snapshots anciens (avant juin 2026) ou si le champ est null,
   // on retombe sur un GET /products/{id} qui retourne la liste actuelle des
   // variantes Faire — on matche alors par SKU.
-  let faireVariantIdBySkuFromFaire: Map<string, string> | null = null;
+  //
+  // Ce même GET sert aussi à :
+  //   - réconcilier les `faireVariantId` stockés en BDD contre la réalité Faire
+  //     (une variante peut avoir été supprimée côté Faire sans que la BDD ne le
+  //     sache — un PATCH sur son vid renverrait alors 404 et casserait toute la
+  //     synchro) ;
+  //   - récupérer les IDs d'images (racine + variantes) à supprimer avant les
+  //     PATCH image (parade « 2 images principales »).
+  // On mémoïse la réponse pour éviter 2-3 GET redondants par appel.
   // Narrowed capture pour la closure : TS ne propage pas le `if (!meta)`
   // initial à travers les fermetures, on fige donc l'id ici.
   const faireProductIdForFetch: string = meta.faireProductId;
+  type FaireProductState = {
+    variants: { id: string; sku: string; images?: { id?: string }[] }[];
+    rootImages: { id: string; tags?: string[] }[];
+  };
+  let faireProductStateCache: FaireProductState | null | undefined;
+  async function getFaireProductState(): Promise<FaireProductState | null> {
+    if (faireProductStateCache !== undefined) return faireProductStateCache;
+    try {
+      const res = await faireFetch(`/products/${encodeURIComponent(faireProductIdForFetch)}`, {
+        method: "GET",
+      });
+      if (!res.ok) {
+        logger.warn("[Faire Update] GET product state : status non-OK", {
+          productId,
+          status: res.status,
+        });
+        faireProductStateCache = null;
+        return null;
+      }
+      const data = (await res.json().catch(() => null)) as
+        | {
+            variants?: { id?: string; sku?: string; images?: { id?: string }[] }[];
+            images?: { id?: string; tags?: string[] }[];
+          }
+        | null;
+      faireProductStateCache = {
+        variants: (data?.variants ?? []).filter(
+          (v): v is { id: string; sku: string; images?: { id?: string }[] } =>
+            typeof v.id === "string" && typeof v.sku === "string",
+        ),
+        rootImages: (data?.images ?? []).filter(
+          (i): i is { id: string; tags?: string[] } => typeof i.id === "string",
+        ),
+      };
+      return faireProductStateCache;
+    } catch (err) {
+      logger.warn("[Faire Update] GET product state : exception", {
+        productId,
+        error: String(err),
+      });
+      faireProductStateCache = null;
+      return null;
+    }
+  }
   async function resolveFaireVariantId(sku: string, prevId?: string | null): Promise<string | null> {
     if (prevId) return prevId;
-    if (!faireVariantIdBySkuFromFaire) {
-      faireVariantIdBySkuFromFaire = new Map();
-      try {
-        const res = await faireFetch(`/products/${encodeURIComponent(faireProductIdForFetch)}`, {
-          method: "GET",
-        });
-        if (res.ok) {
-          const data = (await res.json().catch(() => null)) as
-            | { variants?: { id?: string; sku?: string }[] }
-            | null;
-          for (const v of data?.variants ?? []) {
-            if (v.sku && v.id) faireVariantIdBySkuFromFaire.set(v.sku, v.id);
-          }
-        } else {
-          logger.warn("[Faire Update] Fallback GET product failed", {
-            productId,
-            status: res.status,
-          });
-        }
-      } catch (err) {
-        logger.warn("[Faire Update] Fallback GET product threw", {
-          productId,
-          error: String(err),
-        });
-      }
-    }
-    return faireVariantIdBySkuFromFaire.get(sku) ?? null;
+    const state = await getFaireProductState();
+    if (!state) return null;
+    return state.variants.find((v) => v.sku === sku)?.id ?? null;
   }
 
   for (const sku of diff.variantsRemoved) {
@@ -398,6 +426,43 @@ export async function faireUpdateProduct(
       faireVariantIdBySku.set(v.sku, bjVariant.faireVariantId);
     }
   }
+
+  // 3.ter) Réconciliation vids stales : Faire peut avoir supprimé une variante
+  // (via un flow antérieur ou manuellement côté portail) sans que la BDD ne
+  // l'apprenne. Sans cette purge, un PATCH sur un vid stale renverrait 404 et
+  // ferait échouer toute la synchro à chaque tentative (cas rencontré 2026-07
+  // sur W138/Écru : `po_grj7cer22b` en BDD, absent chez Faire). On vérifie
+  // chaque vid contre l'état Faire réel, on clear les stales en BDD, et la
+  // variante bascule automatiquement dans `newVariantsToCreate` — auto-guérie.
+  const staleFaireVariantIds: { bjVariantId: string; sku: string; staleVid: string }[] = [];
+  if (faireVariantIdBySku.size > 0) {
+    const state = await getFaireProductState();
+    if (state !== null) {
+      const validVids = new Set(state.variants.map((v) => v.id));
+      for (const [sku, vid] of Array.from(faireVariantIdBySku.entries())) {
+        if (!validVids.has(vid)) {
+          const bjId = bjVariantIdBySku.get(sku);
+          if (bjId) staleFaireVariantIds.push({ bjVariantId: bjId, sku, staleVid: vid });
+          faireVariantIdBySku.delete(sku);
+        }
+      }
+    }
+  }
+  if (staleFaireVariantIds.length > 0) {
+    logger.warn("[Faire Update] Vids stales purgés — variantes reclassées en création", {
+      productId,
+      stales: staleFaireVariantIds,
+    });
+    await prisma.$transaction(
+      staleFaireVariantIds.map((s) =>
+        prisma.productColor.update({
+          where: { id: s.bjVariantId },
+          data: { faireVariantId: null },
+        }),
+      ),
+    );
+  }
+
   const newVariantsToCreate = variants.filter((v) => !faireVariantIdBySku.has(v.sku));
   const hasNewVariants = newVariantsToCreate.length > 0;
 
@@ -426,56 +491,36 @@ export async function faireUpdateProduct(
   // suivant (qui inclut `tags: ["Hero"]` sur sa 1ʳᵉ image) recrée alors
   // l'image vedette proprement, sans concurrence.
   if (hasProductPatchPayload && diff.productImagesChanged) {
-    try {
-      const res = await faireFetch(`/products/${encodeURIComponent(meta.faireProductId)}`, {
-        method: "GET",
-      });
-      if (res.ok) {
-        const data = (await res.json().catch(() => null)) as
-          | { images?: { id?: string; tags?: string[] }[] }
-          | null;
-        const allImages = data?.images ?? [];
-        const heroImages = allImages.filter((img) =>
-          (img.tags ?? []).includes("Hero") && img.id,
-        );
-        // Faire interdit de supprimer la DERNIÈRE image d'un produit publié
-        // (HTTP 400). On garde donc au moins 1 image en stock à chaque DELETE.
-        let remaining = allImages.length;
-        for (const img of heroImages) {
-          if (remaining <= 1) break;
-          try {
-            const delRes = await faireFetch(
-              `/products/${encodeURIComponent(meta.faireProductId)}/images/${encodeURIComponent(img.id!)}`,
-              { method: "DELETE" },
-            );
-            if (delRes.ok || delRes.status === 404) {
-              remaining -= 1;
-            } else {
-              logger.warn("[Faire Update] DELETE image Hero : status non-OK", {
-                productId,
-                imgId: img.id,
-                status: delRes.status,
-              });
-            }
-          } catch (err) {
-            logger.warn("[Faire Update] DELETE image Hero : exception", {
+    const state = await getFaireProductState();
+    if (state) {
+      const heroImages = state.rootImages.filter((img) => (img.tags ?? []).includes("Hero"));
+      // Faire interdit de supprimer la DERNIÈRE image d'un produit publié
+      // (HTTP 400). On garde donc au moins 1 image en stock à chaque DELETE.
+      let remaining = state.rootImages.length;
+      for (const img of heroImages) {
+        if (remaining <= 1) break;
+        try {
+          const delRes = await faireFetch(
+            `/products/${encodeURIComponent(meta.faireProductId)}/images/${encodeURIComponent(img.id)}`,
+            { method: "DELETE" },
+          );
+          if (delRes.ok || delRes.status === 404) {
+            remaining -= 1;
+          } else {
+            logger.warn("[Faire Update] DELETE image Hero : status non-OK", {
               productId,
               imgId: img.id,
-              error: String(err),
+              status: delRes.status,
             });
           }
+        } catch (err) {
+          logger.warn("[Faire Update] DELETE image Hero : exception", {
+            productId,
+            imgId: img.id,
+            error: String(err),
+          });
         }
-      } else {
-        logger.warn("[Faire Update] GET product pour images Hero : status non-OK", {
-          productId,
-          status: res.status,
-        });
       }
-    } catch (err) {
-      logger.warn("[Faire Update] GET product pour images Hero : exception", {
-        productId,
-        error: String(err),
-      });
     }
   }
 
@@ -600,36 +645,17 @@ export async function faireUpdateProduct(
   // pour cette variante AVANT le PATCH, puis envoyer les nouvelles dans le
   // PATCH (Faire les recrée propres sans conflit).
   //
-  // Optimisation : un seul GET /products/{id} pour récupérer tous les IDs
-  // d'images à supprimer, quel que soit le nombre de variantes concernées.
+  // Optimisation : on réutilise le state Faire déjà fetché plus haut (cache).
   const faireImageIdsByFaireVariantId = new Map<string, string[]>();
   if (variantsImagesChangedSet.size > 0) {
-    try {
-      const res = await faireFetch(`/products/${encodeURIComponent(meta.faireProductId)}`, {
-        method: "GET",
-      });
-      if (res.ok) {
-        const data = (await res.json().catch(() => null)) as
-          | { variants?: { id?: string; images?: { id?: string }[] }[] }
-          | null;
-        for (const v of data?.variants ?? []) {
-          if (!v.id) continue;
-          const ids = (v.images ?? [])
-            .map((i) => i.id)
-            .filter((id): id is string => typeof id === "string");
-          if (ids.length > 0) faireImageIdsByFaireVariantId.set(v.id, ids);
-        }
-      } else {
-        logger.warn("[Faire Update] GET product pour images variant : status non-OK", {
-          productId,
-          status: res.status,
-        });
+    const state = await getFaireProductState();
+    if (state) {
+      for (const v of state.variants) {
+        const ids = (v.images ?? [])
+          .map((i) => i.id)
+          .filter((id): id is string => typeof id === "string");
+        if (ids.length > 0) faireImageIdsByFaireVariantId.set(v.id, ids);
       }
-    } catch (err) {
-      logger.warn("[Faire Update] GET product pour images variant : exception", {
-        productId,
-        error: String(err),
-      });
     }
   }
 

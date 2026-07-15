@@ -176,11 +176,16 @@ beforeEach(() => {
     faireLastSyncSnapshot: buildSnapshot(),
   });
 
+  // Par défaut, le GET /products/{id} de réconciliation retourne les 2 vids
+  // BJ ↔ Faire connus : la purge des vids stales ne trouve rien à corriger,
+  // donc le flow tourne exactement comme avant l'ajout de la réconciliation.
   faireFetchSpy.mockResolvedValue({
     ok: true,
     status: 200,
     text: async () => "",
-    json: async () => ({ variants: [] }),
+    json: async () => ({
+      variants: VARIANT_SKUS.map((sku) => ({ id: `po_${sku}`, sku })),
+    }),
   });
   faireUpdateInventorySpy.mockResolvedValue({
     success: true,
