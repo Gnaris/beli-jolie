@@ -84,7 +84,6 @@ export async function POST(req: NextRequest) {
         colors: {
           include: {
             color: true,
-            images: { select: { order: true, path: true } },
           },
         },
       },
@@ -92,18 +91,23 @@ export async function POST(req: NextRequest) {
 
     const productMap = new Map(products.map((p) => [p.reference.toUpperCase(), p]));
 
-    // ⚠️ La contrainte unique est sur (productId, colorId, order), pas
-    // (productColorId, order). On agrège les images de toutes les variantes
-    // d'un produit qui partagent la même couleur — c'est la portée réelle
-    // qui peut générer une collision.
+    // ⚠️ La contrainte unique est sur (productId, colorId, order). On charge
+    // les images directement par (productId, colorId) — passer par la
+    // relation `productColor.images` raterait toutes celles qui ont
+    // `productColorId = NULL` (cas fréquent, 3 % de la base en prod).
+    const productIds = products.map((p) => p.id);
+    const allImages = productIds.length
+      ? await prisma.productColorImage.findMany({
+          where: { productId: { in: productIds } },
+          select: { productId: true, colorId: true, order: true, path: true },
+        })
+      : [];
     const imagesByScope = new Map<string, { order: number; path: string }[]>();
-    for (const product of products) {
-      for (const pc of product.colors) {
-        if (!pc.colorId) continue;
-        const scopeKey = `${product.id}::${pc.colorId}`;
-        const existing = imagesByScope.get(scopeKey) ?? [];
-        imagesByScope.set(scopeKey, [...existing, ...pc.images]);
-      }
+    for (const img of allImages) {
+      const scopeKey = `${img.productId}::${img.colorId}`;
+      const existing = imagesByScope.get(scopeKey) ?? [];
+      existing.push({ order: img.order, path: img.path });
+      imagesByScope.set(scopeKey, existing);
     }
 
     const conflicts: Conflict[] = [];
