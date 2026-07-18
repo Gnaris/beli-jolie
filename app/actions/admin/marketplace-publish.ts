@@ -9,6 +9,11 @@ import { pfsUpdateProductInPlace } from "@/lib/pfs-update";
 import { pfsPublishProduct } from "@/lib/pfs-publish";
 import { emitProductEvent } from "@/lib/product-events";
 import { logger } from "@/lib/logger";
+import {
+  filterOptionsByEnabled,
+  getProductMarketplaceEnabled,
+  marketplaceDisabledMessage,
+} from "@/lib/marketplace-enabled";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -23,15 +28,18 @@ export interface MarketplacePublishOutcome {
   productName: string;
   pfs?:
     | { status: "ok"; mode: "create" | "update"; archived?: boolean }
+    | { status: "disabled"; message: string }
     | { status: "error"; message: string };
   ankorstore?:
     // Ankorstore is callback-only — kickoff returns immediately. The widget
     // polls the local DB for the final outcome via /api/admin/ankorstore-operations.
     | { status: "queued"; mode: "create" | "update"; operationId: string }
     | { status: "ok"; mode: "create" | "update"; archived?: boolean }
+    | { status: "disabled"; message: string }
     | { status: "error"; message: string };
   faire?:
     | { status: "ok"; mode: "create" | "update" }
+    | { status: "disabled"; message: string }
     | { status: "error"; message: string };
 }
 
@@ -64,11 +72,24 @@ export async function publishProductToMarketplaces(
     throw new Error("Produit introuvable.");
   }
 
+  // Filtrage « marketplace activée pour ce produit ». On coupe silencieusement
+  // les options des marketplaces désactivées et on remonte un status "disabled"
+  // dans l'outcome pour que l'UI affiche "sauté (désactivée)".
+  const enabled = await getProductMarketplaceEnabled(productId);
+  const { filtered, skipped } = filterOptionsByEnabled(options, enabled);
+  options = { ...options, ...filtered };
+
   const outcome: MarketplacePublishOutcome = {
     productId,
     reference: product.reference,
     productName: product.name,
   };
+  for (const mp of skipped) {
+    const message = marketplaceDisabledMessage(mp);
+    if (mp === "pfs") outcome.pfs = { status: "disabled", message };
+    if (mp === "ankorstore") outcome.ankorstore = { status: "disabled", message };
+    if (mp === "faire") outcome.faire = { status: "disabled", message };
+  }
 
   if (options.pfs) {
     try {

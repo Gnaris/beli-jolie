@@ -6,6 +6,7 @@ import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, Ava
 import PhotosPanel from "./PhotosPanel";
 import PfsMappingSection from "./PfsMappingSection";
 import EfashionMappingSection, { type EfashionColorOption } from "./EfashionMappingSection";
+import { ProductMarketplaceToggles } from "./ProductMarketplaceToggles";
 import { detectPfsColorConflicts, formatConflictsMessage } from "@/lib/pfs-color-conflicts";
 import { detectEfashionColorConflicts, formatEfashionConflictsMessage } from "@/lib/efashion-color-conflicts";
 import CompletenessChecklist, { computeChecklist } from "./CompletenessChecklist";
@@ -146,6 +147,11 @@ interface ProductFormProps {
     efashionReferenceBase?: string | null;
     /** Faire : id `p_xxx` du produit créé chez Faire (null = jamais publié) */
     faireProductId?: string | null;
+    /** Marketplace activée pour ce produit (Product.*Enabled). Défaut true. */
+    pfsEnabledForProduct?: boolean;
+    ankorsEnabledForProduct?: boolean;
+    efashionEnabledForProduct?: boolean;
+    faireEnabledForProduct?: boolean;
     /** Couleur principale du produit (refonte : ne dépend plus de la variante isPrimary) */
     primaryColorId?: string | null;
     /** Sous-catégorie choisie comme étiquette d'export Microstore (null = catégorie principale). */
@@ -3256,7 +3262,46 @@ export default function ProductForm({
               }}
             />
           )}
+
         </section>
+
+        {/* ── Configuration Marketplace (activer / désactiver par marketplace) ── */}
+        <div id="section-mp-config" hidden={activeSection !== "mp-config"}>
+          {productId ? (
+            <ProductMarketplaceToggles
+              productId={productId}
+              pfsEnabled={initialData?.pfsEnabledForProduct ?? true}
+              ankorsEnabled={initialData?.ankorsEnabledForProduct ?? true}
+              efashionEnabled={initialData?.efashionEnabledForProduct ?? true}
+              faireEnabled={initialData?.faireEnabledForProduct ?? true}
+              isPfsLinked={!!initialData?.pfsProductId}
+              isAnkorsLinked={!!initialData?.ankorsProductId}
+              isEfashionLinked={!!initialData?.efashionReferenceBase}
+              isFaireLinked={!!initialData?.faireProductId}
+              hasPfsConfig={!!hasPfsConfig}
+              hasAnkorstoreConfig={!!hasAnkorstoreConfig && !!ankorstoreEnabled}
+              hasEfashionConfig={!!hasEfashionConfig && !!efashionEnabled}
+              hasFaireConfig={!!hasFaireConfig && !!faireEnabled}
+            />
+          ) : (
+            <div className="bg-bg-primary border border-border rounded-2xl p-8 shadow-sm">
+              <div
+                className="text-[10.5px] font-bold uppercase text-text-muted mb-2"
+                style={{ letterSpacing: "0.2em" }}
+              >
+                Publication marketplaces
+              </div>
+              <h3 className="font-heading text-lg font-bold text-text-primary mb-2">
+                Enregistrez d'abord ce produit
+              </h3>
+              <p className="text-sm text-text-secondary leading-relaxed">
+                La configuration marketplace n'est disponible qu'après l'enregistrement
+                initial du produit. Créez d'abord la fiche puis revenez ici pour
+                activer/désactiver chaque marketplace.
+              </p>
+            </div>
+          )}
+        </div>
 
         <div id="section-links" hidden={activeSection !== "assoc"} className="space-y-8">
           <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-8 shadow-card">

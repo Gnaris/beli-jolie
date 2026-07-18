@@ -15,6 +15,24 @@ interface AskInput {
   showAnkorstore: boolean;
   showEfashion: boolean;
   showFaire: boolean;
+  /** Optionnel : IDs des produits sélectionnés. Sert à afficher combien de
+   *  produits ont chaque marketplace activée / désactivée. */
+  productIds?: string[];
+  /** Titre et sous-titre personnalisés (par défaut, "Rafraîchir X produits ?").
+   *  Utilisé quand la modale sert à propager une modif de stock/prix. */
+  title?: string;
+  subtitle?: string;
+  /** Libellé du bouton principal (défaut "Confirmer"). */
+  confirmLabel?: string;
+  /** Libellé de l'eyebrow en haut (défaut "Rafraîchir"). */
+  eyebrow?: string;
+}
+
+interface MarketplaceEnabledCounts {
+  pfs: { enabled: number; disabled: number };
+  ankorstore: { enabled: number; disabled: number };
+  efashion: { enabled: number; disabled: number };
+  faire: { enabled: number; disabled: number };
 }
 
 interface ContextValue {
@@ -161,37 +179,92 @@ function MarketplaceCard({
   meta,
   checked,
   onToggle,
+  enabledCount,
+  disabledCount,
+  totalSelected,
 }: {
   meta: MarketplaceMeta;
   checked: boolean;
   onToggle: (v: boolean) => void;
+  enabledCount?: number;
+  disabledCount?: number;
+  totalSelected?: number;
 }) {
+  const allDisabled =
+    typeof enabledCount === "number" &&
+    typeof totalSelected === "number" &&
+    enabledCount === 0 &&
+    totalSelected > 0;
+  const showCounts =
+    typeof enabledCount === "number" &&
+    typeof disabledCount === "number" &&
+    totalSelected !== undefined &&
+    totalSelected > 1;
+
   return (
     <div
-      onClick={() => onToggle(!checked)}
-      className={`relative overflow-hidden rounded-2xl border border-border cursor-pointer transition-all ${
-        meta.hoverBorderClass
-      } ${checked ? meta.activeClass : "bg-white"}`}
+      onClick={() => !allDisabled && onToggle(!checked)}
+      className={`relative overflow-hidden rounded-2xl border transition-colors ${
+        allDisabled
+          ? "border-border-dark bg-bg-secondary cursor-not-allowed opacity-70"
+          : checked
+            ? "border-border-dark bg-bg-secondary cursor-pointer"
+            : "border-border bg-bg-primary hover:border-border-dark cursor-pointer"
+      }`}
     >
-      {/* Top colored bar */}
-      <div className={`absolute inset-x-0 top-0 h-[3px] ${meta.barClass}`} />
-
       <div className="flex items-start gap-3 p-4">
         <div
           className={`flex items-center justify-center w-[42px] h-[42px] rounded-xl text-white font-heading font-bold text-xs shrink-0 ${meta.chipClass}`}
+          style={allDisabled ? { filter: "grayscale(1) brightness(0.85)" } : undefined}
         >
           {meta.chipInitials}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-3 mb-1">
-            <span className="font-semibold text-text-primary text-sm">{meta.label}</span>
-            <Switch checked={checked} onChange={onToggle} onColorClass={meta.switchOnClass} />
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              <span
+                className={`font-semibold text-sm ${
+                  allDisabled ? "text-text-muted line-through" : "text-text-primary"
+                }`}
+              >
+                {meta.label}
+              </span>
+              {allDisabled && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[color:var(--color-warning-bg)] text-[color:var(--color-warning)] border border-[#FDE68A]">
+                  Désactivée sur toute la sélection
+                </span>
+              )}
+            </div>
+            {!allDisabled && (
+              <Switch
+                checked={checked}
+                onChange={onToggle}
+                onColorClass="bg-bg-dark"
+              />
+            )}
           </div>
           <p className="text-xs text-text-secondary leading-relaxed">{meta.description}</p>
-          {meta.warning && (
-            <div className="inline-flex items-start gap-1.5 mt-2 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200">
+
+          {/* Compteurs "à rafraîchir / sautés" (mode bulk avec productIds) */}
+          {showCounts && !allDisabled && (
+            <div className="flex items-center gap-3 mt-2 text-[11px] font-semibold">
+              <span className="inline-flex items-center gap-1 text-[color:var(--color-success)]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--color-success)]" />
+                {enabledCount} à rafraîchir
+              </span>
+              {disabledCount! > 0 && (
+                <span className="inline-flex items-center gap-1 text-[color:var(--color-warning)]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--color-warning)]" />
+                  {disabledCount} sauté(s)
+                </span>
+              )}
+            </div>
+          )}
+
+          {meta.warning && !allDisabled && (
+            <div className="inline-flex items-start gap-1.5 mt-2 px-2 py-1 rounded-lg bg-[color:var(--color-warning-bg)] border border-[#FDE68A]">
               <svg
-                className="w-3 h-3 text-amber-700 flex-shrink-0 mt-0.5"
+                className="w-3 h-3 text-[color:var(--color-warning)] flex-shrink-0 mt-0.5"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -203,7 +276,7 @@ function MarketplaceCard({
                   d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
                 />
               </svg>
-              <span className="text-[10px] text-amber-900 leading-tight">
+              <span className="text-[10px] text-[color:var(--color-warning)] leading-tight">
                 Créera un <span className="font-semibold">ticket de shooting</span> à valider dans la fenêtre eFashion en bas à droite.
               </span>
             </div>
@@ -309,6 +382,41 @@ function Modal({ input, onResult }: ModalProps) {
     setMounted(true);
   }, []);
 
+  // ── Compteurs "activés/désactivés" par marketplace pour la sélection ──
+  const [counts, setCounts] = useState<MarketplaceEnabledCounts | null>(null);
+  useEffect(() => {
+    const ids = input.productIds ?? [];
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/marketplace-enabled-counts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productIds: ids }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as MarketplaceEnabledCounts;
+        if (!cancelled) setCounts(data);
+      } catch {
+        // silencieux — la modale reste utilisable, juste sans compteurs
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [input.productIds]);
+
+  const totalIds = input.productIds?.length ?? input.count;
+  const totalDisabled = counts
+    ? Math.max(
+        counts.pfs.disabled,
+        counts.ankorstore.disabled,
+        counts.efashion.disabled,
+        counts.faire.disabled,
+      )
+    : 0;
+
   const resolve = useCallback(
     (options: MarketplaceRefreshOptions | null) => {
       setClosing(true);
@@ -341,13 +449,16 @@ function Modal({ input, onResult }: ModalProps) {
   const confirmDisabled = selectedCount === 0;
 
   const title =
-    input.count === 1 ? "Rafraîchir ce produit ?" : `Rafraîchir ${input.count} produits ?`;
+    input.title ??
+    (input.count === 1 ? "Rafraîchir ce produit ?" : `Rafraîchir ${input.count} produits ?`);
   const subtitle =
-    input.count === 1 && input.firstProductName
+    input.subtitle ??
+    (input.count === 1 && input.firstProductName
       ? `« ${input.firstProductName} » — choisissez où le rafraîchir.`
       : input.count === 1
         ? "Choisissez où le rafraîchir."
-        : "Les options s'appliqueront à tous les produits sélectionnés.";
+        : "Les options s'appliqueront à tous les produits sélectionnés.");
+  const eyebrow = input.eyebrow ?? "Rafraîchir";
 
   function handleConfirm() {
     if (confirmDisabled) return;
@@ -396,24 +507,24 @@ function Modal({ input, onResult }: ModalProps) {
         style={{ animation: closing ? undefined : "refreshModalSlideUp 0.25s cubic-bezier(0.16,1,0.3,1)" }}
       >
         {/* Header */}
-        <div className="px-6 md:px-8 pt-5 pb-5 bg-gradient-to-b from-bg-secondary to-bg-primary border-b border-border">
+        <div className="px-6 md:px-8 pt-5 pb-5 bg-bg-primary border-b border-border">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
-              <div className="inline-flex items-center gap-2 pl-2 pr-3 py-1 rounded-full bg-slate-100 border border-slate-200 mb-3">
-                <span className="w-2 h-2 rounded-full bg-slate-500" />
-                <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-700">
-                  Rafraîchir
-                </span>
+              <div
+                className="text-[10.5px] font-bold uppercase text-text-muted mb-2"
+                style={{ letterSpacing: "0.2em" }}
+              >
+                {eyebrow}
               </div>
               <h2 className="font-heading text-xl md:text-2xl font-bold text-text-primary leading-tight">
                 {title}
               </h2>
-              <p className="text-sm text-text-muted mt-1">{subtitle}</p>
+              <p className="text-sm text-text-secondary mt-1">{subtitle}</p>
             </div>
             <button
               type="button"
               onClick={() => resolve(null)}
-              className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-text-muted hover:text-text-primary transition shrink-0"
+              className="w-8 h-8 rounded-full hover:bg-bg-secondary flex items-center justify-center text-text-muted hover:text-text-primary transition shrink-0"
               aria-label="Fermer"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -425,11 +536,55 @@ function Modal({ input, onResult }: ModalProps) {
 
         {/* Body */}
         <div className="overflow-y-auto" style={{ maxHeight: "60vh" }}>
+          {/* KPI : compteurs sélectionnés / à rafraîchir / ignorés (bulk uniquement) */}
+          {input.count > 1 && counts && (
+            <div className="px-6 md:px-8 pt-5">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-2xl p-3 bg-bg-secondary border border-border">
+                  <div
+                    className="text-[10px] font-bold uppercase text-text-muted mb-1"
+                    style={{ letterSpacing: "0.18em" }}
+                  >
+                    Sélectionnés
+                  </div>
+                  <div className="font-heading text-2xl font-bold text-text-primary">
+                    {totalIds}
+                  </div>
+                </div>
+                <div className="rounded-2xl p-3 bg-[color:var(--color-success-bg)] border border-[#BBF7D0]">
+                  <div
+                    className="text-[10px] font-bold uppercase text-[color:var(--color-success)] mb-1"
+                    style={{ letterSpacing: "0.18em" }}
+                  >
+                    À rafraîchir
+                  </div>
+                  <div className="font-heading text-2xl font-bold text-[color:var(--color-success)]">
+                    {totalIds - totalDisabled}
+                  </div>
+                </div>
+                <div className="rounded-2xl p-3 bg-[color:var(--color-warning-bg)] border border-[#FDE68A]">
+                  <div
+                    className="text-[10px] font-bold uppercase text-[color:var(--color-warning)] mb-1"
+                    style={{ letterSpacing: "0.18em" }}
+                  >
+                    Ignorés (désactivés)
+                  </div>
+                  <div className="font-heading text-2xl font-bold text-[color:var(--color-warning)]">
+                    {totalDisabled}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Section : Boutique */}
           <div className="px-6 md:px-8 pt-5 pb-2">
             <div className="flex items-center gap-2 mb-3">
-              <span className="w-1 h-4 rounded-full bg-slate-500" />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-700">
+              <span className="w-1 h-4 rounded-full bg-bg-dark" />
+              <span
+                className="text-[10px] font-bold uppercase text-text-muted"
+                style={{ letterSpacing: "0.18em" }}
+              >
                 Boutique
               </span>
             </div>
@@ -444,8 +599,11 @@ function Modal({ input, onResult }: ModalProps) {
           {activeMarketplaces.length > 0 && (
             <div className="px-6 md:px-8 pt-5 pb-6">
               <div className="flex items-center gap-2 mb-3">
-                <span className="w-1 h-4 rounded-full bg-slate-500" />
-                <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-700">
+                <span className="w-1 h-4 rounded-full bg-bg-dark" />
+                <span
+                  className="text-[10px] font-bold uppercase text-text-muted"
+                  style={{ letterSpacing: "0.18em" }}
+                >
                   Marketplaces
                 </span>
               </div>
@@ -456,6 +614,9 @@ function Modal({ input, onResult }: ModalProps) {
                     meta={MARKETPLACES[k]}
                     checked={state[k]}
                     onToggle={(v) => setState((prev) => ({ ...prev, [k]: v }))}
+                    enabledCount={counts ? counts[k].enabled : undefined}
+                    disabledCount={counts ? counts[k].disabled : undefined}
+                    totalSelected={totalIds}
                   />
                 ))}
               </div>
@@ -639,10 +800,10 @@ function Modal({ input, onResult }: ModalProps) {
               onClick={handleConfirm}
               disabled={confirmDisabled}
               title={confirmDisabled ? "Activez au moins une destination" : undefined}
-              className={`inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white rounded-xl shadow-sm transition ${
+              className={`inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-xl transition ${
                 confirmDisabled
-                  ? "bg-slate-300 cursor-not-allowed"
-                  : "bg-gradient-to-r from-slate-600 to-slate-800 hover:from-slate-700 hover:to-slate-900"
+                  ? "bg-bg-tertiary text-text-muted cursor-not-allowed"
+                  : "bg-bg-dark text-text-inverse hover:bg-black"
               }`}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -653,7 +814,7 @@ function Modal({ input, onResult }: ModalProps) {
                   d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                 />
               </svg>
-              {intervalMs > 0 ? "Planifier" : "Rafraîchir"}
+              {input.confirmLabel ?? (intervalMs > 0 ? "Planifier" : "Rafraîchir")}
             </button>
           </div>
         </div>

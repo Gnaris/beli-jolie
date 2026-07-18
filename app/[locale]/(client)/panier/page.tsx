@@ -4,7 +4,7 @@ import { redirect, Link } from "@/i18n/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getCart } from "@/app/actions/client/cart";
+import { getCartWithProductVariants } from "@/app/actions/client/cart";
 import CartPageClient from "@/components/panier/CartPageClient";
 import { isStripeConfigured } from "@/lib/stripe";
 
@@ -44,8 +44,8 @@ export default async function PanierPage() {
     );
   }
 
-  const [cart, minConfig] = await Promise.all([
-    getCart(),
+  const [{ cart, productsMeta }, minConfig] = await Promise.all([
+    getCartWithProductVariants(),
     prisma.siteConfig.findFirst({ where: { key: "min_order_ht" } }),
   ]);
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
@@ -70,5 +70,12 @@ export default async function PanierPage() {
     })),
   } : null;
 
-  return <CartPageClient cart={serializedCart as Parameters<typeof CartPageClient>[0]["cart"]} minOrderHT={minOrderHT} stripeReady={stripeReady} />;
+  return (
+    <CartPageClient
+      cart={serializedCart as Parameters<typeof CartPageClient>[0]["cart"]}
+      productsMeta={productsMeta}
+      minOrderHT={minOrderHT}
+      stripeReady={stripeReady}
+    />
+  );
 }

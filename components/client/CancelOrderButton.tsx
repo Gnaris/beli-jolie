@@ -10,9 +10,10 @@ import { useToast } from "@/components/ui/Toast";
 interface Props {
   orderId: string;
   orderNumber: string;
+  size?: "sm" | "md";
 }
 
-export default function CancelOrderButton({ orderId, orderNumber }: Props) {
+export default function CancelOrderButton({ orderId, orderNumber, size = "sm" }: Props) {
   const t = useTranslations("cancelOrder");
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
@@ -41,14 +42,20 @@ export default function CancelOrderButton({ orderId, orderNumber }: Props) {
     });
   }
 
+  const isMd = size === "md";
+  const btnClass = isMd
+    ? "inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-text-secondary hover:text-[#EF4444] transition-colors border border-border rounded-lg hover:border-[#FECACA] disabled:opacity-60"
+    : "flex items-center gap-1.5 text-xs font-body text-text-muted hover:text-[#EF4444] transition-colors border border-border rounded-lg px-3 py-1.5 hover:border-[#FECACA] disabled:opacity-60";
+  const iconClass = isMd ? "w-4 h-4" : "w-3.5 h-3.5";
+
   return (
     <button
       type="button"
       onClick={handleClick}
       disabled={isPending}
-      className="flex items-center gap-1.5 text-xs font-body text-text-muted hover:text-[#EF4444] transition-colors border border-border rounded-lg px-3 py-1.5 hover:border-[#FECACA] disabled:opacity-60"
+      className={btnClass}
     >
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
           d="M6 18L18 6M6 6l12 12" />
       </svg>

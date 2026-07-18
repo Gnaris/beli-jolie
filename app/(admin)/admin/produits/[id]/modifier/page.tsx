@@ -543,6 +543,10 @@ export default async function ModifierProduitPage({
               ankorsSyncRequired={product.ankorsSyncRequired}
               efashionSyncRequired={product.efashionSyncRequired}
               faireSyncRequired={product.faireSyncRequired}
+              pfsEnabledForProduct={product.pfsEnabled}
+              ankorsEnabledForProduct={product.ankorsEnabled}
+              efashionEnabledForProduct={product.efashionEnabled}
+              faireEnabledForProduct={product.faireEnabled}
             />
           </div>
         </>
@@ -615,6 +619,10 @@ export default async function ModifierProduitPage({
           ankorsProductId: product.ankorsProductId,
           efashionReferenceBase: product.efashionReferenceBase,
           faireProductId: product.faireProductId,
+          pfsEnabledForProduct: product.pfsEnabled,
+          ankorsEnabledForProduct: product.ankorsEnabled,
+          efashionEnabledForProduct: product.efashionEnabled,
+          faireEnabledForProduct: product.faireEnabled,
           primaryColorId: product.primaryColorId ?? null,
           microstoreSubCategoryId: product.microstoreSubCategoryId ?? null,
         }}

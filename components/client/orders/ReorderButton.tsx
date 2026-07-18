@@ -7,7 +7,7 @@ import { reorderFromOrder } from "@/app/actions/client/reorder";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
-export default function ReorderButton({ orderId }: { orderId: string }) {
+export default function ReorderButton({ orderId, size = "sm" }: { orderId: string; size?: "sm" | "md" }) {
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
   const { confirm } = useConfirm();
@@ -43,13 +43,19 @@ export default function ReorderButton({ orderId }: { orderId: string }) {
     });
   }
 
+  const isMd = size === "md";
+  const btnClass = isMd
+    ? "inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-border-dark transition-colors border border-border rounded-lg disabled:opacity-40"
+    : "flex items-center gap-1.5 text-xs font-body text-text-secondary hover:text-accent hover:border-accent transition-colors border border-border rounded-lg px-3 py-1.5 disabled:opacity-40";
+  const iconClass = isMd ? "w-4 h-4" : "w-3.5 h-3.5";
+
   return (
     <button
       onClick={handleReorder}
       disabled={isPending}
-      className="flex items-center gap-1.5 text-xs font-body text-text-secondary hover:text-accent hover:border-accent transition-colors border border-border rounded-lg px-3 py-1.5 disabled:opacity-40"
+      className={btnClass}
     >
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
           d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
       </svg>

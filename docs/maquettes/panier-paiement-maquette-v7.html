@@ -1,0 +1,2005 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Maquette v5 — Panier → Paiement (Ardoise · sans-serif)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Roboto:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          heading: ['Poppins', 'sans-serif'],
+          body: ['Roboto', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'monospace'],
+        },
+        colors: {
+          'bg-primary': '#ffffff',
+          'bg-secondary': '#f8fafc',
+          'bg-tertiary': '#f1f5f9',
+          'bg-dark': '#18181b',
+          'text-primary': '#18181b',
+          'text-secondary': '#52525b',
+          'text-muted': '#71717a',
+          'text-inverse': '#ffffff',
+          'border': '#e4e4e7',
+          'border-dark': '#d4d4d8',
+          'success': '#059669',
+          'warning': '#d97706',
+          'error': '#dc2626',
+          'info': '#0284c7',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  body { font-family: 'Roboto', sans-serif; background: #f1f5f9; color: #18181b; }
+  .font-heading { font-family: 'Poppins', sans-serif; }
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+  .device-frame {
+    border-radius: 40px; padding: 12px;
+    background: linear-gradient(145deg, #3f3f46, #18181b);
+    box-shadow: 0 30px 80px -20px rgba(24, 24, 27, 0.25);
+  }
+  .device-screen {
+    border-radius: 30px; overflow: hidden; background: #f8fafc;
+    height: 760px; overflow-y: auto; position: relative;
+  }
+  .device-notch {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    width: 100px; height: 22px; background: #18181b; border-radius: 20px; z-index: 30;
+  }
+  .desktop-frame {
+    border-radius: 14px 14px 6px 6px; background: #18181b; padding: 8px 8px 0;
+    box-shadow: 0 30px 80px -25px rgba(24, 24, 27, 0.3);
+  }
+  .desktop-topbar { display: flex; gap: 6px; padding: 6px 8px; align-items: center; }
+  .desktop-topbar span { width: 10px; height: 10px; border-radius: 50%; }
+  .desktop-screen {
+    background: #ffffff; border-radius: 0 0 6px 6px; overflow: hidden;
+    max-height: 820px; overflow-y: auto;
+  }
+
+  .card { background: white; border: 1px solid #e4e4e7; border-radius: 16px; box-shadow: 0 1px 2px rgba(24,24,27,0.04); }
+  .field { background: white; border: 1px solid #e4e4e7; border-radius: 10px; padding: 11px 14px; font-size: 13px; color: #18181b; font-family: 'Roboto', sans-serif; }
+  .field:focus { border-color: #18181b; outline: none; }
+  .field-slim { background: white; border: 1px solid #e4e4e7; border-radius: 8px; padding: 8px 10px; font-size: 12px; color: #18181b; font-family: 'Roboto', sans-serif; width: 100%; }
+  .field-slim:focus { border-color: #18181b; outline: none; }
+
+  .btn-dark { background: #18181b; color: white; border: 1px solid #18181b; transition: all 0.2s; }
+  .btn-dark:hover { background: #27272a; }
+  .btn-outline { background: white; color: #52525b; border: 1px solid #e4e4e7; }
+  .btn-outline:hover { background: #f8fafc; border-color: #d4d4d8; }
+
+  .chip {
+    padding: 3px 10px; border-radius: 999px; font-size: 11px;
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #f1f5f9; border: 1px solid #e4e4e7; color: #52525b; font-weight: 500;
+  }
+  .badge-success { background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px; }
+  .badge-warning { background: #fffbeb; border: 1px solid #fde68a; color: #b45309; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 500; }
+  .badge-info { background: #f0f9ff; border: 1px solid #bae6fd; color: #0369a1; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 500; }
+
+  .qty {
+    width: 28px; height: 28px; border-radius: 6px;
+    border: 1px solid #e4e4e7; background: white; color: #52525b;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .qty:hover { background: #f8fafc; border-color: #d4d4d8; }
+  .qty-input { width: 40px; text-align: center; border: 1px solid #e4e4e7; background: white; height: 28px; border-radius: 6px; font-size: 13px; font-weight: 600; }
+
+  .radio-card { border: 1px solid #e4e4e7; background: white; border-radius: 14px; padding: 14px; cursor: pointer; transition: all 0.15s; }
+  .radio-card:hover { border-color: #d4d4d8; }
+  .radio-card.selected {
+    border-color: #18181b;
+    box-shadow: 0 0 0 1px #18181b, 0 2px 8px rgba(24, 24, 27, 0.08);
+  }
+
+  .rail-dark { background: #18181b; color: #d4d4d8; }
+  .rail-dot {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; flex-shrink: 0; font-family: 'Poppins', sans-serif;
+  }
+  .rail-dot.done { background: #52525b; color: white; }
+  .rail-dot.active { background: white; color: #18181b; box-shadow: 0 0 0 4px rgba(255,255,255,0.15); }
+  .rail-dot.todo { background: transparent; color: #71717a; border: 1px dashed #52525b; }
+
+  .step-dot { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; font-family: 'Poppins', sans-serif; }
+  .step-dot.done { background: #52525b; color: white; }
+  .step-dot.active { background: #18181b; color: white; box-shadow: 0 4px 12px rgba(24,24,27,0.25); }
+  .step-dot.todo { background: #f1f5f9; color: #71717a; border: 1px dashed #d4d4d8; }
+
+  .divider { height: 1px; background: #e4e4e7; }
+
+  /* Carte bancaire 3D — dégradé ardoise, VISA repositionné en haut à droite */
+  .payment-card-3d {
+    background: linear-gradient(135deg, #18181b 0%, #27272a 40%, #52525b 100%);
+    color: white; border-radius: 16px; aspect-ratio: 1.586;
+    padding: 22px; position: relative; overflow: hidden;
+    box-shadow: 0 25px 60px -15px rgba(24,24,27,0.6), 0 10px 30px -8px rgba(24,24,27,0.4);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .payment-card-3d::before {
+    content: ''; position: absolute; top: -50%; left: -20%;
+    width: 80%; height: 200%;
+    background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.06) 50%, transparent 70%);
+    transform: rotate(-20deg);
+  }
+  .payment-card-3d::after {
+    content: ''; position: absolute; bottom: -30%; right: -20%;
+    width: 60%; height: 120%;
+    background: radial-gradient(circle, rgba(255,255,255,0.08), transparent 70%);
+  }
+
+  /* Tuiles images ardoise */
+  .thumb-tile { background: linear-gradient(135deg, #e4e4e7, #71717a); }
+  .thumb-tile.tile-1 { background: linear-gradient(135deg, #f4f4f5, #52525b); }
+  .thumb-tile.tile-2 { background: linear-gradient(135deg, #d4d4d8, #3f3f46); }
+  .thumb-tile.tile-3 { background: linear-gradient(135deg, #a1a1aa, #18181b); }
+  .thumb-tile.tile-4 { background: linear-gradient(135deg, #e4e4e7, #71717a); }
+
+  /* Logos transporteurs — cadre blanc uniforme + logo contenu */
+  .logo-carrier {
+    border-radius: 8px;
+    background: white;
+    border: 1px solid #e4e4e7;
+    padding: 4px;
+    flex-shrink: 0;
+    object-fit: contain;
+  }
+
+  nav a { transition: all 0.2s; color: #71717a; }
+  nav a:hover { color: #18181b; }
+  nav a.active { color: #18181b; font-weight: 500; }
+  .nav-anchor { scroll-margin-top: 100px; }
+
+  .device-screen::-webkit-scrollbar, .desktop-screen::-webkit-scrollbar { width: 6px; }
+  .device-screen::-webkit-scrollbar-thumb, .desktop-screen::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 3px; }
+
+  .badge-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+    background: #18181b; color: white; font-size: 10px; font-weight: 700; font-family: 'Poppins', sans-serif;
+  }
+
+  /* Cart list scrollable */
+  .cart-list-scroll { max-height: 540px; overflow-y: auto; }
+  .cart-list-scroll::-webkit-scrollbar { width: 8px; }
+  .cart-list-scroll::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 4px; }
+  .cart-line { display: grid; grid-template-columns: 56px 1fr 100px 90px 32px; gap: 16px; align-items: center; padding: 12px 16px; border-bottom: 1px solid #f1f5f9; }
+  .cart-line:hover { background: #f8fafc; }
+  .cart-line-mobile { display: grid; grid-template-columns: 48px 1fr; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #f1f5f9; }
+</style>
+</head>
+<body class="antialiased min-h-screen">
+
+<!-- HEADER MAQUETTE -->
+<header class="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-border">
+  <div class="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between gap-6">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-bg-dark text-text-inverse flex items-center justify-center font-heading font-bold text-lg">B</div>
+      <div>
+        <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted">Maquette v7 · vrais logos Wikimedia</div>
+        <div class="font-heading text-lg font-bold leading-tight text-text-primary">Panier → Paiement</div>
+      </div>
+    </div>
+    <nav class="hidden md:flex items-center gap-1 text-sm">
+      <a href="#etape-panier" class="px-3 py-2">1. Panier</a>
+      <a href="#etape-livraison" class="px-3 py-2">2. Livraison</a>
+      <a href="#etape-facturation" class="px-3 py-2">3. Facturation</a>
+      <a href="#etape-paiement" class="px-3 py-2">4. Paiement</a>
+      <a href="#etape-confirmation" class="px-3 py-2">5. Confirmation</a>
+    </nav>
+    <div class="hidden lg:flex items-center gap-2 text-xs text-text-muted">
+      <span class="w-2 h-2 rounded-full bg-success animate-pulse"></span>
+      v5 · scalable
+    </div>
+  </div>
+</header>
+
+<section class="max-w-[1600px] mx-auto px-6 py-16 text-center">
+  <div class="inline-block px-3 py-1 rounded-full bg-white border border-border text-[11px] uppercase tracking-[0.22em] text-text-muted mb-5 shadow-sm">
+    Corrections 17 juillet · panier scalable · pas d'aperçu facture
+  </div>
+  <h1 class="font-heading text-4xl md:text-5xl font-bold leading-tight mb-4 text-text-primary">
+    Un panier qui tient <span class="text-text-secondary">50 produits</span> sans étouffer.
+  </h1>
+  <p class="max-w-2xl mx-auto text-text-muted leading-relaxed text-sm">
+    Panier compact + filtres · Livraison avec logos transporteurs (Chronopost, Colissimo, DHL, GLS…) ·
+    Facturation sans aperçu (les factures sont envoyées par l'équipe) · Paiement mono-méthode CB avec carte 3D corrigée.
+  </p>
+</section>
+
+<!-- ================================================================ -->
+<!-- ÉTAPE 1 · PANIER — liste scalable 50 produits                     -->
+<!-- ================================================================ -->
+<section id="etape-panier" class="nav-anchor max-w-[1600px] mx-auto px-6 pb-24">
+  <div class="flex items-baseline gap-4 mb-8">
+    <span class="font-heading text-6xl text-text-muted font-light leading-none">01</span>
+    <div>
+      <h2 class="font-heading text-3xl font-bold text-text-primary">Panier</h2>
+      <p class="text-text-muted text-sm">Liste compacte scrollable, filtres et recherche en haut, actions groupées. Tient 50 lignes sans saturer l'écran.</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-10 items-start">
+
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2 ml-1">Bureau · 1440px</div>
+      <div class="desktop-frame">
+        <div class="desktop-topbar">
+          <span class="bg-red-400"></span><span class="bg-yellow-400"></span><span class="bg-green-400"></span>
+          <div class="ml-4 text-[10px] text-white/40 font-mono">beliandjolie.com/fr/panier</div>
+        </div>
+        <div class="desktop-screen">
+          <div class="grid grid-cols-[80px_1fr_400px] min-h-[800px]">
+
+            <!-- RAIL VERTICAL -->
+            <div class="rail-dark py-8 flex flex-col items-center gap-8">
+              <div class="w-10 h-10 rounded-xl bg-white text-bg-dark flex items-center justify-center font-heading font-bold text-lg">B</div>
+              <div class="flex flex-col gap-6 items-center text-[10px] uppercase tracking-widest text-text-muted">
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot active">1</div><div class="text-white font-semibold">Panier</div></div>
+                <div class="w-px h-8 bg-white/10"></div>
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot todo">2</div><div>Livraison</div></div>
+                <div class="w-px h-8 bg-white/10"></div>
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot todo">3</div><div>Facture</div></div>
+                <div class="w-px h-8 bg-white/10"></div>
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot todo">4</div><div>Paiement</div></div>
+              </div>
+            </div>
+
+            <!-- PREVIEW CENTRE : liste compacte -->
+            <div class="bg-bg-secondary p-8">
+              <div class="mb-5 flex items-baseline justify-between">
+                <div>
+                  <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-1">Votre panier</div>
+                  <h1 class="font-heading text-3xl font-bold text-text-primary">50 articles <span class="text-text-muted text-lg font-normal">· 8 catégories</span></h1>
+                </div>
+                <div class="flex gap-2">
+                  <button class="btn-outline px-3 py-2 rounded-lg text-xs">← Continuer mes achats</button>
+                  <button class="btn-outline px-3 py-2 rounded-lg text-xs text-error border-error/30 hover:bg-error/5">Vider le panier</button>
+                </div>
+              </div>
+
+              <!-- Barre filtres -->
+              <div class="card p-3 mb-4 flex items-center gap-3 flex-wrap">
+                <div class="flex items-center gap-2 flex-1 min-w-[200px]">
+                  <span class="text-text-muted text-sm">🔍</span>
+                  <input class="field-slim border-0 shadow-none flex-1" placeholder="Rechercher dans le panier (nom, référence, couleur…)" />
+                </div>
+                <div class="h-6 w-px bg-border"></div>
+                <div class="flex items-center gap-2">
+                  <span class="text-[11px] text-text-muted uppercase tracking-wider">Catégorie</span>
+                  <button class="chip">Toutes ▾</button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-[11px] text-text-muted uppercase tracking-wider">Tri</span>
+                  <button class="chip">Ajout ▾</button>
+                </div>
+              </div>
+
+              <!-- Liste scrollable -->
+              <div class="card overflow-hidden">
+                <!-- Header table -->
+                <div class="grid grid-cols-[56px_1fr_100px_90px_32px] gap-4 px-4 py-2.5 bg-bg-tertiary border-b border-border text-[10px] uppercase tracking-widest text-text-muted font-semibold">
+                  <div></div>
+                  <div>Article</div>
+                  <div class="text-center">Quantité</div>
+                  <div class="text-right">Sous-total HT</div>
+                  <div></div>
+                </div>
+
+                <div class="cart-list-scroll">
+
+                  <!-- Groupe catégorie header -->
+                  <div class="px-4 py-2 bg-white sticky top-0 z-10 border-b border-border flex justify-between items-baseline">
+                    <span class="text-[11px] uppercase tracking-widest text-text-primary font-heading font-semibold">Bracelets <span class="text-text-muted font-normal">· 18 articles</span></span>
+                    <button class="text-[10px] text-text-muted hover:text-text-primary">Replier ▴</button>
+                  </div>
+
+                  <!-- Ligne 1 -->
+                  <div class="cart-line">
+                    <div class="w-14 h-14 rounded-lg thumb-tile tile-1 relative">
+                      <span class="absolute -top-1 -right-1 badge-count">2</span>
+                    </div>
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold text-text-primary truncate">Jonc émaillé thaïlandais</div>
+                      <div class="text-[11px] text-text-muted font-mono truncate">BR-JEM-CORAIL-98 · Corail · Lot de 6</div>
+                    </div>
+                    <div class="flex items-center gap-1 justify-center">
+                      <button class="qty">−</button>
+                      <input class="qty-input" value="2" />
+                      <button class="qty">+</button>
+                    </div>
+                    <div class="text-right">
+                      <div class="font-heading font-bold text-text-primary">196,00 €</div>
+                      <div class="text-[10px] text-text-muted">98,00 € × 2</div>
+                    </div>
+                    <button class="text-text-muted hover:text-error text-lg">×</button>
+                  </div>
+
+                  <!-- Ligne 2 avec promo -->
+                  <div class="cart-line">
+                    <div class="w-14 h-14 rounded-lg thumb-tile tile-3 relative">
+                      <span class="absolute -top-1 -left-1 badge-warning !text-[9px] !px-1.5">-15%</span>
+                    </div>
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold text-text-primary truncate">Bracelet chaîne double</div>
+                      <div class="text-[11px] text-text-muted font-mono truncate">BR-CHDBL-OR · Doré · M×3, L×2</div>
+                    </div>
+                    <div class="flex items-center gap-1 justify-center">
+                      <button class="qty">−</button>
+                      <input class="qty-input" value="5" />
+                      <button class="qty">+</button>
+                    </div>
+                    <div class="text-right">
+                      <div class="font-heading font-bold text-text-primary">212,50 €</div>
+                      <div class="text-[10px] text-text-muted">42,50 € × 5</div>
+                    </div>
+                    <button class="text-text-muted hover:text-error text-lg">×</button>
+                  </div>
+
+                  <!-- Ligne 3 -->
+                  <div class="cart-line">
+                    <div class="w-14 h-14 rounded-lg thumb-tile tile-2"></div>
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold text-text-primary truncate">Bracelet mailles rondes</div>
+                      <div class="text-[11px] text-text-muted font-mono truncate">BR-MAILR-68 · Argent · Lot de 6</div>
+                    </div>
+                    <div class="flex items-center gap-1 justify-center">
+                      <button class="qty">−</button>
+                      <input class="qty-input" value="3" />
+                      <button class="qty">+</button>
+                    </div>
+                    <div class="text-right">
+                      <div class="font-heading font-bold text-text-primary">204,00 €</div>
+                      <div class="text-[10px] text-text-muted">68,00 € × 3</div>
+                    </div>
+                    <button class="text-text-muted hover:text-error text-lg">×</button>
+                  </div>
+
+                  <!-- Ligne 4 -->
+                  <div class="cart-line">
+                    <div class="w-14 h-14 rounded-lg thumb-tile tile-1"></div>
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold text-text-primary truncate">Manchette torsadée</div>
+                      <div class="text-[11px] text-text-muted font-mono truncate">BR-MANC-TOR · Rose gold · Taille unique</div>
+                    </div>
+                    <div class="flex items-center gap-1 justify-center">
+                      <button class="qty">−</button>
+                      <input class="qty-input" value="4" />
+                      <button class="qty">+</button>
+                    </div>
+                    <div class="text-right">
+                      <div class="font-heading font-bold text-text-primary">340,00 €</div>
+                      <div class="text-[10px] text-text-muted">85,00 € × 4</div>
+                    </div>
+                    <button class="text-text-muted hover:text-error text-lg">×</button>
+                  </div>
+
+                  <div class="px-4 py-2 text-center text-[11px] text-text-muted italic border-t border-border bg-bg-secondary">
+                    + 14 autres bracelets · <button class="underline hover:text-text-primary">tout afficher</button>
+                  </div>
+
+                  <!-- Groupe suivant -->
+                  <div class="px-4 py-2 bg-white sticky top-0 z-10 border-b border-t border-border flex justify-between items-baseline">
+                    <span class="text-[11px] uppercase tracking-widest text-text-primary font-heading font-semibold">Boucles d'oreilles <span class="text-text-muted font-normal">· 12 articles</span></span>
+                    <button class="text-[10px] text-text-muted hover:text-text-primary">Replier ▴</button>
+                  </div>
+
+                  <div class="cart-line">
+                    <div class="w-14 h-14 rounded-lg thumb-tile tile-2 relative">
+                      <span class="absolute -top-1 -right-1 badge-count">1</span>
+                    </div>
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold text-text-primary truncate">Créoles inox torsadées</div>
+                      <div class="text-[11px] text-text-muted font-mono truncate">BO-CINOX-TOR-72 · Multi-couleurs · Lot 12</div>
+                    </div>
+                    <div class="flex items-center gap-1 justify-center">
+                      <button class="qty">−</button>
+                      <input class="qty-input" value="1" />
+                      <button class="qty">+</button>
+                    </div>
+                    <div class="text-right">
+                      <div class="font-heading font-bold text-text-primary">72,00 €</div>
+                      <div class="text-[10px] text-text-muted">72,00 € × 1</div>
+                    </div>
+                    <button class="text-text-muted hover:text-error text-lg">×</button>
+                  </div>
+
+                  <div class="cart-line">
+                    <div class="w-14 h-14 rounded-lg thumb-tile tile-4"></div>
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold text-text-primary truncate">Créoles ovales martelées</div>
+                      <div class="text-[11px] text-text-muted font-mono truncate">BO-CREOV-38 · Doré · Lot 6</div>
+                    </div>
+                    <div class="flex items-center gap-1 justify-center">
+                      <button class="qty">−</button>
+                      <input class="qty-input" value="2" />
+                      <button class="qty">+</button>
+                    </div>
+                    <div class="text-right">
+                      <div class="font-heading font-bold text-text-primary">76,00 €</div>
+                      <div class="text-[10px] text-text-muted">38,00 € × 2</div>
+                    </div>
+                    <button class="text-text-muted hover:text-error text-lg">×</button>
+                  </div>
+
+                  <div class="px-4 py-2 text-center text-[11px] text-text-muted italic border-t border-border bg-bg-secondary">
+                    + 10 autres boucles d'oreilles
+                  </div>
+
+                  <!-- Groupe suivant compressé -->
+                  <div class="px-4 py-2 bg-white sticky top-0 z-10 border-b border-t border-border flex justify-between items-baseline">
+                    <span class="text-[11px] uppercase tracking-widest text-text-primary font-heading font-semibold">Colliers <span class="text-text-muted font-normal">· 8 articles</span></span>
+                    <button class="text-[10px] text-text-muted hover:text-text-primary">Déplier ▾</button>
+                  </div>
+                  <div class="px-4 py-2 bg-white sticky top-0 z-10 border-b border-t border-border flex justify-between items-baseline">
+                    <span class="text-[11px] uppercase tracking-widest text-text-primary font-heading font-semibold">Bagues <span class="text-text-muted font-normal">· 6 articles</span></span>
+                    <button class="text-[10px] text-text-muted hover:text-text-primary">Déplier ▾</button>
+                  </div>
+                  <div class="px-4 py-2 bg-white sticky top-0 z-10 border-b border-t border-border flex justify-between items-baseline">
+                    <span class="text-[11px] uppercase tracking-widest text-text-primary font-heading font-semibold">Accessoires <span class="text-text-muted font-normal">· 6 articles</span></span>
+                    <button class="text-[10px] text-text-muted hover:text-text-primary">Déplier ▾</button>
+                  </div>
+                </div>
+
+                <!-- Footer table -->
+                <div class="px-4 py-3 bg-bg-tertiary border-t border-border flex items-center justify-between">
+                  <div class="text-xs text-text-muted">50 articles au total · <button class="underline hover:text-text-primary">Tout déplier</button></div>
+                  <div class="text-xs text-text-muted">Défilement : molette ou glisser ↕</div>
+                </div>
+              </div>
+
+              <div class="mt-5 flex items-center gap-6 text-xs text-text-muted">
+                <div class="flex items-center gap-2"><span>🔒</span> Paiement sécurisé</div>
+                <div class="flex items-center gap-2"><span>✦</span> Livraison 3-5 jours</div>
+                <div class="flex items-center gap-2"><span>↻</span> Retour 14 jours</div>
+              </div>
+            </div>
+
+            <!-- PANNEAU DROITE récap -->
+            <div class="border-l border-border bg-white p-8 flex flex-col">
+              <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-1">Récapitulatif</div>
+              <div class="font-heading text-2xl font-bold text-text-primary mb-6">Votre commande</div>
+
+              <div class="mb-6 p-4 rounded-xl bg-bg-tertiary border border-border">
+                <div class="flex justify-between items-baseline mb-2">
+                  <span class="text-xs uppercase tracking-wider text-text-muted">Minimum commande</span>
+                  <span class="badge-success">Atteint ✓</span>
+                </div>
+                <div class="h-2 bg-white rounded-full overflow-hidden">
+                  <div class="h-full bg-success rounded-full" style="width:100%"></div>
+                </div>
+                <div class="text-[11px] text-text-secondary mt-2">2 847 € HT · seuil 500 € HT</div>
+              </div>
+
+              <div class="space-y-3 text-sm">
+                <div class="flex justify-between"><span class="text-text-muted">Sous-total (50 articles)</span><span class="font-medium text-text-primary">2 847,00 €</span></div>
+                <div class="flex justify-between"><span class="text-text-muted">Remise fidélité</span><span class="text-success font-medium">− 142,35 €</span></div>
+                <div class="flex justify-between text-text-muted"><span>Livraison</span><span class="italic text-xs">Étape 2</span></div>
+                <div class="flex justify-between text-text-muted"><span>TVA</span><span class="italic text-xs">Étape 2</span></div>
+              </div>
+
+              <div class="divider my-5"></div>
+
+              <div class="flex items-baseline justify-between mb-8">
+                <div>
+                  <div class="text-[11px] uppercase tracking-widest text-text-muted">Total HT</div>
+                  <div class="font-heading text-4xl font-bold text-text-primary">2 704,65 <span class="text-xl text-text-muted">€</span></div>
+                </div>
+              </div>
+
+              <div class="mb-6">
+                <label class="text-[11px] uppercase tracking-widest text-text-muted">Code promo</label>
+                <div class="flex gap-2 mt-1.5">
+                  <input class="field flex-1" placeholder="Entrez votre code" />
+                  <button class="px-4 py-2 rounded-lg btn-dark text-xs font-semibold">OK</button>
+                </div>
+              </div>
+
+              <button class="btn-dark w-full py-4 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 mb-3">
+                Passer commande <span>→</span>
+              </button>
+              <button class="text-xs text-text-muted text-center underline">Sauvegarder pour plus tard</button>
+
+              <div class="mt-auto pt-6 border-t border-border space-y-2 text-[11px] text-text-muted">
+                <div class="flex items-start gap-2"><span class="text-success">✓</span><span>Prix HT réservés aux professionnels validés</span></div>
+                <div class="flex items-start gap-2"><span class="text-text-primary">✦</span><span>Équipe joignable sous 2h ouvrées via chat</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile Panier -->
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2 ml-1">Mobile · 375px</div>
+      <div class="device-frame w-[375px] mx-auto">
+        <div class="device-notch"></div>
+        <div class="device-screen">
+          <div class="flex items-center justify-between px-4 py-4 pt-9 border-b border-border bg-white">
+            <button class="text-text-primary">←</button>
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 rounded-lg bg-bg-dark text-white flex items-center justify-center font-heading font-bold text-sm">B</div>
+              <div class="font-heading font-bold text-base text-text-primary">Mon panier</div>
+            </div>
+            <div class="relative text-text-primary">
+              <span>🛍</span>
+              <span class="absolute -top-1 -right-2 badge-count">50</span>
+            </div>
+          </div>
+
+          <div class="px-4 pt-4 bg-white">
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-widest mb-2">
+              <span class="text-text-primary font-semibold">Panier</span>
+              <span class="text-text-muted">1 / 4</span>
+            </div>
+            <div class="flex gap-1">
+              <div class="flex-1 h-1 bg-bg-dark rounded"></div>
+              <div class="flex-1 h-1 bg-border rounded"></div>
+              <div class="flex-1 h-1 bg-border rounded"></div>
+              <div class="flex-1 h-1 bg-border rounded"></div>
+            </div>
+          </div>
+
+          <div class="bg-bg-secondary px-4 py-4">
+            <div class="mb-3">
+              <div class="text-[11px] uppercase tracking-widest text-text-muted">Votre panier</div>
+              <h1 class="font-heading text-2xl font-bold text-text-primary">50 articles</h1>
+            </div>
+
+            <!-- Filtre compact -->
+            <div class="card p-2 mb-3 flex items-center gap-2">
+              <span class="text-text-muted text-xs pl-1">🔍</span>
+              <input class="field-slim border-0 shadow-none flex-1" placeholder="Rechercher…" />
+              <button class="chip">Filtrer ▾</button>
+            </div>
+
+            <!-- Liste compacte mobile -->
+            <div class="card overflow-hidden mb-4">
+              <div class="px-3 py-2 bg-bg-tertiary border-b border-border">
+                <span class="text-[10px] uppercase tracking-widest text-text-primary font-semibold">Bracelets · 18</span>
+              </div>
+
+              <div class="cart-line-mobile">
+                <div class="w-12 h-12 rounded-lg thumb-tile tile-1 relative">
+                  <span class="absolute -top-1 -right-1 badge-count !w-4 !h-4 !min-w-[16px]">2</span>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-sm font-semibold text-text-primary truncate">Jonc émaillé thaïlandais</div>
+                  <div class="text-[10px] text-text-muted truncate">Corail · Lot 6</div>
+                  <div class="flex items-center justify-between mt-1">
+                    <div class="flex items-center gap-1">
+                      <button class="qty !w-6 !h-6 text-xs">−</button>
+                      <span class="w-6 text-center text-xs font-semibold">2</span>
+                      <button class="qty !w-6 !h-6 text-xs">+</button>
+                    </div>
+                    <div class="font-heading font-bold text-sm text-text-primary">196,00 €</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="cart-line-mobile">
+                <div class="w-12 h-12 rounded-lg thumb-tile tile-3 relative">
+                  <span class="absolute -top-1 -left-1 badge-warning !text-[8px] !px-1">-15%</span>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-sm font-semibold text-text-primary truncate">Bracelet chaîne double</div>
+                  <div class="text-[10px] text-text-muted truncate">Doré · M/L</div>
+                  <div class="flex items-center justify-between mt-1">
+                    <div class="flex items-center gap-1">
+                      <button class="qty !w-6 !h-6 text-xs">−</button>
+                      <span class="w-6 text-center text-xs font-semibold">5</span>
+                      <button class="qty !w-6 !h-6 text-xs">+</button>
+                    </div>
+                    <div class="font-heading font-bold text-sm text-text-primary">212,50 €</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="cart-line-mobile">
+                <div class="w-12 h-12 rounded-lg thumb-tile tile-2"></div>
+                <div class="min-w-0">
+                  <div class="text-sm font-semibold text-text-primary truncate">Bracelet mailles rondes</div>
+                  <div class="text-[10px] text-text-muted truncate">Argent · Lot 6</div>
+                  <div class="flex items-center justify-between mt-1">
+                    <div class="flex items-center gap-1">
+                      <button class="qty !w-6 !h-6 text-xs">−</button>
+                      <span class="w-6 text-center text-xs font-semibold">3</span>
+                      <button class="qty !w-6 !h-6 text-xs">+</button>
+                    </div>
+                    <div class="font-heading font-bold text-sm text-text-primary">204,00 €</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="px-3 py-2 text-center text-[10px] text-text-muted italic border-t border-border bg-bg-secondary">
+                + 15 autres bracelets · <button class="underline">afficher</button>
+              </div>
+
+              <div class="px-3 py-2 bg-bg-tertiary border-b border-t border-border flex justify-between items-baseline">
+                <span class="text-[10px] uppercase tracking-widest text-text-primary font-semibold">Boucles d'oreilles · 12</span>
+                <span class="text-[9px] text-text-muted">▾</span>
+              </div>
+              <div class="px-3 py-2 bg-bg-tertiary border-b border-border flex justify-between items-baseline">
+                <span class="text-[10px] uppercase tracking-widest text-text-primary font-semibold">Colliers · 8</span>
+                <span class="text-[9px] text-text-muted">▾</span>
+              </div>
+              <div class="px-3 py-2 bg-bg-tertiary border-b border-border flex justify-between items-baseline">
+                <span class="text-[10px] uppercase tracking-widest text-text-primary font-semibold">Bagues · 6</span>
+                <span class="text-[9px] text-text-muted">▾</span>
+              </div>
+              <div class="px-3 py-2 bg-bg-tertiary border-b border-border flex justify-between items-baseline">
+                <span class="text-[10px] uppercase tracking-widest text-text-primary font-semibold">Accessoires · 6</span>
+                <span class="text-[9px] text-text-muted">▾</span>
+              </div>
+            </div>
+
+            <!-- Récap mobile -->
+            <div class="card p-4 mb-24">
+              <div class="text-[10px] uppercase tracking-widest text-text-muted mb-3">Récapitulatif</div>
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between"><span class="text-text-muted">Sous-total (50)</span><span class="text-text-primary">2 847,00 €</span></div>
+                <div class="flex justify-between"><span class="text-text-muted">Remise</span><span class="text-success">− 142,35 €</span></div>
+                <div class="flex justify-between text-text-muted text-xs"><span>Livraison + TVA</span><span class="italic">Étape 2</span></div>
+              </div>
+              <div class="divider my-3"></div>
+              <div class="flex justify-between items-baseline">
+                <span class="text-xs uppercase tracking-widest text-text-muted">Total HT</span>
+                <span class="font-heading text-2xl font-bold text-text-primary">2 704,65 €</span>
+              </div>
+              <div class="mt-3 badge-success">Minimum atteint ✓</div>
+            </div>
+          </div>
+
+          <div class="sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur border-t border-border px-4 py-3 flex items-center justify-between gap-3">
+            <div>
+              <div class="text-[10px] uppercase tracking-widest text-text-muted">Total HT</div>
+              <div class="font-heading text-lg font-bold text-text-primary leading-none">2 704,65 €</div>
+            </div>
+            <button class="btn-dark flex-1 py-3 rounded-xl text-sm font-semibold">Commander →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<!-- ÉTAPE 2 · LIVRAISON — logos transporteurs + adresses hors overlay -->
+<!-- ================================================================ -->
+<section id="etape-livraison" class="nav-anchor max-w-[1600px] mx-auto px-6 pb-24 border-t border-border pt-16">
+  <div class="flex items-baseline gap-4 mb-8">
+    <span class="font-heading text-6xl text-text-muted font-light leading-none">02</span>
+    <div>
+      <h2 class="font-heading text-3xl font-bold text-text-primary">Livraison</h2>
+      <p class="text-text-muted text-sm">Plan avec Départ/Arrivée déportés en dessous (plus de conflit avec le tracé). Panneau droite liste les transporteurs Easy-Express avec leurs vrais logos.</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-10 items-start">
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2 ml-1">Bureau · 1440px</div>
+      <div class="desktop-frame">
+        <div class="desktop-topbar">
+          <span class="bg-red-400"></span><span class="bg-yellow-400"></span><span class="bg-green-400"></span>
+          <div class="ml-4 text-[10px] text-white/40 font-mono">beliandjolie.com/fr/panier/commande</div>
+        </div>
+        <div class="desktop-screen">
+          <div class="grid grid-cols-[80px_1fr_400px] min-h-[900px]">
+
+            <div class="rail-dark py-8 flex flex-col items-center gap-8">
+              <div class="w-10 h-10 rounded-xl bg-white text-bg-dark flex items-center justify-center font-heading font-bold text-lg">B</div>
+              <div class="flex flex-col gap-6 items-center text-[10px] uppercase tracking-widest text-text-muted">
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot done">✓</div><div class="text-text-secondary">Panier</div></div>
+                <div class="w-px h-8 bg-white/20"></div>
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot active">2</div><div class="text-white font-semibold">Livraison</div></div>
+                <div class="w-px h-8 bg-white/10"></div>
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot todo">3</div><div>Facture</div></div>
+                <div class="w-px h-8 bg-white/10"></div>
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot todo">4</div><div>Paiement</div></div>
+              </div>
+            </div>
+
+            <!-- Preview centre -->
+            <div class="bg-bg-secondary p-10">
+              <div class="mb-6">
+                <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2">Où livrer ?</div>
+                <h1 class="font-heading text-4xl font-bold text-text-primary mb-2">Bordeaux, France</h1>
+                <p class="text-text-muted text-sm">Estimation d'arrivée · <span class="text-text-primary font-medium">Vendredi 20 juillet</span> entre 9h et 12h</p>
+              </div>
+
+              <!-- Carte trajet — SANS overlay adresses -->
+              <div class="rounded-2xl overflow-hidden relative h-56 mb-0 border border-border bg-white shadow-sm">
+                <div class="absolute inset-0 opacity-50" style="background-image:linear-gradient(rgba(24,24,27,0.08) 1px, transparent 1px),linear-gradient(90deg,rgba(24,24,27,0.08) 1px, transparent 1px); background-size:30px 30px"></div>
+                <svg class="absolute inset-0 w-full h-full" viewBox="0 0 500 220" preserveAspectRatio="none">
+                  <path d="M 60 60 Q 200 40, 240 130 T 440 170" stroke="#18181b" stroke-width="2.5" fill="none" stroke-dasharray="8 4" />
+                  <circle cx="60" cy="60" r="6" fill="#18181b" />
+                  <circle cx="60" cy="60" r="12" fill="#18181b" opacity="0.15" />
+                  <circle cx="440" cy="170" r="6" fill="#18181b" />
+                  <circle cx="440" cy="170" r="12" fill="#18181b" opacity="0.15">
+                    <animate attributeName="r" values="8;16;8" dur="2s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.3;0.05;0.3" dur="2s" repeatCount="indefinite" />
+                  </circle>
+                </svg>
+                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-3xl">🚚</div>
+              </div>
+
+              <!-- Adresses Départ/Arrivée en dessous du plan (bande claire) -->
+              <div class="card p-4 rounded-t-none border-t-0 grid grid-cols-2 gap-6 mb-6">
+                <div class="flex items-start gap-3">
+                  <div class="flex flex-col items-center gap-1 pt-1">
+                    <div class="w-3 h-3 rounded-full bg-text-primary"></div>
+                    <div class="w-px h-6 bg-border"></div>
+                  </div>
+                  <div class="flex-1">
+                    <div class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Départ</div>
+                    <div class="text-sm text-text-primary font-semibold">Entrepôt Paris</div>
+                    <div class="text-[11px] text-text-muted">42 rue de la Mode · 75008</div>
+                    <div class="text-[10px] text-text-muted mt-0.5">Départ jeudi 18 juillet</div>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3">
+                  <div class="flex flex-col items-center gap-1 pt-1">
+                    <div class="w-3 h-3 rounded-full bg-text-primary ring-2 ring-bg-tertiary animate-pulse"></div>
+                    <div class="w-px h-6 bg-border"></div>
+                  </div>
+                  <div class="flex-1">
+                    <div class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Arrivée</div>
+                    <div class="text-sm text-text-primary font-semibold">Boutique Sophie</div>
+                    <div class="text-[11px] text-text-muted">12 rue Sainte-Catherine · 33000 Bordeaux</div>
+                    <div class="text-[10px] text-success mt-0.5 font-medium">Vendredi 20 juillet · 9h-12h</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mb-3 text-[11px] uppercase tracking-widest text-text-muted">Vos adresses enregistrées</div>
+              <div class="grid grid-cols-2 gap-3">
+                <div class="radio-card selected">
+                  <div class="flex items-start justify-between mb-2">
+                    <div class="w-5 h-5 rounded-full bg-text-primary flex items-center justify-center">
+                      <span class="text-white text-[10px]">✓</span>
+                    </div>
+                    <span class="chip">Par défaut</span>
+                  </div>
+                  <div class="text-text-primary font-semibold text-sm mb-1">Boutique Sophie</div>
+                  <div class="text-text-muted text-xs leading-relaxed">
+                    Sophie Martin<br />
+                    12 rue Sainte-Catherine<br />
+                    33000 Bordeaux · France
+                  </div>
+                </div>
+                <div class="radio-card">
+                  <div class="flex items-start justify-between mb-2">
+                    <div class="w-5 h-5 rounded-full border border-border-dark"></div>
+                  </div>
+                  <div class="text-text-primary font-semibold text-sm mb-1">Entrepôt Blanquefort</div>
+                  <div class="text-text-muted text-xs leading-relaxed">
+                    25 avenue de l'Industrie<br />
+                    33290 Blanquefort<br />France
+                  </div>
+                </div>
+              </div>
+              <button class="mt-3 w-full py-3 rounded-xl border border-dashed border-border-dark bg-white text-sm text-text-secondary hover:border-text-primary hover:text-text-primary">
+                + Ajouter une nouvelle adresse
+              </button>
+            </div>
+
+            <!-- PANNEAU DROITE : transporteurs Easy-Express avec logos -->
+            <div class="border-l border-border bg-white p-8 flex flex-col overflow-y-auto">
+              <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-1">Étape 2 sur 4</div>
+              <div class="font-heading text-2xl font-bold text-text-primary mb-1">Mode d'expédition</div>
+              <div class="text-xs text-text-muted mb-6 flex items-center gap-2">
+                <span class="badge-info !text-[10px] !px-2 !py-0.5">Easy-Express</span>
+                Tarifs négociés en temps réel
+              </div>
+
+              <div class="space-y-2.5 mb-6">
+                <!-- Chronopost sélectionné -->
+                <label class="radio-card selected block relative">
+                  <div class="absolute top-4 right-4 w-5 h-5 rounded-full bg-text-primary flex items-center justify-center">
+                    <span class="text-white text-[11px]">✓</span>
+                  </div>
+                  <div class="flex items-center gap-3 mb-2">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/7/7a/Logo_Chronopost.svg" alt="Chronopost" class="logo-carrier w-20 h-10" />
+                    <div class="flex-1 min-w-0 pr-6">
+                      <div class="font-heading font-semibold text-sm text-text-primary">Chronopost Domicile</div>
+                      <div class="text-[11px] text-text-muted">Livraison sur créneau · 2 jours ouvrés</div>
+                    </div>
+                  </div>
+                  <div class="flex justify-between items-baseline pt-2 border-t border-border ml-[76px]">
+                    <span class="text-[11px] text-text-muted">Assurance incluse</span>
+                    <span class="font-heading text-base font-bold text-text-primary">12,90 €</span>
+                  </div>
+                </label>
+
+                <label class="radio-card block">
+                  <div class="flex items-center gap-3">
+                    <img src="https://upload.wikimedia.org/wikipedia/fr/3/39/Colissimo_Logo.svg" alt="Colissimo" class="logo-carrier w-20 h-10" />
+                    <div class="flex-1 min-w-0">
+                      <div class="font-heading font-semibold text-sm text-text-primary">Colissimo Domicile</div>
+                      <div class="text-[11px] text-text-muted">La Poste · 3-4 jours ouvrés</div>
+                    </div>
+                    <span class="font-heading text-base font-bold text-text-primary">8,50 €</span>
+                  </div>
+                </label>
+
+                <label class="radio-card block">
+                  <div class="flex items-center gap-3">
+                    <img src="https://upload.wikimedia.org/wikipedia/fr/0/09/Logo_Mondial_Relay_-_2022.svg" alt="Mondial Relay" class="logo-carrier w-20 h-10" />
+                    <div class="flex-1 min-w-0">
+                      <div class="font-heading font-semibold text-sm text-text-primary">Point Relais</div>
+                      <div class="text-[11px] text-text-muted">Retrait sous 4 jours · 3 points proches</div>
+                    </div>
+                    <span class="font-heading text-base font-bold text-text-primary">5,90 €</span>
+                  </div>
+                </label>
+
+                <label class="radio-card block">
+                  <div class="flex items-center gap-3">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/a/ab/DPD_logo_%282015%29.svg" alt="DPD" class="logo-carrier w-20 h-10" />
+                    <div class="flex-1 min-w-0">
+                      <div class="font-heading font-semibold text-sm text-text-primary">DPD Predict</div>
+                      <div class="text-[11px] text-text-muted">Créneau 1h · 2-3 jours ouvrés</div>
+                    </div>
+                    <span class="font-heading text-base font-bold text-text-primary">10,50 €</span>
+                  </div>
+                </label>
+
+                <label class="radio-card block">
+                  <div class="flex items-center gap-3">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/a/a6/GLS_Logo_2021.svg" alt="GLS" class="logo-carrier w-20 h-10" />
+                    <div class="flex-1 min-w-0">
+                      <div class="font-heading font-semibold text-sm text-text-primary">GLS Business</div>
+                      <div class="text-[11px] text-text-muted">Livraison PRO · 2 jours ouvrés</div>
+                    </div>
+                    <span class="font-heading text-base font-bold text-text-primary">14,20 €</span>
+                  </div>
+                </label>
+
+                <label class="radio-card block">
+                  <div class="flex items-center gap-3">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/a/ac/DHL_Logo.svg" alt="DHL Express" class="logo-carrier w-20 h-10" style="background:#FFCC00" />
+                    <div class="flex-1 min-w-0">
+                      <div class="font-heading font-semibold text-sm text-text-primary">DHL Express</div>
+                      <div class="text-[11px] text-text-muted">Livraison lendemain</div>
+                    </div>
+                    <span class="font-heading text-base font-bold text-text-primary">22,90 €</span>
+                  </div>
+                </label>
+
+                <!-- Exemple transporteur sans logo dispo → icône générique -->
+                <label class="radio-card block">
+                  <div class="flex items-center gap-3">
+                    <svg viewBox="0 0 100 40" preserveAspectRatio="xMidYMid meet" class="logo-carrier w-16 h-10"><rect width="100" height="40" fill="#f1f5f9" stroke="#d4d4d8"/><text x="50" y="28" text-anchor="middle" font-family="sans-serif" font-size="20">📦</text></svg>
+                    <div class="flex-1 min-w-0">
+                      <div class="font-heading font-semibold text-sm text-text-primary">TNT Économique</div>
+                      <div class="text-[11px] text-text-muted">4-5 jours ouvrés</div>
+                    </div>
+                    <span class="font-heading text-base font-bold text-text-primary">6,90 €</span>
+                  </div>
+                </label>
+
+                <!-- Alternatives -->
+                <div class="pt-2 mt-3 border-t border-border">
+                  <div class="text-[10px] uppercase tracking-widest text-text-muted mb-2">Autres options</div>
+                  <label class="radio-card block mb-2">
+                    <div class="flex items-center gap-3">
+                      <div class="w-14 h-9 rounded bg-bg-tertiary flex items-center justify-center text-lg flex-shrink-0">🏪</div>
+                      <div class="flex-1 min-w-0">
+                        <div class="font-heading font-semibold text-sm text-text-primary">Retrait boutique</div>
+                        <div class="text-[11px] text-text-muted">Bordeaux · sous 24h</div>
+                      </div>
+                      <span class="font-heading text-base font-bold text-success">Gratuit</span>
+                    </div>
+                  </label>
+                  <label class="radio-card block">
+                    <div class="flex items-center gap-3">
+                      <div class="w-14 h-9 rounded bg-bg-tertiary flex items-center justify-center text-lg flex-shrink-0">📦</div>
+                      <div class="flex-1 min-w-0">
+                        <div class="font-heading font-semibold text-sm text-text-primary">Mon transporteur</div>
+                        <div class="text-[11px] text-text-muted">Vous gérez la logistique</div>
+                      </div>
+                      <span class="text-xs text-text-muted">À votre charge</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div class="divider mb-4"></div>
+
+              <div class="space-y-2 text-sm mb-4">
+                <div class="flex justify-between"><span class="text-text-muted">Sous-total HT</span><span class="text-text-primary">2 704,65 €</span></div>
+                <div class="flex justify-between"><span class="text-text-muted">Livraison HT</span><span class="text-text-primary">12,90 €</span></div>
+                <div class="flex justify-between"><span class="text-text-muted">TVA (20%)</span><span class="text-text-primary">543,51 €</span></div>
+              </div>
+              <div class="divider mb-4"></div>
+              <div class="flex items-baseline justify-between mb-8">
+                <div>
+                  <div class="text-[11px] uppercase tracking-widest text-text-muted">Total TTC</div>
+                  <div class="font-heading text-3xl font-bold text-text-primary">3 261,06 <span class="text-lg text-text-muted">€</span></div>
+                </div>
+              </div>
+
+              <div class="mt-auto space-y-2">
+                <button class="btn-dark w-full py-4 rounded-xl font-semibold text-sm">Continuer → Facturation</button>
+                <button class="btn-outline w-full py-2.5 rounded-xl text-xs">← Retour au panier</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile Livraison -->
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2 ml-1">Mobile · 375px</div>
+      <div class="device-frame w-[375px] mx-auto">
+        <div class="device-notch"></div>
+        <div class="device-screen">
+          <div class="flex items-center justify-between px-4 py-4 pt-9 border-b border-border bg-white">
+            <button class="text-text-primary">←</button>
+            <div class="font-heading font-bold text-base text-text-primary">Livraison</div>
+            <button class="text-xs text-text-muted">Aide</button>
+          </div>
+
+          <div class="px-4 pt-4 bg-white">
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-widest mb-2">
+              <span class="text-text-primary font-semibold">Livraison</span>
+              <span class="text-text-muted">2 / 4</span>
+            </div>
+            <div class="flex gap-1">
+              <div class="flex-1 h-1 bg-text-secondary rounded"></div>
+              <div class="flex-1 h-1 bg-bg-dark rounded"></div>
+              <div class="flex-1 h-1 bg-border rounded"></div>
+              <div class="flex-1 h-1 bg-border rounded"></div>
+            </div>
+          </div>
+
+          <div class="bg-bg-secondary px-4 py-5">
+            <div class="mb-4">
+              <div class="text-[10px] uppercase tracking-widest text-text-muted mb-1">Où livrer ?</div>
+              <h1 class="font-heading text-2xl font-bold text-text-primary">Bordeaux</h1>
+              <p class="text-text-muted text-xs">Arrivée · <span class="text-text-primary font-medium">Vendredi 20 juillet</span></p>
+            </div>
+
+            <!-- Plan mobile sans overlay -->
+            <div class="rounded-2xl overflow-hidden relative h-36 border border-border bg-white shadow-sm">
+              <div class="absolute inset-0 opacity-50" style="background-image:linear-gradient(rgba(24,24,27,0.08) 1px, transparent 1px),linear-gradient(90deg,rgba(24,24,27,0.08) 1px, transparent 1px); background-size:20px 20px"></div>
+              <svg class="absolute inset-0 w-full h-full" viewBox="0 0 300 140" preserveAspectRatio="none">
+                <path d="M 30 30 Q 150 20, 180 80 T 270 110" stroke="#18181b" stroke-width="2" fill="none" stroke-dasharray="6 3" />
+                <circle cx="30" cy="30" r="4" fill="#18181b" />
+                <circle cx="270" cy="110" r="4" fill="#18181b" />
+                <circle cx="270" cy="110" r="8" fill="#18181b" opacity="0.2" />
+              </svg>
+              <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl">🚚</div>
+            </div>
+            <div class="card p-3 rounded-t-none border-t-0 grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <div class="text-[9px] uppercase tracking-widest text-text-muted font-semibold">Départ</div>
+                <div class="text-xs text-text-primary font-semibold">Paris 75008</div>
+              </div>
+              <div>
+                <div class="text-[9px] uppercase tracking-widest text-text-muted font-semibold">Arrivée</div>
+                <div class="text-xs text-text-primary font-semibold">Bordeaux 33000</div>
+              </div>
+            </div>
+
+            <div class="text-[10px] uppercase tracking-widest text-text-muted mb-2">Adresse</div>
+            <div class="radio-card selected mb-4">
+              <div class="flex items-start justify-between mb-1.5">
+                <div class="flex items-center gap-2">
+                  <div class="w-4 h-4 rounded-full bg-text-primary flex items-center justify-center">
+                    <span class="text-white text-[8px]">✓</span>
+                  </div>
+                  <span class="text-text-primary text-sm font-semibold">Boutique Sophie</span>
+                </div>
+                <span class="chip !text-[9px]">Défaut</span>
+              </div>
+              <div class="text-text-muted text-[11px] leading-relaxed pl-6">12 rue Sainte-Catherine, 33000 Bordeaux</div>
+            </div>
+
+            <div class="text-[10px] uppercase tracking-widest text-text-muted mb-2 flex items-center gap-2">
+              Transporteur
+              <span class="badge-info !text-[9px] !px-1.5 !py-0">Easy-Express</span>
+            </div>
+            <div class="card p-3 space-y-2 mb-8">
+              <label class="radio-card selected block p-2.5 relative">
+                <div class="absolute top-2 right-2 w-4 h-4 rounded-full bg-text-primary flex items-center justify-center text-white text-[9px]">✓</div>
+                <div class="flex items-center gap-2">
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/7/7a/Logo_Chronopost.svg" alt="Chronopost" class="logo-carrier w-14 h-9" />
+                  <div class="flex-1 min-w-0 pr-4">
+                    <div class="text-xs font-heading font-semibold text-text-primary">Chronopost</div>
+                    <div class="text-[10px] text-text-muted">2j · assuré</div>
+                  </div>
+                  <span class="font-heading font-bold text-sm text-text-primary">12,90 €</span>
+                </div>
+              </label>
+              <label class="radio-card block p-2.5">
+                <div class="flex items-center gap-2">
+                  <img src="https://upload.wikimedia.org/wikipedia/fr/3/39/Colissimo_Logo.svg" alt="Colissimo" class="logo-carrier w-14 h-9" />
+                  <div class="flex-1 min-w-0">
+                    <div class="text-xs font-heading font-semibold text-text-primary">Colissimo</div>
+                    <div class="text-[10px] text-text-muted">3-4j</div>
+                  </div>
+                  <span class="font-heading font-bold text-sm text-text-primary">8,50 €</span>
+                </div>
+              </label>
+              <label class="radio-card block p-2.5">
+                <div class="flex items-center gap-2">
+                  <img src="https://upload.wikimedia.org/wikipedia/fr/0/09/Logo_Mondial_Relay_-_2022.svg" alt="Mondial Relay" class="logo-carrier w-14 h-9" />
+                  <div class="flex-1 min-w-0">
+                    <div class="text-xs font-heading font-semibold text-text-primary">Point Relais</div>
+                    <div class="text-[10px] text-text-muted">4j · retrait</div>
+                  </div>
+                  <span class="font-heading font-bold text-sm text-text-primary">5,90 €</span>
+                </div>
+              </label>
+              <label class="radio-card block p-2.5">
+                <div class="flex items-center gap-2">
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/a/ac/DHL_Logo.svg" alt="DHL Express" class="logo-carrier w-14 h-9" style="background:#FFCC00" />
+                  <div class="flex-1 min-w-0">
+                    <div class="text-xs font-heading font-semibold text-text-primary">DHL Express</div>
+                    <div class="text-[10px] text-text-muted">Lendemain</div>
+                  </div>
+                  <span class="font-heading font-bold text-sm text-text-primary">22,90 €</span>
+                </div>
+              </label>
+              <label class="radio-card block p-2.5">
+                <div class="flex items-center gap-2">
+                  <svg viewBox="0 0 100 40" preserveAspectRatio="xMidYMid meet" class="logo-carrier w-12 h-8"><rect width="100" height="40" fill="#f1f5f9" stroke="#d4d4d8"/><text x="50" y="28" text-anchor="middle" font-family="sans-serif" font-size="20">📦</text></svg>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-xs font-heading font-semibold text-text-primary">TNT Éco</div>
+                    <div class="text-[10px] text-text-muted">4-5j</div>
+                  </div>
+                  <span class="font-heading font-bold text-sm text-text-primary">6,90 €</span>
+                </div>
+              </label>
+              <div class="pt-2 border-t border-border">
+                <label class="radio-card block p-2.5">
+                  <div class="flex items-center gap-2">
+                    <div class="w-12 h-8 rounded bg-bg-tertiary flex items-center justify-center text-base flex-shrink-0">🏪</div>
+                    <div class="flex-1"><div class="text-xs font-heading font-semibold text-text-primary">Retrait boutique</div></div>
+                    <span class="font-heading font-bold text-sm text-success">Gratuit</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur border-t border-border px-4 py-3">
+            <div class="flex justify-between items-baseline mb-2 text-xs">
+              <span class="text-text-muted">Total TTC</span>
+              <span class="font-heading font-bold text-lg text-text-primary">3 261,06 €</span>
+            </div>
+            <div class="flex gap-2">
+              <button class="btn-outline px-3 py-3 rounded-xl text-xs">←</button>
+              <button class="btn-dark flex-1 py-3 rounded-xl text-sm font-semibold">Continuer →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<!-- ÉTAPE 3 · FACTURATION — sans preview facture                      -->
+<!-- ================================================================ -->
+<section id="etape-facturation" class="nav-anchor max-w-[1600px] mx-auto px-6 pb-24 border-t border-border pt-16">
+  <div class="flex items-baseline gap-4 mb-8">
+    <span class="font-heading text-6xl text-text-muted font-light leading-none">03</span>
+    <div>
+      <h2 class="font-heading text-3xl font-bold text-text-primary">Facturation</h2>
+      <p class="text-text-muted text-sm">Aperçu retiré — le site ne génère pas de facture. À la place : fiche client vérifiée + note « facture envoyée par l'équipe ».</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-10 items-start">
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2 ml-1">Bureau · 1440px</div>
+      <div class="desktop-frame">
+        <div class="desktop-topbar">
+          <span class="bg-red-400"></span><span class="bg-yellow-400"></span><span class="bg-green-400"></span>
+          <div class="ml-4 text-[10px] text-white/40 font-mono">beliandjolie.com/fr/panier/commande</div>
+        </div>
+        <div class="desktop-screen">
+          <div class="grid grid-cols-[80px_1fr_400px] min-h-[800px]">
+
+            <div class="rail-dark py-8 flex flex-col items-center gap-8">
+              <div class="w-10 h-10 rounded-xl bg-white text-bg-dark flex items-center justify-center font-heading font-bold text-lg">B</div>
+              <div class="flex flex-col gap-6 items-center text-[10px] uppercase tracking-widest text-text-muted">
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot done">✓</div><div class="text-text-secondary">Panier</div></div>
+                <div class="w-px h-8 bg-white/20"></div>
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot done">✓</div><div class="text-text-secondary">Livraison</div></div>
+                <div class="w-px h-8 bg-white/20"></div>
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot active">3</div><div class="text-white font-semibold">Facture</div></div>
+                <div class="w-px h-8 bg-white/10"></div>
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot todo">4</div><div>Paiement</div></div>
+              </div>
+            </div>
+
+            <!-- Centre : fiche client + note -->
+            <div class="bg-bg-secondary p-10">
+              <div class="mb-6">
+                <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2">Qui reçoit la facture ?</div>
+                <h1 class="font-heading text-4xl font-bold text-text-primary">À qui facturer ?</h1>
+                <p class="text-text-muted text-sm mt-1">Confirmez les coordonnées de votre entreprise. Modifiable à droite.</p>
+              </div>
+
+              <!-- Fiche client visuelle -->
+              <div class="card p-6 mb-6">
+                <div class="flex items-start justify-between mb-5">
+                  <div class="flex items-center gap-4">
+                    <div class="w-14 h-14 rounded-xl bg-bg-tertiary flex items-center justify-center font-heading font-bold text-xl text-text-primary">SM</div>
+                    <div>
+                      <div class="font-heading text-xl font-bold text-text-primary">SOPHIE MARTIN EI</div>
+                      <div class="text-xs text-text-muted">Entreprise Individuelle · France</div>
+                    </div>
+                  </div>
+                  <button class="btn-outline px-3 py-2 rounded-lg text-xs">Modifier</button>
+                </div>
+
+                <!-- Checklist vérifications -->
+                <div class="grid grid-cols-2 gap-3 mb-5">
+                  <div class="p-3 rounded-lg bg-bg-tertiary border border-border">
+                    <div class="flex items-center gap-2 mb-1">
+                      <span class="w-5 h-5 rounded-full bg-success flex items-center justify-center text-white text-[10px]">✓</span>
+                      <span class="text-[11px] uppercase tracking-widest text-text-muted font-semibold">SIRET vérifié</span>
+                    </div>
+                    <div class="text-sm text-text-primary font-mono">852 419 763 00012</div>
+                  </div>
+                  <div class="p-3 rounded-lg bg-bg-tertiary border border-border">
+                    <div class="flex items-center gap-2 mb-1">
+                      <span class="w-5 h-5 rounded-full bg-success flex items-center justify-center text-white text-[10px]">✓</span>
+                      <span class="text-[11px] uppercase tracking-widest text-text-muted font-semibold">TVA intracom. valide</span>
+                    </div>
+                    <div class="text-sm text-text-primary font-mono">FR 42 852 419 763</div>
+                  </div>
+                  <div class="p-3 rounded-lg bg-bg-tertiary border border-border">
+                    <div class="flex items-center gap-2 mb-1">
+                      <span class="w-5 h-5 rounded-full bg-success flex items-center justify-center text-white text-[10px]">✓</span>
+                      <span class="text-[11px] uppercase tracking-widest text-text-muted font-semibold">KBIS reçu</span>
+                    </div>
+                    <div class="text-sm text-text-primary">Validé le 12 mars 2025</div>
+                  </div>
+                  <div class="p-3 rounded-lg bg-bg-tertiary border border-border">
+                    <div class="flex items-center gap-2 mb-1">
+                      <span class="w-5 h-5 rounded-full bg-success flex items-center justify-center text-white text-[10px]">✓</span>
+                      <span class="text-[11px] uppercase tracking-widest text-text-muted font-semibold">Compte approuvé</span>
+                    </div>
+                    <div class="text-sm text-text-primary">Pro depuis mars 2025</div>
+                  </div>
+                </div>
+
+                <div class="divider mb-5"></div>
+
+                <div class="grid grid-cols-2 gap-6">
+                  <div>
+                    <div class="text-[10px] uppercase tracking-widest text-text-muted font-semibold mb-2">Contact</div>
+                    <div class="text-sm text-text-primary font-semibold">Sophie Martin</div>
+                    <div class="text-xs text-text-secondary">sophie.martin@boutique-bordelaise.fr</div>
+                    <div class="text-xs text-text-secondary">+33 6 12 34 56 78</div>
+                  </div>
+                  <div>
+                    <div class="text-[10px] uppercase tracking-widest text-text-muted font-semibold mb-2">Adresse de facturation</div>
+                    <div class="text-sm text-text-primary">12 rue Sainte-Catherine</div>
+                    <div class="text-xs text-text-secondary">33000 Bordeaux · France</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Note importante -->
+              <div class="card p-5 border-l-4 border-l-info flex items-start gap-4">
+                <div class="w-10 h-10 rounded-full bg-info/10 flex items-center justify-center text-info text-xl flex-shrink-0">ⓘ</div>
+                <div>
+                  <div class="font-heading font-semibold text-sm text-text-primary mb-1">Comment récupérer votre facture</div>
+                  <div class="text-xs text-text-secondary leading-relaxed">
+                    Le site ne génère pas de facture automatiquement. <span class="text-text-primary font-medium">Votre facture PDF sera disponible en téléchargement direct depuis la page de votre commande</span> dès qu'elle sera préparée par notre équipe (mentions légales complètes, RIB si règlement différé).
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- PANNEAU DROITE : formulaire modifiable -->
+            <div class="border-l border-border bg-white p-8 flex flex-col overflow-y-auto">
+              <div class="flex items-baseline justify-between mb-6">
+                <div>
+                  <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-1">Étape 3 sur 4</div>
+                  <div class="font-heading text-2xl font-bold text-text-primary">Vos coordonnées</div>
+                </div>
+              </div>
+
+              <label class="flex items-start gap-3 p-4 rounded-xl bg-bg-tertiary border border-border mb-6 cursor-pointer">
+                <div class="w-5 h-5 rounded bg-text-primary flex items-center justify-center text-white text-[11px] flex-shrink-0 mt-0.5">✓</div>
+                <div>
+                  <div class="text-sm font-semibold text-text-primary">Adresse de facturation = adresse de livraison</div>
+                  <div class="text-xs text-text-muted">Décocher pour saisir une adresse différente</div>
+                </div>
+              </label>
+
+              <div class="space-y-5">
+                <div>
+                  <div class="text-[11px] uppercase tracking-widest text-text-muted mb-3">Entreprise</div>
+                  <div class="space-y-2.5">
+                    <div>
+                      <label class="text-[11px] text-text-muted">Raison sociale</label>
+                      <div class="field mt-1">SOPHIE MARTIN EI</div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                      <div>
+                        <label class="text-[11px] text-text-muted">SIRET</label>
+                        <div class="field mt-1 font-mono text-xs">852 419 763 00012</div>
+                      </div>
+                      <div>
+                        <label class="text-[11px] text-text-muted">TVA intracom.</label>
+                        <div class="field mt-1 font-mono text-xs">FR 42 852 419 763</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="text-[11px] uppercase tracking-widest text-text-muted mb-3">Contact</div>
+                  <div class="space-y-2.5">
+                    <div class="grid grid-cols-2 gap-2">
+                      <div>
+                        <label class="text-[11px] text-text-muted">Prénom</label>
+                        <div class="field mt-1">Sophie</div>
+                      </div>
+                      <div>
+                        <label class="text-[11px] text-text-muted">Nom</label>
+                        <div class="field mt-1">Martin</div>
+                      </div>
+                    </div>
+                    <div>
+                      <label class="text-[11px] text-text-muted">Email <span class="text-error">*</span></label>
+                      <div class="field mt-1 text-xs">sophie.martin@boutique.fr</div>
+                      <div class="text-[10px] text-text-muted mt-1">✉ Utilisé pour les notifications de commande</div>
+                    </div>
+                    <div>
+                      <label class="text-[11px] text-text-muted">Téléphone</label>
+                      <div class="field mt-1 text-xs">+33 6 12 34 56 78</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="text-[11px] uppercase tracking-widest text-text-muted mb-3">Adresse de facturation</div>
+                  <div class="space-y-2.5">
+                    <div>
+                      <label class="text-[11px] text-text-muted">Rue</label>
+                      <div class="field mt-1">12 rue Sainte-Catherine</div>
+                    </div>
+                    <div class="grid grid-cols-[100px_1fr] gap-2">
+                      <div>
+                        <label class="text-[11px] text-text-muted">CP</label>
+                        <div class="field mt-1">33000</div>
+                      </div>
+                      <div>
+                        <label class="text-[11px] text-text-muted">Ville</label>
+                        <div class="field mt-1">Bordeaux</div>
+                      </div>
+                    </div>
+                    <div>
+                      <label class="text-[11px] text-text-muted">Pays</label>
+                      <div class="field mt-1 flex justify-between"><span>France</span><span class="text-text-muted">▾</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-8 space-y-2">
+                <button class="btn-dark w-full py-4 rounded-xl font-semibold text-sm">Continuer → Paiement</button>
+                <button class="btn-outline w-full py-2.5 rounded-xl text-xs">← Retour livraison</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile Facturation -->
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2 ml-1">Mobile · 375px</div>
+      <div class="device-frame w-[375px] mx-auto">
+        <div class="device-notch"></div>
+        <div class="device-screen">
+          <div class="flex items-center justify-between px-4 py-4 pt-9 border-b border-border bg-white">
+            <button class="text-text-primary">←</button>
+            <div class="font-heading font-bold text-base text-text-primary">Facturation</div>
+            <button class="text-xs text-text-muted">Aide</button>
+          </div>
+
+          <div class="px-4 pt-4 bg-white">
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-widest mb-2">
+              <span class="text-text-primary font-semibold">Facturation</span>
+              <span class="text-text-muted">3 / 4</span>
+            </div>
+            <div class="flex gap-1">
+              <div class="flex-1 h-1 bg-text-secondary rounded"></div>
+              <div class="flex-1 h-1 bg-text-secondary rounded"></div>
+              <div class="flex-1 h-1 bg-bg-dark rounded"></div>
+              <div class="flex-1 h-1 bg-border rounded"></div>
+            </div>
+          </div>
+
+          <div class="bg-bg-secondary px-4 py-5">
+            <div class="mb-4">
+              <div class="text-[10px] uppercase tracking-widest text-text-muted mb-1">Qui reçoit la facture ?</div>
+              <h1 class="font-heading text-2xl font-bold text-text-primary">À qui facturer ?</h1>
+            </div>
+
+            <!-- Fiche client mobile -->
+            <div class="card p-4 mb-3">
+              <div class="flex items-center gap-3 mb-3">
+                <div class="w-11 h-11 rounded-lg bg-bg-tertiary flex items-center justify-center font-heading font-bold text-base text-text-primary">SM</div>
+                <div class="flex-1">
+                  <div class="font-heading font-bold text-sm text-text-primary">SOPHIE MARTIN EI</div>
+                  <div class="text-[10px] text-text-muted">Entreprise Individuelle</div>
+                </div>
+                <button class="text-[10px] text-text-secondary underline">Modifier</button>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div class="p-2 rounded-lg bg-bg-tertiary">
+                  <div class="flex items-center gap-1.5 mb-0.5">
+                    <span class="w-3 h-3 rounded-full bg-success flex items-center justify-center text-white text-[7px]">✓</span>
+                    <span class="text-[9px] uppercase tracking-widest text-text-muted font-semibold">SIRET</span>
+                  </div>
+                  <div class="text-[11px] text-text-primary font-mono">852 419 763</div>
+                </div>
+                <div class="p-2 rounded-lg bg-bg-tertiary">
+                  <div class="flex items-center gap-1.5 mb-0.5">
+                    <span class="w-3 h-3 rounded-full bg-success flex items-center justify-center text-white text-[7px]">✓</span>
+                    <span class="text-[9px] uppercase tracking-widest text-text-muted font-semibold">TVA</span>
+                  </div>
+                  <div class="text-[11px] text-text-primary font-mono">FR 42 852…</div>
+                </div>
+                <div class="p-2 rounded-lg bg-bg-tertiary">
+                  <div class="flex items-center gap-1.5 mb-0.5">
+                    <span class="w-3 h-3 rounded-full bg-success flex items-center justify-center text-white text-[7px]">✓</span>
+                    <span class="text-[9px] uppercase tracking-widest text-text-muted font-semibold">KBIS</span>
+                  </div>
+                  <div class="text-[11px] text-text-primary">Validé</div>
+                </div>
+                <div class="p-2 rounded-lg bg-bg-tertiary">
+                  <div class="flex items-center gap-1.5 mb-0.5">
+                    <span class="w-3 h-3 rounded-full bg-success flex items-center justify-center text-white text-[7px]">✓</span>
+                    <span class="text-[9px] uppercase tracking-widest text-text-muted font-semibold">Compte</span>
+                  </div>
+                  <div class="text-[11px] text-text-primary">Approuvé</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card p-3 border-l-4 border-l-info flex items-start gap-2 mb-5">
+              <div class="w-6 h-6 rounded-full bg-info/10 flex items-center justify-center text-info text-sm flex-shrink-0">ⓘ</div>
+              <div>
+                <div class="text-[11px] font-heading font-semibold text-text-primary">Facture téléchargeable</div>
+                <div class="text-[10px] text-text-secondary leading-relaxed">Le site ne génère pas de facture. Elle sera téléchargeable directement depuis la page de votre commande dès qu'elle sera prête.</div>
+              </div>
+            </div>
+
+            <label class="flex items-start gap-2.5 p-3 rounded-xl bg-bg-tertiary border border-border mb-5">
+              <div class="w-4 h-4 rounded bg-text-primary flex items-center justify-center text-white text-[9px] flex-shrink-0 mt-0.5">✓</div>
+              <div>
+                <div class="text-xs font-semibold text-text-primary">Adresse identique à la livraison</div>
+              </div>
+            </label>
+
+            <div class="card p-4 space-y-4 mb-24">
+              <div>
+                <div class="text-[10px] uppercase tracking-widest text-text-muted mb-2">Entreprise</div>
+                <div class="space-y-2">
+                  <div>
+                    <label class="text-[10px] text-text-muted">Raison sociale</label>
+                    <div class="field mt-0.5 text-sm">SOPHIE MARTIN EI</div>
+                  </div>
+                  <div>
+                    <label class="text-[10px] text-text-muted">SIRET</label>
+                    <div class="field mt-0.5 text-sm font-mono">852 419 763 00012</div>
+                  </div>
+                </div>
+              </div>
+              <div class="divider"></div>
+              <div>
+                <div class="text-[10px] uppercase tracking-widest text-text-muted mb-2">Contact</div>
+                <div class="space-y-2">
+                  <div>
+                    <label class="text-[10px] text-text-muted">Nom complet</label>
+                    <div class="field mt-0.5 text-sm">Sophie Martin</div>
+                  </div>
+                  <div>
+                    <label class="text-[10px] text-text-muted">Email de contact</label>
+                    <div class="field mt-0.5 text-sm">sophie.martin@boutique.fr</div>
+                  </div>
+                </div>
+              </div>
+              <div class="divider"></div>
+              <div>
+                <div class="text-[10px] uppercase tracking-widest text-text-muted mb-2">Adresse</div>
+                <div class="space-y-2">
+                  <div>
+                    <label class="text-[10px] text-text-muted">Rue</label>
+                    <div class="field mt-0.5 text-sm">12 rue Sainte-Catherine</div>
+                  </div>
+                  <div class="grid grid-cols-[80px_1fr] gap-2">
+                    <div>
+                      <label class="text-[10px] text-text-muted">CP</label>
+                      <div class="field mt-0.5 text-sm">33000</div>
+                    </div>
+                    <div>
+                      <label class="text-[10px] text-text-muted">Ville</label>
+                      <div class="field mt-0.5 text-sm">Bordeaux</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur border-t border-border px-4 py-3 flex gap-2">
+            <button class="btn-outline px-3 py-3 rounded-xl text-xs">←</button>
+            <button class="btn-dark flex-1 py-3 rounded-xl text-sm font-semibold">Continuer →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<!-- ÉTAPE 4 · PAIEMENT — CB uniquement + carte 3D corrigée            -->
+<!-- ================================================================ -->
+<section id="etape-paiement" class="nav-anchor max-w-[1600px] mx-auto px-6 pb-24 border-t border-border pt-16">
+  <div class="flex items-baseline gap-4 mb-8">
+    <span class="font-heading text-6xl text-text-muted font-light leading-none">04</span>
+    <div>
+      <h2 class="font-heading text-3xl font-bold text-text-primary">Paiement carte bancaire</h2>
+      <p class="text-text-muted text-sm">Une seule méthode (virement et bon de commande retirés). Carte 3D avec logo VISA repositionné en haut à droite (plus de conflit).</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-10 items-start">
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2 ml-1">Bureau · 1440px</div>
+      <div class="desktop-frame">
+        <div class="desktop-topbar">
+          <span class="bg-red-400"></span><span class="bg-yellow-400"></span><span class="bg-green-400"></span>
+          <div class="ml-4 text-[10px] text-white/40 font-mono">beliandjolie.com/fr/panier/commande</div>
+          <div class="ml-auto text-[10px] text-emerald-400 flex items-center gap-1"><span>🔒</span> stripe.com sécurisé</div>
+        </div>
+        <div class="desktop-screen">
+          <div class="grid grid-cols-[80px_1fr_400px] min-h-[800px]">
+
+            <div class="rail-dark py-8 flex flex-col items-center gap-8">
+              <div class="w-10 h-10 rounded-xl bg-white text-bg-dark flex items-center justify-center font-heading font-bold text-lg">B</div>
+              <div class="flex flex-col gap-6 items-center text-[10px] uppercase tracking-widest text-text-muted">
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot done">✓</div><div class="text-text-secondary">Panier</div></div>
+                <div class="w-px h-8 bg-white/20"></div>
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot done">✓</div><div class="text-text-secondary">Livraison</div></div>
+                <div class="w-px h-8 bg-white/20"></div>
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot done">✓</div><div class="text-text-secondary">Facture</div></div>
+                <div class="w-px h-8 bg-white/20"></div>
+                <div class="flex flex-col items-center gap-2"><div class="rail-dot active">4</div><div class="text-white font-semibold">Paiement</div></div>
+              </div>
+            </div>
+
+            <!-- Preview : carte 3D CORRIGÉE -->
+            <div class="bg-bg-secondary p-10 flex flex-col justify-center items-center relative">
+              <div class="text-center mb-8">
+                <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2">Dernière étape</div>
+                <h1 class="font-heading text-4xl font-bold text-text-primary mb-2">3 261,06 <span class="text-2xl text-text-muted">€ TTC</span></h1>
+                <p class="text-text-muted text-sm">Prélèvement unique · Chiffrement bout-en-bout</p>
+              </div>
+
+              <div class="relative" style="perspective: 1000px;">
+                <div class="payment-card-3d w-96" style="transform: rotate3d(1, -1, 0, 12deg);">
+                  <!-- HAUT : puce à gauche, VISA à droite (ancienne position du logo Beli&Jolie) -->
+                  <div class="flex justify-between items-start mb-10 relative z-10">
+                    <div class="w-12 h-9 rounded bg-gradient-to-br from-zinc-200 to-zinc-400 opacity-90"></div>
+                    <div class="text-white text-2xl font-heading font-bold italic tracking-tight">VISA</div>
+                  </div>
+                  <!-- MILIEU : numéro -->
+                  <div class="font-mono text-lg tracking-widest relative z-10 mb-6">
+                    4242 &nbsp; 4242 &nbsp; 4242 &nbsp; 4242
+                  </div>
+                  <!-- BAS : titulaire à gauche, expiration à droite (VISA n'est plus ici) -->
+                  <div class="flex justify-between text-[10px] uppercase opacity-80 relative z-10">
+                    <div>
+                      <div class="opacity-60 mb-1">Titulaire</div>
+                      <div class="text-base font-heading font-semibold">Sophie Martin</div>
+                    </div>
+                    <div class="text-right">
+                      <div class="opacity-60 mb-1">Expire</div>
+                      <div class="text-base font-mono">12/28</div>
+                    </div>
+                  </div>
+                  <!-- Nom banque en signature discrète en bas gauche sous "Titulaire" (optionnel, retiré du conflit) -->
+                </div>
+                <div class="absolute -bottom-8 left-1/2 -translate-x-1/2 w-80 h-8 bg-zinc-900/30 blur-3xl rounded-full"></div>
+              </div>
+
+              <!-- Marques + trust -->
+              <div class="mt-12 flex gap-3 items-center">
+                <div class="px-3 py-1.5 bg-white rounded-lg text-xs font-heading font-bold text-text-primary border border-border shadow-sm">VISA</div>
+                <div class="px-3 py-1.5 bg-white rounded-lg text-xs font-heading font-bold text-text-primary border border-border shadow-sm">Mastercard</div>
+                <div class="px-3 py-1.5 bg-white rounded-lg text-xs font-heading font-bold text-text-primary border border-border shadow-sm">CB</div>
+                <div class="w-px h-6 bg-border-dark mx-2"></div>
+                <div class="chip flex items-center gap-1">🔒 3D Secure</div>
+                <div class="chip">PCI-DSS</div>
+              </div>
+
+              <div class="mt-8 card p-4 max-w-md text-xs text-text-secondary leading-relaxed flex items-start gap-3">
+                <span class="text-2xl">🛡️</span>
+                <div>
+                  Vos données bancaires sont chiffrées par <span class="text-text-primary font-semibold">Stripe</span> (certification PCI-DSS niveau 1).
+                  Beli &amp; Jolie ne stocke jamais votre numéro de carte. Une authentification 3D Secure peut vous être demandée par votre banque.
+                </div>
+              </div>
+            </div>
+
+            <!-- Formulaire -->
+            <div class="border-l border-border bg-white p-8 flex flex-col overflow-y-auto">
+              <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-1">Étape 4 sur 4 · Sécurisé</div>
+              <div class="font-heading text-2xl font-bold text-text-primary mb-2">Paiement par carte</div>
+              <div class="flex items-center gap-2 text-xs text-text-muted mb-6">
+                <span>🔒</span> Champs Stripe chiffrés en direct
+              </div>
+
+              <!-- PLUS de choix méthode (virement/BdC retirés) -->
+
+              <div class="space-y-3">
+                <div>
+                  <label class="text-[11px] text-text-muted">Numéro de carte</label>
+                  <div class="field mt-1 font-mono flex justify-between items-center">
+                    <span class="text-sm">4242 4242 4242 4242</span>
+                    <div class="w-8 h-5 bg-bg-dark rounded flex items-center justify-center text-white text-[8px] font-heading font-bold italic">VISA</div>
+                  </div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="text-[11px] text-text-muted">Expiration</label>
+                    <div class="field mt-1 font-mono text-sm">12 / 28</div>
+                  </div>
+                  <div>
+                    <label class="text-[11px] text-text-muted flex justify-between">
+                      <span>CVC</span><span class="cursor-help">ⓘ</span>
+                    </label>
+                    <div class="field mt-1 font-mono text-sm">•••</div>
+                  </div>
+                </div>
+                <div>
+                  <label class="text-[11px] text-text-muted">Titulaire</label>
+                  <div class="field mt-1 text-sm">Sophie Martin</div>
+                </div>
+                <label class="flex items-start gap-2 pt-1 cursor-pointer">
+                  <div class="w-4 h-4 rounded border border-border-dark flex-shrink-0 mt-0.5"></div>
+                  <span class="text-xs text-text-muted">Enregistrer pour mes prochaines commandes</span>
+                </label>
+              </div>
+
+              <div class="divider my-6"></div>
+
+              <div class="space-y-2 text-sm mb-4">
+                <div class="flex justify-between text-xs"><span class="text-text-muted">Sous-total HT</span><span class="text-text-primary">2 847,00 €</span></div>
+                <div class="flex justify-between text-xs"><span class="text-text-muted">Remise fidélité</span><span class="text-success">− 142,35 €</span></div>
+                <div class="flex justify-between text-xs"><span class="text-text-muted">Livraison HT</span><span class="text-text-primary">12,90 €</span></div>
+                <div class="flex justify-between text-xs"><span class="text-text-muted">TVA (20%)</span><span class="text-text-primary">543,51 €</span></div>
+              </div>
+              <div class="divider mb-4"></div>
+              <div class="flex items-baseline justify-between mb-6">
+                <span class="text-[11px] uppercase tracking-widest text-text-muted">Total à payer</span>
+                <span class="font-heading text-2xl font-bold text-text-primary">3 261,06 €</span>
+              </div>
+
+              <label class="flex items-start gap-2 cursor-pointer mb-5">
+                <div class="w-5 h-5 rounded bg-text-primary flex items-center justify-center text-white text-[11px] flex-shrink-0 mt-0.5">✓</div>
+                <span class="text-xs text-text-secondary leading-relaxed">J'accepte les <a class="underline text-text-primary font-medium">CGV</a> et la <a class="underline text-text-primary font-medium">politique de retour</a>.</span>
+              </label>
+
+              <button class="btn-dark w-full py-5 rounded-xl font-heading font-semibold text-base flex items-center justify-center gap-2 mb-2">
+                <span>🔒</span>
+                Payer 3 261,06 € maintenant
+              </button>
+              <button class="btn-outline w-full py-2.5 rounded-xl text-xs">← Retour à la facturation</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile Paiement -->
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2 ml-1">Mobile · 375px</div>
+      <div class="device-frame w-[375px] mx-auto">
+        <div class="device-notch"></div>
+        <div class="device-screen">
+          <div class="flex items-center justify-between px-4 py-4 pt-9 border-b border-border bg-white">
+            <button class="text-text-primary">←</button>
+            <div class="flex items-center gap-1.5 text-text-primary">
+              <span class="text-xs">🔒</span>
+              <span class="font-heading font-bold text-base">Paiement</span>
+            </div>
+            <button class="text-xs text-text-muted">Aide</button>
+          </div>
+
+          <div class="px-4 pt-4 bg-white">
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-widest mb-2">
+              <span class="text-text-primary font-semibold">Paiement</span>
+              <span class="text-text-muted">4 / 4</span>
+            </div>
+            <div class="flex gap-1">
+              <div class="flex-1 h-1 bg-text-secondary rounded"></div>
+              <div class="flex-1 h-1 bg-text-secondary rounded"></div>
+              <div class="flex-1 h-1 bg-text-secondary rounded"></div>
+              <div class="flex-1 h-1 bg-bg-dark rounded"></div>
+            </div>
+          </div>
+
+          <div class="bg-bg-secondary px-4 py-5">
+            <div class="text-center mb-5">
+              <div class="text-[10px] uppercase tracking-widest text-text-muted mb-1">Total à payer</div>
+              <h1 class="font-heading text-3xl font-bold text-text-primary">3 261,06 <span class="text-lg text-text-muted">€</span></h1>
+              <p class="text-text-muted text-[11px]">Chiffrement bout-en-bout</p>
+            </div>
+
+            <!-- Carte 3D mobile corrigée -->
+            <div class="relative mb-8 mt-6" style="perspective: 800px;">
+              <div class="payment-card-3d max-w-[290px] mx-auto" style="transform: rotate3d(1, -0.5, 0, 8deg);">
+                <div class="flex justify-between items-start mb-8 relative z-10">
+                  <div class="w-10 h-7 rounded bg-gradient-to-br from-zinc-200 to-zinc-400 opacity-90"></div>
+                  <div class="text-white text-lg font-heading font-bold italic">VISA</div>
+                </div>
+                <div class="font-mono text-sm tracking-wider relative z-10 mb-4">
+                  4242 &nbsp; 4242 &nbsp; 4242 &nbsp; 4242
+                </div>
+                <div class="flex justify-between text-[10px] uppercase opacity-80 relative z-10">
+                  <div>
+                    <div class="opacity-60 mb-0.5">Titulaire</div>
+                    <div class="font-heading font-semibold">Sophie Martin</div>
+                  </div>
+                  <div class="text-right">
+                    <div class="opacity-60 mb-0.5">Expire</div>
+                    <div>12/28</div>
+                  </div>
+                </div>
+              </div>
+              <div class="absolute -bottom-4 left-1/2 -translate-x-1/2 w-56 h-6 bg-zinc-900/30 blur-3xl rounded-full"></div>
+            </div>
+
+            <div class="flex gap-2 justify-center mb-5">
+              <div class="px-2 py-1 bg-white rounded text-[10px] font-heading font-bold text-text-primary border border-border">VISA</div>
+              <div class="px-2 py-1 bg-white rounded text-[10px] font-heading font-bold text-text-primary border border-border">MC</div>
+              <div class="px-2 py-1 bg-white rounded text-[10px] font-heading font-bold text-text-primary border border-border">CB</div>
+            </div>
+
+            <!-- Plus de choix 3 méthodes -->
+
+            <div class="card p-4 space-y-3 mb-4">
+              <div>
+                <label class="text-[10px] text-text-muted">Numéro de carte</label>
+                <div class="field mt-0.5 font-mono text-sm flex justify-between items-center">
+                  <span>4242 4242 4242 4242</span>
+                  <div class="w-8 h-4 bg-bg-dark rounded flex items-center justify-center text-white text-[7px] font-heading font-bold italic">VISA</div>
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-[10px] text-text-muted">Expiration</label>
+                  <div class="field mt-0.5 font-mono text-sm">12 / 28</div>
+                </div>
+                <div>
+                  <label class="text-[10px] text-text-muted">CVC</label>
+                  <div class="field mt-0.5 font-mono text-sm">•••</div>
+                </div>
+              </div>
+              <div>
+                <label class="text-[10px] text-text-muted">Titulaire</label>
+                <div class="field mt-0.5 text-sm">Sophie Martin</div>
+              </div>
+            </div>
+
+            <div class="card p-3 flex items-start gap-2 mb-4">
+              <span class="text-base">🛡️</span>
+              <div class="text-[10px] text-text-secondary leading-relaxed">
+                Paiement traité par Stripe (PCI-DSS niveau 1). Vos données bancaires ne transitent pas par notre serveur.
+              </div>
+            </div>
+
+            <label class="flex items-start gap-2 mb-32">
+              <div class="w-4 h-4 rounded bg-text-primary flex items-center justify-center text-white text-[9px] flex-shrink-0 mt-0.5">✓</div>
+              <span class="text-[11px] text-text-secondary">J'accepte les <a class="underline text-text-primary font-medium">CGV</a> et la <a class="underline text-text-primary font-medium">politique de retour</a>.</span>
+            </label>
+          </div>
+
+          <div class="sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur border-t border-border px-4 py-3">
+            <div class="flex justify-between items-baseline mb-2">
+              <span class="text-xs text-text-muted">Total</span>
+              <span class="font-heading font-bold text-lg text-text-primary">3 261,06 € <span class="text-xs text-text-muted">TTC</span></span>
+            </div>
+            <button class="btn-dark w-full py-3.5 rounded-xl text-sm font-heading font-semibold flex items-center justify-center gap-2">
+              <span>🔒</span> Payer maintenant
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<!-- ÉTAPE 5 · CONFIRMATION (inchangée)                                -->
+<!-- ================================================================ -->
+<section id="etape-confirmation" class="nav-anchor max-w-[1600px] mx-auto px-6 pb-24 border-t border-border pt-16">
+  <div class="flex items-baseline gap-4 mb-8">
+    <span class="font-heading text-6xl text-text-muted font-light leading-none">05</span>
+    <div>
+      <h2 class="font-heading text-3xl font-bold text-text-primary">Confirmation</h2>
+      <p class="text-text-muted text-sm">Inchangée depuis v4. Timeline noire/grise, blocs infos ardoise, note « facture téléchargeable sur cette page ».</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-10 items-start">
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2 ml-1">Bureau · 1440px</div>
+      <div class="desktop-frame">
+        <div class="desktop-topbar">
+          <span class="bg-red-400"></span><span class="bg-yellow-400"></span><span class="bg-green-400"></span>
+          <div class="ml-4 text-[10px] text-white/40 font-mono">beliandjolie.com/fr/commandes/CMD-2026-001248?success=1</div>
+        </div>
+        <div class="desktop-screen">
+          <div class="flex items-center justify-between px-8 py-4 border-b border-border bg-white">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-bg-dark text-white flex items-center justify-center font-heading font-bold text-lg">B</div>
+              <div class="font-heading font-bold text-lg text-text-primary">Beli &amp; Jolie</div>
+            </div>
+            <div class="flex items-center gap-4">
+              <div class="text-xs text-text-muted">Merci Sophie</div>
+              <button class="btn-outline px-3 py-2 rounded-lg text-xs">Ma commande</button>
+              <button class="btn-dark px-4 py-2 rounded-lg text-xs font-semibold">Retour boutique</button>
+            </div>
+          </div>
+
+          <div class="bg-bg-secondary p-12">
+            <div class="max-w-4xl mx-auto text-center mb-12">
+              <div class="w-20 h-20 rounded-full bg-success flex items-center justify-center mx-auto mb-6">
+                <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div class="text-[11px] uppercase tracking-[0.25em] text-success mb-3 font-semibold">Commande confirmée</div>
+              <h1 class="font-heading text-4xl md:text-5xl font-bold text-text-primary mb-4">Merci Sophie</h1>
+              <p class="text-text-secondary leading-relaxed max-w-xl mx-auto">
+                Votre commande <span class="text-text-primary font-mono font-semibold">CMD-2026-001248</span> a bien été enregistrée.<br />
+                Un email de confirmation vient d'être envoyé à <span class="text-text-primary font-medium">sophie.martin@…</span>
+              </p>
+            </div>
+
+            <div class="max-w-4xl mx-auto card p-8 mb-8">
+              <div class="text-[11px] uppercase tracking-widest text-text-muted mb-6 text-center">Suivi de votre commande</div>
+              <div class="grid grid-cols-4 gap-4 relative">
+                <div class="absolute top-4 left-[12.5%] right-[12.5%] h-0.5 bg-border"></div>
+                <div class="absolute top-4 left-[12.5%] w-1/4 h-0.5 bg-text-secondary"></div>
+
+                <div class="text-center relative z-10">
+                  <div class="step-dot done mx-auto mb-3">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <div class="text-sm text-text-secondary font-semibold">Reçue</div>
+                  <div class="text-[10px] text-text-muted mt-0.5">17 juillet · 14h32</div>
+                </div>
+                <div class="text-center relative z-10">
+                  <div class="step-dot active mx-auto mb-3">2</div>
+                  <div class="text-sm text-text-primary font-semibold">Préparation</div>
+                  <div class="text-[10px] text-text-muted mt-0.5">En cours · sous 24h</div>
+                </div>
+                <div class="text-center relative z-10">
+                  <div class="step-dot todo mx-auto mb-3">3</div>
+                  <div class="text-sm text-text-muted font-semibold">Expédiée</div>
+                  <div class="text-[10px] text-text-muted mt-0.5">Estimé 18 juillet</div>
+                </div>
+                <div class="text-center relative z-10">
+                  <div class="step-dot todo mx-auto mb-3">4</div>
+                  <div class="text-sm text-text-muted font-semibold">Livrée</div>
+                  <div class="text-[10px] text-text-muted mt-0.5">Estimé 20 juillet</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="max-w-4xl mx-auto grid grid-cols-3 gap-4 mb-8">
+              <div class="card p-5">
+                <div class="text-[10px] uppercase tracking-widest text-text-muted mb-3 flex items-center gap-2 font-semibold"><span>🚚</span> Livraison</div>
+                <div class="flex items-center gap-2 mb-2">
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/7/7a/Logo_Chronopost.svg" alt="Chronopost" class="logo-carrier w-12 h-7" />
+                  <div class="text-xs text-text-primary font-semibold">Chronopost · 2j</div>
+                </div>
+                <div class="text-text-primary font-semibold text-sm mb-1">Boutique Sophie</div>
+                <div class="text-text-muted text-xs leading-relaxed mb-3">12 rue Sainte-Catherine<br />33000 Bordeaux</div>
+                <div class="text-[11px] text-text-muted pt-3 border-t border-border">Suivi sous 24h</div>
+              </div>
+              <div class="card p-5">
+                <div class="text-[10px] uppercase tracking-widest text-text-muted mb-3 flex items-center gap-2 font-semibold"><span>💳</span> Paiement</div>
+                <div class="flex items-center gap-3 mb-1">
+                  <div class="w-9 h-6 rounded bg-bg-dark flex items-center justify-center text-white text-[8px] font-heading font-bold italic">VISA</div>
+                  <div>
+                    <div class="text-text-primary font-mono text-sm font-semibold">•••• 4242</div>
+                    <div class="text-[10px] text-text-muted">Visa</div>
+                  </div>
+                </div>
+                <div class="divider my-3"></div>
+                <div class="flex justify-between items-baseline text-xs">
+                  <span class="text-text-muted">Réglé</span>
+                  <span class="font-heading text-lg font-bold text-text-primary">3 261,06 €</span>
+                </div>
+              </div>
+              <div class="card p-5 border-l-4 border-l-info">
+                <div class="text-[10px] uppercase tracking-widest text-info mb-3 flex items-center gap-2 font-semibold"><span>📄</span> Facture</div>
+                <div class="text-sm text-text-primary font-semibold mb-1">Bientôt téléchargeable ici</div>
+                <div class="text-text-muted text-xs leading-relaxed">Votre facture PDF sera disponible en téléchargement direct sur cette page dès qu'elle sera préparée par notre équipe.</div>
+              </div>
+            </div>
+
+            <div class="max-w-4xl mx-auto">
+              <div class="text-[11px] uppercase tracking-widest text-text-muted mb-4">Vos documents</div>
+              <div class="grid grid-cols-2 gap-4">
+                <a class="card p-4 flex items-center gap-4 hover:border-border-dark cursor-pointer group transition">
+                  <div class="w-12 h-12 rounded-xl bg-bg-tertiary border border-border flex items-center justify-center text-xl">📄</div>
+                  <div class="flex-1">
+                    <div class="text-sm text-text-primary font-semibold">Bon de commande</div>
+                    <div class="text-[10px] text-text-muted">PDF · télécharger</div>
+                  </div>
+                  <span class="text-text-secondary opacity-0 group-hover:opacity-100 transition">↓</span>
+                </a>
+                <a class="card p-4 flex items-center gap-4 hover:border-border-dark cursor-pointer group transition">
+                  <div class="w-12 h-12 rounded-xl bg-bg-tertiary border border-border flex items-center justify-center text-xl">✉️</div>
+                  <div class="flex-1">
+                    <div class="text-sm text-text-primary font-semibold">Email de confirmation</div>
+                    <div class="text-[10px] text-text-muted">Envoyé à 14h32</div>
+                  </div>
+                  <span class="text-text-secondary opacity-0 group-hover:opacity-100 transition">→</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile Confirmation (identique) -->
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-2 ml-1">Mobile · 375px</div>
+      <div class="device-frame w-[375px] mx-auto">
+        <div class="device-notch"></div>
+        <div class="device-screen">
+          <div class="flex items-center justify-between px-4 py-4 pt-9 border-b border-border bg-white">
+            <button class="text-text-primary">×</button>
+            <div class="font-heading font-bold text-base text-text-primary">Merci !</div>
+            <button class="text-xs text-text-secondary">Partager</button>
+          </div>
+
+          <div class="bg-bg-secondary px-4 py-8 text-center">
+            <div class="w-16 h-16 rounded-full bg-success flex items-center justify-center mx-auto mb-4">
+              <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div class="text-[10px] uppercase tracking-[0.25em] text-success font-semibold mb-2">Commande confirmée</div>
+            <h1 class="font-heading text-2xl font-bold text-text-primary mb-3">Merci Sophie</h1>
+            <p class="text-xs text-text-secondary leading-relaxed px-4">
+              <span class="text-text-primary font-mono font-semibold">CMD-2026-001248</span><br />
+              Email envoyé à sophie.martin@…
+            </p>
+          </div>
+
+          <div class="bg-bg-secondary px-4 pb-24 space-y-3">
+            <div class="card p-4">
+              <div class="text-[10px] uppercase tracking-widest text-text-muted mb-3 font-semibold">Suivi</div>
+              <div class="space-y-1">
+                <div class="flex items-start gap-3">
+                  <div class="step-dot done flex-shrink-0">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <div class="flex-1 pt-1">
+                    <div class="text-sm text-text-secondary font-semibold">Reçue</div>
+                    <div class="text-[10px] text-text-muted">17 juillet · 14h32</div>
+                  </div>
+                </div>
+                <div class="ml-4 h-4 border-l-2 border-text-secondary"></div>
+                <div class="flex items-start gap-3">
+                  <div class="step-dot active flex-shrink-0">2</div>
+                  <div class="flex-1 pt-1">
+                    <div class="text-sm text-text-primary font-semibold">Préparation</div>
+                    <div class="text-[10px] text-text-muted">En cours · sous 24h</div>
+                  </div>
+                </div>
+                <div class="ml-4 h-4 border-l-2 border-border-dark border-dashed"></div>
+                <div class="flex items-start gap-3">
+                  <div class="step-dot todo flex-shrink-0">3</div>
+                  <div class="flex-1 pt-1">
+                    <div class="text-sm text-text-muted font-semibold">Expédiée</div>
+                    <div class="text-[10px] text-text-muted">Estimé 18 juillet</div>
+                  </div>
+                </div>
+                <div class="ml-4 h-4 border-l-2 border-border-dark border-dashed"></div>
+                <div class="flex items-start gap-3">
+                  <div class="step-dot todo flex-shrink-0">4</div>
+                  <div class="flex-1 pt-1">
+                    <div class="text-sm text-text-muted font-semibold">Livrée</div>
+                    <div class="text-[10px] text-text-muted">Estimé 20 juillet</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card p-4">
+              <div class="text-[10px] uppercase tracking-widest text-text-muted mb-2 flex items-center gap-2 font-semibold"><span>🚚</span> Livraison</div>
+              <div class="flex items-center gap-2 mb-2">
+                <div class="logo-chronopost w-9 h-6 rounded flex items-center justify-center text-[7px] font-heading font-bold uppercase text-center leading-tight">chrono<br/>post</div>
+                <div class="text-xs text-text-primary font-semibold">Chronopost · 2j</div>
+              </div>
+              <div class="text-sm text-text-primary font-semibold">Boutique Sophie</div>
+              <div class="text-xs text-text-muted leading-relaxed">12 rue Sainte-Catherine, 33000 Bordeaux</div>
+            </div>
+
+            <div class="card p-4">
+              <div class="text-[10px] uppercase tracking-widest text-text-muted mb-2 flex items-center gap-2 font-semibold"><span>💳</span> Payé</div>
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-6 rounded bg-bg-dark flex items-center justify-center text-white text-[8px] font-heading font-bold italic">VISA</div>
+                <div class="text-xs text-text-primary font-mono font-semibold">•••• 4242</div>
+                <div class="ml-auto font-heading font-bold text-lg text-text-primary">3 261,06 €</div>
+              </div>
+            </div>
+
+            <div class="card p-4 border-l-4 border-l-info">
+              <div class="text-[10px] uppercase tracking-widest text-info mb-2 font-semibold flex items-center gap-2"><span>📄</span> Facture</div>
+              <div class="text-xs text-text-secondary leading-relaxed">Téléchargeable directement depuis cette page dès qu'elle sera prête.</div>
+            </div>
+          </div>
+
+          <div class="sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur border-t border-border px-4 py-3 flex gap-2">
+            <button class="btn-outline flex-1 py-3 rounded-xl text-xs">Ma commande</button>
+            <button class="btn-dark flex-1 py-3 rounded-xl text-xs font-semibold">Boutique →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="max-w-[1600px] mx-auto px-6 py-16 border-t border-border text-center">
+  <div class="font-heading text-2xl font-bold text-text-primary mb-2">Fin de la maquette v5</div>
+  <p class="text-text-secondary text-sm max-w-lg mx-auto">
+    Corrections : panier compact scalable (50 articles), plan livraison sans overlay + logos transporteurs Easy-Express,
+    facturation sans aperçu (fiche client + note), paiement mono-méthode CB, VISA repositionné.
+  </p>
+</footer>
+
+<script>
+  const sections = document.querySelectorAll('section[id^="etape-"]');
+  const links = document.querySelectorAll('nav a');
+  window.addEventListener('scroll', () => {
+    let current = '';
+    sections.forEach(s => {
+      if (window.scrollY >= s.offsetTop - 150) current = s.id;
+    });
+    links.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + current));
+  });
+</script>
+
+</body>
+</html>

@@ -196,6 +196,95 @@ function SectionHeader({ step, title, complete, children }: {
 }
 
 // ─────────────────────────────────────────────
+// Hero banner "maquette" — remplacement visuel de la barre progression
+// Affiche en haut de chaque étape : eyebrow "ÉTAPE N SUR 4" + gros titre + sous-titre
+// ─────────────────────────────────────────────
+
+function StepHero({ eyebrow, title, subtitle, accent = "slate" }: {
+  eyebrow: string;
+  title: string;
+  subtitle?: string;
+  accent?: "slate" | "emerald" | "sky" | "violet";
+}) {
+  const accentText = accent === "emerald"
+    ? "text-emerald-700"
+    : accent === "sky"
+      ? "text-sky-700"
+      : accent === "violet"
+        ? "text-violet-700"
+        : "text-text-muted";
+  return (
+    <div className="mb-6 md:mb-8">
+      <div className={`text-[11px] uppercase tracking-[0.22em] font-semibold ${accentText} mb-2`}>
+        {eyebrow}
+      </div>
+      <h1 className="font-heading text-3xl md:text-4xl font-bold text-text-primary leading-tight">
+        {title}
+      </h1>
+      {subtitle && (
+        <p className="text-sm text-text-secondary font-body mt-2 max-w-xl">
+          {subtitle}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Trajet SVG — carte immersive Livraison
+// ─────────────────────────────────────────────
+
+function DeliveryTrajectMap({ destCity, destZip }: { destCity: string; destZip: string }) {
+  const t = useTranslations("checkout");
+  return (
+    <div className="mb-6">
+      <div className="rounded-2xl overflow-hidden relative h-56 border border-border bg-white shadow-sm">
+        <div className="absolute inset-0 opacity-50" style={{
+          backgroundImage: "linear-gradient(rgba(24,24,27,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(24,24,27,0.08) 1px, transparent 1px)",
+          backgroundSize: "30px 30px",
+        }} />
+        <svg className="absolute inset-0 w-full h-full" viewBox="0 0 500 220" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M 60 60 Q 200 40, 240 130 T 440 170" stroke="#18181b" strokeWidth="2.5" fill="none" strokeDasharray="8 4" />
+          <circle cx="60" cy="60" r="6" fill="#18181b" />
+          <circle cx="60" cy="60" r="12" fill="#18181b" opacity="0.15" />
+          <circle cx="440" cy="170" r="6" fill="#18181b" />
+          <circle cx="440" cy="170" r="12" fill="#18181b" opacity="0.15">
+            <animate attributeName="r" values="8;16;8" dur="2s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.3;0.05;0.3" dur="2s" repeatCount="indefinite" />
+          </circle>
+        </svg>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-3xl" aria-hidden="true">🚚</div>
+      </div>
+      {/* Bande adresses Départ / Arrivée sous le plan */}
+      <div className="bg-white border border-border border-t-0 rounded-b-2xl -mt-1 grid grid-cols-2 gap-6 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex flex-col items-center gap-1 pt-1">
+            <div className="w-3 h-3 rounded-full bg-text-primary" />
+            <div className="w-px h-6 bg-border" />
+          </div>
+          <div className="flex-1">
+            <div className="text-[10px] uppercase tracking-widest text-text-muted font-semibold">{t("mapDeparture")}</div>
+            <div className="text-sm text-text-primary font-semibold">{t("mapWarehouse")}</div>
+            <div className="text-[11px] text-text-muted">75008 Paris</div>
+          </div>
+        </div>
+        <div className="flex items-start gap-3">
+          <div className="flex flex-col items-center gap-1 pt-1">
+            <div className="w-3 h-3 rounded-full bg-text-primary ring-2 ring-bg-tertiary animate-pulse" />
+            <div className="w-px h-6 bg-border" />
+          </div>
+          <div className="flex-1">
+            <div className="text-[10px] uppercase tracking-widest text-text-muted font-semibold">{t("mapArrival")}</div>
+            <div className="text-sm text-text-primary font-semibold">{destCity}</div>
+            <div className="text-[11px] text-text-muted">{destZip} {destCity}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // Composants petits
 // ─────────────────────────────────────────────
 
@@ -284,11 +373,25 @@ function AddressForm({
         />
       </div>
       <FieldInput id="addr-phone" label={t("addressPhone")} value={f.phone} onChange={set("phone")} type="tel" optional placeholder={t("phonePlaceholder")} />
-      <label className="flex items-center gap-2 text-sm font-body text-text-primary cursor-pointer">
-        <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)}
-          className="accent-text-primary w-4 h-4" />
+      <button
+        type="button"
+        onClick={() => setIsDefault(!isDefault)}
+        className="w-full text-left flex items-center gap-2 text-sm font-body text-text-primary"
+      >
+        <span
+          aria-hidden="true"
+          className={`w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-colors ${
+            isDefault ? "border-text-primary bg-text-primary" : "border-text-muted bg-white"
+          }`}
+        >
+          {isDefault && (
+            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
+              <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </span>
         {t("defineAsDefault")}
-      </label>
+      </button>
       <div className="flex gap-3 pt-1">
         <button type="submit" disabled={isSaving}
           className="btn-primary flex-1 justify-center disabled:opacity-60">
@@ -300,6 +403,170 @@ function AddressForm({
         </button>
       </div>
     </form>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Logos transporteurs (Phase 2A refonte)
+// ─────────────────────────────────────────────
+
+const CARRIER_LOGOS: Array<{ pattern: RegExp; path: string; bg?: string }> = [
+  { pattern: /chronopost/i,      path: "/uploads/carriers/chronopost.svg" },
+  { pattern: /colissimo/i,       path: "/uploads/carriers/colissimo.svg" },
+  { pattern: /dhl/i,             path: "/uploads/carriers/dhl.svg", bg: "#FFCC00" },
+  { pattern: /dpd/i,             path: "/uploads/carriers/dpd.svg" },
+  { pattern: /\bgls\b/i,         path: "/uploads/carriers/gls.svg" },
+  { pattern: /mondial.?relay/i,  path: "/uploads/carriers/mondial-relay.svg" },
+];
+
+function getCarrierLogo(name: string): { path: string; bg?: string } | null {
+  for (const entry of CARRIER_LOGOS) {
+    if (entry.pattern.test(name)) return { path: entry.path, bg: entry.bg };
+  }
+  return null;
+}
+
+function CarrierLogoBox({ name, size = "md" }: { name: string; size?: "md" | "sm" | "lg" }) {
+  const logo = getCarrierLogo(name);
+  const dims = size === "sm" ? "w-14 h-9" : size === "lg" ? "w-20 h-14" : "w-16 h-10";
+  if (!logo) {
+    return (
+      <div className={`${dims} rounded-lg bg-bg-tertiary border border-border flex items-center justify-center text-lg shrink-0`} aria-hidden="true">
+        📦
+      </div>
+    );
+  }
+  return (
+    <div
+      className={`${dims} rounded-lg border border-border p-1 shrink-0 flex items-center justify-center overflow-hidden`}
+      style={{ background: logo.bg ?? "white" }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={logo.path} alt={name} className="max-w-full max-h-full object-contain" />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Rail stepper vertical (Phase 2A refonte)
+// ─────────────────────────────────────────────
+
+function CheckoutRailStepper({
+  wizardStep,
+  onNavigate,
+  canGoStep2,
+  canGoStep3,
+}: {
+  wizardStep: 1 | 2 | 3;
+  onNavigate: (step: 1 | 2 | 3) => void;
+  canGoStep2: boolean;
+  canGoStep3: boolean;
+}) {
+  const tCart = useTranslations("cart");
+  const rail = [
+    { key: "cart" as const, label: tCart("stepCart"), state: "done" as const },
+    {
+      key: "delivery" as const,
+      label: tCart("stepDelivery"),
+      state: wizardStep === 1 ? "active" : (wizardStep > 1 ? "done" : "todo") as "active" | "done" | "todo",
+      onClick: () => onNavigate(1),
+      clickable: true,
+    },
+    {
+      key: "billing" as const,
+      label: tCart("stepBilling"),
+      state: wizardStep === 2 ? "active" : (wizardStep > 2 ? "done" : "todo") as "active" | "done" | "todo",
+      onClick: () => canGoStep2 && onNavigate(2),
+      clickable: canGoStep2,
+    },
+    {
+      key: "payment" as const,
+      label: tCart("stepPayment"),
+      state: wizardStep === 3 ? "active" : "todo" as "active" | "todo",
+      onClick: () => canGoStep3 && onNavigate(3),
+      clickable: canGoStep3,
+    },
+  ];
+
+  return (
+    <div className="bg-bg-dark rounded-3xl h-full flex flex-col items-center py-10 px-4 min-h-[560px] sticky top-24 shadow-sm">
+      {/* Logo brand en haut */}
+      <div className="w-11 h-11 rounded-xl bg-white text-bg-dark flex items-center justify-center font-heading font-bold text-lg mb-10">
+        B
+      </div>
+
+      {/* Rail des étapes : cercle + ligne + cercle + ligne + ... */}
+      <div className="flex flex-col items-center">
+        {rail.map((step, i) => {
+          const isActive = step.state === "active";
+          const isDone = step.state === "done";
+          const isLast = i === rail.length - 1;
+          const clickable = "onClick" in step && step.clickable;
+
+          const dotClass = isActive
+            ? "bg-white text-bg-dark shadow-[0_0_0_5px_rgba(255,255,255,0.15)] ring-1 ring-white/30"
+            : isDone
+              ? "bg-white/90 text-bg-dark"
+              : "bg-white/[0.04] border border-dashed border-white/25 text-white/45";
+
+          const labelClass = isActive
+            ? "text-white font-semibold"
+            : isDone
+              ? "text-white/80"
+              : "text-white/35";
+
+          const linkColor = isDone ? "bg-white/40" : "bg-white/10";
+
+          const dotInner = isDone ? (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (i + 1);
+
+          return (
+            <div key={step.key} className="flex flex-col items-center">
+              {/* Cercle numéroté */}
+              {clickable ? (
+                <button
+                  type="button"
+                  onClick={(step as { onClick?: () => void }).onClick}
+                  className={`w-10 h-10 rounded-full flex items-center justify-center font-heading text-sm font-bold transition-all ${dotClass} ${!isActive ? "hover:bg-white/95 hover:text-bg-dark cursor-pointer" : ""}`}
+                  aria-current={isActive ? "step" : undefined}
+                  aria-label={step.label}
+                >
+                  {dotInner}
+                </button>
+              ) : (
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center font-heading text-sm font-bold ${dotClass}`}
+                  aria-hidden="true"
+                >
+                  {dotInner}
+                </div>
+              )}
+
+              {/* Label sous le cercle */}
+              <div className={`mt-2.5 text-[10px] uppercase tracking-wider text-center leading-snug ${labelClass}`}>
+                {step.label}
+              </div>
+
+              {/* Ligne de connexion vers étape suivante (élément séparé, dans le flow) */}
+              {!isLast && (
+                <div className={`w-px h-10 my-3 ${linkColor}`} aria-hidden="true" />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* SSL footer */}
+      <div className="mt-auto pt-6 text-[9px] text-white/40 tracking-widest flex items-center gap-1.5">
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+        SSL
+      </div>
+    </div>
   );
 }
 
@@ -318,28 +585,36 @@ function CarrierCard({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full text-left border rounded-xl p-4 flex items-center gap-4 transition-all ${
+      className={`w-full text-left border-2 rounded-2xl p-5 flex items-center gap-4 transition-all ${
         selected
           ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.12)]"
-          : "border-border bg-bg-primary hover:border-text-muted"
+          : "border-border bg-bg-primary hover:border-text-muted hover:bg-bg-secondary/40"
       }`}
     >
-      <div className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center ${
-        selected ? "border-text-primary" : "border-text-muted"
-      }`}>
-        {selected && <div className="w-2.5 h-2.5 rounded-full bg-text-primary" />}
-      </div>
-      <div className="flex-1">
-        <p className="text-sm font-body font-semibold text-text-primary">
+      <span
+        aria-hidden="true"
+        className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
+          selected ? "border-text-primary bg-text-primary" : "border-text-muted bg-white"
+        }`}
+      >
+        {selected && (
+          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
+            <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </span>
+      <CarrierLogoBox name={carrier.name} size="lg" />
+      <div className="flex-1 min-w-0">
+        <p className="text-base font-heading font-semibold text-text-primary truncate">
           {carrier.name}
         </p>
-        <p className="text-xs text-text-secondary font-body mt-0.5">
+        <p className="text-sm text-text-secondary font-body mt-0.5">
           {carrier.delay}
         </p>
       </div>
       <div className="shrink-0 text-right">
-        <p className="font-heading font-semibold text-sm text-text-primary">
-          {carrier.price === 0 ? t("free") : `${carrier.price.toFixed(2)} € HT`}
+        <p className="font-heading font-bold text-lg text-text-primary tabular-nums">
+          {carrier.price === 0 ? t("free") : `${carrier.price.toFixed(2)} €`}
         </p>
         {carrier.price > 0 && tvaRate > 0 && (
           <p className="text-[11px] text-text-muted font-body mt-0.5">
@@ -633,6 +908,8 @@ export default function CheckoutClient({
     city:      user.addressCity       ?? "",
     country:   user.addressCountry    ?? "FR",
   });
+  // Formulaire facturation : caché au centre (il est maintenant dans le panneau droite pour matcher la maquette).
+  // La vue "fiche vérifiée" reste au centre uniquement.
   const [editingInfo, setEditingInfo] = useState(false);
 
   // Par défaut, on propose la livraison à l'adresse de facturation (case cochée)
@@ -1124,58 +1401,47 @@ export default function CheckoutClient({
   const itemCount = cart.items.reduce((s, i) => s + i.quantity, 0);
 
   return (
-    <div className="container-site py-6 md:py-10">
-      {/* Barre de progression 3 étapes (mockup wizard) */}
-      <div className="mb-8 md:mb-10">
-        <div className="flex items-center gap-2 sm:gap-3 max-w-2xl mx-auto">
-          {([
-            { n: 1, label: t("shippingAddressTitle") },
-            { n: 2, label: t("billingTitle") },
-            { n: 3, label: t("securePayment") },
-          ] as const).map((step, idx) => {
-            const done = wizardStep > step.n;
-            const current = wizardStep === step.n;
-            return (
-              <div key={step.n} className="flex items-center gap-2 sm:gap-3 flex-1 last:flex-none">
-                <button
-                  type="button"
-                  onClick={() => goToStep(step.n)}
-                  aria-current={current ? "step" : undefined}
-                  aria-label={`${step.n}/3 — ${step.label}`}
-                  className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full grid place-items-center font-heading font-bold text-sm transition-all shrink-0 ${
-                    done || current
-                      ? "bg-bg-dark text-white border-2 border-bg-dark"
-                      : "bg-bg-primary text-text-muted border-2 border-border"
-                  } ${current ? "ring-4 ring-bg-dark/10" : ""}`}
-                >
-                  {done ? (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  ) : (
-                    step.n
-                  )}
-                </button>
-                <div className="hidden sm:block text-left min-w-0">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
-                    {`${step.n}/3`}
-                  </div>
-                  <div className={`font-body font-semibold text-xs truncate ${current || done ? "text-text-primary" : "text-text-muted"}`}>
-                    {step.label}
-                  </div>
-                </div>
-                {idx < 2 && (
-                  <div className="relative flex-1 h-0.5 bg-border overflow-hidden rounded">
-                    <div
-                      className={`absolute inset-0 bg-bg-dark origin-left transition-transform duration-500 ${
-                        done ? "scale-x-100" : "scale-x-0"
-                      }`}
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          })}
+    <div className="max-w-[1680px] mx-auto py-6 md:py-8 px-2 sm:px-4">
+      {/* Layout enveloppant : rail dark (124px) | contenu centre (1fr) | panneau actions droite (460px pour donner de l'air aux cards transporteurs) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[124px_1fr_460px] gap-4 lg:gap-6 items-start">
+
+        {/* Rail vertical dark (desktop uniquement) */}
+        <aside className="hidden lg:block">
+          <CheckoutRailStepper
+            wizardStep={wizardStep}
+            onNavigate={goToStep}
+            canGoStep2={step1Ready}
+            canGoStep3={step1Ready && step2Ready}
+          />
+        </aside>
+
+        <div className="min-w-0">
+      {/* Barre de progression mobile fine (masquée desktop, rail à la place) */}
+      <div className="lg:hidden mb-6">
+        <div className="flex items-center justify-between text-[10px] uppercase tracking-widest mb-2">
+          <span className="text-text-primary font-semibold">
+            {wizardStep === 1 ? t("shippingAddressTitle") : wizardStep === 2 ? t("billingTitle") : t("securePayment")}
+          </span>
+          <span className="text-text-muted">{tCart("stepIndicator", { current: wizardStep + 1, total: 4 })}</span>
+        </div>
+        <div className="flex gap-1" role="progressbar" aria-valuenow={wizardStep + 1} aria-valuemin={1} aria-valuemax={4}>
+          {/* Panier toujours done + 3 étapes wizard */}
+          {[0, 1, 2, 3].map((i) => (
+            <button
+              key={i}
+              type="button"
+              disabled={i === 0 || (i > 1 && !step1Ready) || (i > 2 && !step2Ready)}
+              onClick={() => i >= 1 && goToStep(i as 1 | 2 | 3)}
+              className={`flex-1 h-1 rounded transition-colors ${
+                i < wizardStep + 1
+                  ? i === wizardStep
+                    ? "bg-bg-dark"
+                    : "bg-text-secondary"
+                  : "bg-border"
+              } disabled:cursor-not-allowed`}
+              aria-label={`${i + 1} / 4`}
+            />
+          ))}
         </div>
       </div>
 
@@ -1217,10 +1483,18 @@ export default function CheckoutClient({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-start">
+      {/* Contenu wizard prend maintenant toute la largeur (le panneau actions est déplacé dans le 3e aside externe) */}
+      <div className="space-y-6">
 
-        {/* ── Colonne principale (étape courante uniquement) ───── */}
-        <div className="lg:col-span-2 space-y-6">
+          {/* ── ÉTAPE 2 · Hero Facturation ── */}
+          {wizardStep === 2 && (
+            <StepHero
+              eyebrow={tCart("stepIndicator", { current: 3, total: 4 }) + " · " + tCart("stepBilling")}
+              title={t("whoBillingTitle")}
+              subtitle={t("whoBillingSubtitle")}
+              accent="sky"
+            />
+          )}
 
           {/* ── ÉTAPE 2 · Facturation ── */}
           <section className={`bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm ${wizardStep === 2 ? "" : "hidden"}`}>
@@ -1296,48 +1570,111 @@ export default function CheckoutClient({
                 </div>
               </div>
             ) : (
-              <div className="p-5 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm font-body">
-                  <InfoLine label={t("addressCompany")} value={billingInfo.company} />
-                  <InfoLine label={t("contact")}        value={`${billingInfo.firstName} ${billingInfo.lastName}`} />
-                  <InfoLine label={t("billingEmail")}   value={billingInfo.email} />
-                  <InfoLine label={t("addressPhone")}   value={billingInfo.phone} />
-                  <InfoLine label={t("billingSiret")}   value={billingInfo.siret} mono />
-                  <InfoLine label={t("vatNumberShort")} value={billingInfo.vatNumber || "—"} mono />
+              <div className="p-5 space-y-5">
+                {/* En-tête fiche client : avatar initiales + raison sociale */}
+                <div className="flex items-start gap-4">
+                  <div className="w-14 h-14 rounded-xl bg-bg-tertiary border border-border flex items-center justify-center font-heading font-bold text-lg text-text-primary shrink-0">
+                    {(billingInfo.firstName?.[0] ?? "").toUpperCase()}{(billingInfo.lastName?.[0] ?? "").toUpperCase() || "•"}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-heading text-lg font-bold text-text-primary truncate">
+                      {billingInfo.company || `${billingInfo.firstName} ${billingInfo.lastName}`}
+                    </div>
+                    <div className="text-xs text-text-muted flex items-center gap-2 mt-0.5">
+                      <span className="inline-flex items-center gap-1 text-success">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24" aria-hidden="true">
+                          <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        {t("proAccountVerified")}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="border-t border-border pt-3">
-                  <p className="text-xs font-semibold text-text-muted uppercase tracking-wider font-body mb-1">{t("addressLabelShort")}</p>
-                  {billingInfo.address1 ? (
-                    <>
-                      <p className="text-sm text-text-primary font-body">
-                        {billingInfo.address1}{billingInfo.address2 ? `, ${billingInfo.address2}` : ""}
-                      </p>
-                      <p className="text-sm text-text-secondary font-body">
-                        {billingInfo.zipCode} {billingInfo.city}, {countryOptions.find((c) => c.code === billingInfo.country)?.label ?? billingInfo.country}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-sm text-text-muted font-body italic">{t("noBillingAddress")}</p>
-                  )}
+
+                {/* Grille de badges vérifiés (SIRET / TVA / KBIS / Compte) */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <VerifiedBadge label={t("billingSiret")} value={billingInfo.siret || "—"} mono verified={!!billingInfo.siret} />
+                  <VerifiedBadge label={t("vatNumberShort")} value={billingInfo.vatNumber || t("vatNone")} mono verified={!!billingInfo.vatNumber} />
+                  <VerifiedBadge label={t("kbisLabel")} value={t("kbisReceived")} verified />
+                  <VerifiedBadge label={t("accountLabel")} value={t("accountApproved")} verified />
+                </div>
+
+                {/* Contact + Adresse */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-1 border-t border-border">
+                  <div className="pt-4">
+                    <p className="text-[10px] font-semibold text-text-muted uppercase tracking-widest font-body mb-2">{t("contact")}</p>
+                    <p className="text-sm text-text-primary font-body font-medium">
+                      {billingInfo.firstName} {billingInfo.lastName}
+                    </p>
+                    {billingInfo.email && (
+                      <p className="text-xs text-text-secondary font-body">{billingInfo.email}</p>
+                    )}
+                    {billingInfo.phone && (
+                      <p className="text-xs text-text-secondary font-body">{billingInfo.phone}</p>
+                    )}
+                  </div>
+                  <div className="pt-4">
+                    <p className="text-[10px] font-semibold text-text-muted uppercase tracking-widest font-body mb-2">{t("addressLabelShort")}</p>
+                    {billingInfo.address1 ? (
+                      <>
+                        <p className="text-sm text-text-primary font-body">
+                          {billingInfo.address1}{billingInfo.address2 ? `, ${billingInfo.address2}` : ""}
+                        </p>
+                        <p className="text-xs text-text-secondary font-body">
+                          {billingInfo.zipCode} {billingInfo.city}, {countryOptions.find((c) => c.code === billingInfo.country)?.label ?? billingInfo.country}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-text-muted font-body italic">{t("noBillingAddress")}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Note info : facture téléchargeable */}
+                <div className="flex items-start gap-3 p-4 bg-bg-secondary border-l-4 border-text-primary rounded-lg">
+                  <div className="w-8 h-8 rounded-full bg-bg-primary border border-border flex items-center justify-center shrink-0 text-text-primary" aria-hidden="true">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-text-primary font-body">{t("invoiceHowTitle")}</p>
+                    <p className="text-xs text-text-secondary font-body leading-relaxed mt-0.5">{t("invoiceHowDesc")}</p>
+                  </div>
                 </div>
               </div>
             )}
           </section>
 
-          {/* ── ÉTAPE 1 · Livraison → adresse ── */}
-          <section className={`bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm ${wizardStep === 1 ? "" : "hidden"}`}>
-            <SectionHeader step={1} title={t("shippingAddressTitle")} complete={section2Complete}>
-              {!showAddressForm && (
-                <button type="button" onClick={() => { setEditingAddrId(null); setShowAddressForm(true); }}
-                  className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
-                  </svg>
-                  {t("newAddress")}
-                </button>
+          {/* ── ÉTAPE 1 · Hero Livraison + carte trajet ── */}
+          {wizardStep === 1 && (
+            <>
+              <StepHero
+                eyebrow={tCart("stepIndicator", { current: 2, total: 4 }) + " · " + tCart("stepDelivery")}
+                title={selectedAddr?.city ? `${selectedAddr.city}, ${selectedAddr.country}` : t("whereToShip")}
+                subtitle={t("chooseAddressAndCarrier")}
+                accent="emerald"
+              />
+              {selectedAddr && (
+                <DeliveryTrajectMap destCity={selectedAddr.city} destZip={selectedAddr.zipCode} />
               )}
-            </SectionHeader>
-            <div className="p-5 space-y-3">
+            </>
+          )}
+
+          {/* ── ÉTAPE 1 · Livraison → adresse (refonte maquette : eyebrow + grille 2 col + bouton ajouter) ── */}
+          <section className={wizardStep === 1 ? "" : "hidden"}>
+            <div className="mb-3 flex items-baseline justify-between">
+              <span className="text-[11px] uppercase tracking-[0.2em] text-text-muted font-semibold">
+                {t("savedAddressesEyebrow")}
+              </span>
+              {section2Complete && (
+                <span className="text-[10px] text-success uppercase tracking-widest font-semibold flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  {t("selected")}
+                </span>
+              )}
+            </div>
+            <div className="space-y-3">
               {/* Option: meme adresse que facturation — TOUJOURS visible en haut
                   du bloc, même si la facturation n'est pas encore renseignée
                   (case désactivée + message d'explication dans ce cas).
@@ -1346,40 +1683,53 @@ export default function CheckoutClient({
               {(() => {
                 const billingReady = !!(billingInfo.address1 && billingInfo.zipCode && billingInfo.city);
                 return (
-                  <label className={`flex items-start gap-3 p-4 border-2 rounded-xl text-sm font-body transition-all ${
-                    !billingReady
-                      ? "border-dashed border-border bg-bg-secondary/50 cursor-not-allowed opacity-70"
-                      : sameAsBilling
-                        ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.08)] cursor-pointer"
-                        : "border-dashed border-border-dark bg-bg-primary hover:bg-bg-secondary hover:border-text-muted cursor-pointer"
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={sameAsBilling}
-                      disabled={!billingReady}
-                      onChange={(e) => handleSameAsBilling(e.target.checked)}
-                      className="accent-text-primary w-4 h-4 mt-0.5 shrink-0 disabled:cursor-not-allowed"
-                    />
+                  <button
+                    type="button"
+                    disabled={!billingReady}
+                    onClick={() => handleSameAsBilling(!sameAsBilling)}
+                    className={`w-full text-left flex items-start gap-3 p-4 border-2 rounded-xl text-sm font-body transition-all ${
+                      !billingReady
+                        ? "border-dashed border-border bg-bg-secondary/50 cursor-not-allowed opacity-70"
+                        : sameAsBilling
+                          ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.08)]"
+                          : "border-dashed border-border-dark bg-bg-primary hover:bg-bg-secondary hover:border-text-muted"
+                    }`}
+                  >
+                    {/* Checkbox custom */}
+                    <span
+                      aria-hidden="true"
+                      className={`w-5 h-5 rounded-md border-2 shrink-0 mt-0.5 flex items-center justify-center transition-colors ${
+                        sameAsBilling
+                          ? "border-text-primary bg-text-primary"
+                          : billingReady
+                            ? "border-text-muted bg-white"
+                            : "border-border bg-bg-tertiary"
+                      }`}
+                    >
+                      {sameAsBilling && (
+                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
+                          <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </span>
                     <div className="min-w-0">
-                      <p className="font-semibold text-text-primary">
-                        {t("billToBilling")}
-                      </p>
+                      <p className="font-semibold text-text-primary">{t("billToBilling")}</p>
                       {billingReady ? (
                         <p className="text-xs text-text-secondary mt-0.5">
                           {billingInfo.address1}{billingInfo.address2 ? `, ${billingInfo.address2}` : ""} — {billingInfo.zipCode} {billingInfo.city}
                         </p>
                       ) : (
-                        <p className="text-xs text-text-muted mt-0.5 italic">
-                          {t("billToBillingNeedsBilling")}
-                        </p>
+                        <p className="text-xs text-text-muted mt-0.5 italic">{t("billToBillingNeedsBilling")}</p>
                       )}
                     </div>
-                  </label>
+                  </button>
                 );
               })()}
 
-              {/* Liste adresses existantes */}
-              {!showAddressForm && addresses.map((addr) => (
+              {/* Liste adresses existantes — grille 2 colonnes desktop pour matcher la maquette */}
+              {!showAddressForm && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {addresses.map((addr) => (
                 <div key={addr.id} className={`border rounded-xl p-4 transition-all ${
                   selectedAddrId === addr.id
                     ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.1)]"
@@ -1391,13 +1741,18 @@ export default function CheckoutClient({
                     className="w-full text-left"
                   >
                     <div className="flex items-start gap-3">
-                      <div className={`w-4 h-4 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center ${
-                        selectedAddrId === addr.id ? "border-text-primary" : "border-text-muted"
-                      }`}>
+                      <span
+                        aria-hidden="true"
+                        className={`w-5 h-5 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center transition-colors ${
+                          selectedAddrId === addr.id ? "border-text-primary bg-text-primary" : "border-text-muted bg-white"
+                        }`}
+                      >
                         {selectedAddrId === addr.id && (
-                          <div className="w-2 h-2 rounded-full bg-text-primary" />
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
+                            <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
                         )}
-                      </div>
+                      </span>
                       <div className="min-w-0">
                         <p className="text-sm font-body font-semibold text-text-primary">
                           {addr.firstName} {addr.lastName}
@@ -1442,6 +1797,22 @@ export default function CheckoutClient({
                   </div>
                 </div>
               ))}
+              </div>
+              )}
+
+              {/* Bouton "Ajouter une nouvelle adresse" (comme dans la maquette) */}
+              {!showAddressForm && (
+                <button
+                  type="button"
+                  onClick={() => { setEditingAddrId(null); setShowAddressForm(true); }}
+                  className="w-full py-3 rounded-xl border border-dashed border-border-dark bg-bg-primary text-sm text-text-secondary hover:border-text-primary hover:text-text-primary transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  {t("newAddress")}
+                </button>
+              )}
 
               {/* Formulaire nouvelle adresse OU édition d'une existante */}
               {showAddressForm && (
@@ -1492,8 +1863,8 @@ export default function CheckoutClient({
             </div>
           </section>
 
-          {/* ── ÉTAPE 1 · Livraison → mode + transporteur ── */}
-          <section className={`bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm ${wizardStep === 1 ? "" : "hidden"}`}>
+          {/* ── ÉTAPE 1 · Livraison → mode + transporteur (mobile uniquement, desktop dans panneau droite) ── */}
+          <section className={`bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm lg:hidden ${wizardStep === 1 ? "" : "hidden"}`}>
             <SectionHeader step={1} title={t("deliveryModeTitle")} complete={section3Complete} />
             <div className="p-5 space-y-4">
               {/* Choix livraison / retrait / transporteur privé */}
@@ -1603,11 +1974,18 @@ export default function CheckoutClient({
                           : "border-border bg-bg-primary hover:border-text-muted text-text-secondary"
                       }`}
                     >
-                      <div className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${
-                        privateMode === "contact" ? "border-text-primary" : "border-text-muted"
-                      }`}>
-                        {privateMode === "contact" && <div className="w-2 h-2 rounded-full bg-text-primary" />}
-                      </div>
+                      <span
+                        aria-hidden="true"
+                        className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
+                          privateMode === "contact" ? "border-text-primary bg-text-primary" : "border-text-muted bg-white"
+                        }`}
+                      >
+                        {privateMode === "contact" && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
+                            <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </span>
                       {t("privateContactMode")}
                     </button>
                     <button
@@ -1619,11 +1997,18 @@ export default function CheckoutClient({
                           : "border-border bg-bg-primary hover:border-text-muted text-text-secondary"
                       }`}
                     >
-                      <div className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${
-                        privateMode === "bordereau" ? "border-text-primary" : "border-text-muted"
-                      }`}>
-                        {privateMode === "bordereau" && <div className="w-2 h-2 rounded-full bg-text-primary" />}
-                      </div>
+                      <span
+                        aria-hidden="true"
+                        className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
+                          privateMode === "bordereau" ? "border-text-primary bg-text-primary" : "border-text-muted bg-white"
+                        }`}
+                      >
+                        {privateMode === "bordereau" && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
+                            <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </span>
                       {t("privateBordereauMode")}
                     </button>
                   </div>
@@ -1791,6 +2176,16 @@ export default function CheckoutClient({
             </div>
           </section>
 
+          {/* ── ÉTAPE 3 · Hero Paiement ── */}
+          {wizardStep === 3 && (
+            <StepHero
+              eyebrow={tCart("stepIndicator", { current: 4, total: 4 }) + " · " + tCart("stepPayment")}
+              title={`${totalTTC.toFixed(2)} € TTC`}
+              subtitle={t("lastStepPaySecurely")}
+              accent="violet"
+            />
+          )}
+
           {/* ── ÉTAPE 3 · Paiement ── */}
           {wizardStep === 3 && (
             <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
@@ -1944,8 +2339,8 @@ export default function CheckoutClient({
             </section>
           )}
 
-          {/* ── Boutons navigation wizard ── */}
-          <div className="flex items-center justify-between gap-3 pt-2">
+          {/* Barre de nav Retour/Suivant supprimée : les boutons sont uniquement dans le panneau droite (matche maquette v7). Version mobile en bas de page ci-dessous. */}
+          <div className="lg:hidden flex items-center justify-between gap-3 pt-2">
             <button
               type="button"
               onClick={() => (wizardStep === 1 ? router.push("/panier") : goToStep((wizardStep - 1) as 1 | 2))}
@@ -1970,30 +2365,422 @@ export default function CheckoutClient({
               </button>
             )}
           </div>
-        </div>
+        </div>{/* /space-y-6 : fin contenu wizard */}
 
-        {/* ── Récapitulatif — sticky desktop, drawer mobile ─────── */}
-        <div className="hidden lg:block">
-          <SummaryPanel
-            cart={cart}
-            computeUnitPrice={computeUnitPrice}
-            subtotalHT={subtotalHT}
-            clientDiscountAmt={clientDiscountAmt}
-            clientDiscount={clientDiscount}
-            subtotalAfterDiscount={subtotalAfterDiscount}
-            tvaRate={tvaRate}
-            tvaLabel={tvaLabel}
-            tvaProducts={tvaProducts}
-            tvaShipping={tvaShipping}
-            carrierPriceHT={effectiveCarrierPrice}
-            selectedAddr={selectedAddr}
-            deliveryMode={deliveryMode}
-            selectedCarrier={selectedCarrier}
-            canProceed={canProceed}
-            totalTTC={totalTTC}
-          />
-        </div>
-      </div>
+        </div>{/* /min-w-0 : fin contenu à droite du rail */}
+
+        {/* ── Panneau actions à droite (desktop uniquement) — 380px ── */}
+        <aside className="hidden lg:block">
+          <div className="sticky top-24 space-y-4">
+
+            {/* ÉTAPE 1 — Livraison : panneau transporteurs + récap + boutons */}
+            {wizardStep === 1 && (
+              <div className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden">
+                <div className="px-5 pt-5">
+                  <div className="text-[11px] uppercase tracking-widest text-text-muted mb-1">
+                    {tCart("stepIndicator", { current: 2, total: 4 })}
+                  </div>
+                  <div className="font-heading text-xl font-bold text-text-primary mb-1">
+                    {t("deliveryModeTitle")}
+                  </div>
+                  <div className="text-xs text-text-muted flex items-center gap-2 mb-4">
+                    <span className="text-[10px] uppercase tracking-widest bg-bg-tertiary text-text-secondary px-2 py-0.5 rounded-full font-semibold">Easy-Express</span>
+                    <span>{t("carriersRealTime")}</span>
+                  </div>
+                </div>
+
+                {/* Liste unifiée : transporteurs Easy-Express + Autres options (matche maquette v7) */}
+                <div className="px-5 pb-4 space-y-2 max-h-[48vh] overflow-y-auto">
+                  {/* Transporteurs Easy-Express */}
+                  {!selectedAddr && (
+                    <p className="text-xs text-text-muted font-body text-center py-6">
+                      {t("selectAddressFirst")}
+                    </p>
+                  )}
+                  {selectedAddr && carriersLoading && (
+                    <div className="flex items-center justify-center py-8 gap-2 text-text-muted">
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                      <span className="text-xs">{t("carriersLoadingShort")}</span>
+                    </div>
+                  )}
+                  {selectedAddr && !carriersLoading && carriersError && (
+                    <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-3 py-2 text-xs rounded-lg">
+                      {carriersError}
+                    </div>
+                  )}
+                  {selectedAddr && !carriersLoading && !carriersError && carriers.length === 0 && (
+                    <div className={`text-xs font-body text-center py-3 ${noCarrierConfigured ? "bg-[#FEF3C7] border border-[#FDE68A] text-[#92400E] px-3 rounded-lg" : "text-text-muted"}`}>
+                      {noCarrierConfigured ? t("noCarriersConfigured") : t("noCarriersAvailable")}
+                    </div>
+                  )}
+                  {carriers.map((carrier) => (
+                    <CarrierCard
+                      key={carrier.id}
+                      carrier={carrier}
+                      tvaRate={tvaRate}
+                      selected={deliveryMode === "delivery" && selectedCarrierId === carrier.id}
+                      onClick={() => {
+                        if (deliveryMode !== "delivery") handleDeliveryModeChange("delivery");
+                        setSelectedCarrierId(carrier.id);
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ÉTAPE 1 · Carte séparée "Autres options" (Retrait + Mon transporteur) */}
+            {wizardStep === 1 && (
+              <div className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden">
+                <div className="px-5 pt-4 pb-2">
+                  <div className="text-[10px] uppercase tracking-widest text-text-muted font-semibold">
+                    {t("otherOptions")}
+                  </div>
+                </div>
+                <div className="px-5 pb-5 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDeliveryModeChange("pickup")}
+                    className={`w-full text-left border rounded-xl p-4 flex items-center gap-4 transition-all ${
+                      deliveryMode === "pickup"
+                        ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.12)]"
+                        : "border-border bg-bg-primary hover:border-text-muted"
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
+                        deliveryMode === "pickup" ? "border-text-primary bg-text-primary" : "border-text-muted bg-white"
+                      }`}
+                    >
+                      {deliveryMode === "pickup" && (
+                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
+                          <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </span>
+                    <div className="w-11 h-9 rounded-lg bg-bg-tertiary border border-border flex items-center justify-center text-base shrink-0" aria-hidden="true">🏪</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-body font-semibold text-text-primary">{t("modePickup")}</p>
+                      <p className="text-xs text-text-secondary font-body mt-0.5">{t("pickupFreeDesc")}</p>
+                    </div>
+                    <span className="font-heading font-semibold text-sm text-success shrink-0">{t("free")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeliveryModeChange("private")}
+                    className={`w-full text-left border rounded-xl p-4 flex items-center gap-4 transition-all ${
+                      deliveryMode === "private"
+                        ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.12)]"
+                        : "border-border bg-bg-primary hover:border-text-muted"
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
+                        deliveryMode === "private" ? "border-text-primary bg-text-primary" : "border-text-muted bg-white"
+                      }`}
+                    >
+                      {deliveryMode === "private" && (
+                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
+                          <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </span>
+                    <div className="w-11 h-9 rounded-lg bg-bg-tertiary border border-border flex items-center justify-center text-base shrink-0" aria-hidden="true">📦</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-body font-semibold text-text-primary">{t("modePrivate")}</p>
+                      <p className="text-xs text-text-secondary font-body mt-0.5">{t("privateSelfDesc")}</p>
+                    </div>
+                    <span className="text-xs text-text-muted shrink-0">{t("yourCharge")}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ÉTAPE 1 · Carte finale : Récap prix + Total TTC + Boutons (en bas) */}
+            {wizardStep === 1 && (
+              <div className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden">
+                <div className="px-5 py-4 space-y-1.5 text-sm">
+                  <div className="flex justify-between text-text-secondary">
+                    <span>{t("subtotalHT")}</span>
+                    <span className="tabular-nums">{subtotalHT.toFixed(2)} €</span>
+                  </div>
+                  {selectedCarrier && (
+                    <div className="flex justify-between text-text-secondary">
+                      <span>{t("shippingHT")}</span>
+                      <span className="tabular-nums">{effectiveCarrierPrice === 0 ? t("free") : `${effectiveCarrierPrice.toFixed(2)} €`}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-text-secondary">
+                    <span>{t("tvaProducts")} <span className="text-xs text-text-muted">({tvaLabel})</span></span>
+                    <span className="tabular-nums">{selectedAddr ? `${tvaAmount.toFixed(2)} €` : "—"}</span>
+                  </div>
+                </div>
+                <div className="px-5 py-4 border-t border-border">
+                  <div className="flex items-baseline justify-between mb-4">
+                    <span className="text-[11px] uppercase tracking-widest text-text-muted">{t("totalTTC")}</span>
+                    <span className="font-heading text-2xl font-bold text-text-primary tabular-nums">{totalTTC.toFixed(2)} €</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => goToStep(2)}
+                    disabled={!step1Ready}
+                    className="btn-primary w-full justify-center h-11 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {tCommon("next")}
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => router.push("/panier")}
+                    className="w-full mt-2 py-2 text-xs text-text-muted hover:text-text-primary transition-colors"
+                  >
+                    ← {t("backToCart")}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ÉTAPE 2 : uniquement le formulaire de facturation (pas de SummaryPanel — cache le contenu, dispo via drawer mobile) */}
+            {/* ÉTAPE 3 : SummaryPanel + Bouton payer */}
+            {wizardStep === 3 && (
+              <SummaryPanel
+                cart={cart}
+                computeUnitPrice={computeUnitPrice}
+                subtotalHT={subtotalHT}
+                clientDiscountAmt={clientDiscountAmt}
+                clientDiscount={clientDiscount}
+                subtotalAfterDiscount={subtotalAfterDiscount}
+                tvaRate={tvaRate}
+                tvaLabel={tvaLabel}
+                tvaProducts={tvaProducts}
+                tvaShipping={tvaShipping}
+                carrierPriceHT={effectiveCarrierPrice}
+                selectedAddr={selectedAddr}
+                deliveryMode={deliveryMode}
+                selectedCarrier={selectedCarrier}
+                canProceed={canProceed}
+                totalTTC={totalTTC}
+              />
+            )}
+            {wizardStep !== 1 && (
+              <>
+
+                {/* Actions Étape 2 : Formulaire de facturation + Suivant (matche maquette) */}
+                {wizardStep === 2 && (
+                  <div className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden">
+                    <div className="px-5 pt-5 pb-3">
+                      <div className="text-[11px] uppercase tracking-widest text-text-muted mb-1">
+                        {tCart("stepIndicator", { current: 3, total: 4 })}
+                      </div>
+                      <div className="font-heading text-xl font-bold text-text-primary">
+                        {t("billingContactTitle")}
+                      </div>
+                    </div>
+
+                    <div className="px-5 pb-4 space-y-5 max-h-[60vh] overflow-y-auto">
+                      {/* Section Entreprise */}
+                      <div>
+                        <div className="text-[10px] uppercase tracking-widest text-text-muted font-semibold mb-2.5">
+                          {t("companySection")}
+                        </div>
+                        <div className="space-y-2.5">
+                          <div>
+                            <label className="text-[11px] text-text-muted block mb-1">{t("addressCompany")}</label>
+                            <input
+                              type="text"
+                              value={billingInfo.company}
+                              onChange={(e) => setBillingInfo((p) => ({ ...p, company: e.target.value }))}
+                              className="field-input w-full text-sm"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[11px] text-text-muted block mb-1">{t("billingSiret")}</label>
+                              <input
+                                type="text"
+                                value={billingInfo.siret}
+                                readOnly
+                                className="field-input w-full text-xs font-mono bg-bg-secondary text-text-muted cursor-not-allowed"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[11px] text-text-muted block mb-1">{t("vatNumberShort")}</label>
+                              <input
+                                type="text"
+                                value={billingInfo.vatNumber}
+                                onChange={(e) => setBillingInfo((p) => ({ ...p, vatNumber: e.target.value.toUpperCase() }))}
+                                className="field-input w-full text-xs font-mono"
+                                placeholder={t("vatPlaceholder")}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section Contact */}
+                      <div>
+                        <div className="text-[10px] uppercase tracking-widest text-text-muted font-semibold mb-2.5">
+                          {t("contact")}
+                        </div>
+                        <div className="space-y-2.5">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[11px] text-text-muted block mb-1">{t("addressFirstName")}</label>
+                              <input
+                                type="text"
+                                value={billingInfo.firstName}
+                                onChange={(e) => setBillingInfo((p) => ({ ...p, firstName: e.target.value }))}
+                                className="field-input w-full text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[11px] text-text-muted block mb-1">{t("addressLastName")}</label>
+                              <input
+                                type="text"
+                                value={billingInfo.lastName}
+                                onChange={(e) => setBillingInfo((p) => ({ ...p, lastName: e.target.value }))}
+                                className="field-input w-full text-sm"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-text-muted block mb-1">
+                              {t("billingEmail")} <span className="text-error">*</span>
+                            </label>
+                            <input
+                              type="email"
+                              value={billingInfo.email}
+                              onChange={(e) => setBillingInfo((p) => ({ ...p, email: e.target.value }))}
+                              className="field-input w-full text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-text-muted block mb-1">{t("addressPhone")}</label>
+                            <input
+                              type="tel"
+                              value={billingInfo.phone}
+                              onChange={(e) => setBillingInfo((p) => ({ ...p, phone: e.target.value }))}
+                              className="field-input w-full text-sm"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section Adresse de facturation */}
+                      <div>
+                        <div className="text-[10px] uppercase tracking-widest text-text-muted font-semibold mb-2.5">
+                          {t("billingAddressSection")}
+                        </div>
+                        <div className="space-y-2.5">
+                          <div>
+                            <label className="text-[11px] text-text-muted block mb-1">{t("addressLine1")}</label>
+                            <input
+                              type="text"
+                              value={billingInfo.address1}
+                              onChange={(e) => setBillingInfo((p) => ({ ...p, address1: e.target.value }))}
+                              className="field-input w-full text-sm"
+                            />
+                          </div>
+                          <div className="grid grid-cols-[100px_1fr] gap-2">
+                            <div>
+                              <label className="text-[11px] text-text-muted block mb-1">{t("addressZipCode")}</label>
+                              <input
+                                type="text"
+                                value={billingInfo.zipCode}
+                                onChange={(e) => setBillingInfo((p) => ({ ...p, zipCode: e.target.value }))}
+                                className="field-input w-full text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[11px] text-text-muted block mb-1">{t("addressCity")}</label>
+                              <input
+                                type="text"
+                                value={billingInfo.city}
+                                onChange={(e) => setBillingInfo((p) => ({ ...p, city: e.target.value }))}
+                                className="field-input w-full text-sm"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-text-muted block mb-1">{t("addressCountry")}</label>
+                            <CustomSelect
+                              id="right-bi-country"
+                              value={billingInfo.country}
+                              onChange={(v) => setBillingInfo((p) => ({ ...p, country: v }))}
+                              options={countryOptions.map((c) => ({ value: c.code, label: c.label }))}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {billingError && (
+                        <div className="bg-error-bg border border-error/30 text-error text-xs px-3 py-2 rounded-lg">
+                          {billingError}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Footer avec bouton Suivant */}
+                    <div className="px-5 py-4 border-t border-border">
+                      {!step2Ready && (
+                        <div className="mb-3 p-3 bg-warning-bg border border-warning/30 text-warning rounded-lg text-xs font-body">
+                          <div className="flex items-start gap-2">
+                            <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                            </svg>
+                            <span>{t("fillBillingRequiredRight")}</span>
+                          </div>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => { handleSaveBilling(); goToStep(3); }}
+                        disabled={!step2Ready}
+                        className="btn-primary w-full justify-center h-11 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {tCommon("next")}
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => goToStep(1)}
+                        className="w-full mt-2 py-2 text-xs text-text-muted hover:text-text-primary transition-colors"
+                      >
+                        ← {tCommon("previous")}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions Étape 3 : uniquement Retour (le bouton Payer est dans le form Stripe au centre) */}
+                {wizardStep === 3 && (
+                  <div className="bg-bg-primary border border-border rounded-2xl shadow-sm p-5">
+                    <div className="text-[11px] uppercase tracking-widest text-text-muted mb-2">
+                      {t("totalToPay")}
+                    </div>
+                    <div className="font-heading text-3xl font-bold text-text-primary tabular-nums mb-3">
+                      {totalTTC.toFixed(2)} <span className="text-lg text-text-muted">€ TTC</span>
+                    </div>
+                    <p className="text-[11px] text-text-muted mb-4">
+                      {t("useCentralFormToPay")}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => goToStep(2)}
+                      className="w-full py-2 text-xs text-text-muted hover:text-text-primary transition-colors"
+                    >
+                      ← {tCommon("previous")}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </aside>
+
+      </div>{/* /grid rail+contenu+actions */}
 
       {/* ── Drawer récapitulatif (mobile / tablette) ── */}
       {summaryDrawerOpen && (
@@ -2224,6 +3011,27 @@ function InfoLine({ label, value, mono = false }: { label: string; value: string
     <div className="flex flex-col gap-0.5">
       <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">{label}</span>
       <span className={`text-text-primary ${mono ? "font-mono text-xs" : "text-sm"}`}>{value}</span>
+    </div>
+  );
+}
+
+// Badge vérifié pour la fiche client (Phase 2B)
+function VerifiedBadge({ label, value, mono = false, verified = false }: { label: string; value: string; mono?: boolean; verified?: boolean }) {
+  return (
+    <div className="p-3 rounded-lg bg-bg-tertiary border border-border">
+      <div className="flex items-center gap-1.5 mb-1">
+        {verified ? (
+          <span className="w-4 h-4 rounded-full bg-success flex items-center justify-center shrink-0" aria-label="Vérifié">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" className="text-white" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </span>
+        ) : (
+          <span className="w-4 h-4 rounded-full border border-border-dark shrink-0" aria-hidden="true" />
+        )}
+        <span className="text-[10px] uppercase tracking-widest text-text-muted font-semibold">{label}</span>
+      </div>
+      <div className={`text-text-primary truncate ${mono ? "font-mono text-[11px]" : "text-xs font-medium"}`}>{value}</div>
     </div>
   );
 }

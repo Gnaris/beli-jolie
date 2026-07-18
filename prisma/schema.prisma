@@ -550,6 +550,16 @@ model Product {
   efashionSyncRequired Boolean @default(false)
   faireSyncRequired    Boolean @default(false)
 
+  // Drapeaux "Marketplace activée pour ce produit" — la cliente peut décocher un
+  // marketplace dans la fiche produit pour l'exclure de toutes les actions
+  // automatiques (publish/refresh/resync/stock). Défaut true = toujours actif.
+  // Quand false, le badge apparaît barré + tooltip "Marketplace désactivée" et
+  // toutes les modales de push filtrent ce marketplace.
+  pfsEnabled           Boolean @default(true)
+  ankorsEnabled        Boolean @default(true)
+  efashionEnabled      Boolean @default(true)
+  faireEnabled         Boolean @default(true)
+
   // Dernier export Excel/ZIP réussi depuis /admin/produits → bouton « Exporter ».
   // Mis à jour automatiquement quand la cliente télécharge l'export ; null = jamais
   // exporté. Microstore n'a pas d'identifiant produit, ce champ est la seule trace.

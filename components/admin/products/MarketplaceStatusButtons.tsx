@@ -14,12 +14,13 @@ import SetPfsBrandModal from "./SetPfsBrandModal";
 
 // Modales lourdes — chargées à l'ouverture pour alléger le bundle initial.
 const LinkAnkorstoreProductModal = dynamic(() => import("./LinkAnkorstoreProductModal"));
-const OrphanAnkorstoreVariantsModal = dynamic(() => import("./OrphanAnkorstoreVariantsModal"));
 const LinkEfashionProductModal = dynamic(() => import("./LinkEfashionProductModal"));
 const LinkPfsProductModal = dynamic(() => import("./LinkPfsProductModal"));
 const LinkFaireProductModal = dynamic(() => import("./LinkFaireProductModal"));
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { MarketplacePushModal } from "./MarketplacePushModal";
 import { removeAnkorstoreMatch } from "@/app/actions/admin/ankorstore";
 import { removeEfashionMatch } from "@/app/actions/admin/efashion";
 import { removePfsMatch } from "@/app/actions/admin/pfs";
@@ -47,6 +48,11 @@ interface MarketplaceStatusButtonsProps {
   ankorsSyncRequired?: boolean;
   efashionSyncRequired?: boolean;
   faireSyncRequired?: boolean;
+  /** Marketplace activée pour ce produit (Product.*Enabled). Défaut true. */
+  pfsEnabledForProduct?: boolean;
+  ankorsEnabledForProduct?: boolean;
+  efashionEnabledForProduct?: boolean;
+  faireEnabledForProduct?: boolean;
 }
 
 type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire";
@@ -182,6 +188,7 @@ function StatusBadge({
   onCancelSyncRequired,
   title,
   loadingLabel,
+  disabledForProduct = false,
 }: {
   state: MarketplaceBadgeState;
   /** Sert à choisir le logo rond coloré (P / A / E / F). */
@@ -193,10 +200,14 @@ function StatusBadge({
   onCancelSyncRequired?: () => void;
   title: string;
   loadingLabel: string;
+  /** Marketplace désactivée pour ce produit (Product.*Enabled = false). */
+  disabledForProduct?: boolean;
 }) {
   const mp = MARKETPLACE_META[marketplace];
 
-  const chipClasses = state.loading
+  const chipClasses = disabledForProduct
+    ? "text-text-muted border-border-dark cursor-not-allowed"
+    : state.loading
     ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
     : state.syncRequired
       ? "bg-[#FEF3C7] text-[#B45309] border-[#FDE68A] hover:bg-[#FDE68A] cursor-pointer"
@@ -204,26 +215,42 @@ function StatusBadge({
         ? "bg-[#DCFCE7] text-[#15803D] border-[#BBF7D0] cursor-default"
         : "bg-bg-tertiary text-text-muted border-border hover:bg-bg-secondary cursor-pointer";
 
-  return (
-    <span className="group relative inline-flex">
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={state.loading}
-        className={`inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold font-body border transition-all ${chipClasses}`}
-        title={title}
-      >
+  const disabledStyle: React.CSSProperties | undefined = disabledForProduct
+    ? {
+        background:
+          "repeating-linear-gradient(45deg,#FAFAFA,#FAFAFA 6px,#F4F4F5 6px,#F4F4F5 12px)",
+      }
+    : undefined;
+
+  const buttonEl = (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={state.loading || disabledForProduct}
+      className={`inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold font-body border transition-all ${chipClasses}`}
+      style={disabledStyle}
+      title={disabledForProduct ? undefined : title}
+    >
         {/* Logo rond avec initiale du marketplace */}
         <span
           className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[8.5px] font-extrabold flex-shrink-0"
-          style={{ background: mp.gradient }}
+          style={{
+            background: mp.gradient,
+            ...(disabledForProduct
+              ? { filter: "grayscale(1) brightness(0.85)" }
+              : {}),
+          }}
           aria-hidden
         >
           {mp.letter}
         </span>
 
         {/* Label */}
-        {state.loading ? (
+        {disabledForProduct ? (
+          <span className="line-through decoration-[1.5px] decoration-text-muted">
+            {label}
+          </span>
+        ) : state.loading ? (
           <span className="inline-flex items-center gap-1.5">
             {Icon.Spinner}
             {loadingLabel}
@@ -247,7 +274,7 @@ function StatusBadge({
         )}
 
         {/* Dot d'état à droite */}
-        {!state.loading && (
+        {!state.loading && !disabledForProduct && (
           state.syncRequired ? (
             <span className="relative inline-flex">
               <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse" />
@@ -261,7 +288,21 @@ function StatusBadge({
             />
           )
         )}
-      </button>
+        {disabledForProduct && (
+          <span className="w-1.5 h-1.5 rounded-full bg-text-muted" />
+        )}
+    </button>
+  );
+
+  return (
+    <span className="group relative inline-flex">
+      {disabledForProduct ? (
+        <Tooltip content={`${label} · marketplace désactivée pour ce produit`}>
+          {buttonEl}
+        </Tooltip>
+      ) : (
+        buttonEl
+      )}
       {state.syncRequired && onCancelSyncRequired && (
         <button
           type="button"
@@ -322,6 +363,10 @@ export function MarketplaceStatusButtons({
   ankorsSyncRequired = false,
   efashionSyncRequired = false,
   faireSyncRequired = false,
+  pfsEnabledForProduct = true,
+  ankorsEnabledForProduct = true,
+  efashionEnabledForProduct = true,
+  faireEnabledForProduct = true,
 }: MarketplaceStatusButtonsProps) {
   const router = useRouter();
   const { enqueue, items } = useMarketplaceRefreshQueue();
@@ -334,7 +379,6 @@ export function MarketplaceStatusButtons({
   const [confirmAkOpen, setConfirmAkOpen] = useState(false);
   const [resyncAkOpen, setResyncAkOpen] = useState(false);
   const [linkAkOpen, setLinkAkOpen] = useState(false);
-  const [orphanAkOpen, setOrphanAkOpen] = useState(false);
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
   const [unlinkAkBusy, setUnlinkAkBusy] = useState(false);
   const [unlinkPfsBusy, setUnlinkPfsBusy] = useState(false);
@@ -671,7 +715,9 @@ export function MarketplaceStatusButtons({
               marketplace="pfs"
               label="PFS"
               sublabel={pfsProductId ? pfsBrandName : null}
+              disabledForProduct={!pfsEnabledForProduct}
               onClick={() => {
+                if (!pfsEnabledForProduct) return;
                 if (pfsState.loading) return;
                 if (pfsState.syncRequired) {
                   handleResyncPfs();
@@ -760,7 +806,9 @@ export function MarketplaceStatusButtons({
               marketplace="ankorstore"
               label="Ankorstore"
               sublabel={null}
+              disabledForProduct={!ankorsEnabledForProduct}
               onClick={() => {
+                if (!ankorsEnabledForProduct) return;
                 if (ankorstoreState.loading) return;
                 if (ankorstoreState.syncRequired) {
                   handleResyncAnkorstore();
@@ -804,16 +852,6 @@ export function MarketplaceStatusButtons({
               />
             )}
 
-            {ankorsProductId && (
-              <IconBtn
-                tone="warning"
-                icon={Icon.Eye}
-                onClick={() => setOrphanAkOpen(true)}
-                title="Voir et lier manuellement les variantes orphelines (couleurs non encore liées entre votre site et Ankorstore)"
-                ariaLabel="Variantes non liées entre votre site et Ankorstore"
-              />
-            )}
-
             <IconBtn
               tone="neutral"
               icon={Icon.Link}
@@ -851,7 +889,9 @@ export function MarketplaceStatusButtons({
               marketplace="efashion"
               label="eFashion"
               sublabel={null}
+              disabledForProduct={!efashionEnabledForProduct}
               onClick={() => {
+                if (!efashionEnabledForProduct) return;
                 if (efashionState.loading) return;
                 if (efashionState.syncRequired) {
                   handleResyncEfashion();
@@ -926,7 +966,9 @@ export function MarketplaceStatusButtons({
               marketplace="faire"
               label="Faire"
               sublabel={null}
+              disabledForProduct={!faireEnabledForProduct}
               onClick={() => {
+                if (!faireEnabledForProduct) return;
                 if (faireState.loading) return;
                 if (faireState.syncRequired) {
                   handleResyncFaire();
@@ -1002,154 +1044,150 @@ export function MarketplaceStatusButtons({
       {/*  Modales                                                         */}
       {/* ─────────────────────────────────────────────────────────────── */}
 
-      {confirmPfsOpen && (
-        <ConfirmModal
-          marketplace="pfs"
-          mode="publish"
-          title="Publier ce produit sur Paris Fashion Shop ?"
-          productName={productName}
-          reference={reference}
-          firstImage={firstImage}
-          message="Ce produit n'existe pas encore sur Paris Fashion Shop. Une nouvelle fiche y sera créée avec les informations, photos, prix et stock actuels."
-          infoNote="Une fois publiée, la fiche restera liée à ce produit. Vos futures modifications pourront être renvoyées en un clic."
-          confirmLabel="Publier maintenant"
-          onCancel={() => setConfirmPfsOpen(false)}
-          onConfirm={handlePublishPfs}
-        />
-      )}
+      <MarketplacePushModal
+        open={confirmPfsOpen}
+        marketplace="pfs"
+        mode="publish"
+        title="Publier ce produit sur Paris Fashion Shop ?"
+        productName={productName}
+        productReference={reference}
+        productImage={firstImage}
+        message="Ce produit n'existe pas encore sur Paris Fashion Shop. Une nouvelle fiche y sera créée avec les informations, photos, prix et stock actuels."
+        infoMessage="Une fois publiée, la fiche restera liée à ce produit. Vos futures modifications pourront être renvoyées en un clic."
+        subtitle="première publication"
+        confirmLabel="Publier maintenant"
+        onClose={() => setConfirmPfsOpen(false)}
+        onConfirm={handlePublishPfs}
+      />
 
-      {resyncPfsOpen && (
-        <ConfirmModal
-          marketplace="pfs"
-          mode="resync"
-          title="Renvoyer les infos à Paris Fashion Shop ?"
-          productName={productName}
-          reference={reference}
-          firstImage={firstImage}
-          items={[
-            "Nom & description",
-            "Photos",
-            "Prix",
-            "Stock",
-            "Statut en ligne",
-            "Best Seller & variantes",
-          ]}
-          infoNote="La fiche existante sur Paris Fashion Shop est gardée telle quelle — seul le contenu est mis à jour."
-          confirmLabel="Envoyer maintenant"
-          onCancel={() => setResyncPfsOpen(false)}
-          onConfirm={handleResyncPfs}
-        />
-      )}
+      <MarketplacePushModal
+        open={resyncPfsOpen}
+        marketplace="pfs"
+        mode="resync"
+        title="Renvoyer les infos à Paris Fashion Shop ?"
+        productName={productName}
+        productReference={reference}
+        productImage={firstImage}
+        items={[
+          "Nom & description",
+          "Photos",
+          "Prix",
+          "Stock",
+          "Statut en ligne",
+          "Best Seller & variantes",
+        ]}
+        infoMessage="La fiche existante sur Paris Fashion Shop est gardée telle quelle — seul le contenu est mis à jour."
+        confirmLabel="Envoyer maintenant"
+        onClose={() => setResyncPfsOpen(false)}
+        onConfirm={handleResyncPfs}
+      />
 
-      {confirmAkOpen && (
-        <ConfirmModal
-          marketplace="ankorstore"
-          mode="publish"
-          title="Publier ce produit sur Ankorstore ?"
-          productName={productName}
-          reference={reference}
-          firstImage={firstImage}
-          message="Ce produit n'existe pas encore sur Ankorstore. Une nouvelle fiche y sera créée avec les informations, photos, prix et stock actuels."
-          infoNote="Une fois publiée, la fiche restera liée à ce produit. Vos futures modifications pourront être renvoyées en un clic."
-          confirmLabel="Publier maintenant"
-          onCancel={() => setConfirmAkOpen(false)}
-          onConfirm={handlePublishAnkorstore}
-        />
-      )}
+      <MarketplacePushModal
+        open={confirmAkOpen}
+        marketplace="ankorstore"
+        mode="publish"
+        title="Publier ce produit sur Ankorstore ?"
+        productName={productName}
+        productReference={reference}
+        productImage={firstImage}
+        message="Ce produit n'existe pas encore sur Ankorstore. Une nouvelle fiche y sera créée avec les informations, photos, prix et stock actuels."
+        infoMessage="Une fois publiée, la fiche restera liée à ce produit. Vos futures modifications pourront être renvoyées en un clic."
+        subtitle="première publication"
+        confirmLabel="Publier maintenant"
+        onClose={() => setConfirmAkOpen(false)}
+        onConfirm={handlePublishAnkorstore}
+      />
 
-      {resyncAkOpen && (
-        <ConfirmModal
-          marketplace="ankorstore"
-          mode="resync"
-          title="Renvoyer les infos à Ankorstore ?"
-          productName={productName}
-          reference={reference}
-          firstImage={firstImage}
-          items={[
-            "Nom & description",
-            "Photos",
-            "Prix",
-            "Stock",
-            "Statut en ligne",
-            "Variantes",
-          ]}
-          infoNote="La fiche existante sur Ankorstore est gardée telle quelle — seul le contenu est mis à jour."
-          confirmLabel="Envoyer maintenant"
-          onCancel={() => setResyncAkOpen(false)}
-          onConfirm={handleResyncAnkorstore}
-        />
-      )}
+      <MarketplacePushModal
+        open={resyncAkOpen}
+        marketplace="ankorstore"
+        mode="resync"
+        title="Renvoyer les infos à Ankorstore ?"
+        productName={productName}
+        productReference={reference}
+        productImage={firstImage}
+        items={[
+          "Nom & description",
+          "Photos",
+          "Prix",
+          "Stock",
+          "Statut en ligne",
+          "Variantes",
+        ]}
+        infoMessage="La fiche existante sur Ankorstore est gardée telle quelle — seul le contenu est mis à jour."
+        confirmLabel="Envoyer maintenant"
+        onClose={() => setResyncAkOpen(false)}
+        onConfirm={handleResyncAnkorstore}
+      />
 
-      {confirmEfOpen && (
-        <ConfirmModal
-          marketplace="efashion"
-          mode="publish"
-          title="Publier ce produit sur eFashion Paris ?"
-          productName={productName}
-          reference={reference}
-          firstImage={firstImage}
-          message="Ce produit n'est pas encore lié à eFashion Paris. Une nouvelle fiche y sera créée pour chaque couleur (workflow shooting) avec les infos, photos, prix et stock actuels."
-          infoNote="Une fois publiée, la fiche restera liée à ce produit. Vos futures modifications pourront être renvoyées en un clic."
-          confirmLabel="Publier maintenant"
-          onCancel={() => setConfirmEfOpen(false)}
-          onConfirm={handlePublishEfashion}
-        />
-      )}
+      <MarketplacePushModal
+        open={confirmEfOpen}
+        marketplace="efashion"
+        mode="publish"
+        title="Publier ce produit sur eFashion Paris ?"
+        productName={productName}
+        productReference={reference}
+        productImage={firstImage}
+        message="Ce produit n'est pas encore lié à eFashion Paris. Une nouvelle fiche y sera créée pour chaque couleur (workflow shooting) avec les infos, photos, prix et stock actuels."
+        infoMessage="Une fois publiée, la fiche restera liée à ce produit. Vos futures modifications pourront être renvoyées en un clic."
+        subtitle="première publication"
+        confirmLabel="Publier maintenant"
+        onClose={() => setConfirmEfOpen(false)}
+        onConfirm={handlePublishEfashion}
+      />
 
-      {resyncEfOpen && (
-        <ConfirmModal
-          marketplace="efashion"
-          mode="resync"
-          title="Renvoyer les infos à eFashion Paris ?"
-          productName={productName}
-          reference={reference}
-          firstImage={firstImage}
-          items={["Statut en ligne", "Prix", "Stock"]}
-          infoNote="Les liaisons existantes entre vos couleurs et eFashion ne changent pas."
-          confirmLabel="Envoyer maintenant"
-          onCancel={() => setResyncEfOpen(false)}
-          onConfirm={handleResyncEfashion}
-        />
-      )}
+      <MarketplacePushModal
+        open={resyncEfOpen}
+        marketplace="efashion"
+        mode="resync"
+        title="Renvoyer les infos à eFashion Paris ?"
+        productName={productName}
+        productReference={reference}
+        productImage={firstImage}
+        items={["Statut en ligne", "Prix", "Stock"]}
+        infoMessage="Les liaisons existantes entre vos couleurs et eFashion ne changent pas."
+        confirmLabel="Envoyer maintenant"
+        onClose={() => setResyncEfOpen(false)}
+        onConfirm={handleResyncEfashion}
+      />
 
-      {confirmFaireOpen && (
-        <ConfirmModal
-          marketplace="faire"
-          mode="publish"
-          title="Publier ce produit sur Faire ?"
-          productName={productName}
-          reference={reference}
-          firstImage={firstImage}
-          message="Ce produit n'existe pas encore sur Faire. Une nouvelle fiche (brouillon) y sera créée avec les informations, photos, prix et stock actuels."
-          infoNote="Une fois publiée, la fiche restera liée à ce produit. Vos futures modifications pourront être renvoyées en un clic."
-          confirmLabel="Publier maintenant"
-          onCancel={() => setConfirmFaireOpen(false)}
-          onConfirm={handlePublishFaire}
-        />
-      )}
+      <MarketplacePushModal
+        open={confirmFaireOpen}
+        marketplace="faire"
+        mode="publish"
+        title="Publier ce produit sur Faire ?"
+        productName={productName}
+        productReference={reference}
+        productImage={firstImage}
+        message="Ce produit n'existe pas encore sur Faire. Une nouvelle fiche (brouillon) y sera créée avec les informations, photos, prix et stock actuels."
+        infoMessage="Une fois publiée, la fiche restera liée à ce produit. Vos futures modifications pourront être renvoyées en un clic."
+        subtitle="première publication"
+        confirmLabel="Publier maintenant"
+        onClose={() => setConfirmFaireOpen(false)}
+        onConfirm={handlePublishFaire}
+      />
 
-      {resyncFaireOpen && (
-        <ConfirmModal
-          marketplace="faire"
-          mode="resync"
-          title="Renvoyer les infos à Faire ?"
-          productName={productName}
-          reference={reference}
-          firstImage={firstImage}
-          items={[
-            "Nom & description",
-            "Photos",
-            "Prix",
-            "Stock",
-            "Statut en ligne",
-            "Variantes",
-          ]}
-          infoNote="La fiche existante sur Faire est gardée telle quelle — seul le contenu est mis à jour."
-          confirmLabel="Envoyer maintenant"
-          onCancel={() => setResyncFaireOpen(false)}
-          onConfirm={handleResyncFaire}
-        />
-      )}
+      <MarketplacePushModal
+        open={resyncFaireOpen}
+        marketplace="faire"
+        mode="resync"
+        title="Renvoyer les infos à Faire ?"
+        productName={productName}
+        productReference={reference}
+        productImage={firstImage}
+        items={[
+          "Nom & description",
+          "Photos",
+          "Prix",
+          "Stock",
+          "Statut en ligne",
+          "Variantes",
+        ]}
+        infoMessage="La fiche existante sur Faire est gardée telle quelle — seul le contenu est mis à jour."
+        confirmLabel="Envoyer maintenant"
+        onClose={() => setResyncFaireOpen(false)}
+        onConfirm={handleResyncFaire}
+      />
 
       {linkPfsOpen && (
         <LinkPfsProductModal
@@ -1166,15 +1204,6 @@ export function MarketplaceStatusButtons({
           productName={productName}
           reference={reference}
           onClose={() => setLinkAkOpen(false)}
-        />
-      )}
-
-      {orphanAkOpen && (
-        <OrphanAnkorstoreVariantsModal
-          productId={productId}
-          productName={productName}
-          reference={reference}
-          onClose={() => setOrphanAkOpen(false)}
         />
       )}
 
@@ -1204,281 +1233,5 @@ export function MarketplaceStatusButtons({
         />
       )}
     </>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// Modale de confirmation (publish / resync) — style cockpit moderne
-// ──────────────────────────────────────────────────────────────────────────
-
-type ConfirmMode = "publish" | "resync";
-
-const MARKETPLACE_MODAL_META: Record<
-  MarketplaceKey,
-  {
-    label: string;
-    gradientFrom: string;
-    gradientTo: string;
-    haloClass: string;
-    haloLightClass: string;
-    accentTextClass: string;
-    accentDotClass: string;
-    infoBarClass: string;
-    infoTextClass: string;
-    infoIconClass: string;
-  }
-> = {
-  pfs: {
-    label: "Paris Fashion Shop",
-    gradientFrom: "#4f46e5",
-    gradientTo: "#6366f1",
-    haloClass: "bg-indigo-200",
-    haloLightClass: "bg-indigo-100",
-    accentTextClass: "text-indigo-700",
-    accentDotClass: "bg-indigo-500",
-    infoBarClass: "bg-indigo-50/70 border-indigo-100",
-    infoTextClass: "text-indigo-900/80",
-    infoIconClass: "text-indigo-600",
-  },
-  ankorstore: {
-    label: "Ankorstore",
-    gradientFrom: "#0ea5e9",
-    gradientTo: "#38bdf8",
-    haloClass: "bg-sky-200",
-    haloLightClass: "bg-sky-100",
-    accentTextClass: "text-sky-700",
-    accentDotClass: "bg-sky-500",
-    infoBarClass: "bg-sky-50/70 border-sky-100",
-    infoTextClass: "text-sky-900/80",
-    infoIconClass: "text-sky-600",
-  },
-  efashion: {
-    label: "eFashion Paris",
-    gradientFrom: "#db2777",
-    gradientTo: "#ec4899",
-    haloClass: "bg-pink-200",
-    haloLightClass: "bg-pink-100",
-    accentTextClass: "text-pink-700",
-    accentDotClass: "bg-pink-500",
-    infoBarClass: "bg-pink-50/70 border-pink-100",
-    infoTextClass: "text-pink-900/80",
-    infoIconClass: "text-pink-600",
-  },
-  faire: {
-    label: "Faire",
-    gradientFrom: "#f59e0b",
-    gradientTo: "#fbbf24",
-    haloClass: "bg-amber-200",
-    haloLightClass: "bg-amber-100",
-    accentTextClass: "text-amber-700",
-    accentDotClass: "bg-amber-500",
-    infoBarClass: "bg-amber-50/80 border-amber-100",
-    infoTextClass: "text-amber-900/80",
-    infoIconClass: "text-amber-600",
-  },
-};
-
-export function ConfirmModal({
-  marketplace,
-  mode,
-  title,
-  productName,
-  reference,
-  firstImage,
-  items,
-  message,
-  infoNote,
-  confirmLabel,
-  onCancel,
-  onConfirm,
-}: {
-  marketplace: MarketplaceKey;
-  mode: ConfirmMode;
-  title: string;
-  productName: string;
-  reference: string;
-  firstImage: string | null;
-  /** Liste des éléments qui seront renvoyés (mode resync). */
-  items?: string[];
-  /** Texte plein (mode publish, ou fallback si pas d'items). */
-  message?: string;
-  infoNote: string;
-  confirmLabel: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const meta = MARKETPLACE_MODAL_META[marketplace];
-  const letter = MARKETPLACE_META[marketplace].letter;
-  const gradient = `linear-gradient(135deg,${meta.gradientFrom},${meta.gradientTo})`;
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onCancel]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm p-4"
-      onClick={onCancel}
-      role="presentation"
-    >
-      <div
-        className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl ring-1 ring-black/5 overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="marketplace-confirm-title"
-      >
-        <div
-          className="h-1.5"
-          style={{ background: `linear-gradient(90deg,${meta.gradientFrom},${meta.gradientTo})` }}
-        />
-
-        <div
-          className={`absolute -top-16 -right-16 w-56 h-56 rounded-full blur-3xl opacity-60 pointer-events-none ${meta.haloClass}`}
-          aria-hidden
-        />
-        <div
-          className={`absolute -bottom-20 -left-16 w-56 h-56 rounded-full blur-3xl opacity-50 pointer-events-none ${meta.haloLightClass}`}
-          aria-hidden
-        />
-
-        <div className="relative p-6 sm:p-7">
-          {/* Header */}
-          <div className="flex items-start gap-4">
-            <div className="relative flex-shrink-0">
-              <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-extrabold text-xl shadow-lg"
-                style={{ background: gradient }}
-                aria-hidden
-              >
-                {letter}
-              </div>
-              <div
-                className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white ring-2 ring-white flex items-center justify-center ${meta.accentTextClass}`}
-                aria-hidden
-              >
-                {mode === "resync" ? (
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.6}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                  </svg>
-                ) : (
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                  </svg>
-                )}
-              </div>
-            </div>
-            <div className="min-w-0 pt-1">
-              <div
-                className={`inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase mb-1 font-body ${meta.accentTextClass}`}
-                style={{ letterSpacing: "0.18em" }}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${meta.accentDotClass}`} />
-                {meta.label}
-                {mode === "publish" ? " · première publication" : ""}
-              </div>
-              <h3
-                id="marketplace-confirm-title"
-                className="font-heading text-[22px] font-bold text-text-primary leading-tight"
-              >
-                {title}
-              </h3>
-            </div>
-          </div>
-
-          {/* Fiche produit */}
-          <div className="mt-5 flex items-center gap-3 p-3 rounded-2xl bg-bg-secondary border border-border">
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-50 to-rose-50 flex items-center justify-center overflow-hidden flex-shrink-0">
-              {firstImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={firstImage} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.6}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold text-text-primary truncate font-body">{productName}</div>
-              <div className="text-xs text-text-muted mt-0.5 font-mono">{reference}</div>
-            </div>
-          </div>
-
-          {/* Corps : liste (resync) ou paragraphe (publish) */}
-          {items && items.length > 0 ? (
-            <div className="mt-5">
-              <div
-                className="text-[10.5px] font-bold uppercase text-text-muted mb-3 font-body"
-                style={{ letterSpacing: "0.18em" }}
-              >
-                Ce qui sera renvoyé
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-2">
-                {items.map((it) => (
-                  <div key={it} className="flex items-center gap-2 text-sm text-text-secondary font-body">
-                    <span className="w-4 h-4 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                      <svg className="w-2.5 h-2.5 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    </span>
-                    {it}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            message && (
-              <p className="mt-5 text-sm text-text-secondary leading-relaxed font-body">{message}</p>
-            )
-          )}
-
-          {/* Bandeau info */}
-          <div className={`mt-5 flex items-start gap-2.5 p-3 rounded-xl border ${meta.infoBarClass}`}>
-            <svg className={`w-4 h-4 flex-shrink-0 mt-0.5 ${meta.infoIconClass}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className={`text-xs leading-relaxed font-body ${meta.infoTextClass}`}>{infoNote}</p>
-          </div>
-
-          {/* Actions */}
-          <div className="mt-6 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-4 py-2.5 text-sm font-semibold text-text-secondary rounded-xl hover:bg-bg-secondary transition-colors font-body"
-            >
-              Annuler
-            </button>
-            <button
-              type="button"
-              onClick={onConfirm}
-              className="group inline-flex items-center gap-2 pl-4 pr-5 py-2.5 text-sm font-semibold text-white rounded-xl shadow-md hover:shadow-lg transition-all font-body"
-              style={{ background: gradient }}
-            >
-              {mode === "resync" ? (
-                <svg
-                  className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2.4}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5m0 0l-6 6m6-6l6 6" />
-                </svg>
-              )}
-              {confirmLabel}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }

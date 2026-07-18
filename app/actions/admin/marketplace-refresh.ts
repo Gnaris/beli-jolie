@@ -11,6 +11,11 @@ import {
   getRefreshIneligibilityReason,
   labelForIneligibility,
 } from "@/lib/refresh-eligibility";
+import {
+  filterOptionsByEnabled,
+  getProductMarketplaceEnabled,
+  marketplaceDisabledMessage,
+} from "@/lib/marketplace-enabled";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -27,15 +32,18 @@ export interface MarketplaceRefreshOutcome {
   pfs?:
     | { status: "ok"; archived: boolean }
     | { status: "not_found"; message: string }
+    | { status: "disabled"; message: string }
     | { status: "error"; message: string };
   ankorstore?:
     // Ankorstore is callback-only — kickoff returns immediately.
     | { status: "queued"; operationId: string }
     | { status: "not_found"; message: string }
+    | { status: "disabled"; message: string }
     | { status: "error"; message: string };
   faire?:
     | { status: "ok" }
     | { status: "not_found"; message: string }
+    | { status: "disabled"; message: string }
     | { status: "error"; message: string };
 }
 
@@ -101,12 +109,25 @@ export async function refreshProductOnMarketplaces(
     );
   }
 
+  // Filtrage « marketplace activée pour ce produit ». On coupe silencieusement
+  // les options des marketplaces désactivées et on remonte un status "disabled"
+  // dans l'outcome pour que l'UI puisse afficher "sauté (désactivée)".
+  const enabled = await getProductMarketplaceEnabled(productId);
+  const { filtered, skipped } = filterOptionsByEnabled(options, enabled);
+  options = { ...options, ...filtered };
+
   const outcome: MarketplaceRefreshOutcome = {
     productId,
     reference: product.reference,
     productName: product.name,
     local: options.local ? { status: "ok" } : { status: "skipped" },
   };
+  for (const mp of skipped) {
+    const message = marketplaceDisabledMessage(mp);
+    if (mp === "pfs") outcome.pfs = { status: "disabled", message };
+    if (mp === "ankorstore") outcome.ankorstore = { status: "disabled", message };
+    if (mp === "faire") outcome.faire = { status: "disabled", message };
+  }
 
   if (options.local) {
     await refreshLocal(productId);

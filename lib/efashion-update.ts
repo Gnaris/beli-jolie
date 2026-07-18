@@ -254,6 +254,13 @@ export async function efashionUpdateProductInPlace(
     /** id_couleur eFashion de cette variante (= mapping de la couleur BJ). */
     id_couleur: number | null;
     main: boolean;
+    /**
+     * Statut catalogue acheteurs eFashion :
+     *   - `"0"` = en ligne
+     *   - `"1"` = brouillon (créé mais pas publié — le heal step le rattrape)
+     *   - `null` = non fetched / inconnu (variante fraîchement créée in-memory)
+     */
+    premel: string | null;
   };
   let liveById = new Map<number, LiveItem>();
   let efashionVendorId: number | null = null;
@@ -294,6 +301,7 @@ export async function efashionUpdateProductInPlace(
           id_vendeur_marque: it.id_vendeur_marque ?? null,
           id_couleur: it.id_couleur ?? null,
           main: it.main === true,
+          premel: it.premel ?? null,
         });
       }
       logger.info("[eFashion update] État eFashion lu pour completion du payload", {
@@ -520,6 +528,10 @@ export async function efashionUpdateProductInPlace(
               id_vendeur_marque: srcLive?.id_vendeur_marque ?? null,
               id_couleur: couleurId,
               main: dup.main === true,
+              // publishBrouillon a soit réussi (=> "0"), soit throw et été
+              // catché en warn — dans le doute on laisse null. Le heal step
+              // en aval ignore les null pour ne pas re-publier à tort.
+              premel: null,
             });
 
             colorsCreatedCount++;
@@ -539,6 +551,61 @@ export async function efashionUpdateProductInPlace(
             const msg = err instanceof Error ? err.message : String(err);
             createErrors.push(`addColor(${couleurName}): ${msg}`);
           }
+        }
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Heal : rattrapage des couleurs coincées en brouillon côté eFashion
+  // ─────────────────────────────────────────────────────────────────────
+  // Cas typique (vécu A2098A/Vert le 2026-07-17) : lors d'un ancien sync,
+  // `duplicateWithNewColor` a réussi (efashionProductId posé sur la ProductColor)
+  // mais l'upload photo a raté sur ENOENT (race avec le worker d'images) →
+  // exception → `publishBrouillon` sauté → la fiche reste en `premel="1"`
+  // pour toujours. Les syncs suivants ignorent le bloc addColor car la
+  // couleur est « déjà liée » et ne rappellent jamais publishBrouillon.
+  // Résultat : la couleur est invisible côté catalogue acheteurs.
+  //
+  // On rattrape ici : on fetch l'état eFashion si pas déjà fait, on repère
+  // les couleurs liées encore en `premel="1"` et on appelle
+  // `publishBrouillonBulk` dessus. Non bloquant.
+  const linkedForHeal = unitColors.filter((c) => c.efashionProductId !== null);
+  if (linkedForHeal.length > 0) {
+    await ensureLiveById();
+    if (liveById.size > 0 && efashionVendorId !== null) {
+      const stuckIds: number[] = [];
+      for (const c of linkedForHeal) {
+        const live = liveById.get(c.efashionProductId!);
+        if (live?.premel === "1") stuckIds.push(c.efashionProductId!);
+      }
+      if (stuckIds.length > 0) {
+        try {
+          const { efashionPublishBrouillonBulk } = await import(
+            "@/lib/efashion-api-write"
+          );
+          const publishedCount = await efashionPublishBrouillonBulk({
+            idProduits: stuckIds,
+            idVendeur: efashionVendorId,
+          });
+          logger.info(
+            "[eFashion update] Brouillons oubliés rattrapés (heal publishBrouillonBulk)",
+            { productId, stuckIds, publishedCount },
+          );
+          // Reflète le nouveau statut dans liveById pour la suite du flow.
+          for (const id of stuckIds) {
+            const live = liveById.get(id);
+            if (live) liveById.set(id, { ...live, premel: "0" });
+          }
+        } catch (err) {
+          logger.warn(
+            "[eFashion update] Heal publishBrouillonBulk a planté (non bloquant)",
+            {
+              productId,
+              stuckIds,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
         }
       }
     }

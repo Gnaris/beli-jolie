@@ -11,6 +11,7 @@ import React, {
 } from "react";
 import { useRouter } from "next/navigation";
 import type { MarketplaceRefreshOptions } from "@/app/actions/admin/marketplace-refresh";
+import { useToast } from "@/components/ui/Toast";
 
 export type QueueItemStatus = "queued" | "in_progress" | "awaiting_callback" | "done";
 
@@ -115,6 +116,7 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
   const [items, setItems] = useState<MarketplaceRefreshItem[]>([]);
   const [isVisible, setIsVisible] = useState(true);
   const router = useRouter();
+  const toast = useToast();
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDoneCountRef = useRef<number>(0);
   const inFlightFetchRef = useRef<boolean>(false);
@@ -184,7 +186,11 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
             body: JSON.stringify({ items: inputs, intervalMs }),
           });
           if (res.ok) {
-            const data = (await res.json()) as { items: MarketplaceRefreshItem[] };
+            const data = (await res.json()) as {
+              items: MarketplaceRefreshItem[];
+              skipped?: number;
+              skippedByMarketplace?: Record<string, number>;
+            };
             // Update optimiste à partir de la réponse immédiate, puis re-poll
             if (Array.isArray(data.items) && data.items.length > 0) {
               setItems((prev) => {
@@ -192,6 +198,26 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
                 const fresh = data.items.filter((i) => !existingIds.has(i.id));
                 return [...prev, ...fresh];
               });
+            }
+            // Feedback quand des items ont été sautés parce que le marketplace
+            // est désactivé pour ce produit dans la fiche produit.
+            if (typeof data.skipped === "number" && data.skipped > 0) {
+              const parts: string[] = [];
+              const by = data.skippedByMarketplace ?? {};
+              if (by.pfs) parts.push(`${by.pfs} PFS`);
+              if (by.ankorstore) parts.push(`${by.ankorstore} Ankorstore`);
+              if (by.efashion) parts.push(`${by.efashion} eFashion`);
+              if (by.faire) parts.push(`${by.faire} Faire`);
+              const detail = parts.join(" · ");
+              const accepted = data.items?.length ?? 0;
+              toast.warning(
+                accepted > 0
+                  ? `${accepted} envoi(s) lancé(s), ${data.skipped} sauté(s)`
+                  : `${data.skipped} envoi(s) sauté(s)`,
+                detail
+                  ? `Marketplace désactivée pour ces produits : ${detail}. Réactivez depuis la fiche produit.`
+                  : "Marketplace désactivée pour ces produits.",
+              );
             }
           }
         } catch {

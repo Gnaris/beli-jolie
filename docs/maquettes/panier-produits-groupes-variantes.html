@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Maquette v2 — Panier groupé par produit avec images couleurs</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Roboto:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          heading: ['Poppins', 'sans-serif'],
+          body: ['Roboto', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'monospace'],
+        },
+        colors: {
+          'bg-primary': '#ffffff',
+          'bg-secondary': '#f8fafc',
+          'bg-tertiary': '#f1f5f9',
+          'bg-dark': '#18181b',
+          'text-primary': '#18181b',
+          'text-secondary': '#52525b',
+          'text-muted': '#71717a',
+          'border': '#e4e4e7',
+          'border-dark': '#d4d4d8',
+          'success': '#059669',
+          'warning': '#d97706',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  body { font-family: 'Roboto', sans-serif; background: #f1f5f9; color: #18181b; }
+  .font-heading { font-family: 'Poppins', sans-serif; }
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+  .card { background: white; border: 1px solid #e4e4e7; border-radius: 16px; box-shadow: 0 1px 2px rgba(24,24,27,0.04); }
+  .qty { width: 26px; height: 26px; border-radius: 6px; border: 1px solid #e4e4e7; background: white; color: #52525b; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; }
+  .qty:hover { background: #f8fafc; }
+  .qty-input { width: 40px; text-align: center; border: 1px solid #e4e4e7; background: white; height: 26px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+  .qty-input.zero { background: #f8fafc; color: #a1a1aa; }
+
+  /* Pastilles couleur */
+  .dot {
+    display: inline-block;
+    border-radius: 999px;
+    border: 1.5px solid white;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.14);
+  }
+  .dot-sm { width: 14px; height: 14px; }
+  .dot-md { width: 18px; height: 18px; }
+  .dot.empty { opacity: 0.4; }
+
+  /* Vignettes produit et couleur — hover assombri + loupe */
+  .thumb-img {
+    border-radius: 10px;
+    border: 1px solid #e4e4e7;
+    overflow: hidden;
+    position: relative;
+    cursor: zoom-in;
+    display: block;
+  }
+  .thumb-img::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0);
+    transition: background 0.15s;
+  }
+  .thumb-img::before {
+    content: '🔍';
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+    background: white;
+    width: 24px; height: 24px;
+    border-radius: 999px;
+    margin: auto;
+    font-size: 12px;
+    z-index: 2;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+  .thumb-img:hover::after { background: rgba(0,0,0,0.45); }
+  .thumb-img:hover::before { opacity: 1; }
+
+  /* Gradients simulant des images de bijoux (maquette autonome) */
+  .img-bracelet-gold { background: linear-gradient(135deg, #fde68a 15%, #b45309 60%, #78350f 100%); }
+  .img-bracelet-silver { background: linear-gradient(135deg, #f4f4f5 15%, #a1a1aa 55%, #52525b 100%); }
+  .img-bracelet-rose { background: linear-gradient(135deg, #fecaca 15%, #fda4af 55%, #be185d 100%); }
+  .img-bracelet-black { background: linear-gradient(135deg, #a1a1aa 5%, #27272a 55%, #09090b 100%); }
+  .img-earring-black { background: linear-gradient(135deg, #d4d4d8 5%, #27272a 50%, #09090b 100%); }
+  .img-earring-gold { background: linear-gradient(135deg, #fde68a 15%, #b45309 60%, #78350f 100%); }
+  .img-earring-silver { background: linear-gradient(135deg, #f4f4f5 15%, #a1a1aa 55%, #52525b 100%); }
+  .img-earring-rose { background: linear-gradient(135deg, #fecaca 15%, #fda4af 55%, #be185d 100%); }
+  .img-earring-green { background: linear-gradient(135deg, #a7f3d0 15%, #059669 55%, #064e3b 100%); }
+  .img-earring-blue { background: linear-gradient(135deg, #bfdbfe 15%, #3730a3 55%, #1e1b4b 100%); }
+  .img-jonc-coral { background: linear-gradient(135deg, #fecdd3 15%, #f97316 45%, #c2410c 100%); }
+  .img-jonc-green { background: linear-gradient(135deg, #d1fae5 15%, #059669 55%, #065f46 100%); }
+  .img-jonc-blue { background: linear-gradient(135deg, #dbeafe 15%, #2563eb 55%, #1e40af 100%); }
+
+  /* Mini-card couleur (Variante B) */
+  .color-card { padding: 10px; border: 1px solid #e4e4e7; border-radius: 12px; background: white; text-align: center; transition: all 0.15s; }
+  .color-card.selected { border-color: #18181b; background: #fafafa; box-shadow: 0 0 0 1px #18181b; }
+  .color-card.zero { opacity: 0.6; }
+  .color-card:hover { border-color: #d4d4d8; }
+  .color-card.selected:hover { border-color: #18181b; }
+
+  /* Cellule couleur inline (Variante A) */
+  .color-inline { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px; border-radius: 10px; min-width: 68px; border: 1px solid transparent; }
+  .color-inline.selected { background: #f4f4f5; border-color: #e4e4e7; }
+  .color-inline.zero { opacity: 0.55; }
+
+  .btn-dark { background: #18181b; color: white; }
+  .chip { padding: 2px 8px; border-radius: 999px; font-size: 10px; background: #f1f5f9; border: 1px solid #e4e4e7; color: #52525b; display: inline-flex; align-items: center; gap: 4px; }
+  .chip-active { background: #e0e7ff; border-color: #c7d2fe; color: #3730a3; }
+  .chip-pack { background: #fef3c7; border-color: #fde68a; color: #92400e; }
+  .chip-unit { background: #dbeafe; border-color: #bfdbfe; color: #1e40af; }
+
+  .accordion summary { list-style: none; cursor: pointer; }
+  .accordion summary::-webkit-details-marker { display: none; }
+  .chevron { transition: transform 0.2s; }
+  .accordion[open] .chevron { transform: rotate(180deg); }
+</style>
+</head>
+<body class="antialiased">
+
+<!-- ============ INTRO ============ -->
+<header class="max-w-[1500px] mx-auto px-6 pt-14 pb-8 text-center">
+  <div class="inline-block px-3 py-1 rounded-full bg-white border border-border text-[11px] uppercase tracking-[0.22em] text-text-muted mb-5 shadow-sm">
+    Maquette v2 · 3 variantes · UNIT + PACK · Images
+  </div>
+  <h1 class="font-heading text-4xl md:text-5xl font-bold leading-tight mb-4 text-text-primary">
+    Un produit multi-couleurs = <span class="text-text-secondary">une seule ligne</span>
+  </h1>
+  <p class="max-w-3xl mx-auto text-text-muted leading-relaxed text-sm">
+    Image produit principale en grand + une <span class="text-text-primary font-medium">mini-image par couleur</span>, toutes agrandissables à la loupe.
+    Prise en charge complète <span class="text-text-primary font-medium">UNIT</span> (prix / unité) et <span class="text-text-primary font-medium">PACK</span> (prix du pack + prix / unité indicatif).
+    Prix unitaire ET prix total affichés sur chaque couleur.
+  </p>
+</header>
+
+<!-- ============ VARIANTE B — GRILLE MINI-CARDS (RECOMMANDÉE) ============ -->
+<section class="max-w-[1500px] mx-auto px-6 pb-16">
+  <div class="flex items-baseline gap-4 mb-5">
+    <span class="font-heading text-4xl text-text-muted font-light leading-none">B</span>
+    <div>
+      <h2 class="font-heading text-xl font-bold text-text-primary flex items-center gap-2">
+        Grille mini-cards <span class="chip chip-active">Recommandée</span>
+      </h2>
+      <p class="text-text-muted text-sm">Image produit à gauche + grille des couleurs (mini-image + nom + qté + prix). Idéale pour 3 à 12 couleurs.</p>
+    </div>
+  </div>
+
+  <div class="space-y-5">
+    <!-- ─── PRODUIT UNIQUE (UNIT + PACK ensemble sur la MÊME ligne) ─── -->
+    <div class="card p-5">
+      <!-- En-tête produit -->
+      <div class="flex gap-5 items-start mb-5">
+        <div class="w-28 h-28 thumb-img img-bracelet-gold shrink-0 relative">
+          <span class="absolute -top-1 -left-1 z-10 text-[10px] font-bold text-white bg-red-600 px-1.5 py-0.5 rounded">-15%</span>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-lg font-heading font-semibold text-text-primary">Bracelet chaîne double</div>
+          <div class="text-xs font-mono text-text-muted mt-0.5">BR-CHDBL · Bracelets · 4 couleurs disponibles</div>
+          <div class="flex items-center gap-2 mt-2 flex-wrap">
+            <span class="chip chip-unit">À l'unité · 42,50 €</span>
+            <span class="chip chip-pack">Pack de 6 unités · 240 € <span class="text-text-muted/70 ml-1">(40 € / u.)</span></span>
+            <span class="chip chip-active">3 sous-lignes commandées</span>
+          </div>
+        </div>
+        <div class="text-right shrink-0">
+          <div class="text-[10px] uppercase tracking-widest text-text-muted">Total produit</div>
+          <div class="font-heading text-2xl font-bold text-text-primary">537,50 €</div>
+          <div class="text-[11px] text-text-muted">7 unités + 1 pack (13 u.)</div>
+          <div class="flex items-center gap-3 justify-end mt-2">
+            <a href="#" title="Voir la fiche produit" aria-label="Voir la fiche produit" class="inline-flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary underline decoration-dotted">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Voir la fiche
+            </a>
+            <button class="text-xs text-text-muted hover:text-red-600 underline decoration-dotted">Tout retirer</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Grille couleurs — chaque couleur = 1 card avec UNIT + PACK empilés -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <!-- Doré : UNIT commandé + PACK non commandé -->
+        <div class="color-card selected">
+          <div class="w-14 h-14 thumb-img img-bracelet-gold mx-auto"></div>
+          <div class="flex items-center justify-center gap-1.5 mt-2">
+            <span class="dot dot-md" style="background:#b45309" title="Doré"></span>
+            <span class="text-xs font-heading font-semibold text-text-primary">Doré</span>
+          </div>
+          <!-- Bloc UNIT -->
+          <div class="mt-3 pt-2 border-t border-border">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">À l'unité</span>
+              <span class="text-[10px] text-text-muted">42,50 €</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-0.5">
+                <button class="qty">−</button>
+                <input class="qty-input" value="5" />
+                <button class="qty">+</button>
+              </div>
+              <span class="text-xs font-heading font-bold text-text-primary">212,50 €</span>
+            </div>
+          </div>
+          <!-- Bloc PACK -->
+          <div class="mt-2 pt-2 border-t border-border">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Pack de 6</span>
+              <span class="text-[10px] text-text-muted">240 € <span class="text-text-muted/60">(40 €/u.)</span></span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-0.5">
+                <button class="qty">−</button>
+                <input class="qty-input zero" value="0" />
+                <button class="qty">+</button>
+              </div>
+              <span class="text-xs text-text-muted">0,00 €</span>
+            </div>
+            <div class="text-[9px] text-text-muted mt-1 text-right">0 pack · 0 unité</div>
+          </div>
+          <!-- Total couleur -->
+          <div class="mt-2 pt-2 border-t border-border bg-bg-tertiary -mx-2 -mb-2 px-2 pb-2 rounded-b-lg">
+            <div class="flex justify-between items-baseline">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Total <span class="text-text-muted/70">(5 unités)</span></span>
+              <span class="text-sm font-heading font-bold text-text-primary">212,50 €</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Argent : UNIT commandé + PACK commandé -->
+        <div class="color-card selected">
+          <div class="w-14 h-14 thumb-img img-bracelet-silver mx-auto"></div>
+          <div class="flex items-center justify-center gap-1.5 mt-2">
+            <span class="dot dot-md" style="background:#a1a1aa" title="Argent"></span>
+            <span class="text-xs font-heading font-semibold text-text-primary">Argent</span>
+          </div>
+          <div class="mt-3 pt-2 border-t border-border">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">À l'unité</span>
+              <span class="text-[10px] text-text-muted">42,50 €</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-0.5">
+                <button class="qty">−</button>
+                <input class="qty-input" value="2" />
+                <button class="qty">+</button>
+              </div>
+              <span class="text-xs font-heading font-bold text-text-primary">85,00 €</span>
+            </div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-border">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Pack de 6</span>
+              <span class="text-[10px] text-text-muted">240 € <span class="text-text-muted/60">(40 €/u.)</span></span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-0.5">
+                <button class="qty">−</button>
+                <input class="qty-input" value="1" />
+                <button class="qty">+</button>
+              </div>
+              <span class="text-xs font-heading font-bold text-text-primary">240,00 €</span>
+            </div>
+            <div class="text-[9px] text-text-muted mt-1 text-right">1 pack · 6 unités</div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-border bg-bg-tertiary -mx-2 -mb-2 px-2 pb-2 rounded-b-lg">
+            <div class="flex justify-between items-baseline">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Total <span class="text-text-muted/70">(2 u. + 1 pack = 8 u.)</span></span>
+              <span class="text-sm font-heading font-bold text-text-primary">325,00 €</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Rose gold : rien commandé -->
+        <div class="color-card zero">
+          <div class="w-14 h-14 thumb-img img-bracelet-rose mx-auto"></div>
+          <div class="flex items-center justify-center gap-1.5 mt-2">
+            <span class="dot dot-md" style="background:#fda4af" title="Rose gold"></span>
+            <span class="text-xs font-heading font-medium text-text-secondary">Rose gold</span>
+          </div>
+          <div class="mt-3 pt-2 border-t border-border">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">À l'unité</span>
+              <span class="text-[10px] text-text-muted">42,50 €</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-0.5">
+                <button class="qty">−</button>
+                <input class="qty-input zero" value="0" />
+                <button class="qty">+</button>
+              </div>
+              <span class="text-xs text-text-muted">0,00 €</span>
+            </div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-border">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Pack de 6</span>
+              <span class="text-[10px] text-text-muted">240 € <span class="text-text-muted/60">(40 €/u.)</span></span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-0.5">
+                <button class="qty">−</button>
+                <input class="qty-input zero" value="0" />
+                <button class="qty">+</button>
+              </div>
+              <span class="text-xs text-text-muted">0,00 €</span>
+            </div>
+            <div class="text-[9px] text-text-muted mt-1 text-right">0 pack · 0 unité</div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-border bg-bg-tertiary -mx-2 -mb-2 px-2 pb-2 rounded-b-lg">
+            <div class="flex justify-between items-baseline">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Total</span>
+              <span class="text-sm text-text-muted">0,00 €</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Noir : rien commandé -->
+        <div class="color-card zero">
+          <div class="w-14 h-14 thumb-img img-bracelet-black mx-auto"></div>
+          <div class="flex items-center justify-center gap-1.5 mt-2">
+            <span class="dot dot-md" style="background:#18181b" title="Noir"></span>
+            <span class="text-xs font-heading font-medium text-text-secondary">Noir</span>
+          </div>
+          <div class="mt-3 pt-2 border-t border-border">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">À l'unité</span>
+              <span class="text-[10px] text-text-muted">42,50 €</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-0.5">
+                <button class="qty">−</button>
+                <input class="qty-input zero" value="0" />
+                <button class="qty">+</button>
+              </div>
+              <span class="text-xs text-text-muted">0,00 €</span>
+            </div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-border">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Pack de 6</span>
+              <span class="text-[10px] text-text-muted">240 € <span class="text-text-muted/60">(40 €/u.)</span></span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-0.5">
+                <button class="qty">−</button>
+                <input class="qty-input zero" value="0" />
+                <button class="qty">+</button>
+              </div>
+              <span class="text-xs text-text-muted">0,00 €</span>
+            </div>
+            <div class="text-[9px] text-text-muted mt-1 text-right">0 pack · 0 unité</div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-border bg-bg-tertiary -mx-2 -mb-2 px-2 pb-2 rounded-b-lg">
+            <div class="flex justify-between items-baseline">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Total</span>
+              <span class="text-sm text-text-muted">0,00 €</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PRODUIT PURE UNIT (juste pour rappel : si le produit n'a QUE UNIT, on masque le bloc PACK sur chaque card) ─── -->
+    <div class="card p-5">
+      <div class="flex gap-5 items-start mb-5">
+        <div class="w-28 h-28 thumb-img img-jonc-coral shrink-0"></div>
+        <div class="flex-1 min-w-0">
+          <div class="text-lg font-heading font-semibold text-text-primary">Jonc émaillé thaïlandais</div>
+          <div class="text-xs font-mono text-text-muted mt-0.5">BR-JEM · Bracelets · 3 couleurs disponibles</div>
+          <div class="flex items-center gap-2 mt-2 flex-wrap">
+            <span class="chip chip-pack">Pack de 6 unités uniquement · 98 € <span class="text-text-muted/70 ml-1">(16,33 € / u.)</span></span>
+            <span class="chip chip-active">1 couleur commandée / 3</span>
+          </div>
+        </div>
+        <div class="text-right shrink-0">
+          <div class="text-[10px] uppercase tracking-widest text-text-muted">Total produit</div>
+          <div class="font-heading text-2xl font-bold text-text-primary">196,00 €</div>
+          <div class="text-[11px] text-text-muted">2 packs · 12 unités</div>
+          <div class="flex items-center gap-3 justify-end mt-2">
+            <a href="#" title="Voir la fiche produit" aria-label="Voir la fiche produit" class="inline-flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary underline decoration-dotted">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Voir la fiche
+            </a>
+            <button class="text-xs text-text-muted hover:text-red-600 underline decoration-dotted">Tout retirer</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="color-card selected">
+          <div class="w-14 h-14 thumb-img img-jonc-coral mx-auto"></div>
+          <div class="flex items-center justify-center gap-1.5 mt-2">
+            <span class="dot dot-md" style="background:#f97316" title="Corail"></span>
+            <span class="text-xs font-heading font-semibold text-text-primary">Corail</span>
+          </div>
+          <div class="mt-3 pt-2 border-t border-border">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Pack de 6</span>
+              <span class="text-[10px] text-text-muted">98 € <span class="text-text-muted/60">(16,33 €/u.)</span></span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-0.5">
+                <button class="qty">−</button>
+                <input class="qty-input" value="2" />
+                <button class="qty">+</button>
+              </div>
+              <span class="text-xs font-heading font-bold text-text-primary">196,00 €</span>
+            </div>
+            <div class="text-[9px] text-text-muted mt-1 text-right">2 packs · 12 unités</div>
+          </div>
+        </div>
+        <div class="color-card zero">
+          <div class="w-14 h-14 thumb-img img-jonc-green mx-auto"></div>
+          <div class="flex items-center justify-center gap-1.5 mt-2">
+            <span class="dot dot-md" style="background:#059669"></span>
+            <span class="text-xs font-heading font-medium text-text-secondary">Vert émeraude</span>
+          </div>
+          <div class="mt-3 pt-2 border-t border-border">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Pack de 6</span>
+              <span class="text-[10px] text-text-muted">98 € <span class="text-text-muted/60">(16,33 €/u.)</span></span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-0.5">
+                <button class="qty">−</button>
+                <input class="qty-input zero" value="0" />
+                <button class="qty">+</button>
+              </div>
+              <span class="text-xs text-text-muted">0,00 €</span>
+            </div>
+          </div>
+        </div>
+        <div class="color-card zero">
+          <div class="w-14 h-14 thumb-img img-jonc-blue mx-auto"></div>
+          <div class="flex items-center justify-center gap-1.5 mt-2">
+            <span class="dot dot-md" style="background:#2563eb"></span>
+            <span class="text-xs font-heading font-medium text-text-secondary">Bleu roi</span>
+          </div>
+          <div class="mt-3 pt-2 border-t border-border">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Pack de 6</span>
+              <span class="text-[10px] text-text-muted">98 € <span class="text-text-muted/60">(16,33 €/u.)</span></span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-0.5">
+                <button class="qty">−</button>
+                <input class="qty-input zero" value="0" />
+                <button class="qty">+</button>
+              </div>
+              <span class="text-xs text-text-muted">0,00 €</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="text-xs text-text-muted mt-4 text-center italic">
+    Card avec bordure noire = couleur commandée · Card grisée = couleur disponible mais à qté 0
+  </p>
+</section>
+
+<!-- ============ VARIANTE A — COMPACTE INLINE ============ -->
+<section class="max-w-[1500px] mx-auto px-6 pb-16 border-t border-border pt-12">
+  <div class="flex items-baseline gap-4 mb-5">
+    <span class="font-heading text-4xl text-text-muted font-light leading-none">A</span>
+    <div>
+      <h2 class="font-heading text-xl font-bold text-text-primary">Compacte inline</h2>
+      <p class="text-text-muted text-sm">Toutes les couleurs alignées sur la ligne, avec mini-image, qté et prix. Plus dense qu'en cards. ≤ 6 couleurs de préférence.</p>
+    </div>
+  </div>
+
+  <div class="card overflow-hidden">
+    <div class="px-4 py-2.5 bg-bg-tertiary border-b border-border text-[10px] uppercase tracking-widest text-text-muted font-semibold flex items-baseline gap-4">
+      <span>Article</span>
+      <span class="ml-auto">Couleurs, quantités & prix</span>
+      <span class="w-24 text-right">Total produit</span>
+      <span class="w-8"></span>
+    </div>
+
+    <!-- Produit UNIT -->
+    <div class="grid grid-cols-[112px_1fr_120px_32px] gap-4 items-center px-4 py-4 border-b border-border">
+      <div class="w-28 h-28 thumb-img img-bracelet-gold shrink-0 relative">
+        <span class="absolute -top-1 -left-1 z-10 text-[9px] font-bold text-white bg-red-600 px-1 rounded">-15%</span>
+      </div>
+      <div class="min-w-0">
+        <div class="text-sm font-heading font-semibold text-text-primary">Bracelet chaîne double</div>
+        <div class="text-[11px] font-mono text-text-muted">BR-CHDBL · <span class="chip chip-unit ml-1">UNIT · 42,50 € / unité</span></div>
+        <div class="flex items-center gap-2 mt-2 flex-wrap">
+          <div class="color-inline selected">
+            <div class="w-9 h-9 thumb-img img-bracelet-gold"></div>
+            <div class="text-[10px] font-semibold text-text-primary">Doré</div>
+            <div class="flex items-center gap-0.5">
+              <button class="qty">−</button>
+              <input class="qty-input" value="5" />
+              <button class="qty">+</button>
+            </div>
+            <div class="text-[10px] font-bold text-text-primary">212,50 €</div>
+          </div>
+          <div class="color-inline selected">
+            <div class="w-9 h-9 thumb-img img-bracelet-silver"></div>
+            <div class="text-[10px] font-semibold text-text-primary">Argent</div>
+            <div class="flex items-center gap-0.5">
+              <button class="qty">−</button>
+              <input class="qty-input" value="2" />
+              <button class="qty">+</button>
+            </div>
+            <div class="text-[10px] font-bold text-text-primary">85,00 €</div>
+          </div>
+          <div class="color-inline zero">
+            <div class="w-9 h-9 thumb-img img-bracelet-rose"></div>
+            <div class="text-[10px] text-text-secondary">Rose gold</div>
+            <div class="flex items-center gap-0.5">
+              <button class="qty">−</button>
+              <input class="qty-input zero" value="0" />
+              <button class="qty">+</button>
+            </div>
+            <div class="text-[10px] text-text-muted">0,00 €</div>
+          </div>
+          <div class="color-inline zero">
+            <div class="w-9 h-9 thumb-img img-bracelet-black"></div>
+            <div class="text-[10px] text-text-secondary">Noir</div>
+            <div class="flex items-center gap-0.5">
+              <button class="qty">−</button>
+              <input class="qty-input zero" value="0" />
+              <button class="qty">+</button>
+            </div>
+            <div class="text-[10px] text-text-muted">0,00 €</div>
+          </div>
+        </div>
+      </div>
+      <div class="text-right">
+        <div class="font-heading font-bold text-text-primary">297,50 €</div>
+        <div class="text-[10px] text-text-muted">7 unités</div>
+      </div>
+      <button class="w-8 h-8 text-text-muted hover:text-red-600">×</button>
+    </div>
+
+    <!-- Produit PACK -->
+    <div class="grid grid-cols-[112px_1fr_120px_32px] gap-4 items-center px-4 py-4">
+      <div class="w-28 h-28 thumb-img img-jonc-coral shrink-0"></div>
+      <div class="min-w-0">
+        <div class="text-sm font-heading font-semibold text-text-primary">Jonc émaillé thaïlandais</div>
+        <div class="text-[11px] font-mono text-text-muted">BR-JEM · <span class="chip chip-pack ml-1">PACK ×6 · 98 € / pack · 16,33 € / unité</span></div>
+        <div class="flex items-center gap-2 mt-2 flex-wrap">
+          <div class="color-inline selected">
+            <div class="w-9 h-9 thumb-img img-jonc-coral"></div>
+            <div class="text-[10px] font-semibold text-text-primary">Corail</div>
+            <div class="flex items-center gap-0.5">
+              <button class="qty">−</button>
+              <input class="qty-input" value="2" />
+              <button class="qty">+</button>
+            </div>
+            <div class="text-[10px] text-text-muted">packs · 12 u.</div>
+            <div class="text-[10px] font-bold text-text-primary">196,00 €</div>
+          </div>
+          <div class="color-inline zero">
+            <div class="w-9 h-9 thumb-img img-jonc-green"></div>
+            <div class="text-[10px] text-text-secondary">Vert émeraude</div>
+            <div class="flex items-center gap-0.5">
+              <button class="qty">−</button>
+              <input class="qty-input zero" value="0" />
+              <button class="qty">+</button>
+            </div>
+            <div class="text-[10px] text-text-muted">packs · 0 u.</div>
+            <div class="text-[10px] text-text-muted">0,00 €</div>
+          </div>
+          <div class="color-inline zero">
+            <div class="w-9 h-9 thumb-img img-jonc-blue"></div>
+            <div class="text-[10px] text-text-secondary">Bleu roi</div>
+            <div class="flex items-center gap-0.5">
+              <button class="qty">−</button>
+              <input class="qty-input zero" value="0" />
+              <button class="qty">+</button>
+            </div>
+            <div class="text-[10px] text-text-muted">packs · 0 u.</div>
+            <div class="text-[10px] text-text-muted">0,00 €</div>
+          </div>
+        </div>
+      </div>
+      <div class="text-right">
+        <div class="font-heading font-bold text-text-primary">196,00 €</div>
+        <div class="text-[10px] text-text-muted">2 packs · 12 u.</div>
+      </div>
+      <button class="w-8 h-8 text-text-muted hover:text-red-600">×</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ VARIANTE C — ACCORDION PLIABLE ============ -->
+<section class="max-w-[1500px] mx-auto px-6 pb-16 border-t border-border pt-12">
+  <div class="flex items-baseline gap-4 mb-5">
+    <span class="font-heading text-4xl text-text-muted font-light leading-none">C</span>
+    <div>
+      <h2 class="font-heading text-xl font-bold text-text-primary">Accordion pliable</h2>
+      <p class="text-text-muted text-sm">Ligne principale ultra-compacte + résumé « X sur Y couleurs ». Clic pour déplier une table avec mini-images, prix unitaire et total par couleur.</p>
+    </div>
+  </div>
+
+  <div class="card overflow-hidden">
+    <!-- Produit MIXTE UNIT + PACK ouvert -->
+    <details class="accordion border-b border-border" open>
+      <summary class="grid grid-cols-[112px_1fr_auto_140px_32px] gap-4 items-center px-4 py-3 hover:bg-bg-secondary">
+        <div class="w-28 h-28 thumb-img img-bracelet-gold shrink-0 relative">
+          <span class="absolute -top-1 -left-1 z-10 text-[9px] font-bold text-white bg-red-600 px-1 rounded">-15%</span>
+        </div>
+        <div class="min-w-0">
+          <div class="text-sm font-heading font-semibold text-text-primary">Bracelet chaîne double</div>
+          <div class="text-[11px] font-mono text-text-muted mt-0.5">BR-CHDBL · Bracelets</div>
+          <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            <span class="chip chip-unit">Unité · 42,50 €</span>
+            <span class="chip chip-pack">PACK ×6 · 240 € <span class="text-text-muted/70">(40/u.)</span></span>
+          </div>
+          <div class="flex items-center gap-1.5 mt-2">
+            <span class="dot dot-sm" style="background:#b45309"></span>
+            <span class="dot dot-sm" style="background:#a1a1aa"></span>
+            <span class="dot dot-sm empty" style="background:#fda4af"></span>
+            <span class="dot dot-sm empty" style="background:#18181b"></span>
+            <span class="text-[11px] text-text-secondary ml-2">2 sur 4 couleurs · 7 unités + 1 pack (13 u.)</span>
+          </div>
+        </div>
+        <a href="#" class="inline-flex items-center gap-1 text-[11px] text-text-secondary hover:text-text-primary underline decoration-dotted" title="Voir la fiche produit">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          Fiche
+        </a>
+        <div class="text-right">
+          <div class="font-heading font-bold text-text-primary">537,50 €</div>
+          <div class="text-[10px] text-text-muted">7 u. + 1 pack (13 u.)</div>
+        </div>
+        <svg class="chevron w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </summary>
+      <div class="bg-bg-secondary/60 border-t border-border">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-[10px] uppercase tracking-widest text-text-muted">
+              <th class="text-left px-6 py-2 font-semibold w-16">Image</th>
+              <th class="text-left px-2 py-2 font-semibold">Couleur</th>
+              <th class="text-left px-2 py-2 font-semibold">Type de vente</th>
+              <th class="text-right px-2 py-2 font-semibold">Prix</th>
+              <th class="text-center px-2 py-2 font-semibold w-32">Quantité</th>
+              <th class="text-right px-2 py-2 font-semibold">Unités</th>
+              <th class="text-right px-6 py-2 font-semibold">Sous-total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- ─── Doré : UNIT + PACK regroupés (rowspan sur image + couleur) ─── -->
+            <tr class="hover:bg-white border-t border-border">
+              <td class="px-6 py-2" rowspan="2"><div class="w-12 h-12 thumb-img img-bracelet-gold"></div></td>
+              <td class="px-2 py-2" rowspan="2"><div class="flex items-center gap-2"><span class="dot dot-md" style="background:#b45309"></span><span class="font-medium text-text-primary">Doré</span></div></td>
+              <td class="px-2 py-2"><span class="chip chip-unit">Unité</span></td>
+              <td class="text-right px-2 py-2 text-text-secondary">42,50 €</td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input" value="5" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-secondary">5</td>
+              <td class="text-right px-6 py-2 font-heading font-bold text-text-primary">212,50 €</td>
+            </tr>
+            <tr class="hover:bg-white">
+              <td class="px-2 py-2"><span class="chip chip-pack">PACK ×6</span></td>
+              <td class="text-right px-2 py-2 text-text-muted">240 € <span class="text-text-muted/60 text-[10px]">(40/u.)</span></td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input zero" value="0" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-muted">0</td>
+              <td class="text-right px-6 py-2 text-text-muted">0,00 €</td>
+            </tr>
+
+            <!-- ─── Argent : UNIT + PACK commandés ─── -->
+            <tr class="hover:bg-white border-t border-border">
+              <td class="px-6 py-2" rowspan="2"><div class="w-12 h-12 thumb-img img-bracelet-silver"></div></td>
+              <td class="px-2 py-2" rowspan="2"><div class="flex items-center gap-2"><span class="dot dot-md" style="background:#a1a1aa"></span><span class="font-medium text-text-primary">Argent</span></div></td>
+              <td class="px-2 py-2"><span class="chip chip-unit">Unité</span></td>
+              <td class="text-right px-2 py-2 text-text-secondary">42,50 €</td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input" value="2" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-secondary">2</td>
+              <td class="text-right px-6 py-2 font-heading font-bold text-text-primary">85,00 €</td>
+            </tr>
+            <tr class="hover:bg-white">
+              <td class="px-2 py-2"><span class="chip chip-pack">PACK ×6</span></td>
+              <td class="text-right px-2 py-2 text-text-secondary">240 € <span class="text-text-muted/60 text-[10px]">(40/u.)</span></td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input" value="1" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-secondary">6</td>
+              <td class="text-right px-6 py-2 font-heading font-bold text-text-primary">240,00 €</td>
+            </tr>
+
+            <!-- ─── Rose gold : rien commandé ─── -->
+            <tr class="opacity-60 hover:bg-white border-t border-border">
+              <td class="px-6 py-2" rowspan="2"><div class="w-12 h-12 thumb-img img-bracelet-rose"></div></td>
+              <td class="px-2 py-2" rowspan="2"><div class="flex items-center gap-2"><span class="dot dot-md" style="background:#fda4af"></span><span class="text-text-secondary">Rose gold</span></div></td>
+              <td class="px-2 py-2"><span class="chip chip-unit">Unité</span></td>
+              <td class="text-right px-2 py-2 text-text-muted">42,50 €</td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input zero" value="0" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-muted">0</td>
+              <td class="text-right px-6 py-2 text-text-muted">0,00 €</td>
+            </tr>
+            <tr class="opacity-60 hover:bg-white">
+              <td class="px-2 py-2"><span class="chip chip-pack">PACK ×6</span></td>
+              <td class="text-right px-2 py-2 text-text-muted">240 € <span class="text-text-muted/60 text-[10px]">(40/u.)</span></td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input zero" value="0" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-muted">0</td>
+              <td class="text-right px-6 py-2 text-text-muted">0,00 €</td>
+            </tr>
+
+            <!-- ─── Noir : rien commandé ─── -->
+            <tr class="opacity-60 hover:bg-white border-t border-border">
+              <td class="px-6 py-2" rowspan="2"><div class="w-12 h-12 thumb-img img-bracelet-black"></div></td>
+              <td class="px-2 py-2" rowspan="2"><div class="flex items-center gap-2"><span class="dot dot-md" style="background:#18181b"></span><span class="text-text-secondary">Noir</span></div></td>
+              <td class="px-2 py-2"><span class="chip chip-unit">Unité</span></td>
+              <td class="text-right px-2 py-2 text-text-muted">42,50 €</td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input zero" value="0" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-muted">0</td>
+              <td class="text-right px-6 py-2 text-text-muted">0,00 €</td>
+            </tr>
+            <tr class="opacity-60 hover:bg-white">
+              <td class="px-2 py-2"><span class="chip chip-pack">PACK ×6</span></td>
+              <td class="text-right px-2 py-2 text-text-muted">240 € <span class="text-text-muted/60 text-[10px]">(40/u.)</span></td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input zero" value="0" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-muted">0</td>
+              <td class="text-right px-6 py-2 text-text-muted">0,00 €</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <!-- Produit PACK uniquement (avec 2 tailles de pack pour montrer ×6 ET ×12) -->
+    <details class="accordion" open>
+      <summary class="grid grid-cols-[112px_1fr_auto_140px_32px] gap-4 items-center px-4 py-3 hover:bg-bg-secondary">
+        <div class="w-28 h-28 thumb-img img-jonc-coral shrink-0"></div>
+        <div class="min-w-0">
+          <div class="text-sm font-heading font-semibold text-text-primary">Jonc émaillé thaïlandais</div>
+          <div class="text-[11px] font-mono text-text-muted mt-0.5">BR-JEM · Bracelets · Vendu par pack uniquement</div>
+          <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            <span class="chip chip-pack">PACK ×6 · 98 € <span class="text-text-muted/70">(16,33/u.)</span></span>
+            <span class="chip chip-pack">PACK ×12 · 180 € <span class="text-text-muted/70">(15/u.)</span></span>
+          </div>
+          <div class="flex items-center gap-1.5 mt-2">
+            <span class="dot dot-sm" style="background:#f97316"></span>
+            <span class="dot dot-sm empty" style="background:#059669"></span>
+            <span class="dot dot-sm empty" style="background:#2563eb"></span>
+            <span class="text-[11px] text-text-secondary ml-2">1 sur 3 couleurs · 2 packs ×6 = 12 u.</span>
+          </div>
+        </div>
+        <a href="#" class="inline-flex items-center gap-1 text-[11px] text-text-secondary hover:text-text-primary underline decoration-dotted" title="Voir la fiche produit">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          Fiche
+        </a>
+        <div class="text-right">
+          <div class="font-heading font-bold text-text-primary">196,00 €</div>
+          <div class="text-[10px] text-text-muted">2 packs · 12 u.</div>
+        </div>
+        <svg class="chevron w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </summary>
+      <div class="bg-bg-secondary/60 border-t border-border">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-[10px] uppercase tracking-widest text-text-muted">
+              <th class="text-left px-6 py-2 font-semibold w-16">Image</th>
+              <th class="text-left px-2 py-2 font-semibold">Couleur</th>
+              <th class="text-left px-2 py-2 font-semibold">Type de vente</th>
+              <th class="text-right px-2 py-2 font-semibold">Prix</th>
+              <th class="text-center px-2 py-2 font-semibold w-32">Nombre de packs</th>
+              <th class="text-right px-2 py-2 font-semibold">Unités</th>
+              <th class="text-right px-6 py-2 font-semibold">Sous-total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="hover:bg-white border-t border-border">
+              <td class="px-6 py-2" rowspan="2"><div class="w-12 h-12 thumb-img img-jonc-coral"></div></td>
+              <td class="px-2 py-2" rowspan="2"><div class="flex items-center gap-2"><span class="dot dot-md" style="background:#f97316"></span><span class="font-medium text-text-primary">Corail</span></div></td>
+              <td class="px-2 py-2"><span class="chip chip-pack">PACK ×6</span></td>
+              <td class="text-right px-2 py-2 text-text-secondary">98,00 € <span class="text-text-muted text-[10px]">(16,33/u.)</span></td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input" value="2" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-secondary">12</td>
+              <td class="text-right px-6 py-2 font-heading font-bold text-text-primary">196,00 €</td>
+            </tr>
+            <tr class="hover:bg-white">
+              <td class="px-2 py-2"><span class="chip chip-pack">PACK ×12</span></td>
+              <td class="text-right px-2 py-2 text-text-muted">180,00 € <span class="text-text-muted/60 text-[10px]">(15/u.)</span></td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input zero" value="0" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-muted">0</td>
+              <td class="text-right px-6 py-2 text-text-muted">0,00 €</td>
+            </tr>
+
+            <tr class="opacity-60 hover:bg-white border-t border-border">
+              <td class="px-6 py-2" rowspan="2"><div class="w-12 h-12 thumb-img img-jonc-green"></div></td>
+              <td class="px-2 py-2" rowspan="2"><div class="flex items-center gap-2"><span class="dot dot-md" style="background:#059669"></span><span class="text-text-secondary">Vert émeraude</span></div></td>
+              <td class="px-2 py-2"><span class="chip chip-pack">PACK ×6</span></td>
+              <td class="text-right px-2 py-2 text-text-muted">98,00 € <span class="text-text-muted/60 text-[10px]">(16,33/u.)</span></td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input zero" value="0" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-muted">0</td>
+              <td class="text-right px-6 py-2 text-text-muted">0,00 €</td>
+            </tr>
+            <tr class="opacity-60 hover:bg-white">
+              <td class="px-2 py-2"><span class="chip chip-pack">PACK ×12</span></td>
+              <td class="text-right px-2 py-2 text-text-muted">180,00 € <span class="text-text-muted/60 text-[10px]">(15/u.)</span></td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input zero" value="0" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-muted">0</td>
+              <td class="text-right px-6 py-2 text-text-muted">0,00 €</td>
+            </tr>
+
+            <tr class="opacity-60 hover:bg-white border-t border-border">
+              <td class="px-6 py-2" rowspan="2"><div class="w-12 h-12 thumb-img img-jonc-blue"></div></td>
+              <td class="px-2 py-2" rowspan="2"><div class="flex items-center gap-2"><span class="dot dot-md" style="background:#2563eb"></span><span class="text-text-secondary">Bleu roi</span></div></td>
+              <td class="px-2 py-2"><span class="chip chip-pack">PACK ×6</span></td>
+              <td class="text-right px-2 py-2 text-text-muted">98,00 € <span class="text-text-muted/60 text-[10px]">(16,33/u.)</span></td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input zero" value="0" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-muted">0</td>
+              <td class="text-right px-6 py-2 text-text-muted">0,00 €</td>
+            </tr>
+            <tr class="opacity-60 hover:bg-white">
+              <td class="px-2 py-2"><span class="chip chip-pack">PACK ×12</span></td>
+              <td class="text-right px-2 py-2 text-text-muted">180,00 € <span class="text-text-muted/60 text-[10px]">(15/u.)</span></td>
+              <td class="px-2 py-2"><div class="flex items-center justify-center gap-0.5"><button class="qty">−</button><input class="qty-input zero" value="0" /><button class="qty">+</button></div></td>
+              <td class="text-right px-2 py-2 text-text-muted">0</td>
+              <td class="text-right px-6 py-2 text-text-muted">0,00 €</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
+  <p class="text-xs text-text-muted mt-3 text-center italic">
+    Chaque couleur regroupe tous ses types de vente (Unité / PACK ×6 / PACK ×12) sur des lignes empilées. Rowspan sur image + nom couleur pour éviter la répétition.
+  </p>
+</section>
+
+<!-- ============ COMPARATIF + RECOMMANDATION ============ -->
+<section class="max-w-[1500px] mx-auto px-6 pb-20 border-t border-border pt-12">
+  <div class="card p-8">
+    <h2 class="font-heading text-2xl font-bold text-text-primary mb-2 text-center">Ce qui change vs la maquette précédente</h2>
+    <p class="text-sm text-text-muted text-center mb-6">Images agrandissables + gestion complète UNIT / PACK avec prix unitaire ET total.</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div>
+        <div class="font-heading font-bold text-text-primary mb-2">B — Grille mini-cards</div>
+        <ul class="text-sm text-text-secondary space-y-2 leading-relaxed">
+          <li class="flex gap-2"><span class="text-success">+</span> Image produit 112px + mini-image 56px par couleur</li>
+          <li class="flex gap-2"><span class="text-success">+</span> Chip UNIT / PACK très visible</li>
+          <li class="flex gap-2"><span class="text-success">+</span> Chaque couleur montre prix unitaire ET total</li>
+          <li class="flex gap-2"><span class="text-success">+</span> Excellent rendu 2-6 couleurs par ligne</li>
+        </ul>
+      </div>
+      <div>
+        <div class="font-heading font-bold text-text-primary mb-2">A — Compacte inline</div>
+        <ul class="text-sm text-text-secondary space-y-2 leading-relaxed">
+          <li class="flex gap-2"><span class="text-success">+</span> Vignettes couleur 36px, tout tient sur une ligne</li>
+          <li class="flex gap-2"><span class="text-success">+</span> Chip type de vente sur la ligne de référence</li>
+          <li class="flex gap-2"><span class="text-warning">−</span> Prix / u. et total en très petit</li>
+          <li class="flex gap-2"><span class="text-warning">−</span> Wrap possible sur mobile</li>
+        </ul>
+      </div>
+      <div>
+        <div class="font-heading font-bold text-text-primary mb-2">C — Accordion pliable</div>
+        <ul class="text-sm text-text-secondary space-y-2 leading-relaxed">
+          <li class="flex gap-2"><span class="text-success">+</span> Table dépliée = mini-image + prix / u. + qté + sous-total</li>
+          <li class="flex gap-2"><span class="text-success">+</span> Support PACK avec 2 colonnes (Packs + Unités)</li>
+          <li class="flex gap-2"><span class="text-success">+</span> Panier ultra-compact au premier affichage</li>
+          <li class="flex gap-2"><span class="text-warning">−</span> Un clic pour éditer, un peu moins direct</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="mt-8 pt-6 border-t border-border">
+      <div class="text-[10px] uppercase tracking-widest text-text-muted font-semibold mb-2">Ma recommandation</div>
+      <p class="text-sm text-text-secondary leading-relaxed">
+        Toujours <span class="text-text-primary font-medium">Variante B (grille mini-cards)</span> : c'est celle qui gère le mieux la double information UNIT vs PACK grâce à sa mise en page verticale par couleur (prix, qté, total empilés). L'image du produit à gauche + mini-images par couleur donnent une <span class="text-text-primary font-medium">vraie identité visuelle</span> à chaque ligne.
+        Sur mobile la grille bascule automatiquement en 2 colonnes.
+      </p>
+    </div>
+  </div>
+</section>
+
+<footer class="max-w-[1500px] mx-auto px-6 py-10 border-t border-border text-center text-sm text-text-muted">
+  Dites-moi la variante finale (A, B ou C) et j'attaque l'intégration.
+</footer>
+
+</body>
+</html>

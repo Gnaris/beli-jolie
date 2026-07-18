@@ -83,6 +83,13 @@ export interface EfashionProductListItem {
   nb_photos: number;
   id_shooting: number | null;
   main: boolean;
+  /**
+   * Statut catalogue acheteurs (« premel » eFashion) :
+   *   - `"0"` = en ligne (visible côté acheteurs)
+   *   - `"1"` = brouillon (créé, mais pas publié)
+   * Sert au heal automatique des brouillons oubliés — cf. lib/efashion-update.ts.
+   */
+  premel: string | null;
 }
 
 export type EfashionPremelFilter =
@@ -133,6 +140,7 @@ export async function efashionListProducts(opts: {
           vendu_par id_pack id_declinaison
           id_provenance provenance
           nb_photos id_shooting main
+          premel
         }
         total
       }

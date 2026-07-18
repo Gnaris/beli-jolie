@@ -174,7 +174,11 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
   );
 
   const askOptions = useCallback(
-    async (count: number, firstProductName?: string): Promise<MarketplaceRefreshOptions | null> => {
+    async (
+      count: number,
+      firstProductName?: string,
+      productIds?: string[],
+    ): Promise<MarketplaceRefreshOptions | null> => {
       const options = await askRefreshOptions({
         count,
         firstProductName,
@@ -182,6 +186,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         showAnkorstore,
         showEfashion,
         showFaire,
+        productIds,
       });
       if (!options) return null;
       if (
@@ -231,7 +236,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         return false;
       }
       const target = filtered[0]!;
-      const options = await askOptions(1, target.productName);
+      const options = await askOptions(1, target.productName, [target.productId]);
       if (!options) return false;
 
       // Vérification OTP (bypass si pause active ou refresh local-only)
@@ -389,7 +394,11 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         toast.info("Rien à rafraîchir", "Tous les produits sélectionnés ont été rafraîchis récemment.");
         return false;
       }
-      const options = await askOptions(filtered.length, filtered[0]?.productName);
+      const options = await askOptions(
+        filtered.length,
+        filtered[0]?.productName,
+        filtered.map((f) => f.productId),
+      );
       if (!options) return false;
 
       // Vérification OTP (bypass si pause active ou refresh local-only)

@@ -145,6 +145,23 @@ next-intl 4.x, préfixe (`/fr/…`, `/en/…`). Locales **fr (défaut) + en**. A
 ### Styling
 **Tailwind v4** — theme dans `app/globals.css` `@theme {}`, pas de config JS. **Pas de dark mode**. Flat design + ombres subtiles. Utilities standard.
 
+#### Style espace pro / public (obligatoire hors `/admin`)
+Réf : `app/[locale]/(client)/commandes/page.tsx` + `components/client/orders/OrdersTableClient.tsx` (2026-07-17, validé par la cliente).
+- **Palette ardoise** uniquement — variables `bg-*`, `text-*`, `border-*` de `globals.css` @theme. **Interdit** : warm/or/beige/aurora doré, tons chauds décoratifs. Les couleurs sémantiques (`success/warning/error/info`) restent réservées aux statuts, alertes et compteurs KPI — jamais en décoration principale.
+- **Couleurs des initiales marketplaces** (rond avec la lettre P/A/E/F/Fai) — figées, réutiliser à l'identique partout où on affiche une initiale marketplace :
+  - **PFS** (P) : `linear-gradient(135deg,#4f46e5,#6366f1)` (indigo/violet)
+  - **Ankorstore** (A) : `linear-gradient(135deg,#0ea5e9,#38bdf8)` (sky)
+  - **eFashion Paris** (E) : `linear-gradient(135deg,#db2777,#ec4899)` (rose/pink)
+  - **Faire** (F) : `linear-gradient(135deg,#f59e0b,#fbbf24)` (amber)
+  - **Boutique** (B&J) : `linear-gradient(135deg,#64748b,#334155)` (slate)
+  Ces gradients servent **exclusivement** à colorer le rond d'initiale. Interdit en halo, aurora, bandeau, bordure de carte ou CTA — le reste de l'UI reste ardoise.
+- **Police sans-serif** partout : body `var(--font-roboto)`, titres `var(--font-poppins)` via `font-heading`. **Interdit** : police à empattements (Cormorant Garamond, Playfair, serif, etc.).
+- **Cartes** : `bg-bg-primary border border-border rounded-2xl shadow-sm`. Sur-titre eyebrow uppercase `tracking-[0.2em] text-text-muted`.
+- **KPI tiles** : mêmes cartes, valeur en `font-heading text-3xl font-bold`. Couleur sémantique (success/warning/info) uniquement si compteur d'état, sinon `text-text-primary`.
+- **CTA principal** : `bg-bg-dark text-text-inverse` (jamais un accent coloré).
+- **Timeline / progression** : `bg-bg-secondary rounded-2xl`, pastilles `bg-text-primary` (active) / `bg-text-secondary` (done) / `bg-bg-tertiary border-dashed` (todo).
+- Cette règle vaut pour toute maquette autonome (`Downloads/*.html`) **et** toute nouvelle page hors admin.
+
 #### Style admin cockpit (obligatoire sur `/admin`)
 Réf : `app/(admin)/admin/page.tsx`, `parametres` marketplaces, `produits/page.tsx`. Inspi Stripe/Linear/Vercel. **Pas de retour au flat blanc/gris.**
 - **Hero** : `rounded-3xl` aurora (`bg-gradient-to-br from-{c}-50 via-bg-primary` + halos radiaux). Eyebrow chip + pastille + uppercase `tracking-[0.18em]`. Titre `font-heading text-2xl/3xl font-bold`.

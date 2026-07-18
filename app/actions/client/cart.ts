@@ -46,12 +46,12 @@ export async function getCart() {
                   category: { select: { name: true } },
                 },
               },
-              color: { select: { id: true, name: true, hex: true } },
+              color: { select: { id: true, name: true, hex: true, patternImage: true } },
               variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
               packLines: {
                 orderBy: { position: "asc" },
                 select: {
-                  color: { select: { name: true, hex: true } },
+                  color: { select: { name: true, hex: true, patternImage: true } },
                   sizes: { select: { size: { select: { name: true } }, quantity: true } },
                 },
               },
@@ -122,6 +122,7 @@ export async function getCart() {
         packLines: packLines.map((l) => ({
           colorName: l.color?.name ?? "",
           colorHex: l.color?.hex ?? null,
+          colorPatternImage: l.color?.patternImage ?? null,
           sizes: l.sizes.map((s) => ({ name: s.size.name, quantity: s.quantity })),
         })),
       },
@@ -130,6 +131,193 @@ export async function getCart() {
   });
 
   return { ...cart, items: itemsWithImages };
+}
+
+// ─────────────────────────────────────────────
+// Lecture enrichie : cart + TOUTES les variantes disponibles par produit
+// (utilisée par la page /panier pour afficher les couleurs non commandées à qté 0)
+// ─────────────────────────────────────────────
+
+export async function getCartWithProductVariants() {
+  const cart = await getCart();
+  if (!cart) return { cart: null, productsMeta: {} as Record<string, ProductMeta> };
+
+  const productIds = [...new Set(cart.items.map((item) => item.variant.productId))];
+  if (productIds.length === 0) return { cart, productsMeta: {} };
+
+  // Toutes les variantes ProductColor de ces produits, même celles non commandées
+  const allVariants = await prisma.productColor.findMany({
+    where: { productId: { in: productIds } },
+    select: {
+      id: true,
+      productId: true,
+      colorId: true,
+      saleType: true,
+      packQuantity: true,
+      unitPrice: true,
+      stock: true,
+      color: { select: { id: true, name: true, hex: true, patternImage: true } },
+      variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
+      packLines: {
+        orderBy: { position: "asc" },
+        select: {
+          color: { select: { name: true, hex: true, patternImage: true } },
+          sizes: { select: { size: { select: { name: true } }, quantity: true } },
+        },
+      },
+    },
+    orderBy: [{ productId: "asc" }, { createdAt: "asc" }],
+  });
+
+  // Images par (productId, colorId) pour toutes les variantes
+  const pairs = [
+    ...new Map(
+      allVariants
+        .filter((v) => v.colorId != null)
+        .map((v) => [
+          `${v.productId}__${v.colorId}`,
+          { productId: v.productId, colorId: v.colorId! },
+        ])
+    ).values(),
+  ];
+  const images = pairs.length > 0 ? await prisma.productColorImage.findMany({
+    where: { OR: pairs.map((p) => ({ productId: p.productId, colorId: p.colorId })) },
+    orderBy: { order: "asc" },
+    select: { productId: true, colorId: true, path: true },
+  }) : [];
+  const firstImageByPair = new Map<string, string>();
+  for (const img of images) {
+    const key = `${img.productId}__${img.colorId}`;
+    if (!firstImageByPair.has(key)) firstImageByPair.set(key, img.path);
+  }
+
+  const productsMeta: Record<string, ProductMeta> = {};
+  for (const pid of productIds) {
+    const productVariants = allVariants.filter((v) => v.productId === pid);
+    const firstItem = cart.items.find((item) => item.variant.productId === pid);
+    if (!firstItem) continue;
+
+    productsMeta[pid] = {
+      productId: pid,
+      productName: firstItem.variant.product.name,
+      productReference: firstItem.variant.product.reference,
+      categoryName: firstItem.variant.product.category.name,
+      discountPercent: firstItem.variant.product.discountPercent != null
+        ? Number(firstItem.variant.product.discountPercent)
+        : null,
+      mainImagePath: firstItem.variantImages[0]?.path ?? null,
+      variants: productVariants.map((v) => {
+        const isMultiPack = v.saleType === "PACK" && v.packLines.length > 0;
+        const key = `${v.productId}__${v.colorId}`;
+        return {
+          variantId: v.id,
+          colorId: v.colorId,
+          colorName: v.color?.name ?? "",
+          colorHex: v.color?.hex ?? null,
+          colorPatternImage: v.color?.patternImage ?? null,
+          saleType: v.saleType,
+          packQuantity: v.packQuantity,
+          unitPrice: Number(v.unitPrice),
+          stock: Number(v.stock),
+          isMultiColorPack: isMultiPack,
+          firstImagePath: firstImageByPair.get(key) ?? null,
+        };
+      }),
+    };
+  }
+
+  return { cart, productsMeta };
+}
+
+export interface ProductVariantMeta {
+  variantId: string;
+  colorId: string | null;
+  colorName: string;
+  colorHex: string | null;
+  colorPatternImage: string | null;
+  saleType: "UNIT" | "PACK";
+  packQuantity: number | null;
+  unitPrice: number;
+  stock: number;
+  isMultiColorPack: boolean;
+  firstImagePath: string | null;
+}
+
+export interface ProductMeta {
+  productId: string;
+  productName: string;
+  productReference: string;
+  categoryName: string;
+  discountPercent: number | null;
+  mainImagePath: string | null;
+  variants: ProductVariantMeta[];
+}
+
+// ─────────────────────────────────────────────
+// Handler unifié : set quantité pour une variante (0 = supprime, N = crée/update)
+// Utilisé par la nouvelle UI accordion pour ajouter une couleur non-commandée à la volée.
+// ─────────────────────────────────────────────
+
+export async function setCartItemQuantity(variantId: string, quantity: number) {
+  const userId = await requireClient();
+
+  if (!Number.isFinite(quantity) || quantity < 0) {
+    return { success: false as const, error: "Quantité invalide." };
+  }
+
+  const cart = await getOrCreateCart(userId);
+  const existing = await prisma.cartItem.findFirst({
+    where: { cartId: cart.id, variantId },
+  });
+
+  // Quantité 0 = suppression si présente
+  if (quantity === 0) {
+    if (existing) {
+      await prisma.cartItem.delete({ where: { id: existing.id } });
+      revalidatePath("/panier");
+    }
+    return { success: true as const, quantity: 0, capped: false };
+  }
+
+  // Vérifier statut produit + stock
+  const variant = await prisma.productColor.findUnique({
+    where: { id: variantId },
+    select: {
+      stock: true,
+      saleType: true,
+      packQuantity: true,
+      product: { select: { status: true } },
+    },
+  });
+  if (!variant) return { success: false as const, error: "Variante introuvable." };
+  if (variant.product.status !== "ONLINE") {
+    return { success: false as const, error: "Ce produit n'est plus disponible à la vente." };
+  }
+
+  const effectiveStock = variant.saleType === "PACK" && variant.packQuantity
+    ? Math.floor(variant.stock / variant.packQuantity)
+    : variant.stock;
+
+  if (effectiveStock <= 0) {
+    return { success: false as const, error: "Stock épuisé." };
+  }
+
+  const cappedQty = Math.min(Math.floor(quantity), effectiveStock);
+  const capped = cappedQty < quantity;
+
+  if (existing) {
+    await prisma.cartItem.update({
+      where: { id: existing.id },
+      data: { quantity: cappedQty },
+    });
+  } else {
+    await prisma.cartItem.create({
+      data: { cartId: cart.id, variantId, quantity: cappedQty },
+    });
+  }
+
+  revalidatePath("/panier");
+  return { success: true as const, quantity: cappedQty, capped };
 }
 
 // ─────────────────────────────────────────────

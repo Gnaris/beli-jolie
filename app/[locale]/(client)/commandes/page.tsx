@@ -50,14 +50,17 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
   const PAGE_SIZE = 20;
 
-  const [orders, totalCount] = await Promise.all([
+  const userWhere = { userId: session.user.id };
+
+  const [orders, totalCount, statusGroups, spentAgg] = await Promise.all([
     prisma.order.findMany({
-      where: { userId: session.user.id },
+      where: userWhere,
       include: {
         items: {
           select: {
             productName: true,
             colorName: true,
+            imagePath: true,
             quantity: true,
             saleType: true,
             packQty: true,
@@ -70,9 +73,28 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
       take: PAGE_SIZE,
       skip: (page - 1) * PAGE_SIZE,
     }),
-    prisma.order.count({ where: { userId: session.user.id } }),
+    prisma.order.count({ where: userWhere }),
+    prisma.order.groupBy({
+      by: ["status"],
+      where: userWhere,
+      _count: { _all: true },
+    }),
+    prisma.order.aggregate({
+      where: { ...userWhere, status: { not: "CANCELLED" } },
+      _sum: { totalTTC: true },
+    }),
   ]);
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+
+  const countsByStatus: Record<string, number> = { PENDING: 0, VALIDATED: 0, SHIPPED: 0, CANCELLED: 0 };
+  for (const g of statusGroups) countsByStatus[g.status] = g._count._all;
+
+  const kpi = {
+    totalSpent: Number(spentAgg._sum.totalTTC ?? 0),
+    pending:    countsByStatus.PENDING,
+    validated:  countsByStatus.VALIDATED,
+    shipped:    countsByStatus.SHIPPED,
+  };
 
   // Serialize orders for client component
   const serializedOrders = orders.map((order) => {
@@ -84,6 +106,7 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
       orderNumber: order.orderNumber,
       status: order.status,
       createdAt: order.createdAt.toISOString(),
+      updatedAt: order.updatedAt.toISOString(),
       totalTTC: Number(order.totalTTC),
       tvaRate: Number(order.tvaRate),
       carrierName: order.carrierName,
@@ -96,6 +119,7 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
       items: order.items.map((item) => ({
         productName: item.productName,
         colorName: item.colorName,
+        imagePath: item.imagePath,
         quantity: item.quantity,
         saleType: item.saleType,
         packQty: item.packQty,
@@ -115,16 +139,17 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
     <div className="p-4 md:p-6 lg:p-10 w-full relative overflow-hidden">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="font-heading text-xl font-semibold text-text-primary">
+        <p className="text-xs uppercase tracking-[0.2em] text-text-muted mb-2">{t("eyebrow")}</p>
+        <h1 className="font-heading text-2xl md:text-3xl font-bold text-text-primary">
           {t("title")}
         </h1>
-        <p className="text-sm text-text-secondary font-body mt-0.5">
+        <p className="text-sm text-text-secondary font-body mt-1">
           {totalCount !== 1 ? t("count_plural", { count: totalCount }) : t("count", { count: totalCount })}
         </p>
       </div>
 
       {orders.length === 0 ? (
-        <div className="bg-bg-primary border border-border rounded-xl p-10 text-center">
+        <div className="bg-bg-primary border border-border rounded-2xl p-10 text-center shadow-sm">
           <svg className="w-10 h-10 text-text-muted mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
@@ -143,6 +168,7 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
         <>
           <OrdersTableClient
             orders={serializedOrders}
+            kpi={kpi}
             statusLabels={statusLabels}
             statusConfig={STATUS_CONFIG}
             translations={{
@@ -158,6 +184,18 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
               tvaExempt: t("tvaExempt"),
               sizeOption: "T. {size}",
               actions: t("createClaim"),
+              trackParcel: t("trackParcel"),
+              placedOn: t("placedOn"),
+              shippedOn: t("shippedOn"),
+              stepPending: t("statuses.PENDING"),
+              stepValidated: t("statuses.VALIDATED"),
+              stepShipped: t("statuses.SHIPPED"),
+              kpiTotalSpent: t("kpi.totalSpent"),
+              kpiPending: t("kpi.pending"),
+              kpiValidated: t("kpi.validated"),
+              kpiShipped: t("kpi.shipped"),
+              articlesLabel: t("articlesLabel"),
+              downloadInvoice: t("invoiceDownload"),
             }}
           />
 

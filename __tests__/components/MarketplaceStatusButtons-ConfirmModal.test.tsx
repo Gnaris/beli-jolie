@@ -1,27 +1,27 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
-import { ConfirmModal } from "@/components/admin/products/MarketplaceStatusButtons";
+import { MarketplacePushModal } from "@/components/admin/products/MarketplacePushModal";
 
-// Nouvelle modale de synchronisation marketplace (design cockpit).
-// On vérifie que le contenu correspond au mode (resync = checklist,
-// publish = paragraphe), que la couleur du marketplace est bien portée,
-// et que les interactions (Annuler / clic backdrop / Esc / confirmer)
-// appellent les bons handlers.
+// La modale de confirmation (publish / resync) est maintenant portée par
+// MarketplacePushModal (unification 2026-07-17 — remplace l'ancien
+// ConfirmModal interne de MarketplaceStatusButtons). Palette ardoise, seule
+// l'initiale garde le gradient de marque du marketplace.
 
-describe("MarketplaceStatusButtons — ConfirmModal", () => {
+describe("MarketplacePushModal — publish / resync", () => {
   const baseProps = {
+    open: true,
     productName: "Bague fine acier doré cœur émaillé",
-    reference: "A2521E-1200",
-    firstImage: "/uploads/produits/a2521e-1.webp",
-    infoNote: "La fiche existante est gardée telle quelle.",
+    productReference: "A2521E-1200",
+    productImage: "/uploads/produits/a2521e-1.webp",
+    infoMessage: "La fiche existante est gardée telle quelle.",
     confirmLabel: "Envoyer maintenant",
-    onCancel: () => {},
+    onClose: () => {},
     onConfirm: () => {},
   } as const;
 
   it("mode resync : affiche la checklist « Ce qui sera renvoyé »", () => {
     render(
-      <ConfirmModal
+      <MarketplacePushModal
         {...baseProps}
         marketplace="pfs"
         mode="resync"
@@ -35,25 +35,25 @@ describe("MarketplaceStatusButtons — ConfirmModal", () => {
     expect(screen.getByText("Prix")).toBeInTheDocument();
   });
 
-  it("mode publish : affiche le paragraphe et le sous-titre « première publication »", () => {
+  it("mode publish : affiche le paragraphe libre + subtitle « première publication »", () => {
     render(
-      <ConfirmModal
+      <MarketplacePushModal
         {...baseProps}
         marketplace="ankorstore"
         mode="publish"
+        subtitle="première publication"
         title="Publier ce produit sur Ankorstore ?"
         message="Ce produit n'existe pas encore sur Ankorstore."
       />,
     );
     expect(screen.getByText(/n'existe pas encore/i)).toBeInTheDocument();
     expect(screen.getByText(/première publication/i)).toBeInTheDocument();
-    // pas de checklist en mode publish
     expect(screen.queryByText(/Ce qui sera renvoyé/i)).not.toBeInTheDocument();
   });
 
-  it("porte la couleur du marketplace (indigo pour PFS, sky pour Ankorstore)", () => {
-    const { rerender, container } = render(
-      <ConfirmModal
+  it("porte le gradient figé de l'initiale marketplace (indigo pour PFS, sky pour Ankorstore)", () => {
+    const { rerender, unmount } = render(
+      <MarketplacePushModal
         {...baseProps}
         marketplace="pfs"
         mode="resync"
@@ -61,12 +61,13 @@ describe("MarketplaceStatusButtons — ConfirmModal", () => {
         items={["Prix"]}
       />,
     );
-    // eyebrow pastille + label sont bien en couleur PFS (indigo)
-    expect(container.innerHTML).toMatch(/text-indigo-700/);
-    expect(container.innerHTML).toMatch(/bg-indigo-500/);
+    // La modale est rendue via createPortal dans document.body. JSDOM
+    // normalise les couleurs hex en rgb() — on vérifie les 2 formes.
+    expect(document.body.innerHTML).toMatch(/rgb\(79,\s*70,\s*229\)|#4f46e5/i);
+    expect(document.body.innerHTML).toMatch(/rgb\(99,\s*102,\s*241\)|#6366f1/i);
 
     rerender(
-      <ConfirmModal
+      <MarketplacePushModal
         {...baseProps}
         marketplace="ankorstore"
         mode="resync"
@@ -74,13 +75,14 @@ describe("MarketplaceStatusButtons — ConfirmModal", () => {
         items={["Prix"]}
       />,
     );
-    expect(container.innerHTML).toMatch(/text-sky-700/);
-    expect(container.innerHTML).toMatch(/bg-sky-500/);
+    expect(document.body.innerHTML).toMatch(/rgb\(14,\s*165,\s*233\)|#0ea5e9/i);
+    expect(document.body.innerHTML).toMatch(/rgb\(56,\s*189,\s*248\)|#38bdf8/i);
+    unmount();
   });
 
-  it("affiche la vignette produit si firstImage est fourni", () => {
-    const { container } = render(
-      <ConfirmModal
+  it("affiche la vignette produit si productImage est fourni", () => {
+    const { unmount } = render(
+      <MarketplacePushModal
         {...baseProps}
         marketplace="pfs"
         mode="resync"
@@ -88,60 +90,61 @@ describe("MarketplaceStatusButtons — ConfirmModal", () => {
         items={["Prix"]}
       />,
     );
-    const img = container.querySelector("img");
+    const img = document.body.querySelector("img");
     expect(img).not.toBeNull();
     expect(img?.getAttribute("src")).toBe("/uploads/produits/a2521e-1.webp");
+    unmount();
   });
 
-  it("clic sur « Annuler » appelle onCancel", () => {
-    const onCancel = vi.fn();
+  it("clic sur « Annuler » appelle onClose", () => {
+    const onClose = vi.fn();
     render(
-      <ConfirmModal
+      <MarketplacePushModal
         {...baseProps}
         marketplace="pfs"
         mode="resync"
         title="X"
         items={["Prix"]}
-        onCancel={onCancel}
+        onClose={onClose}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /Annuler/i }));
-    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("clic sur le bouton principal appelle onConfirm (pas onCancel)", () => {
-    const onCancel = vi.fn();
+  it("clic sur le bouton principal appelle onConfirm (pas onClose)", () => {
+    const onClose = vi.fn();
     const onConfirm = vi.fn();
     render(
-      <ConfirmModal
+      <MarketplacePushModal
         {...baseProps}
         marketplace="faire"
         mode="resync"
         title="X"
         items={["Prix"]}
-        onCancel={onCancel}
+        onClose={onClose}
         onConfirm={onConfirm}
         confirmLabel="Envoyer maintenant"
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /Envoyer maintenant/i }));
     expect(onConfirm).toHaveBeenCalledTimes(1);
-    expect(onCancel).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("touche Escape ferme la modale", () => {
-    const onCancel = vi.fn();
+    const onClose = vi.fn();
     render(
-      <ConfirmModal
+      <MarketplacePushModal
         {...baseProps}
         marketplace="pfs"
         mode="resync"
         title="X"
         items={["Prix"]}
-        onCancel={onCancel}
+        onClose={onClose}
       />,
     );
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

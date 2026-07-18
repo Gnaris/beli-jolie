@@ -26,6 +26,14 @@ import { useOtpConfirm } from "@/components/ui/OtpConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
+import { useRefreshMarketplacePrompt } from "@/components/admin/products/RefreshMarketplaceDialog";
+import {
+  allCandidateIds,
+  buildMarketplaceInputs,
+  hasAnyCandidate,
+  type MarketplaceCandidates,
+} from "@/lib/marketplace-propagation";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle";
 import { ProductImportantToggle } from "@/components/admin/products/ProductImportantToggle";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
@@ -35,9 +43,7 @@ import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/componen
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import { formatRelativeDate } from "@/lib/format-date";
-import MarketplaceActionModal from "@/components/admin/products/MarketplaceActionModal";
-import MarketplacePublishConfirmModal from "@/components/admin/products/MarketplacePublishConfirmModal";
-import MarketplaceBulkPublishConfirmModal from "@/components/admin/products/MarketplaceBulkPublishConfirmModal";
+import { MarketplacePushModal } from "@/components/admin/products/MarketplacePushModal";
 import BulkActionBar, { type MarketplaceKey } from "@/components/admin/products/BulkActionBar";
 
 const MARKETPLACE_LABEL: Record<MarketplaceKey, string> = {
@@ -258,6 +264,24 @@ export function computeSelectedDraftIds<
 
 // ─── Marketplace publish badge ─────────────────────────────────────────────────
 
+function DisabledMarketplaceBadge({ label }: { label: string }) {
+  return (
+    <Tooltip content={`${label} · désactivée pour ce produit`}>
+      <span
+        className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold text-text-muted border border-border-dark cursor-not-allowed"
+        style={{
+          background:
+            "repeating-linear-gradient(45deg,#FAFAFA,#FAFAFA 6px,#F4F4F5 6px,#F4F4F5 12px)",
+        }}
+      >
+        <span className="line-through decoration-[1.5px] decoration-text-muted">
+          {label}
+        </span>
+      </span>
+    </Tooltip>
+  );
+}
+
 function MarketplaceBadge({
   published,
   publishing = false,
@@ -265,6 +289,7 @@ function MarketplaceBadge({
   lastExportedAt = null,
   onActionClick,
   onSyncClick,
+  disabledForProduct = false,
 }: {
   published: boolean;
   publishing?: boolean;
@@ -273,7 +298,9 @@ function MarketplaceBadge({
   /** Ouvre la modale Publier/Lier (le parent gère ensuite les actions). */
   onActionClick?: () => void;
   onSyncClick?: () => void;
+  disabledForProduct?: boolean;
 }) {
+  if (disabledForProduct) return <DisabledMarketplaceBadge label="PFS" />;
   if (publishing) {
     return (
       <span
@@ -352,6 +379,7 @@ function AnkorstoreBadge({
   lastExportedAt = null,
   onActionClick,
   onSyncClick,
+  disabledForProduct = false,
 }: {
   published: boolean;
   publishing?: boolean;
@@ -359,7 +387,9 @@ function AnkorstoreBadge({
   lastExportedAt?: string | null;
   onActionClick?: () => void;
   onSyncClick?: () => void;
+  disabledForProduct?: boolean;
 }) {
+  if (disabledForProduct) return <DisabledMarketplaceBadge label="ANKOR" />;
   if (publishing) {
     return (
       <span
@@ -438,6 +468,7 @@ function EfashionBadge({
   lastExportedAt = null,
   onActionClick,
   onSyncClick,
+  disabledForProduct = false,
 }: {
   linked: boolean;
   publishing?: boolean;
@@ -445,7 +476,9 @@ function EfashionBadge({
   lastExportedAt?: string | null;
   onActionClick?: () => void;
   onSyncClick?: () => void;
+  disabledForProduct?: boolean;
 }) {
+  if (disabledForProduct) return <DisabledMarketplaceBadge label="EF" />;
   if (publishing) {
     return (
       <span
@@ -524,6 +557,7 @@ function FaireBadge({
   lastExportedAt = null,
   onActionClick,
   onSyncClick,
+  disabledForProduct = false,
 }: {
   published: boolean;
   publishing?: boolean;
@@ -531,7 +565,9 @@ function FaireBadge({
   lastExportedAt?: string | null;
   onActionClick?: () => void;
   onSyncClick?: () => void;
+  disabledForProduct?: boolean;
 }) {
+  if (disabledForProduct) return <DisabledMarketplaceBadge label="Faire" />;
   if (publishing) {
     return (
       <span
@@ -711,6 +747,12 @@ interface AdminProduct {
   ankorsSyncRequired: boolean;
   efashionSyncRequired: boolean;
   faireSyncRequired: boolean;
+  /** Drapeaux « Marketplace activée pour ce produit » — quand false, aucune
+   *  action ne partira vers ce marketplace et le badge s'affiche barré. */
+  pfsEnabled: boolean;
+  ankorsEnabled: boolean;
+  efashionEnabled: boolean;
+  faireEnabled: boolean;
   /** Dates du dernier export Excel/ZIP réussi par marketplace (null = jamais
    *  exporté). Affichées dans la colonne « Dates » avec une puce d'initiales
    *  par marketplace — visibles aussi pour les brouillons. */
@@ -807,6 +849,38 @@ export function computeVariantPackTotalQty(
   if (fromSizes > 0) return fromSizes;
   const fromPack = packOverride ?? variant.packQuantity ?? 0;
   return fromPack > 0 ? fromPack : 1;
+}
+
+// ─── Modif rapide « toute la colonne » (bulk column edit) ──────────────────
+// Calcule le prix TOTAL à écrire en BDD pour chaque variante quand l'admin
+// saisit un prix UNITAIRE unique à appliquer sur toute la colonne « Prix HT ».
+// - UNIT : total = unitaire (une seule pièce).
+// - PACK : total = unitaire × packTotalQty de la variante (peut différer
+//   entre variantes si les quantités de tailles diffèrent).
+// packQtyEdits : édition packQty en attente par variantId (respecte l'ordre
+// dans lequel l'utilisatrice a déjà modifié le packQty avant le bulk-edit).
+export type BulkPriceEdit = { variantId: string; newTotal: number; originalPrice: number };
+
+export function computeBulkPriceEdits(
+  variants: Array<{
+    id: string;
+    saleType: "UNIT" | "PACK";
+    packQuantity: number | null;
+    unitPrice: number;
+    variantSizes?: { quantity: number }[];
+  }>,
+  newUnitPrice: number,
+  packQtyEdits: Record<string, number | undefined> = {},
+): BulkPriceEdit[] {
+  return variants.map((v) => {
+    const packOverride = packQtyEdits[v.id];
+    const packTotalQty = computeVariantPackTotalQty(v, packOverride);
+    const newTotal =
+      v.saleType === "PACK"
+        ? Math.round(newUnitPrice * packTotalQty * 100) / 100
+        : newUnitPrice;
+    return { variantId: v.id, newTotal, originalPrice: v.unitPrice };
+  });
 }
 
 // Classe CSS de la ligne variante dans le tiroir : fond rouge pastel quand le
@@ -908,6 +982,53 @@ function VariantEditableCell({
     >
       {children}
       <span className="variant-cell-hint">Cliquez</span>
+    </span>
+  );
+}
+
+// ─── Modif rapide « toute la colonne » (bulk column edit) ─────────────────
+// Petit champ posé dans l'en-tête du tiroir, sous chaque colonne éditable.
+// L'admin tape une valeur → Entrée / blur → applique à toutes les variantes
+// du produit d'un coup (chaque cellule devient « en attente » comme si elle
+// avait été éditée à la main). Le bandeau global Appliquer/Annuler en bas
+// prend ensuite le relais.
+function BulkColumnEditor({
+  columnLabel,
+  isInt,
+  suffix,
+  onApplyAll,
+}: {
+  columnLabel: string;
+  isInt: boolean;
+  suffix?: string;
+  onApplyAll: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const commit = () => {
+    const raw = parseFloat(draft.replace(",", "."));
+    if (!Number.isFinite(raw) || raw < 0) return;
+    const rounded = isInt ? Math.round(raw) : Math.round(raw * 100) / 100;
+    onApplyAll(rounded);
+  };
+
+  return (
+    <span className="bulk-col-input-wrap" title={`Écrivez une valeur → Entrée pour l'appliquer à toutes les variantes (${columnLabel})`}>
+      <input
+        type="number"
+        step={isInt ? "1" : "0.01"}
+        min={0}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); commit(); }
+        }}
+        placeholder="↓ tout"
+        className="bulk-col-input"
+        aria-label={`Modifier ${columnLabel} pour toutes les variantes`}
+      />
+      {suffix && <span className="bulk-col-input-suffix">{suffix}</span>}
     </span>
   );
 }
@@ -2222,6 +2343,7 @@ function ProductRow({
                     : undefined
                 }
                 onSyncClick={handleSyncPfs}
+                disabledForProduct={!product.pfsEnabled}
               />
               {showEfashion ? (
                 <EfashionBadge
@@ -2235,6 +2357,7 @@ function ProductRow({
                       : undefined
                   }
                   onSyncClick={handleSyncEfashion}
+                  disabledForProduct={!product.efashionEnabled}
                 />
               ) : (
                 <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-secondary text-text-muted border border-border">
@@ -2252,6 +2375,7 @@ function ProductRow({
                     : undefined
                 }
                 onSyncClick={handleSyncAnkorstore}
+                disabledForProduct={!product.ankorsEnabled}
               />
               {showFaire ? (
                 <FaireBadge
@@ -2265,6 +2389,7 @@ function ProductRow({
                       : undefined
                   }
                   onSyncClick={handleSyncFaire}
+                  disabledForProduct={!product.faireEnabled}
                 />
               ) : (
                 <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-bg-secondary text-text-muted border border-border">
@@ -2434,7 +2559,7 @@ function ProductRow({
                     <div className="font-heading text-xl font-bold text-text-primary leading-tight">
                       {product.colors.length} variante{product.colors.length > 1 ? "s" : ""}
                       <span className="ml-2 text-text-muted font-normal text-sm font-body">
-                        · cliquez sur un chiffre pour l'éditer
+                        · cliquez sur un chiffre pour l'éditer, ou modifiez toute la colonne d'un coup
                       </span>
                     </div>
                   </div>
@@ -2462,6 +2587,57 @@ function ProductRow({
                       <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT Total</th>
                       <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Stock</th>
                       <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Poids</th>
+                    </tr>
+                    {/* Ligne « Modifier toute la colonne » : un champ par colonne
+                        éditable (Prix HT, Stock, Poids). Écrire une valeur puis
+                        Entrée / clic ailleurs applique la valeur à toutes les
+                        variantes en attente ; le bandeau Appliquer/Annuler en
+                        bas du tiroir prend ensuite le relais. */}
+                    <tr className="drawer-variant-bulk-row">
+                      <th colSpan={3} className="px-4 py-2 text-left">
+                        <span className="bulk-col-label">Modifier toute la colonne ↓</span>
+                      </th>
+                      <th className="px-4 py-2 text-right">
+                        <BulkColumnEditor
+                          columnLabel="prix HT unitaire"
+                          isInt={false}
+                          suffix="€"
+                          onApplyAll={(unitValue) => {
+                            const packQtyEdits: Record<string, number | undefined> = {};
+                            for (const v of product.colors) {
+                              packQtyEdits[v.id] = dirtyEdits[v.id]?.packQty;
+                            }
+                            const edits = computeBulkPriceEdits(product.colors, unitValue, packQtyEdits);
+                            for (const e of edits) {
+                              onCommitCell(e.variantId, "price", e.newTotal, e.originalPrice);
+                            }
+                          }}
+                        />
+                      </th>
+                      <th className="px-4 py-2" aria-hidden="true" />
+                      <th className="px-4 py-2 text-right">
+                        <BulkColumnEditor
+                          columnLabel="stock"
+                          isInt
+                          onApplyAll={(value) => {
+                            for (const v of product.colors) {
+                              onCommitCell(v.id, "stock", value, v.stock);
+                            }
+                          }}
+                        />
+                      </th>
+                      <th className="px-4 py-2 text-right">
+                        <BulkColumnEditor
+                          columnLabel="poids"
+                          isInt={false}
+                          suffix="kg"
+                          onApplyAll={(value) => {
+                            for (const v of product.colors) {
+                              onCommitCell(v.id, "weight", value, v.weight);
+                            }
+                          }}
+                        />
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2540,113 +2716,126 @@ function ProductRow({
       {/* Modales « Publier / Lier » pour chaque marketplace — ouvertes par
           clic sur le badge marketplace correspondant quand le produit n'y
           est pas encore. */}
-      <MarketplaceActionModal
+      {/* Modales « Publier ou lier » (badge cliqué) — le composant unifié
+          affiche 2 cartes de choix (Créer / Lier). */}
+      <MarketplacePushModal
         open={actionModalPfs}
-        marketplaceName="Paris Fashion Shop"
-        marketplaceCode="PFS"
+        marketplace="pfs"
+        mode="publish-or-link"
+        title="Publier ce produit sur Paris Fashion Shop"
         productName={product.name}
         productReference={product.reference}
         productImage={product.firstImage}
-        variantsCount={product.colors.length}
         canCreate={eligibility.canPublishPfs && !isPfsPublishing}
         canLink={hasPfsConfig && !product.pfsProductId && !isPfsPublishing}
         createDisabledReason={eligibility.canPublishPfs ? undefined : "Fiche incomplète ou marketplace non configurée"}
         onClose={() => setActionModalPfs(false)}
-        onCreate={() => { setActionModalPfs(false); void handlePublishPfs(); }}
+        onConfirm={() => { setActionModalPfs(false); void handlePublishPfs(); }}
         onLink={() => { setActionModalPfs(false); setLinkPfsOpen(true); }}
       />
-      <MarketplaceActionModal
+      <MarketplacePushModal
         open={actionModalAk}
-        marketplaceName="Ankorstore"
-        marketplaceCode="ANKOR"
+        marketplace="ankorstore"
+        mode="publish-or-link"
+        title="Publier ce produit sur Ankorstore"
         productName={product.name}
         productReference={product.reference}
         productImage={product.firstImage}
-        variantsCount={product.colors.length}
         canCreate={eligibility.canPublishAnkorstore && !isAnkorstorePublishing}
         canLink={showAnkorstore && !product.ankorsProductId && !isAnkorstorePublishing}
         createDisabledReason={eligibility.canPublishAnkorstore ? undefined : "Fiche incomplète ou marketplace non configurée"}
         onClose={() => setActionModalAk(false)}
-        onCreate={() => { setActionModalAk(false); void handlePublishAnkorstore(); }}
+        onConfirm={() => { setActionModalAk(false); void handlePublishAnkorstore(); }}
         onLink={() => { setActionModalAk(false); setLinkAkOpen(true); }}
       />
-      <MarketplaceActionModal
+      <MarketplacePushModal
         open={actionModalEf}
-        marketplaceName="eFashion Paris"
-        marketplaceCode="EF"
+        marketplace="efashion"
+        mode="publish-or-link"
+        title="Publier ce produit sur eFashion Paris"
         productName={product.name}
         productReference={product.reference}
         productImage={product.firstImage}
-        variantsCount={product.colors.length}
         canCreate={eligibility.canPublishEfashion && !isEfashionPublishing}
         canLink={showEfashion && !efashionLinked && !isEfashionPublishing}
         createDisabledReason={eligibility.canPublishEfashion ? undefined : "Fiche incomplète ou marketplace non configurée"}
         onClose={() => setActionModalEf(false)}
-        onCreate={() => { setActionModalEf(false); void handlePublishEfashion(); }}
+        onConfirm={() => { setActionModalEf(false); void handlePublishEfashion(); }}
         onLink={() => { setActionModalEf(false); setLinkEfOpen(true); }}
       />
-      <MarketplaceActionModal
+      <MarketplacePushModal
         open={actionModalFaire}
-        marketplaceName="Faire"
-        marketplaceCode="Faire"
+        marketplace="faire"
+        mode="publish-or-link"
+        title="Publier ce produit sur Faire"
         productName={product.name}
         productReference={product.reference}
         productImage={product.firstImage}
-        variantsCount={product.colors.length}
         canCreate={!faireBadgeState.online && !isFairePublishing}
         canLink={showFaire && !faireBadgeState.online && !isFairePublishing}
         createDisabledReason={!faireBadgeState.online ? undefined : "Produit déjà publié"}
         onClose={() => setActionModalFaire(false)}
-        onCreate={() => { setActionModalFaire(false); void handlePublishFaire(); }}
+        onConfirm={() => { setActionModalFaire(false); void handlePublishFaire(); }}
         onLink={() => { setActionModalFaire(false); setLinkFaireOpen(true); }}
       />
 
-      {/* Modale de confirmation « Publier sur X ? » — partagée entre les 4
-          marketplaces. Ouverte par les handlers handlePublishXxx qui posent
-          publishConfirmFor. Le onConfirm exécute doPublishXxx. */}
-      <MarketplacePublishConfirmModal
+      {/* Modale « Publier sur X ? » — confirmation simple avec message.
+          Ouverte par les handlers handlePublishXxx (publishConfirmFor). */}
+      <MarketplacePushModal
         open={publishConfirmFor === "pfs"}
-        marketplaceName="Paris Fashion Shop"
-        marketplaceCode="PFS"
+        marketplace="pfs"
+        mode="publish"
+        title="Publier ce produit sur Paris Fashion Shop ?"
         productName={product.name}
         productReference={product.reference}
         productImage={product.firstImage}
-        variantsCount={product.colors.length}
+        subtitle="première publication"
+        confirmLabel="Publier maintenant"
+        message="Une nouvelle fiche sera créée avec les informations, photos, prix et stock actuels."
+        infoMessage="Une fois publiée, la fiche restera liée à ce produit."
         onClose={() => setPublishConfirmFor(null)}
         onConfirm={doPublishPfs}
       />
-      <MarketplacePublishConfirmModal
+      <MarketplacePushModal
         open={publishConfirmFor === "ankorstore"}
-        marketplaceName="Ankorstore"
-        marketplaceCode="ANKOR"
+        marketplace="ankorstore"
+        mode="publish"
+        title="Publier ce produit sur Ankorstore ?"
         productName={product.name}
         productReference={product.reference}
         productImage={product.firstImage}
-        variantsCount={product.colors.length}
+        subtitle="première publication"
+        confirmLabel="Publier maintenant"
+        message="Une nouvelle fiche sera créée avec les informations, photos, prix et stock actuels."
+        infoMessage="Une fois publiée, la fiche restera liée à ce produit."
         onClose={() => setPublishConfirmFor(null)}
         onConfirm={doPublishAnkorstore}
       />
-      <MarketplacePublishConfirmModal
+      <MarketplacePushModal
         open={publishConfirmFor === "efashion"}
-        marketplaceName="eFashion Paris"
-        marketplaceCode="EF"
+        marketplace="efashion"
+        mode="publish"
+        title="Publier ce produit sur eFashion Paris ?"
         productName={product.name}
         productReference={product.reference}
         productImage={product.firstImage}
-        variantsCount={product.colors.length}
-        subtitle="Le produit sera ajouté au prochain batch de shooting eFashion."
+        subtitle="prochain batch shooting"
+        confirmLabel="Publier maintenant"
+        message="Le produit sera ajouté au prochain batch de shooting eFashion."
         onClose={() => setPublishConfirmFor(null)}
         onConfirm={doPublishEfashion}
       />
-      <MarketplacePublishConfirmModal
+      <MarketplacePushModal
         open={publishConfirmFor === "faire"}
-        marketplaceName="Faire"
-        marketplaceCode="Faire"
+        marketplace="faire"
+        mode="publish"
+        title="Publier ce produit sur Faire ?"
         productName={product.name}
         productReference={product.reference}
         productImage={product.firstImage}
-        variantsCount={product.colors.length}
-        subtitle="Une nouvelle fiche brouillon sera créée avec les infos actuelles."
+        subtitle="création brouillon"
+        confirmLabel="Publier maintenant"
+        message="Une nouvelle fiche brouillon sera créée avec les infos actuelles."
         infoTone="warning"
         infoMessage={
           <>
@@ -2779,6 +2968,7 @@ export default function AdminProductsTable({
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
   const { confirm: otpConfirm } = useOtpConfirm();
+  const { ask: askMarketplaceOptions } = useRefreshMarketplacePrompt();
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const showEfashion = !!(hasEfashionConfig && efashionEnabled);
   const showFaire = !!(hasFaireConfig && faireEnabled);
@@ -2906,62 +3096,40 @@ export default function AdminProductsTable({
         return;
       }
 
-      const pfsRef = { current: pfsProducts.length > 0 };
-      const ankorsRef = { current: ankorsProducts.length > 0 };
-      const efashionRef = { current: efashionProducts.length > 0 };
-      const faireRef = { current: faireProducts.length > 0 };
-      const checkboxes: {
-        id: string;
-        label: string;
-        defaultChecked: boolean;
-        onChange: (v: boolean) => void;
-      }[] = [];
-      if (pfsProducts.length > 0) {
-        checkboxes.push({
-          id: "pfs",
-          label: `Mettre à jour sur Paris Fashion Shop (${pfsProducts.length} produit${pfsProducts.length > 1 ? "s" : ""})`,
-          defaultChecked: true,
-          onChange: (v) => { pfsRef.current = v; },
-        });
-      }
-      if (ankorsProducts.length > 0) {
-        checkboxes.push({
-          id: "ankorstore",
-          label: `Mettre à jour sur Ankorstore (${ankorsProducts.length} produit${ankorsProducts.length > 1 ? "s" : ""})`,
-          defaultChecked: true,
-          onChange: (v) => { ankorsRef.current = v; },
-        });
-      }
-      if (efashionProducts.length > 0) {
-        checkboxes.push({
-          id: "efashion",
-          label: `Mettre à jour sur eFashion Paris (${efashionProducts.length} produit${efashionProducts.length > 1 ? "s" : ""})`,
-          defaultChecked: true,
-          onChange: (v) => { efashionRef.current = v; },
-        });
-      }
-      if (faireProducts.length > 0) {
-        checkboxes.push({
-          id: "faire",
-          label: `Mettre à jour sur Faire (${faireProducts.length} produit${faireProducts.length > 1 ? "s" : ""})`,
-          defaultChecked: true,
-          onChange: (v) => { faireRef.current = v; },
-        });
-      }
-
-      const ok = await confirm({
-        type: "info",
-        title: "Propager aux marketplaces ?",
-        message: `${affectedProducts.length} produit${affectedProducts.length > 1 ? "s" : ""} touché${affectedProducts.length > 1 ? "s" : ""} par ces modifications — cochez les marketplaces où l'envoyer.`,
-        checkboxesLabel: "Marketplaces",
-        checkboxes,
+      // Modale unifiée ardoise (mêmes cases + KPI + compteurs de désactivation
+      // que la modale « Rafraîchir »).
+      const allProductIds = Array.from(
+        new Set([
+          ...pfsProducts.map((p) => p.id),
+          ...ankorsProducts.map((p) => p.id),
+          ...efashionProducts.map((p) => p.id),
+          ...faireProducts.map((p) => p.id),
+        ]),
+      );
+      const firstName = affectedProducts[0]?.name;
+      const options = await askMarketplaceOptions({
+        count: affectedProducts.length,
+        firstProductName: firstName,
+        productIds: allProductIds,
+        showPfs: pfsProducts.length > 0,
+        showAnkorstore: ankorsProducts.length > 0,
+        showEfashion: efashionProducts.length > 0,
+        showFaire: faireProducts.length > 0,
+        title:
+          affectedProducts.length === 1
+            ? "Propager les modifications ?"
+            : `Propager les modifications à ${affectedProducts.length} produits ?`,
+        subtitle:
+          affectedProducts.length === 1 && firstName
+            ? `« ${firstName} » — cochez les marketplaces où renvoyer prix/stock/poids.`
+            : "Cochez les marketplaces où renvoyer prix/stock/poids.",
+        eyebrow: "Propagation",
         confirmLabel: "Mettre à jour",
-        cancelLabel: "Plus tard",
       });
-      if (ok !== true) return;
+      if (!options) return;
 
       const inputs: Parameters<typeof enqueuePfs>[0] = [];
-      if (pfsRef.current) {
+      if (options.pfs) {
         for (const p of pfsProducts) {
           inputs.push({
             productId: p.id,
@@ -2974,7 +3142,7 @@ export default function AdminProductsTable({
           });
         }
       }
-      if (ankorsRef.current) {
+      if (options.ankorstore) {
         for (const p of ankorsProducts) {
           inputs.push({
             productId: p.id,
@@ -2987,7 +3155,7 @@ export default function AdminProductsTable({
           });
         }
       }
-      if (efashionRef.current) {
+      if (options.efashion) {
         for (const p of efashionProducts) {
           inputs.push({
             productId: p.id,
@@ -3000,7 +3168,7 @@ export default function AdminProductsTable({
           });
         }
       }
-      if (faireRef.current) {
+      if (options.faire) {
         for (const p of faireProducts) {
           inputs.push({
             productId: p.id,
@@ -3031,7 +3199,7 @@ export default function AdminProductsTable({
     showAnkorstore,
     showEfashion,
     showFaire,
-    confirm,
+    askMarketplaceOptions,
     enqueuePfs,
     router,
     toast,
@@ -3279,131 +3447,38 @@ export default function AdminProductsTable({
         ? allProducts.filter((p) => successIds.includes(p.id) && p.faireProductId)
         : [];
 
-      if (
-        pfsCandidates.length > 0 ||
-        ankorsCandidates.length > 0 ||
-        efashionCandidates.length > 0 ||
-        faireCandidates.length > 0
-      ) {
-        const pfsRef = { current: pfsCandidates.length > 0 };
-        const ankorsRef = { current: ankorsCandidates.length > 0 };
-        const efashionRef = { current: efashionCandidates.length > 0 };
-        const faireRef = { current: faireCandidates.length > 0 };
-        const checkboxes: {
-          id: string;
-          label: string;
-          defaultChecked: boolean;
-          onChange: (v: boolean) => void;
-        }[] = [];
-        if (pfsCandidates.length > 0) {
-          checkboxes.push({
-            id: "pfs",
-            label: `Mettre à jour sur Paris Fashion Shop (${pfsCandidates.length} sur ${successIds.length})`,
-            defaultChecked: true,
-            onChange: (v) => {
-              pfsRef.current = v;
-            },
-          });
-        }
-        if (ankorsCandidates.length > 0) {
-          checkboxes.push({
-            id: "ankorstore",
-            label: `Mettre à jour sur Ankorstore (${ankorsCandidates.length} sur ${successIds.length})`,
-            defaultChecked: true,
-            onChange: (v) => {
-              ankorsRef.current = v;
-            },
-          });
-        }
-        if (efashionCandidates.length > 0) {
-          checkboxes.push({
-            id: "efashion",
-            label: `Mettre à jour sur eFashion Paris (${efashionCandidates.length} sur ${successIds.length})`,
-            defaultChecked: true,
-            onChange: (v) => {
-              efashionRef.current = v;
-            },
-          });
-        }
-        if (faireCandidates.length > 0) {
-          checkboxes.push({
-            id: "faire",
-            label: `Mettre à jour sur Faire (${faireCandidates.length} sur ${successIds.length})`,
-            defaultChecked: true,
-            onChange: (v) => {
-              faireRef.current = v;
-            },
-          });
-        }
-
-        const ok = await confirm({
-          type: "info",
-          title: `Propager aux marketplaces ?`,
-          message: `Le nouveau statut sera appliqué sur les marketplaces cochées pour les produits déjà publiés.`,
-          checkboxesLabel: "Marketplaces",
-          checkboxes,
+      const candidates: MarketplaceCandidates = {
+        pfs: pfsCandidates,
+        ankorstore: ankorsCandidates,
+        efashion: efashionCandidates,
+        faire: faireCandidates,
+      };
+      if (hasAnyCandidate(candidates)) {
+        const firstName = allProducts.find((p) => p.id === successIds[0])?.name;
+        const options = await askMarketplaceOptions({
+          count: successIds.length,
+          firstProductName: firstName,
+          productIds: allCandidateIds(candidates),
+          showPfs: pfsCandidates.length > 0,
+          showAnkorstore: ankorsCandidates.length > 0,
+          showEfashion: efashionCandidates.length > 0,
+          showFaire: faireCandidates.length > 0,
+          title:
+            successIds.length === 1
+              ? "Propager le nouveau statut ?"
+              : `Propager le nouveau statut à ${successIds.length} produits ?`,
+          subtitle:
+            "Le statut sera appliqué sur les marketplaces cochées pour les produits déjà publiés.",
+          eyebrow: "Propagation statut",
           confirmLabel: "Mettre à jour",
-          cancelLabel: "Plus tard",
         });
-        if (ok === true) {
-          const inputs: Parameters<typeof enqueuePfs>[0] = [];
-          if (pfsRef.current) {
-            for (const p of pfsCandidates) {
-              inputs.push({
-                productId: p.id,
-                reference: p.reference,
-                productName: p.name,
-                firstImage: p.firstImage,
-                options: { local: false, pfs: true },
-                mode: "publish" as const,
-                marketplace: "pfs" as const,
-              });
-            }
-          }
-          if (ankorsRef.current) {
-            for (const p of ankorsCandidates) {
-              inputs.push({
-                productId: p.id,
-                reference: p.reference,
-                productName: p.name,
-                firstImage: p.firstImage,
-                options: { local: false, pfs: false, ankorstore: true },
-                mode: "publish" as const,
-                marketplace: "ankorstore" as const,
-              });
-            }
-          }
-          if (efashionRef.current) {
-            for (const p of efashionCandidates) {
-              inputs.push({
-                productId: p.id,
-                reference: p.reference,
-                productName: p.name,
-                firstImage: p.firstImage,
-                options: { local: false, pfs: false, ankorstore: false, efashion: true },
-                mode: "publish" as const,
-                marketplace: "efashion" as const,
-              });
-            }
-          }
-          if (faireRef.current) {
-            for (const p of faireCandidates) {
-              inputs.push({
-                productId: p.id,
-                reference: p.reference,
-                productName: p.name,
-                firstImage: p.firstImage,
-                options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
-                mode: "publish" as const,
-                marketplace: "faire" as const,
-              });
-            }
-          }
+        if (options) {
+          const inputs = buildMarketplaceInputs(candidates, options);
           if (inputs.length > 0) enqueuePfs(inputs);
         }
       }
     }
-  }, [selectedIds, startTransition, confirm, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, router]);
+  }, [selectedIds, startTransition, askMarketplaceOptions, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, router]);
 
   // ─── Bulk modif d'attributs produit (catégorie, code SH, composition, pays,
   // saison, best-seller) ──
@@ -3469,123 +3544,36 @@ export default function AdminProductsTable({
       ? allProducts.filter((p) => successIds.includes(p.id) && p.faireProductId)
       : [];
 
-    if (
-      pfsCandidates.length === 0 &&
-      ankorsCandidates.length === 0 &&
-      efashionCandidates.length === 0 &&
-      faireCandidates.length === 0
-    )
-      return;
+    const candidates: MarketplaceCandidates = {
+      pfs: pfsCandidates,
+      ankorstore: ankorsCandidates,
+      efashion: efashionCandidates,
+      faire: faireCandidates,
+    };
+    if (!hasAnyCandidate(candidates)) return;
 
-    const pfsRef = { current: pfsCandidates.length > 0 };
-    const ankorsRef = { current: ankorsCandidates.length > 0 };
-    const efashionRef = { current: efashionCandidates.length > 0 };
-    const faireRef = { current: faireCandidates.length > 0 };
-    const checkboxes: {
-      id: string;
-      label: string;
-      defaultChecked: boolean;
-      onChange: (v: boolean) => void;
-    }[] = [];
-    if (pfsCandidates.length > 0) {
-      checkboxes.push({
-        id: "pfs",
-        label: `Mettre à jour sur Paris Fashion Shop (${pfsCandidates.length} sur ${successIds.length})`,
-        defaultChecked: true,
-        onChange: (v) => { pfsRef.current = v; },
-      });
-    }
-    if (ankorsCandidates.length > 0) {
-      checkboxes.push({
-        id: "ankorstore",
-        label: `Mettre à jour sur Ankorstore (${ankorsCandidates.length} sur ${successIds.length})`,
-        defaultChecked: true,
-        onChange: (v) => { ankorsRef.current = v; },
-      });
-    }
-    if (efashionCandidates.length > 0) {
-      checkboxes.push({
-        id: "efashion",
-        label: `Mettre à jour sur eFashion Paris (${efashionCandidates.length} sur ${successIds.length})`,
-        defaultChecked: true,
-        onChange: (v) => { efashionRef.current = v; },
-      });
-    }
-    if (faireCandidates.length > 0) {
-      checkboxes.push({
-        id: "faire",
-        label: `Mettre à jour sur Faire (${faireCandidates.length} sur ${successIds.length})`,
-        defaultChecked: true,
-        onChange: (v) => { faireRef.current = v; },
-      });
-    }
-
-    const ok = await confirm({
-      type: "info",
-      title: "Propager aux marketplaces ?",
-      message: "Les modifications seront envoyées sur les marketplaces cochées pour les produits déjà publiés.",
-      checkboxesLabel: "Marketplaces",
-      checkboxes,
+    const firstName = allProducts.find((p) => p.id === successIds[0])?.name;
+    const options = await askMarketplaceOptions({
+      count: successIds.length,
+      firstProductName: firstName,
+      productIds: allCandidateIds(candidates),
+      showPfs: pfsCandidates.length > 0,
+      showAnkorstore: ankorsCandidates.length > 0,
+      showEfashion: efashionCandidates.length > 0,
+      showFaire: faireCandidates.length > 0,
+      title:
+        successIds.length === 1
+          ? "Propager les modifications ?"
+          : `Propager les modifications à ${successIds.length} produits ?`,
+      subtitle:
+        "Les modifications seront envoyées sur les marketplaces cochées pour les produits déjà publiés.",
+      eyebrow: "Propagation",
       confirmLabel: "Mettre à jour",
-      cancelLabel: "Plus tard",
     });
-    if (ok !== true) return;
-
-    const inputs: Parameters<typeof enqueuePfs>[0] = [];
-    if (pfsRef.current) {
-      for (const p of pfsCandidates) {
-        inputs.push({
-          productId: p.id,
-          reference: p.reference,
-          productName: p.name,
-          firstImage: p.firstImage,
-          options: { local: false, pfs: true },
-          mode: "publish" as const,
-          marketplace: "pfs" as const,
-        });
-      }
-    }
-    if (ankorsRef.current) {
-      for (const p of ankorsCandidates) {
-        inputs.push({
-          productId: p.id,
-          reference: p.reference,
-          productName: p.name,
-          firstImage: p.firstImage,
-          options: { local: false, pfs: false, ankorstore: true },
-          mode: "publish" as const,
-          marketplace: "ankorstore" as const,
-        });
-      }
-    }
-    if (efashionRef.current) {
-      for (const p of efashionCandidates) {
-        inputs.push({
-          productId: p.id,
-          reference: p.reference,
-          productName: p.name,
-          firstImage: p.firstImage,
-          options: { local: false, pfs: false, ankorstore: false, efashion: true },
-          mode: "publish" as const,
-          marketplace: "efashion" as const,
-        });
-      }
-    }
-    if (faireRef.current) {
-      for (const p of faireCandidates) {
-        inputs.push({
-          productId: p.id,
-          reference: p.reference,
-          productName: p.name,
-          firstImage: p.firstImage,
-          options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
-          mode: "publish" as const,
-          marketplace: "faire" as const,
-        });
-      }
-    }
+    if (!options) return;
+    const inputs = buildMarketplaceInputs(candidates, options);
     if (inputs.length > 0) enqueuePfs(inputs);
-  }, [selectedIds, startTransition, confirm, allProducts, enqueuePfs, hasPfsConfig, showAnkorstore, showEfashion, showFaire]);
+  }, [selectedIds, startTransition, askMarketplaceOptions, allProducts, enqueuePfs, hasPfsConfig, showAnkorstore, showEfashion, showFaire]);
 
   const handleBulkDelete = useCallback(async (idsOverride?: string[]) => {
     const ids = idsOverride ?? [...selectedIds];
@@ -3901,116 +3889,34 @@ export default function AdminProductsTable({
       return;
     }
 
-    const pfsRef = { current: pfsTargets.length > 0 };
-    const ankorsRef = { current: ankorsTargets.length > 0 };
-    const efashionRef = { current: efashionTargets.length > 0 };
-    const faireRef = { current: faireTargets.length > 0 };
-    const checkboxes: {
-      id: string;
-      label: string;
-      defaultChecked: boolean;
-      onChange: (v: boolean) => void;
-    }[] = [];
-    if (pfsTargets.length > 0) {
-      checkboxes.push({
-        id: "pfs",
-        label: `Paris Fashion Shop (${pfsTargets.length} produit${pfsTargets.length > 1 ? "s" : ""})`,
-        defaultChecked: true,
-        onChange: (v) => { pfsRef.current = v; },
-      });
-    }
-    if (ankorsTargets.length > 0) {
-      checkboxes.push({
-        id: "ankorstore",
-        label: `Ankorstore (${ankorsTargets.length} produit${ankorsTargets.length > 1 ? "s" : ""})`,
-        defaultChecked: true,
-        onChange: (v) => { ankorsRef.current = v; },
-      });
-    }
-    if (efashionTargets.length > 0) {
-      checkboxes.push({
-        id: "efashion",
-        label: `eFashion Paris (${efashionTargets.length} produit${efashionTargets.length > 1 ? "s" : ""})`,
-        defaultChecked: true,
-        onChange: (v) => { efashionRef.current = v; },
-      });
-    }
-    if (faireTargets.length > 0) {
-      checkboxes.push({
-        id: "faire",
-        label: `Faire (${faireTargets.length} produit${faireTargets.length > 1 ? "s" : ""})`,
-        defaultChecked: true,
-        onChange: (v) => { faireRef.current = v; },
-      });
-    }
-
-    const ok = await confirm({
-      type: "info",
-      title: `Synchroniser ${ids.length} produit${ids.length > 1 ? "s" : ""} avec les marketplaces ?`,
-      message:
+    const candidates: MarketplaceCandidates = {
+      pfs: pfsTargets,
+      ankorstore: ankorsTargets,
+      efashion: efashionTargets,
+      faire: faireTargets,
+    };
+    const firstName = targets[0]?.name;
+    const options = await askMarketplaceOptions({
+      count: ids.length,
+      firstProductName: firstName,
+      productIds: allCandidateIds(candidates),
+      showPfs: pfsTargets.length > 0,
+      showAnkorstore: ankorsTargets.length > 0,
+      showEfashion: efashionTargets.length > 0,
+      showFaire: faireTargets.length > 0,
+      title:
+        ids.length === 1
+          ? "Synchroniser ce produit avec les marketplaces ?"
+          : `Synchroniser ${ids.length} produits avec les marketplaces ?`,
+      subtitle:
         "Toutes les informations actuelles (prix, stock, images, statut, etc.) seront renvoyées aux marketplaces cochées. Le produit garde le même identifiant en ligne.",
-      checkboxesLabel: "Marketplaces",
-      checkboxes,
+      eyebrow: "Synchronisation",
       confirmLabel: "Synchroniser",
-      cancelLabel: "Annuler",
     });
-    if (ok !== true) return;
-
-    const inputs: Parameters<typeof enqueuePfs>[0] = [];
-    if (pfsRef.current) {
-      for (const p of pfsTargets) {
-        inputs.push({
-          productId: p.id,
-          reference: p.reference,
-          productName: p.name,
-          firstImage: p.firstImage,
-          options: { local: false, pfs: true },
-          mode: "resync" as const,
-          marketplace: "pfs" as const,
-        });
-      }
-    }
-    if (ankorsRef.current) {
-      for (const p of ankorsTargets) {
-        inputs.push({
-          productId: p.id,
-          reference: p.reference,
-          productName: p.name,
-          firstImage: p.firstImage,
-          options: { local: false, pfs: false, ankorstore: true },
-          mode: "resync" as const,
-          marketplace: "ankorstore" as const,
-        });
-      }
-    }
-    if (efashionRef.current) {
-      for (const p of efashionTargets) {
-        inputs.push({
-          productId: p.id,
-          reference: p.reference,
-          productName: p.name,
-          firstImage: p.firstImage,
-          options: { local: false, pfs: false, ankorstore: false, efashion: true },
-          mode: "resync" as const,
-          marketplace: "efashion" as const,
-        });
-      }
-    }
-    if (faireRef.current) {
-      for (const p of faireTargets) {
-        inputs.push({
-          productId: p.id,
-          reference: p.reference,
-          productName: p.name,
-          firstImage: p.firstImage,
-          options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
-          mode: "resync" as const,
-          marketplace: "faire" as const,
-        });
-      }
-    }
+    if (!options) return;
+    const inputs = buildMarketplaceInputs(candidates, options, "resync");
     if (inputs.length > 0) enqueuePfs(inputs);
-  }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, confirm, enqueuePfs, toast]);
+  }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, askMarketplaceOptions, enqueuePfs, toast]);
 
   // ─── Nouveaux handlers pour BulkActionBar ─────────────────────────────
   // Ces handlers alimentent le panneau « Marketplaces » qui liste, pour chaque
@@ -4503,21 +4409,18 @@ export default function AdminProductsTable({
           firstImage: p.firstImage,
         }));
         const marketplaceName = MARKETPLACE_LABEL[marketplace];
-        const code = marketplace === "pfs" ? "PFS"
-          : marketplace === "ankorstore" ? "ANKOR"
-          : marketplace === "efashion" ? "EF"
-          : "Faire";
 
         if (marketplace === "efashion") {
           return (
-            <MarketplaceBulkPublishConfirmModal
+            <MarketplacePushModal
               open
-              marketplaceName={marketplaceName}
-              marketplaceCode={code}
+              marketplace="efashion"
+              mode="bulk-publish"
+              title={`Publier ${selected.length} produits sur ${marketplaceName}`}
+              subtitle="prochain batch shooting"
               products={selected}
-              subtitle="Les produits seront ajoutés au prochain batch de shooting eFashion."
-              infoMessage={<>Une entrée de shooting sera créée pour chaque produit. L'envoi effectif se validera depuis la fenêtre <strong>eFashion</strong> en bas à droite.</>}
               confirmLabel="Ajouter au shooting"
+              infoMessage={<>Une entrée de shooting sera créée pour chaque produit. L'envoi effectif se validera depuis la fenêtre <strong>eFashion</strong> en bas à droite.</>}
               onClose={() => setBulkPublishConfirm(null)}
               onConfirm={doBulkMarketplacePublish}
             />
@@ -4526,12 +4429,13 @@ export default function AdminProductsTable({
 
         if (marketplace === "faire") {
           return (
-            <MarketplaceBulkPublishConfirmModal
+            <MarketplacePushModal
               open
-              marketplaceName={marketplaceName}
-              marketplaceCode={code}
+              marketplace="faire"
+              mode="bulk-publish"
+              title={`Publier ${selected.length} produits sur ${marketplaceName}`}
+              subtitle="création brouillons"
               products={selected}
-              subtitle="Une nouvelle fiche brouillon sera créée pour chaque produit."
               infoTone="warning"
               infoMessage={<>Les fiches sont créées en <strong>brouillon</strong>. Vous pourrez les publier définitivement depuis Faire ensuite.</>}
               onClose={() => setBulkPublishConfirm(null)}
@@ -4544,10 +4448,11 @@ export default function AdminProductsTable({
           ? " La publication Ankorstore est asynchrone : le résultat arrive dans les minutes qui suivent."
           : "";
         return (
-          <MarketplaceBulkPublishConfirmModal
+          <MarketplacePushModal
             open
-            marketplaceName={marketplaceName}
-            marketplaceCode={code}
+            marketplace={marketplace}
+            mode="bulk-publish"
+            title={`Publier ${selected.length} produits sur ${marketplaceName}`}
             products={selected}
             infoMessage={
               <>
