@@ -61,7 +61,7 @@ const nextConfig: NextConfig = {
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' https://js.stripe.com",
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://*.stripe.com https://static.parisfashionshops.com https://cdn.parisfashionshops.com https://img.ankorstore.com",
+      "img-src 'self' data: blob: https://*.stripe.com https://static.parisfashionshops.com https://cdn.parisfashionshops.com https://img.ankorstore.com https://easy-express.fr",
       "font-src 'self'",
       "connect-src 'self' https://api.stripe.com https://wholesaler-api.parisfashionshops.com",
       "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://mail.beliandjolie.com",

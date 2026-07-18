@@ -61,6 +61,9 @@ docs/superpowers/
 /beli-jolie-vps.tar.gz
 /beli-jolie-vps.zip
 
+# dumps locaux, scripts de fake data, migrations one-shot — jamais en repo
+/tmp-migration/
+
 # scripts de déploiement locaux qui contiennent des secrets ou du contexte
 # machine — les autres fichiers de scripts/deploy/ (multi-boutiques) sont
 # versionnés.

@@ -158,8 +158,7 @@ function RailStepper({ currentStep }: { currentStep: number }) {
   const t = useTranslations("cart");
   const steps = [
     { label: t("stepCart") },
-    { label: t("stepDelivery") },
-    { label: t("stepBilling") },
+    { label: t("stepInfo") },
     { label: t("stepPayment") },
   ];
   return (
@@ -206,14 +205,14 @@ function RailStepper({ currentStep }: { currentStep: number }) {
 
 function MobileProgress({ currentStep }: { currentStep: number }) {
   const t = useTranslations("cart");
-  const labels = [t("stepCart"), t("stepDelivery"), t("stepBilling"), t("stepPayment")];
+  const labels = [t("stepCart"), t("stepInfo"), t("stepPayment")];
   return (
     <div className="lg:hidden mb-5">
       <div className="flex items-center justify-between text-[10px] uppercase tracking-widest mb-2">
         <span className="text-text-primary font-semibold">{labels[currentStep]}</span>
-        <span className="text-text-muted">{t("stepIndicator", { current: currentStep + 1, total: 4 })}</span>
+        <span className="text-text-muted">{t("stepIndicator", { current: currentStep + 1, total: 3 })}</span>
       </div>
-      <div className="flex gap-1" role="progressbar" aria-valuenow={currentStep + 1} aria-valuemin={1} aria-valuemax={4}>
+      <div className="flex gap-1" role="progressbar" aria-valuenow={currentStep + 1} aria-valuemin={1} aria-valuemax={3}>
         {labels.map((_, i) => (
           <div key={i} className={`flex-1 h-1 rounded ${
             i < currentStep ? "bg-text-secondary" : i === currentStep ? "bg-bg-dark" : "bg-border"
@@ -599,29 +598,6 @@ function ProductGroupCard({
   const totalAvailableVariants = meta.variants.length;
   const hasDiscount = meta.discountPercent != null && meta.discountPercent > 0;
 
-  // Chips modes de vente disponibles pour ce produit (uniques par saleType×packQuantity)
-  const saleModeChips = useMemo(() => {
-    const seen = new Set<string>();
-    const chips: { key: string; label: string; price: number; packQty: number | null; saleType: "UNIT" | "PACK" }[] = [];
-    for (const v of meta.variants) {
-      const key = `${v.saleType}_${v.packQuantity ?? 0}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      chips.push({
-        key,
-        label: saleTypeLabel(v.saleType, v.packQuantity, tCart),
-        price: computeUnitPrice(v.unitPrice, meta.discountPercent),
-        packQty: v.packQuantity,
-        saleType: v.saleType,
-      });
-    }
-    chips.sort((a, b) => {
-      if (a.saleType !== b.saleType) return a.saleType === "UNIT" ? -1 : 1;
-      return (a.packQty ?? 0) - (b.packQty ?? 0);
-    });
-    return chips;
-  }, [meta.variants, meta.discountPercent, tCart]);
-
   return (
     <details className="group/prod bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden" open={orderedCount > 0}>
       <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
@@ -649,26 +625,17 @@ function ProductGroupCard({
             <p className="text-[11px] font-mono text-text-muted truncate">
               {meta.productReference} · {translateCat(meta.categoryName)}
             </p>
-            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-              {saleModeChips.map((chip) => (
-                <span key={chip.key} className={`chip ${chip.saleType === "UNIT" ? "chip-unit" : "chip-pack"}`}>
-                  {chip.label} · {chip.price.toFixed(2)} €
-                  {chip.saleType === "PACK" && chip.packQty && (
-                    <span className="text-text-muted/70 ml-1">({(chip.price / chip.packQty).toFixed(2)}/u.)</span>
-                  )}
-                </span>
-              ))}
-            </div>
             <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-              {meta.variants.map((v) => {
-                const isCommanded = (itemsByVariantId.get(v.variantId)?.quantity ?? 0) > 0;
+              {[...variantsByColor.entries()].map(([colorKey, list]) => {
+                const head = list[0];
+                const isCommanded = list.some((v) => (itemsByVariantId.get(v.variantId)?.quantity ?? 0) > 0);
                 return (
                   <span
-                    key={v.variantId}
+                    key={colorKey}
                     className={`inline-block rounded-full ${isCommanded ? "" : "opacity-40"}`}
-                    title={tp(v.colorName)}
+                    title={tp(head.colorName)}
                   >
-                    <ColorDot color={{ name: tp(v.colorName), hex: v.colorHex, patternImage: v.colorPatternImage }} size={12} />
+                    <ColorDot color={{ name: tp(head.colorName), hex: head.colorHex, patternImage: head.colorPatternImage }} size={12} />
                   </span>
                 );
               })}

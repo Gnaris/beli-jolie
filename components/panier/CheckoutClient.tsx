@@ -407,42 +407,22 @@ function AddressForm({
 }
 
 // ─────────────────────────────────────────────
-// Logos transporteurs (Phase 2A refonte)
+// Logos transporteurs (URL renvoyée par Easy-Express, fallback emoji si absente)
 // ─────────────────────────────────────────────
 
-const CARRIER_LOGOS: Array<{ pattern: RegExp; path: string; bg?: string }> = [
-  { pattern: /chronopost/i,      path: "/uploads/carriers/chronopost.svg" },
-  { pattern: /colissimo/i,       path: "/uploads/carriers/colissimo.svg" },
-  { pattern: /dhl/i,             path: "/uploads/carriers/dhl.svg", bg: "#FFCC00" },
-  { pattern: /dpd/i,             path: "/uploads/carriers/dpd.svg" },
-  { pattern: /\bgls\b/i,         path: "/uploads/carriers/gls.svg" },
-  { pattern: /mondial.?relay/i,  path: "/uploads/carriers/mondial-relay.svg" },
-];
-
-function getCarrierLogo(name: string): { path: string; bg?: string } | null {
-  for (const entry of CARRIER_LOGOS) {
-    if (entry.pattern.test(name)) return { path: entry.path, bg: entry.bg };
-  }
-  return null;
-}
-
-function CarrierLogoBox({ name, size = "md" }: { name: string; size?: "md" | "sm" | "lg" }) {
-  const logo = getCarrierLogo(name);
+function CarrierLogoBox({ name, logoUrl, size = "md" }: { name: string; logoUrl?: string; size?: "md" | "sm" | "lg" }) {
   const dims = size === "sm" ? "w-14 h-9" : size === "lg" ? "w-20 h-14" : "w-16 h-10";
-  if (!logo) {
+  if (logoUrl && logoUrl.length > 0) {
     return (
-      <div className={`${dims} rounded-lg bg-bg-tertiary border border-border flex items-center justify-center text-lg shrink-0`} aria-hidden="true">
-        📦
+      <div className={`${dims} rounded-lg border border-border p-1 shrink-0 flex items-center justify-center overflow-hidden bg-white`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={logoUrl} alt={name} className="max-w-full max-h-full object-contain" />
       </div>
     );
   }
   return (
-    <div
-      className={`${dims} rounded-lg border border-border p-1 shrink-0 flex items-center justify-center overflow-hidden`}
-      style={{ background: logo.bg ?? "white" }}
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={logo.path} alt={name} className="max-w-full max-h-full object-contain" />
+    <div className={`${dims} rounded-lg bg-bg-tertiary border border-border flex items-center justify-center text-lg shrink-0`} aria-hidden="true">
+      📦
     </div>
   );
 }
@@ -455,36 +435,27 @@ function CheckoutRailStepper({
   wizardStep,
   onNavigate,
   canGoStep2,
-  canGoStep3,
 }: {
-  wizardStep: 1 | 2 | 3;
-  onNavigate: (step: 1 | 2 | 3) => void;
+  wizardStep: 1 | 2;
+  onNavigate: (step: 1 | 2) => void;
   canGoStep2: boolean;
-  canGoStep3: boolean;
 }) {
   const tCart = useTranslations("cart");
   const rail = [
     { key: "cart" as const, label: tCart("stepCart"), state: "done" as const },
     {
-      key: "delivery" as const,
-      label: tCart("stepDelivery"),
-      state: wizardStep === 1 ? "active" : (wizardStep > 1 ? "done" : "todo") as "active" | "done" | "todo",
+      key: "info" as const,
+      label: tCart("stepInfo"),
+      state: wizardStep === 1 ? "active" : "done" as "active" | "done" | "todo",
       onClick: () => onNavigate(1),
       clickable: true,
     },
     {
-      key: "billing" as const,
-      label: tCart("stepBilling"),
-      state: wizardStep === 2 ? "active" : (wizardStep > 2 ? "done" : "todo") as "active" | "done" | "todo",
-      onClick: () => canGoStep2 && onNavigate(2),
-      clickable: canGoStep2,
-    },
-    {
       key: "payment" as const,
       label: tCart("stepPayment"),
-      state: wizardStep === 3 ? "active" : "todo" as "active" | "todo",
-      onClick: () => canGoStep3 && onNavigate(3),
-      clickable: canGoStep3,
+      state: wizardStep === 2 ? "active" : "todo" as "active" | "todo",
+      onClick: () => canGoStep2 && onNavigate(2),
+      clickable: canGoStep2,
     },
   ];
 
@@ -603,7 +574,7 @@ function CarrierCard({
           </svg>
         )}
       </span>
-      <CarrierLogoBox name={carrier.name} size="lg" />
+      <CarrierLogoBox name={carrier.name} logoUrl={carrier.logo} size="lg" />
       <div className="flex-1 min-w-0">
         <p className="text-base font-heading font-semibold text-text-primary truncate">
           {carrier.name}
@@ -1370,30 +1341,20 @@ export default function CheckoutClient({
   const section2Complete = !!selectedAddr;
   const section3Complete = !!selectedCarrier && privateCarrierComplete;
 
-  // ── Wizard 3 étapes ────────────────────────────────────────────────────────
-  // Étape 1 = Livraison (adresse + mode/transporteur)
-  // Étape 2 = Facturation (identité + SIRET/TVA + adresse fact.)
-  // Étape 3 = Paiement (méthode + Stripe si carte)
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
-  // Méthode de paiement affichée. Seule « card » est câblée en bout à bout
-  // pour l'instant : virement / bon de commande sont désactivés (visibles mais
-  // non sélectionnables). Aucun placeholder de logique n'est ajouté.
-  const [paymentMethod, setPaymentMethod] = useState<"card" | "transfer" | "purchase_order">("card");
+  // ── Wizard 2 étapes ────────────────────────────────────────────────────────
+  // Étape 1 = Vos informations (facturation + adresse livraison + transporteur)
+  // Étape 2 = Paiement (méthode + Stripe si carte)
+  const [wizardStep, setWizardStep] = useState<1 | 2>(1);
+  const paymentMethod = "card";
   // Drawer récapitulatif (mobile). Sur desktop la colonne reste visible en sticky.
   const [summaryDrawerOpen, setSummaryDrawerOpen] = useState(false);
 
-  // Livraison OK = adresse choisie + mode/transporteur complet
-  const step1Ready = section2Complete && section3Complete;
-  // Facturation OK = infos identité de base présentes
-  const step2Ready = section1Complete;
+  // Étape 1 OK = facturation + adresse livraison + transporteur/mode complet
+  const step1Ready = section1Complete && section2Complete && section3Complete;
 
-  function goToStep(target: 1 | 2 | 3) {
+  function goToStep(target: 1 | 2) {
     if (target === wizardStep) return;
-    // Avancer : bloquer si l'étape courante n'est pas prête.
-    if (target > wizardStep) {
-      if (wizardStep === 1 && !step1Ready) return;
-      if (wizardStep === 2 && !step2Ready) return;
-    }
+    if (target > wizardStep && !step1Ready) return;
     setWizardStep(target);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -1411,7 +1372,6 @@ export default function CheckoutClient({
             wizardStep={wizardStep}
             onNavigate={goToStep}
             canGoStep2={step1Ready}
-            canGoStep3={step1Ready && step2Ready}
           />
         </aside>
 
@@ -1420,18 +1380,18 @@ export default function CheckoutClient({
       <div className="lg:hidden mb-6">
         <div className="flex items-center justify-between text-[10px] uppercase tracking-widest mb-2">
           <span className="text-text-primary font-semibold">
-            {wizardStep === 1 ? t("shippingAddressTitle") : wizardStep === 2 ? t("billingTitle") : t("securePayment")}
+            {wizardStep === 1 ? tCart("stepInfo") : t("securePayment")}
           </span>
-          <span className="text-text-muted">{tCart("stepIndicator", { current: wizardStep + 1, total: 4 })}</span>
+          <span className="text-text-muted">{tCart("stepIndicator", { current: wizardStep + 1, total: 3 })}</span>
         </div>
-        <div className="flex gap-1" role="progressbar" aria-valuenow={wizardStep + 1} aria-valuemin={1} aria-valuemax={4}>
-          {/* Panier toujours done + 3 étapes wizard */}
-          {[0, 1, 2, 3].map((i) => (
+        <div className="flex gap-1" role="progressbar" aria-valuenow={wizardStep + 1} aria-valuemin={1} aria-valuemax={3}>
+          {/* Panier toujours done + 2 étapes wizard */}
+          {[0, 1, 2].map((i) => (
             <button
               key={i}
               type="button"
-              disabled={i === 0 || (i > 1 && !step1Ready) || (i > 2 && !step2Ready)}
-              onClick={() => i >= 1 && goToStep(i as 1 | 2 | 3)}
+              disabled={i === 0 || (i > 1 && !step1Ready)}
+              onClick={() => i >= 1 && goToStep(i as 1 | 2)}
               className={`flex-1 h-1 rounded transition-colors ${
                 i < wizardStep + 1
                   ? i === wizardStep
@@ -1439,7 +1399,7 @@ export default function CheckoutClient({
                     : "bg-text-secondary"
                   : "bg-border"
               } disabled:cursor-not-allowed`}
-              aria-label={`${i + 1} / 4`}
+              aria-label={`${i + 1} / 3`}
             />
           ))}
         </div>
@@ -1486,18 +1446,18 @@ export default function CheckoutClient({
       {/* Contenu wizard prend maintenant toute la largeur (le panneau actions est déplacé dans le 3e aside externe) */}
       <div className="space-y-6">
 
-          {/* ── ÉTAPE 2 · Hero Facturation ── */}
-          {wizardStep === 2 && (
+          {/* ── ÉTAPE 1 · Hero unique — Vos informations ── */}
+          {wizardStep === 1 && (
             <StepHero
-              eyebrow={tCart("stepIndicator", { current: 3, total: 4 }) + " · " + tCart("stepBilling")}
+              eyebrow={tCart("stepIndicator", { current: 2, total: 3 }) + " · " + tCart("stepInfo")}
               title={t("whoBillingTitle")}
               subtitle={t("whoBillingSubtitle")}
               accent="sky"
             />
           )}
 
-          {/* ── ÉTAPE 2 · Facturation ── */}
-          <section className={`bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm ${wizardStep === 2 ? "" : "hidden"}`}>
+          {/* ── ÉTAPE 1 · Facturation (fusionnée) ── */}
+          <section className={`bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm ${wizardStep === 1 ? "" : "hidden"}`}>
             <SectionHeader step={2} title={t("billingTitle")} complete={section1Complete}>
               <button type="button" onClick={() => setEditingInfo((v) => !v)}
                 className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors">
@@ -1646,19 +1606,9 @@ export default function CheckoutClient({
             )}
           </section>
 
-          {/* ── ÉTAPE 1 · Hero Livraison + carte trajet ── */}
-          {wizardStep === 1 && (
-            <>
-              <StepHero
-                eyebrow={tCart("stepIndicator", { current: 2, total: 4 }) + " · " + tCart("stepDelivery")}
-                title={selectedAddr?.city ? `${selectedAddr.city}, ${selectedAddr.country}` : t("whereToShip")}
-                subtitle={t("chooseAddressAndCarrier")}
-                accent="emerald"
-              />
-              {selectedAddr && (
-                <DeliveryTrajectMap destCity={selectedAddr.city} destZip={selectedAddr.zipCode} />
-              )}
-            </>
+          {/* ── ÉTAPE 1 · Carte trajet (optionnelle, sous les blocs facturation/livraison) ── */}
+          {wizardStep === 1 && selectedAddr && (
+            <DeliveryTrajectMap destCity={selectedAddr.city} destZip={selectedAddr.zipCode} />
           )}
 
           {/* ── ÉTAPE 1 · Livraison → adresse (refonte maquette : eyebrow + grille 2 col + bouton ajouter) ── */}
@@ -2176,64 +2126,21 @@ export default function CheckoutClient({
             </div>
           </section>
 
-          {/* ── ÉTAPE 3 · Hero Paiement ── */}
-          {wizardStep === 3 && (
+          {/* ── ÉTAPE 2 · Hero Paiement ── */}
+          {wizardStep === 2 && (
             <StepHero
-              eyebrow={tCart("stepIndicator", { current: 4, total: 4 }) + " · " + tCart("stepPayment")}
+              eyebrow={tCart("stepIndicator", { current: 3, total: 3 }) + " · " + tCart("stepPayment")}
               title={`${totalTTC.toFixed(2)} € TTC`}
               subtitle={t("lastStepPaySecurely")}
               accent="violet"
             />
           )}
 
-          {/* ── ÉTAPE 3 · Paiement ── */}
-          {wizardStep === 3 && (
+          {/* ── ÉTAPE 2 · Paiement ── */}
+          {wizardStep === 2 && (
             <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
-              <SectionHeader step={3} title={t("securePayment")} complete={false} />
+              <SectionHeader step={1} title={t("securePayment")} complete={false} />
               <div className="p-5 space-y-5">
-                {/* Choix de la méthode de paiement (radios en tuiles) */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod("card")}
-                    aria-pressed={paymentMethod === "card"}
-                    className={`rounded-2xl border-2 p-4 text-center transition-all ${
-                      paymentMethod === "card"
-                        ? "border-bg-dark bg-bg-dark text-white"
-                        : "border-border bg-bg-primary hover:border-border-dark text-text-primary"
-                    }`}
-                  >
-                    <svg className="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                      <rect x="2" y="6" width="20" height="12" rx="2" />
-                      <path strokeLinecap="round" d="M2 10h20" />
-                    </svg>
-                    <div className="font-body font-semibold text-sm">{t("paymentCard")}</div>
-                  </button>
-                  <button
-                    type="button"
-                    disabled
-                    aria-disabled
-                    className="rounded-2xl border-2 border-border bg-bg-secondary/60 p-4 text-center opacity-60 cursor-not-allowed"
-                    title=""
-                  >
-                    <svg className="w-6 h-6 mx-auto mb-1 text-text-muted" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 10V19M8 10V19M12 10V19M16 10V19M20 10V19M2 10L12 4L22 10M2 20H22" />
-                    </svg>
-                    <div className="font-body font-semibold text-sm text-text-muted">{t("paymentTransfer")}</div>
-                  </button>
-                  <button
-                    type="button"
-                    disabled
-                    aria-disabled
-                    className="rounded-2xl border-2 border-border bg-bg-secondary/60 p-4 text-center opacity-60 cursor-not-allowed"
-                  >
-                    <svg className="w-6 h-6 mx-auto mb-1 text-text-muted" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <div className="font-body font-semibold text-sm text-text-muted">{t("paymentPurchaseOrder")}</div>
-                  </button>
-                </div>
-
                 {/* Bloc paiement carte (Stripe) */}
                 {paymentMethod === "card" && (
                   <div className="space-y-4">
@@ -2343,7 +2250,7 @@ export default function CheckoutClient({
           <div className="lg:hidden flex items-center justify-between gap-3 pt-2">
             <button
               type="button"
-              onClick={() => (wizardStep === 1 ? router.push("/panier") : goToStep((wizardStep - 1) as 1 | 2))}
+              onClick={() => (wizardStep === 1 ? router.push("/panier") : goToStep(1))}
               className="btn-ghost h-11 px-4 text-sm"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -2351,11 +2258,11 @@ export default function CheckoutClient({
               </svg>
               {wizardStep === 1 ? t("backToCart") : tCommon("previous")}
             </button>
-            {wizardStep < 3 && (
+            {wizardStep < 2 && (
               <button
                 type="button"
-                onClick={() => goToStep((wizardStep + 1) as 2 | 3)}
-                disabled={(wizardStep === 1 && !step1Ready) || (wizardStep === 2 && !step2Ready)}
+                onClick={() => goToStep(2)}
+                disabled={!step1Ready}
                 className="btn-primary h-11 px-6 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {tCommon("next")}
@@ -2373,12 +2280,12 @@ export default function CheckoutClient({
         <aside className="hidden lg:block">
           <div className="sticky top-24 space-y-4">
 
-            {/* ÉTAPE 1 — Livraison : panneau transporteurs + récap + boutons */}
+            {/* ÉTAPE 1 — Vos informations : panneau transporteurs + récap + boutons */}
             {wizardStep === 1 && (
               <div className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden">
                 <div className="px-5 pt-5">
                   <div className="text-[11px] uppercase tracking-widest text-text-muted mb-1">
-                    {tCart("stepIndicator", { current: 2, total: 4 })}
+                    {tCart("stepIndicator", { current: 2, total: 3 })}
                   </div>
                   <div className="font-heading text-xl font-bold text-text-primary mb-1">
                     {t("deliveryModeTitle")}
@@ -2542,9 +2449,8 @@ export default function CheckoutClient({
               </div>
             )}
 
-            {/* ÉTAPE 2 : uniquement le formulaire de facturation (pas de SummaryPanel — cache le contenu, dispo via drawer mobile) */}
-            {/* ÉTAPE 3 : SummaryPanel + Bouton payer */}
-            {wizardStep === 3 && (
+            {/* ÉTAPE 2 : SummaryPanel + Bouton payer */}
+            {wizardStep === 2 && (
               <SummaryPanel
                 cart={cart}
                 computeUnitPrice={computeUnitPrice}
@@ -2564,218 +2470,26 @@ export default function CheckoutClient({
                 totalTTC={totalTTC}
               />
             )}
-            {wizardStep !== 1 && (
-              <>
-
-                {/* Actions Étape 2 : Formulaire de facturation + Suivant (matche maquette) */}
-                {wizardStep === 2 && (
-                  <div className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden">
-                    <div className="px-5 pt-5 pb-3">
-                      <div className="text-[11px] uppercase tracking-widest text-text-muted mb-1">
-                        {tCart("stepIndicator", { current: 3, total: 4 })}
-                      </div>
-                      <div className="font-heading text-xl font-bold text-text-primary">
-                        {t("billingContactTitle")}
-                      </div>
-                    </div>
-
-                    <div className="px-5 pb-4 space-y-5 max-h-[60vh] overflow-y-auto">
-                      {/* Section Entreprise */}
-                      <div>
-                        <div className="text-[10px] uppercase tracking-widest text-text-muted font-semibold mb-2.5">
-                          {t("companySection")}
-                        </div>
-                        <div className="space-y-2.5">
-                          <div>
-                            <label className="text-[11px] text-text-muted block mb-1">{t("addressCompany")}</label>
-                            <input
-                              type="text"
-                              value={billingInfo.company}
-                              onChange={(e) => setBillingInfo((p) => ({ ...p, company: e.target.value }))}
-                              className="field-input w-full text-sm"
-                            />
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="text-[11px] text-text-muted block mb-1">{t("billingSiret")}</label>
-                              <input
-                                type="text"
-                                value={billingInfo.siret}
-                                readOnly
-                                className="field-input w-full text-xs font-mono bg-bg-secondary text-text-muted cursor-not-allowed"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[11px] text-text-muted block mb-1">{t("vatNumberShort")}</label>
-                              <input
-                                type="text"
-                                value={billingInfo.vatNumber}
-                                onChange={(e) => setBillingInfo((p) => ({ ...p, vatNumber: e.target.value.toUpperCase() }))}
-                                className="field-input w-full text-xs font-mono"
-                                placeholder={t("vatPlaceholder")}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Section Contact */}
-                      <div>
-                        <div className="text-[10px] uppercase tracking-widest text-text-muted font-semibold mb-2.5">
-                          {t("contact")}
-                        </div>
-                        <div className="space-y-2.5">
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="text-[11px] text-text-muted block mb-1">{t("addressFirstName")}</label>
-                              <input
-                                type="text"
-                                value={billingInfo.firstName}
-                                onChange={(e) => setBillingInfo((p) => ({ ...p, firstName: e.target.value }))}
-                                className="field-input w-full text-sm"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[11px] text-text-muted block mb-1">{t("addressLastName")}</label>
-                              <input
-                                type="text"
-                                value={billingInfo.lastName}
-                                onChange={(e) => setBillingInfo((p) => ({ ...p, lastName: e.target.value }))}
-                                className="field-input w-full text-sm"
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <label className="text-[11px] text-text-muted block mb-1">
-                              {t("billingEmail")} <span className="text-error">*</span>
-                            </label>
-                            <input
-                              type="email"
-                              value={billingInfo.email}
-                              onChange={(e) => setBillingInfo((p) => ({ ...p, email: e.target.value }))}
-                              className="field-input w-full text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[11px] text-text-muted block mb-1">{t("addressPhone")}</label>
-                            <input
-                              type="tel"
-                              value={billingInfo.phone}
-                              onChange={(e) => setBillingInfo((p) => ({ ...p, phone: e.target.value }))}
-                              className="field-input w-full text-sm"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Section Adresse de facturation */}
-                      <div>
-                        <div className="text-[10px] uppercase tracking-widest text-text-muted font-semibold mb-2.5">
-                          {t("billingAddressSection")}
-                        </div>
-                        <div className="space-y-2.5">
-                          <div>
-                            <label className="text-[11px] text-text-muted block mb-1">{t("addressLine1")}</label>
-                            <input
-                              type="text"
-                              value={billingInfo.address1}
-                              onChange={(e) => setBillingInfo((p) => ({ ...p, address1: e.target.value }))}
-                              className="field-input w-full text-sm"
-                            />
-                          </div>
-                          <div className="grid grid-cols-[100px_1fr] gap-2">
-                            <div>
-                              <label className="text-[11px] text-text-muted block mb-1">{t("addressZipCode")}</label>
-                              <input
-                                type="text"
-                                value={billingInfo.zipCode}
-                                onChange={(e) => setBillingInfo((p) => ({ ...p, zipCode: e.target.value }))}
-                                className="field-input w-full text-sm"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[11px] text-text-muted block mb-1">{t("addressCity")}</label>
-                              <input
-                                type="text"
-                                value={billingInfo.city}
-                                onChange={(e) => setBillingInfo((p) => ({ ...p, city: e.target.value }))}
-                                className="field-input w-full text-sm"
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <label className="text-[11px] text-text-muted block mb-1">{t("addressCountry")}</label>
-                            <CustomSelect
-                              id="right-bi-country"
-                              value={billingInfo.country}
-                              onChange={(v) => setBillingInfo((p) => ({ ...p, country: v }))}
-                              options={countryOptions.map((c) => ({ value: c.code, label: c.label }))}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {billingError && (
-                        <div className="bg-error-bg border border-error/30 text-error text-xs px-3 py-2 rounded-lg">
-                          {billingError}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Footer avec bouton Suivant */}
-                    <div className="px-5 py-4 border-t border-border">
-                      {!step2Ready && (
-                        <div className="mb-3 p-3 bg-warning-bg border border-warning/30 text-warning rounded-lg text-xs font-body">
-                          <div className="flex items-start gap-2">
-                            <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                            </svg>
-                            <span>{t("fillBillingRequiredRight")}</span>
-                          </div>
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => { handleSaveBilling(); goToStep(3); }}
-                        disabled={!step2Ready}
-                        className="btn-primary w-full justify-center h-11 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {tCommon("next")}
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => goToStep(1)}
-                        className="w-full mt-2 py-2 text-xs text-text-muted hover:text-text-primary transition-colors"
-                      >
-                        ← {tCommon("previous")}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Actions Étape 3 : uniquement Retour (le bouton Payer est dans le form Stripe au centre) */}
-                {wizardStep === 3 && (
-                  <div className="bg-bg-primary border border-border rounded-2xl shadow-sm p-5">
-                    <div className="text-[11px] uppercase tracking-widest text-text-muted mb-2">
-                      {t("totalToPay")}
-                    </div>
-                    <div className="font-heading text-3xl font-bold text-text-primary tabular-nums mb-3">
-                      {totalTTC.toFixed(2)} <span className="text-lg text-text-muted">€ TTC</span>
-                    </div>
-                    <p className="text-[11px] text-text-muted mb-4">
-                      {t("useCentralFormToPay")}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => goToStep(2)}
-                      className="w-full py-2 text-xs text-text-muted hover:text-text-primary transition-colors"
-                    >
-                      ← {tCommon("previous")}
-                    </button>
-                  </div>
-                )}
-              </>
+            {/* ÉTAPE 2 · Actions : rappel "Total à payer" + retour vers l'étape 1 */}
+            {wizardStep === 2 && (
+              <div className="bg-bg-primary border border-border rounded-2xl shadow-sm p-5">
+                <div className="text-[11px] uppercase tracking-widest text-text-muted mb-2">
+                  {t("totalToPay")}
+                </div>
+                <div className="font-heading text-3xl font-bold text-text-primary tabular-nums mb-3">
+                  {totalTTC.toFixed(2)} <span className="text-lg text-text-muted">€ TTC</span>
+                </div>
+                <p className="text-[11px] text-text-muted mb-4">
+                  {t("useCentralFormToPay")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => goToStep(1)}
+                  className="w-full py-2 text-xs text-text-muted hover:text-text-primary transition-colors"
+                >
+                  ← {tCommon("previous")}
+                </button>
+              </div>
             )}
           </div>
         </aside>

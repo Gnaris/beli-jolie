@@ -51,20 +51,18 @@ function formatCardHolderName(input: string): string {
   return (input || "").trim().toUpperCase() || "NOM PRÉNOM";
 }
 
-// ─── Reproduit la logique canProceed du wizard ─────────────────
-// Étape 1 « Livraison » : shipping address + delivery method
-// Étape 2 « Facturation » : billing complet
-// Étape 3 « Paiement » : payment method + CGV
-function canProceedFromStep(step: 1 | 2 | 3, flags: {
+// ─── Reproduit la logique canProceed du wizard (2 étapes après fusion) ──
+// Étape 1 « Vos informations » : facturation + adresse livraison + mode/transporteur
+// Étape 2 « Paiement » : payment method + CGV
+function canProceedFromStep(step: 1 | 2, flags: {
   hasShippingAddress: boolean;
   hasDeliveryMethod: boolean;
   billingComplete: boolean;
   hasPaymentMethod: boolean;
   cgvAccepted: boolean;
 }): boolean {
-  if (step === 1) return flags.hasShippingAddress && flags.hasDeliveryMethod;
-  if (step === 2) return flags.billingComplete;
-  if (step === 3) return flags.hasPaymentMethod && flags.cgvAccepted;
+  if (step === 1) return flags.billingComplete && flags.hasShippingAddress && flags.hasDeliveryMethod;
+  if (step === 2) return flags.hasPaymentMethod && flags.cgvAccepted;
   return false;
 }
 
@@ -138,7 +136,7 @@ describe("Carte 3D — affichage du titulaire", () => {
   });
 });
 
-describe("Wizard checkout — passage d'une étape à la suivante", () => {
+describe("Wizard checkout — passage d'une étape à la suivante (2 étapes)", () => {
   const complete = {
     hasShippingAddress: true,
     hasDeliveryMethod:  true,
@@ -147,8 +145,11 @@ describe("Wizard checkout — passage d'une étape à la suivante", () => {
     cgvAccepted:        true,
   };
 
-  it("étape 1 → OK si adresse + transporteur choisis", () => {
+  it("étape 1 (Vos infos) → OK si facturation + adresse + transporteur choisis", () => {
     expect(canProceedFromStep(1, complete)).toBe(true);
+  });
+  it("étape 1 → BLOQUÉ si facturation incomplète", () => {
+    expect(canProceedFromStep(1, { ...complete, billingComplete: false })).toBe(false);
   });
   it("étape 1 → BLOQUÉ si pas d'adresse", () => {
     expect(canProceedFromStep(1, { ...complete, hasShippingAddress: false })).toBe(false);
@@ -157,20 +158,13 @@ describe("Wizard checkout — passage d'une étape à la suivante", () => {
     expect(canProceedFromStep(1, { ...complete, hasDeliveryMethod: false })).toBe(false);
   });
 
-  it("étape 2 → OK si facturation complète", () => {
+  it("étape 2 (Paiement) → OK si moyen de paiement choisi ET CGV cochées", () => {
     expect(canProceedFromStep(2, complete)).toBe(true);
   });
-  it("étape 2 → BLOQUÉ si facturation incomplète", () => {
-    expect(canProceedFromStep(2, { ...complete, billingComplete: false })).toBe(false);
+  it("étape 2 → BLOQUÉ si CGV non cochées", () => {
+    expect(canProceedFromStep(2, { ...complete, cgvAccepted: false })).toBe(false);
   });
-
-  it("étape 3 → OK si moyen de paiement choisi ET CGV cochées", () => {
-    expect(canProceedFromStep(3, complete)).toBe(true);
-  });
-  it("étape 3 → BLOQUÉ si CGV non cochées", () => {
-    expect(canProceedFromStep(3, { ...complete, cgvAccepted: false })).toBe(false);
-  });
-  it("étape 3 → BLOQUÉ si pas de moyen de paiement", () => {
-    expect(canProceedFromStep(3, { ...complete, hasPaymentMethod: false })).toBe(false);
+  it("étape 2 → BLOQUÉ si pas de moyen de paiement", () => {
+    expect(canProceedFromStep(2, { ...complete, hasPaymentMethod: false })).toBe(false);
   });
 });

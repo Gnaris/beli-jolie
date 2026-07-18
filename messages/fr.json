@@ -407,6 +407,7 @@
     "stepConfirmation": "Confirmation",
     "stepDelivery": "Livraison",
     "stepBilling": "Facturation",
+    "stepInfo": "Vos informations",
     "stepPayment": "Paiement",
     "stepIndicator": "Étape {current} / {total}",
     "categoryItemsCount": "{count} article",

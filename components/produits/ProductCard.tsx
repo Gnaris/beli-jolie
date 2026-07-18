@@ -262,8 +262,9 @@ export default function ProductCard({
         }
         setAddedMsg(t("added"));
         setTimeout(() => setAddedMsg(""), 2500);
-      } catch {
-        setAddError(t("errorAddToCart"));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "";
+        setAddError(message || t("errorAddToCart"));
       }
     });
   }

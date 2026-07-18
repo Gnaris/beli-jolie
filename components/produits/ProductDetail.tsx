@@ -8,6 +8,7 @@ import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { addToCart } from "@/app/actions/client/cart";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+import { useToast } from "@/components/ui/Toast";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 
 interface VariantData {
@@ -148,6 +149,7 @@ export default function ProductDetail({
   const { tp, tc } = useProductTranslation();
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
+  const toast = useToast();
 
   // Couleurs ayant au moins une image — on masque les autres côté client
   // (la couleur reste utilisable en admin, mais ne s'affiche pas tant que
@@ -273,8 +275,13 @@ export default function ProductDetail({
         setAddedOptId(variantId);
         router.refresh();
         setTimeout(() => setAddedOptId(null), 2000);
-      } catch {
-        router.push("/connexion");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "";
+        if (message === "Non authentifié.") {
+          router.push("/connexion");
+        } else {
+          toast.error("Ajout au panier impossible", message || "Une erreur est survenue.");
+        }
       } finally {
         hideLoading();
       }
