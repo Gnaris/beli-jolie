@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import Pagination from "@/components/ui/Pagination";
 import PerPageSelect from "@/components/ui/PerPageSelect";
+import { countryFlagUrl, countryName } from "@/lib/countries";
 import AdminCardDrawer, { type AdminClientCardForDrawer } from "./AdminCardDrawer";
 
 interface Props {
@@ -17,8 +18,9 @@ interface Props {
     EFASHION: number;
     FAIRE: number;
     MICROSTORE: number;
+    PASSAGE: number;
   };
-  currentFilter: "ALL" | "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" | "MICROSTORE";
+  currentFilter: "ALL" | "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" | "MICROSTORE" | "PASSAGE";
   currentPage: number;
   perPage: number;
   search: string;
@@ -30,6 +32,7 @@ const MARKETPLACES = [
   { key: "EFASHION" as const, label: "eFashion", initial: "E", gradient: "linear-gradient(135deg,#db2777,#ec4899)" },
   { key: "FAIRE" as const, label: "Faire", initial: "F", gradient: "linear-gradient(135deg,#f59e0b,#fbbf24)" },
   { key: "MICROSTORE" as const, label: "Microstore", initial: "M", gradient: "linear-gradient(135deg,#64748b,#334155)" },
+  { key: "PASSAGE" as const, label: "Passage", initial: "Pa", gradient: "linear-gradient(135deg,#0d9488,#14b8a6)" },
 ];
 
 const FILTERS = [
@@ -39,6 +42,7 @@ const FILTERS = [
   { value: "EFASHION" as const, label: "eFashion" },
   { value: "FAIRE" as const, label: "Faire" },
   { value: "MICROSTORE" as const, label: "Microstore" },
+  { value: "PASSAGE" as const, label: "Passage" },
 ];
 
 function formatDate(v: string | null): string {
@@ -90,6 +94,20 @@ export default function AdminCardsPane({
 
   const [editing, setEditing] = useState<AdminClientCardForDrawer | "new" | null>(null);
   const [searchInput, setSearchInput] = useState(search);
+
+  // Ouverture automatique du drawer via ?card=<id> (deep link depuis /admin/commandes tab PFS)
+  useEffect(() => {
+    const cardParam = searchParams.get("card");
+    if (!cardParam) return;
+    const match = cards.find((c) => c.id === cardParam);
+    if (match) {
+      setEditing(match);
+      // Consomme le param pour éviter la ré-ouverture au prochain refresh
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("card");
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    }
+  }, [searchParams, cards, pathname, router]);
 
   const clientFilteredCards = useMemo(() => {
     if (!searchInput.trim()) return cards;
@@ -231,7 +249,8 @@ export default function AdminCardsPane({
                       if (mp.key === "ANKORSTORE") return c.hasAnkorstore;
                       if (mp.key === "EFASHION") return c.hasEfashion;
                       if (mp.key === "FAIRE") return c.hasFaire;
-                      return c.hasMicrostore;
+                      if (mp.key === "MICROSTORE") return c.hasMicrostore;
+                      return c.hasPassage;
                     });
                     return (
                       <tr
@@ -255,6 +274,22 @@ export default function AdminCardsPane({
                           <p className="text-xs font-body text-text-muted truncate max-w-xs">
                             {[c.email, c.phone].filter(Boolean).join(" · ") || "—"}
                           </p>
+                          {(c.city || c.countryCode) && (
+                            <p className="text-[11px] font-body text-text-muted truncate max-w-xs inline-flex items-center gap-1.5 mt-0.5">
+                              {c.countryCode && (
+                                <img
+                                  src={countryFlagUrl(c.countryCode)}
+                                  alt=""
+                                  width={16}
+                                  height={12}
+                                  className="rounded-[2px] shadow-[0_0_0_1px_rgba(15,23,42,0.08)] object-cover shrink-0"
+                                />
+                              )}
+                              <span className="truncate">
+                                {[c.city, countryName(c.countryCode)].filter(Boolean).join(" · ")}
+                              </span>
+                            </p>
+                          )}
                         </td>
                         <td className="px-5 py-3.5">
                           {mps.length === 0 ? (
@@ -346,7 +381,8 @@ export default function AdminCardsPane({
                 if (mp.key === "ANKORSTORE") return c.hasAnkorstore;
                 if (mp.key === "EFASHION") return c.hasEfashion;
                 if (mp.key === "FAIRE") return c.hasFaire;
-                return c.hasMicrostore;
+                if (mp.key === "MICROSTORE") return c.hasMicrostore;
+                return c.hasPassage;
               });
               return (
                 <button

@@ -122,6 +122,22 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de polling des commandes PFS. Tick 5 min.
+  // Récupère uniquement le résumé (page 1) puis re-fetch le détail des
+  // commandes nouvelles ou dont le statut a changé. Lecture seule côté PFS.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startPfsOrdersWorker } = await import("@/lib/pfs-orders-worker");
+        startPfsOrdersWorker();
+      } catch (err) {
+        logger.error("[PFS Orders] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

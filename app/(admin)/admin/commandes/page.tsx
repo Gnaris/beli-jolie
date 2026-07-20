@@ -4,7 +4,11 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireCurrentTenant } from "@/lib/tenant";
 import ExportOrdersButton from "@/components/admin/orders/ExportOrdersButton";
+import OrdersTabsNav from "@/components/admin/orders/OrdersTabsNav";
+import PfsOrdersView from "@/components/admin/orders/pfs/PfsOrdersView";
+import { getPfsSyncMeta } from "@/app/actions/admin/pfs-orders";
 
 export const metadata: Metadata = { title: "Commandes — Admin" };
 
@@ -20,13 +24,37 @@ const PER_PAGE = 30;
 export default async function AdminCommandesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; q?: string; page?: string }>;
+  searchParams: Promise<{ status?: string; q?: string; page?: string; source?: string }>;
 }) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
-  const { status, q, page: pageParam = "1" } = await searchParams;
+  const { status, q, page: pageParam = "1", source } = await searchParams;
   const currentPage = Math.max(1, parseInt(pageParam));
+  const activeTab: "boutique" | "pfs" = source === "pfs" ? "pfs" : "boutique";
+
+  const tenant = await requireCurrentTenant();
+  const [totalBoutique, totalPfs] = await Promise.all([
+    prisma.order.count({ where: { tenantId: tenant.id } }),
+    prisma.pfsOrder.count({ where: { tenantId: tenant.id } }),
+  ]);
+
+  if (activeTab === "pfs") {
+    const syncMeta = await getPfsSyncMeta();
+    return (
+      <div className="space-y-6">
+        <header>
+          <div className="text-xs uppercase tracking-[0.2em] text-text-muted">Ventes</div>
+          <h1 className="font-heading text-3xl font-bold text-text-primary mt-1">Commandes</h1>
+          <p className="text-sm text-text-secondary mt-1">
+            Ventes boutique et commandes récupérées de Paris Fashion Shop.
+          </p>
+        </header>
+        <OrdersTabsNav boutiqueCount={totalBoutique} pfsCount={totalPfs} />
+        <PfsOrdersView initialSyncMeta={syncMeta} />
+      </div>
+    );
+  }
 
   const where = {
     ...(status ? { status: status as never } : {}),
@@ -117,6 +145,7 @@ export default async function AdminCommandesPage({
 
   return (
     <div className="space-y-6">
+      <OrdersTabsNav boutiqueCount={totalBoutique} pfsCount={totalPfs} />
       {/* ── HERO ── */}
       <section
         className="relative rounded-3xl border border-border p-6 md:p-8 overflow-hidden"

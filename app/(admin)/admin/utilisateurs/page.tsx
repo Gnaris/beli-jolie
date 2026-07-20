@@ -645,8 +645,8 @@ async function loadAdminCards(
   page: number,
   perPage: number,
 ) {
-  const filter = (["PFS", "ANKORSTORE", "EFASHION", "FAIRE", "MICROSTORE"] as const).includes(params.mp as never)
-    ? (params.mp as "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" | "MICROSTORE")
+  const filter = (["PFS", "ANKORSTORE", "EFASHION", "FAIRE", "MICROSTORE", "PASSAGE"] as const).includes(params.mp as never)
+    ? (params.mp as "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" | "MICROSTORE" | "PASSAGE")
     : ("ALL" as const);
   const q = (params.q ?? "").trim();
 
@@ -661,6 +661,8 @@ async function loadAdminCards(
       ? { hasFaire: true }
       : filter === "MICROSTORE"
       ? { hasMicrostore: true }
+      : filter === "PASSAGE"
+      ? { hasPassage: true }
       : {};
 
   const searchFilter: Prisma.AdminClientCardWhereInput = q
@@ -686,6 +688,7 @@ async function loadAdminCards(
     efashion,
     faire,
     microstore,
+    passage,
   ] = await Promise.all([
     prisma.adminClientCard.findMany({
       where,
@@ -700,6 +703,7 @@ async function loadAdminCards(
     prisma.adminClientCard.count({ where: { AND: [{ hasEfashion: true }, searchFilter] } }),
     prisma.adminClientCard.count({ where: { AND: [{ hasFaire: true }, searchFilter] } }),
     prisma.adminClientCard.count({ where: { AND: [{ hasMicrostore: true }, searchFilter] } }),
+    prisma.adminClientCard.count({ where: { AND: [{ hasPassage: true }, searchFilter] } }),
   ]);
 
   return {
@@ -713,12 +717,16 @@ async function loadAdminCards(
       email: c.email,
       phone: c.phone,
       website: c.website,
-      address: c.address,
+      addressLine: c.addressLine ?? c.address, // Fallback : legacy address si nouveau champ vide
+      postalCode: c.postalCode,
+      city: c.city,
+      countryCode: c.countryCode,
       hasPfs: c.hasPfs,
       hasAnkorstore: c.hasAnkorstore,
       hasEfashion: c.hasEfashion,
       hasFaire: c.hasFaire,
       hasMicrostore: c.hasMicrostore,
+      hasPassage: c.hasPassage,
       lastOrderAt: c.lastOrderAt?.toISOString() ?? null,
       lastMessageSentAt: c.lastMessageSentAt?.toISOString() ?? null,
       orderDiscountType: c.orderDiscountType,
@@ -727,6 +735,8 @@ async function loadAdminCards(
       shippingDiscountType: c.shippingDiscountType,
       shippingDiscountValue: c.shippingDiscountValue ? c.shippingDiscountValue.toString() : null,
       note: c.note,
+      pfsCustomerId: c.pfsCustomerId,
+      importedFromMarketplace: c.importedFromMarketplace,
     })),
     filteredCount,
     filter,
@@ -737,6 +747,7 @@ async function loadAdminCards(
       EFASHION: efashion,
       FAIRE: faire,
       MICROSTORE: microstore,
+      PASSAGE: passage,
     },
     search: q,
   };

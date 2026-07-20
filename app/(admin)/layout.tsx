@@ -18,6 +18,7 @@ import { RefreshWarningProvider } from "@/components/admin/products/RecentlyRefr
 import { IneligibleRefreshProvider } from "@/components/admin/products/IneligibleRefreshModal";
 import { RefreshMarketplacePromptProvider } from "@/components/admin/products/RefreshMarketplaceDialog";
 import { AdminWidgetsRail } from "@/components/admin/widgets-rail";
+import PfsImportPill from "@/components/admin/orders/pfs/PfsImportPill";
 import { getCachedSiteConfig, getCachedPfsCredentials } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
@@ -148,6 +149,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </AdminDesktopShell>
 
       <AdminChatWidgetLoader />
+      <PfsImportPill />
     </div>
     </AdminWidgetsRail>
     </RefreshMarketplacePromptProvider>

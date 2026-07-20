@@ -39,12 +39,16 @@ const baseInput = {
   email: null,
   phone: null,
   website: null,
-  address: null,
+  addressLine: null,
+  postalCode: null,
+  city: null,
+  countryCode: null,
   hasPfs: true,
   hasAnkorstore: false,
   hasEfashion: false,
   hasFaire: false,
   hasMicrostore: true,
+  hasPassage: false,
   lastOrderAt: null,
   lastMessageSentAt: null,
   orderDiscountType: null,
@@ -79,6 +83,7 @@ describe("createAdminClientCard", () => {
     expect(arg.data.lastName).toBe("Lambert");
     expect(arg.data.hasPfs).toBe(true);
     expect(arg.data.hasMicrostore).toBe(true);
+    expect(arg.data.hasPassage).toBe(false);
     expect(arg.data.hasAnkorstore).toBe(false);
     expect(arg.data.createdById).toBe("admin-1");
     expect(arg.data.tenantId).toBe("tenant-1");
@@ -142,11 +147,54 @@ describe("createAdminClientCard", () => {
     expect(mockCreate).toHaveBeenCalledOnce();
   });
 
+  it("enregistre hasPassage à true quand le client vient en boutique", async () => {
+    mockCreate.mockResolvedValue({ id: "card-passage" });
+    await createAdminClientCard({ ...baseInput, hasPassage: true });
+    const arg = mockCreate.mock.calls[0][0];
+    expect(arg.data.hasPassage).toBe(true);
+  });
+
   it("parse la date dernière commande depuis un string ISO date", async () => {
     mockCreate.mockResolvedValue({ id: "card-6" });
     await createAdminClientCard({ ...baseInput, lastOrderAt: "2026-07-14" });
     const arg = mockCreate.mock.calls[0][0];
     expect(arg.data.lastOrderAt).toBeInstanceOf(Date);
+  });
+
+  it("enregistre les 4 champs d'adresse structurée", async () => {
+    mockCreate.mockResolvedValue({ id: "card-addr" });
+    await createAdminClientCard({
+      ...baseInput,
+      addressLine: "12 rue des Lilas",
+      postalCode: "75001",
+      city: "Paris",
+      countryCode: "FR",
+    });
+    const arg = mockCreate.mock.calls[0][0];
+    expect(arg.data.addressLine).toBe("12 rue des Lilas");
+    expect(arg.data.postalCode).toBe("75001");
+    expect(arg.data.city).toBe("Paris");
+    expect(arg.data.countryCode).toBe("FR");
+  });
+
+  it("normalise le code pays en majuscules", async () => {
+    mockCreate.mockResolvedValue({ id: "card-lc" });
+    await createAdminClientCard({ ...baseInput, countryCode: "be" });
+    const arg = mockCreate.mock.calls[0][0];
+    expect(arg.data.countryCode).toBe("BE");
+  });
+
+  it("refuse un code pays inconnu", async () => {
+    await expect(
+      createAdminClientCard({ ...baseInput, countryCode: "ZZ" }),
+    ).rejects.toThrow(/pays/i);
+  });
+
+  it("accepte countryCode null (pays non renseigné)", async () => {
+    mockCreate.mockResolvedValue({ id: "card-nocountry" });
+    await createAdminClientCard({ ...baseInput, countryCode: null });
+    const arg = mockCreate.mock.calls[0][0];
+    expect(arg.data.countryCode).toBeNull();
   });
 });
 

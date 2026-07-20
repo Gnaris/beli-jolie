@@ -3,12 +3,14 @@
 import { useEffect, useState, useTransition } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import CountryCombobox from "@/components/ui/CountryCombobox";
 import {
   createAdminClientCard,
   updateAdminClientCard,
   deleteAdminClientCard,
   type AdminClientCardInput,
 } from "@/app/actions/admin/admin-client-cards";
+import AdminCardPfsOrdersSection from "./AdminCardPfsOrdersSection";
 
 export interface AdminClientCardForDrawer {
   id: string;
@@ -20,12 +22,16 @@ export interface AdminClientCardForDrawer {
   email: string | null;
   phone: string | null;
   website: string | null;
-  address: string | null;
+  addressLine: string | null;
+  postalCode: string | null;
+  city: string | null;
+  countryCode: string | null;
   hasPfs: boolean;
   hasAnkorstore: boolean;
   hasEfashion: boolean;
   hasFaire: boolean;
   hasMicrostore: boolean;
+  hasPassage: boolean;
   lastOrderAt: string | null;
   lastMessageSentAt: string | null;
   orderDiscountType: "PERCENT" | "AMOUNT" | null;
@@ -34,6 +40,8 @@ export interface AdminClientCardForDrawer {
   shippingDiscountType: "PERCENT" | "AMOUNT" | null;
   shippingDiscountValue: string | null;
   note: string | null;
+  pfsCustomerId: string | null;
+  importedFromMarketplace: string | null;
 }
 
 interface Props {
@@ -60,6 +68,7 @@ const MARKETPLACES = [
   { key: "hasEfashion", label: "eFashion", initial: "E", gradient: "linear-gradient(135deg,#db2777,#ec4899)" },
   { key: "hasFaire", label: "Faire", initial: "F", gradient: "linear-gradient(135deg,#f59e0b,#fbbf24)" },
   { key: "hasMicrostore", label: "Microstore", initial: "M", gradient: "linear-gradient(135deg,#64748b,#334155)" },
+  { key: "hasPassage", label: "Passage", initial: "Pa", gradient: "linear-gradient(135deg,#0d9488,#14b8a6)" },
 ] as const;
 
 export default function AdminCardDrawer({ mode, card, onClose }: Props) {
@@ -76,12 +85,16 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
   const [email, setEmail] = useState(card?.email ?? "");
   const [phone, setPhone] = useState(card?.phone ?? "");
   const [website, setWebsite] = useState(card?.website ?? "");
-  const [address, setAddress] = useState(card?.address ?? "");
+  const [addressLine, setAddressLine] = useState(card?.addressLine ?? "");
+  const [postalCode, setPostalCode] = useState(card?.postalCode ?? "");
+  const [city, setCity] = useState(card?.city ?? "");
+  const [countryCode, setCountryCode] = useState<string | null>(card?.countryCode ?? (mode === "create" ? "FR" : null));
   const [hasPfs, setHasPfs] = useState(card?.hasPfs ?? false);
   const [hasAnkorstore, setHasAnkorstore] = useState(card?.hasAnkorstore ?? false);
   const [hasEfashion, setHasEfashion] = useState(card?.hasEfashion ?? false);
   const [hasFaire, setHasFaire] = useState(card?.hasFaire ?? false);
   const [hasMicrostore, setHasMicrostore] = useState(card?.hasMicrostore ?? false);
+  const [hasPassage, setHasPassage] = useState(card?.hasPassage ?? false);
   const [lastOrderAt, setLastOrderAt] = useState(toDateInput(card?.lastOrderAt ?? null));
   const [lastMessageSentAt, setLastMessageSentAt] = useState(toDateInput(card?.lastMessageSentAt ?? null));
 
@@ -112,13 +125,14 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
     };
   }, [onClose]);
 
-  const marketplaceValues = { hasPfs, hasAnkorstore, hasEfashion, hasFaire, hasMicrostore };
+  const marketplaceValues = { hasPfs, hasAnkorstore, hasEfashion, hasFaire, hasMicrostore, hasPassage };
   const marketplaceSetters = {
     hasPfs: setHasPfs,
     hasAnkorstore: setHasAnkorstore,
     hasEfashion: setHasEfashion,
     hasFaire: setHasFaire,
     hasMicrostore: setHasMicrostore,
+    hasPassage: setHasPassage,
   } as const;
 
   function buildInput(): AdminClientCardInput {
@@ -131,12 +145,16 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
       email: email || null,
       phone: phone || null,
       website: website || null,
-      address: address || null,
+      addressLine: addressLine || null,
+      postalCode: postalCode || null,
+      city: city || null,
+      countryCode: countryCode || null,
       hasPfs,
       hasAnkorstore,
       hasEfashion,
       hasFaire,
       hasMicrostore,
+      hasPassage,
       lastOrderAt: lastOrderAt || null,
       lastMessageSentAt: lastMessageSentAt || null,
       orderDiscountType: orderDiscountEnabled ? orderDiscountType : null,
@@ -214,11 +232,22 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
                 Fiche client admin
               </p>
               <h2 className="font-heading text-2xl font-bold text-white mt-1">
-                {mode === "create" ? "Nouvelle fiche" : `${card?.firstName} ${card?.lastName}`}
+                {mode === "create" ? "Nouvelle fiche" : `${card?.firstName ?? ""} ${card?.lastName ?? ""}`.trim() || card?.company || "Client"}
               </h2>
               <p className="text-xs text-violet-200 mt-1">
                 Répertoire personnel — visible uniquement par vous
               </p>
+              {card?.importedFromMarketplace === "PFS" && (
+                <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/15 border border-white/25 px-2 py-0.5 text-[11px] text-white">
+                  <span
+                    className="w-3.5 h-3.5 rounded-sm text-white text-[9px] font-heading font-bold flex items-center justify-center"
+                    style={{ background: "linear-gradient(135deg,#4f46e5,#6366f1)" }}
+                  >
+                    P
+                  </span>
+                  Importée automatiquement depuis Paris Fashion Shop
+                </div>
+              )}
             </div>
             <button
               type="button"
@@ -276,10 +305,23 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
                 <input type="url" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" className="field" />
               </Field>
               <Field label="Adresse" className="col-span-2">
-                <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Rue, code postal, ville, pays" className="field" />
+                <input value={addressLine} onChange={(e) => setAddressLine(e.target.value)} placeholder="12 rue des Lilas" className="field" />
+              </Field>
+              <Field label="Code postal">
+                <input value={postalCode} onChange={(e) => setPostalCode(e.target.value)} placeholder="75001" className="field font-mono" />
+              </Field>
+              <Field label="Ville">
+                <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Paris" className="field" />
+              </Field>
+              <Field label="Pays" className="col-span-2">
+                <CountryCombobox value={countryCode} onChange={setCountryCode} />
               </Field>
             </div>
           </section>
+
+          {mode === "edit" && card?.id && (
+            <AdminCardPfsOrdersSection cardId={card.id} hasPfs={card.hasPfs || Boolean(card.pfsCustomerId)} />
+          )}
 
           {/* Marketplaces */}
           <section className="space-y-3">

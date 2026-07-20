@@ -6,6 +6,7 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireCurrentTenant } from "@/lib/tenant";
+import { isKnownCountry } from "@/lib/countries";
 import type { ClientDiscountType } from "@prisma/client";
 
 async function requireAdmin() {
@@ -27,12 +28,22 @@ const cardSchema = z.object({
   email: z.union([z.string().trim().email("Email invalide."), z.literal("")]).optional().nullable(),
   phone: z.string().trim().max(64).optional().nullable(),
   website: z.string().trim().max(512).optional().nullable(),
-  address: z.string().trim().max(1024).optional().nullable(),
+  addressLine: z.string().trim().max(1024).optional().nullable(),
+  postalCode: z.string().trim().max(32).optional().nullable(),
+  city: z.string().trim().max(255).optional().nullable(),
+  countryCode: z
+    .string()
+    .trim()
+    .transform((v) => v.toUpperCase())
+    .refine((v) => v === "" || isKnownCountry(v), "Pays inconnu.")
+    .optional()
+    .nullable(),
   hasPfs: z.boolean().optional(),
   hasAnkorstore: z.boolean().optional(),
   hasEfashion: z.boolean().optional(),
   hasFaire: z.boolean().optional(),
   hasMicrostore: z.boolean().optional(),
+  hasPassage: z.boolean().optional(),
   lastOrderAt: z.string().optional().nullable(),
   lastMessageSentAt: z.string().optional().nullable(),
   orderDiscountType: discountTypeSchema,
@@ -73,12 +84,16 @@ function toPrismaData(input: z.infer<typeof cardSchema>) {
     email: toNullString(input.email),
     phone: toNullString(input.phone),
     website: toNullString(input.website),
-    address: toNullString(input.address),
+    addressLine: toNullString(input.addressLine),
+    postalCode: toNullString(input.postalCode),
+    city: toNullString(input.city),
+    countryCode: toNullString(input.countryCode),
     hasPfs: !!input.hasPfs,
     hasAnkorstore: !!input.hasAnkorstore,
     hasEfashion: !!input.hasEfashion,
     hasFaire: !!input.hasFaire,
     hasMicrostore: !!input.hasMicrostore,
+    hasPassage: !!input.hasPassage,
     lastOrderAt: parseDate(input.lastOrderAt),
     lastMessageSentAt: parseDate(input.lastMessageSentAt),
     orderDiscountType: orderType,

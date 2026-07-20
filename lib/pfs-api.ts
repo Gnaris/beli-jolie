@@ -187,7 +187,7 @@ class PfsNonRetryableError extends Error {
   }
 }
 
-async function fetchWithRetry(
+export async function fetchWithRetry(
   url: string,
   options: RequestInit,
   maxRetries = 5,

@@ -30,7 +30,7 @@ import HsCodeModal from "@/components/admin/codes-sh/HsCodeModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
-import { useEfashionShootingBatch } from "./EfashionShootingBatchContext";
+import { useRefreshMarketplacePrompt } from "./RefreshMarketplaceDialog";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
 import { useProductFormHeader } from "./ProductFormHeaderContext";
 import { getImageSrc } from "@/lib/image-utils";
@@ -720,6 +720,7 @@ export default function ProductForm({
   const { confirm: confirmDialog } = useConfirm();
   const toast = useToast();
   const { enqueue: enqueuePublish } = useMarketplaceRefreshQueue();
+  const { ask: askMarketplaceOptions } = useRefreshMarketplacePrompt();
 
   const handleSaveNote = async () => {
     if (!productId || noteSaving) return;
@@ -736,11 +737,6 @@ export default function ProductForm({
       setNoteSaving(false);
     }
   };
-  // eFashion : la création (ou refresh) d'un produit pas encore lié crée un
-  // ticket de shooting côté eFashion. Pour éviter le spam de tickets, ces
-  // opérations partent dans une file d'attente (validation manuelle de
-  // l'utilisatrice) au lieu d'enqueue direct.
-  const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
   const initialSnapshot = useRef<string | null>(null);
   // Snapshot parallèle qui ne capture QUE les champs marketplace-pertinents
   // (exclut mots-clés, sous-catégories, produits similaires, contenu de
@@ -2057,8 +2053,6 @@ export default function ProductForm({
         marketplaceFieldsChanged;
 
       if (canPublish && savedProductId) {
-        const willBeDraftOnPfs = !alreadyOnPfs && finalStatus === "OFFLINE";
-
         // ── Détection des conflits de mapping PFS sur les variantes saisies ──
         // Si conflit, la case PFS est filtrée (impossible de publier tant que ce
         // n'est pas résolu) et un toast explicatif est affiché à la place.
@@ -2118,100 +2112,19 @@ export default function ProductForm({
         const efashionConflicts = detectEfashionColorConflicts(efashionConflictItems);
         const hasEfashionConflict = efashionConflicts.length > 0;
 
-        const pfsRef = { current: false };
-        const ankorstoreRef = { current: false };
-        const efashionRef = { current: false };
-        const faireRef = { current: false };
-        const checkboxes: {
-          id: string;
-          label: string;
-          defaultChecked: boolean;
-          disabled?: boolean;
-          hint?: string;
-          onChange: (v: boolean) => void;
-        }[] = [];
         const isArchivingNow = finalStatus === "ARCHIVED";
 
-        if (hasPfsConfig && !hasPfsConflict) {
-          const pfsLabel = isArchivingNow && alreadyOnPfs
-            ? "Archiver aussi sur Paris Fashion Shop"
-            : alreadyOnPfs
-              ? "Mettre à jour sur Paris Fashion Shop"
-              : willBeDraftOnPfs
-                ? "Publier en brouillon sur Paris Fashion Shop"
-                : "Publier sur Paris Fashion Shop";
-          // Marketplace non liée → case désactivée avec hint (la 1ʳᵉ
-          // publication doit se faire explicitement depuis le badge de la fiche).
-          const pfsDisabled = !alreadyOnPfs;
-          const pfsDefaultChecked = !pfsDisabled && (!isArchivingNow || alreadyOnPfs);
-          pfsRef.current = pfsDefaultChecked;
-          checkboxes.push({
-            id: "pfs",
-            label: pfsLabel,
-            defaultChecked: pfsDefaultChecked,
-            disabled: pfsDisabled,
-            hint: pfsDisabled
-              ? "Produit non lié — utilisez le bouton « Lier » ou « Publier » sur la fiche"
-              : undefined,
-            onChange: (v) => {
-              pfsRef.current = v;
-            },
-          });
-        } else if (hasPfsConfig && hasPfsConflict) {
-          // On ne peut pas afficher la case PFS en grisé via ConfirmDialog
-          // (pas de support disabled). On filtre la case et on prévient via
-          // setError pour que la cliente comprenne pourquoi PFS n'apparaît pas.
+        // Signale les conflits mapping via setError : la case correspondante
+        // n'apparaîtra pas dans la modale, mais la cliente doit savoir qu'un
+        // mapping bloque une future publication.
+        if (hasPfsConfig && hasPfsConflict) {
           setError(
             "Publication PFS bloquée — " +
               formatConflictsMessage(pfsConflicts) +
               " Définissez un mapping secondaire différent dans la section « Mapping Paris Fashion Shop ».",
           );
         }
-        if (showAnkorstore) {
-          const akLabel = isArchivingNow && alreadyOnAnkorstore
-            ? "Mettre hors ligne sur Ankorstore (stock à 0)"
-            : alreadyOnAnkorstore
-              ? "Mettre à jour sur Ankorstore"
-              : "Publier sur Ankorstore";
-          const akDisabled = !alreadyOnAnkorstore;
-          const akDefaultChecked = !akDisabled && (!isArchivingNow || alreadyOnAnkorstore);
-          ankorstoreRef.current = akDefaultChecked;
-          checkboxes.push({
-            id: "ankorstore",
-            label: akLabel,
-            defaultChecked: akDefaultChecked,
-            disabled: akDisabled,
-            hint: akDisabled
-              ? "Produit non lié — utilisez le bouton « Lier » ou « Publier » sur la fiche"
-              : undefined,
-            onChange: (v) => {
-              ankorstoreRef.current = v;
-            },
-          });
-        }
-
-        if (showEfashion && !hasEfashionConflict) {
-          const efLabel = isArchivingNow && alreadyOnEfashion
-            ? "Mettre hors ligne sur eFashion Paris (stock à 0)"
-            : alreadyOnEfashion
-              ? "Mettre à jour sur eFashion Paris"
-              : "Publier sur eFashion Paris";
-          const efDisabled = !alreadyOnEfashion;
-          const efDefaultChecked = !efDisabled && (!isArchivingNow || alreadyOnEfashion);
-          efashionRef.current = efDefaultChecked;
-          checkboxes.push({
-            id: "efashion",
-            label: efLabel,
-            defaultChecked: efDefaultChecked,
-            disabled: efDisabled,
-            hint: efDisabled
-              ? "Produit non lié — utilisez le bouton « Lier » ou « Publier » sur la fiche"
-              : undefined,
-            onChange: (v) => {
-              efashionRef.current = v;
-            },
-          });
-        } else if (showEfashion && hasEfashionConflict) {
+        if (showEfashion && hasEfashionConflict) {
           setError(
             "Publication eFashion bloquée — " +
               formatEfashionConflictsMessage(efashionConflicts) +
@@ -2219,94 +2132,73 @@ export default function ProductForm({
           );
         }
 
-        if (showFaire) {
-          const faireLabel = isArchivingNow && alreadyOnFaire
-            ? "Archiver aussi sur Faire (lifecycle RETIRED)"
-            : alreadyOnFaire
-              ? "Mettre à jour sur Faire"
-              : "Publier sur Faire (en brouillon)";
-          const faireDisabled = !alreadyOnFaire;
-          const faireDefaultChecked = !faireDisabled && (!isArchivingNow || alreadyOnFaire);
-          faireRef.current = faireDefaultChecked;
-          checkboxes.push({
-            id: "faire",
-            label: faireLabel,
-            defaultChecked: faireDefaultChecked,
-            disabled: faireDisabled,
-            hint: faireDisabled
-              ? "Produit non lié — utilisez le bouton « Lier » ou « Publier » sur la fiche"
-              : undefined,
-            onChange: (v) => {
-              faireRef.current = v;
-            },
+        // On ne propose que les marketplaces déjà liées — la 1ʳᵉ publication
+        // passe par le badge de la fiche, jamais par la modale de save.
+        const showPfsCase = hasPfsConfig && !hasPfsConflict && alreadyOnPfs;
+        const showAnkorstoreCase = showAnkorstore && alreadyOnAnkorstore;
+        const showEfashionCase =
+          showEfashion && !hasEfashionConflict && alreadyOnEfashion;
+        const showFaireCase = showFaire && alreadyOnFaire;
+
+        if (
+          showPfsCase ||
+          showAnkorstoreCase ||
+          showEfashionCase ||
+          showFaireCase
+        ) {
+          const options = await askMarketplaceOptions({
+            count: 1,
+            firstProductName: payload.name,
+            productIds: [savedProductId],
+            showPfs: showPfsCase,
+            showAnkorstore: showAnkorstoreCase,
+            showEfashion: showEfashionCase,
+            showFaire: showFaireCase,
+            showBoutique: false,
+            defaultAllChecked: true,
+            title: isArchivingNow
+              ? "Propager l'archivage aux marketplaces ?"
+              : "Publier sur les marketplaces ?",
+            subtitle: isArchivingNow
+              ? "Cochez les marketplaces où mettre le produit hors ligne."
+              : "Cochez les marketplaces où renvoyer les modifications.",
+            eyebrow: isArchivingNow ? "Archivage" : "Publier",
+            confirmLabel: isArchivingNow ? "Propager" : "Publier",
           });
-        }
 
-        // Le titre suit ce qui est réellement présent dans la modale
-        // (et pas seulement ce qui est configuré côté serveur). Sinon, quand
-        // la case PFS est retirée à cause d'un conflit, on continue d'afficher
-        // « Mettre à jour sur Paris Fashion Shop ? » alors que seule la case
-        // Ankorstore est cochable.
-        const hasPfsCheckbox = checkboxes.some((c) => c.id === "pfs");
-        const dialogTitle = isArchivingNow
-          ? "Propager l'archivage aux marketplaces ?"
-          : checkboxes.length > 1
-            ? "Publier sur les marketplaces ?"
-            : hasPfsCheckbox
-              ? alreadyOnPfs
-                ? "Mettre à jour sur Paris Fashion Shop ?"
-                : willBeDraftOnPfs
-                  ? "Publier en brouillon sur Paris Fashion Shop ?"
-                  : "Publier sur Paris Fashion Shop ?"
-              : alreadyOnAnkorstore
-                ? "Mettre à jour sur Ankorstore ?"
-                : "Publier sur Ankorstore ?";
-
-        const ok = await confirmDialog({
-          type: "info",
-          title: dialogTitle,
-          message:
-            "Cochez les marketplaces où vous souhaitez envoyer le produit. Vous pouvez aussi le faire plus tard depuis la fiche du produit.",
-          checkboxesLabel: "Marketplaces",
-          checkboxes,
-          confirmLabel: "Publier",
-          cancelLabel: "Plus tard",
-        });
-
-        if (ok === true) {
-          // Utilise les paths résolus après upload (le state setColorImages
-          // n'est peut-être pas encore rejoué) et ignore les slots restés vides.
-          const firstImagePath = resolvedColorImages[0]?.uploadedPaths.find((p) => p && p.length > 0) ?? null;
-          const inputs: Parameters<typeof enqueuePublish>[0] = [];
-          if (pfsRef.current) {
-            inputs.push({
-              productId: savedProductId,
-              reference: payload.reference,
-              productName: payload.name,
-              firstImage: firstImagePath,
-              options: { local: false, pfs: true },
-              mode: "publish",
-              marketplace: "pfs",
-            });
-          }
-          if (ankorstoreRef.current) {
-            inputs.push({
-              productId: savedProductId,
-              reference: payload.reference,
-              productName: payload.name,
-              firstImage: firstImagePath,
-              options: { local: false, pfs: false, ankorstore: true },
-              mode: "publish",
-              marketplace: "ankorstore",
-            });
-          }
-          if (efashionRef.current) {
-            // Produit déjà lié à eFashion → update (PUT direct) qui ne crée
-            // pas de ticket de shooting → on passe par la file marketplace
-            // standard (envoi immédiat). Produit pas encore lié → première
-            // publication = ticket de shooting nécessaire → on bascule dans la
-            // file shooting batch (envoi groupé après validation manuelle).
-            if (alreadyOnEfashion) {
+          if (options) {
+            // Utilise les paths résolus après upload (le state setColorImages
+            // n'est peut-être pas encore rejoué) et ignore les slots restés vides.
+            const firstImagePath =
+              resolvedColorImages[0]?.uploadedPaths.find(
+                (p) => p && p.length > 0,
+              ) ?? null;
+            const inputs: Parameters<typeof enqueuePublish>[0] = [];
+            if (options.pfs) {
+              inputs.push({
+                productId: savedProductId,
+                reference: payload.reference,
+                productName: payload.name,
+                firstImage: firstImagePath,
+                options: { local: false, pfs: true },
+                mode: "publish",
+                marketplace: "pfs",
+              });
+            }
+            if (options.ankorstore) {
+              inputs.push({
+                productId: savedProductId,
+                reference: payload.reference,
+                productName: payload.name,
+                firstImage: firstImagePath,
+                options: { local: false, pfs: false, ankorstore: true },
+                mode: "publish",
+                marketplace: "ankorstore",
+              });
+            }
+            if (options.efashion) {
+              // alreadyOnEfashion garanti par showEfashionCase → update direct
+              // (pas de ticket de shooting côté eFashion sur une fiche déjà liée).
               inputs.push({
                 productId: savedProductId,
                 reference: payload.reference,
@@ -2316,22 +2208,20 @@ export default function ProductForm({
                 mode: "publish",
                 marketplace: "efashion",
               });
-            } else {
-              void addToEfashionShootingBatch(savedProductId, "PUBLISH");
             }
+            if (options.faire) {
+              inputs.push({
+                productId: savedProductId,
+                reference: payload.reference,
+                productName: payload.name,
+                firstImage: firstImagePath,
+                options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+                mode: "publish",
+                marketplace: "faire",
+              });
+            }
+            if (inputs.length > 0) enqueuePublish(inputs);
           }
-          if (faireRef.current) {
-            inputs.push({
-              productId: savedProductId,
-              reference: payload.reference,
-              productName: payload.name,
-              firstImage: firstImagePath,
-              options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
-              mode: "publish",
-              marketplace: "faire",
-            });
-          }
-          if (inputs.length > 0) enqueuePublish(inputs);
         }
       }
 
