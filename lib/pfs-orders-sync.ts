@@ -21,6 +21,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { resolveCountryCode } from "@/lib/countries";
 import {
   pfsListOrders,
   pfsGetOrderDetail,
@@ -147,7 +148,12 @@ function buildOptionalCardFieldsFromCustomer(
     if (addr.street) data.addressLine = addr.street;
     if (addr.postal_code) data.postalCode = addr.postal_code;
     if (addr.city) data.city = addr.city;
-    if (addr.country) data.countryCode = String(addr.country).toUpperCase();
+    if (addr.country) {
+      // PFS remonte le nom du pays en clair (ex "Portugal"). On le convertit en
+      // code ISO alpha-2 pour que les drapeaux et libellés côté fiche fonctionnent.
+      const iso = resolveCountryCode(addr.country);
+      if (iso) data.countryCode = iso;
+    }
   }
   return data;
 }
@@ -396,71 +402,127 @@ export interface PfsImportProgress {
   totalPages: number;
 }
 
+/** Nombre de pages de listing PFS qu'on fetch en parallèle (léger, sans risque). */
+const PAGE_CHUNK_SIZE = 10;
+/** Nombre d'appels détail PFS en parallèle (borné pour éviter le rate-limit). */
+const DETAIL_CONCURRENCY = 5;
+
 /**
- * Rattrapage historique : boucle sur toutes les pages, importe chaque commande
- * une à une. Callback `onProgress` appelé après chaque commande.
- * Utilisé une seule fois par tenant, en tâche de fond via server action.
+ * Rattrapage historique : traite les pages par tranches de 10. Pour chaque
+ * tranche : (1) fetch les 10 listings en parallèle, (2) une seule requête BDD
+ * bulk qui filtre les commandes déjà à jour, (3) fetch les détails restants
+ * avec 5 workers concurrents. Un re-import complet devient quasi instantané.
  */
 export async function importAllPfsOrdersFor(
   tenantId: string,
   onProgress?: (p: PfsImportProgress) => void | Promise<void>,
   opts?: { stopSignal?: () => boolean | Promise<boolean> },
-): Promise<{ imported: number; skipped: number; total: number }> {
+): Promise<{ imported: number; skipped: number; unchanged: number; total: number }> {
   const first = await pfsListOrders({ page: 1, perPage: 50 });
   const totalPages = first.meta.last_page ?? 1;
   const totalOrders = first.meta.total ?? first.data.length;
-  let processed = 0;
-  let imported = 0;
-  let skipped = 0;
 
-  const runPage = async (pageData: PfsListOrderSummary[], pageIndex: number) => {
-    for (const summary of pageData) {
-      if (opts?.stopSignal) {
-        const stop = await opts.stopSignal();
-        if (stop) return true;
-      }
-      try {
-        await syncSinglePfsOrder(tenantId, summary.id);
-        imported++;
-      } catch (err) {
-        skipped++;
-        logger.warn("[PFS Orders Import] Échec commande", {
-          tenantId,
-          pfsOrderId: summary.id,
-          error: err,
-        });
-      }
-      processed++;
-      if (onProgress) {
-        await onProgress({
-          totalOrders,
-          processedOrders: processed,
-          currentPage: pageIndex,
-          totalPages,
-        });
-      }
-    }
-    return false;
+  const state = { processed: 0, imported: 0, skipped: 0, unchanged: 0 };
+
+  const emitProgress = async (currentPage: number) => {
+    if (!onProgress) return;
+    await onProgress({
+      totalOrders,
+      processedOrders: state.processed,
+      currentPage,
+      totalPages,
+    });
   };
 
-  const abortedOnFirst = await runPage(first.data, 1);
-  if (abortedOnFirst) return { imported, skipped, total: totalOrders };
-
-  for (let page = 2; page <= totalPages; page++) {
-    let pageResp;
-    try {
-      pageResp = await pfsListOrders({ page, perPage: 50 });
-    } catch (err) {
-      logger.error("[PFS Orders Import] Échec chargement page", {
-        tenantId,
-        page,
-        error: err,
-      });
-      continue;
+  const processChunk = async (
+    chunk: Array<{ page: number; summaries: PfsListOrderSummary[] }>,
+  ): Promise<boolean> => {
+    const allItems: Array<{ page: number; summary: PfsListOrderSummary }> = [];
+    for (const c of chunk) {
+      for (const s of c.summaries) allItems.push({ page: c.page, summary: s });
     }
-    const aborted = await runPage(pageResp.data ?? [], page);
-    if (aborted) break;
+    if (allItems.length === 0) return false;
+
+    const pfsIds = allItems.map((it) => it.summary.id);
+    const existingRows = await prisma.pfsOrder.findMany({
+      where: { tenantId, pfsOrderId: { in: pfsIds } },
+      select: { pfsOrderId: true, status: true },
+    });
+    const existingStatusMap = new Map(existingRows.map((r) => [r.pfsOrderId, r.status]));
+
+    const needsSync: typeof allItems = [];
+    const lastPage = chunk[chunk.length - 1]?.page ?? 0;
+    for (const it of allItems) {
+      const existingStatus = existingStatusMap.get(it.summary.id);
+      const nextStatus = normalizePfsStatus(it.summary.status);
+      if (!existingStatus || existingStatus !== nextStatus) {
+        needsSync.push(it);
+      } else {
+        state.unchanged++;
+        state.processed++;
+      }
+    }
+    if (state.processed > 0) await emitProgress(lastPage);
+
+    const queue = [...needsSync];
+    let stopped = false;
+    const workerCount = Math.min(DETAIL_CONCURRENCY, queue.length);
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (queue.length > 0 && !stopped) {
+        if (opts?.stopSignal && (await opts.stopSignal())) {
+          stopped = true;
+          break;
+        }
+        const item = queue.shift();
+        if (!item) break;
+        try {
+          await syncSinglePfsOrder(tenantId, item.summary.id);
+          state.imported++;
+        } catch (err) {
+          state.skipped++;
+          logger.warn("[PFS Orders Import] Échec commande", {
+            tenantId,
+            pfsOrderId: item.summary.id,
+            error: err,
+          });
+        }
+        state.processed++;
+        await emitProgress(item.page);
+      }
+    });
+    await Promise.all(workers);
+    return stopped;
+  };
+
+  // Page 1 déjà fetchée en amont pour connaître totalPages.
+  const stoppedOnFirst = await processChunk([{ page: 1, summaries: first.data ?? [] }]);
+  if (stoppedOnFirst) return { ...state, total: totalOrders };
+
+  for (let start = 2; start <= totalPages; start += PAGE_CHUNK_SIZE) {
+    const pageNumbers: number[] = [];
+    for (let p = start; p < start + PAGE_CHUNK_SIZE && p <= totalPages; p++) {
+      pageNumbers.push(p);
+    }
+
+    const listResults = await Promise.all(
+      pageNumbers.map(async (pageNum) => {
+        try {
+          const resp = await pfsListOrders({ page: pageNum, perPage: 50 });
+          return { page: pageNum, summaries: resp.data ?? [] };
+        } catch (err) {
+          logger.error("[PFS Orders Import] Échec chargement page", {
+            tenantId,
+            page: pageNum,
+            error: err,
+          });
+          return { page: pageNum, summaries: [] };
+        }
+      }),
+    );
+
+    const stopped = await processChunk(listResults);
+    if (stopped) break;
   }
 
-  return { imported, skipped, total: totalOrders };
+  return { ...state, total: totalOrders };
 }

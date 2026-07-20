@@ -23,6 +23,7 @@ export interface PfsImportState {
   processedOrders: number;
   imported: number;
   skipped: number;
+  unchanged: number; // Commandes déjà en BDD au même statut → aucun appel PFS détail
   currentPage: number;
   totalPages: number;
   errorMessage?: string;
@@ -39,6 +40,7 @@ const EMPTY_STATE: PfsImportState = {
   processedOrders: 0,
   imported: 0,
   skipped: 0,
+  unchanged: 0,
   currentPage: 0,
   totalPages: 0,
 };
@@ -132,6 +134,7 @@ export async function startPfsHistoricalImportInBackground(
         finishedAt: Date.now(),
         imported: result.imported,
         skipped: result.skipped,
+        unchanged: result.unchanged,
         totalOrders: result.total,
       };
       await setPfsImportState(tenantId, finalState);

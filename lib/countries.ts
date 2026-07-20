@@ -92,6 +92,10 @@ export const COUNTRIES: readonly CountryOption[] = [
   { code: "YT", name: "Mayotte" },
   { code: "NC", name: "Nouvelle-Calédonie" },
   { code: "PF", name: "Polynésie française" },
+  { code: "MU", name: "Île Maurice" },
+  { code: "PR", name: "Porto Rico" },
+  { code: "MF", name: "Saint-Martin (partie française)" },
+  { code: "WF", name: "Wallis-et-Futuna" },
   { code: "AD", name: "Andorre" },
   { code: "SM", name: "Saint-Marin" },
   { code: "VA", name: "Vatican" },
@@ -99,19 +103,101 @@ export const COUNTRIES: readonly CountryOption[] = [
 
 const COUNTRY_BY_CODE = new Map(COUNTRIES.map((c) => [c.code, c]));
 
-export function findCountry(code: string | null | undefined): CountryOption | null {
-  if (!code) return null;
-  return COUNTRY_BY_CODE.get(code.toUpperCase()) ?? null;
+/**
+ * Normalise un libellé pays pour lookup : uppercase, sans accents,
+ * sans espaces, tirets, parenthèses ou apostrophes.
+ * "SAINT-MARTIN (FRANÇAIS)" → "SAINTMARTINFRANCAIS"
+ * "États-Unis" → "ETATSUNIS"
+ */
+function normalizeCountryLabel(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
 }
 
-export function countryName(code: string | null | undefined): string {
-  return findCountry(code)?.name ?? "";
+const COUNTRY_BY_NORMALIZED_NAME = new Map<string, string>();
+for (const c of COUNTRIES) {
+  COUNTRY_BY_NORMALIZED_NAME.set(normalizeCountryLabel(c.name), c.code);
 }
 
-export function countryFlagUrl(code: string, size: 20 | 40 | 80 | 160 = 40): string {
+// Alias explicites pour les libellés remontés par PFS (et autres sources externes)
+// qui divergent du nom canonique de COUNTRIES après normalisation.
+const COUNTRY_NAME_ALIASES: Record<string, string> = {
+  REUNION: "RE", // canonique = "La Réunion" → "LAREUNION"
+  SAINTMARTIN: "MF",
+  SAINTMARTINFRANCAIS: "MF", // libellé PFS "SAINT-MARTIN (FRANÇAIS)"
+  ANGLETERRE: "GB",
+  GRANDEBRETAGNE: "GB",
+  ETATSUNISDAMERIQUE: "US",
+  USA: "US",
+  UK: "GB",
+  COREE: "KR",
+  TCHEQUIE: "CZ",
+  MACEDOINE: "MK",
+  BIRMANIE: "MM",
+  IRAN: "IR",
+  IRAQ: "IQ",
+  KOWEIT: "KW",
+  OMAN: "OM",
+  BAHREIN: "BH",
+  YEMEN: "YE",
+  SYRIE: "SY",
+  PAKISTAN: "PK",
+  BANGLADESH: "BD",
+  SRILANKA: "LK",
+  NEPAL: "NP",
+  TAIWAN: "TW",
+  HONGKONG: "HK",
+  KAZAKHSTAN: "KZ",
+  OUZBEKISTAN: "UZ",
+};
+
+/**
+ * Résout un input pays (code ISO alpha-2 OU nom en clair) vers son code ISO.
+ * Retourne null si non résolvable.
+ *
+ * Utile pour tolérer les données historiques qui stockaient le nom brut
+ * remonté par PFS ("PORTUGAL", "SUISSE") au lieu du code ISO.
+ */
+export function resolveCountryCode(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const trimmed = String(input).trim();
+  if (!trimmed) return null;
+
+  // Cas 1 : ISO alpha-2 valide direct
+  if (trimmed.length === 2) {
+    const upper = trimmed.toUpperCase();
+    if (COUNTRY_BY_CODE.has(upper)) return upper;
+  }
+
+  // Cas 2 : nom normalisé matche un pays de la liste
+  const norm = normalizeCountryLabel(trimmed);
+  const direct = COUNTRY_BY_NORMALIZED_NAME.get(norm);
+  if (direct) return direct;
+
+  // Cas 3 : alias explicite
+  const aliased = COUNTRY_NAME_ALIASES[norm];
+  if (aliased) return aliased;
+
+  return null;
+}
+
+export function findCountry(input: string | null | undefined): CountryOption | null {
+  const code = resolveCountryCode(input);
+  return code ? COUNTRY_BY_CODE.get(code) ?? null : null;
+}
+
+export function countryName(input: string | null | undefined): string {
+  return findCountry(input)?.name ?? "";
+}
+
+export function countryFlagUrl(input: string, size: 20 | 40 | 80 | 160 = 40): string {
+  const code = resolveCountryCode(input) ?? input;
   return `https://flagcdn.com/w${size}/${code.toLowerCase()}.png`;
 }
 
-export function isKnownCountry(code: string): boolean {
-  return COUNTRY_BY_CODE.has(code.toUpperCase());
+export function isKnownCountry(input: string): boolean {
+  return resolveCountryCode(input) !== null;
 }

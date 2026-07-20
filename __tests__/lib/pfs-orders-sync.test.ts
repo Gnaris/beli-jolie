@@ -4,6 +4,7 @@ const mockAdminCardFindFirst = vi.fn();
 const mockAdminCardCreate = vi.fn();
 const mockAdminCardUpdate = vi.fn();
 const mockOrderFindFirst = vi.fn();
+const mockOrderFindMany = vi.fn();
 const mockOrderCreate = vi.fn();
 const mockOrderUpdate = vi.fn();
 const mockItemDeleteMany = vi.fn();
@@ -19,6 +20,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     pfsOrder: {
       findFirst: (...a: unknown[]) => mockOrderFindFirst(...a),
+      findMany: (...a: unknown[]) => mockOrderFindMany(...a),
       create: (...a: unknown[]) => mockOrderCreate(...a),
       update: (...a: unknown[]) => mockOrderUpdate(...a),
     },
@@ -32,9 +34,13 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
+
+const mockPfsListOrders = vi.fn();
+const mockPfsGetOrderDetail = vi.fn();
+
 vi.mock("@/lib/pfs-orders-api", () => ({
-  pfsListOrders: vi.fn(),
-  pfsGetOrderDetail: vi.fn(),
+  pfsListOrders: (...a: unknown[]) => mockPfsListOrders(...a),
+  pfsGetOrderDetail: (...a: unknown[]) => mockPfsGetOrderDetail(...a),
   normalizePfsStatus: (raw: string) => {
     const u = String(raw ?? "").toUpperCase();
     if (u === "VALIDATED") return "VALIDATED";
@@ -47,6 +53,7 @@ vi.mock("@/lib/pfs-orders-api", () => ({
 import {
   upsertClientCardFromPfsCustomer,
   upsertPfsOrderFromDetail,
+  importAllPfsOrdersFor,
 } from "@/lib/pfs-orders-sync";
 
 const tenantId = "tenant-1";
@@ -233,5 +240,106 @@ describe("upsertPfsOrderFromDetail — matching produit", () => {
     expect(rows[0].productId).toBeNull();
     expect(rows[0].productColorId).toBeNull();
     expect(rows[0].productSnapshotName).toBeNull();
+  });
+});
+
+describe("importAllPfsOrdersFor — vérif liste-d'abord", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const summary = (id: string, status: string) => ({
+    id,
+    order_no: `PO#${id}`,
+    creation_date: "2026-07-15 10:00:00",
+    customer: "X",
+    country: "FR",
+    order_vat: 0,
+    validated_vat: 0,
+    pfs_payment_date: null,
+    status,
+    transporter: null,
+    has_invoice: 0,
+    has_credit: 0,
+  });
+
+  it("ne fait AUCUN appel détail PFS quand toutes les commandes de la page sont déjà en BDD au même statut", async () => {
+    mockPfsListOrders.mockResolvedValue({
+      data: [summary("ord_1", "SENT"), summary("ord_2", "VALIDATED")],
+      state: {},
+      links: {},
+      meta: { current_page: 1, from: 1, last_page: 1, per_page: 50, to: 2, total: 2 },
+    });
+    mockOrderFindMany.mockResolvedValue([
+      { pfsOrderId: "ord_1", status: "SENT" },
+      { pfsOrderId: "ord_2", status: "VALIDATED" },
+    ]);
+
+    const result = await importAllPfsOrdersFor(tenantId);
+
+    expect(mockPfsGetOrderDetail).not.toHaveBeenCalled();
+    expect(result.imported).toBe(0);
+    expect(result.unchanged).toBe(2);
+    expect(result.skipped).toBe(0);
+    expect(result.total).toBe(2);
+  });
+
+  it("fetch les pages 2→11 en parallèle sur un total de 12 pages", async () => {
+    // meta.last_page = 12. Chaque page renvoie une commande déjà à jour → aucun détail.
+    mockPfsListOrders.mockImplementation(async ({ page }: { page: number }) => ({
+      data: [summary(`ord_p${page}`, "SENT")],
+      state: {},
+      links: {},
+      meta: { current_page: page, from: 1, last_page: 12, per_page: 50, to: 1, total: 12 },
+    }));
+    mockOrderFindMany.mockImplementation(async ({ where }: { where: { pfsOrderId: { in: string[] } } }) => {
+      // Simule que toutes les commandes existent déjà avec le même statut
+      return where.pfsOrderId.in.map((id: string) => ({ pfsOrderId: id, status: "SENT" }));
+    });
+
+    const result = await importAllPfsOrdersFor(tenantId);
+
+    // Exactement 12 appels list (1 initial + 10 en 1 batch + 1 en 2ᵉ batch)
+    expect(mockPfsListOrders).toHaveBeenCalledTimes(12);
+    // Aucun détail
+    expect(mockPfsGetOrderDetail).not.toHaveBeenCalled();
+    expect(result.unchanged).toBe(12);
+    expect(result.imported).toBe(0);
+    expect(result.total).toBe(12);
+  });
+
+  it("appelle le détail uniquement pour les nouvelles + celles dont le statut a changé", async () => {
+    mockPfsListOrders.mockResolvedValue({
+      data: [
+        summary("ord_new", "NEW"),      // absente en BDD → sync
+        summary("ord_stale", "SENT"),   // BDD dit NEW, PFS dit SENT → sync
+        summary("ord_same", "VALIDATED"), // même statut → skip
+      ],
+      state: {},
+      links: {},
+      meta: { current_page: 1, from: 1, last_page: 1, per_page: 50, to: 3, total: 3 },
+    });
+    mockOrderFindMany.mockResolvedValue([
+      { pfsOrderId: "ord_stale", status: "NEW" },
+      { pfsOrderId: "ord_same", status: "VALIDATED" },
+    ]);
+    mockPfsGetOrderDetail.mockResolvedValue(baseDetail);
+    // Path via syncSinglePfsOrder → upsertPfsOrderFromDetail
+    mockAdminCardFindFirst.mockResolvedValue({ id: "card-1" });
+    mockAdminCardUpdate.mockResolvedValue({});
+    mockOrderFindFirst.mockResolvedValue(null);
+    mockOrderCreate.mockResolvedValue({ id: "row-x" });
+    mockItemDeleteMany.mockResolvedValue({ count: 0 });
+    mockItemCreateMany.mockResolvedValue({ count: 0 });
+    mockProductFindMany.mockResolvedValue([]);
+
+    const result = await importAllPfsOrdersFor(tenantId);
+
+    expect(mockPfsGetOrderDetail).toHaveBeenCalledTimes(2);
+    expect(mockPfsGetOrderDetail).toHaveBeenCalledWith("ord_new");
+    expect(mockPfsGetOrderDetail).toHaveBeenCalledWith("ord_stale");
+    expect(result.imported).toBe(2);
+    expect(result.unchanged).toBe(1);
+    expect(result.skipped).toBe(0);
   });
 });

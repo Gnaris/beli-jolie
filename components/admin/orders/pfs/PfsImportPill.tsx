@@ -85,7 +85,13 @@ export default function PfsImportPill() {
           </div>
           <div className="text-sm font-semibold text-slate-900 mt-0.5">
             {isRunning && `${state.processedOrders} / ${state.totalOrders} commandes`}
-            {isDone && `Import terminé — ${state.processedOrders} importées`}
+            {isDone && (
+              state.unchanged > 0 && state.imported === 0
+                ? `Import terminé — ${state.unchanged} déjà à jour, aucune nouveauté`
+                : state.unchanged > 0
+                  ? `Import terminé — ${state.imported} nouvelles ou mises à jour, ${state.unchanged} déjà à jour`
+                  : `Import terminé — ${state.processedOrders} importées`
+            )}
             {isError && "Import interrompu par une erreur"}
             {isStopped && `Import annulé — ${state.processedOrders} déjà importées`}
           </div>

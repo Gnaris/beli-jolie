@@ -6,6 +6,7 @@ import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import Pagination from "@/components/ui/Pagination";
 import PerPageSelect from "@/components/ui/PerPageSelect";
 import { countryFlagUrl, countryName } from "@/lib/countries";
+import { Tooltip } from "@/components/ui/Tooltip";
 import AdminCardDrawer, { type AdminClientCardForDrawer } from "./AdminCardDrawer";
 
 interface Props {
@@ -276,15 +277,20 @@ export default function AdminCardsPane({
                           </p>
                           {(c.city || c.countryCode) && (
                             <p className="text-[11px] font-body text-text-muted truncate max-w-xs inline-flex items-center gap-1.5 mt-0.5">
-                              {c.countryCode && (
-                                <img
-                                  src={countryFlagUrl(c.countryCode)}
-                                  alt=""
-                                  width={16}
-                                  height={12}
-                                  className="rounded-[2px] shadow-[0_0_0_1px_rgba(15,23,42,0.08)] object-cover shrink-0"
-                                />
-                              )}
+                              {c.countryCode && (() => {
+                                const label = countryName(c.countryCode) || c.countryCode;
+                                return (
+                                  <Tooltip content={label}>
+                                    <img
+                                      src={countryFlagUrl(c.countryCode)}
+                                      alt={label}
+                                      width={16}
+                                      height={12}
+                                      className="rounded-[2px] shadow-[0_0_0_1px_rgba(15,23,42,0.08)] object-cover shrink-0"
+                                    />
+                                  </Tooltip>
+                                );
+                              })()}
                               <span className="truncate">
                                 {[c.city, countryName(c.countryCode)].filter(Boolean).join(" · ")}
                               </span>
