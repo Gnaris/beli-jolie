@@ -7,12 +7,18 @@ const {
   mockProductColorUpdateMany,
   pfsUpdateInPlaceSpy,
   pfsPublishSpy,
+  getCachedPfsEnabledSpy,
+  getCachedAnkorstoreEnabledSpy,
+  getCachedFaireEnabledSpy,
 } = vi.hoisted(() => ({
   mockProductFindUnique: vi.fn(),
   mockProductUpdate: vi.fn(),
   mockProductColorUpdateMany: vi.fn(),
   pfsUpdateInPlaceSpy: vi.fn(),
   pfsPublishSpy: vi.fn(),
+  getCachedPfsEnabledSpy: vi.fn().mockResolvedValue(true),
+  getCachedAnkorstoreEnabledSpy: vi.fn().mockResolvedValue(true),
+  getCachedFaireEnabledSpy: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -39,6 +45,22 @@ vi.mock("@/lib/pfs-publish", () => ({
   pfsPublishProduct: pfsPublishSpy,
 }));
 
+vi.mock("@/lib/cached-data", () => ({
+  getCachedPfsEnabled: getCachedPfsEnabledSpy,
+  getCachedAnkorstoreEnabled: getCachedAnkorstoreEnabledSpy,
+  getCachedFaireEnabled: getCachedFaireEnabledSpy,
+}));
+vi.mock("@/lib/marketplace-enabled", () => ({
+  filterOptionsByEnabled: (opts: Record<string, unknown>) => ({ filtered: opts, skipped: [] }),
+  getProductMarketplaceEnabled: vi.fn().mockResolvedValue({
+    pfs: true,
+    ankorstore: true,
+    efashion: true,
+    faire: true,
+  }),
+  marketplaceDisabledMessage: (mp: string) => `${mp} désactivé`,
+}));
+
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -52,6 +74,9 @@ import { publishProductToMarketplaces } from "@/app/actions/admin/marketplace-pu
 
 beforeEach(() => {
   vi.clearAllMocks();
+  getCachedPfsEnabledSpy.mockResolvedValue(true);
+  getCachedAnkorstoreEnabledSpy.mockResolvedValue(true);
+  getCachedFaireEnabledSpy.mockResolvedValue(true);
 });
 
 describe("publishProductToMarketplaces", () => {
@@ -141,5 +166,25 @@ describe("publishProductToMarketplaces", () => {
     const out = await publishProductToMarketplaces("p-1", { pfs: true });
 
     expect(out.pfs).toEqual({ status: "error", message: "API PFS injoignable" });
+  });
+
+  it("kill switch PFS OFF (Paramètres) : n'appelle NI publish NI update, remonte error 'désactivée'", async () => {
+    mockProductFindUnique.mockResolvedValue({
+      id: "p-1",
+      reference: "REF-1",
+      name: "T",
+      status: "OFFLINE",
+      pfsProductId: null,
+    });
+    getCachedPfsEnabledSpy.mockResolvedValue(false);
+
+    const out = await publishProductToMarketplaces("p-1", { pfs: true });
+
+    expect(pfsPublishSpy).not.toHaveBeenCalled();
+    expect(pfsUpdateInPlaceSpy).not.toHaveBeenCalled();
+    expect(out.pfs).toEqual({
+      status: "error",
+      message: "Sync Paris Fashion Shop désactivée dans Paramètres.",
+    });
   });
 });

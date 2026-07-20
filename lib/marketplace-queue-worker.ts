@@ -334,6 +334,27 @@ async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<void> {
     return;
   }
 
+  // Kill switch PFS : si la marketplace est désactivée dans Paramètres, on
+  // classe le job en FAILED (le local bump ci-dessus reste appliqué). Symétrique
+  // à Ankorstore/eFashion/Faire.
+  const { getCachedPfsEnabled } = await import("@/lib/cached-data");
+  const pfsEnabled = await getCachedPfsEnabled();
+  if (!pfsEnabled) {
+    const message = "Sync Paris Fashion Shop désactivée dans Paramètres.";
+    await prisma.marketplaceRefreshJob.update({
+      where: { id: job.id },
+      data: {
+        status: "FAILED",
+        errorMessage: message,
+        localOutcome: (localOutcome as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+        pfsOutcome: { ok: false, kind: "error", message } as unknown as Prisma.InputJsonValue,
+        completedAt: new Date(),
+      },
+    });
+    emitProductUpdated(job.productId);
+    return;
+  }
+
   try {
     if (job.mode === "REFRESH") {
       const { pfsRefreshProduct } = await import("@/lib/pfs-refresh");

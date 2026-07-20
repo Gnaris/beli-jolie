@@ -3,7 +3,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import {
   getCachedShopName, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled,
-  getCachedSiteConfig, getCachedPfsBrand, getCachedHasEfashionConfig, getCachedEfashionEnabled,
+  getCachedSiteConfig, getCachedPfsBrand, getCachedPfsEnabled,
+  getCachedHasEfashionConfig, getCachedEfashionEnabled,
   getCachedHasFaireConfig, getCachedFaireEnabled,
 } from "@/lib/cached-data";
 import { getStripeAccountInfo, getStripeConfigStatus } from "@/lib/stripe";
@@ -577,7 +578,7 @@ async function PaiementTab() {
    ═══════════════════════════════════════════════════════════════════════════ */
 async function MarketplacesTab() {
   const [
-    pfsConfig, markupRows, pfsBrand,
+    pfsConfig, markupRows, pfsBrand, pfsEnabled,
     pfsOutOfStockDeactivateRow, pfsOutOfStockActionRow,
     hasAnkorstoreConfig, ankorstoreEnabled,
     ankorstoreWholesaleType, ankorstoreWholesaleValue, ankorstoreWholesaleRounding,
@@ -599,6 +600,7 @@ async function MarketplacesTab() {
       where: { key: { in: ["pfs_price_markup_type", "pfs_price_markup_value", "pfs_price_markup_rounding"] } },
     }),
     getCachedPfsBrand(),
+    getCachedPfsEnabled(),
     getCachedSiteConfig("pfs_out_of_stock_deactivate_variant"),
     getCachedSiteConfig("pfs_out_of_stock_product_action"),
     getCachedHasAnkorstoreConfig(),
@@ -652,6 +654,7 @@ async function MarketplacesTab() {
   return (
     <MarketplaceConfig
       hasPfsConfig={!!pfsConfig}
+      pfsEnabled={pfsEnabled}
       pfsBrand={pfsBrand}
       pfsOutOfStock={{
         deactivateVariant: pfsOutOfStockDeactivateRow?.value === "false" ? false : true,

@@ -92,43 +92,52 @@ export async function publishProductToMarketplaces(
   }
 
   if (options.pfs) {
-    try {
-      if (product.pfsProductId) {
-        const res = await pfsUpdateProductInPlace(productId, undefined, { skipRevalidation: true });
-        if (res.success) {
-          outcome.pfs = { status: "ok", mode: "update", archived: res.archived };
-        } else {
-          logger.warn("[Marketplace Publish] PFS update failed, falling back to publish", {
-            productId,
-            error: res.error,
-          });
-          await prisma.product.update({
-            where: { id: productId },
-            data: { pfsProductId: null, pfsLastSyncSnapshot: Prisma.DbNull },
-          });
-          await prisma.productColor.updateMany({
-            where: { productId },
-            data: { pfsVariantId: null },
-          });
-          const pubRes = await pfsPublishProduct(productId, undefined, { skipRevalidation: true });
-          if (pubRes.success) {
-            outcome.pfs = { status: "ok", mode: "create", archived: pubRes.archived };
+    const { getCachedPfsEnabled } = await import("@/lib/cached-data");
+    const pfsEnabled = await getCachedPfsEnabled();
+    if (!pfsEnabled) {
+      outcome.pfs = {
+        status: "error",
+        message: "Sync Paris Fashion Shop désactivée dans Paramètres.",
+      };
+    } else {
+      try {
+        if (product.pfsProductId) {
+          const res = await pfsUpdateProductInPlace(productId, undefined, { skipRevalidation: true });
+          if (res.success) {
+            outcome.pfs = { status: "ok", mode: "update", archived: res.archived };
           } else {
-            outcome.pfs = { status: "error", message: pubRes.error };
+            logger.warn("[Marketplace Publish] PFS update failed, falling back to publish", {
+              productId,
+              error: res.error,
+            });
+            await prisma.product.update({
+              where: { id: productId },
+              data: { pfsProductId: null, pfsLastSyncSnapshot: Prisma.DbNull },
+            });
+            await prisma.productColor.updateMany({
+              where: { productId },
+              data: { pfsVariantId: null },
+            });
+            const pubRes = await pfsPublishProduct(productId, undefined, { skipRevalidation: true });
+            if (pubRes.success) {
+              outcome.pfs = { status: "ok", mode: "create", archived: pubRes.archived };
+            } else {
+              outcome.pfs = { status: "error", message: pubRes.error };
+            }
+          }
+        } else {
+          const res = await pfsPublishProduct(productId, undefined, { skipRevalidation: true });
+          if (res.success) {
+            outcome.pfs = { status: "ok", mode: "create", archived: res.archived };
+          } else {
+            outcome.pfs = { status: "error", message: res.error };
           }
         }
-      } else {
-        const res = await pfsPublishProduct(productId, undefined, { skipRevalidation: true });
-        if (res.success) {
-          outcome.pfs = { status: "ok", mode: "create", archived: res.archived };
-        } else {
-          outcome.pfs = { status: "error", message: res.error };
-        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error("[Marketplace Publish] PFS unexpected error", { productId, error: message });
+        outcome.pfs = { status: "error", message };
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error("[Marketplace Publish] PFS unexpected error", { productId, error: message });
-      outcome.pfs = { status: "error", message };
     }
   }
 

@@ -107,6 +107,7 @@ model User {
   promotionUsages PromotionUsage[]
   productViews    ProductView[]     @relation("ProductViewer")
   priceChanges    PriceHistory[]    @relation("PriceChanger")
+  adminClientCards AdminClientCard[] @relation("AdminCardCreator")
 
   @@unique([tenantId, email])
   @@unique([tenantId, siret])
@@ -134,6 +135,63 @@ model Favorite {
   @@index([tenantId])
   @@index([userId])
   @@index([productId])
+}
+
+// ─────────────────────────────────────────────
+// Fiches clients Admin
+// Répertoire personnel des admins (fiches manuelles, séparées des vrais comptes User)
+// ─────────────────────────────────────────────
+model AdminClientCard {
+  id          String   @id @default(cuid())
+  createdById String?
+  createdBy   User?    @relation("AdminCardCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // Identité
+  firstName String
+  lastName  String
+  company   String?
+  siret     String?
+  vatNumber String?
+
+  // Contact
+  email   String?
+  phone   String?
+  website String?
+  address String? @db.Text
+
+  // Marketplaces d'origine (multi-choix)
+  hasPfs        Boolean @default(false)
+  hasAnkorstore Boolean @default(false)
+  hasEfashion   Boolean @default(false)
+  hasFaire      Boolean @default(false)
+  hasMicrostore Boolean @default(false)
+
+  // Historique
+  lastOrderAt       DateTime?
+  lastMessageSentAt DateTime?
+
+  // Remise sur commande
+  orderDiscountType  ClientDiscountType? // null = pas de remise
+  orderDiscountValue Decimal?            @db.Decimal(12, 2)
+
+  // Remise sur livraison (FREE = livraison offerte, sinon PERCENT/AMOUNT)
+  shippingFree          Boolean             @default(false)
+  shippingDiscountType  ClientDiscountType?
+  shippingDiscountValue Decimal?            @db.Decimal(12, 2)
+
+  // Note libre
+  note String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Multi-tenant
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([createdById])
 }
 
 // ─────────────────────────────────────────────
@@ -2448,6 +2506,7 @@ model Tenant {
   seasons                    Season[]
   manufacturingCountries     ManufacturingCountry[]
   tags                       Tag[]
+  adminClientCards           AdminClientCard[]
 
   @@index([isActive])
 }

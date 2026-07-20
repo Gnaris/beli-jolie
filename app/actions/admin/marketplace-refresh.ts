@@ -134,19 +134,28 @@ export async function refreshProductOnMarketplaces(
   }
 
   if (options.pfs) {
-    try {
-      const res = await pfsRefreshProduct(productId, undefined, { skipRevalidation: true });
-      if (res.success) {
-        outcome.pfs = { status: "ok", archived: res.archived };
-      } else if (res.reason === "not_found") {
-        outcome.pfs = { status: "not_found", message: res.error };
-      } else {
-        outcome.pfs = { status: "error", message: res.error };
+    const { getCachedPfsEnabled } = await import("@/lib/cached-data");
+    const pfsEnabled = await getCachedPfsEnabled();
+    if (!pfsEnabled) {
+      outcome.pfs = {
+        status: "error",
+        message: "Sync Paris Fashion Shop désactivée dans Paramètres.",
+      };
+    } else {
+      try {
+        const res = await pfsRefreshProduct(productId, undefined, { skipRevalidation: true });
+        if (res.success) {
+          outcome.pfs = { status: "ok", archived: res.archived };
+        } else if (res.reason === "not_found") {
+          outcome.pfs = { status: "not_found", message: res.error };
+        } else {
+          outcome.pfs = { status: "error", message: res.error };
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error("[Marketplace Refresh] PFS unexpected error", { productId, error: message });
+        outcome.pfs = { status: "error", message };
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error("[Marketplace Refresh] PFS unexpected error", { productId, error: message });
-      outcome.pfs = { status: "error", message };
     }
   }
 

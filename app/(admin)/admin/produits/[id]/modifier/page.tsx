@@ -533,6 +533,7 @@ export default async function ModifierProduitPage({
               pfsProductId={product.pfsProductId}
               pfsBrandName={product.pfsBrandName ?? null}
               hasPfsConfig={hasPfsConfig}
+              pfsEnabled={hasPfsConfig}
               ankorsProductId={product.ankorsProductId}
               hasAnkorstoreConfig={hasAnkorstoreConfig}
               ankorstoreEnabled={ankorstoreEnabled}

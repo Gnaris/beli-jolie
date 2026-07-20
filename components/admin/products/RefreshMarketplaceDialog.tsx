@@ -26,6 +26,15 @@ interface AskInput {
   confirmLabel?: string;
   /** Libellé de l'eyebrow en haut (défaut "Rafraîchir"). */
   eyebrow?: string;
+  /** Affiche la carte "Boutique / Remettre en Nouveauté". Défaut true
+   *  (parcours Rafraîchir). Mettre à false pour les flux
+   *  propagation de modifs, propagation statut ou synchronisation où
+   *  la Nouveauté n'a aucun sens. */
+  showBoutique?: boolean;
+  /** Pré-coche toutes les marketplaces affichées (showPfs/…/showFaire).
+   *  Défaut false. À utiliser pour les propagations et synchronisations où
+   *  la cliente veut cocher tout par défaut. */
+  defaultAllChecked?: boolean;
 }
 
 interface MarketplaceEnabledCounts {
@@ -68,15 +77,17 @@ interface MarketplaceMeta {
   warning?: { title: string; body: string };
 }
 
+// Ronds d'initiale marketplace — gradients FIGÉS du CLAUDE.md.
+// Initiales : P / A / E / F / B&J (1 lettre pour les MP, sauf Boutique).
 const BOUTIQUE: MarketplaceMeta = {
   key: "local",
   label: "Remettre en Nouveauté",
   chipInitials: "B&J",
-  chipClass: "bg-gradient-to-br from-slate-400 to-slate-600",
-  barClass: "bg-gradient-to-r from-slate-400 to-slate-600",
-  activeClass: "bg-gradient-to-br from-slate-500/[0.08] via-white to-white",
-  switchOnClass: "bg-slate-600",
-  hoverBorderClass: "hover:border-slate-300",
+  chipClass: "",
+  barClass: "",
+  activeClass: "",
+  switchOnClass: "bg-bg-dark",
+  hoverBorderClass: "hover:border-border-dark",
   description:
     "Le produit réapparaîtra dans la section « Nouveautés » pendant 30 jours sur votre boutique.",
 };
@@ -85,36 +96,36 @@ const MARKETPLACES: Record<Exclude<MarketplaceKey, "local">, MarketplaceMeta> = 
   pfs: {
     key: "pfs",
     label: "Paris Fashion Shop",
-    chipInitials: "PFS",
-    chipClass: "bg-gradient-to-br from-violet-400 to-violet-600",
-    barClass: "bg-gradient-to-r from-violet-400 to-violet-600",
-    activeClass: "bg-gradient-to-br from-violet-500/[0.06] via-white to-white",
-    switchOnClass: "bg-violet-600",
-    hoverBorderClass: "hover:border-violet-200",
+    chipInitials: "P",
+    chipClass: "",
+    barClass: "",
+    activeClass: "",
+    switchOnClass: "bg-bg-dark",
+    hoverBorderClass: "hover:border-border-dark",
     description:
       "Crée une nouvelle fiche PFS avec la référence en cours, puis supprime l'ancienne.",
   },
   ankorstore: {
     key: "ankorstore",
     label: "Ankorstore",
-    chipInitials: "AKR",
-    chipClass: "bg-gradient-to-br from-emerald-400 to-emerald-600",
-    barClass: "bg-gradient-to-r from-emerald-400 to-emerald-600",
-    activeClass: "bg-gradient-to-br from-emerald-500/[0.08] via-white to-white",
-    switchOnClass: "bg-emerald-600",
-    hoverBorderClass: "hover:border-emerald-200",
+    chipInitials: "A",
+    chipClass: "",
+    barClass: "",
+    activeClass: "",
+    switchOnClass: "bg-bg-dark",
+    hoverBorderClass: "hover:border-border-dark",
     description:
       "Crée une nouvelle fiche Ankorstore, puis archive l'ancienne. Traitement en arrière-plan.",
   },
   efashion: {
     key: "efashion",
     label: "eFashion Paris",
-    chipInitials: "eF",
-    chipClass: "bg-gradient-to-br from-amber-400 to-amber-600",
-    barClass: "bg-gradient-to-r from-amber-400 to-amber-600",
-    activeClass: "bg-gradient-to-br from-amber-500/[0.08] via-white to-white",
-    switchOnClass: "bg-amber-600",
-    hoverBorderClass: "hover:border-amber-200",
+    chipInitials: "E",
+    chipClass: "",
+    barClass: "",
+    activeClass: "",
+    switchOnClass: "bg-bg-dark",
+    hoverBorderClass: "hover:border-border-dark",
     description: "Renvoie infos, photos, prix et stock à eFashion.",
     warning: {
       title: "Ticket de shooting",
@@ -125,15 +136,24 @@ const MARKETPLACES: Record<Exclude<MarketplaceKey, "local">, MarketplaceMeta> = 
   faire: {
     key: "faire",
     label: "Faire",
-    chipInitials: "Fai",
-    chipClass: "bg-gradient-to-br from-rose-400 to-rose-600",
-    barClass: "bg-gradient-to-r from-rose-400 to-rose-600",
-    activeClass: "bg-gradient-to-br from-rose-500/[0.08] via-white to-white",
-    switchOnClass: "bg-rose-600",
-    hoverBorderClass: "hover:border-rose-200",
+    chipInitials: "F",
+    chipClass: "",
+    barClass: "",
+    activeClass: "",
+    switchOnClass: "bg-bg-dark",
+    hoverBorderClass: "hover:border-border-dark",
     description:
       "Crée une nouvelle fiche Faire, puis supprime l'ancienne.",
   },
+};
+
+// Style inline pour les ronds d'initiale (gradients CLAUDE.md).
+const CHIP_GRADIENT: Record<MarketplaceKey, string> = {
+  local:      "linear-gradient(135deg,#64748b,#334155)",
+  pfs:        "linear-gradient(135deg,#4f46e5,#6366f1)",
+  ankorstore: "linear-gradient(135deg,#0ea5e9,#38bdf8)",
+  efashion:   "linear-gradient(135deg,#db2777,#ec4899)",
+  faire:      "linear-gradient(135deg,#f59e0b,#fbbf24)",
 };
 
 // ─────────────────────────────────────────────
@@ -182,6 +202,7 @@ function MarketplaceCard({
   enabledCount,
   disabledCount,
   totalSelected,
+  isRefreshFlow,
 }: {
   meta: MarketplaceMeta;
   checked: boolean;
@@ -189,6 +210,10 @@ function MarketplaceCard({
   enabledCount?: number;
   disabledCount?: number;
   totalSelected?: number;
+  /** true seulement sur le parcours "Rafraîchir" (nouvelle fiche eFashion →
+   *  ticket de shooting). false sur Propager modifs / Propager statut /
+   *  Synchroniser (la fiche existante est réutilisée, pas de shooting). */
+  isRefreshFlow?: boolean;
 }) {
   const allDisabled =
     typeof enabledCount === "number" &&
@@ -214,8 +239,11 @@ function MarketplaceCard({
     >
       <div className="flex items-start gap-3 p-4">
         <div
-          className={`flex items-center justify-center w-[42px] h-[42px] rounded-xl text-white font-heading font-bold text-xs shrink-0 ${meta.chipClass}`}
-          style={allDisabled ? { filter: "grayscale(1) brightness(0.85)" } : undefined}
+          className="flex items-center justify-center w-[42px] h-[42px] rounded-xl text-white font-heading font-bold text-sm shrink-0"
+          style={{
+            background: CHIP_GRADIENT[meta.key],
+            filter: allDisabled ? "grayscale(1) brightness(0.85)" : undefined,
+          }}
         >
           {meta.chipInitials}
         </div>
@@ -261,7 +289,9 @@ function MarketplaceCard({
             </div>
           )}
 
-          {meta.warning && !allDisabled && (
+          {/* Ticket de shooting eFashion : uniquement quand on rafraîchit
+              (nouvelle fiche créée). Pas de shooting sur propagation/synchro. */}
+          {meta.warning && !allDisabled && isRefreshFlow && (
             <div className="inline-flex items-start gap-1.5 mt-2 px-2 py-1 rounded-lg bg-[color:var(--color-warning-bg)] border border-[#FDE68A]">
               <svg
                 className="w-3 h-3 text-[color:var(--color-warning)] flex-shrink-0 mt-0.5"
@@ -356,12 +386,17 @@ function Modal({ input, onResult }: ModalProps) {
   const [mounted, setMounted] = useState(false);
   const backdropRef = useRef<HTMLDivElement>(null);
   const mouseDownOnBackdrop = useRef(false);
+  const showBoutique = input.showBoutique ?? true;
+  const defaultAllChecked = input.defaultAllChecked ?? false;
   const [state, setState] = useState<Record<MarketplaceKey, boolean>>({
+    // La case "Boutique / Remettre en Nouveauté" ne fait sens que sur le
+    // parcours "Rafraîchir" — pas sur les propagations de modifs, statut, ni
+    // synchronisation. Donc pas de pré-cochage local, même en defaultAllChecked.
     local: false,
-    pfs: false,
-    ankorstore: false,
-    efashion: false,
-    faire: false,
+    pfs: defaultAllChecked && input.showPfs,
+    ankorstore: defaultAllChecked && input.showAnkorstore,
+    efashion: defaultAllChecked && input.showEfashion,
+    faire: defaultAllChecked && input.showFaire,
   });
   // Cadence — visible seulement pour count > 1. Défaut : Immédiat.
   const [cadenceMode, setCadenceMode] = useState<"immediate" | "spread">("immediate");
@@ -501,7 +536,7 @@ function Modal({ input, onResult }: ModalProps) {
       style={{ animation: closing ? undefined : "refreshModalFadeIn 0.2s ease-out" }}
     >
       <div
-        className={`relative w-full max-w-xl bg-bg-primary rounded-3xl shadow-2xl border border-border overflow-hidden transition-all duration-200 ${
+        className={`relative w-full max-w-2xl bg-bg-primary rounded-3xl shadow-2xl border border-border overflow-hidden transition-all duration-200 ${
           closing ? "opacity-0 scale-95 translate-y-2" : "opacity-100 scale-100 translate-y-0"
         }`}
         style={{ animation: closing ? undefined : "refreshModalSlideUp 0.25s cubic-bezier(0.16,1,0.3,1)" }}
@@ -577,23 +612,26 @@ function Modal({ input, onResult }: ModalProps) {
             </div>
           )}
 
-          {/* Section : Boutique */}
-          <div className="px-6 md:px-8 pt-5 pb-2">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-1 h-4 rounded-full bg-bg-dark" />
-              <span
-                className="text-[10px] font-bold uppercase text-text-muted"
-                style={{ letterSpacing: "0.18em" }}
-              >
-                Boutique
-              </span>
+          {/* Section : Boutique — masquée sur les flux propagation/synchro
+              (la Nouveauté n'a rien à voir avec une modif stock ou une resync). */}
+          {showBoutique && (
+            <div className="px-6 md:px-8 pt-5 pb-2">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="w-1 h-4 rounded-full bg-bg-dark" />
+                <span
+                  className="text-[10px] font-bold uppercase text-text-muted"
+                  style={{ letterSpacing: "0.18em" }}
+                >
+                  Boutique
+                </span>
+              </div>
+              <MarketplaceCard
+                meta={BOUTIQUE}
+                checked={state.local}
+                onToggle={(v) => setState((prev) => ({ ...prev, local: v }))}
+              />
             </div>
-            <MarketplaceCard
-              meta={BOUTIQUE}
-              checked={state.local}
-              onToggle={(v) => setState((prev) => ({ ...prev, local: v }))}
-            />
-          </div>
+          )}
 
           {/* Section : Marketplaces */}
           {activeMarketplaces.length > 0 && (
@@ -617,41 +655,41 @@ function Modal({ input, onResult }: ModalProps) {
                     enabledCount={counts ? counts[k].enabled : undefined}
                     disabledCount={counts ? counts[k].disabled : undefined}
                     totalSelected={totalIds}
+                    isRefreshFlow={showBoutique}
                   />
                 ))}
               </div>
             </div>
           )}
 
-          {/* Section : Cadence — visible seulement en mode bulk (count > 1) */}
+          {/* Section : Cadence — visible seulement en mode bulk (count > 1).
+              Look ardoise pur (validé maquette 2026-07-20) : plus d'indigo. */}
           {showCadence && (
-            <div className="px-6 md:px-8 pt-6 pb-6 bg-gradient-to-b from-white to-slate-50/60 border-t border-dashed border-border">
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-1 h-4 rounded-full bg-indigo-500" />
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-700">
-                    Cadence
-                  </span>
-                </div>
-                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
-                  Nouveau
+            <div className="px-6 md:px-8 pt-6 pb-6 bg-gradient-to-b from-white to-bg-secondary border-t border-dashed border-border">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-1 h-4 rounded-full bg-bg-dark" />
+                <span
+                  className="text-[10px] font-bold uppercase text-text-muted"
+                  style={{ letterSpacing: "0.18em" }}
+                >
+                  Cadence
                 </span>
               </div>
-              <p className="text-xs text-text-muted mb-4">
+              <p className="text-xs text-text-muted mb-4 mt-2">
                 Choisissez un délai entre chaque produit pour étaler l&apos;effet
                 «&nbsp;Nouveauté&nbsp;». Le 1<sup>er</sup> part tout de suite, le suivant après
                 le délai, etc.
               </p>
 
               {/* Toggle Immédiat / Étaler */}
-              <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200 mb-4">
+              <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-bg-secondary border border-border mb-4">
                 <button
                   type="button"
                   onClick={() => setCadenceMode("immediate")}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  className={`px-3.5 py-1.5 rounded-lg text-xs transition-colors ${
                     cadenceMode === "immediate"
-                      ? "text-white bg-gradient-to-r from-slate-600 to-slate-800 shadow-sm font-semibold"
-                      : "text-slate-500 hover:text-slate-700"
+                      ? "text-text-inverse bg-bg-dark shadow-sm font-semibold"
+                      : "text-text-muted hover:text-text-primary font-medium"
                   }`}
                 >
                   Immédiat
@@ -659,10 +697,10 @@ function Modal({ input, onResult }: ModalProps) {
                 <button
                   type="button"
                   onClick={() => setCadenceMode("spread")}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  className={`px-3.5 py-1.5 rounded-lg text-xs transition-colors ${
                     cadenceMode === "spread"
-                      ? "text-white bg-gradient-to-r from-indigo-500 to-indigo-600 shadow-sm font-semibold"
-                      : "text-slate-500 hover:text-slate-700"
+                      ? "text-text-inverse bg-bg-dark shadow-sm font-semibold"
+                      : "text-text-muted hover:text-text-primary font-medium"
                   }`}
                 >
                   Étaler
@@ -682,8 +720,8 @@ function Modal({ input, onResult }: ModalProps) {
                           onClick={() => setPresetMs(p.ms)}
                           className={`px-3 py-1.5 rounded-full text-xs transition-colors ${
                             active
-                              ? "font-semibold bg-indigo-600 text-white border border-indigo-600 shadow-sm"
-                              : "font-medium bg-white border border-slate-200 text-slate-700 hover:border-indigo-300"
+                              ? "font-semibold bg-bg-dark text-text-inverse border border-bg-dark shadow-sm"
+                              : "font-medium bg-bg-primary border border-border text-text-secondary hover:border-border-dark"
                           }`}
                         >
                           {p.label}
@@ -693,7 +731,7 @@ function Modal({ input, onResult }: ModalProps) {
                   </div>
 
                   {/* Personnalisé */}
-                  <div className="rounded-2xl border border-border bg-white p-4">
+                  <div className="rounded-2xl border border-border bg-bg-primary p-4">
                     <div className="flex items-center justify-between gap-2 mb-3">
                       <div>
                         <div className="text-xs font-semibold text-text-primary">Personnalisé</div>
@@ -714,7 +752,7 @@ function Modal({ input, onResult }: ModalProps) {
                             setPresetMs(null); // sortie du preset actif
                           }
                         }}
-                        className="w-24 px-3 py-2 rounded-lg border border-border text-sm font-medium text-text-primary focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        className="w-24 px-3 py-2 rounded-lg border border-border text-sm font-medium text-text-primary focus:outline-none focus:ring-2 focus:ring-bg-dark/30 focus:border-bg-dark"
                       />
                       <div className="inline-flex rounded-lg border border-border overflow-hidden text-xs font-medium">
                         {(["s", "m", "h"] as CadenceUnit[]).map((u) => {
@@ -730,8 +768,8 @@ function Modal({ input, onResult }: ModalProps) {
                               }}
                               className={`px-3 py-2 border-r border-border last:border-r-0 transition-colors ${
                                 active
-                                  ? "bg-indigo-50 text-indigo-700"
-                                  : "bg-white text-text-secondary hover:bg-bg-secondary"
+                                  ? "bg-bg-dark text-text-inverse"
+                                  : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
                               }`}
                             >
                               {label}
@@ -744,9 +782,9 @@ function Modal({ input, onResult }: ModalProps) {
 
                   {/* Résumé */}
                   {cadenceSummary && (
-                    <div className="mt-4 rounded-2xl bg-indigo-50/70 border border-indigo-100 p-3.5 flex items-start gap-2.5">
+                    <div className="mt-4 rounded-2xl bg-bg-secondary border border-border p-3.5 flex items-start gap-2.5">
                       <svg
-                        className="w-4 h-4 text-indigo-600 mt-0.5 flex-shrink-0"
+                        className="w-4 h-4 text-text-secondary mt-0.5 flex-shrink-0"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -755,7 +793,7 @@ function Modal({ input, onResult }: ModalProps) {
                         <circle cx="12" cy="12" r="9" strokeWidth={1.6} />
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v5l3 2" />
                       </svg>
-                      <div className="text-[11.5px] text-indigo-900 leading-relaxed">
+                      <div className="text-[11.5px] text-text-primary leading-relaxed">
                         1 produit toutes les{" "}
                         <span className="font-semibold">{formatDurationHuman(intervalMs)}</span>.
                         Le dernier partira dans{" "}

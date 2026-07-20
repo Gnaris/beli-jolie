@@ -7,7 +7,11 @@ import { prisma } from "@/lib/prisma";
 import { isOnline, getOnlineThreshold } from "@/lib/online-status";
 import { initialsOf, avatarGradientFor } from "@/lib/user-avatar";
 import AutoRefresh from "@/components/admin/users/AutoRefresh";
-import type { UserStatus } from "@prisma/client";
+import UsersTabs from "@/components/admin/users/UsersTabs";
+import AdminCardsPane from "@/components/admin/users/AdminCardsPane";
+import Pagination from "@/components/ui/Pagination";
+import PerPageSelect from "@/components/ui/PerPageSelect";
+import type { UserStatus, Prisma } from "@prisma/client";
 
 // Bypass cache : on veut le lastSeenAt frais à chaque rafraîchissement
 export const dynamic = "force-dynamic";
@@ -15,6 +19,9 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Gestion des clients — Admin",
 };
+
+const PER_PAGE_CHOICES = [20, 50, 100, 200, 500];
+const DEFAULT_PER_PAGE = 20;
 
 function formatTimeAgo(date: Date | null): string {
   if (!date) return "Jamais";
@@ -39,6 +46,17 @@ function formatShortDate(date: Date): { date: string; time: string } {
   };
 }
 
+function parsePerPage(raw: string | undefined): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return DEFAULT_PER_PAGE;
+  return PER_PAGE_CHOICES.includes(n) ? n : DEFAULT_PER_PAGE;
+}
+
+function parsePage(raw: string | undefined): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+}
+
 // ─── Tuile KPI ─────────────────────────────────────────────────────────────
 function KpiTile({
   label, value, sub, icon, accent, pulse = false,
@@ -47,7 +65,7 @@ function KpiTile({
   value: number;
   sub: string;
   icon: React.ReactNode;
-  accent: "neutral" | "emerald" | "amber" | "sky";
+  accent: "neutral" | "emerald" | "amber" | "sky" | "violet";
   pulse?: boolean;
 }) {
   const accentMap = {
@@ -79,6 +97,13 @@ function KpiTile({
       glow: "before:bg-sky-300/40",
       labelText: "text-sky-700",
     },
+    violet: {
+      cardBg: "bg-gradient-to-br from-violet-50 via-bg-primary to-bg-primary",
+      iconBg: "bg-violet-100 border border-violet-200", iconText: "text-violet-700",
+      border: "border-violet-200/70", valueText: "text-violet-700",
+      glow: "before:bg-violet-300/40",
+      labelText: "text-violet-700",
+    },
   }[accent];
 
   return (
@@ -103,7 +128,6 @@ function KpiTile({
   );
 }
 
-/** Filtres disponibles avec leur label */
 const FILTERS: { value: string; label: string }[] = [
   { value: "ALL",      label: "Tous" },
   { value: "PENDING",  label: "En attente" },
@@ -111,53 +135,53 @@ const FILTERS: { value: string; label: string }[] = [
   { value: "REJECTED", label: "Rejetés" },
 ];
 
-/**
- * Page liste des clients — /admin/utilisateurs
- */
 export default async function UtilisateursPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{
+    status?: string;
+    tab?: string;
+    page?: string;
+    per?: string;
+    mp?: string;
+    q?: string;
+  }>;
 }) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
-  const { status } = await searchParams;
-  const filterStatus = status || "ALL";
-
-  const whereClause = filterStatus === "ALL"
-    ? { role: "CLIENT" as const }
-    : { role: "CLIENT" as const, status: filterStatus as UserStatus };
+  const params = await searchParams;
+  const currentTab: "inscrits" | "fiches" = params.tab === "fiches" ? "fiches" : "inscrits";
+  const filterStatus = params.status || "ALL";
+  const perPage = parsePerPage(params.per);
+  const page = parsePage(params.page);
 
   const onlineThreshold = getOnlineThreshold();
 
-  const [clients, pendingCount, approvedCount, rejectedCount, totalCount, onlineCount] =
+  // Common counters (KPI + tab badges)
+  const [pendingCount, approvedCount, rejectedCount, totalCount, onlineCount, cardsTotalCount] =
     await Promise.all([
-      prisma.user.findMany({
-        where: whereClause,
-        orderBy: { createdAt: "desc" },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          company: true,
-          email: true,
-          phone: true,
-          siret: true,
-          status: true,
-          lastLoginAt: true,
-          lastSeenAt: true,
-          createdAt: true,
-        },
-      }),
       prisma.user.count({ where: { role: "CLIENT", status: "PENDING" } }),
       prisma.user.count({ where: { role: "CLIENT", status: "APPROVED" } }),
       prisma.user.count({ where: { role: "CLIENT", status: "REJECTED" } }),
       prisma.user.count({ where: { role: "CLIENT" } }),
-      prisma.user.count({
-        where: { role: "CLIENT", lastSeenAt: { gte: onlineThreshold } },
-      }),
+      prisma.user.count({ where: { role: "CLIENT", lastSeenAt: { gte: onlineThreshold } } }),
+      prisma.adminClientCard.count({}),
     ]);
+
+  const registeredWhere =
+    filterStatus === "ALL"
+      ? { role: "CLIENT" as const }
+      : { role: "CLIENT" as const, status: filterStatus as UserStatus };
+
+  const filteredRegisteredCount =
+    filterStatus === "ALL"
+      ? totalCount
+      : filterStatus === "PENDING"
+      ? pendingCount
+      : filterStatus === "APPROVED"
+      ? approvedCount
+      : rejectedCount;
 
   const counts: Record<string, number> = {
     ALL:      totalCount,
@@ -166,11 +190,37 @@ export default async function UtilisateursPage({
     REJECTED: rejectedCount,
   };
 
+  // Data loading depends on active tab
+  const [clients, cardsData] = await Promise.all([
+    currentTab === "inscrits"
+      ? prisma.user.findMany({
+          where: registeredWhere,
+          orderBy: { createdAt: "desc" },
+          skip: (page - 1) * perPage,
+          take: perPage,
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            company: true,
+            email: true,
+            phone: true,
+            siret: true,
+            status: true,
+            lastLoginAt: true,
+            lastSeenAt: true,
+            createdAt: true,
+          },
+        })
+      : Promise.resolve([]),
+    currentTab === "fiches" ? loadAdminCards(params, page, perPage) : Promise.resolve(null),
+  ]);
+
   return (
     <div className="space-y-6">
       <AutoRefresh intervalMs={10_000} />
 
-      {/* ════════════════════════ HERO ════════════════════════ */}
+      {/* HERO */}
       <section className="relative overflow-hidden rounded-3xl border border-border shadow-sm">
         <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-bg-primary to-bg-primary" />
         <div className="absolute -top-20 -right-16 w-64 h-64 rounded-full blur-3xl bg-amber-200/25 pointer-events-none" />
@@ -186,12 +236,11 @@ export default async function UtilisateursPage({
               </span>
               <h1 className="page-title mt-4">Gestion des clients</h1>
               <p className="page-subtitle font-body max-w-2xl">
-                Comptes professionnels, validation des nouvelles inscriptions et suivi de l&apos;activité en temps réel.
+                Comptes professionnels inscrits sur le site + votre répertoire personnel de fiches clients.
               </p>
             </div>
           </div>
 
-          {/* KPI BENTO */}
           <div className="relative mt-6 sm:mt-8 grid grid-cols-2 md:grid-cols-4 gap-3">
             <KpiTile
               label="Total clients"
@@ -228,13 +277,13 @@ export default async function UtilisateursPage({
               }
             />
             <KpiTile
-              label="Approuvés"
-              value={approvedCount}
-              sub="Comptes avec accès complet"
-              accent="sky"
+              label="Mes fiches"
+              value={cardsTotalCount}
+              sub="Répertoire personnel admin"
+              accent="violet"
               icon={
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/>
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
                 </svg>
               }
             />
@@ -242,52 +291,119 @@ export default async function UtilisateursPage({
         </div>
       </section>
 
-      {/* ════════════════════════ FILTRES ════════════════════════ */}
-      <div className="flex flex-wrap items-center gap-2">
-        {FILTERS.map((filter) => {
-          const isActive = filterStatus === filter.value;
-          const count = counts[filter.value];
-          const isPendingChip = filter.value === "PENDING";
-          const isRejectedChip = filter.value === "REJECTED";
+      <UsersTabs currentTab={currentTab} registeredCount={totalCount} cardsCount={cardsTotalCount} />
 
-          let chipClass = "bg-bg-primary border-border text-text-secondary hover:border-border-strong hover:text-text-primary";
-          let countClass = "bg-bg-secondary text-text-muted";
+      {currentTab === "inscrits" ? (
+        <RegisteredPane
+          clients={clients}
+          filterStatus={filterStatus}
+          counts={counts}
+          totalFiltered={filteredRegisteredCount}
+          page={page}
+          perPage={perPage}
+        />
+      ) : (
+        cardsData && (
+          <AdminCardsPane
+            cards={cardsData.cards}
+            totalCount={cardsData.filteredCount}
+            filterCounts={cardsData.filterCounts}
+            currentFilter={cardsData.filter}
+            currentPage={page}
+            perPage={perPage}
+            search={cardsData.search}
+          />
+        )
+      )}
 
-          if (isActive) {
-            if (isPendingChip) {
-              chipClass = "bg-gradient-to-br from-amber-600 to-amber-700 border-amber-600 text-white shadow-sm";
-              countClass = "bg-white/20 text-white";
-            } else if (isRejectedChip) {
-              chipClass = "bg-gradient-to-br from-red-600 to-red-700 border-red-600 text-white shadow-sm";
-              countClass = "bg-white/20 text-white";
-            } else {
-              chipClass = "bg-gradient-to-br from-text-primary to-text-secondary border-text-primary text-white shadow-sm";
-              countClass = "bg-white/20 text-white";
+      <p className="text-center text-[11px] text-text-muted font-body pt-2">
+        Actualisation automatique toutes les 10 secondes
+      </p>
+    </div>
+  );
+}
+
+// ─── Registered users pane (existing behaviour + pagination) ────────────────
+
+type RegisteredClient = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  company: string;
+  email: string;
+  phone: string;
+  siret: string;
+  status: UserStatus;
+  lastLoginAt: Date | null;
+  lastSeenAt: Date | null;
+  createdAt: Date;
+};
+
+function RegisteredPane({
+  clients,
+  filterStatus,
+  counts,
+  totalFiltered,
+  page,
+  perPage,
+}: {
+  clients: RegisteredClient[];
+  filterStatus: string;
+  counts: Record<string, number>;
+  totalFiltered: number;
+  page: number;
+  perPage: number;
+}) {
+  return (
+    <>
+      {/* Filtres + par page */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {FILTERS.map((filter) => {
+            const isActive = filterStatus === filter.value;
+            const count = counts[filter.value];
+            const isPendingChip = filter.value === "PENDING";
+            const isRejectedChip = filter.value === "REJECTED";
+
+            let chipClass = "bg-bg-primary border-border text-text-secondary hover:border-border-strong hover:text-text-primary";
+            let countClass = "bg-bg-secondary text-text-muted";
+
+            if (isActive) {
+              if (isPendingChip) {
+                chipClass = "bg-gradient-to-br from-amber-600 to-amber-700 border-amber-600 text-white shadow-sm";
+                countClass = "bg-white/20 text-white";
+              } else if (isRejectedChip) {
+                chipClass = "bg-gradient-to-br from-red-600 to-red-700 border-red-600 text-white shadow-sm";
+                countClass = "bg-white/20 text-white";
+              } else {
+                chipClass = "bg-gradient-to-br from-text-primary to-text-secondary border-text-primary text-white shadow-sm";
+                countClass = "bg-white/20 text-white";
+              }
+            } else if (isPendingChip && count > 0) {
+              chipClass = "bg-amber-50 border-amber-200 text-amber-800 hover:border-amber-300";
+              countClass = "bg-amber-100 text-amber-800";
             }
-          } else if (isPendingChip && count > 0) {
-            chipClass = "bg-amber-50 border-amber-200 text-amber-800 hover:border-amber-300";
-            countClass = "bg-amber-100 text-amber-800";
-          }
 
-          return (
-            <Link
-              key={filter.value}
-              href={filter.value === "ALL"
-                ? "/admin/utilisateurs"
-                : `/admin/utilisateurs?status=${filter.value}`}
-              prefetch={false}
-              className={`inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-body font-medium rounded-xl border transition-all ${chipClass}`}
-            >
-              {filter.label}
-              <span className={`inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-full text-[11px] font-semibold ${countClass}`}>
-                {count}
-              </span>
-            </Link>
-          );
-        })}
+            return (
+              <Link
+                key={filter.value}
+                href={filter.value === "ALL" ? "/admin/utilisateurs" : `/admin/utilisateurs?status=${filter.value}`}
+                prefetch={false}
+                className={`inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-body font-medium rounded-xl border transition-all ${chipClass}`}
+              >
+                {filter.label}
+                <span className={`inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-full text-[11px] font-semibold ${countClass}`}>
+                  {count}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+
+        <PerPageSelect value={perPage} />
       </div>
 
-      {/* ════════════════════════ LISTE ════════════════════════ */}
+      {/* Liste */}
       {clients.length === 0 ? (
         <div className="bg-bg-primary rounded-2xl border border-border shadow-sm py-16 px-6 text-center">
           <div className="w-16 h-16 rounded-2xl mx-auto flex items-center justify-center mb-5 bg-bg-secondary border border-border">
@@ -309,7 +425,7 @@ export default async function UtilisateursPage({
         </div>
       ) : (
         <>
-          {/* Desktop : table */}
+          {/* Desktop */}
           <div className="hidden lg:block bg-bg-primary rounded-2xl border border-border overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -338,7 +454,6 @@ export default async function UtilisateursPage({
                           isPending ? "bg-gradient-to-r from-amber-50/70 to-transparent" : ""
                         }`}
                       >
-                        {/* Client + avatar */}
                         <td className="px-5 py-3.5">
                           <div className="flex items-center gap-3 min-w-0">
                             <div className={`relative flex items-center justify-center w-10 h-10 rounded-xl text-white text-[13px] font-heading font-bold shadow-sm shrink-0 ${gradient}`}>
@@ -362,8 +477,6 @@ export default async function UtilisateursPage({
                             </div>
                           </div>
                         </td>
-
-                        {/* Société + email */}
                         <td className="px-5 py-3.5 min-w-0">
                           <p className="text-[13.5px] font-body font-medium text-text-primary truncate max-w-xs">
                             {c.company}
@@ -372,13 +485,9 @@ export default async function UtilisateursPage({
                             {c.email}
                           </p>
                         </td>
-
-                        {/* SIRET */}
                         <td className="px-5 py-3.5 whitespace-nowrap">
                           <p className="font-mono text-[12.5px] text-text-secondary tabular-nums">{c.siret || "—"}</p>
                         </td>
-
-                        {/* Statut */}
                         <td className="px-5 py-3.5">
                           <span className={`badge ${
                             c.status === "APPROVED" ? "badge-success" :
@@ -390,8 +499,6 @@ export default async function UtilisateursPage({
                              "Rejeté"}
                           </span>
                         </td>
-
-                        {/* Présence */}
                         <td className="px-5 py-3.5 whitespace-nowrap">
                           {online ? (
                             <span className="inline-flex items-center gap-1.5 text-xs font-body font-medium text-emerald-700">
@@ -411,14 +518,10 @@ export default async function UtilisateursPage({
                             {formatTimeAgo(c.lastLoginAt)}
                           </p>
                         </td>
-
-                        {/* Inscription */}
                         <td className="px-5 py-3.5 whitespace-nowrap">
                           <p className="text-xs font-body text-text-secondary">{inscription.date}</p>
                           <p className="text-[11px] font-body text-text-muted">{inscription.time}</p>
                         </td>
-
-                        {/* Action */}
                         <td className="px-5 py-3.5 text-right whitespace-nowrap">
                           {isPending ? (
                             <Link
@@ -445,9 +548,10 @@ export default async function UtilisateursPage({
                 </tbody>
               </table>
             </div>
+            <Pagination totalItems={totalFiltered} perPage={perPage} currentPage={page} itemLabel="clients" />
           </div>
 
-          {/* Mobile / tablette : cartes */}
+          {/* Mobile */}
           <div className="lg:hidden space-y-2.5">
             {clients.map((c) => {
               const online = isOnline(c.lastSeenAt);
@@ -524,13 +628,116 @@ export default async function UtilisateursPage({
                 </Link>
               );
             })}
+            <div className="bg-bg-primary rounded-2xl border border-border overflow-hidden">
+              <Pagination totalItems={totalFiltered} perPage={perPage} currentPage={page} itemLabel="clients" />
+            </div>
           </div>
         </>
       )}
-
-      <p className="text-center text-[11px] text-text-muted font-body pt-2">
-        Actualisation automatique toutes les 10 secondes
-      </p>
-    </div>
+    </>
   );
+}
+
+// ─── Admin cards data loader ────────────────────────────────────────────────
+
+async function loadAdminCards(
+  params: { mp?: string; q?: string },
+  page: number,
+  perPage: number,
+) {
+  const filter = (["PFS", "ANKORSTORE", "EFASHION", "FAIRE", "MICROSTORE"] as const).includes(params.mp as never)
+    ? (params.mp as "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" | "MICROSTORE")
+    : ("ALL" as const);
+  const q = (params.q ?? "").trim();
+
+  const marketplaceFilter: Prisma.AdminClientCardWhereInput =
+    filter === "PFS"
+      ? { hasPfs: true }
+      : filter === "ANKORSTORE"
+      ? { hasAnkorstore: true }
+      : filter === "EFASHION"
+      ? { hasEfashion: true }
+      : filter === "FAIRE"
+      ? { hasFaire: true }
+      : filter === "MICROSTORE"
+      ? { hasMicrostore: true }
+      : {};
+
+  const searchFilter: Prisma.AdminClientCardWhereInput = q
+    ? {
+        OR: [
+          { firstName: { contains: q } },
+          { lastName: { contains: q } },
+          { company: { contains: q } },
+          { email: { contains: q } },
+          { phone: { contains: q } },
+        ],
+      }
+    : {};
+
+  const where: Prisma.AdminClientCardWhereInput = { AND: [marketplaceFilter, searchFilter] };
+
+  const [
+    cards,
+    filteredCount,
+    all,
+    pfs,
+    ankorstore,
+    efashion,
+    faire,
+    microstore,
+  ] = await Promise.all([
+    prisma.adminClientCard.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * perPage,
+      take: perPage,
+    }),
+    prisma.adminClientCard.count({ where }),
+    prisma.adminClientCard.count({ where: searchFilter }),
+    prisma.adminClientCard.count({ where: { AND: [{ hasPfs: true }, searchFilter] } }),
+    prisma.adminClientCard.count({ where: { AND: [{ hasAnkorstore: true }, searchFilter] } }),
+    prisma.adminClientCard.count({ where: { AND: [{ hasEfashion: true }, searchFilter] } }),
+    prisma.adminClientCard.count({ where: { AND: [{ hasFaire: true }, searchFilter] } }),
+    prisma.adminClientCard.count({ where: { AND: [{ hasMicrostore: true }, searchFilter] } }),
+  ]);
+
+  return {
+    cards: cards.map((c) => ({
+      id: c.id,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      company: c.company,
+      siret: c.siret,
+      vatNumber: c.vatNumber,
+      email: c.email,
+      phone: c.phone,
+      website: c.website,
+      address: c.address,
+      hasPfs: c.hasPfs,
+      hasAnkorstore: c.hasAnkorstore,
+      hasEfashion: c.hasEfashion,
+      hasFaire: c.hasFaire,
+      hasMicrostore: c.hasMicrostore,
+      lastOrderAt: c.lastOrderAt?.toISOString() ?? null,
+      lastMessageSentAt: c.lastMessageSentAt?.toISOString() ?? null,
+      orderDiscountType: c.orderDiscountType,
+      orderDiscountValue: c.orderDiscountValue ? c.orderDiscountValue.toString() : null,
+      shippingFree: c.shippingFree,
+      shippingDiscountType: c.shippingDiscountType,
+      shippingDiscountValue: c.shippingDiscountValue ? c.shippingDiscountValue.toString() : null,
+      note: c.note,
+    })),
+    filteredCount,
+    filter,
+    filterCounts: {
+      ALL: all,
+      PFS: pfs,
+      ANKORSTORE: ankorstore,
+      EFASHION: efashion,
+      FAIRE: faire,
+      MICROSTORE: microstore,
+    },
+    search: q,
+  };
 }

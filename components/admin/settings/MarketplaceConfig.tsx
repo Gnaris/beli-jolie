@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
-  updatePfsCredentials, validatePfsCredentials,
+  updatePfsCredentials, validatePfsCredentials, togglePfsEnabled,
   updateAnkorstoreCredentials, validateAnkorstoreCredentials, toggleAnkorstoreEnabled,
   updateEfashionCredentials, validateEfashionCredentials, toggleEfashionEnabled,
   updateFaireCredentials, validateFaireCredentials, toggleFaireEnabled,
@@ -31,6 +31,7 @@ export interface PfsOutOfStockUiConfig {
 
 interface Props {
   hasPfsConfig: boolean;
+  pfsEnabled: boolean;
   pfsBrand: { id: string; name: string } | null;
   pfsOutOfStock: PfsOutOfStockUiConfig;
   hasAnkorstoreConfig: boolean;
@@ -625,6 +626,7 @@ function Field({ label, type, value, onChange, placeholder, disabled, hint }: {
 // ═══════════════════════════════════════════════════════════════════════════
 export default function MarketplaceConfig({
   hasPfsConfig,
+  pfsEnabled: initialPfsEnabled,
   pfsBrand: initialPfsBrand,
   pfsOutOfStock: initialPfsOutOfStock,
   hasAnkorstoreConfig,
@@ -644,6 +646,8 @@ export default function MarketplaceConfig({
   const [isSavingPfs, startSavingPfs] = useTransition();
   const [isValidatingPfs, startValidatingPfs] = useTransition();
   const [pfsMarkup, setPfsMarkup] = useState<MarkupState>(markupSettings.pfs);
+  const [pfsEnabled, setPfsEnabled] = useState(initialPfsEnabled);
+  const [isTogglingPfs, startTogglingPfs] = useTransition();
 
   // PFS out-of-stock behavior
   const [pfsOosDeactivate, setPfsOosDeactivate] = useState<boolean>(initialPfsOutOfStock.deactivateVariant);
@@ -742,7 +746,7 @@ export default function MarketplaceConfig({
   // ── Cockpit stats ───────────────────────────────────────────────────────────
   const cockpit = useMemo(() => {
     const activeFlags = [
-      hasPfsConfig && !!pfsBrand,
+      hasPfsConfig && !!pfsBrand && pfsEnabled,
       hasAnkorstoreConfig && ankEnabled,
       hasFaireConfig && faiEnabled,
       hasEfashionConfig && efaEnabled,
@@ -758,7 +762,7 @@ export default function MarketplaceConfig({
       totalToSync,
       lastSyncAt,
     };
-  }, [hasPfsConfig, pfsBrand, hasAnkorstoreConfig, ankEnabled, hasFaireConfig, faiEnabled, hasEfashionConfig, efaEnabled, stats]);
+  }, [hasPfsConfig, pfsBrand, pfsEnabled, hasAnkorstoreConfig, ankEnabled, hasFaireConfig, faiEnabled, hasEfashionConfig, efaEnabled, stats]);
 
   // ── PFS brand picker ────────────────────────────────────────────────────────
   function openBrandPicker() {
@@ -820,6 +824,14 @@ export default function MarketplaceConfig({
         if (r.success) toast.success("Enregistré", "Comportement en rupture mis à jour.");
         else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
       } finally { hideLoading(); }
+    });
+  }
+
+  function handlePfsToggle(v: boolean) {
+    startTogglingPfs(async () => {
+      const r = await togglePfsEnabled(v);
+      if (r.success) { setPfsEnabled(v); toast.success(v ? "Paris Fashion Shop activé" : "Paris Fashion Shop en pause", v ? "La sync est de nouveau active." : "Plus de propagation vers PFS."); }
+      else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
     });
   }
 
@@ -960,15 +972,26 @@ export default function MarketplaceConfig({
     stats: MarketplaceStats;
     onOpenSettings: () => void;
     ctaLabel: string;
+    /** Contrôle du toggle ON/OFF (absent si marketplace non configurée). */
+    enabledControl?: {
+      checked: boolean;
+      toggling: boolean;
+      onToggle: (v: boolean) => void;
+    };
   }[] = [
     {
       brandKey: "pfs",
-      subtitle: pfsBrand ? `Marque · ${pfsBrand.name}` : hasPfsConfig ? "Marque à choisir" : "Non configuré",
+      subtitle: pfsBrand
+        ? (pfsEnabled ? `Marque · ${pfsBrand.name}` : "Désactivé")
+        : hasPfsConfig ? "Marque à choisir" : "Non configuré",
       status: pfsCardStatus(),
-      enabled: hasPfsConfig && !!pfsBrand,
+      enabled: hasPfsConfig && !!pfsBrand && pfsEnabled,
       stats: stats.pfs,
       onOpenSettings: () => setDrawerKey("pfs"),
       ctaLabel: hasPfsConfig ? "Réglages" : "Configurer",
+      enabledControl: hasPfsConfig
+        ? { checked: pfsEnabled, toggling: isTogglingPfs, onToggle: handlePfsToggle }
+        : undefined,
     },
     {
       brandKey: "ankorstore",
@@ -978,6 +1001,9 @@ export default function MarketplaceConfig({
       stats: stats.ankorstore,
       onOpenSettings: () => setDrawerKey("ankorstore"),
       ctaLabel: hasAnkorstoreConfig ? "Réglages" : "Configurer",
+      enabledControl: hasAnkorstoreConfig
+        ? { checked: ankEnabled, toggling: isTogglingAnk, onToggle: handleAnkToggle }
+        : undefined,
     },
     {
       brandKey: "efashion",
@@ -987,6 +1013,9 @@ export default function MarketplaceConfig({
       stats: stats.efashion,
       onOpenSettings: () => setDrawerKey("efashion"),
       ctaLabel: hasEfashionConfig ? "Réglages" : "Configurer",
+      enabledControl: hasEfashionConfig
+        ? { checked: efaEnabled, toggling: isTogglingEfa, onToggle: handleEfaToggle }
+        : undefined,
     },
     {
       brandKey: "faire",
@@ -996,6 +1025,9 @@ export default function MarketplaceConfig({
       stats: stats.faire,
       onOpenSettings: () => setDrawerKey("faire"),
       ctaLabel: hasFaireConfig ? "Réglages" : "Configurer",
+      enabledControl: hasFaireConfig
+        ? { checked: faiEnabled, toggling: isTogglingFai, onToggle: handleFaiToggle }
+        : undefined,
     },
   ];
 
@@ -1058,6 +1090,7 @@ export default function MarketplaceConfig({
               <tr>
                 <th className="py-3 pl-5 pr-3 text-left font-semibold">Marketplace</th>
                 <th className="py-3 px-3 text-left font-semibold">Statut</th>
+                <th className="py-3 px-3 text-center font-semibold">Actif</th>
                 <th className="py-3 px-3 text-right font-semibold">En ligne</th>
                 <th className="py-3 px-3 text-right font-semibold">À synchroniser</th>
                 <th className="py-3 px-3 text-right font-semibold">Dernière sync</th>
@@ -1088,6 +1121,20 @@ export default function MarketplaceConfig({
                       </div>
                     </td>
                     <td className="py-4 px-3">{statusBadge(row.status, row.enabled)}</td>
+                    <td className="py-4 px-3">
+                      {row.enabledControl ? (
+                        <div className="flex justify-center">
+                          <Toggle
+                            checked={row.enabledControl.checked}
+                            disabled={row.enabledControl.toggling}
+                            onChange={row.enabledControl.onToggle}
+                            label={row.enabledControl.checked ? "ON" : "OFF"}
+                          />
+                        </div>
+                      ) : (
+                        <div className="text-center font-body text-[11px] text-text-muted">—</div>
+                      )}
+                    </td>
                     <td className="py-4 px-3 text-right tabular-nums font-body text-sm font-semibold text-text-primary">
                       {row.status === "off" ? "—" : row.stats.published.toLocaleString("fr-FR")}
                     </td>
@@ -1123,11 +1170,13 @@ export default function MarketplaceConfig({
           {rows.map((row) => {
             const dimmed = row.status === "off" || !row.enabled;
             return (
-              <button
+              <div
                 key={row.brandKey}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={row.onOpenSettings}
-                className={`w-full rounded-2xl border border-border-light bg-bg-primary p-4 text-left hover:bg-bg-secondary/60 transition-colors ${dimmed ? "opacity-70" : ""}`}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); row.onOpenSettings(); } }}
+                className={`w-full rounded-2xl border border-border-light bg-bg-primary p-4 text-left cursor-pointer hover:bg-bg-secondary/60 transition-colors ${dimmed ? "opacity-70" : ""}`}
               >
                 <div className="flex items-center gap-3 mb-3">
                   <div className="scale-75 origin-left -my-2">
@@ -1139,6 +1188,16 @@ export default function MarketplaceConfig({
                     </div>
                     <div className="font-body text-[11px] text-text-muted truncate">{row.subtitle}</div>
                   </div>
+                  {row.enabledControl && (
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <Toggle
+                        checked={row.enabledControl.checked}
+                        disabled={row.enabledControl.toggling}
+                        onChange={row.enabledControl.onToggle}
+                        label={row.enabledControl.checked ? "ON" : "OFF"}
+                      />
+                    </div>
+                  )}
                   {statusBadge(row.status, row.enabled)}
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center">
@@ -1161,7 +1220,7 @@ export default function MarketplaceConfig({
                     <div className="text-[10px] uppercase tracking-wider text-text-muted mt-0.5">Sync</div>
                   </div>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>

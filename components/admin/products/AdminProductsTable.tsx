@@ -770,6 +770,8 @@ interface Props {
   totalCount: number;
   startIndex: number;
   hasPfsConfig: boolean;
+  /** Kill switch global PFS (Paramètres > toggle). Défaut = `hasPfsConfig`. */
+  pfsGloballyEnabled?: boolean;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
   hasEfashionConfig: boolean;
@@ -1822,6 +1824,7 @@ function ProductRow({
   product,
   rowNumber,
   hasPfsConfig,
+  pfsGloballyEnabled = true,
   hasAnkorstoreConfig,
   ankorstoreEnabled,
   hasEfashionConfig,
@@ -1842,6 +1845,7 @@ function ProductRow({
   product: AdminProduct;
   rowNumber: number;
   hasPfsConfig: boolean;
+  pfsGloballyEnabled?: boolean;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
   hasEfashionConfig: boolean;
@@ -1877,15 +1881,27 @@ function ProductRow({
   const [refCopied, setRefCopied] = useState(false);
   const { enqueue, items: queueItems } = useMarketplaceRefreshQueue();
   const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
-  const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
-  const showEfashion = hasEfashionConfig && efashionEnabled;
-  const showFaire = hasFaireConfig && faireEnabled;
+  // Distinction visuelle vs métier :
+  //  - showXxx : rendre le badge (même barré si le kill switch global est OFF)
+  //  - xxxOperational : autoriser une action (publier, resync). Un kill switch
+  //    OFF côté Paramètres coupe l'action mais laisse le badge visible barré.
+  const showAnkorstore = hasAnkorstoreConfig;
+  const showEfashion = hasEfashionConfig;
+  const showFaire = hasFaireConfig;
+  const ankorstoreOperational = hasAnkorstoreConfig && ankorstoreEnabled;
+  const efashionOperational = hasEfashionConfig && efashionEnabled;
+  const faireOperational = hasFaireConfig && faireEnabled;
+  const pfsOperational = hasPfsConfig && pfsGloballyEnabled;
+  const pfsDisabledOverall = !product.pfsEnabled || !pfsGloballyEnabled;
+  const ankorsDisabledOverall = !product.ankorsEnabled || !ankorstoreEnabled;
+  const efashionDisabledOverall = !product.efashionEnabled || !efashionEnabled;
+  const faireDisabledOverall = !product.faireEnabled || !faireEnabled;
   const efashionLinked = product.colors.some((c) => c.efashionProductId != null);
   const { refreshSingle } = useRefreshMarketplaceDialog({
-    showPfs: hasPfsConfig,
-    showAnkorstore,
-    showEfashion,
-    showFaire,
+    showPfs: pfsOperational,
+    showAnkorstore: ankorstoreOperational,
+    showEfashion: efashionOperational,
+    showFaire: faireOperational,
   });
 
   // État "loading" des badges marketplaces : on regarde la dernière opération
@@ -2204,7 +2220,50 @@ function ProductRow({
                   </span>
                 )}
               </div>
-              <p className="font-mono text-[11px] text-text-muted mt-0.5 truncate">{product.reference}</p>
+              <div className="flex items-center gap-1 mt-0.5 min-w-0">
+                <p className="font-mono text-[11px] text-text-muted truncate">{product.reference}</p>
+                <button
+                  type="button"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      await navigator.clipboard.writeText(product.reference);
+                      setRefCopied(true);
+                      window.setTimeout(() => setRefCopied(false), 1500);
+                    } catch {
+                      toast.error("Impossible de copier la référence");
+                    }
+                  }}
+                  title={refCopied ? "Référence copiée" : "Copier la référence"}
+                  aria-label={refCopied ? "Référence copiée" : "Copier la référence"}
+                  className="inline-flex items-center justify-center w-4 h-4 rounded text-text-muted hover:bg-bg-tertiary hover:text-text-primary transition-colors shrink-0"
+                >
+                  {refCopied ? (
+                    <svg className="w-3 h-3 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+              {/* Prix + icônes Important/Verrouiller sous la référence.
+                  Toujours visibles pour libérer la largeur du tableau. */}
+              <div className="flex items-center gap-2 mt-1 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                {!isNaN(minPrice) ? (
+                  <span className="font-semibold text-text-primary text-[12.5px] tabular-nums">
+                    {minPrice.toFixed(2)} EUR
+                  </span>
+                ) : (
+                  <span className="text-text-muted text-[11px]">—</span>
+                )}
+                <div className="flex items-center gap-0.5">
+                  <ProductImportantToggle productId={product.id} initialImportant={product.important} variant="icon" />
+                  <ProductLockToggle productId={product.id} initialLocked={product.locked} variant="icon" />
+                </div>
+              </div>
               {/* Couleurs attribuées au produit — une pastille par couleur
                   unique (UNIT + PACK confondus), légende flottante au survol. */}
               {uniqueColors.length > 0 && (
@@ -2214,14 +2273,9 @@ function ProductRow({
                   ))}
                 </div>
               )}
-              {/* Infos compactes pour mobile : prix + état + marketplaces.
-                  Masquées dès qu'on a assez de place pour les colonnes dédiées. */}
+              {/* État compact pour mobile (< md).
+                  Masqué dès qu'on a la colonne État dédiée. */}
               <div className="md:hidden flex items-center gap-2 mt-1.5 flex-wrap">
-                {!isNaN(minPrice) && (
-                  <span className="font-semibold text-text-primary text-[12px] tabular-nums">
-                    {minPrice.toFixed(2)} EUR
-                  </span>
-                )}
                 <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border ${
                   product.status === "ONLINE" ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
                     : product.status === "SYNCING" ? "bg-blue-50 text-blue-700 border-blue-200"
@@ -2247,68 +2301,19 @@ function ProductRow({
                   disponible et garantir qu'aucun ne déborde. Non-interactifs :
                   simple aperçu du statut. Les actions passent par le menu ⋮. */}
               <div className="lg:hidden flex items-stretch gap-1 mt-1.5 w-full flex-nowrap">
-                <MpDot label="PFS" active={hasPfsConfig && pfsBadgeState.online} syncRequired={pfsBadgeState.syncRequired} />
+                <MpDot label="PFS" active={hasPfsConfig && pfsBadgeState.online} syncRequired={pfsBadgeState.syncRequired} disabled={pfsDisabledOverall} />
                 {showEfashion && (
-                  <MpDot label="EF" active={efashionBadgeState.online} syncRequired={efashionBadgeState.syncRequired} />
+                  <MpDot label="EF" active={efashionBadgeState.online} syncRequired={efashionBadgeState.syncRequired} disabled={efashionDisabledOverall} />
                 )}
                 {showAnkorstore && (
-                  <MpDot label="AK" active={ankorstoreBadgeState.online} syncRequired={ankorstoreBadgeState.syncRequired} />
+                  <MpDot label="AK" active={ankorstoreBadgeState.online} syncRequired={ankorstoreBadgeState.syncRequired} disabled={ankorsDisabledOverall} />
                 )}
                 {showFaire && (
-                  <MpDot label="Faire" active={faireBadgeState.online} syncRequired={faireBadgeState.syncRequired} />
+                  <MpDot label="Faire" active={faireBadgeState.online} syncRequired={faireBadgeState.syncRequired} disabled={faireDisabledOverall} />
                 )}
               </div>
             </div>
-            {/* Étoile « Important » : toujours visible si marquée (signal permanent),
-                sinon cachée et révélée au survol de la ligne (comme les autres icônes). */}
-            <div
-              className={`shrink-0 transition-opacity ${product.important ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ProductImportantToggle productId={product.id} initialImportant={product.important} variant="icon" />
-            </div>
-            {/* Boutons compacts (copie ref + verrou) à droite, discrets, apparaissent au survol */}
-            <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-              <button
-                type="button"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  try {
-                    await navigator.clipboard.writeText(product.reference);
-                    setRefCopied(true);
-                    window.setTimeout(() => setRefCopied(false), 1500);
-                  } catch {
-                    toast.error("Impossible de copier la référence");
-                  }
-                }}
-                title={refCopied ? "Référence copiée" : "Copier la référence"}
-                aria-label={refCopied ? "Référence copiée" : "Copier la référence"}
-                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-text-muted hover:bg-bg-tertiary hover:text-text-primary transition-colors"
-              >
-                {refCopied ? (
-                  <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : (
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                )}
-              </button>
-              <ProductLockToggle productId={product.id} initialLocked={product.locked} variant="icon" />
-            </div>
           </div>
-        </td>
-
-        {/* Prix */}
-        <td className="hidden md:table-cell px-3 py-3.5 cursor-pointer whitespace-nowrap" onClick={onExpandToggle}>
-          {!isNaN(minPrice) ? (
-            <span className="font-semibold text-text-primary text-[13.5px] tabular-nums">
-              {minPrice.toFixed(2)} EUR
-            </span>
-          ) : (
-            <span className="text-text-muted text-[11px]">—</span>
-          )}
         </td>
 
         {/* Marketplaces */}
@@ -2331,19 +2336,19 @@ function ProductRow({
               </span>
             </div>
           ) : (
-            <div className="flex flex-row gap-1 items-start flex-wrap">
+            <div className="flex flex-row gap-1 items-center flex-nowrap">
               <MarketplaceBadge
                 published={pfsBadgeState.online}
                 publishing={isPfsPublishing}
                 syncRequired={pfsBadgeState.syncRequired && !pendingPfsEnqueue}
                 lastExportedAt={product.pfsLastExportedAt}
                 onActionClick={
-                  hasPfsConfig && !pfsBadgeState.online && !isPfsPublishing
+                  pfsOperational && !pfsBadgeState.online && !isPfsPublishing
                     ? () => setActionModalPfs(true)
                     : undefined
                 }
                 onSyncClick={handleSyncPfs}
-                disabledForProduct={!product.pfsEnabled}
+                disabledForProduct={pfsDisabledOverall}
               />
               {showEfashion ? (
                 <EfashionBadge
@@ -2352,12 +2357,12 @@ function ProductRow({
                   syncRequired={efashionBadgeState.syncRequired && !pendingEfashionEnqueue}
                   lastExportedAt={product.efashionLastExportedAt}
                   onActionClick={
-                    showEfashion && !efashionBadgeState.online && !isEfashionPublishing
+                    efashionOperational && !efashionBadgeState.online && !isEfashionPublishing
                       ? () => setActionModalEf(true)
                       : undefined
                   }
                   onSyncClick={handleSyncEfashion}
-                  disabledForProduct={!product.efashionEnabled}
+                  disabledForProduct={efashionDisabledOverall}
                 />
               ) : (
                 <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-secondary text-text-muted border border-border">
@@ -2370,12 +2375,12 @@ function ProductRow({
                 syncRequired={ankorstoreBadgeState.syncRequired && !pendingAnkorstoreEnqueue}
                 lastExportedAt={product.ankorstoreLastExportedAt}
                 onActionClick={
-                  showAnkorstore && !ankorstoreBadgeState.online && !isAnkorstorePublishing
+                  ankorstoreOperational && !ankorstoreBadgeState.online && !isAnkorstorePublishing
                     ? () => setActionModalAk(true)
                     : undefined
                 }
                 onSyncClick={handleSyncAnkorstore}
-                disabledForProduct={!product.ankorsEnabled}
+                disabledForProduct={ankorsDisabledOverall}
               />
               {showFaire ? (
                 <FaireBadge
@@ -2384,12 +2389,12 @@ function ProductRow({
                   syncRequired={faireBadgeState.syncRequired && !pendingFaireEnqueue}
                   lastExportedAt={product.faireLastExportedAt}
                   onActionClick={
-                    showFaire && !faireBadgeState.online && !isFairePublishing
+                    faireOperational && !faireBadgeState.online && !isFairePublishing
                       ? () => setActionModalFaire(true)
                       : undefined
                   }
                   onSyncClick={handleSyncFaire}
-                  disabledForProduct={!product.faireEnabled}
+                  disabledForProduct={faireDisabledOverall}
                 />
               ) : (
                 <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-bg-secondary text-text-muted border border-border">
@@ -2546,7 +2551,7 @@ function ProductRow({
       {/* ── Tiroir variantes (refonte cockpit) ── */}
       {expanded && (
         <tr>
-          <td colSpan={8} className="p-0">
+          <td colSpan={7} className="p-0">
             <div className="drawer-variant-container">
               {/* En-tête du tiroir */}
               <div className="drawer-variant-header relative flex items-center justify-between">
@@ -2852,11 +2857,12 @@ function ProductRow({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, startIndex, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, onRowDelete, onRowSync,
+  products, startIndex, hasPfsConfig, pfsGloballyEnabled, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, onRowDelete, onRowSync,
 }: {
   products: AdminProduct[];
   startIndex: number;
   hasPfsConfig: boolean;
+  pfsGloballyEnabled: boolean;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
   hasEfashionConfig: boolean;
@@ -2894,7 +2900,6 @@ function TableWithTopScroll({
               </th>
               <th className="hidden sm:table-cell px-2 py-3.5 w-10 text-center text-[10px] font-bold text-text-muted uppercase tracking-widest">#</th>
               <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Produit</th>
-              <th className="hidden md:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Prix</th>
               <th className="hidden lg:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Marketplaces</th>
               <th className="hidden md:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">État</th>
               <th className="hidden xl:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Dates</th>
@@ -2908,6 +2913,7 @@ function TableWithTopScroll({
                 product={product}
                 rowNumber={startIndex + index + 1}
                 hasPfsConfig={hasPfsConfig}
+                pfsGloballyEnabled={pfsGloballyEnabled}
                 hasAnkorstoreConfig={hasAnkorstoreConfig}
                 ankorstoreEnabled={ankorstoreEnabled}
                 hasEfashionConfig={hasEfashionConfig}
@@ -2940,6 +2946,7 @@ export default function AdminProductsTable({
   totalCount: _totalCount,
   startIndex,
   hasPfsConfig,
+  pfsGloballyEnabled = hasPfsConfig,
   hasAnkorstoreConfig,
   ankorstoreEnabled,
   hasEfashionConfig,
@@ -3115,6 +3122,11 @@ export default function AdminProductsTable({
         showAnkorstore: ankorsProducts.length > 0,
         showEfashion: efashionProducts.length > 0,
         showFaire: faireProducts.length > 0,
+        // Propagation stock/prix/poids : pas de section "Boutique/Nouveauté"
+        // (elle ne concerne que le parcours Rafraîchir), et on pré-coche
+        // toutes les marketplaces liées — c'est ce que la cliente attend.
+        showBoutique: false,
+        defaultAllChecked: true,
         title:
           affectedProducts.length === 1
             ? "Propager les modifications ?"
@@ -3463,6 +3475,8 @@ export default function AdminProductsTable({
           showAnkorstore: ankorsCandidates.length > 0,
           showEfashion: efashionCandidates.length > 0,
           showFaire: faireCandidates.length > 0,
+          showBoutique: false,
+          defaultAllChecked: true,
           title:
             successIds.length === 1
               ? "Propager le nouveau statut ?"
@@ -3561,6 +3575,8 @@ export default function AdminProductsTable({
       showAnkorstore: ankorsCandidates.length > 0,
       showEfashion: efashionCandidates.length > 0,
       showFaire: faireCandidates.length > 0,
+      showBoutique: false,
+      defaultAllChecked: true,
       title:
         successIds.length === 1
           ? "Propager les modifications ?"
@@ -3904,6 +3920,8 @@ export default function AdminProductsTable({
       showAnkorstore: ankorsTargets.length > 0,
       showEfashion: efashionTargets.length > 0,
       showFaire: faireTargets.length > 0,
+      showBoutique: false,
+      defaultAllChecked: true,
       title:
         ids.length === 1
           ? "Synchroniser ce produit avec les marketplaces ?"
@@ -4292,7 +4310,7 @@ export default function AdminProductsTable({
 
       {/* Tableau avec double scrollbar (haut + bas) */}
       <div className="relative">
-        <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
+        <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
         <FilterLoadingOverlay visible={isFiltering} />
         <BulkActionOverlay label={bulkActionLabel} />
       </div>
@@ -4530,7 +4548,32 @@ function BulkActionOverlay({ label }: { label: string | null }) {
  * en flex-nowrap pour que les 4 (PFS/EF/AK/Faire) tiennent sur une seule ligne
  * quelle que soit la largeur (Format A validé maquette 2026-07-13).
  */
-function MpDot({ label, active, syncRequired }: { label: string; active: boolean; syncRequired: boolean }) {
+function MpDot({
+  label,
+  active,
+  syncRequired,
+  disabled = false,
+}: {
+  label: string;
+  active: boolean;
+  syncRequired: boolean;
+  disabled?: boolean;
+}) {
+  if (disabled) {
+    return (
+      <span
+        className="inline-flex items-center justify-center gap-1 flex-1 min-w-0 px-1.5 h-6 rounded-md text-[10.5px] font-semibold border leading-none text-text-muted border-border-dark"
+        style={{
+          background:
+            "repeating-linear-gradient(45deg,#FAFAFA,#FAFAFA 6px,#F4F4F5 6px,#F4F4F5 12px)",
+        }}
+        title={`${label} — marketplace désactivée`}
+      >
+        <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-text-muted" />
+        <span className="truncate line-through decoration-[1.5px]">{label}</span>
+      </span>
+    );
+  }
   const isSync = active && syncRequired;
   const cls = isSync
     ? "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA]"

@@ -35,6 +35,8 @@ interface MarketplaceStatusButtonsProps {
   pfsProductId: string | null;
   pfsBrandName: string | null;
   hasPfsConfig: boolean;
+  /** Kill switch global PFS depuis Paramètres. Défaut true. */
+  pfsEnabled?: boolean;
   ankorsProductId: string | null;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
@@ -189,6 +191,7 @@ function StatusBadge({
   title,
   loadingLabel,
   disabledForProduct = false,
+  disabledReason = "product",
 }: {
   state: MarketplaceBadgeState;
   /** Sert à choisir le logo rond coloré (P / A / E / F). */
@@ -200,8 +203,10 @@ function StatusBadge({
   onCancelSyncRequired?: () => void;
   title: string;
   loadingLabel: string;
-  /** Marketplace désactivée pour ce produit (Product.*Enabled = false). */
+  /** Marketplace désactivée (soit pour ce produit, soit globalement). */
   disabledForProduct?: boolean;
+  /** Raison de la désactivation : "product" (Product.*Enabled=false) ou "global" (kill switch Paramètres). */
+  disabledReason?: "product" | "global";
 }) {
   const mp = MARKETPLACE_META[marketplace];
 
@@ -294,10 +299,15 @@ function StatusBadge({
     </button>
   );
 
+  const disabledTooltip =
+    disabledReason === "global"
+      ? `${label} · marketplace désactivée dans Paramètres`
+      : `${label} · marketplace désactivée pour ce produit`;
+
   return (
     <span className="group relative inline-flex">
       {disabledForProduct ? (
-        <Tooltip content={`${label} · marketplace désactivée pour ce produit`}>
+        <Tooltip content={disabledTooltip}>
           {buttonEl}
         </Tooltip>
       ) : (
@@ -350,6 +360,7 @@ export function MarketplaceStatusButtons({
   pfsProductId,
   pfsBrandName,
   hasPfsConfig,
+  pfsEnabled = true,
   ankorsProductId,
   hasAnkorstoreConfig,
   ankorstoreEnabled,
@@ -699,10 +710,23 @@ export function MarketplaceStatusButtons({
     }
   };
 
-  const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
-  const showEfashion = hasEfashionConfig && efashionEnabled;
-  const showFaire = hasFaireConfig && faireEnabled;
+  // Bloc affiché dès que la marketplace est CONFIGURÉE. Si le kill switch
+  // global (Paramètres) est OFF, on affiche le badge barré (via `disabledOverall`)
+  // au lieu de masquer complètement — la cliente veut voir visuellement quelles
+  // marketplaces sont en pause. Les IconBtn deviennent disabled à ce moment-là.
+  const showAnkorstore = hasAnkorstoreConfig;
+  const showEfashion = hasEfashionConfig;
+  const showFaire = hasFaireConfig;
   if (!hasPfsConfig && !showAnkorstore && !showEfashion && !showFaire) return null;
+
+  const pfsDisabledOverall = !pfsEnabledForProduct || !pfsEnabled;
+  const ankorsDisabledOverall = !ankorsEnabledForProduct || !ankorstoreEnabled;
+  const efashionDisabledOverall = !efashionEnabledForProduct || !efashionEnabled;
+  const faireDisabledOverall = !faireEnabledForProduct || !faireEnabled;
+  const pfsDisabledReason: "product" | "global" = !pfsEnabled ? "global" : "product";
+  const ankorsDisabledReason: "product" | "global" = !ankorstoreEnabled ? "global" : "product";
+  const efashionDisabledReason: "product" | "global" = !efashionEnabled ? "global" : "product";
+  const faireDisabledReason: "product" | "global" = !faireEnabled ? "global" : "product";
 
   return (
     <>
@@ -715,9 +739,10 @@ export function MarketplaceStatusButtons({
               marketplace="pfs"
               label="PFS"
               sublabel={pfsProductId ? pfsBrandName : null}
-              disabledForProduct={!pfsEnabledForProduct}
+              disabledForProduct={pfsDisabledOverall}
+              disabledReason={pfsDisabledReason}
               onClick={() => {
-                if (!pfsEnabledForProduct) return;
+                if (pfsDisabledOverall) return;
                 if (pfsState.loading) return;
                 if (pfsState.syncRequired) {
                   handleResyncPfs();
@@ -749,7 +774,7 @@ export function MarketplaceStatusButtons({
                   if (pfsState.loading) return;
                   setResyncPfsOpen(true);
                 }}
-                disabled={pfsState.loading}
+                disabled={pfsState.loading || pfsDisabledOverall}
                 title={
                   pfsState.loading
                     ? "Une opération PFS est déjà en cours…"
@@ -764,6 +789,7 @@ export function MarketplaceStatusButtons({
                 tone="warning"
                 icon={Icon.Tag}
                 onClick={() => setBrandPickerOpen(true)}
+                disabled={pfsDisabledOverall}
                 title="Renseigner la marque PFS de ce produit"
                 ariaLabel="Renseigner la marque PFS"
               />
@@ -773,6 +799,7 @@ export function MarketplaceStatusButtons({
               tone="neutral"
               icon={Icon.Link}
               onClick={() => setLinkPfsOpen(true)}
+              disabled={pfsDisabledOverall}
               title={
                 pfsProductId
                   ? "Re-lier vers une autre fiche Paris Fashion Shop"
@@ -791,6 +818,7 @@ export function MarketplaceStatusButtons({
                 icon={Icon.Unlink}
                 onClick={handleUnlinkPfs}
                 busy={unlinkPfsBusy}
+                disabled={pfsDisabledOverall}
                 title="Délier ce produit de sa fiche PFS (efface la liaison côté site sans toucher à PFS)"
                 ariaLabel="Délier ce produit de Paris Fashion Shop"
               />
@@ -806,9 +834,10 @@ export function MarketplaceStatusButtons({
               marketplace="ankorstore"
               label="Ankorstore"
               sublabel={null}
-              disabledForProduct={!ankorsEnabledForProduct}
+              disabledForProduct={ankorsDisabledOverall}
+              disabledReason={ankorsDisabledReason}
               onClick={() => {
-                if (!ankorsEnabledForProduct) return;
+                if (ankorsDisabledOverall) return;
                 if (ankorstoreState.loading) return;
                 if (ankorstoreState.syncRequired) {
                   handleResyncAnkorstore();
@@ -842,7 +871,7 @@ export function MarketplaceStatusButtons({
                   if (ankorstoreState.loading) return;
                   setResyncAkOpen(true);
                 }}
-                disabled={ankorstoreState.loading}
+                disabled={ankorstoreState.loading || ankorsDisabledOverall}
                 title={
                   ankorstoreState.loading
                     ? "Une opération Ankorstore est déjà en cours…"
@@ -856,6 +885,7 @@ export function MarketplaceStatusButtons({
               tone="neutral"
               icon={Icon.Link}
               onClick={() => setLinkAkOpen(true)}
+              disabled={ankorsDisabledOverall}
               title={
                 ankorsProductId
                   ? "Re-lier vers un autre produit Ankorstore"
@@ -874,6 +904,7 @@ export function MarketplaceStatusButtons({
                 icon={Icon.Unlink}
                 onClick={handleUnlinkAnkorstore}
                 busy={unlinkAkBusy}
+                disabled={ankorsDisabledOverall}
                 title="Délier ce produit de sa fiche Ankorstore (efface la liaison côté site sans toucher à Ankorstore)"
                 ariaLabel="Délier ce produit de Ankorstore"
               />
@@ -889,9 +920,10 @@ export function MarketplaceStatusButtons({
               marketplace="efashion"
               label="eFashion"
               sublabel={null}
-              disabledForProduct={!efashionEnabledForProduct}
+              disabledForProduct={efashionDisabledOverall}
+              disabledReason={efashionDisabledReason}
               onClick={() => {
-                if (!efashionEnabledForProduct) return;
+                if (efashionDisabledOverall) return;
                 if (efashionState.loading) return;
                 if (efashionState.syncRequired) {
                   handleResyncEfashion();
@@ -923,7 +955,7 @@ export function MarketplaceStatusButtons({
                   if (efashionState.loading) return;
                   setResyncEfOpen(true);
                 }}
-                disabled={efashionState.loading}
+                disabled={efashionState.loading || efashionDisabledOverall}
                 title="Resynchroniser stock + visibilité + prix sur eFashion"
                 ariaLabel="Resynchroniser sur eFashion"
               />
@@ -933,6 +965,7 @@ export function MarketplaceStatusButtons({
               tone="neutral"
               icon={Icon.Link}
               onClick={() => setLinkEfOpen(true)}
+              disabled={efashionDisabledOverall}
               title={
                 efashionLinked
                   ? "Re-lier vers une autre référence eFashion"
@@ -951,6 +984,7 @@ export function MarketplaceStatusButtons({
                 icon={Icon.Unlink}
                 onClick={handleUnlinkEfashion}
                 busy={unlinkEfBusy}
+                disabled={efashionDisabledOverall}
                 title="Délier ce produit de ses fiches eFashion (efface la liaison côté site sans toucher à eFashion)"
                 ariaLabel="Délier ce produit de eFashion Paris"
               />
@@ -966,9 +1000,10 @@ export function MarketplaceStatusButtons({
               marketplace="faire"
               label="Faire"
               sublabel={null}
-              disabledForProduct={!faireEnabledForProduct}
+              disabledForProduct={faireDisabledOverall}
+              disabledReason={faireDisabledReason}
               onClick={() => {
-                if (!faireEnabledForProduct) return;
+                if (faireDisabledOverall) return;
                 if (faireState.loading) return;
                 if (faireState.syncRequired) {
                   handleResyncFaire();
@@ -1000,7 +1035,7 @@ export function MarketplaceStatusButtons({
                   if (faireState.loading) return;
                   setResyncFaireOpen(true);
                 }}
-                disabled={faireState.loading}
+                disabled={faireState.loading || faireDisabledOverall}
                 title={
                   faireState.loading
                     ? "Une opération Faire est déjà en cours…"
@@ -1014,6 +1049,7 @@ export function MarketplaceStatusButtons({
               tone="neutral"
               icon={Icon.Link}
               onClick={() => setLinkFaireOpen(true)}
+              disabled={faireDisabledOverall}
               title={
                 faireProductId
                   ? "Re-lier vers une autre fiche Faire"
@@ -1032,6 +1068,7 @@ export function MarketplaceStatusButtons({
                 icon={Icon.Unlink}
                 onClick={handleUnlinkFaire}
                 busy={unlinkFaireBusy}
+                disabled={faireDisabledOverall}
                 title="Délier ce produit de sa fiche Faire (efface la liaison côté site sans toucher à Faire)"
                 ariaLabel="Délier ce produit de Faire"
               />

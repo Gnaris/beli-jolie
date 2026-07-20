@@ -642,6 +642,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         totalCount={totalCount}
         startIndex={(currentPage - 1) * perPage}
         hasPfsConfig={hasPfsConfig}
+        pfsGloballyEnabled={hasPfsConfig}
         hasAnkorstoreConfig={hasAnkorstoreConfig}
         ankorstoreEnabled={ankorstoreEnabled}
         hasEfashionConfig={hasEfashionConfig}
