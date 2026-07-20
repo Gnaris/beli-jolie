@@ -203,6 +203,71 @@ Traduit name/description → fr/en/de/es/it. Utilise automatiquement dans le rev
 
 ---
 
+## 8. Commandes — LECTURE SEULE
+
+Endpoints découverts via .har (`Liste Commande PFS.har` + `Information Nouvelle/Validé/Envoyé Commande.har`). Aucun endpoint d'écriture utilisé.
+
+### `GET /orders/listOrders`
+
+**Params**: `page` (1+), `per_page` (défaut 50, max 50).
+
+**Réponse**:
+```json
+{
+  "data": [{
+    "id": "ord_...", "order_no": "PO#42759407",
+    "creation_date": "2026-07-20 16:06:17",
+    "customer": "NULOE", "country": "NL",
+    "order_vat": 80.30, "validated_vat": null,
+    "pfs_payment_date": null,
+    "status": "NEW|VALIDATED|SENT|CANCELLED",
+    "transporter": "PFS_GROUPAGE|PFS_GROUPAGE_EUROPE|CHRONOPOST|GLS|DOMTOM_SINGLE|PFS_EUROPE",
+    "has_invoice": 0|1, "has_credit": 0|1
+  }],
+  "state": {
+    "total": 2000, "count_new": 1, "count_validated": 5,
+    "count_sent": 1987, "count_cancelled": 7,
+    "total_validated_sales_vat": 335157.79,
+    "avg_basket_vat": 168.25
+  },
+  "links": { "first", "last", "prev", "next" },
+  "meta": { "current_page", "last_page", "per_page", "total" }
+}
+```
+
+**Tri** : anti-chronologique (creation_date desc). **Rate limit** : 500/min (`x-ratelimit-limit`).
+
+**PAS de filtre** `since` / `updated_after` — polling incrémental : lire page 1, comparer à ce qu'on a en base, s'arrêter dès que rien n'a changé.
+
+**Manque** dans le LIST : SIRET, email, adresse, articles, contact — nécessite un appel `getOrder` unitaire par commande pour ces champs.
+
+### `GET /orders/{orderId}`
+
+Renvoie `{ success, message, data: {...} }`. Le `data` contient :
+
+- **Métadonnées** : `id`, `order_no`, `created_at` (ISO), `status`, `canceled_at`, `total_weight`, `total_ordered_qty`, `total_validated_qty`, `unique_references`, `has_invoice`, `has_credit`
+- **Financier** : `order_vat`, `validated_vat`, `summary.subtotal_excl_tax`, `summary.total_incl_tax`, `summary.vat.rate`, `summary.vat.amount`
+- **Client complet** : `customer.id` (identifiant PFS unique, ex `a07AZ...`), `customer.name`, `customer.shop`, `customer.phone`, `customer.identification_numbers.{siret,vat,eori}`, `customer.payment_method`, `customer.carrier.{value,labels}`, `customer.delivery_address.{street,postal_code,city,country}`, `customer.billing_address.{...}`
+- **Timeline** : `status_timeline[]` = liste des transitions `{ status, timestamp, payment_method? }`
+- **Articles** : `items_by_brand[].products[].items[]` — 3 niveaux imbriqués (marque → produit → ligne)
+
+**Ligne article (`items_by_brand[].products[].items[]`)** :
+```
+id, variant_id, sku ("A1623E_GOLDEN_TU"), sku_without_ref,
+type ("ITEM"|"PACK"), pieces, size_details_tu,
+qty_ordered, qty_validated,
+price_sale.unit.value, price_sale.total.value, price_sale.total_with_qty.value,
+price_before_discount.{unit,total},
+color.{id, reference, labels: {fr, en, de, es, it}},
+item.{color, size}, stock_qty, weight, discounts
+```
+
+**Matching produit local** : privilégier `items_by_brand[].products[].reference` (ex `A1623E`) contre `Product.reference` (tenantId scope). Optionnellement, `items[].variant_id` contre `ProductColor.pfsVariantId`. Aucun match → `productId = null` en base, affiché « Produit non présent sur notre site ».
+
+**Statuts** : `NEW` (Nouveau, non traité) → `VALIDATED` (Validé, en attente d'expédition) → `SENT` (Envoyé) — ou `CANCELLED` à tout moment.
+
+---
+
 ## IDs de reference constants
 
 | Entite | ID PFS |

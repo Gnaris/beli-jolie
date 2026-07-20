@@ -125,3 +125,72 @@ Auto-check PFS on product page mount (with session cache). States: checking → 
 - `PfsSyncJob`: progress tracking (dual logs: productLogs + imageLogs + imageStats in JSON)
 - `PfsMapping`: PFS name → BJ entity (persists across syncs)
 - `PfsPrepareJob` / `PfsStagedProduct`: staged import pipeline
+
+## Orders — Lecture seule (2026-07-20)
+
+Copie locale des commandes PFS. **Aucune écriture** côté PFS. Séparé de `Order` (commandes boutique) pour éviter toute pollution des stats boutique et permettre un cycle de sync propre.
+
+**Modèles Prisma** :
+- `PfsOrder` : `@@unique([tenantId, pfsOrderId])`, montants Decimal, `rawDetailJson` conservé pour rejeu, `statusTimelineJson`, FK optionnelle vers `AdminClientCard.id` (rattachement client)
+- `PfsOrderItem` : `pfsOrderId` (cascade delete), `pfsProductRef` + `productId` optionnel (match tenant-scope sur `Product.reference`), `productColorId` optionnel (match sur `ProductColor.pfsVariantId`), snapshots `productSnapshotName` / `colorLabelFr`
+- `AdminClientCard.pfsCustomerId` + `AdminClientCard.importedFromMarketplace` : clé rapide + marqueur "créée par la synchro PFS"
+- `enum PfsOrderStatus { NEW VALIDATED SENT CANCELLED }`
+
+**API Client (`lib/pfs-orders-api.ts`)** :
+- `pfsListOrders({page, perPage=50})` → `PfsListOrdersResponse` (data + state + meta)
+- `pfsGetOrderDetail(orderId)` → `PfsOrderDetail`
+- Auth partagée avec `lib/pfs-auth.ts` (Bearer token par tenant)
+- `fetchWithRetry` réutilisé depuis `lib/pfs-api.ts` (retry 5×, timeout 30s, 429/5xx backoff exponentiel avec jitter)
+
+**Sync Logic (`lib/pfs-orders-sync.ts`)** :
+- `upsertClientCardFromPfsCustomer(tenantId, customer)` : 3 étapes
+  1. Lookup par `pfsCustomerId` (index composite tenant)
+  2. Fallback SIRET (`normalizeIdentifier` retire les espaces)
+  3. Création avec `hasPfs=true`, `importedFromMarketplace="PFS"`, `firstName=""`, `lastName=<customer.name>` (les 2 sont required en base)
+- `upsertPfsOrderFromDetail(tenantId, detail)` : upsert idempotent — items déjà présents `deleteMany` puis `createMany` (simplifie le diff)
+- `syncRecentPfsOrders(tenantId)` : polling incrémental page 1 (50 dernières), skip les commandes dont le statut BDD est identique à celui de la LIST
+- `importAllPfsOrdersFor(tenantId, onProgress, {stopSignal})` : rattrapage historique complet, boucle pages 1→N, callback progression après chaque commande, `stopSignal` async pour annulation
+
+**Worker (`lib/pfs-orders-worker.ts`)** :
+- Tick 5 min via `setInterval` — `START_DELAY_MS=20s` au boot
+- Boucle sur `Tenant.isActive=true` avec `SiteConfig.pfs_email + pfs_password` non vides
+- Wrap `tenantALS.run(tenantId, ...)` obligatoire (fire-and-forget hors requête HTTP)
+- Persistance dernière synchro : `SiteConfig.pfs_orders_last_synced_at` (timestamp ms)
+- Démarré dans `instrumentation-node.ts` sur le pattern `startXxxWorker` + `STARTUP_GUARD` symbol
+
+**Import Historique State (`lib/pfs-orders-import-state.ts`)** :
+- `SiteConfig.pfs_orders_import_state` = JSON `PfsImportState` (status IDLE|RUNNING|DONE|ERROR|STOPPED, processedOrders, totalOrders, currentPage, totalPages, imported, skipped, errorMessage)
+- `SiteConfig.pfs_orders_import_stop` = "1" quand la cliente annule (lu par le stopSignal async)
+- `startPfsHistoricalImportInBackground(tenantId)` : idempotent (return current si RUNNING), fire-and-forget dans `tenantALS.run`
+- Auto-cleanup : `PfsImportPill` client appelle `acknowledgePfsHistoricalImport` 15s après DONE/ERROR/STOPPED pour reset l'état
+
+**Server Actions (`app/actions/admin/pfs-orders.ts`)** — toutes gardées par `requireAdmin() + requireCurrentTenant()` :
+- `listPfsOrders({page, perPage, q, status, carrier, period})` : liste paginée filtrable
+- `getPfsOrderDetail(orderId)` : détail enrichi (adresses parsées depuis `rawDetailJson`, articles avec nom produit résolu)
+- `getPfsStats({period, topClientsLimit, topProductsLimit, topClientsSort, topProductsSort})` : KPIs + top clients (`groupBy pfsCustomerId`) + top produits (`groupBy pfsProductRef + productId`) + statusCounts
+- `syncPfsOrdersNow()` : trigger manuel du polling incrémental
+- `resyncPfsOrderById(orderId)` : re-fetch détail d'une commande
+- `startPfsHistoricalImport()` / `stopPfsHistoricalImport()` / `acknowledgePfsHistoricalImport()` / `getPfsImportStateAction()` : gestion widget
+- `getPfsSyncMeta()` : `{lastSyncedAt, totalOrdersInDb, hasCredentials}` pour la barre synchro
+- `listPfsOrdersForClientCard(cardId)` : historique complet d'un client (utilisé par `AdminCardPfsOrdersSection`)
+
+**Périodes supportées** (`PfsPeriodKey`) : `today | 3d | week | 15d | month | 3m | 6m | year | all`. `month` et `year` = calendaires (1er du mois / 1er janvier), autres = N derniers jours glissants.
+
+**UI** :
+- `/admin/commandes` : tabs Boutique / PFS via `?source=boutique|pfs`, tab bar `OrdersTabsNav` (contient les 2 initiales P/B avec les gradients marketplace figés)
+- `components/admin/orders/pfs/PfsOrdersView.tsx` : orchestrateur client, appelle les server actions au mount et à chaque changement de filtre
+- `PfsPeriodBar`, `PfsKpiRow`, `PfsTopClients`, `PfsTopProducts`, `PfsOrdersTable`, `PfsOrderDrawer` : sous-composants ardoise
+- `PfsImportPill` : widget flottant en bas à droite (au-dessus du FAB rail existant), poll `getPfsImportStateAction` toutes les 3s
+- `AdminCardPfsOrdersSection` : injecté dans `AdminCardDrawer` (mode edit), stats client + historique commandes PFS
+- Deep link `/admin/utilisateurs?tab=fiches&card=<id>` : auto-ouvre le drawer client (consommé par `AdminCardsPane.useEffect`)
+
+**Rappels multi-tenant** :
+- Toutes les tables scope par `tenantId` (extension Prisma injecte `AND tenantId`)
+- Worker capture `tenantId` avant l'IIFE fire-and-forget
+- Cache PFS auth déjà par-tenant (`lib/pfs-auth.ts::tokenCacheByTenant`)
+
+**Ce qu'on ne fait PAS** :
+- Aucun webhook (PFS n'en propose pas pour les commandes)
+- Aucune mutation côté PFS (aucun POST/PATCH/DELETE)
+- Aucun mail de notif (la cliente ne le veut pas — cf. mémoire)
+- Aucun stock decrement local (les stocks BJ ne bougent pas quand PFS vend, PFS gère ses stocks séparément — sujet à confirmer si la cliente le demande)
