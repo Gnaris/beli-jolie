@@ -49,14 +49,15 @@ describe("updateSeoTexts", () => {
     expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
   });
 
-  it("upsert les deux clés SiteConfig pour un admin", async () => {
+  it("upsert les trois clés SiteConfig pour un admin", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
     const result = await updateSeoTexts({
       homeText: "  Bienvenue chez nous  ",
       produitsText: "Notre catalogue.",
+      tagline: "  Grossiste maroquinerie  ",
     });
     expect(result.success).toBe(true);
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(2);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(3);
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
       "home_seo_text",
       "Bienvenue chez nous",
@@ -65,7 +66,18 @@ describe("updateSeoTexts", () => {
       "produits_seo_text",
       "Notre catalogue.",
     );
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
+      "seo_tagline",
+      "Grossiste maroquinerie",
+    );
     expect(mockRevalidate.revalidateTag).toHaveBeenCalledWith("site-config", "default");
+  });
+
+  it("écrit seo_tagline vide quand la baseline n'est pas fournie", async () => {
+    mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
+    const result = await updateSeoTexts({ homeText: "", produitsText: "" });
+    expect(result.success).toBe(true);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("seo_tagline", "");
   });
 
   it("rejette un texte trop long (> 5000 caractères)", async () => {
@@ -77,10 +89,19 @@ describe("updateSeoTexts", () => {
     expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
   });
 
+  it("rejette une baseline trop longue (> 80 caractères)", async () => {
+    mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
+    const long = "b".repeat(81);
+    const result = await updateSeoTexts({ homeText: "", produitsText: "", tagline: long });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/80/);
+    expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
+  });
+
   it("accepte les textes vides (suppression du bloc côté front)", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
     const result = await updateSeoTexts({ homeText: "", produitsText: "" });
     expect(result.success).toBe(true);
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(2);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(3);
   });
 });

@@ -13,8 +13,10 @@
  * différé, sync marketplaces, etc.) reste dans ProductForm et n'est pas touchée.
  */
 
-import { useRef, useMemo, useState, useEffect } from "react";
+import { useRef, useMemo, useState, useEffect, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useToast } from "@/components/ui/Toast";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import {
   type VariantState,
@@ -220,17 +222,16 @@ export default function PhotosPanel({
             onClick={(e) => e.stopPropagation()}
             className="max-h-[92vh] max-w-[92vw] object-contain rounded-xl shadow-2xl"
           />
-          <a
-            href={zoomed.src}
-            download={zoomed.downloadName}
-            onClick={(e) => e.stopPropagation()}
+          <DownloadFormatMenu
+            src={zoomed.src}
+            baseName={zoomed.downloadName}
+            containerClassName="absolute top-4 right-16"
+            buttonClassName="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center backdrop-blur-sm transition-colors cursor-pointer"
+            iconClassName="w-5 h-5"
+            menuAlign="below"
             title="Télécharger"
-            className="absolute top-4 right-16 w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center backdrop-blur-sm transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
-            </svg>
-          </a>
+            ariaLabel="Télécharger l'image"
+          />
           <button
             type="button"
             onClick={() => setZoomed(null)}
@@ -275,6 +276,246 @@ function slugForFile(input: string): string {
 function extFromSrc(src: string): string {
   const m = src.split("?")[0].match(/\.([a-z0-9]{2,5})$/i);
   return m ? m[1].toLowerCase() : "jpg";
+}
+
+export type ImageDownloadFormat = "webp" | "png" | "jpeg";
+
+export function mimeTypeForFormat(format: ImageDownloadFormat): string {
+  if (format === "jpeg") return "image/jpeg";
+  if (format === "png") return "image/png";
+  return "image/webp";
+}
+
+export function extensionForFormat(format: ImageDownloadFormat): string {
+  if (format === "jpeg") return "jpg";
+  return format;
+}
+
+export function stripExtension(name: string): string {
+  return name.replace(/\.[a-z0-9]{2,5}$/i, "");
+}
+
+async function convertImageBlob(source: Blob, format: ImageDownloadFormat): Promise<Blob> {
+  const mimeType = mimeTypeForFormat(format);
+  if (source.type === mimeType) return source;
+  const objectUrl = URL.createObjectURL(source);
+  try {
+    const img = new Image();
+    img.decoding = "async";
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("image_load_failed"));
+      img.src = objectUrl;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas_context_unavailable");
+    if (format === "jpeg") {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.drawImage(img, 0, 0);
+    const converted = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((b) => resolve(b), mimeType, 0.95);
+    });
+    if (!converted) throw new Error("canvas_toblob_failed");
+    return converted;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function downloadImageAsFormat(src: string, baseName: string, format: ImageDownloadFormat): Promise<void> {
+  const response = await fetch(src);
+  if (!response.ok) throw new Error(`fetch_failed_${response.status}`);
+  const blob = await response.blob();
+  const outBlob = await convertImageBlob(blob, format);
+  const url = URL.createObjectURL(outBlob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${stripExtension(baseName)}.${extensionForFormat(format)}`;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+}
+
+interface DownloadFormatMenuProps {
+  src: string;
+  baseName: string;
+  containerClassName?: string;
+  buttonClassName: string;
+  iconClassName?: string;
+  menuAlign?: "above" | "below";
+  title?: string;
+  ariaLabel?: string;
+  onMouseDown?: (e: React.MouseEvent) => void;
+  onDragStart?: (e: React.DragEvent) => void;
+  onOpenChange?: (open: boolean) => void;
+}
+
+const MENU_WIDTH_PX = 128;
+const MENU_HEIGHT_PX = 116; // ~3 items × ~36px + bordures
+const MENU_GAP_PX = 8;
+
+function DownloadFormatMenu({
+  src,
+  baseName,
+  containerClassName,
+  buttonClassName,
+  iconClassName = "w-4 h-4",
+  menuAlign = "below",
+  title = "Télécharger",
+  ariaLabel = "Télécharger l'image",
+  onMouseDown,
+  onDragStart,
+  onOpenChange,
+}: DownloadFormatMenuProps) {
+  const toast = useToast();
+  const [open, setOpenState] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  function setOpen(next: boolean) {
+    setOpenState(next);
+    onOpenChange?.(next);
+  }
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    function recompute() {
+      const btn = buttonRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      // Aligne le bord droit du menu sur le bord droit du bouton, clamp au viewport.
+      let left = rect.right - MENU_WIDTH_PX;
+      left = Math.min(Math.max(left, 8), vw - MENU_WIDTH_PX - 8);
+      // Position verticale : au-dessus si demandé et si assez de place, sinon en-dessous.
+      const wantAbove = menuAlign === "above";
+      const spaceAbove = rect.top;
+      const spaceBelow = vh - rect.bottom;
+      const placeAbove = wantAbove
+        ? spaceAbove >= MENU_HEIGHT_PX + MENU_GAP_PX || spaceAbove > spaceBelow
+        : spaceBelow < MENU_HEIGHT_PX + MENU_GAP_PX && spaceAbove > spaceBelow;
+      const top = placeAbove
+        ? Math.max(8, rect.top - MENU_HEIGHT_PX - MENU_GAP_PX)
+        : Math.min(vh - MENU_HEIGHT_PX - 8, rect.bottom + MENU_GAP_PX);
+      setMenuStyle({
+        position: "fixed",
+        top,
+        left,
+        width: MENU_WIDTH_PX,
+        zIndex: 100,
+      });
+    }
+    recompute();
+    window.addEventListener("resize", recompute);
+    window.addEventListener("scroll", recompute, true);
+    return () => {
+      window.removeEventListener("resize", recompute);
+      window.removeEventListener("scroll", recompute, true);
+    };
+  }, [open, menuAlign]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      const target = e.target as Node;
+      if (buttonRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  async function pick(format: ImageDownloadFormat) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await downloadImageAsFormat(src, baseName, format);
+      setOpen(false);
+    } catch {
+      toast.error("Téléchargement impossible", "Impossible de convertir cette image dans ce format.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const menu = open ? (
+    <div
+      ref={menuRef}
+      role="menu"
+      style={menuStyle}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      className="pointer-events-auto overflow-hidden rounded-lg border border-border bg-bg-primary shadow-lg"
+    >
+      {(["webp", "png", "jpeg"] as ImageDownloadFormat[]).map((f) => (
+        <button
+          key={f}
+          type="button"
+          role="menuitem"
+          disabled={busy}
+          onClick={() => pick(f)}
+          className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold text-text-primary font-body hover:bg-bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <span>{f.toUpperCase()}</span>
+          <span className="text-[10px] font-medium text-text-muted">.{extensionForFormat(f)}</span>
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  return (
+    <div className={containerClassName ?? "relative"}>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen(!open);
+        }}
+        onMouseDown={onMouseDown}
+        onDragStart={onDragStart}
+        draggable={false}
+        title={title}
+        aria-label={ariaLabel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={buttonClassName}
+      >
+        <svg className={iconClassName} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+        </svg>
+      </button>
+      {mounted && menu ? createPortal(menu, document.body) : null}
+    </div>
+  );
 }
 
 function PhotoRow({
@@ -549,6 +790,7 @@ function FilledSlot({
 }) {
   const isPrimary = position === 0;
   const [isDropTarget, setIsDropTarget] = useState(false);
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
 
   function handleDragStart(e: React.DragEvent<HTMLDivElement>) {
     const payload = encodePhotoDnd(groupKey, position);
@@ -612,8 +854,13 @@ function FilledSlot({
       />
 
       {/* Overlay d'actions au survol — pointer-events-none sur le fond pour ne
-          pas capter le drag ; seuls les boutons captent les clics. */}
-      <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+          pas capter le drag ; seuls les boutons captent les clics. Reste visible
+          tant que le menu de téléchargement est ouvert. */}
+      <div
+        className={`absolute inset-0 flex items-center justify-center gap-2 bg-black/40 transition-opacity pointer-events-none group-hover:opacity-100 ${
+          downloadMenuOpen ? "opacity-100" : "opacity-0"
+        }`}
+      >
         <button
           type="button"
           onClick={onZoom}
@@ -626,19 +873,19 @@ function FilledSlot({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M10.5 7v7M7 10.5h7M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z" />
           </svg>
         </button>
-        <a
-          href={src}
-          download={downloadName}
-          onClick={(e) => e.stopPropagation()}
-          {...stopDrag}
+        <DownloadFormatMenu
+          src={src}
+          baseName={downloadName}
+          containerClassName="pointer-events-auto relative"
+          buttonClassName="w-8 h-8 rounded-full bg-white/95 hover:bg-white text-slate-900 flex items-center justify-center shadow cursor-pointer"
+          iconClassName="w-4 h-4"
+          menuAlign="above"
           title="Télécharger"
-          aria-label={`Télécharger l'image en position ${position + 1}`}
-          className="pointer-events-auto w-8 h-8 rounded-full bg-white/95 hover:bg-white text-slate-900 flex items-center justify-center shadow cursor-pointer"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
-          </svg>
-        </a>
+          ariaLabel={`Télécharger l'image en position ${position + 1}`}
+          onMouseDown={stopDrag.onMouseDown}
+          onDragStart={stopDrag.onDragStart}
+          onOpenChange={setDownloadMenuOpen}
+        />
       </div>
 
       <span

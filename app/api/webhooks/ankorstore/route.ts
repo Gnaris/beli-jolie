@@ -14,6 +14,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { type AnkorstoreOperation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { ankorstoreFinalizePublish } from "@/lib/ankorstore-publish";
@@ -23,6 +24,10 @@ import {
   ankorstoreFinalizeRefreshCreateNew,
 } from "@/lib/ankorstore-refresh";
 import { ankorstoreFinalizeDelete } from "@/lib/ankorstore-delete";
+import {
+  resolveAnkorstoreOperationTenantId,
+  runInAnkorstoreOperationTenant,
+} from "@/lib/ankorstore-webhook-tenant";
 
 interface AnkorstoreCallbackBody {
   event?: string;
@@ -79,27 +84,19 @@ export async function POST(request: Request) {
     operationType: body.data?.attributes?.operationType,
   });
 
-  // ── Step 3: lookup operation in DB ──
-  // Ankorstore peut appeler ce webhook AVANT que le persist local se termine
-  // (surtout sur les operations en un seul appel réseau — delete/refresh).
-  // On retry 2× avec pause pour rattraper la race, sinon on ACK 200 pour
-  // qu'Ankorstore n'insiste pas indéfiniment.
-  let op = await prisma.ankorstoreOperation.findUnique({ where: { id: operationId } });
-  if (!op) {
-    for (let attempt = 1; attempt <= 2 && !op; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
-      op = await prisma.ankorstoreOperation.findUnique({ where: { id: operationId } });
-      if (op) {
-        logger.info("[Ankorstore Webhook] Operation resolved after retry", {
-          operationId,
-          attempt,
-        });
-      }
-    }
-  }
-  if (!op) {
-    // Op toujours introuvable après retry — soit callback d'un ancien déploiement,
-    // soit persist définitivement raté (à investiguer si ça se répète).
+  // ── Step 3a: résolution tenant (webhook cross-tenant safe) ──
+  // Ankorstore appelle notre callback sur l'URL globale (`NEXTAUTH_URL`), donc
+  // tous les callbacks arrivent sur le host `beliandjolie.com`. Le middleware
+  // pose alors `x-tenant-id = beliandjolie` — mais l'op peut appartenir à
+  // Issyma ou à n'importe quelle autre boutique. On lit le vrai tenantId via
+  // une query RAW (hors scoping) puis on wrap tout le reste dans `tenantALS.run`
+  // pour que le findUnique + le finalize écrivent dans la bonne boutique.
+  //
+  // Le resolve inclut 2 retries pour couvrir la race « callback reçu avant que
+  // le persist local ait terminé » (surtout sur delete/refresh, qui font un
+  // seul appel réseau).
+  const opTenantId = await resolveAnkorstoreOperationTenantId(operationId);
+  if (!opTenantId) {
     logger.error("[Ankorstore Webhook] Unknown operationId after retry — ACK to stop retries", {
       operationId,
       event: body.event,
@@ -108,6 +105,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, reason: "unknown_operation" }, { status: 200 });
   }
 
+  return runInAnkorstoreOperationTenant(opTenantId, async () => {
+    const op = await prisma.ankorstoreOperation.findUnique({ where: { id: operationId } });
+    if (!op) {
+      // Race extrême : la row existait au moment du resolve mais a disparu
+      // depuis (delete manuel ?). On ACK pour arrêter les retries Ankorstore.
+      logger.error("[Ankorstore Webhook] Operation vanished after tenant resolve — ACK", {
+        operationId,
+        tenantId: opTenantId,
+      });
+      return NextResponse.json({ ok: true, reason: "vanished" }, { status: 200 });
+    }
+
+    return finalizeOperation(op, body, operationId);
+  });
+}
+
+async function finalizeOperation(
+  op: AnkorstoreOperation,
+  body: AnkorstoreCallbackBody,
+  operationId: string,
+): Promise<NextResponse> {
   // ── Step 4: idempotency / recovery check ──
   // SUCCEEDED / FAILED / PARTIALLY_FAILED → already finalized, ACK and stop.
   if (

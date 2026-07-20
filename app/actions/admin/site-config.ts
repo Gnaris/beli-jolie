@@ -70,24 +70,35 @@ export async function updateBusinessHours(schedule: {
  * Ces textes apparaissent côté visiteur (utiles pour Google) et sont éditables
  * dans Admin > Paramètres > onglet « Référencement ».
  *
- * Clés SiteConfig : `home_seo_text`, `produits_seo_text`. Une chaîne vide
- * supprime simplement le bloc côté front.
+ * Clés SiteConfig :
+ *  - `seo_tagline` : baseline courte (~80 car.) utilisée dans le <title> et
+ *    l'aperçu Google. Vide → fallback « Grossiste B2B ».
+ *  - `home_seo_text` : paragraphe long affiché en bas de la home.
+ *  - `produits_seo_text` : paragraphe long en haut de la page /produits.
+ * Une chaîne vide supprime simplement le bloc / retombe sur le défaut.
  */
 export async function updateSeoTexts(input: {
   homeText: string;
   produitsText: string;
+  tagline?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
     const home = input.homeText.trim();
     const produits = input.produitsText.trim();
+    const tagline = (input.tagline ?? "").trim();
     const MAX = 5000;
+    const TAGLINE_MAX = 80;
     if (home.length > MAX || produits.length > MAX) {
       return { success: false, error: `Le texte ne doit pas dépasser ${MAX} caractères.` };
+    }
+    if (tagline.length > TAGLINE_MAX) {
+      return { success: false, error: `La baseline ne doit pas dépasser ${TAGLINE_MAX} caractères.` };
     }
     await Promise.all([
       setSiteConfig("home_seo_text", home),
       setSiteConfig("produits_seo_text", produits),
+      setSiteConfig("seo_tagline", tagline),
     ]);
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");

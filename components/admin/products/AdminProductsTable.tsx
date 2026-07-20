@@ -2251,7 +2251,7 @@ function ProductRow({
               </div>
               {/* Prix + icônes Important/Verrouiller sous la référence.
                   Toujours visibles pour libérer la largeur du tableau. */}
-              <div className="flex items-center gap-2 mt-1 flex-wrap" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
                 {!isNaN(minPrice) ? (
                   <span className="font-semibold text-text-primary text-[12.5px] tabular-nums">
                     {minPrice.toFixed(2)} EUR

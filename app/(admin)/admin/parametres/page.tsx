@@ -796,28 +796,34 @@ async function TraductionTab() {
    TAB : Référencement (SEO)
    ═══════════════════════════════════════════════════════════════════════════ */
 async function SeoTab() {
-  const [homeRow, produitsRow] = await Promise.all([
+  const { getSiteUrl } = await import("@/lib/seo");
+  const [homeRow, produitsRow, taglineRow, shopName, siteUrl] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "home_seo_text" } }),
     prisma.siteConfig.findFirst({ where: { key: "produits_seo_text" } }),
+    prisma.siteConfig.findFirst({ where: { key: "seo_tagline" } }),
+    getCachedShopName(),
+    getSiteUrl(),
   ]);
 
-  const shopName = await getCachedShopName();
   const homeText = homeRow?.value?.trim() ?? "";
+  const tagline = taglineRow?.value?.trim() || "Grossiste B2B";
   const previewSnippet = homeText
     ? (homeText.length > 160 ? homeText.slice(0, 158).trimEnd() + "…" : homeText)
     : "Ajoutez un texte SEO pour la page d'accueil ci-dessus — il apparaîtra dans les résultats Google.";
+  const displayUrl = siteUrl.replace(/^https?:\/\//, "").replace(/\/$/, "");
 
   return (
     <CardsStack>
       <SettingCard
         icon={Ico.search}
         title="Textes pour Google"
-        description="Petits paragraphes affichés en bas de la page d'accueil et de /produits — ils aident Google à mieux référencer le site."
+        description="Baseline courte + paragraphes affichés en bas de la page d'accueil et de /produits — ils aident Google à mieux référencer le site."
         accent="dark"
       >
         <SeoTextsConfig
           initialHomeText={homeRow?.value ?? ""}
           initialProduitsText={produitsRow?.value ?? ""}
+          initialTagline={taglineRow?.value ?? ""}
         />
       </SettingCard>
 
@@ -835,11 +841,11 @@ async function SeoTab() {
             </div>
             <div>
               <div className="text-[13px] leading-tight" style={{ color: "#202124" }}>{shopName}</div>
-              <div className="text-[11px]" style={{ color: "#5F6368" }}>https://beliandjolie.com</div>
+              <div className="text-[11px]" style={{ color: "#5F6368" }}>{displayUrl}</div>
             </div>
           </div>
           <div className="text-[18px] mt-1 leading-tight" style={{ color: "#1A0DAB" }}>
-            {shopName} — Grossiste bijoux en acier inoxydable
+            {shopName} — {tagline}
           </div>
           <div className="text-[13px] mt-1" style={{ color: "#4D5156", lineHeight: 1.5 }}>
             {previewSnippet}

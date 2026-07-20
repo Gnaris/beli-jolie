@@ -47,12 +47,17 @@ export async function generateMetadata(): Promise<Metadata> {
   // et l'extension Prisma tombent en "global" et servent la config d'un
   // tenant à l'autre (fuite cross-tenant).
   await getCurrentTenantId();
-  const shopName = await getCachedShopName();
-  const siteUrl = await getSiteUrl();
+  const [shopName, siteUrl, taglineRow] = await Promise.all([
+    getCachedShopName(),
+    getSiteUrl(),
+    getCachedSiteConfig("seo_tagline"),
+  ]);
+  const tagline = taglineRow?.value?.trim() || "Grossiste B2B";
+  const fullTitle = `${shopName} — ${tagline}`;
   return {
     metadataBase: new URL(siteUrl),
     title: {
-      default: `${shopName} — Grossiste B2B`,
+      default: fullTitle,
       template: `%s | ${shopName}`,
     },
     description:
@@ -69,13 +74,13 @@ export async function generateMetadata(): Promise<Metadata> {
       type: "website",
       locale: "fr_FR",
       siteName: shopName,
-      title: `${shopName} — Grossiste B2B`,
+      title: fullTitle,
       description:
         "Plateforme grossiste B2B pour professionnels. Catalogue produits, tarifs dégressifs, livraison rapide.",
     },
     twitter: {
       card: "summary_large_image",
-      title: `${shopName} — Grossiste B2B`,
+      title: fullTitle,
       description: "Catalogue produits pour professionnels. Tarifs grossiste et livraison rapide.",
     },
     robots: { index: true, follow: true },

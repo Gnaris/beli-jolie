@@ -7,20 +7,23 @@ import { useToast } from "@/components/ui/Toast";
 interface Props {
   initialHomeText: string;
   initialProduitsText: string;
+  initialTagline: string;
 }
 
 const MAX = 5000;
+const TAGLINE_MAX = 80;
 
-export default function SeoTextsConfig({ initialHomeText, initialProduitsText }: Props) {
+export default function SeoTextsConfig({ initialHomeText, initialProduitsText, initialTagline }: Props) {
   const [homeText, setHomeText] = useState(initialHomeText);
   const [produitsText, setProduitsText] = useState(initialProduitsText);
+  const [tagline, setTagline] = useState(initialTagline);
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
   async function handleSave() {
     setSaving(true);
     try {
-      const result = await updateSeoTexts({ homeText, produitsText });
+      const result = await updateSeoTexts({ homeText, produitsText, tagline });
       if (result.success) {
         toast({ type: "success", title: "Enregistré", message: "Textes SEO mis à jour." });
       } else {
@@ -35,6 +38,26 @@ export default function SeoTextsConfig({ initialHomeText, initialProduitsText }:
 
   return (
     <div className="space-y-6">
+      <div>
+        <label htmlFor="seo-tagline" className="block text-sm font-body font-medium text-text-primary mb-1.5">
+          Baseline pour Google
+        </label>
+        <p className="text-xs text-text-muted font-body mb-2">
+          Petite phrase qui apparaît à côté du nom de la boutique dans les résultats Google et dans l&apos;onglet du navigateur. Décrivez votre activité en quelques mots (ex : « Grossiste maroquinerie et accessoires »). Laissez vide pour utiliser « Grossiste B2B ».
+        </p>
+        <input
+          id="seo-tagline"
+          type="text"
+          value={tagline}
+          onChange={(e) => setTagline(e.target.value.slice(0, TAGLINE_MAX))}
+          placeholder="Grossiste B2B"
+          className="field-input"
+        />
+        <p className="text-[11px] text-text-muted font-body mt-1 text-right tabular-nums">
+          {tagline.length} / {TAGLINE_MAX}
+        </p>
+      </div>
+
       <div>
         <label htmlFor="home-seo" className="block text-sm font-body font-medium text-text-primary mb-1.5">
           Texte d&apos;accueil
