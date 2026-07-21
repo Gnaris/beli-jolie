@@ -108,6 +108,7 @@ model User {
   productViews    ProductView[]     @relation("ProductViewer")
   priceChanges    PriceHistory[]    @relation("PriceChanger")
   adminClientCards AdminClientCard[] @relation("AdminCardCreator")
+  adminCardPurchaseAdditions AdminClientCardProductPurchase[] @relation("AdminCardPurchaseAdder")
 
   @@unique([tenantId, email])
   @@unique([tenantId, siret])
@@ -204,13 +205,61 @@ model AdminClientCard {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
-  pfsOrders PfsOrder[]
+  pfsOrders        PfsOrder[]
+  productPurchases AdminClientCardProductPurchase[]
 
   @@index([tenantId])
   @@index([tenantId, createdAt])
   @@index([createdById])
   @@index([tenantId, pfsCustomerId])
   @@index([tenantId, siret])
+}
+
+// ─────────────────────────────────────────────
+// Produits achetés par un client — fiche admin
+// Suivi par produit + couleur + provenance (PFS, EFASHION, ANKORSTORE,
+// FAIRE, MICROSTORE, PASSAGE). Un même produit-couleur peut cumuler
+// plusieurs provenances (une ligne par source).
+// La quantité PFS est croisée avec le calcul auto issu de PfsOrderItem :
+// on garde le max des deux (voir server actions).
+// ─────────────────────────────────────────────
+enum ClientCardProductPurchaseSource {
+  PFS
+  EFASHION
+  ANKORSTORE
+  FAIRE
+  MICROSTORE
+  PASSAGE
+}
+
+model AdminClientCardProductPurchase {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  adminClientCardId String
+  adminClientCard   AdminClientCard @relation(fields: [adminClientCardId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  productColorId String
+  productColor   ProductColor @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+
+  source   ClientCardProductPurchaseSource
+  quantity Int
+
+  addedById String?
+  addedBy   User?   @relation("AdminCardPurchaseAdder", fields: [addedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, adminClientCardId, productId, productColorId, source])
+  @@index([tenantId, adminClientCardId])
+  @@index([tenantId, productId])
+  @@index([tenantId, productColorId])
 }
 
 // ─────────────────────────────────────────────
@@ -452,39 +501,6 @@ model HsCode {
   products    Product[]
 }
 
-// Pays de fabrication (scopé par tenant)
-model ManufacturingCountry {
-  id                   String                            @id @default(cuid())
-  name                 String
-  isoCode              String?
-  pfsCountryRef        String?
-  efashionProvenanceId Int?
-  faireCountryCode     String?
-  createdAt            DateTime                          @default(now())
-  products             Product[]
-  translations         ManufacturingCountryTranslation[]
-
-  // Multi-tenant : lib scopée par tenant depuis 2026-07-12
-  tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id])
-
-  @@unique([tenantId, name])
-  @@unique([tenantId, isoCode])
-  @@unique([tenantId, pfsCountryRef])
-  @@index([tenantId])
-}
-
-model ManufacturingCountryTranslation {
-  id                     String               @id @default(cuid())
-  manufacturingCountryId String
-  manufacturingCountry   ManufacturingCountry @relation(fields: [manufacturingCountryId], references: [id], onDelete: Cascade)
-  locale                 String
-  name                   String
-  createdAt              DateTime             @default(now())
-
-  @@unique([manufacturingCountryId, locale])
-}
-
 // Saisons (ex: "Printemps/Été 2026", "Automne/Hiver 2025") — scopées par tenant
 model Season {
   id                   String              @id @default(cuid())
@@ -628,6 +644,7 @@ model Product {
   catalogs                    CatalogProduct[]
   restockAlerts               RestockAlert[]
   pfsOrderItems               PfsOrderItem[]
+  adminCardPurchases          AdminClientCardProductPurchase[]
   isBestSeller                Boolean               @default(false)
   status                      ProductStatus         @default(OFFLINE)
   isIncomplete                Boolean               @default(false) // Produit incomplet (manque prix, poids, images, etc.)
@@ -657,8 +674,9 @@ model Product {
   // simplement son code SH.
   hsCodeId                    String?
   hsCode                      HsCode?               @relation(fields: [hsCodeId], references: [id], onDelete: SetNull)
-  manufacturingCountryId      String?
-  manufacturingCountry        ManufacturingCountry? @relation(fields: [manufacturingCountryId], references: [id], onDelete: SetNull)
+  // Code ISO alpha-2 du pays de fabrication (ex: "CN"). Mapping marketplaces
+  // (refs PFS/eFashion/Faire) figé dans `lib/countries.ts`.
+  countryIsoCode              String?
   seasonId                    String?
   season                      Season?               @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   // Couleur principale du produit (vue par défaut côté boutique + default_color PFS).
@@ -695,6 +713,15 @@ model Product {
   // les changements lors du prochain "Enregistrer" (skip pfsTranslate/update,
   // patch variantes seulement si modifiées, upload image seulement si changée).
   pfsLastSyncSnapshot Json?
+
+  // Résultat de la dernière vérification PFS (bouton « Vérifier » du panneau
+  // Marketplaces). `pfsCheckStatus` = "ok" si aucun écart, "diff" sinon.
+  // `pfsCheckIssues` contient la liste structurée des écarts pour le tooltip
+  // (fiche produit + couleurs + variantes en trop côté PFS). null tant que
+  // la vérification n'a pas été lancée.
+  pfsCheckedAt    DateTime?
+  pfsCheckStatus  String?
+  pfsCheckIssues  Json?
 
   // Ankorstore — identifiants et snapshot de la dernière sync réussie
   ankorsProductId        String?
@@ -765,7 +792,7 @@ model Product {
   @@index([status, name]) // search by name
   @@index([createdAt]) // general date sorting
   @@index([reference]) // exact reference search
-  @@index([manufacturingCountryId]) // country filter
+  @@index([countryIsoCode]) // country filter
   @@index([seasonId]) // season filter
   @@index([primaryColorId])
   @@index([pfsLastExportedAt])
@@ -1127,6 +1154,7 @@ model ProductColor {
   stockMovements          StockMovement[]
   priceHistory            PriceHistory[]
   pfsOrderItems           PfsOrderItem[]
+  adminCardPurchases      AdminClientCardProductPurchase[]
   disabled                Boolean             @default(false) // Masquer côté client sans supprimer
   sku                     String?             @unique // SKU universel: {ref}_{couleur}_{UNIT|PACK}_{index}
   // Identifiant variante marketplace — renseigné à la publication live
@@ -1743,6 +1771,20 @@ model CatalogProduct {
 
   @@unique([catalogId, productId])
   @@index([tenantId])
+}
+
+// ─────────────────────────────────────────────
+// Configuration plateforme (clé/valeur, HORS tenant)
+// ─────────────────────────────────────────────
+// Utilisée pour les interrupteurs de plateforme contrôlés depuis
+// la boutique « maîtresse » (Beli & Jolie) et qui s'appliquent à
+// TOUS les tenants (ex: maintenance marketplace globale).
+// Pas de tenantId volontairement — l'extension Prisma passthrough
+// cette table (non listée dans TENANT_SCOPED_MODELS).
+model PlatformConfig {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
 }
 
 // ─────────────────────────────────────────────
@@ -2628,9 +2670,9 @@ model Tenant {
   sizes                      Size[]
   compositions               Composition[]
   seasons                    Season[]
-  manufacturingCountries     ManufacturingCountry[]
   tags                       Tag[]
-  adminClientCards           AdminClientCard[]
+  adminClientCards                AdminClientCard[]
+  adminClientCardProductPurchases AdminClientCardProductPurchase[]
 
   pfsOrders     PfsOrder[]
   pfsOrderItems PfsOrderItem[]

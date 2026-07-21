@@ -19,8 +19,11 @@ interface Props {
   hasPfs: boolean;
 }
 
+const PER_PAGE = 5;
+
 export default function AdminCardPfsOrdersSection({ cardId, hasPfs }: Props) {
   const [orders, setOrders] = useState<PfsOrderListItem[] | null>(null);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     if (!hasPfs) return;
@@ -28,7 +31,10 @@ export default function AdminCardPfsOrdersSection({ cardId, hasPfs }: Props) {
     void (async () => {
       try {
         const rows = await listPfsOrdersForClientCard(cardId);
-        if (!cancelled) setOrders(rows);
+        if (!cancelled) {
+          setOrders(rows);
+          setPage(1);
+        }
       } catch {
         if (!cancelled) setOrders([]);
       }
@@ -84,41 +90,71 @@ export default function AdminCardPfsOrdersSection({ cardId, hasPfs }: Props) {
             </div>
           )}
 
-          <ul className="divide-y divide-border rounded-xl border border-border overflow-hidden">
-            {orders.slice(0, 20).map((o) => {
-              const meta = STATUS_LABEL[o.status];
-              return (
-                <li key={o.id} className="flex items-center gap-3 px-3 py-2 hover:bg-bg-secondary">
-                  <Link
-                    href={`/admin/commandes?source=pfs&open=${o.id}`}
-                    className="font-mono text-xs text-text-primary font-semibold hover:underline"
-                  >
-                    {o.orderNumber}
-                  </Link>
-                  <span className="text-[11px] text-text-muted">
-                    {new Date(o.createdAtPfs).toLocaleDateString("fr-FR", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "2-digit",
-                    })}
-                  </span>
-                  <span className="ml-auto text-xs font-semibold text-text-primary">
-                    {o.totalTTC.toFixed(2).replace(".", ",")} €
-                  </span>
-                  <span
-                    className={`inline-block rounded-full text-[10px] px-2 py-0.5 font-medium border ${meta.cls}`}
-                  >
-                    {meta.label}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          {orders.length > 20 && (
-            <div className="text-[11px] text-text-muted">
-              + {orders.length - 20} commande{orders.length - 20 > 1 ? "s" : ""} plus anciennes
-            </div>
-          )}
+          {(() => {
+            const totalPages = Math.max(1, Math.ceil(orders.length / PER_PAGE));
+            const currentPage = Math.min(page, totalPages);
+            const start = (currentPage - 1) * PER_PAGE;
+            const pageRows = orders.slice(start, start + PER_PAGE);
+            return (
+              <>
+                <ul className="divide-y divide-border rounded-xl border border-border overflow-hidden">
+                  {pageRows.map((o) => {
+                    const meta = STATUS_LABEL[o.status];
+                    return (
+                      <li key={o.id} className="flex items-center gap-3 px-3 py-2 hover:bg-bg-secondary">
+                        <Link
+                          href={`/admin/commandes?source=pfs&open=${o.id}`}
+                          className="font-mono text-xs text-text-primary font-semibold hover:underline"
+                        >
+                          {o.orderNumber}
+                        </Link>
+                        <span className="text-[11px] text-text-muted">
+                          {new Date(o.createdAtPfs).toLocaleDateString("fr-FR", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "2-digit",
+                          })}
+                        </span>
+                        <span className="ml-auto text-xs font-semibold text-text-primary">
+                          {o.totalTTC.toFixed(2).replace(".", ",")} €
+                        </span>
+                        <span
+                          className={`inline-block rounded-full text-[10px] px-2 py-0.5 font-medium border ${meta.cls}`}
+                        >
+                          {meta.label}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <span className="text-[11px] text-text-muted">
+                      Page {currentPage} sur {totalPages} — {orders.length} commande{orders.length > 1 ? "s" : ""}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage <= 1}
+                        className="inline-flex items-center gap-1 rounded-lg border border-border bg-bg-primary px-2.5 py-1 text-[12px] text-text-secondary hover:bg-bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Précédent
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={currentPage >= totalPages}
+                        className="inline-flex items-center gap-1 rounded-lg border border-border bg-bg-primary px-2.5 py-1 text-[12px] text-text-secondary hover:bg-bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Suivant
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </>
       )}
     </section>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CountryCombobox from "@/components/ui/CountryCombobox";
@@ -11,6 +12,7 @@ import {
   type AdminClientCardInput,
 } from "@/app/actions/admin/admin-client-cards";
 import AdminCardPfsOrdersSection from "./AdminCardPfsOrdersSection";
+import AdminCardOrderedProductsSection from "./AdminCardOrderedProductsSection";
 
 export interface AdminClientCardForDrawer {
   id: string;
@@ -71,10 +73,51 @@ const MARKETPLACES = [
   { key: "hasPassage", label: "Passage", initial: "Pa", gradient: "linear-gradient(135deg,#0d9488,#14b8a6)" },
 ] as const;
 
+const AVATAR_GRADIENTS = [
+  "bg-gradient-to-br from-rose-500 to-rose-700",
+  "bg-gradient-to-br from-emerald-500 to-emerald-700",
+  "bg-gradient-to-br from-sky-500 to-sky-700",
+  "bg-gradient-to-br from-violet-500 to-violet-700",
+  "bg-gradient-to-br from-amber-500 to-amber-700",
+  "bg-gradient-to-br from-teal-500 to-teal-700",
+];
+
+function avatarGradientFor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return AVATAR_GRADIENTS[hash % AVATAR_GRADIENTS.length];
+}
+
+function initialsOf(first: string, last: string): string {
+  return `${first[0] ?? ""}${last[0] ?? ""}`.toUpperCase();
+}
+
+function formatDateShort(v: string | null): string {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+}
+
 export default function AdminCardDrawer({ mode, card, onClose }: Props) {
   const toast = useToast();
   const { confirm } = useConfirm();
   const [isPending, startTransition] = useTransition();
+  const [visible, setVisible] = useState(false);
+  const [closing, setClosing] = useState(false);
+
+  // Animation d'entrée : monté hors-écran, puis on bascule visible au prochain tick
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(t);
+  }, []);
+
+  const handleClose = () => {
+    if (closing) return;
+    setClosing(true);
+    setVisible(false);
+    setTimeout(() => onClose(), 260);
+  };
 
   // Form state
   const [firstName, setFirstName] = useState(card?.firstName ?? "");
@@ -115,7 +158,7 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
   // Close on ESC
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
     }
     document.addEventListener("keydown", handleKey);
     document.body.style.overflow = "hidden";
@@ -123,7 +166,8 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
       document.removeEventListener("keydown", handleKey);
       document.body.style.overflow = "";
     };
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const marketplaceValues = { hasPfs, hasAnkorstore, hasEfashion, hasFaire, hasMicrostore, hasPassage };
   const marketplaceSetters = {
@@ -186,7 +230,7 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
           await updateAdminClientCard(card.id, input);
           toast.success("Fiche mise à jour");
         }
-        onClose();
+        handleClose();
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Erreur inconnue";
         toast.error("Erreur", msg);
@@ -208,7 +252,7 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
       try {
         await deleteAdminClientCard(card.id);
         toast.success("Fiche supprimée");
-        onClose();
+        handleClose();
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Erreur inconnue";
         toast.error("Erreur", msg);
@@ -216,131 +260,176 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
     });
   }
 
-  return (
+  const displayName = mode === "create"
+    ? "Nouvelle fiche"
+    : `${card?.firstName ?? ""} ${card?.lastName ?? ""}`.trim() || card?.company || "Client";
+  const avatarGradient = card?.id ? avatarGradientFor(card.id) : "bg-gradient-to-br from-violet-500 to-violet-700";
+  const initials = card ? initialsOf(card.firstName, card.lastName) : "";
+  const activeMarketplaces = MARKETPLACES.filter((mp) => marketplaceValues[mp.key]);
+
+  const content = (
     <>
       <div
-        className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40"
-        onClick={onClose}
+        className={`fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[9500] transition-opacity duration-300 ${visible ? "opacity-100" : "opacity-0"}`}
+        onClick={handleClose}
       />
-      <aside className="fixed top-0 right-0 h-full w-full max-w-[640px] bg-bg-primary shadow-2xl z-50 overflow-y-auto">
-        {/* Header aurora violet */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-violet-700 to-violet-900 px-6 py-6">
-          <div className="absolute -top-16 -right-10 w-40 h-40 rounded-full blur-3xl bg-violet-400/40" />
-          <div className="relative flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-body font-bold uppercase tracking-[0.18em] text-violet-200">
-                Fiche client admin
-              </p>
-              <h2 className="font-heading text-2xl font-bold text-white mt-1">
-                {mode === "create" ? "Nouvelle fiche" : `${card?.firstName ?? ""} ${card?.lastName ?? ""}`.trim() || card?.company || "Client"}
-              </h2>
-              <p className="text-xs text-violet-200 mt-1">
-                Répertoire personnel — visible uniquement par vous
-              </p>
-              {card?.importedFromMarketplace === "PFS" && (
-                <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/15 border border-white/25 px-2 py-0.5 text-[11px] text-white">
-                  <span
-                    className="w-3.5 h-3.5 rounded-sm text-white text-[9px] font-heading font-bold flex items-center justify-center"
-                    style={{ background: "linear-gradient(135deg,#4f46e5,#6366f1)" }}
-                  >
-                    P
-                  </span>
-                  Importée automatiquement depuis Paris Fashion Shop
-                </div>
-              )}
+      <aside
+        className={`fixed top-0 right-0 h-full w-full lg:w-[72vw] lg:min-w-[900px] lg:max-w-[1400px] bg-bg-secondary shadow-2xl z-[9501] overflow-y-auto transform transition-transform duration-300 ease-out ${visible ? "translate-x-0" : "translate-x-full"}`}
+      >
+        {/* Header ardoise avec padding généreux */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 px-10 py-10">
+          <div className="absolute -top-24 -right-16 w-72 h-72 rounded-full blur-3xl bg-slate-500/25" />
+          <div className="absolute -bottom-24 -left-16 w-64 h-64 rounded-full blur-3xl bg-slate-600/30" />
+
+          <div className="relative flex items-start justify-between gap-5">
+            <div className="flex items-start gap-5 min-w-0 flex-1">
+              <div className={`w-20 h-20 rounded-2xl text-white flex items-center justify-center font-heading font-bold text-3xl shadow-xl shrink-0 ring-2 ring-white/10 ${avatarGradient}`}>
+                {initials || "?"}
+              </div>
+              <div className="min-w-0 space-y-2">
+                <p className="text-[11px] font-body font-bold uppercase tracking-[0.2em] text-slate-300">
+                  Fiche client — Répertoire personnel
+                </p>
+                <h2 className="font-heading text-3xl font-bold text-white truncate">
+                  {displayName}
+                </h2>
+                {(card?.company || card?.email) && (
+                  <p className="text-sm text-slate-300 truncate">
+                    {card?.company && <span>{card.company}</span>}
+                    {card?.company && card?.email && <span className="text-slate-500"> · </span>}
+                    {card?.email && <span className="text-white/85">{card.email}</span>}
+                  </p>
+                )}
+                {(activeMarketplaces.length > 0 || card?.importedFromMarketplace === "PFS") && (
+                  <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                    {activeMarketplaces.map((mp) => (
+                      <span key={mp.key} className="inline-flex items-center gap-1.5 rounded-full bg-white/10 backdrop-blur border border-white/20 px-2.5 py-1 text-[11px] text-white font-medium">
+                        <span
+                          className="w-4 h-4 rounded text-white text-[9px] font-bold flex items-center justify-center"
+                          style={{ background: mp.gradient }}
+                        >
+                          {mp.initial}
+                        </span>
+                        {mp.label}
+                      </span>
+                    ))}
+                    {card?.importedFromMarketplace === "PFS" && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/25 border border-emerald-300/40 px-2.5 py-1 text-[11px] text-emerald-100 font-medium">
+                        Importée depuis PFS
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             <button
               type="button"
-              onClick={onClose}
-              className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"
+              onClick={handleClose}
+              className="w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center shrink-0"
               aria-label="Fermer"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 6L6 18M6 6l12 12" />
               </svg>
             </button>
           </div>
+
+          {mode === "edit" && (card?.lastOrderAt || card?.lastMessageSentAt) && (
+            <div className="relative mt-7 grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-white/10 backdrop-blur border border-white/15 px-4 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-slate-300 font-semibold">Dernière commande</p>
+                <p className="text-sm font-heading font-bold text-white mt-1">{formatDateShort(card?.lastOrderAt ?? null)}</p>
+              </div>
+              <div className="rounded-xl bg-white/10 backdrop-blur border border-white/15 px-4 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-slate-300 font-semibold">Dernier message</p>
+                <p className="text-sm font-heading font-bold text-white mt-1">{formatDateShort(card?.lastMessageSentAt ?? null)}</p>
+              </div>
+            </div>
+          )}
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Identité */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="w-1 h-4 rounded-full bg-violet-600" />
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-text-muted">Identité</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Prénom *">
-                <input value={firstName} onChange={(e) => setFirstName(e.target.value)} className="field" required />
-              </Field>
-              <Field label="Nom *">
-                <input value={lastName} onChange={(e) => setLastName(e.target.value)} className="field" required />
-              </Field>
-              <Field label="Société" className="col-span-2">
-                <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Nom de la boutique" className="field" />
-              </Field>
-              <Field label="SIRET">
-                <input value={siret} onChange={(e) => setSiret(e.target.value)} placeholder="14 chiffres" className="field font-mono" />
-              </Field>
-              <Field label="N° TVA intracommunautaire">
-                <input value={vatNumber} onChange={(e) => setVatNumber(e.target.value)} placeholder="FR…" className="field font-mono" />
-              </Field>
-            </div>
-          </section>
+        <form onSubmit={handleSubmit} className="p-8 space-y-6">
+          {/* Ligne 1 : Identité | Contact */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <SectionCard accent="violet" title="Identité">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Prénom *">
+                  <input value={firstName} onChange={(e) => setFirstName(e.target.value)} className="field" required />
+                </Field>
+                <Field label="Nom *">
+                  <input value={lastName} onChange={(e) => setLastName(e.target.value)} className="field" required />
+                </Field>
+                <Field label="Société" className="col-span-2">
+                  <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Nom de la boutique" className="field" />
+                </Field>
+                <Field label="SIRET">
+                  <input value={siret} onChange={(e) => setSiret(e.target.value)} placeholder="14 chiffres" className="field font-mono" />
+                </Field>
+                <Field label="N° TVA">
+                  <input value={vatNumber} onChange={(e) => setVatNumber(e.target.value)} placeholder="FR…" className="field font-mono" />
+                </Field>
+              </div>
+            </SectionCard>
 
-          {/* Contact */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="w-1 h-4 rounded-full bg-sky-500" />
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-text-muted">Contact</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Email" className="col-span-2">
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@boutique.fr" className="field" />
-              </Field>
-              <Field label="Téléphone">
-                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="06 12 34 56 78" className="field" />
-              </Field>
-              <Field label="Site web (optionnel)">
-                <input type="url" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" className="field" />
-              </Field>
-              <Field label="Adresse" className="col-span-2">
+            <SectionCard accent="sky" title="Contact">
+              <div className="space-y-3">
+                <Field label="Email">
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@boutique.fr" className="field" />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Téléphone">
+                    <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="06 12 34 56 78" className="field" />
+                  </Field>
+                  <Field label="Site web">
+                    <input type="url" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" className="field" />
+                  </Field>
+                </div>
+              </div>
+            </SectionCard>
+          </div>
+
+          {/* Ligne 2 : Adresse — structure claire, 3 lignes */}
+          <SectionCard accent="teal" title="Adresse de livraison">
+            <div className="space-y-3">
+              <Field label="Rue et numéro">
                 <input value={addressLine} onChange={(e) => setAddressLine(e.target.value)} placeholder="12 rue des Lilas" className="field" />
               </Field>
-              <Field label="Code postal">
-                <input value={postalCode} onChange={(e) => setPostalCode(e.target.value)} placeholder="75001" className="field font-mono" />
-              </Field>
-              <Field label="Ville">
-                <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Paris" className="field" />
-              </Field>
-              <Field label="Pays" className="col-span-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Field label="Code postal">
+                  <input value={postalCode} onChange={(e) => setPostalCode(e.target.value)} placeholder="75001" className="field font-mono" />
+                </Field>
+                <div className="sm:col-span-2">
+                  <Field label="Ville">
+                    <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Paris" className="field" />
+                  </Field>
+                </div>
+              </div>
+              <Field label="Pays">
                 <CountryCombobox value={countryCode} onChange={setCountryCode} />
               </Field>
             </div>
-          </section>
+          </SectionCard>
 
           {mode === "edit" && card?.id && (
             <AdminCardPfsOrdersSection cardId={card.id} hasPfs={card.hasPfs || Boolean(card.pfsCustomerId)} />
           )}
 
-          {/* Marketplaces */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="w-1 h-4 rounded-full bg-emerald-500" />
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-text-muted">
-                D&apos;où vient ce client ? (plusieurs choix possibles)
-              </h3>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {mode === "edit" && card?.id && (
+            <AdminCardOrderedProductsSection cardId={card.id} />
+          )}
+
+          {/* Marketplaces pleine largeur, 6 cases sur une ligne */}
+          <SectionCard accent="emerald" title="D'où vient ce client ?" subtitle="plusieurs choix possibles">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
               {MARKETPLACES.map((mp) => {
                 const checked = marketplaceValues[mp.key];
                 return (
                   <label
                     key={mp.key}
-                    className={`relative flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-all text-[13px] ${
+                    className={`relative flex flex-col items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${
                       checked
-                        ? "border-text-primary bg-bg-secondary text-text-primary font-semibold shadow-[0_0_0_2px_rgba(15,23,42,0.06)]"
-                        : "border-border bg-bg-primary text-text-secondary hover:border-border-strong"
+                        ? "border-2 border-text-primary bg-bg-secondary shadow-sm"
+                        : "border border-border bg-bg-primary hover:border-border-strong"
                     }`}
                   >
                     <input
@@ -350,28 +439,129 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
                       className="absolute opacity-0 inset-0 cursor-pointer"
                     />
                     <span
-                      className="inline-flex items-center justify-center w-6 h-6 rounded-md text-white text-[10px] font-bold"
+                      className="w-9 h-9 rounded-xl text-white text-sm font-bold flex items-center justify-center shadow"
                       style={{ background: mp.gradient }}
                     >
                       {mp.initial}
                     </span>
-                    <span>{mp.label}</span>
+                    <span className={`text-[12px] ${checked ? "font-semibold text-text-primary" : "font-medium text-text-secondary"}`}>
+                      {mp.label}
+                    </span>
                     {checked && (
-                      <span className="ml-auto inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px]">✓</span>
+                      <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] flex items-center justify-center">✓</span>
                     )}
                   </label>
                 );
               })}
             </div>
-          </section>
+          </SectionCard>
 
-          {/* Historique */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="w-1 h-4 rounded-full bg-amber-500" />
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-text-muted">Historique</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+          {/* Ligne 4 : Remise commande | Remise livraison */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <SectionCard
+              accent="emerald"
+              title="Remise sur commande"
+              headerRight={
+                <Toggle
+                  active={orderDiscountEnabled}
+                  onChange={setOrderDiscountEnabled}
+                  color="emerald"
+                />
+              }
+            >
+              {orderDiscountEnabled ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={orderDiscountValue}
+                      onChange={(e) => setOrderDiscountValue(e.target.value)}
+                      placeholder="10"
+                      className="field w-24 font-mono tabular-nums text-center text-lg font-bold"
+                    />
+                    <div className="inline-flex rounded-xl border border-border bg-bg-secondary p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setOrderDiscountType("PERCENT")}
+                        className={`px-4 h-10 rounded-lg text-sm font-semibold transition-colors ${
+                          orderDiscountType === "PERCENT" ? "bg-bg-primary shadow-sm text-text-primary" : "text-text-muted hover:text-text-primary"
+                        }`}
+                      >
+                        %
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOrderDiscountType("AMOUNT")}
+                        className={`px-4 h-10 rounded-lg text-sm font-semibold transition-colors ${
+                          orderDiscountType === "AMOUNT" ? "bg-bg-primary shadow-sm text-text-primary" : "text-text-muted hover:text-text-primary"
+                        }`}
+                      >
+                        €
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-text-muted mt-3">Appliquée automatiquement sur chaque commande.</p>
+                </>
+              ) : (
+                <p className="text-xs text-text-muted">Aucune remise sur commande pour ce client.</p>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              accent="sky"
+              title="Remise sur la livraison"
+              headerRight={
+                <Toggle
+                  active={shippingEnabled}
+                  onChange={setShippingEnabled}
+                  color="sky"
+                />
+              }
+            >
+              {shippingEnabled ? (
+                <>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="inline-flex rounded-xl border border-border bg-bg-secondary p-0.5">
+                      {(["OFFERTE", "PERCENT", "AMOUNT"] as const).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setShippingMode(m)}
+                          className={`px-4 h-10 rounded-lg text-sm font-semibold transition-colors ${
+                            shippingMode === m ? "bg-bg-primary shadow-sm text-text-primary" : "text-text-muted hover:text-text-primary"
+                          }`}
+                        >
+                          {m === "OFFERTE" ? "Offerte" : m === "PERCENT" ? "%" : "€"}
+                        </button>
+                      ))}
+                    </div>
+                    {shippingMode !== "OFFERTE" && (
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={shippingDiscountValue}
+                        onChange={(e) => setShippingDiscountValue(e.target.value)}
+                        placeholder="Montant"
+                        className="field w-24 font-mono tabular-nums"
+                      />
+                    )}
+                  </div>
+                  <p className="text-xs text-text-muted mt-3">
+                    {shippingMode === "OFFERTE" ? "Livraison gratuite pour ce client, tout le temps." : "Réduction appliquée sur les frais de livraison."}
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-text-muted">Aucune remise sur la livraison pour ce client.</p>
+              )}
+            </SectionCard>
+          </div>
+
+          {/* Suivi manuel */}
+          <SectionCard accent="amber" title="Suivi manuel">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Date dernière commande">
                 <input type="date" value={lastOrderAt} onChange={(e) => setLastOrderAt(e.target.value)} className="field" />
               </Field>
@@ -379,130 +569,33 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
                 <input type="date" value={lastMessageSentAt} onChange={(e) => setLastMessageSentAt(e.target.value)} className="field" />
               </Field>
             </div>
-          </section>
-
-          {/* Remises et avantages */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="w-1 h-4 rounded-full bg-emerald-600" />
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-text-muted">Remises et avantages</h3>
-            </div>
-
-            <div className="rounded-xl border border-border p-3 space-y-2">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={orderDiscountEnabled}
-                  onChange={(e) => setOrderDiscountEnabled(e.target.checked)}
-                  className="w-4 h-4 rounded border-border text-text-primary focus:ring-slate-400"
-                />
-                <span className="text-[13px] font-medium text-text-secondary">Remise sur commande</span>
-              </label>
-              {orderDiscountEnabled && (
-                <div className="flex items-center gap-2 pl-6 flex-wrap">
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={orderDiscountValue}
-                    onChange={(e) => setOrderDiscountValue(e.target.value)}
-                    placeholder="10"
-                    className="field w-24 font-mono tabular-nums"
-                  />
-                  <div className="inline-flex rounded-lg border border-border bg-bg-secondary p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setOrderDiscountType("PERCENT")}
-                      className={`px-3 h-8 rounded-md text-[13px] font-semibold transition-colors ${
-                        orderDiscountType === "PERCENT" ? "bg-bg-primary shadow-sm text-text-primary" : "text-text-muted hover:text-text-primary"
-                      }`}
-                    >
-                      %
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setOrderDiscountType("AMOUNT")}
-                      className={`px-3 h-8 rounded-md text-[13px] font-semibold transition-colors ${
-                        orderDiscountType === "AMOUNT" ? "bg-bg-primary shadow-sm text-text-primary" : "text-text-muted hover:text-text-primary"
-                      }`}
-                    >
-                      €
-                    </button>
-                  </div>
-                  <span className="text-[11.5px] text-text-muted">sur chaque commande</span>
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-xl border border-border p-3 space-y-2">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={shippingEnabled}
-                  onChange={(e) => setShippingEnabled(e.target.checked)}
-                  className="w-4 h-4 rounded border-border text-text-primary focus:ring-slate-400"
-                />
-                <span className="text-[13px] font-medium text-text-secondary">Remise sur la livraison</span>
-              </label>
-              {shippingEnabled && (
-                <div className="flex items-center gap-2 pl-6 flex-wrap">
-                  <div className="inline-flex rounded-lg border border-border bg-bg-secondary p-0.5">
-                    {(["OFFERTE", "PERCENT", "AMOUNT"] as const).map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => setShippingMode(m)}
-                        className={`px-3 h-8 rounded-md text-[13px] font-semibold transition-colors ${
-                          shippingMode === m ? "bg-bg-primary shadow-sm text-text-primary" : "text-text-muted hover:text-text-primary"
-                        }`}
-                      >
-                        {m === "OFFERTE" ? "Offerte" : m === "PERCENT" ? "%" : "€"}
-                      </button>
-                    ))}
-                  </div>
-                  {shippingMode !== "OFFERTE" && (
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={shippingDiscountValue}
-                      onChange={(e) => setShippingDiscountValue(e.target.value)}
-                      placeholder="Montant"
-                      className="field w-24 font-mono tabular-nums"
-                    />
-                  )}
-                  <span className="text-[11.5px] text-text-muted">
-                    {shippingMode === "OFFERTE" ? "livraison gratuite pour ce client" : "réduction sur la livraison"}
-                  </span>
-                </div>
-              )}
-            </div>
-          </section>
+          </SectionCard>
 
           {/* Note personnelle */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="w-1 h-4 rounded-full bg-rose-500" />
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-text-muted">Note personnelle</h3>
-            </div>
+          <SectionCard accent="rose" title="Note personnelle">
             <textarea
-              rows={4}
+              rows={5}
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Notes libres : produits attendus, préférences, contexte de la relation, à faire au prochain contact…"
               className="field resize-none w-full"
             />
-          </section>
+          </SectionCard>
 
           {/* Footer */}
-          <div className="flex items-center justify-between gap-3 pt-4 border-t border-border">
+          <div className="bg-bg-primary rounded-2xl border border-border shadow-sm p-5 flex items-center justify-between gap-3">
             {mode === "edit" ? (
               <button
                 type="button"
                 onClick={handleDelete}
                 disabled={isPending}
-                className="text-[13px] font-medium text-rose-600 hover:text-rose-700 disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 h-11 rounded-xl border border-rose-200 text-rose-600 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50"
               >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6M14 11v6" />
+                </svg>
                 Supprimer la fiche
               </button>
             ) : (
@@ -511,16 +604,16 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 disabled={isPending}
-                className="px-4 h-10 rounded-xl border border-border text-text-secondary text-[13px] font-medium hover:bg-bg-secondary disabled:opacity-50"
+                className="px-5 h-11 rounded-xl border border-border text-text-secondary text-sm font-semibold hover:bg-bg-secondary disabled:opacity-50"
               >
                 Annuler
               </button>
               <button
                 type="submit"
                 disabled={isPending}
-                className="px-5 h-10 rounded-xl bg-gradient-to-br from-text-primary to-text-secondary text-white text-[13px] font-semibold shadow-sm hover:opacity-90 disabled:opacity-50"
+                className="px-6 h-11 rounded-xl bg-gradient-to-br from-text-primary to-text-secondary text-white text-sm font-semibold shadow hover:opacity-90 disabled:opacity-50"
               >
                 {isPending ? "Enregistrement…" : "Enregistrer"}
               </button>
@@ -532,8 +625,8 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
       <style jsx>{`
         .field {
           width: 100%;
-          padding: 0.5rem 0.75rem;
-          border-radius: 0.5rem;
+          padding: 0.625rem 0.875rem;
+          border-radius: 0.75rem;
           border: 1px solid var(--border, #e2e8f0);
           background: var(--bg-primary, #fff);
           font-size: 14px;
@@ -543,10 +636,77 @@ export default function AdminCardDrawer({ mode, card, onClose }: Props) {
         }
         .field:focus {
           border-color: var(--border-strong, #cbd5e1);
-          box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08);
+          box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
         }
       `}</style>
     </>
+  );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(content, document.body);
+}
+
+const ACCENT_MAP = {
+  violet: { bar: "bg-violet-600", gradient: "from-violet-50" },
+  sky: { bar: "bg-sky-500", gradient: "from-sky-50" },
+  teal: { bar: "bg-teal-500", gradient: "from-teal-50" },
+  emerald: { bar: "bg-emerald-500", gradient: "from-emerald-50" },
+  amber: { bar: "bg-amber-500", gradient: "from-amber-50" },
+  rose: { bar: "bg-rose-500", gradient: "from-rose-50" },
+} as const;
+
+type Accent = keyof typeof ACCENT_MAP;
+
+function SectionCard({
+  accent,
+  title,
+  subtitle,
+  headerRight,
+  children,
+}: {
+  accent: Accent;
+  title: string;
+  subtitle?: string;
+  headerRight?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const style = ACCENT_MAP[accent];
+  return (
+    <section className="bg-bg-primary rounded-2xl border border-border shadow-sm overflow-hidden">
+      <div className={`bg-gradient-to-r ${style.gradient} via-bg-primary to-bg-primary px-5 py-3.5 border-b border-border flex items-center justify-between gap-3`}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`w-1 h-5 rounded-full ${style.bar}`} />
+          <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-text-muted">{title}</h3>
+          {subtitle && <span className="text-[11px] text-text-muted normal-case tracking-normal font-normal">{subtitle}</span>}
+        </div>
+        {headerRight}
+      </div>
+      <div className="p-5">{children}</div>
+    </section>
+  );
+}
+
+function Toggle({
+  active,
+  onChange,
+  color,
+}: {
+  active: boolean;
+  onChange: (v: boolean) => void;
+  color: "emerald" | "sky";
+}) {
+  const bg = active ? (color === "emerald" ? "bg-emerald-500" : "bg-sky-500") : "bg-slate-300";
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!active)}
+      className={`relative w-10 h-6 rounded-full transition-colors ${bg}`}
+      aria-pressed={active}
+    >
+      <span
+        className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${active ? "right-0.5" : "left-0.5"}`}
+      />
+    </button>
   );
 }
 
