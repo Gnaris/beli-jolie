@@ -11,6 +11,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { listManufacturingCountries } from "@/lib/countries";
 
 export interface ImportOption {
   id: string;
@@ -48,7 +49,8 @@ export async function GET() {
   }
 
   try {
-    const [categories, subCategories, colors, compositions, countries, seasons, hsCodes, tags] =
+    const countries = listManufacturingCountries().map((c) => ({ id: c.code, name: c.name }));
+    const [categories, subCategories, colors, compositions, seasons, hsCodes, tags] =
       await Promise.all([
         prisma.category.findMany({
           orderBy: { name: "asc" },
@@ -68,10 +70,6 @@ export async function GET() {
           select: { id: true, name: true, hex: true, patternImage: true },
         }),
         prisma.composition.findMany({
-          orderBy: { name: "asc" },
-          select: { id: true, name: true },
-        }),
-        prisma.manufacturingCountry.findMany({
           orderBy: { name: "asc" },
           select: { id: true, name: true },
         }),

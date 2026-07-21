@@ -31,6 +31,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { efashionGetMe, efashionListByReferenceBaseExact } from "@/lib/efashion-api";
 import { normalizeEfashionColorName } from "@/lib/efashion-link-match";
+import { getCountryByIso } from "@/lib/countries";
 import { logger } from "@/lib/logger";
 
 const PAUSE_MS = 200;
@@ -68,7 +69,7 @@ interface BjProduct {
   id: string;
   reference: string;
   category: { name: string; efashionCategorieId: number | null } | null;
-  manufacturingCountry: { name: string; efashionProvenanceId: number | null } | null;
+  countryIsoCode: string | null;
   season: { name: string; efashionCollectionId: number | null } | null;
   compositions: Array<{ composition: { name: string; efashionId: number | null } }>;
   colors: Array<{
@@ -109,8 +110,11 @@ function checkMissingAttrs(p: BjProduct): string[] {
   const reasons: string[] = [];
   if (!p.category?.efashionCategorieId)
     reasons.push(`Catégorie « ${p.category?.name ?? "(vide)"} » sans mapping`);
-  if (!p.manufacturingCountry?.efashionProvenanceId)
-    reasons.push(`Pays « ${p.manufacturingCountry?.name ?? "(vide)"} » sans mapping`);
+  const country = getCountryByIso(p.countryIsoCode);
+  if (!country?.efashionProvenanceId)
+    reasons.push(
+      `Pays « ${country?.name ?? p.countryIsoCode ?? "(vide)"} » sans mapping`,
+    );
   if (!p.season?.efashionCollectionId)
     reasons.push(`Saison « ${p.season?.name ?? "(vide)"} » sans mapping`);
   if (p.compositions.length === 0) reasons.push("Aucune matière");
@@ -293,7 +297,7 @@ async function main() {
       id: true,
       reference: true,
       category: { select: { name: true, efashionCategorieId: true } },
-      manufacturingCountry: { select: { name: true, efashionProvenanceId: true } },
+      countryIsoCode: true,
       season: { select: { name: true, efashionCollectionId: true } },
       compositions: {
         select: { composition: { select: { name: true, efashionId: true } } },

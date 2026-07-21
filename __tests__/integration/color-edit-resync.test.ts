@@ -20,7 +20,7 @@ describe("updateColorDirect — retour enrichi", () => {
         description: "x",
         categoryId: entities.category.id,
         seasonId: entities.season.id,
-        manufacturingCountryId: entities.country.id,
+        countryIsoCode: entities.country.id,
         status: "OFFLINE",
         primaryColorId: entities.color1.id,
         colors: {

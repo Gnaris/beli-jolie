@@ -157,6 +157,16 @@ export interface AdminProductsFilterParams {
    */
   locked?: string;
   /**
+   * Filtre « Résultat de vérification PFS » — cf. `lib/pfs-verify.ts` et la
+   * pastille dans la colonne Produit. Ne s'applique qu'aux produits liés à PFS
+   * (produit non lié = jamais vérifiable, ignoré). Valeurs :
+   *   - "ok"        = dernière vérif conforme
+   *   - "diff"      = dernière vérif avec écarts
+   *   - "unchecked" = produit lié à PFS mais jamais vérifié (pfsCheckedAt IS NULL)
+   *   - vide/absent = pas de filtre
+   */
+  pfsVerify?: string;
+  /**
    * Liste des productId à retenir (intersection). Quand le filtre
    * « variantes sans image » est actif, on précalcule les IDs côté serveur
    * via une requête SQL et on les passe ici. `null`/undefined = filtre inactif,
@@ -470,6 +480,26 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
 
   if (params.locked === "1") {
     where.locked = true;
+  }
+
+  // Filtre statut de vérification PFS. Toujours restreint aux produits liés
+  // (pfsProductId non nul) — un produit non lié à PFS n'est pas dans le
+  // périmètre du filtre, quelle que soit sa valeur de pfsCheckStatus.
+  if (params.pfsVerify === "ok") {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      { pfsProductId: { not: null }, pfsCheckStatus: "ok" },
+    ];
+  } else if (params.pfsVerify === "diff") {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      { pfsProductId: { not: null }, pfsCheckStatus: "diff" },
+    ];
+  } else if (params.pfsVerify === "unchecked") {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      { pfsProductId: { not: null }, pfsCheckedAt: null },
+    ];
   }
 
   if (params.hsCodeId === "__none__") {

@@ -11,6 +11,7 @@ export interface SelectOption {
   value: string;
   label: string;
   icon?: string;        // SVG path for optional icon
+  iconUrl?: string;     // Image URL (e.g. country flag). Takes precedence over icon.
   disabled?: boolean;
   className?: string;   // Extra class on label (e.g. line-through)
 }
@@ -277,7 +278,16 @@ export default function CustomSelect({
                           : "text-text-secondary hover:bg-bg-secondary hover:text-text-primary"
                     }`}
                   >
-                    {opt.icon && (
+                    {opt.iconUrl ? (
+                      <img
+                        src={opt.iconUrl}
+                        alt=""
+                        loading="lazy"
+                        className={`shrink-0 rounded-sm object-cover shadow-[0_0_0_1px_rgba(15,23,42,0.08)] ${
+                          isSm ? "w-4 h-3" : "w-5 h-[14px]"
+                        }`}
+                      />
+                    ) : opt.icon ? (
                       <svg
                         className={`shrink-0 ${isSm ? "w-3.5 h-3.5" : "w-4 h-4"}`}
                         fill="none"
@@ -288,7 +298,7 @@ export default function CustomSelect({
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" d={opt.icon} />
                       </svg>
-                    )}
+                    ) : null}
                     <span className={`flex-1 truncate ${opt.className ?? ""}`}>{opt.label}</span>
                     {isSelected && (
                       <svg className="w-3.5 h-3.5 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
@@ -318,7 +328,15 @@ export default function CustomSelect({
         onClick={() => !disabled && setOpen(!open)}
         className={`${triggerClasses} ${className}`}
       >
-        {selected?.icon && (
+        {selected?.iconUrl ? (
+          <img
+            src={selected.iconUrl}
+            alt=""
+            className={`shrink-0 rounded-sm object-cover shadow-[0_0_0_1px_rgba(15,23,42,0.08)] ${
+              isSm ? "w-4 h-3" : "w-5 h-[14px]"
+            }`}
+          />
+        ) : selected?.icon ? (
           <svg
             className={`shrink-0 ${isSm ? "w-3 h-3" : "w-3.5 h-3.5"} opacity-60`}
             fill="none"
@@ -328,7 +346,7 @@ export default function CustomSelect({
           >
             <path strokeLinecap="round" strokeLinejoin="round" d={selected.icon} />
           </svg>
-        )}
+        ) : null}
         <span className={`flex-1 truncate ${!selected ? "opacity-50" : ""}`}>
           {selected?.label ?? placeholder}
         </span>

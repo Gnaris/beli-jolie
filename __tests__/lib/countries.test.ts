@@ -5,6 +5,11 @@ import {
   countryFlagUrl,
   findCountry,
   isKnownCountry,
+  COUNTRIES,
+  getCountryByIso,
+  getCountryByPfsRef,
+  listManufacturingCountries,
+  countryLabel,
 } from "@/lib/countries";
 
 describe("resolveCountryCode", () => {
@@ -101,7 +106,7 @@ describe("countryFlagUrl", () => {
 
 describe("findCountry / isKnownCountry", () => {
   it("findCountry renvoie l'objet pays complet", () => {
-    expect(findCountry("PORTUGAL")).toEqual({ code: "PT", name: "Portugal" });
+    expect(findCountry("PORTUGAL")).toMatchObject({ code: "PT", name: "Portugal" });
     expect(findCountry("XX")).toBe(null);
   });
 
@@ -109,5 +114,67 @@ describe("findCountry / isKnownCountry", () => {
     expect(isKnownCountry("FR")).toBe(true);
     expect(isKnownCountry("PORTUGAL")).toBe(true);
     expect(isKnownCountry("PAYSINEXISTANT")).toBe(false);
+  });
+});
+
+describe("Pays de fabrication (mapping marketplaces figé)", () => {
+  it("expose la Chine avec toutes ses refs marketplaces", () => {
+    const cn = getCountryByIso("CN");
+    expect(cn).not.toBeNull();
+    expect(cn?.name).toBe("Chine");
+    expect(cn?.nameEn).toBe("China");
+    expect(cn?.pfsCountryRef).toBe("Chine");
+    expect(cn?.efashionProvenanceId).toBe(1);
+    expect(cn?.faireCountryCode).toBe("CHN");
+  });
+
+  it("getCountryByIso tolère casse et espaces, retourne null pour inconnu", () => {
+    expect(getCountryByIso("cn")?.code).toBe("CN");
+    expect(getCountryByIso("  CN  ")?.code).toBe("CN");
+    expect(getCountryByIso(null)).toBeNull();
+    expect(getCountryByIso("")).toBeNull();
+    expect(getCountryByIso("ZZ")).toBeNull();
+  });
+
+  it("getCountryByPfsRef retrouve la Chine via 'Chine'", () => {
+    expect(getCountryByPfsRef("Chine")?.code).toBe("CN");
+    expect(getCountryByPfsRef(null)).toBeNull();
+    expect(getCountryByPfsRef("Ref inconnue")).toBeNull();
+  });
+
+  it("countryLabel renvoie FR par défaut et EN sur demande", () => {
+    expect(countryLabel("CN")).toBe("Chine");
+    expect(countryLabel("CN", "en")).toBe("China");
+    expect(countryLabel("FR", "en")).toBe("France");
+    expect(countryLabel(null)).toBe("");
+  });
+
+  it("listManufacturingCountries : uniquement les pays configurés côté marketplaces", () => {
+    const list = listManufacturingCountries();
+    expect(list.length).toBeGreaterThan(0);
+    for (const c of list) {
+      expect(
+        c.pfsCountryRef != null ||
+          c.efashionProvenanceId != null ||
+          c.faireCountryCode != null,
+      ).toBe(true);
+    }
+    expect(list.find((c) => c.code === "CN")).toBeTruthy();
+  });
+
+  it("chaque entrée COUNTRIES a un code ISO alpha-2 et un nom FR", () => {
+    for (const c of COUNTRIES) {
+      expect(c.code).toMatch(/^[A-Z]{2}$/);
+      expect(c.name.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("pas de doublons dans les refs marketplaces", () => {
+    const pfsRefs = COUNTRIES.filter((c) => c.pfsCountryRef).map((c) => c.pfsCountryRef);
+    expect(new Set(pfsRefs).size).toBe(pfsRefs.length);
+    const efIds = COUNTRIES.filter((c) => c.efashionProvenanceId != null).map(
+      (c) => c.efashionProvenanceId,
+    );
+    expect(new Set(efIds).size).toBe(efIds.length);
   });
 });

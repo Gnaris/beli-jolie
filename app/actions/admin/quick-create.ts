@@ -272,69 +272,6 @@ export async function createCompositionQuick(
   return { id: upserted.id, name: upserted.name };
 }
 
-export async function createManufacturingCountryQuick(
-  translations: Record<string, string>,
-  isoCode?: string | null,
-  pfsCountryRef?: string | null,
-  efashionProvenanceId?: number | null,
-): Promise<{ id: string; name: string }> {
-  await requireAdmin();
-  const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
-  if (!name) throw new Error("Le nom (FR) est requis.");
-  const normalizedRef = pfsCountryRef?.trim() || null;
-  if (!normalizedRef) {
-    throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
-  }
-  const normalizedIso = isoCode?.trim().toUpperCase() || null;
-  if (!normalizedIso) {
-    throw new Error("Le code ISO du pays (2 lettres) est obligatoire.");
-  }
-  if (!/^[A-Z]{2}$/.test(normalizedIso)) {
-    throw new Error("Le code ISO doit être composé de 2 lettres (ex: FR, CN, TR).");
-  }
-  // Si un pays porte déjà ce nom, on met à jour ses refs marketplace +
-  // traductions (idempotent). Le contrôle ISO ci-dessous ignore son propre id.
-  const existing = await prisma.manufacturingCountry.findFirst({ where: { name } });
-  const isoConflict = await prisma.manufacturingCountry.findFirst({
-    where: {
-      isoCode: normalizedIso,
-      ...(existing ? { NOT: { id: existing.id } } : {}),
-    },
-    select: { name: true },
-  });
-  if (isoConflict) {
-    throw new Error(`Ce code ISO est déjà utilisé par le pays « ${isoConflict.name} ».`);
-  }
-  const upserted = existing
-    ? await prisma.manufacturingCountry.update({
-        where: { id: existing.id },
-        data: {
-          isoCode: normalizedIso,
-          pfsCountryRef: normalizedRef,
-          ...(efashionProvenanceId !== undefined ? { efashionProvenanceId } : {}),
-        },
-      })
-    : await prisma.manufacturingCountry.create({
-        data: {
-          name,
-          isoCode: normalizedIso,
-          pfsCountryRef: normalizedRef,
-          efashionProvenanceId: efashionProvenanceId ?? null,
-        },
-      });
-  for (const [locale, value] of Object.entries(translations)) {
-    if (locale === "fr" || !value.trim()) continue;
-    await prisma.manufacturingCountryTranslation.upsert({
-      where: { manufacturingCountryId_locale: { manufacturingCountryId: upserted.id, locale } },
-      create: { manufacturingCountryId: upserted.id, locale, name: value.trim() },
-      update: { name: value.trim() },
-    });
-  }
-  await autoTranslate("autoTranslateManufacturingCountry", upserted.id, name, userProvidedLocales(translations));
-  revalidateTag("manufacturing-countries", "default");
-  return { id: upserted.id, name: upserted.name };
-}
-
 export async function createSeasonQuick(
   translations: Record<string, string>,
   pfsRef?: string | null,

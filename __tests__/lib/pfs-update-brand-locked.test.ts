@@ -129,7 +129,7 @@ function mkProduct() {
     ],
     colorImages: [],
     compositions: [{ percentage: 100, composition: { pfsCompositionRef: "COTON" } }],
-    manufacturingCountry: { isoCode: "CN", pfsCountryRef: "CN" },
+    countryIsoCode: "CN",
     season: { pfsRef: "PE2026" },
   };
 }

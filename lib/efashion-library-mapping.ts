@@ -70,12 +70,6 @@ export const EFASHION_CATEGORY_MAPPING: EfashionLibraryMappingEntry[] = [
   // Vêtements (Blouses, Chemises, Robes, etc.) volontairement absents.
 ];
 
-// ─── Pays ────────────────────────────────────────────────────────────────
-
-export const EFASHION_COUNTRY_MAPPING: EfashionLibraryMappingEntry[] = [
-  { name: "Chine", efashionId: 1 },
-];
-
 // ─── Saisons ─────────────────────────────────────────────────────────────
 
 export const EFASHION_SEASON_MAPPING: EfashionLibraryMappingEntry[] = [

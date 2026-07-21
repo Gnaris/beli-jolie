@@ -26,7 +26,7 @@ export interface MarketplaceCell {
   driver?: MarketplaceRefreshItem;
 }
 
-export type GroupSection = "errors" | "active" | "queued" | "done";
+export type GroupSection = "errors" | "active" | "scheduled" | "queued" | "done";
 
 export interface ProductGroup {
   productId: string;
@@ -37,6 +37,9 @@ export interface ProductGroup {
   items: MarketplaceRefreshItem[];
   cells: Record<MarketplaceTarget, MarketplaceCell>;
   section: GroupSection;
+  /** Plus proche date de départ planifié (ISO), si le produit est en attente
+   *  dans un lot étalé. `null` si aucun scheduledFor futur. */
+  earliestScheduledFor: string | null;
 }
 
 export const MARKETPLACE_ORDER: MarketplaceTarget[] = [
@@ -106,13 +109,15 @@ function cellForMarketplace(
  * case marketplace + la section d'appartenance globale du produit.
  *
  * Priorité de section (du plus urgent au plus calme) :
- *   errors  : au moins une marketplace en erreur
- *   active  : au moins une marketplace en cours (in_progress / awaiting_callback)
- *   queued  : au moins une marketplace queued et aucune active/error
- *   done    : sinon (tout ok)
+ *   errors    : au moins une marketplace en erreur
+ *   active    : au moins une marketplace en cours (in_progress / awaiting_callback)
+ *   scheduled : uniquement queued, avec au moins un scheduledFor futur (lot étalé)
+ *   queued    : uniquement queued, tous prêts à partir (lot immédiat)
+ *   done      : sinon (tout ok)
  */
 export function groupItemsByProduct(
   items: ReadonlyArray<MarketplaceRefreshItem>,
+  now: number = Date.now(),
 ): ProductGroup[] {
   const byProduct = new Map<string, MarketplaceRefreshItem[]>();
   const order: string[] = [];
@@ -151,11 +156,25 @@ export function groupItemsByProduct(
       faire: cellForMarketplace(productItems, "faire"),
     };
 
+    // Plus proche scheduledFor futur parmi les items encore queued : sert à
+    // reconnaître un lot étalé et à afficher le compte à rebours.
+    let earliestScheduledFor: string | null = null;
+    for (const it of productItems) {
+      if (it.status !== "queued" || !it.scheduledFor) continue;
+      const t = Date.parse(it.scheduledFor);
+      if (!Number.isFinite(t) || t <= now) continue;
+      if (!earliestScheduledFor || it.scheduledFor < earliestScheduledFor) {
+        earliestScheduledFor = it.scheduledFor;
+      }
+    }
+
     let section: GroupSection = "done";
     const kinds = MARKETPLACE_ORDER.map((m) => cells[m].kind);
     if (kinds.includes("error")) section = "errors";
     else if (kinds.includes("active")) section = "active";
-    else if (kinds.includes("queued")) section = "queued";
+    else if (kinds.includes("queued")) {
+      section = earliestScheduledFor ? "scheduled" : "queued";
+    }
 
     return {
       productId: pid,
@@ -166,6 +185,7 @@ export function groupItemsByProduct(
       items: productItems,
       cells,
       section,
+      earliestScheduledFor,
     };
   });
 }

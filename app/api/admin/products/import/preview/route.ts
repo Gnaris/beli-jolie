@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizeColorName, findDuplicateVariantKeys } from "@/lib/import-processor";
 import * as XLSX from "xlsx";
 import { logger } from "@/lib/logger";
+import { resolveCountryCode } from "@/lib/countries";
 
 // ─────────────────────────────────────────────
 // Types
@@ -225,17 +226,15 @@ export async function POST(req: NextRequest) {
       ),
     ];
 
-    const countryNames = [...new Set(rows.filter((r) => r.manufacturingCountry).map((r) => r.manufacturingCountry!))];
     const seasonNames = [...new Set(rows.filter((r) => r.season).map((r) => r.season!))];
     const hsCodes = [...new Set(rows.filter((r) => r.hsCode).map((r) => r.hsCode!.trim()))];
 
-    const [dbColors, dbCategories, dbCompositions, dbSubCategories, existingProducts, dbCountries, dbSeasons, dbHsCodes] = await Promise.all([
+    const [dbColors, dbCategories, dbCompositions, dbSubCategories, existingProducts, dbSeasons, dbHsCodes] = await Promise.all([
       prisma.color.findMany({ where: { name: { in: colorNames } }, select: { name: true, id: true } }),
       prisma.category.findMany({ where: { name: { in: categoryNames } }, select: { name: true, id: true } }),
       prisma.composition.findMany({ where: { name: { in: compositionMaterials } }, select: { name: true, id: true } }),
       prisma.subCategory.findMany({ select: { name: true, id: true } }),
       prisma.product.findMany({ where: { reference: { in: references } }, select: { reference: true } }),
-      prisma.manufacturingCountry.findMany({ where: { name: { in: countryNames } }, select: { name: true, id: true } }),
       prisma.season.findMany({ where: { name: { in: seasonNames } }, select: { name: true, id: true } }),
       hsCodes.length > 0
         ? prisma.hsCode.findMany({ where: { code: { in: hsCodes } }, select: { code: true, id: true } })
@@ -246,7 +245,6 @@ export async function POST(req: NextRequest) {
     const categorySet = new Set(dbCategories.map((c) => c.name.toLowerCase()));
     const compositionSet = new Set(dbCompositions.map((c) => c.name.toLowerCase()));
     const subCatSet = new Set(dbSubCategories.map((s) => s.name.toLowerCase()));
-    const countrySet = new Set(dbCountries.map((c) => c.name.toLowerCase()));
     const seasonSet = new Set(dbSeasons.map((s) => s.name.toLowerCase()));
     const hsCodeSet = new Set(dbHsCodes.map((h) => h.code.trim()));
     const existingRefSet = new Set(existingProducts.map((p) => p.reference.toUpperCase()));
@@ -328,10 +326,10 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Validate manufacturing country
+      // Validate manufacturing country against lib/countries.ts (name or ISO code)
       let countryFound = true;
       if (firstRow.manufacturingCountry) {
-        if (!countrySet.has(firstRow.manufacturingCountry.toLowerCase())) {
+        if (!resolveCountryCode(firstRow.manufacturingCountry)) {
           countryFound = false;
           addMissing("country", firstRow.manufacturingCountry);
         }

@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { loadMarketplaceMarkupConfigs } from "@/lib/marketplace-pricing";
 import { getEfashionAnnexes } from "@/lib/efashion-annexes";
 import { getCachedShopName } from "@/lib/cached-data";
+import { getCountryByIso } from "@/lib/countries";
 import type {
   ExportProduct,
   ExportContext,
@@ -74,14 +75,6 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
         hsCode: { select: { code: true } },
         season: {
           select: { name: true, pfsRef: true, efashionCollectionId: true },
-        },
-        manufacturingCountry: {
-          select: {
-            name: true,
-            isoCode: true,
-            pfsCountryRef: true,
-            efashionProvenanceId: true,
-          },
         },
         compositions: {
           include: {
@@ -260,9 +253,15 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
         ? efashionCollectionLabelById.get(p.season.efashionCollectionId) ?? null
         : null,
       seasonName: p.season?.name ?? null,
-      manufacturingCountryName: (p.manufacturingCountry?.pfsCountryRef || p.manufacturingCountry?.name) ?? null,
-      manufacturingCountryIso: p.manufacturingCountry?.isoCode ?? null,
-      manufacturingCountryEfashionProvenanceId: p.manufacturingCountry?.efashionProvenanceId ?? null,
+      manufacturingCountryName: (() => {
+        const c = getCountryByIso(p.countryIsoCode);
+        return c?.pfsCountryRef ?? c?.name ?? null;
+      })(),
+      manufacturingCountryIso: p.countryIsoCode ?? null,
+      manufacturingCountryEfashionProvenanceId: (() => {
+        const c = getCountryByIso(p.countryIsoCode);
+        return c?.efashionProvenanceId ?? null;
+      })(),
       compositions: p.compositions.map((cc) => ({
         name: cc.composition.pfsCompositionRef || cc.composition.name,
         percentage: cc.percentage,

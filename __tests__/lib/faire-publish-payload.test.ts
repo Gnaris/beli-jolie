@@ -57,7 +57,7 @@ function makeProduct(overrides: Partial<Record<string, unknown>> = {}) {
       { path: "/uploads/produits/BJ001/ar-1.webp", order: 0, colorId: "c-ar" },
     ],
     compositions: [{ percentage: 100, composition: { name: "Acier" } }],
-    manufacturingCountry: { isoCode: "CN" },
+    countryIsoCode: "CN",
     dimensionLength: null,
     dimensionWidth: null,
     dimensionHeight: null,

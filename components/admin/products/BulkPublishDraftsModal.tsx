@@ -6,6 +6,7 @@ import {
   previewBulkPublishDrafts,
   type BulkPublishDraftPreviewItem,
 } from "@/app/actions/admin/products";
+import { useMarketplaceMaintenance } from "@/components/admin/products/MarketplaceMaintenanceContext";
 
 export interface BulkPublishDraftsConfirm {
   eligibleIds: string[];
@@ -49,6 +50,7 @@ export default function BulkPublishDraftsModal({
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<BulkPublishDraftPreviewItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const maintenance = useMarketplaceMaintenance();
   const [publishPfs, setPublishPfs] = useState(true);
   const [publishAnkorstore, setPublishAnkorstore] = useState(true);
   const [publishEfashion, setPublishEfashion] = useState(true);
@@ -87,10 +89,11 @@ export default function BulkPublishDraftsModal({
     setError(null);
     setItems([]);
     setClosing(false);
-    setPublishPfs(hasPfsConfigRef.current);
-    setPublishAnkorstore(showAnkorstoreRef.current);
-    setPublishEfashion(showEfashionRef.current);
-    setPublishFaire(showFaireRef.current);
+    // Ne pas pré-cocher les marketplaces en maintenance : le serveur refuserait.
+    setPublishPfs(hasPfsConfigRef.current && !maintenance.pfs);
+    setPublishAnkorstore(showAnkorstoreRef.current && !maintenance.ankorstore);
+    setPublishEfashion(showEfashionRef.current && !maintenance.efashion);
+    setPublishFaire(showFaireRef.current && !maintenance.faire);
     (async () => {
       try {
         const res = await previewBulkPublishDrafts(frozenIdsRef.current);
@@ -145,10 +148,10 @@ export default function BulkPublishDraftsModal({
     setTimeout(() => {
       onConfirm({
         eligibleIds: eligible.map((p) => p.id),
-        publishPfs: publishPfs && hasPfsConfig,
-        publishAnkorstore: publishAnkorstore && showAnkorstore,
-        publishEfashion: publishEfashion && showEfashion,
-        publishFaire: publishFaire && showFaire,
+        publishPfs: publishPfs && hasPfsConfig && !maintenance.pfs,
+        publishAnkorstore: publishAnkorstore && showAnkorstore && !maintenance.ankorstore,
+        publishEfashion: publishEfashion && showEfashion && !maintenance.efashion,
+        publishFaire: publishFaire && showFaire && !maintenance.faire,
         efashionEligibleIds: efashionEligible.map((p) => p.id),
       });
     }, 200);
@@ -271,40 +274,66 @@ export default function BulkPublishDraftsModal({
                     </p>
                     <div className="space-y-2">
                       {hasPfsConfig && (
-                        <label className="flex items-center gap-2.5 text-[13px] font-body cursor-pointer">
+                        <label
+                          className={`flex items-center gap-2.5 text-[13px] font-body ${
+                            maintenance.pfs ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                          }`}
+                          title={maintenance.pfs ? "Paris Fashion Shop en maintenance sur la plateforme" : undefined}
+                        >
                           <input
                             type="checkbox"
-                            checked={publishPfs}
+                            checked={publishPfs && !maintenance.pfs}
+                            disabled={maintenance.pfs}
                             onChange={(e) => setPublishPfs(e.target.checked)}
                             className="checkbox-custom"
                           />
-                          <span className="text-text-primary">Paris Fashion Shop ({eligibleCount} produit{eligibleCount > 1 ? "s" : ""})</span>
+                          <span className={maintenance.pfs ? "text-text-muted line-through" : "text-text-primary"}>
+                            Paris Fashion Shop ({eligibleCount} produit{eligibleCount > 1 ? "s" : ""})
+                            {maintenance.pfs && <span className="ml-2 text-[11px] font-semibold text-[#B91C1C]">· En maintenance</span>}
+                          </span>
                         </label>
                       )}
                       {showAnkorstore && (
-                        <label className="flex items-center gap-2.5 text-[13px] font-body cursor-pointer">
+                        <label
+                          className={`flex items-center gap-2.5 text-[13px] font-body ${
+                            maintenance.ankorstore ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                          }`}
+                          title={maintenance.ankorstore ? "Ankorstore en maintenance sur la plateforme" : undefined}
+                        >
                           <input
                             type="checkbox"
-                            checked={publishAnkorstore}
+                            checked={publishAnkorstore && !maintenance.ankorstore}
+                            disabled={maintenance.ankorstore}
                             onChange={(e) => setPublishAnkorstore(e.target.checked)}
                             className="checkbox-custom"
                           />
-                          <span className="text-text-primary">Ankorstore ({eligibleCount} produit{eligibleCount > 1 ? "s" : ""})</span>
+                          <span className={maintenance.ankorstore ? "text-text-muted line-through" : "text-text-primary"}>
+                            Ankorstore ({eligibleCount} produit{eligibleCount > 1 ? "s" : ""})
+                            {maintenance.ankorstore && <span className="ml-2 text-[11px] font-semibold text-[#B91C1C]">· En maintenance</span>}
+                          </span>
                         </label>
                       )}
                       {showEfashion && (
-                        <label className={`flex items-start gap-2.5 text-[13px] font-body ${efashionEligibleCount === 0 ? "opacity-60" : "cursor-pointer"}`}>
+                        <label
+                          className={`flex items-start gap-2.5 text-[13px] font-body ${
+                            maintenance.efashion || efashionEligibleCount === 0
+                              ? "cursor-not-allowed opacity-60"
+                              : "cursor-pointer"
+                          }`}
+                          title={maintenance.efashion ? "eFashion Paris en maintenance sur la plateforme" : undefined}
+                        >
                           <input
                             type="checkbox"
-                            checked={publishEfashion && efashionEligibleCount > 0}
-                            disabled={efashionEligibleCount === 0}
+                            checked={publishEfashion && efashionEligibleCount > 0 && !maintenance.efashion}
+                            disabled={efashionEligibleCount === 0 || maintenance.efashion}
                             onChange={(e) => setPublishEfashion(e.target.checked)}
                             className="checkbox-custom mt-0.5"
                           />
                           <span className="flex flex-col gap-0.5">
-                            <span className="text-text-primary">
+                            <span className={maintenance.efashion ? "text-text-muted line-through" : "text-text-primary"}>
                               eFashion Paris ({efashionEligibleCount} produit{efashionEligibleCount > 1 ? "s" : ""}
                               {efashionEligibleCount !== eligibleCount && ` sur ${eligibleCount}`})
+                              {maintenance.efashion && <span className="ml-2 text-[11px] font-semibold text-[#B91C1C]">· En maintenance</span>}
                             </span>
                             <span className="text-[11px] text-text-muted">
                               {efashionEligibleCount === 0
@@ -315,14 +344,23 @@ export default function BulkPublishDraftsModal({
                         </label>
                       )}
                       {showFaire && (
-                        <label className="flex items-center gap-2.5 text-[13px] font-body cursor-pointer">
+                        <label
+                          className={`flex items-center gap-2.5 text-[13px] font-body ${
+                            maintenance.faire ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                          }`}
+                          title={maintenance.faire ? "Faire en maintenance sur la plateforme" : undefined}
+                        >
                           <input
                             type="checkbox"
-                            checked={publishFaire}
+                            checked={publishFaire && !maintenance.faire}
+                            disabled={maintenance.faire}
                             onChange={(e) => setPublishFaire(e.target.checked)}
                             className="checkbox-custom"
                           />
-                          <span className="text-text-primary">Faire ({eligibleCount} produit{eligibleCount > 1 ? "s" : ""})</span>
+                          <span className={maintenance.faire ? "text-text-muted line-through" : "text-text-primary"}>
+                            Faire ({eligibleCount} produit{eligibleCount > 1 ? "s" : ""})
+                            {maintenance.faire && <span className="ml-2 text-[11px] font-semibold text-[#B91C1C]">· En maintenance</span>}
+                          </span>
                         </label>
                       )}
                     </div>

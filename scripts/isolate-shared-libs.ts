@@ -180,7 +180,6 @@ async function main() {
   await migrate("Size", "VariantSize", "sizeId", nameOnly, tenantIds);
   await migrate("Composition", "ProductComposition", "compositionId", nameOnly, tenantIds);
   await migrate("Season", "Product", "seasonId", nameOnly, tenantIds);
-  await migrate("ManufacturingCountry", "Product", "manufacturingCountryId", nameIso, tenantIds);
   await migrate("Tag", "ProductTag", "tagId", nameOnly, tenantIds);
 
   console.log("\n🎉 Migration shared libs terminée.");

@@ -7,98 +7,115 @@
 export type CountryOption = {
   code: string; // ISO 3166-1 alpha-2 (ex. "FR")
   name: string; // Libellé FR
+  nameEn?: string; // Libellé EN (fallback = name)
+  // Refs marketplaces si ce pays est utilisé comme pays de fabrication.
+  // Laisser undefined pour un pays uniquement utilisé en adresse client.
+  pfsCountryRef?: string | null;
+  efashionProvenanceId?: number | null;
+  faireCountryCode?: string | null; // ISO alpha-3
 };
 
 export const COUNTRIES: readonly CountryOption[] = [
-  { code: "FR", name: "France" },
-  { code: "BE", name: "Belgique" },
-  { code: "CH", name: "Suisse" },
-  { code: "LU", name: "Luxembourg" },
-  { code: "MC", name: "Monaco" },
-  { code: "DE", name: "Allemagne" },
-  { code: "ES", name: "Espagne" },
-  { code: "IT", name: "Italie" },
-  { code: "PT", name: "Portugal" },
-  { code: "NL", name: "Pays-Bas" },
-  { code: "GB", name: "Royaume-Uni" },
-  { code: "IE", name: "Irlande" },
-  { code: "AT", name: "Autriche" },
-  { code: "DK", name: "Danemark" },
-  { code: "SE", name: "Suède" },
-  { code: "NO", name: "Norvège" },
-  { code: "FI", name: "Finlande" },
-  { code: "IS", name: "Islande" },
-  { code: "PL", name: "Pologne" },
-  { code: "CZ", name: "République tchèque" },
-  { code: "SK", name: "Slovaquie" },
-  { code: "HU", name: "Hongrie" },
-  { code: "RO", name: "Roumanie" },
-  { code: "BG", name: "Bulgarie" },
-  { code: "GR", name: "Grèce" },
-  { code: "HR", name: "Croatie" },
-  { code: "SI", name: "Slovénie" },
-  { code: "EE", name: "Estonie" },
-  { code: "LV", name: "Lettonie" },
-  { code: "LT", name: "Lituanie" },
-  { code: "MT", name: "Malte" },
-  { code: "CY", name: "Chypre" },
-  { code: "US", name: "États-Unis" },
-  { code: "CA", name: "Canada" },
-  { code: "MX", name: "Mexique" },
-  { code: "BR", name: "Brésil" },
-  { code: "AR", name: "Argentine" },
-  { code: "CL", name: "Chili" },
-  { code: "CO", name: "Colombie" },
-  { code: "MA", name: "Maroc" },
-  { code: "DZ", name: "Algérie" },
-  { code: "TN", name: "Tunisie" },
-  { code: "EG", name: "Égypte" },
-  { code: "SN", name: "Sénégal" },
-  { code: "CI", name: "Côte d'Ivoire" },
-  { code: "ZA", name: "Afrique du Sud" },
-  { code: "TR", name: "Turquie" },
-  { code: "IL", name: "Israël" },
-  { code: "AE", name: "Émirats arabes unis" },
-  { code: "SA", name: "Arabie saoudite" },
-  { code: "QA", name: "Qatar" },
-  { code: "LB", name: "Liban" },
-  { code: "JO", name: "Jordanie" },
-  { code: "IN", name: "Inde" },
-  { code: "CN", name: "Chine" },
-  { code: "JP", name: "Japon" },
-  { code: "KR", name: "Corée du Sud" },
-  { code: "TH", name: "Thaïlande" },
-  { code: "VN", name: "Vietnam" },
-  { code: "ID", name: "Indonésie" },
-  { code: "SG", name: "Singapour" },
-  { code: "MY", name: "Malaisie" },
-  { code: "PH", name: "Philippines" },
-  { code: "AU", name: "Australie" },
-  { code: "NZ", name: "Nouvelle-Zélande" },
-  { code: "RU", name: "Russie" },
-  { code: "UA", name: "Ukraine" },
-  { code: "RS", name: "Serbie" },
-  { code: "BA", name: "Bosnie-Herzégovine" },
-  { code: "AL", name: "Albanie" },
-  { code: "MK", name: "Macédoine du Nord" },
-  { code: "ME", name: "Monténégro" },
-  { code: "MD", name: "Moldavie" },
-  { code: "GE", name: "Géorgie" },
-  { code: "AM", name: "Arménie" },
-  { code: "RE", name: "La Réunion" },
-  { code: "MQ", name: "Martinique" },
-  { code: "GP", name: "Guadeloupe" },
-  { code: "GF", name: "Guyane française" },
-  { code: "YT", name: "Mayotte" },
-  { code: "NC", name: "Nouvelle-Calédonie" },
-  { code: "PF", name: "Polynésie française" },
-  { code: "MU", name: "Île Maurice" },
-  { code: "PR", name: "Porto Rico" },
-  { code: "MF", name: "Saint-Martin (partie française)" },
-  { code: "WF", name: "Wallis-et-Futuna" },
-  { code: "AD", name: "Andorre" },
-  { code: "SM", name: "Saint-Marin" },
-  { code: "VA", name: "Vatican" },
+  { code: "FR", name: "France", nameEn: "France", faireCountryCode: "FRA" },
+  { code: "BE", name: "Belgique", nameEn: "Belgium", faireCountryCode: "BEL" },
+  { code: "CH", name: "Suisse", nameEn: "Switzerland", faireCountryCode: "CHE" },
+  { code: "LU", name: "Luxembourg", nameEn: "Luxembourg" },
+  { code: "MC", name: "Monaco", nameEn: "Monaco" },
+  { code: "DE", name: "Allemagne", nameEn: "Germany", faireCountryCode: "DEU" },
+  { code: "ES", name: "Espagne", nameEn: "Spain", faireCountryCode: "ESP" },
+  { code: "IT", name: "Italie", nameEn: "Italy", faireCountryCode: "ITA" },
+  { code: "PT", name: "Portugal", nameEn: "Portugal", faireCountryCode: "PRT" },
+  { code: "NL", name: "Pays-Bas", nameEn: "Netherlands", faireCountryCode: "NLD" },
+  { code: "GB", name: "Royaume-Uni", nameEn: "United Kingdom", faireCountryCode: "GBR" },
+  { code: "IE", name: "Irlande", nameEn: "Ireland", faireCountryCode: "IRL" },
+  { code: "AT", name: "Autriche", nameEn: "Austria", faireCountryCode: "AUT" },
+  { code: "DK", name: "Danemark", nameEn: "Denmark", faireCountryCode: "DNK" },
+  { code: "SE", name: "Suède", nameEn: "Sweden", faireCountryCode: "SWE" },
+  { code: "NO", name: "Norvège", nameEn: "Norway", faireCountryCode: "NOR" },
+  { code: "FI", name: "Finlande", nameEn: "Finland", faireCountryCode: "FIN" },
+  { code: "IS", name: "Islande", nameEn: "Iceland" },
+  { code: "PL", name: "Pologne", nameEn: "Poland", faireCountryCode: "POL" },
+  { code: "CZ", name: "République tchèque", nameEn: "Czech Republic", faireCountryCode: "CZE" },
+  { code: "SK", name: "Slovaquie", nameEn: "Slovakia" },
+  { code: "HU", name: "Hongrie", nameEn: "Hungary" },
+  { code: "RO", name: "Roumanie", nameEn: "Romania", faireCountryCode: "ROU" },
+  { code: "BG", name: "Bulgarie", nameEn: "Bulgaria" },
+  { code: "GR", name: "Grèce", nameEn: "Greece", faireCountryCode: "GRC" },
+  { code: "HR", name: "Croatie", nameEn: "Croatia" },
+  { code: "SI", name: "Slovénie", nameEn: "Slovenia" },
+  { code: "EE", name: "Estonie", nameEn: "Estonia" },
+  { code: "LV", name: "Lettonie", nameEn: "Latvia" },
+  { code: "LT", name: "Lituanie", nameEn: "Lithuania" },
+  { code: "MT", name: "Malte", nameEn: "Malta" },
+  { code: "CY", name: "Chypre", nameEn: "Cyprus" },
+  { code: "US", name: "États-Unis", nameEn: "United States", faireCountryCode: "USA" },
+  { code: "CA", name: "Canada", nameEn: "Canada", faireCountryCode: "CAN" },
+  { code: "MX", name: "Mexique", nameEn: "Mexico", faireCountryCode: "MEX" },
+  { code: "BR", name: "Brésil", nameEn: "Brazil", faireCountryCode: "BRA" },
+  { code: "AR", name: "Argentine", nameEn: "Argentina", faireCountryCode: "ARG" },
+  { code: "CL", name: "Chili", nameEn: "Chile" },
+  { code: "CO", name: "Colombie", nameEn: "Colombia" },
+  { code: "MA", name: "Maroc", nameEn: "Morocco", faireCountryCode: "MAR" },
+  { code: "DZ", name: "Algérie", nameEn: "Algeria" },
+  { code: "TN", name: "Tunisie", nameEn: "Tunisia", faireCountryCode: "TUN" },
+  { code: "EG", name: "Égypte", nameEn: "Egypt", faireCountryCode: "EGY" },
+  { code: "SN", name: "Sénégal", nameEn: "Senegal" },
+  { code: "CI", name: "Côte d'Ivoire", nameEn: "Ivory Coast" },
+  { code: "ZA", name: "Afrique du Sud", nameEn: "South Africa" },
+  { code: "TR", name: "Turquie", nameEn: "Turkey", faireCountryCode: "TUR" },
+  { code: "IL", name: "Israël", nameEn: "Israel", faireCountryCode: "ISR" },
+  { code: "AE", name: "Émirats arabes unis", nameEn: "United Arab Emirates", faireCountryCode: "ARE" },
+  { code: "SA", name: "Arabie saoudite", nameEn: "Saudi Arabia" },
+  { code: "QA", name: "Qatar", nameEn: "Qatar" },
+  { code: "LB", name: "Liban", nameEn: "Lebanon" },
+  { code: "JO", name: "Jordanie", nameEn: "Jordan" },
+  { code: "IN", name: "Inde", nameEn: "India", faireCountryCode: "IND" },
+  {
+    code: "CN",
+    name: "Chine",
+    nameEn: "China",
+    pfsCountryRef: "Chine",
+    efashionProvenanceId: 1,
+    faireCountryCode: "CHN",
+  },
+  { code: "JP", name: "Japon", nameEn: "Japan", faireCountryCode: "JPN" },
+  { code: "KR", name: "Corée du Sud", nameEn: "South Korea", faireCountryCode: "KOR" },
+  { code: "TH", name: "Thaïlande", nameEn: "Thailand", faireCountryCode: "THA" },
+  { code: "VN", name: "Vietnam", nameEn: "Vietnam", faireCountryCode: "VNM" },
+  { code: "ID", name: "Indonésie", nameEn: "Indonesia", faireCountryCode: "IDN" },
+  { code: "SG", name: "Singapour", nameEn: "Singapore" },
+  { code: "MY", name: "Malaisie", nameEn: "Malaysia", faireCountryCode: "MYS" },
+  { code: "PH", name: "Philippines", nameEn: "Philippines", faireCountryCode: "PHL" },
+  { code: "AU", name: "Australie", nameEn: "Australia", faireCountryCode: "AUS" },
+  { code: "NZ", name: "Nouvelle-Zélande", nameEn: "New Zealand", faireCountryCode: "NZL" },
+  { code: "RU", name: "Russie", nameEn: "Russia" },
+  { code: "UA", name: "Ukraine", nameEn: "Ukraine" },
+  { code: "RS", name: "Serbie", nameEn: "Serbia" },
+  { code: "BA", name: "Bosnie-Herzégovine", nameEn: "Bosnia and Herzegovina" },
+  { code: "AL", name: "Albanie", nameEn: "Albania" },
+  { code: "MK", name: "Macédoine du Nord", nameEn: "North Macedonia" },
+  { code: "ME", name: "Monténégro", nameEn: "Montenegro" },
+  { code: "MD", name: "Moldavie", nameEn: "Moldova" },
+  { code: "GE", name: "Géorgie", nameEn: "Georgia" },
+  { code: "AM", name: "Arménie", nameEn: "Armenia" },
+  { code: "HK", name: "Hong Kong", nameEn: "Hong Kong", faireCountryCode: "HKG" },
+  { code: "TW", name: "Taïwan", nameEn: "Taiwan", faireCountryCode: "TWN" },
+  { code: "BD", name: "Bangladesh", nameEn: "Bangladesh", faireCountryCode: "BGD" },
+  { code: "PK", name: "Pakistan", nameEn: "Pakistan", faireCountryCode: "PAK" },
+  { code: "RE", name: "La Réunion", nameEn: "Réunion" },
+  { code: "MQ", name: "Martinique", nameEn: "Martinique" },
+  { code: "GP", name: "Guadeloupe", nameEn: "Guadeloupe" },
+  { code: "GF", name: "Guyane française", nameEn: "French Guiana" },
+  { code: "YT", name: "Mayotte", nameEn: "Mayotte" },
+  { code: "NC", name: "Nouvelle-Calédonie", nameEn: "New Caledonia" },
+  { code: "PF", name: "Polynésie française", nameEn: "French Polynesia" },
+  { code: "MU", name: "Île Maurice", nameEn: "Mauritius" },
+  { code: "PR", name: "Porto Rico", nameEn: "Puerto Rico" },
+  { code: "MF", name: "Saint-Martin (partie française)", nameEn: "Saint Martin" },
+  { code: "WF", name: "Wallis-et-Futuna", nameEn: "Wallis and Futuna" },
+  { code: "AD", name: "Andorre", nameEn: "Andorra" },
+  { code: "SM", name: "Saint-Marin", nameEn: "San Marino" },
+  { code: "VA", name: "Vatican", nameEn: "Vatican City" },
 ];
 
 const COUNTRY_BY_CODE = new Map(COUNTRIES.map((c) => [c.code, c]));
@@ -200,4 +217,56 @@ export function countryFlagUrl(input: string, size: 20 | 40 | 80 | 160 = 40): st
 
 export function isKnownCountry(input: string): boolean {
   return resolveCountryCode(input) !== null;
+}
+
+/**
+ * Retourne le libellé du pays dans la locale demandée (fallback FR).
+ */
+export function countryLabel(
+  input: string | null | undefined,
+  locale: "fr" | "en" = "fr",
+): string {
+  const c = findCountry(input);
+  if (!c) return "";
+  if (locale === "en") return c.nameEn ?? c.name;
+  return c.name;
+}
+
+const COUNTRY_BY_PFS_REF = new Map<string, CountryOption>();
+for (const c of COUNTRIES) {
+  if (c.pfsCountryRef) COUNTRY_BY_PFS_REF.set(c.pfsCountryRef, c);
+}
+
+/**
+ * Retrouve un pays par son code ISO alpha-2 (ex: "CN"). Alias de `findCountry`
+ * pour la clarté quand on part explicitement d'un code ISO en base.
+ */
+export function getCountryByIso(input: string | null | undefined): CountryOption | null {
+  if (!input) return null;
+  const trimmed = String(input).trim();
+  if (!trimmed) return null;
+  const upper = trimmed.toUpperCase();
+  return COUNTRY_BY_CODE.get(upper) ?? null;
+}
+
+/**
+ * Retrouve un pays via sa référence côté API Paris Fashion Shop
+ * (typiquement le libellé FR renvoyé par PFS).
+ */
+export function getCountryByPfsRef(ref: string | null | undefined): CountryOption | null {
+  if (!ref) return null;
+  return COUNTRY_BY_PFS_REF.get(ref) ?? null;
+}
+
+/**
+ * Liste des pays configurés comme pays de fabrication (au moins une ref
+ * marketplace renseignée). Utile pour les sélecteurs admin des fiches produit.
+ */
+export function listManufacturingCountries(): CountryOption[] {
+  return COUNTRIES.filter(
+    (c) =>
+      c.pfsCountryRef != null ||
+      c.efashionProvenanceId != null ||
+      c.faireCountryCode != null,
+  );
 }

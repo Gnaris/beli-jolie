@@ -8,10 +8,10 @@ import {
   getCachedTags,
   getCachedCompositions,
   getCachedSizes,
-  getCachedManufacturingCountries,
   getCachedSeasons,
   getCachedHsCodes,
 } from "@/lib/cached-data";
+import { listManufacturingCountries } from "@/lib/countries";
 
 // ── Palette neutre (slate + stone) ──
 const COLORS = {
@@ -246,7 +246,6 @@ export async function GET() {
     tagsData,
     compositionsData,
     sizesData,
-    countriesData,
     seasonsData,
     hsCodesData,
   ] = await Promise.all([
@@ -255,10 +254,10 @@ export async function GET() {
     getCachedTags(),
     getCachedCompositions(),
     getCachedSizes(),
-    getCachedManufacturingCountries(),
     getCachedSeasons(),
     getCachedHsCodes(),
   ]);
+  const countriesData = listManufacturingCountries();
 
   const categoryNames = categoriesData.map((c) => c.name);
   // Aligné avec categoryNames : une entrée par catégorie, contenant ses

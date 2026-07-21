@@ -106,7 +106,7 @@ function makeProduct(overrides: Partial<{ status: string; colors: ReturnType<typ
     status: overrides.status ?? "ONLINE",
     efashionReferenceBase: null,
     category: { id: "c1", name: "Pendentif", efashionCategorieId: 160102 },
-    manufacturingCountry: { id: "ct1", name: "Chine", efashionProvenanceId: 1 },
+    countryIsoCode: "CN",
     season: { id: "s1", name: "PE26", efashionCollectionId: 3 },
     compositions: [
       { percentage: 100, composition: { id: "co1", name: "Métal", efashionId: 60 } },

@@ -17,8 +17,8 @@ import { pfsCheckReference } from "@/lib/pfs-api";
 import {
   createOrLinkMapping,
   countryLabel,
-  countryLabelEn,
 } from "@/lib/pfs-import";
+import { getCountryByIso, getCountryByPfsRef } from "@/lib/countries";
 import { logger } from "@/lib/logger";
 
 interface Target {
@@ -82,30 +82,24 @@ async function enrichOne(t: Target): Promise<{ ok: true } | { ok: false; error: 
       }
     }
 
-    // ── Pays
+    // ── Pays : résolu via lib/countries.ts (statique)
     if (t.needCountry && detail.country_of_manufacture) {
       const ctryCode = detail.country_of_manufacture;
       const ctryLabelFr = countryLabel(ctryCode);
-      let countryRow = await prisma.manufacturingCountry.findFirst({
-        where: { pfsCountryRef: ctryLabelFr },
-        select: { id: true },
-      });
-      if (!countryRow) {
-        const isoCode = ctryCode.trim().toUpperCase() || null;
-        const ctryEnLabel = countryLabelEn(ctryCode);
-        const created = await createOrLinkMapping({
-          type: "country",
-          pfsRef: ctryLabelFr,
-          label: ctryLabelFr,
-          enLabel: ctryEnLabel,
-          isoCode,
+      const resolved =
+        getCountryByPfsRef(ctryLabelFr) ?? getCountryByIso(ctryCode);
+      if (resolved) {
+        await prisma.product.update({
+          where: { id: t.id },
+          data: { countryIsoCode: resolved.code },
         });
-        countryRow = { id: created.id };
+      } else {
+        logger.warn("[Enrich PFS] Pays inconnu dans lib/countries.ts", {
+          productReference: t.reference,
+          pfsCountryLabel: ctryLabelFr,
+          pfsIsoCode: ctryCode,
+        });
       }
-      await prisma.product.update({
-        where: { id: t.id },
-        data: { manufacturingCountryId: countryRow.id },
-      });
     }
 
     // ── Saison
@@ -147,7 +141,7 @@ async function main() {
     select: {
       id: true,
       reference: true,
-      manufacturingCountryId: true,
+      countryIsoCode: true,
       seasonId: true,
       compositions: { select: { id: true } },
     },
@@ -156,7 +150,7 @@ async function main() {
   const targets: Target[] = [];
   for (const p of all) {
     const needCompositions = p.compositions.length === 0;
-    const needCountry = !p.manufacturingCountryId;
+    const needCountry = !p.countryIsoCode;
     const needSeason = !p.seasonId;
     if (needCompositions || needCountry || needSeason) {
       targets.push({

@@ -59,7 +59,7 @@ export async function POST(req: Request) {
       tagNames: [],
       similarProductIds: [],
       bundleChildIds: [],
-      manufacturingCountryId: null,
+      countryIsoCode: null,
       seasonId: null,
       translations: [],
       dimensionLength: null,

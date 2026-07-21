@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import type { PfsStatsBundle } from "@/app/actions/admin/pfs-orders";
 
@@ -10,6 +11,72 @@ interface Props {
 
 function formatEur(n: number) {
   return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(n)) + " €";
+}
+
+// Pastille couleur avec badge quantité et légende flottante au survol.
+// Légende portée dans document.body pour éviter tout clipping.
+function ColorPill({
+  name,
+  hex,
+  patternImage,
+  quantity,
+}: {
+  name: string;
+  hex: string | null;
+  patternImage: string | null;
+  quantity: number;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const anchorRef = useRef<HTMLSpanElement | null>(null);
+  const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
+
+  const showTip = () => {
+    if (anchorRef.current) {
+      const r = anchorRef.current.getBoundingClientRect();
+      setCoords({ x: r.left + r.width / 2, y: r.top });
+    }
+    setHovered(true);
+  };
+  const hideTip = () => setHovered(false);
+
+  const bg: CSSProperties = patternImage
+    ? {
+        backgroundImage: `url(${patternImage})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }
+    : { backgroundColor: hex ?? "#9CA3AF" };
+
+  return (
+    <>
+      <span
+        ref={anchorRef}
+        onMouseEnter={showTip}
+        onMouseLeave={hideTip}
+        onFocus={showTip}
+        onBlur={hideTip}
+        tabIndex={0}
+        aria-label={`${name} — ${quantity} pièce${quantity > 1 ? "s" : ""}`}
+        className="relative inline-block w-[26px] h-[26px] rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.14)] cursor-default outline-none focus:ring-2 focus:ring-emerald-400/60"
+        style={bg}
+      >
+        <span className="absolute -bottom-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-slate-900 text-white text-[10px] font-bold flex items-center justify-center border border-white shadow-sm">
+          {quantity}
+        </span>
+      </span>
+      {hovered && coords && createPortal(
+        <div
+          role="tooltip"
+          className="fixed z-[9999] pointer-events-none px-2 py-1 rounded-md bg-slate-900 text-white text-[11px] font-medium whitespace-nowrap shadow-lg -translate-x-1/2 -translate-y-full"
+          style={{ left: coords.x, top: coords.y - 6 }}
+        >
+          {name} — {quantity} pièce{quantity > 1 ? "s" : ""}
+          <span className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-4 border-transparent border-t-slate-900" />
+        </div>,
+        document.body,
+      )}
+    </>
+  );
 }
 
 export default function PfsTopProducts({ stats }: Props) {
@@ -68,8 +135,21 @@ export default function PfsTopProducts({ stats }: Props) {
                   {p.pfsProductRef}
                   {sort === "totalHT" ? ` · ${p.quantitySold} pièce${p.quantitySold > 1 ? "s" : ""}` : ""}
                 </div>
+                {p.colors.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-3 pl-1">
+                    {p.colors.map((c, idx) => (
+                      <ColorPill
+                        key={`${c.productColorId ?? c.colorCodePfs ?? "x"}-${idx}`}
+                        name={c.colorLabelFr || c.colorCodePfs || "—"}
+                        hex={c.hex}
+                        patternImage={c.patternImage}
+                        quantity={c.quantitySold}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="text-right">
+              <div className="text-right shrink-0">
                 <div className="font-heading font-semibold text-text-primary">
                   {sort === "quantity" ? p.quantitySold : formatEur(p.totalHT)}
                 </div>
@@ -82,12 +162,12 @@ export default function PfsTopProducts({ stats }: Props) {
               {p.productId ? (
                 <Link
                   href={`/admin/produits/${p.productId}`}
-                  className="flex items-center gap-3 py-3 -mx-2 px-2 hover:bg-bg-secondary rounded-lg"
+                  className="flex items-start gap-3 py-3 -mx-2 px-2 hover:bg-bg-secondary rounded-lg"
                 >
                   {inner}
                 </Link>
               ) : (
-                <div className="flex items-center gap-3 py-3 -mx-2 px-2">{inner}</div>
+                <div className="flex items-start gap-3 py-3 -mx-2 px-2">{inner}</div>
               )}
             </li>
           );

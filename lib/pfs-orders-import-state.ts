@@ -15,6 +15,25 @@ import { tenantALS } from "@/lib/tenant-als";
 
 export type PfsImportStatus = "IDLE" | "RUNNING" | "DONE" | "ERROR" | "STOPPED";
 
+export type PfsImportEventResult = "imported" | "unchanged" | "error";
+
+export interface PfsImportCurrentOrder {
+  pfsOrderId: string;
+  orderNumber: string;
+  customerName: string;
+  totalTTC: number | null;
+  country: string | null;
+}
+
+export interface PfsImportRecentEvent {
+  orderNumber: string;
+  customerName: string;
+  result: PfsImportEventResult;
+  totalTTC: number | null;
+  errorMessage?: string;
+  at: number; // epoch ms
+}
+
 export interface PfsImportState {
   status: PfsImportStatus;
   startedAt: number | null; // epoch ms
@@ -27,10 +46,15 @@ export interface PfsImportState {
   currentPage: number;
   totalPages: number;
   errorMessage?: string;
+  currentOrders: PfsImportCurrentOrder[]; // 5 workers en parallèle max
+  recentEvents: PfsImportRecentEvent[];
 }
 
 const KEY_STATE = "pfs_orders_import_state";
 const KEY_STOP = "pfs_orders_import_stop";
+
+// Nombre max d'événements récents à garder pour le tiroir (garde le SiteConfig léger).
+const RECENT_EVENTS_MAX = 30;
 
 const EMPTY_STATE: PfsImportState = {
   status: "IDLE",
@@ -43,6 +67,8 @@ const EMPTY_STATE: PfsImportState = {
   unchanged: 0,
   currentPage: 0,
   totalPages: 0,
+  currentOrders: [],
+  recentEvents: [],
 };
 
 export async function getPfsImportState(tenantId: string): Promise<PfsImportState> {
@@ -66,6 +92,25 @@ async function setPfsImportState(tenantId: string, state: PfsImportState): Promi
     update: { value },
     create: { tenantId, key: KEY_STATE, value },
   });
+}
+
+/** Fusionne un patch partiel dans l'état persistant (utilisé par les callbacks). */
+async function patchPfsImportState(
+  tenantId: string,
+  patch: Partial<PfsImportState>,
+): Promise<void> {
+  const current = await getPfsImportState(tenantId);
+  await setPfsImportState(tenantId, { ...current, ...patch });
+}
+
+/** Ajoute un événement en tête de la liste des récents (max RECENT_EVENTS_MAX). */
+async function pushPfsImportEvent(
+  tenantId: string,
+  event: PfsImportRecentEvent,
+): Promise<void> {
+  const current = await getPfsImportState(tenantId);
+  const next = [event, ...current.recentEvents].slice(0, RECENT_EVENTS_MAX);
+  await setPfsImportState(tenantId, { ...current, recentEvents: next });
 }
 
 async function setStopSignal(tenantId: string, value: boolean): Promise<void> {
@@ -115,16 +160,19 @@ export async function startPfsHistoricalImportInBackground(
       const result = await importAllPfsOrdersFor(
         tenantId,
         async (progress) => {
-          await setPfsImportState(tenantId, {
-            ...(await getPfsImportState(tenantId)),
+          await patchPfsImportState(tenantId, {
             status: "RUNNING",
             totalOrders: progress.totalOrders,
             processedOrders: progress.processedOrders,
             currentPage: progress.currentPage,
             totalPages: progress.totalPages,
+            currentOrders: progress.currentOrders,
           });
         },
-        { stopSignal: () => checkStopSignal(tenantId) },
+        {
+          stopSignal: () => checkStopSignal(tenantId),
+          onEvent: (event) => pushPfsImportEvent(tenantId, event),
+        },
       );
 
       const stopped = await checkStopSignal(tenantId);
@@ -136,6 +184,7 @@ export async function startPfsHistoricalImportInBackground(
         skipped: result.skipped,
         unchanged: result.unchanged,
         totalOrders: result.total,
+        currentOrders: [],
       };
       await setPfsImportState(tenantId, finalState);
       await setStopSignal(tenantId, false);
@@ -149,6 +198,7 @@ export async function startPfsHistoricalImportInBackground(
         status: "ERROR",
         finishedAt: Date.now(),
         errorMessage: err instanceof Error ? err.message : String(err),
+        currentOrders: [],
       };
       await setPfsImportState(tenantId, errorState);
     }

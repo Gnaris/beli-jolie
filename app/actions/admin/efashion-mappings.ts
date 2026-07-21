@@ -79,23 +79,6 @@ export async function updateCategoryEfashionMapping(
   }
 }
 
-export async function updateManufacturingCountryEfashionMapping(
-  countryId: string,
-  efashionProvenanceId: number | null,
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    await prisma.manufacturingCountry.update({
-      where: { id: countryId },
-      data: { efashionProvenanceId },
-    });
-    revalidatePath("/admin/pays");
-    revalidateTag("manufacturing-countries", "default");
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
-  }
-}
 
 export async function updateSeasonEfashionMapping(
   seasonId: string,

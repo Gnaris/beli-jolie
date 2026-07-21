@@ -2,6 +2,15 @@
 
 import { useMemo } from "react";
 import type { PfsOrderListItem } from "@/app/actions/admin/pfs-orders";
+import CustomSelect from "@/components/ui/CustomSelect";
+
+const STATUS_ICONS: Record<"" | PfsOrderListItem["status"], string> = {
+  "": "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5",
+  NEW: "M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z",
+  VALIDATED: "M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+  SENT: "M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5",
+  CANCELLED: "M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+};
 
 const STATUS_META: Record<
   PfsOrderListItem["status"],
@@ -56,11 +65,11 @@ export default function PfsOrdersTable(props: Props) {
 
   const options = useMemo(
     () => [
-      { key: "", label: `Tous statuts (${total})` },
-      { key: "NEW", label: `Nouveau (${statusCounts?.NEW ?? 0})` },
-      { key: "VALIDATED", label: `Validé (${statusCounts?.VALIDATED ?? 0})` },
-      { key: "SENT", label: `Envoyé (${statusCounts?.SENT ?? 0})` },
-      { key: "CANCELLED", label: `Annulé (${statusCounts?.CANCELLED ?? 0})` },
+      { value: "", label: `Tous statuts (${total})`, icon: STATUS_ICONS[""] },
+      { value: "NEW", label: `Nouveau (${statusCounts?.NEW ?? 0})`, icon: STATUS_ICONS.NEW },
+      { value: "VALIDATED", label: `Validé (${statusCounts?.VALIDATED ?? 0})`, icon: STATUS_ICONS.VALIDATED },
+      { value: "SENT", label: `Envoyé (${statusCounts?.SENT ?? 0})`, icon: STATUS_ICONS.SENT },
+      { value: "CANCELLED", label: `Annulé (${statusCounts?.CANCELLED ?? 0})`, icon: STATUS_ICONS.CANCELLED },
     ],
     [statusCounts, total],
   );
@@ -79,17 +88,14 @@ export default function PfsOrdersTable(props: Props) {
             placeholder="N° commande, client…"
             className="text-sm rounded-lg border border-border px-3 py-1.5 w-56 focus:outline-none focus:ring-2 focus:ring-slate-300"
           />
-          <select
+          <CustomSelect
             value={statusFilter}
-            onChange={(e) => onStatusChange(e.target.value as Props["statusFilter"])}
-            className="text-sm rounded-lg border border-border px-3 py-1.5 bg-white"
-          >
-            {options.map((o) => (
-              <option key={o.key} value={o.key}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => onStatusChange(v as Props["statusFilter"])}
+            options={options}
+            size="sm"
+            aria-label="Filtrer par statut"
+            className="min-w-[210px]"
+          />
         </div>
       </div>
 

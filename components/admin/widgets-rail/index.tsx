@@ -11,6 +11,7 @@ import { TranslationDrawer } from "./TranslationDrawer";
 import { MarketplacesDrawer } from "./MarketplacesDrawer";
 import { ImagesDrawer } from "./ImagesDrawer";
 import { ShootingDrawer } from "./ShootingDrawer";
+import { PfsImportDrawer } from "./PfsImportDrawer";
 
 export function AdminWidgetsRail({ children }: { children: React.ReactNode }) {
   return (
@@ -21,6 +22,7 @@ export function AdminWidgetsRail({ children }: { children: React.ReactNode }) {
       <MarketplacesDrawer />
       <ImagesDrawer />
       <ShootingDrawer />
+      <PfsImportDrawer />
     </RightRailProvider>
   );
 }

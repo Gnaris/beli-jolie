@@ -5,7 +5,6 @@ import {
   EFASHION_CATEGORY_MAPPING,
   EFASHION_COMPOSITION_MAPPING,
   EFASHION_COLOR_MAPPING,
-  EFASHION_COUNTRY_MAPPING,
   EFASHION_SEASON_MAPPING,
 } from "@/lib/efashion-library-mapping";
 
@@ -115,12 +114,6 @@ describe("EFASHION_COMPOSITION_MAPPING", () => {
     for (const n of names) {
       expect(findEfashionMapping(n, EFASHION_COMPOSITION_MAPPING), `missing: ${n}`).not.toBeNull();
     }
-  });
-});
-
-describe("EFASHION_COUNTRY_MAPPING", () => {
-  it("maps Chine → 1", () => {
-    expect(findEfashionMapping("Chine", EFASHION_COUNTRY_MAPPING)?.efashionId).toBe(1);
   });
 });
 

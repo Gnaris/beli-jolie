@@ -122,7 +122,7 @@ interface FullProduct {
     percentage: number | { toString(): string };
     composition: { pfsCompositionRef: string | null };
   }[];
-  manufacturingCountry: { isoCode: string | null; pfsCountryRef: string | null } | null;
+  countryIsoCode: string | null;
   season: { pfsRef: string | null } | null;
   sizeDetailsTu: string | null;
 }
@@ -199,7 +199,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       compositions: {
         select: { percentage: true, composition: { select: { pfsCompositionRef: true } } },
       },
-      manufacturingCountry: { select: { isoCode: true, pfsCountryRef: true } },
+      countryIsoCode: true,
       season: { select: { pfsRef: true } },
     },
   }) as unknown as FullProduct | null;
@@ -411,10 +411,7 @@ function buildProductFieldsSnapshot(
     descSource: product.description,
     dimensions: buildDimensionsSuffix(product),
     composition,
-    country:
-      product.manufacturingCountry?.isoCode ??
-      product.manufacturingCountry?.pfsCountryRef ??
-      "CN",
+    country: product.countryIsoCode ?? "CN",
     season: product.season?.pfsRef ?? "PE2026",
     gender: product.category.pfsGender || "WOMAN",
     category: product.category.pfsCategoryId ?? null,

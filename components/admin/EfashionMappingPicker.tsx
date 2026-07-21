@@ -22,7 +22,6 @@ import { useToast } from "@/components/ui/Toast";
 import {
   loadEfashionAnnexes,
   updateCategoryEfashionMapping,
-  updateManufacturingCountryEfashionMapping,
   updateSeasonEfashionMapping,
   updateCompositionEfashionMapping,
   updateColorEfashionMapping,
@@ -155,7 +154,6 @@ export default function EfashionMappingPicker({
     startTransition(async () => {
       let res;
       if (kind === "category") res = await updateCategoryEfashionMapping(id, newValue);
-      else if (kind === "country") res = await updateManufacturingCountryEfashionMapping(id, newValue);
       else if (kind === "season") res = await updateSeasonEfashionMapping(id, newValue);
       else if (kind === "composition") res = await updateCompositionEfashionMapping(id, newValue);
       else res = await updateColorEfashionMapping(id, newValue);
@@ -199,11 +197,6 @@ export default function EfashionMappingPicker({
         value: String(id),
         label: paths.length > 1 ? `${paths[0]}  (+ ${paths.length - 1} autres)` : paths[0],
       }));
-    } else if (kind === "country") {
-      const seen = new Set<number>();
-      options = annexes.provenances
-        .filter((p) => !seen.has(p.id) && (seen.add(p.id), true))
-        .map((p) => ({ value: String(p.id), label: p.libelle }));
     } else if (kind === "season") {
       const seen = new Set<number>();
       options = annexes.collections
@@ -237,11 +230,9 @@ export default function EfashionMappingPicker({
         entityName,
         kind === "category"
           ? annexes.categories.filter((c) => c.isLeaf).map((c) => ({ id: c.id, label: c.path }))
-          : kind === "country"
-            ? annexes.provenances.map((p) => ({ id: p.id, label: p.libelle }))
-            : kind === "composition"
-              ? annexes.compositions
-              : annexes.collections.map((c) => ({ id: c.id, label: c.label })),
+          : kind === "composition"
+            ? annexes.compositions
+            : annexes.collections.map((c) => ({ id: c.id, label: c.label })),
       )
     : [];
   const showSuggestions = suggestions.length > 0;

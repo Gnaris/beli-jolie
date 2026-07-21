@@ -99,7 +99,6 @@ export async function computeUnmappedAttributes(
     compPfs, compEf, compTotal,
     seaPfs, seaEf, seaTotal,
     sizPfs, sizTotal,
-    couPfs, couEf, couFaire, couTotal,
     shFaire,
   ] = await Promise.all([
     // Catégories
@@ -138,22 +137,11 @@ export async function computeUnmappedAttributes(
     countWithOr(prisma.size, scope, [
       flags.pfs && { pfsSizeRef: null },
     ]),
-    // Pays d'origine — PFS considère un pays mappé si isoCode OU pfsCountryRef présent
-    safeCount(flags.pfs, prisma.manufacturingCountry, {
-      ...scope,
-      isoCode: null,
-      pfsCountryRef: null,
-    }),
-    safeCount(flags.efashion, prisma.manufacturingCountry, { ...scope, efashionProvenanceId: null }),
-    safeCount(flags.faire, prisma.manufacturingCountry, { ...scope, faireCountryCode: null }),
-    countWithOr(prisma.manufacturingCountry, scope, [
-      flags.pfs && { AND: [{ isoCode: null }, { pfsCountryRef: null }] },
-      flags.efashion && { efashionProvenanceId: null },
-      flags.faire && { faireCountryCode: null },
-    ]),
     // Codes SH (table globale, pas de scope tenant) — mapping Faire uniquement
     safeCount(flags.faire, prisma.hsCode, { faireFormat: null }),
   ]);
+  // Pays : figés dans `lib/countries.ts`, plus rien à corriger via l'admin.
+  const couPfs = 0, couEf = 0, couFaire = 0, couTotal = 0;
 
   const categories = buildCount({ pfs: catPfs, efashion: catEf, faire: catFaire }, catTotal);
   const colors = buildCount({ pfs: colPfs, efashion: colEf }, colTotal);

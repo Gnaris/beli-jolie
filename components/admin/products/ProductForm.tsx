@@ -24,7 +24,7 @@ import CategoryEditorModal from "@/components/admin/categories/CategoryEditorMod
 import ColorEditorModal from "@/components/admin/couleurs/ColorEditorModal";
 import CompositionEditorModal from "@/components/admin/compositions/CompositionEditorModal";
 import SeasonEditorModal from "@/components/admin/seasons/SeasonEditorModal";
-import CountryEditModal from "@/components/admin/manufacturing-countries/CountryEditModal";
+import { listManufacturingCountries, countryFlagUrl } from "@/lib/countries";
 import CustomSelect from "@/components/ui/CustomSelect";
 import HsCodeModal from "@/components/admin/codes-sh/HsCodeModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -93,7 +93,6 @@ interface ProductFormProps {
   availableColors?: AvailableColor[];
   availableSizes?: AvailableSize[];
   availableCompositions?: AvailableComposition[];
-  availableCountries?: { id: string; name: string; isoCode: string | null }[];
   availableSeasons?: { id: string; name: string }[];
   availableTags?: { id: string; name: string }[];
   mode?: "create" | "edit";
@@ -134,7 +133,7 @@ interface ProductFormProps {
     dimDiameter: string;
     dimCircumference: string;
     hsCodeId?: string | null;
-    manufacturingCountryId?: string;
+    countryIsoCode?: string;
     seasonId?: string;
     translations?: { locale: string; name: string; description: string }[];
     status?: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING";
@@ -389,7 +388,6 @@ export default function ProductForm({
   availableColors: _initialColors,
   availableSizes: _initialSizes,
   availableCompositions: _initialCompositions,
-  availableCountries: _initialCountries,
   availableSeasons: _initialSeasons,
   availableTags: _initialTags,
   mode = "create",
@@ -421,7 +419,8 @@ export default function ProductForm({
   const [localColors,       setLocalColors]       = useState<AvailableColor[]>(_initialColors ?? []);
   const [localSizes,        setLocalSizes]        = useState<AvailableSize[]>(_initialSizes ?? []);
   const [localTags,         setLocalTags]         = useState<{ id: string; name: string }[]>(_initialTags ?? []);
-  const [localCountries,    setLocalCountries]    = useState<{ id: string; name: string; isoCode: string | null }[]>(_initialCountries ?? []);
+  // Pays de fabrication : liste figée dans lib/countries.ts, plus de state (readonly)
+  const localCountries = listManufacturingCountries().map((c) => ({ id: c.code, name: c.name, isoCode: c.code }));
   const [localSeasons,      setLocalSeasons]      = useState<{ id: string; name: string }[]>(_initialSeasons ?? []);
   const [pfsSizes,          setPfsSizes]          = useState<{ reference: string; label: string }[]>([]);
   const [localHsCodes,      setLocalHsCodes]      = useState<{ id: string; code: string; label: string }[]>([]);
@@ -438,7 +437,6 @@ export default function ProductForm({
       setLocalSizes(data.sizes);
       setLocalCompositions(data.compositions);
       setLocalTags(data.tags);
-      setLocalCountries(data.manufacturingCountries);
       setLocalSeasons(data.seasons);
       setPfsSizes(data.pfsSizes ?? []);
       setLocalHsCodes(data.hsCodes ?? []);
@@ -481,7 +479,7 @@ export default function ProductForm({
   const [activeSection,     setActiveSection]     = useState<ProductFormSectionKey>("general");
   const [discountPercent,   setDiscountPercent]   = useState(initialData?.discountPercent ?? "");
   const [sizeDetailsTu, setSizeDetailsTu] = useState(initialData?.sizeDetailsTu ?? "");
-  const [manufacturingCountryId, setManufacturingCountryId] = useState(initialData?.manufacturingCountryId ?? "");
+  const [countryIsoCode, setCountryIsoCode] = useState(initialData?.countryIsoCode ?? "");
   const [seasonId, setSeasonId] = useState(initialData?.seasonId ?? "");
 
   // ── Dimensions ───────────────────────────────────────────────────────
@@ -666,7 +664,7 @@ export default function ProductForm({
       compositions.length > 0,
       variants.length > 0,
       colorImages.some((c) => Array.isArray(c.imagePreviews) && c.imagePreviews.length > 0),
-      !!manufacturingCountryId,
+      !!countryIsoCode,
       !!seasonId,
       !!(dimLength || dimWidth || dimHeight || dimDiameter || dimCircumference),
     ];
@@ -680,7 +678,7 @@ export default function ProductForm({
     };
   }, [
     variants, reference, name, description, categoryId, compositions, colorImages,
-    manufacturingCountryId, seasonId,
+    countryIsoCode, seasonId,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference,
     hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled,
     hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled,
@@ -781,8 +779,8 @@ export default function ProductForm({
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
     compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus,
-    manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId,
-  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId]);
+    countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId,
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId]);
 
   // Mirror de buildSnapshot SANS les 4 champs locaux qui ne sont jamais poussés
   // aux marketplaces (mots-clés, sous-catégories, produits similaires, contenu
@@ -794,8 +792,8 @@ export default function ProductForm({
     reference, name, description, categoryId,
     variants, colorImages, compositions, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus,
-    manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId,
-  }), [reference, name, description, categoryId, variants, colorImages, compositions, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId]);
+    countryIsoCode, seasonId, sizeDetailsTu, primaryColorId,
+  }), [reference, name, description, categoryId, variants, colorImages, compositions, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, countryIsoCode, seasonId, sizeDetailsTu, primaryColorId]);
 
   // Détecte si au moins une variante utilise "Taille Unique" / "TU"
   const hasTailleUnique = useMemo(() => {
@@ -1256,9 +1254,6 @@ export default function ProductForm({
     } else if (modalType === "tag") {
       setLocalTags((prev) => [...prev, { id: item.id, name: item.name }]);
       setTagNames((prev) => (prev.includes(item.name) ? prev : [...prev, item.name]));
-    } else if (modalType === "country") {
-      setLocalCountries((prev) => [...prev, { id: item.id, name: item.name, isoCode: null }]);
-      setManufacturingCountryId(item.id);
     } else if (modalType === "season") {
       setLocalSeasons((prev) => [...prev, { id: item.id, name: item.name }]);
       setSeasonId(item.id);
@@ -1410,7 +1405,7 @@ export default function ProductForm({
     // En mode création : pays de fabrication, saison et au moins une variante
     // sont obligatoires pour pouvoir enregistrer (même en brouillon).
     if (mode === "create") {
-      if (!manufacturingCountryId) errors.push("Le pays de fabrication est obligatoire");
+      if (!countryIsoCode) errors.push("Le pays de fabrication est obligatoire");
       if (!seasonId) errors.push("La saison est obligatoire");
       if (variants.length === 0) errors.push("Au moins une variante de couleur est obligatoire");
     }
@@ -1660,7 +1655,7 @@ export default function ProductForm({
       dimensionDiameter:      dimDiameter      ? parseFloat(dimDiameter)      : null,
       dimensionCircumference: dimCircumference ? parseFloat(dimCircumference) : null,
       hsCodeId: hsCodeId || null,
-      manufacturingCountryId: manufacturingCountryId || null,
+      countryIsoCode: countryIsoCode || null,
       seasonId: seasonId || null,
       sizeDetailsTu: sizeDetailsTu.trim() || null,
       translations: Object.entries(translations)
@@ -1929,7 +1924,7 @@ export default function ProductForm({
       dimensionDiameter:      dimDiameter      ? parseFloat(dimDiameter)      : null,
       dimensionCircumference: dimCircumference ? parseFloat(dimCircumference) : null,
       hsCodeId: hsCodeId || null,
-      manufacturingCountryId: manufacturingCountryId || null,
+      countryIsoCode: countryIsoCode || null,
       seasonId: seasonId || null,
       sizeDetailsTu: sizeDetailsTu.trim() || null,
       translations: Object.entries(translations)
@@ -2146,25 +2141,43 @@ export default function ProductForm({
           showEfashionCase ||
           showFaireCase
         ) {
-          const options = await askMarketplaceOptions({
-            count: 1,
-            firstProductName: payload.name,
-            productIds: [savedProductId],
-            showPfs: showPfsCase,
-            showAnkorstore: showAnkorstoreCase,
-            showEfashion: showEfashionCase,
-            showFaire: showFaireCase,
-            showBoutique: false,
-            defaultAllChecked: true,
-            title: isArchivingNow
-              ? "Propager l'archivage aux marketplaces ?"
-              : "Publier sur les marketplaces ?",
-            subtitle: isArchivingNow
-              ? "Cochez les marketplaces où mettre le produit hors ligne."
-              : "Cochez les marketplaces où renvoyer les modifications.",
-            eyebrow: isArchivingNow ? "Archivage" : "Publier",
-            confirmLabel: isArchivingNow ? "Propager" : "Publier",
-          });
+          // Boucle : les flags syncRequired sont déjà posés par updateProduct.
+          // Si la cliente annule, on lui confirme que le badge orange va
+          // s'afficher et lui laisse la porte pour revenir au choix.
+          let options: Awaited<ReturnType<typeof askMarketplaceOptions>> = null;
+          while (true) {
+            options = await askMarketplaceOptions({
+              count: 1,
+              firstProductName: payload.name,
+              productIds: [savedProductId],
+              showPfs: showPfsCase,
+              showAnkorstore: showAnkorstoreCase,
+              showEfashion: showEfashionCase,
+              showFaire: showFaireCase,
+              showBoutique: false,
+              defaultAllChecked: true,
+              title: isArchivingNow
+                ? "Propager l'archivage aux marketplaces ?"
+                : "Publier sur les marketplaces ?",
+              subtitle: isArchivingNow
+                ? "Cochez les marketplaces où mettre le produit hors ligne."
+                : "Cochez les marketplaces où renvoyer les modifications.",
+              eyebrow: isArchivingNow ? "Archivage" : "Publier",
+              confirmLabel: isArchivingNow ? "Propager" : "Publier",
+            });
+            if (options) break;
+            const keepPending = await confirmDialog({
+              type: "info",
+              title: "Ne pas propager pour l'instant ?",
+              message:
+                "Vos modifications restent enregistrées côté boutique. Les marketplaces liées " +
+                "afficheront un badge orange « Synchronisation nécessaire » pour que vous puissiez " +
+                "pousser plus tard en cliquant sur ce badge.",
+              confirmLabel: "Oui, je pousserai plus tard",
+              cancelLabel: "Revenir au choix",
+            });
+            if (keepPending) break;
+          }
 
           if (options) {
             // Utilise les paths résolus après upload (le state setColorImages
@@ -2627,28 +2640,28 @@ export default function ProductForm({
 
               {/* Pays de fabrication + Saison */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                {/* Pays de fabrication */}
+                {/* Pays de fabrication — figé dans lib/countries.ts (pas d'ajout via UI) */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="block text-sm font-body font-semibold text-text-secondary">
                       Pays de fabrication{mode === "create" ? " *" : ""}
                     </label>
-                    <button type="button"
-                      onClick={() => setModalType("country")}
-                      className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
-                    >+ Créer</button>
                   </div>
                   <CustomSelect
-                    value={manufacturingCountryId}
-                    onChange={(v) => setManufacturingCountryId(v)}
+                    value={countryIsoCode}
+                    onChange={(v) => setCountryIsoCode(v)}
                     options={[
                       { value: "", label: "— Aucun —" },
-                      ...localCountries.map((c) => ({ value: c.id, label: c.isoCode ? `${c.name} (${c.isoCode})` : c.name })),
+                      ...localCountries.map((c) => ({
+                        value: c.isoCode ?? c.id,
+                        label: c.isoCode ? `${c.name} (${c.isoCode})` : c.name,
+                        iconUrl: c.isoCode ? countryFlagUrl(c.isoCode) : undefined,
+                      })),
                     ]}
                     placeholder="— Aucun —"
                     loading={!attributesLoaded}
-                    emptyMessage="Aucun pays n'est créé"
-                    className={mode === "create" && !manufacturingCountryId ? "field-error" : ""}
+                    emptyMessage="Aucun pays configuré"
+                    className={mode === "create" && !countryIsoCode ? "field-error" : ""}
                     searchable
                   />
                 </div>
@@ -3453,11 +3466,7 @@ export default function ProductForm({
         onClose={() => setModalType(null)}
         onCreated={handleModalCreated}
       />
-      <CountryEditModal
-        open={modalType === "country"}
-        onClose={() => setModalType(null)}
-        onCreated={handleModalCreated}
-      />
+      {/* Pays : plus de modale de création — liste figée dans lib/countries.ts */}
 
       {/* ── Sous-catégorie & mot-clé : pas d'équivalent canonique — mini-modale historique ── */}
       <QuickCreateModal

@@ -131,7 +131,7 @@ function makeProductFull(overrides?: Record<string, unknown>) {
       { path: "/uploads/produits/ref001/ref001-red-1.webp", order: 1, colorId: "color-1" },
     ],
     compositions: [],
-    manufacturingCountry: { isoCode: "FR", pfsCountryRef: null },
+    countryIsoCode: "FR",
     season: null,
     ...overrides,
   };

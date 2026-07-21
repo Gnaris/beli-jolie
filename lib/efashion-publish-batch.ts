@@ -35,6 +35,7 @@ import { resolveEfashionDeclinaison } from "@/lib/efashion-declinaison-matcher";
 import { efashionPublishBrouillonBulk } from "@/lib/efashion-api-write";
 import { efashionGetMe } from "@/lib/efashion-api";
 import { resolveEfashionVendorPresets } from "@/lib/efashion-annexes";
+import { getCountryByIso } from "@/lib/countries";
 
 export interface EfashionBatchPublishItemResult {
   productId: string;
@@ -101,7 +102,7 @@ async function prepareProduct(productId: string): Promise<
       dimensionDiameter: true,
       dimensionCircumference: true,
       category: { select: { name: true, efashionCategorieId: true } },
-      manufacturingCountry: { select: { name: true, efashionProvenanceId: true } },
+      countryIsoCode: true,
       season: { select: { name: true, efashionCollectionId: true } },
       compositions: {
         select: {
@@ -138,7 +139,8 @@ async function prepareProduct(productId: string): Promise<
     return { ok: false, error: "Aucune variante à l'unité (UNIT)." };
   if (!product.category?.efashionCategorieId)
     return { ok: false, error: "Catégorie sans ID eFashion." };
-  if (!product.manufacturingCountry?.efashionProvenanceId)
+  const country = getCountryByIso(product.countryIsoCode);
+  if (!country?.efashionProvenanceId)
     return { ok: false, error: "Pays sans ID eFashion." };
   if (!product.season?.efashionCollectionId)
     return { ok: false, error: "Saison sans ID eFashion." };
@@ -227,7 +229,7 @@ async function prepareProduct(productId: string): Promise<
     categorie: String(product.category!.efashionCategorieId!),
     venduPar: unitColorsRaw.length > 1 ? "couleurs" : "tailles",
     collection: String(product.season!.efashionCollectionId!),
-    paysOrigine: String(product.manufacturingCountry!.efashionProvenanceId!),
+    paysOrigine: String(country.efashionProvenanceId!),
     taillePaquet: String(declRes.match.declinaisonId),
     quantitePaquet: String(presets.pack),
     stock: "",

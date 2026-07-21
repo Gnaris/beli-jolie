@@ -57,6 +57,19 @@ const ITEMS: RailItem[] = [
     ),
   },
   {
+    id: "pfs-import",
+    label: "Import commandes PFS",
+    gradient: "from-indigo-500 to-violet-600",
+    badgeText: "text-indigo-600",
+    ring: "ring-indigo-500",
+    icon: (
+      // Rond « P » — cohérent avec l'initiale marketplace PFS partout dans l'admin
+      <span className="w-5 h-5 flex items-center justify-center text-[13px] font-heading font-bold">
+        P
+      </span>
+    ),
+  },
+  {
     id: "shooting",
     label: "Shooting eFashion",
     gradient: "from-amber-500 to-orange-500",

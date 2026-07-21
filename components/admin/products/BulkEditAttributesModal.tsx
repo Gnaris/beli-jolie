@@ -26,7 +26,7 @@ export interface BulkEditPayload {
   categoryId?: string;
   subCategoryIds?: string[];
   hsCodeId?: string | null;
-  manufacturingCountryId?: string | null;
+  countryIsoCode?: string | null;
   seasonId?: string | null;
   isBestSeller?: boolean;
   compositions?: { compositionId: string; percentage: number }[];
@@ -285,7 +285,7 @@ export default function BulkEditAttributesModal({
     }
 
     if (editCountry) {
-      payload.manufacturingCountryId = countryId || null;
+      payload.countryIsoCode = countryId || null;
     }
 
     if (editSeason) {

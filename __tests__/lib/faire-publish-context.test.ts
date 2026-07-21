@@ -27,7 +27,7 @@ function makeProduct(overrides: Partial<Product> = {}): Product {
   const base: Product = {
     category: { id: "cat", faireTaxonomyId: "tt_test" },
     hsCode: { code: "7117.19.00" },
-    manufacturingCountry: { isoCode: "CN" },
+    countryIsoCode: "CN",
     compositions: [{ percentage: 100, composition: { name: "Acier" } }],
     description: "Bracelet.",
     dimensionLength: null,
@@ -112,7 +112,7 @@ describe("buildPublishContext — description enrichie (taille + made in)", () =
 
   it("ajoute « Made in China » à partir de l'isoCode CN", () => {
     const ctx = buildPublishContext(
-      makeProduct({ manufacturingCountry: { isoCode: "CN" } }),
+      makeProduct({ countryIsoCode: "CN" }),
     );
     expect(ctx.ok).toBe(true);
     expect(ctx.ctx?.description).toContain("Made in China");
@@ -120,7 +120,7 @@ describe("buildPublishContext — description enrichie (taille + made in)", () =
 
   it("ajoute « Made in France » à partir de l'isoCode FR", () => {
     const ctx = buildPublishContext(
-      makeProduct({ manufacturingCountry: { isoCode: "FR" } }),
+      makeProduct({ countryIsoCode: "FR" }),
     );
     expect(ctx.ok).toBe(true);
     expect(ctx.ctx?.description).toContain("Made in France");
@@ -128,7 +128,7 @@ describe("buildPublishContext — description enrichie (taille + made in)", () =
 
   it("ajoute « Made in Italy » à partir de l'isoCode IT", () => {
     const ctx = buildPublishContext(
-      makeProduct({ manufacturingCountry: { isoCode: "IT" } }),
+      makeProduct({ countryIsoCode: "IT" }),
     );
     expect(ctx.ok).toBe(true);
     expect(ctx.ctx?.description).toContain("Made in Italy");
@@ -136,7 +136,7 @@ describe("buildPublishContext — description enrichie (taille + made in)", () =
 
   it("n'ajoute PAS de ligne « Made in » quand aucun pays renseigné (pas de fallback CN dans la description)", () => {
     const ctx = buildPublishContext(
-      makeProduct({ manufacturingCountry: null }),
+      makeProduct({ countryIsoCode: null }),
     );
     expect(ctx.ok).toBe(true);
     // Le champ marketplace `countryAlpha2` retombe bien sur CN (fallback
@@ -154,7 +154,7 @@ describe("buildPublishContext — description enrichie (taille + made in)", () =
         compositions: [{ percentage: 100, composition: { name: "Acier 316L" } }],
         sizeDetailsTu: "38-42",
         colors: [unitVariantWithSizes(["Taille Unique"])],
-        manufacturingCountry: { isoCode: "CN" },
+        countryIsoCode: "CN",
       }),
     );
     expect(ctx.ok).toBe(true);

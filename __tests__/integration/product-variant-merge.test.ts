@@ -65,7 +65,7 @@ describe("Variant merge — suppression + re-ajout avant Save (real DB)", () => 
       dimensionHeight: null,
       dimensionDiameter: null,
       dimensionCircumference: null,
-      manufacturingCountryId: entities.country.id,
+      countryIsoCode: entities.country.id,
       seasonId: entities.season.id,
     };
     const created = await createProduct(input);
@@ -157,7 +157,7 @@ describe("Variant merge — suppression + re-ajout avant Save (real DB)", () => 
       dimensionHeight: null,
       dimensionDiameter: null,
       dimensionCircumference: null,
-      manufacturingCountryId: entities.country.id,
+      countryIsoCode: entities.country.id,
       seasonId: entities.season.id,
     };
 

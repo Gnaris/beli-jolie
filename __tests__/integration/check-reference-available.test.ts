@@ -53,7 +53,7 @@ describe("checkProductReferenceAvailable (real DB)", () => {
       dimensionHeight: null,
       dimensionDiameter: null,
       dimensionCircumference: null,
-      manufacturingCountryId: entities.country.id,
+      countryIsoCode: entities.country.id,
       seasonId: entities.season.id,
     };
   }

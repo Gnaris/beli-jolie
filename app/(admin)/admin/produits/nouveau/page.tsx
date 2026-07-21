@@ -25,7 +25,6 @@ function uid() {
 
 const productSourceInclude = {
   category: true,
-  manufacturingCountry: true,
   season: true,
   colors: {
     orderBy: [{ isPrimary: "desc" as const }, { createdAt: "asc" as const }],
@@ -260,7 +259,7 @@ export default async function NouveauProduitPage({
         dimDiameter: source.dimensionDiameter != null ? String(source.dimensionDiameter) : "",
         dimCircumference: source.dimensionCircumference != null ? String(source.dimensionCircumference) : "",
         hsCodeId: source.hsCodeId ?? "",
-        manufacturingCountryId: source.manufacturingCountryId ?? "",
+        countryIsoCode: source.countryIsoCode ?? "",
         seasonId: source.seasonId ?? "",
         discountPercent: source.discountPercent != null ? String(source.discountPercent) : "",
         primaryColorId: source.primaryColorId ?? null,

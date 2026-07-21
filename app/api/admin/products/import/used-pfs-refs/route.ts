@@ -8,13 +8,14 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { listManufacturingCountries } from "@/lib/countries";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN")
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
-  const [colors, categories, compositions, countries, seasons] = await Promise.all([
+  const [colors, categories, compositions, seasons] = await Promise.all([
     prisma.color.findMany({
       select: { name: true },
     }),
@@ -26,15 +27,12 @@ export async function GET() {
       where: { pfsCompositionRef: { not: null } },
       select: { name: true, pfsCompositionRef: true },
     }),
-    prisma.manufacturingCountry.findMany({
-      where: { pfsCountryRef: { not: null } },
-      select: { name: true, pfsCountryRef: true },
-    }),
     prisma.season.findMany({
       where: { pfsRef: { not: null } },
       select: { name: true, pfsRef: true },
     }),
   ]);
+  const countries = listManufacturingCountries().filter((c) => c.pfsCountryRef);
 
   return NextResponse.json({
     color: colors.map((c) => ({ ref: c.name, name: c.name })),

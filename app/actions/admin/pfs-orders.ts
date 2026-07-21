@@ -12,7 +12,11 @@ import {
   requestStopPfsHistoricalImport,
   resetPfsImportState,
 } from "@/lib/pfs-orders-import-state";
-export type { PfsImportState } from "@/lib/pfs-orders-import-state";
+export type {
+  PfsImportState,
+  PfsImportRecentEvent,
+  PfsImportCurrentOrder,
+} from "@/lib/pfs-orders-import-state";
 import type { PfsImportState } from "@/lib/pfs-orders-import-state";
 import { syncRecentPfsOrders, syncSinglePfsOrder } from "@/lib/pfs-orders-sync";
 
@@ -217,12 +221,23 @@ export interface PfsTopClientRow {
   lastOrderAt: string | null;
 }
 
+export interface PfsTopProductColorBreakdown {
+  productColorId: string | null;
+  colorLabelFr: string | null;
+  colorCodePfs: string | null;
+  quantitySold: number;
+  totalHT: number;
+  hex: string | null;
+  patternImage: string | null;
+}
+
 export interface PfsTopProductRow {
   productId: string | null;
   productName: string | null;
   pfsProductRef: string;
   quantitySold: number;
   totalHT: number;
+  colors: PfsTopProductColorBreakdown[];
 }
 
 export interface PfsStatsBundle {
@@ -367,12 +382,101 @@ export async function getPfsStats(input: GetPfsStatsInput): Promise<PfsStatsBund
     : [];
   const productNameMap = new Map(productRows.map((p) => [p.id, p.name]));
 
+  // Répartition des ventes par couleur pour chaque top produit
+  const topProductRefs = itemGrouped.map((r) => r.pfsProductRef);
+  const colorGrouped = topProductRefs.length
+    ? await prisma.pfsOrderItem.groupBy({
+        where: {
+          tenantId: tenant.id,
+          pfsOrder: orderWhere,
+          pfsProductRef: { in: topProductRefs },
+        },
+        by: ["pfsProductRef", "productColorId", "colorLabelFr", "colorCodePfs"],
+        _sum: { qtyValidated: true, totalPriceHT: true },
+      })
+    : [];
+
+  const colorPcIds = colorGrouped
+    .map((c) => c.productColorId)
+    .filter((x): x is string => Boolean(x));
+  const productColorRows = colorPcIds.length
+    ? await prisma.productColor.findMany({
+        where: { tenantId: tenant.id, id: { in: colorPcIds } },
+        select: {
+          id: true,
+          color: { select: { hex: true, patternImage: true } },
+        },
+      })
+    : [];
+  const productColorMap = new Map(productColorRows.map((r) => [r.id, r.color]));
+
+  // Fallback : matcher par pfsColorRef (colorCodePfs) ou par nom de couleur
+  const pfsColorRefs = Array.from(
+    new Set(
+      colorGrouped
+        .map((c) => c.colorCodePfs)
+        .filter((x): x is string => Boolean(x)),
+    ),
+  );
+  const colorLabels = Array.from(
+    new Set(
+      colorGrouped
+        .map((c) => c.colorLabelFr)
+        .filter((x): x is string => Boolean(x)),
+    ),
+  );
+  const fallbackColorRows = pfsColorRefs.length || colorLabels.length
+    ? await prisma.color.findMany({
+        where: {
+          tenantId: tenant.id,
+          OR: [
+            ...(pfsColorRefs.length ? [{ pfsColorRef: { in: pfsColorRefs } }] : []),
+            ...(colorLabels.length ? [{ name: { in: colorLabels } }] : []),
+          ],
+        },
+        select: { name: true, hex: true, patternImage: true, pfsColorRef: true },
+      })
+    : [];
+  const colorByPfsRef = new Map<string, { hex: string | null; patternImage: string | null }>();
+  const colorByName = new Map<string, { hex: string | null; patternImage: string | null }>();
+  for (const c of fallbackColorRows) {
+    if (c.pfsColorRef) {
+      colorByPfsRef.set(c.pfsColorRef, { hex: c.hex, patternImage: c.patternImage });
+    }
+    colorByName.set(c.name.toLowerCase(), { hex: c.hex, patternImage: c.patternImage });
+  }
+
+  const colorsByRef = new Map<string, PfsTopProductColorBreakdown[]>();
+  for (const c of colorGrouped) {
+    const arr = colorsByRef.get(c.pfsProductRef) ?? [];
+    const fromPc = c.productColorId ? productColorMap.get(c.productColorId) : null;
+    const fromPfsRef = c.colorCodePfs ? colorByPfsRef.get(c.colorCodePfs) : null;
+    const fromName = c.colorLabelFr ? colorByName.get(c.colorLabelFr.toLowerCase()) : null;
+    const hex = fromPc?.hex ?? fromPfsRef?.hex ?? fromName?.hex ?? null;
+    const patternImage =
+      fromPc?.patternImage ?? fromPfsRef?.patternImage ?? fromName?.patternImage ?? null;
+    arr.push({
+      productColorId: c.productColorId,
+      colorLabelFr: c.colorLabelFr,
+      colorCodePfs: c.colorCodePfs,
+      quantitySold: c._sum.qtyValidated ?? 0,
+      totalHT: decimalToNumber(c._sum.totalPriceHT),
+      hex,
+      patternImage,
+    });
+    colorsByRef.set(c.pfsProductRef, arr);
+  }
+  for (const arr of colorsByRef.values()) {
+    arr.sort((a, b) => b.quantitySold - a.quantitySold);
+  }
+
   const topProducts: PfsTopProductRow[] = itemGrouped.map((r) => ({
     productId: r.productId,
     productName: r.productId ? productNameMap.get(r.productId) ?? null : null,
     pfsProductRef: r.pfsProductRef,
     quantitySold: r._sum.qtyValidated ?? 0,
     totalHT: decimalToNumber(r._sum.totalPriceHT),
+    colors: colorsByRef.get(r.pfsProductRef) ?? [],
   }));
 
   const statusCounts = {

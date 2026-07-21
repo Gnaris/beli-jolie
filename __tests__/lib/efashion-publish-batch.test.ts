@@ -102,7 +102,7 @@ function makeProduct(
     dimensionDiameter: null,
     dimensionCircumference: null,
     category: { name: "Bague", efashionCategorieId: 160102 },
-    manufacturingCountry: { name: "Chine", efashionProvenanceId: 1 },
+    countryIsoCode: "CN",
     season: { name: "Toutes", efashionCollectionId: 3 },
     compositions: [{ percentage: 100, composition: { name: "Acier", efashionId: 60 } }],
     colors,

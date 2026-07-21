@@ -10,7 +10,6 @@ import {
   createCompositionQuick,
   createColorQuick,
   createTagQuick,
-  createManufacturingCountryQuick,
   createSeasonQuick,
 } from "@/app/actions/admin/quick-create";
 import { updateCategoryFaireTaxonomy } from "@/app/actions/admin/categories";
@@ -490,8 +489,6 @@ export default function QuickCreateModal({
         result = await createCompositionQuick(names, pfsRef || null, efashionCreateId);
       } else if (type === "tag") {
         result = await createTagQuick(names);
-      } else if (type === "country") {
-        result = await createManufacturingCountryQuick(names, normalizedIso, pfsRef || null, efashionCreateId);
       } else if (type === "season") {
         result = await createSeasonQuick(names, pfsRef || null, efashionCreateId);
       } else {

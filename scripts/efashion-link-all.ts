@@ -28,6 +28,7 @@ import {
   type EfashionMatchCandidate,
   type EfashionMatchDecision,
 } from "@/lib/efashion-link-match";
+import { getCountryByIso } from "@/lib/countries";
 
 const PAUSE_BETWEEN_PRODUCTS_MS = 250;
 
@@ -52,7 +53,7 @@ async function processProduct(productId: string, vendorId: number): Promise<Link
       id: true,
       reference: true,
       category: { select: { name: true, efashionCategorieId: true } },
-      manufacturingCountry: { select: { name: true, efashionProvenanceId: true } },
+      countryIsoCode: true,
       season: { select: { name: true, efashionCollectionId: true } },
       compositions: {
         select: { composition: { select: { name: true, efashionId: true } } },
@@ -106,7 +107,14 @@ async function processProduct(productId: string, vendorId: number): Promise<Link
       id: product.id,
       reference: ref,
       category: product.category,
-      manufacturingCountry: product.manufacturingCountry,
+      country: (() => {
+        const c = getCountryByIso(product.countryIsoCode);
+        return c
+          ? { name: c.name, efashionProvenanceId: c.efashionProvenanceId ?? null }
+          : product.countryIsoCode
+            ? { name: product.countryIsoCode, efashionProvenanceId: null }
+            : null;
+      })(),
       season: product.season,
       compositions: product.compositions,
       colors: product.colors.map((c) => ({

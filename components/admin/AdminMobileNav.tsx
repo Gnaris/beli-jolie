@@ -25,7 +25,6 @@ const PRODUCT_SUBNAV: NavItem["children"] = [
   { label: "Compositions", href: "/admin/compositions" },
   { label: "Saisons", href: "/admin/saisons" },
   { label: "Tailles", href: "/admin/tailles" },
-  { label: "Pays d'origine", href: "/admin/pays" },
   { label: "Codes SH", href: "/admin/codes-sh" },
   { label: "Mots-clés", href: "/admin/mots-cles" },
 ];
@@ -69,7 +68,14 @@ interface Props {
   initials: string;
   warnings?: Record<string, number>;
   shopName: string;
+  isPlatformAdmin?: boolean;
 }
+
+const PLATFORM_CONTROL_ITEM: NavItem = {
+  label: "Contrôle plateforme",
+  href: "/admin/plateforme",
+  icon: "M6 6.878V6a2.25 2.25 0 012.25-2.25h7.5A2.25 2.25 0 0118 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 004.5 9v.878m13.5-3A2.25 2.25 0 0119.5 9v.878m0 0a2.246 2.246 0 00-.75-.128H5.25c-.263 0-.515.045-.75.128m15 0A2.25 2.25 0 0121 12v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6c0-.98.626-1.813 1.5-2.122",
+};
 
 function isItemActive(pathname: string, href: string): boolean {
   if (href === "/admin") return pathname === "/admin";
@@ -81,10 +87,18 @@ function isParentActive(pathname: string, item: NavItem): boolean {
   return !!item.children?.some((c) => isItemActive(pathname, c.href));
 }
 
-export default function AdminMobileNav({ userName, initials, warnings = {}, shopName }: Props) {
+export default function AdminMobileNav({ userName, initials, warnings = {}, shopName, isPlatformAdmin = false }: Props) {
   const [open, setOpen] = useState(false);
   const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
   const pathname = usePathname() ?? "";
+
+  const navSections: NavSection[] = isPlatformAdmin
+    ? NAV_SECTIONS.map((section) =>
+        section.title === "Système"
+          ? { ...section, items: [PLATFORM_CONTROL_ITEM, ...section.items] }
+          : section,
+      )
+    : NAV_SECTIONS;
 
   useEffect(() => {
     try {
@@ -94,7 +108,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
   }, []);
 
   useEffect(() => {
-    NAV_SECTIONS.forEach((s) => {
+    navSections.forEach((s) => {
       s.items.forEach((item) => {
         if (item.children?.some((c) => isItemActive(pathname, c.href))) {
           setOpenMenus((prev) => (prev[item.href] ? prev : { ...prev, [item.href]: true }));
@@ -200,7 +214,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
 
         {/* Navigation links */}
         <div className="relative flex-1 px-3 py-4 overflow-y-auto scrollbar-light">
-          {NAV_SECTIONS.map((section, sectionIdx) => (
+          {navSections.map((section, sectionIdx) => (
             <div key={section.title}>
               <div className={`flex items-center gap-2 px-3 mb-2 ${sectionIdx === 0 ? "mt-1" : "mt-5"}`}>
                 <span className="w-1 h-1 rounded-full bg-zinc-400" />

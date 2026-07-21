@@ -57,7 +57,7 @@ export interface ProductMarketplaceSnapshotInput {
   dimCircumference: number | string | null;
   hsCodeId: string | null;
   productStatus: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
-  manufacturingCountryId: string | null;
+  countryIsoCode: string | null;
   seasonId: string | null;
   sizeDetailsTu: unknown;
   primaryColorId: string | null;
@@ -115,7 +115,7 @@ export function buildProductMarketplaceSnapshot(
     dimCircumference: input.dimCircumference,
     hsCodeId: input.hsCodeId,
     productStatus: input.productStatus,
-    manufacturingCountryId: input.manufacturingCountryId,
+    countryIsoCode: input.countryIsoCode,
     seasonId: input.seasonId,
     sizeDetailsTu: input.sizeDetailsTu,
     primaryColorId: input.primaryColorId,

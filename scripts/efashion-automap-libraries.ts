@@ -23,7 +23,6 @@ import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import {
   EFASHION_CATEGORY_MAPPING,
-  EFASHION_COUNTRY_MAPPING,
   EFASHION_SEASON_MAPPING,
   EFASHION_COMPOSITION_MAPPING,
   EFASHION_COLOR_MAPPING,
@@ -61,33 +60,6 @@ async function mapCategories(): Promise<SectionReport> {
     await prisma.category.update({
       where: { id: row.id },
       data: { efashionCategorieId: match.efashionId },
-    });
-    console.log(`  ✅ ${row.name} → ${match.efashionId}`);
-    r.applied += 1;
-  }
-  return r;
-}
-
-async function mapCountries(): Promise<SectionReport> {
-  const r = newReport();
-  const rows = await prisma.manufacturingCountry.findMany({
-    select: { id: true, name: true, efashionProvenanceId: true },
-  });
-  for (const row of rows) {
-    if (row.efashionProvenanceId !== null) {
-      console.log(`  ⏭️  ${row.name} (déjà mappé : ${row.efashionProvenanceId})`);
-      r.skippedAlready += 1;
-      continue;
-    }
-    const match = findEfashionMapping(row.name, EFASHION_COUNTRY_MAPPING);
-    if (!match) {
-      console.log(`  ⛔ ${row.name} — aucun mapping prévu`);
-      r.skippedNoMapping += 1;
-      continue;
-    }
-    await prisma.manufacturingCountry.update({
-      where: { id: row.id },
-      data: { efashionProvenanceId: match.efashionId },
     });
     console.log(`  ✅ ${row.name} → ${match.efashionId}`);
     r.applied += 1;
@@ -204,8 +176,8 @@ async function main() {
   console.log("═══ Catégories ═══");
   const catReport = await mapCategories();
 
-  console.log("\n═══ Pays ═══");
-  const countryReport = await mapCountries();
+  // Pays : plus de mapping BDD depuis 2026-07-21 — la liste et les refs
+  // eFashion sont figées dans `lib/countries.ts`.
 
   console.log("\n═══ Saisons ═══");
   const seasonReport = await mapSeasons();
@@ -232,7 +204,6 @@ async function main() {
   console.log("═══════════════════════════════════════════════════════");
   const sections: Array<[string, SectionReport]> = [
     ["Catégories", catReport],
-    ["Pays      ", countryReport],
     ["Saisons   ", seasonReport],
     ["Matières  ", compReport],
     ["Couleurs  ", colorReport],
@@ -246,7 +217,6 @@ async function main() {
 
   const totalNoMapping =
     catReport.skippedNoMapping +
-    countryReport.skippedNoMapping +
     seasonReport.skippedNoMapping +
     compReport.skippedNoMapping +
     colorReport.skippedNoMapping;

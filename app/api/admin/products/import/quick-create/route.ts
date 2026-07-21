@@ -22,7 +22,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
-import { autoTranslateColor, autoTranslateCategory, autoTranslateSubCategory, autoTranslateComposition, autoTranslateManufacturingCountry, autoTranslateSeason } from "@/lib/auto-translate";
+import { autoTranslateColor, autoTranslateCategory, autoTranslateSubCategory, autoTranslateComposition, autoTranslateSeason } from "@/lib/auto-translate";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -156,19 +156,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.action === "create_country") {
-      const existing = await prisma.manufacturingCountry.findFirst({ where: { name } });
-      if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
-
-      const country = await prisma.manufacturingCountry.create({
-        data: {
-          name,
-          ...(body.pfsCountryRef ? { pfsCountryRef: body.pfsCountryRef } : {}),
+      // Pays : plus de création dynamique depuis 2026-07-21 (lib/countries.ts).
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Les pays de fabrication sont figés dans lib/countries.ts.",
         },
-      });
-      revalidateTag("manufacturing-countries", "default");
-      // Fire-and-forget auto-translation
-      autoTranslateManufacturingCountry(country.id, name);
-      return NextResponse.json({ ok: true, entity: country });
+        { status: 400 },
+      );
     }
 
     if (body.action === "create_season") {

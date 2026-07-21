@@ -21,7 +21,7 @@
  * et est couvert par des tests Vitest.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRightRail } from "./RightRailContext";
 import { DrawerShell } from "./DrawerShell";
 import {
@@ -31,6 +31,7 @@ import {
   type TooltipTone,
 } from "./MarketplaceBadgeTooltip";
 import { useToast } from "@/components/ui/Toast";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   useMarketplaceRefreshQueue,
   type MarketplaceRefreshItem,
@@ -64,19 +65,58 @@ const MARKETPLACES_ICON = (
 
 export function MarketplacesDrawer() {
   const { openWidget, close, setBadge } = useRightRail();
-  const { items, clear, enqueue, runningCount, queuedCount } = useMarketplaceRefreshQueue();
+  const { items, clear, enqueue, runningCount, queuedCount, stop } =
+    useMarketplaceRefreshQueue();
+  const toast = useToast();
+  const { confirm } = useConfirm();
 
-  const groups = useMemo(() => groupItemsByProduct(items), [items]);
+  // Tick chaque seconde tant qu'il y a un lot étalé : rafraîchit les
+  // « dans X min » et le compte à rebours du prochain départ. Sinon la valeur
+  // resterait figée à l'ouverture du tiroir.
+  const nowMs = useNowTick(items.some((i) => Boolean(i.scheduledFor)) ? 1_000 : null);
+
+  const groups = useMemo(() => groupItemsByProduct(items, nowMs), [items, nowMs]);
   const bySection: Record<GroupSection, ProductGroup[]> = {
     errors: [],
     active: [],
+    scheduled: [],
     queued: [],
     done: [],
   };
   for (const g of groups) bySection[g.section].push(g);
 
-  const activeCount = bySection.active.length + bySection.queued.length;
+  // Trier les planifiés par ordre chronologique de départ (le prochain en tête).
+  bySection.scheduled.sort((a, b) => {
+    const ta = a.earliestScheduledFor ? Date.parse(a.earliestScheduledFor) : 0;
+    const tb = b.earliestScheduledFor ? Date.parse(b.earliestScheduledFor) : 0;
+    return ta - tb;
+  });
+
+  const activeCount =
+    bySection.active.length + bySection.queued.length + bySection.scheduled.length;
   const errorCount = bySection.errors.length;
+
+  // Détection d'un lot étalé : au moins un produit planifié.
+  const hasScheduled = bySection.scheduled.length > 0;
+  const nextScheduled = hasScheduled ? bySection.scheduled[0] : null;
+
+  // Intervalle du lot : diff entre les 2 premiers scheduledFor futurs, sinon
+  // fallback sur diff entre le 1er planifié et maintenant.
+  const intervalMs = useMemo(() => {
+    if (bySection.scheduled.length < 2) return null;
+    const t0 = Date.parse(bySection.scheduled[0].earliestScheduledFor!);
+    const t1 = Date.parse(bySection.scheduled[1].earliestScheduledFor!);
+    if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return null;
+    return t1 - t0;
+  }, [bySection.scheduled]);
+
+  // Fin estimée = départ du dernier planifié + ~2 min pour le traitement.
+  const endsAtMs = useMemo(() => {
+    if (bySection.scheduled.length === 0) return null;
+    const last = bySection.scheduled[bySection.scheduled.length - 1];
+    const t = Date.parse(last.earliestScheduledFor ?? "");
+    return Number.isFinite(t) ? t + 2 * 60_000 : null;
+  }, [bySection.scheduled]);
 
   useEffect(() => {
     setBadge("marketplaces", {
@@ -99,6 +139,23 @@ export function MarketplacesDrawer() {
       : "Aucun lot";
 
   const tooltipHandle = useRef<TooltipHandle | null>(null);
+
+  const onStopQueued = async () => {
+    if (queuedCount === 0) return;
+    const label = `${queuedCount} produit${queuedCount > 1 ? "s" : ""}`;
+    const ok = await confirm({
+      type: "warning",
+      title: "Arrêter les envois suivants ?",
+      message: `${label} en attente ${queuedCount > 1 ? "seront retirés" : "sera retiré"} de la file. Les envois déjà démarrés se terminent normalement.`,
+      confirmLabel: "Arrêter les suivants",
+    });
+    if (!ok) return;
+    stop();
+    toast.success(
+      "File arrêtée",
+      `${label} retiré${queuedCount > 1 ? "s" : ""}. Les envois en cours vont se terminer.`,
+    );
+  };
 
   const retryErrorsOf = (group: ProductGroup) => {
     const inputs = group.items
@@ -142,17 +199,42 @@ export function MarketplacesDrawer() {
       icon={MARKETPLACES_ICON}
       footer={
         groups.length > 0 ? (
-          <div className="flex items-center justify-between text-[11px]">
+          <div className="flex items-center justify-between gap-3 text-[11px]">
             <span className="text-slate-500 tabular-nums">
               {totalProcessed} / {totalPlanned}
             </span>
-            <button
-              type="button"
-              onClick={clear}
-              className="text-slate-500 hover:text-slate-700 underline"
-            >
-              Vider la liste
-            </button>
+            <div className="flex items-center gap-3">
+              {queuedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void onStopQueued()}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 font-semibold hover:bg-rose-200 transition-colors"
+                  title="Retire les produits en attente. Les envois déjà démarrés se terminent."
+                >
+                  <svg
+                    className="w-3 h-3"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2.5}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z"
+                    />
+                  </svg>
+                  Arrêter les suivants ({queuedCount})
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={clear}
+                className="text-slate-500 hover:text-slate-700 underline"
+              >
+                Vider la liste
+              </button>
+            </div>
           </div>
         ) : undefined
       }
@@ -167,6 +249,15 @@ export function MarketplacesDrawer() {
         </div>
       ) : (
         <>
+          {nextScheduled && (
+            <NextDepartureBanner
+              group={nextScheduled}
+              nowMs={nowMs}
+              intervalMs={intervalMs}
+              endsAtMs={endsAtMs}
+              remainingCount={bySection.scheduled.length}
+            />
+          )}
           {totalPlanned > 0 && (
             <div className="px-4 py-2 border-b border-slate-100 bg-white">
               <div className="relative h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -193,6 +284,14 @@ export function MarketplacesDrawer() {
             tooltipHandle={tooltipHandle}
           />
           <SectionBlock
+            title="Planifiés"
+            tone="indigo"
+            groups={bySection.scheduled}
+            defaultOpen
+            tooltipHandle={tooltipHandle}
+            nowMs={nowMs}
+          />
+          <SectionBlock
             title="En attente"
             tone="slate"
             groups={bySection.queued}
@@ -215,7 +314,7 @@ export function MarketplacesDrawer() {
 // Section pliable
 // ────────────────────────────────────────────────────────────────
 
-type Tone = "rose" | "sky" | "slate" | "emerald";
+type Tone = "rose" | "sky" | "indigo" | "slate" | "emerald";
 
 const TONE_CLASSES: Record<
   Tone,
@@ -231,6 +330,12 @@ const TONE_CLASSES: Record<
     bg: "bg-sky-50/20",
     text: "text-slate-800",
     badge: "bg-sky-100 text-sky-700",
+    empty: false,
+  },
+  indigo: {
+    bg: "bg-indigo-50/30",
+    text: "text-indigo-800",
+    badge: "bg-indigo-100 text-indigo-700",
     empty: false,
   },
   slate: {
@@ -254,6 +359,7 @@ function SectionBlock({
   defaultOpen = false,
   tooltipHandle,
   onRetry,
+  nowMs,
 }: {
   title: string;
   tone: Tone;
@@ -261,6 +367,8 @@ function SectionBlock({
   defaultOpen?: boolean;
   tooltipHandle: React.MutableRefObject<TooltipHandle | null>;
   onRetry?: (group: ProductGroup) => void;
+  /** Fourni pour la section Planifiés → active l'affichage « dans X min ». */
+  nowMs?: number;
 }) {
   if (groups.length === 0) return null;
   const t = TONE_CLASSES[tone];
@@ -284,12 +392,17 @@ function SectionBlock({
         </span>
       </summary>
       <div className="p-3 space-y-2.5">
-        {groups.map((g) => (
+        {groups.map((g, idx) => (
           <ProductCard
             key={g.productId}
             group={g}
             tooltipHandle={tooltipHandle}
             onRetry={onRetry ? () => onRetry(g) : undefined}
+            scheduledInfo={
+              nowMs !== undefined && g.earliestScheduledFor
+                ? { nowMs, isNext: idx === 0 }
+                : undefined
+            }
           />
         ))}
       </div>
@@ -305,13 +418,26 @@ function ProductCard({
   group,
   tooltipHandle,
   onRetry,
+  scheduledInfo,
 }: {
   group: ProductGroup;
   tooltipHandle: React.MutableRefObject<TooltipHandle | null>;
   onRetry?: () => void;
+  /** Rendu spécifique lot étalé : pastille « Prochain » + « dans X min ». */
+  scheduledInfo?: { nowMs: number; isNext: boolean };
 }) {
   const toast = useToast();
   const isError = group.section === "errors";
+  const isScheduled = Boolean(scheduledInfo && group.earliestScheduledFor);
+  const isNext = Boolean(scheduledInfo?.isNext && isScheduled);
+  const scheduledAtMs =
+    isScheduled && group.earliestScheduledFor
+      ? Date.parse(group.earliestScheduledFor)
+      : null;
+  const remainingMs =
+    scheduledAtMs !== null && scheduledInfo
+      ? Math.max(0, scheduledAtMs - scheduledInfo.nowMs)
+      : null;
 
   const copyReference = () => {
     void navigator.clipboard.writeText(group.reference).then(
@@ -323,24 +449,37 @@ function ProductCard({
   return (
     <div
       className={`bg-white rounded-xl overflow-hidden shadow-sm border ${
-        isError ? "border-rose-200" : "border-slate-200"
+        isError
+          ? "border-rose-200"
+          : isNext
+          ? "border-indigo-300 ring-2 ring-indigo-100"
+          : "border-slate-200"
       }`}
     >
       <div
         className={`px-3 py-2.5 flex items-center gap-2.5 border-b ${
           isError
             ? "bg-gradient-to-r from-rose-50 to-white border-rose-100"
+            : isNext
+            ? "bg-gradient-to-r from-indigo-50 to-white border-indigo-100"
             : "border-slate-100"
         }`}
       >
         <ProductThumb group={group} />
         <div className="min-w-0 flex-1">
-          <p
-            className="text-[13px] font-semibold truncate text-slate-800"
-            title={group.productName}
-          >
-            {group.productName}
-          </p>
+          <div className="flex items-center gap-1.5">
+            {isNext && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[9px] font-bold uppercase tracking-wider flex-shrink-0">
+                Prochain
+              </span>
+            )}
+            <p
+              className="text-[13px] font-semibold truncate text-slate-800"
+              title={group.productName}
+            >
+              {group.productName}
+            </p>
+          </div>
           <div className="flex items-center gap-1 mt-0.5">
             <span className="text-[11px] font-mono text-slate-500 truncate">
               {group.reference}
@@ -366,9 +505,32 @@ function ProductCard({
                 />
               </svg>
             </button>
+            {isScheduled && remainingMs !== null && (
+              <>
+                <span className="text-slate-300">·</span>
+                <span
+                  className={`text-[11px] font-semibold tabular-nums flex-shrink-0 ${
+                    isNext ? "text-indigo-700" : "text-slate-600"
+                  }`}
+                >
+                  dans {formatRemainingShort(remainingMs)}
+                </span>
+              </>
+            )}
           </div>
         </div>
-        <StatusIcon group={group} />
+        {isScheduled && scheduledAtMs !== null ? (
+          <div className="text-right flex-shrink-0">
+            <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">
+              Départ
+            </div>
+            <div className="text-[12px] font-bold text-slate-700 tabular-nums leading-tight">
+              {formatClockTime(scheduledAtMs)}
+            </div>
+          </div>
+        ) : (
+          <StatusIcon group={group} />
+        )}
       </div>
 
       <div className="px-3 py-2.5 flex items-center gap-1.5 flex-wrap">
@@ -473,7 +635,11 @@ function ProductThumb({ group }: { group: ProductGroup }) {
 }
 
 function StatusIcon({ group }: { group: ProductGroup }) {
-  if (group.section === "active" || group.section === "queued") {
+  if (
+    group.section === "active" ||
+    group.section === "queued" ||
+    group.section === "scheduled"
+  ) {
     return (
       <svg
         className="w-4 h-4 text-sky-600 animate-spin flex-shrink-0"
@@ -598,6 +764,122 @@ function BadgeForCell({
       tooltipHandle={tooltipHandle}
     />
   );
+}
+
+// ────────────────────────────────────────────────────────────────
+// Bandeau "Prochain départ" — visible dès qu'il y a un lot étalé
+// ────────────────────────────────────────────────────────────────
+
+function NextDepartureBanner({
+  group,
+  nowMs,
+  intervalMs,
+  endsAtMs,
+  remainingCount,
+}: {
+  group: ProductGroup;
+  nowMs: number;
+  intervalMs: number | null;
+  endsAtMs: number | null;
+  remainingCount: number;
+}) {
+  const scheduledAtMs = group.earliestScheduledFor
+    ? Date.parse(group.earliestScheduledFor)
+    : null;
+  if (scheduledAtMs === null || !Number.isFinite(scheduledAtMs)) return null;
+  const remainingMs = Math.max(0, scheduledAtMs - nowMs);
+
+  return (
+    <div className="relative overflow-hidden bg-gradient-to-br from-sky-600 via-blue-600 to-indigo-700 text-white px-4 py-3 border-b border-indigo-500/50">
+      <div className="absolute -top-16 -right-10 w-40 h-40 rounded-full bg-white/10 blur-3xl pointer-events-none" />
+      <div className="relative">
+        <div className="flex items-center justify-between gap-3 mb-1.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-sky-100/90 font-bold">
+              Prochain départ
+            </span>
+            <span className="w-1 h-1 rounded-full bg-sky-200/60" />
+            <span className="text-[11px] text-white/90 truncate" title={group.productName}>
+              « {group.productName} »
+            </span>
+          </div>
+          <div className="font-heading font-bold text-lg tabular-nums text-white flex-shrink-0">
+            {formatCountdownMMSS(remainingMs)}
+          </div>
+        </div>
+        <div className="mt-1.5 flex items-center justify-between text-[10px] text-sky-100/85 gap-2">
+          <span className="truncate">
+            {intervalMs !== null ? (
+              <>
+                1 produit toutes les{" "}
+                <b className="text-white">{formatDurationHuman(intervalMs)}</b>
+              </>
+            ) : (
+              <>
+                <b className="text-white">
+                  {remainingCount} produit{remainingCount > 1 ? "s" : ""}
+                </b>{" "}
+                planifié{remainingCount > 1 ? "s" : ""}
+              </>
+            )}
+          </span>
+          {endsAtMs !== null && (
+            <span className="flex-shrink-0">
+              Fin estimée <b className="text-white">{formatClockTime(endsAtMs)}</b>
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────
+// Hook & formatters temps
+// ────────────────────────────────────────────────────────────────
+
+/** Force un re-render toutes les `intervalMs` ms tant que non `null`. Sert au
+ *  rafraîchissement des compteurs « dans X min » sans polling supplémentaire. */
+function useNowTick(intervalMs: number | null): number {
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (intervalMs === null) return;
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+function formatCountdownMMSS(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function formatRemainingShort(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  if (sec < 60) return `${sec} s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const remainMin = min - h * 60;
+  if (remainMin === 0) return `${h} h`;
+  return `${h} h ${String(remainMin).padStart(2, "0")}`;
+}
+
+function formatDurationHuman(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)} s`;
+  if (ms < 60 * 60_000) return `${Math.round(ms / 60_000)} min`;
+  const h = Math.floor(ms / (60 * 60_000));
+  const remainMin = Math.round((ms - h * 60 * 60_000) / 60_000);
+  if (remainMin === 0) return `${h} h`;
+  return `${h} h ${String(remainMin).padStart(2, "0")}`;
+}
+
+function formatClockTime(atMs: number): string {
+  const d = new Date(atMs);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 // ────────────────────────────────────────────────────────────────

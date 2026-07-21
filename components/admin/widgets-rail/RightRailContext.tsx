@@ -13,7 +13,13 @@
 
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 
-export type RailWidgetId = "translation" | "marketplaces" | "images" | "shooting" | "chat";
+export type RailWidgetId =
+  | "translation"
+  | "marketplaces"
+  | "images"
+  | "shooting"
+  | "chat"
+  | "pfs-import";
 
 interface RailBadge {
   /** Nombre affiché sur le badge (0 = pas de badge). */

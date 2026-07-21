@@ -97,7 +97,7 @@ describe("bulkUpdateProductAttributes (real DB)", () => {
       dimensionHeight: null,
       dimensionDiameter: null,
       dimensionCircumference: null,
-      manufacturingCountryId: entities.country.id,
+      countryIsoCode: entities.country.id,
       seasonId: entities.season.id,
     };
     const r = await createProduct(input);

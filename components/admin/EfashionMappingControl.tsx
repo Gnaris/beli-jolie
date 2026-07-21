@@ -22,7 +22,6 @@ import {
   loadEfashionAnnexes,
   searchEfashionCompositionsAction,
   updateCategoryEfashionMapping,
-  updateManufacturingCountryEfashionMapping,
   updateSeasonEfashionMapping,
   updateCompositionEfashionMapping,
   updateColorEfashionMapping,
@@ -32,7 +31,6 @@ import { useToast } from "@/components/ui/Toast";
 
 export type EfashionMappingKind =
   | "category"
-  | "country"
   | "season"
   | "composition"
   | "color";
@@ -268,7 +266,7 @@ function FlatList({
   disabled,
 }: {
   annexes: EfashionAnnexes;
-  kind: "category" | "country" | "season" | "color";
+  kind: "category" | "season" | "color";
   filter: string;
   onPick: (id: number) => void;
   disabled: boolean;
@@ -279,9 +277,6 @@ function FlatList({
       return annexes.categories
         .filter((c) => c.isLeaf)
         .map((c) => ({ id: c.id, label: c.path }));
-    }
-    if (kind === "country") {
-      return annexes.provenances.map((p) => ({ id: p.id, label: p.libelle }));
     }
     if (kind === "season") {
       return annexes.collections.map((c) => ({ id: c.id, label: c.label }));
@@ -458,8 +453,6 @@ async function callUpdate(
   switch (props.kind) {
     case "category":
       return updateCategoryEfashionMapping(props.entityId, id);
-    case "country":
-      return updateManufacturingCountryEfashionMapping(props.entityId, id);
     case "season":
       return updateSeasonEfashionMapping(props.entityId, id);
     case "composition":

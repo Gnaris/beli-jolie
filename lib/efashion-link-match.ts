@@ -17,7 +17,10 @@ export interface EfashionMatchProduct {
   id: string;
   reference: string;
   category: { name: string; efashionCategorieId: number | null } | null;
-  manufacturingCountry: { name: string; efashionProvenanceId: number | null } | null;
+  // Pays de fabrication déjà résolu via lib/countries.ts par l'appelant
+  // (name = libellé FR affiché dans les messages d'erreur, efashionProvenanceId
+  // = mapping marketplace figé).
+  country: { name: string; efashionProvenanceId: number | null } | null;
   season: { name: string; efashionCollectionId: number | null } | null;
   compositions: Array<{ composition: { name: string; efashionId: number | null } }>;
   colors: Array<{
@@ -90,9 +93,9 @@ export function decideEfashionLink(
       `Catégorie « ${product.category?.name ?? "(vide)"} » sans mapping eFashion`,
     );
   }
-  if (!product.manufacturingCountry?.efashionProvenanceId) {
+  if (!product.country?.efashionProvenanceId) {
     reasons.push(
-      `Pays « ${product.manufacturingCountry?.name ?? "(vide)"} » sans mapping eFashion`,
+      `Pays « ${product.country?.name ?? "(vide)"} » sans mapping eFashion`,
     );
   }
   if (!product.season?.efashionCollectionId) {

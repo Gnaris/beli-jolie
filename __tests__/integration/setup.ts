@@ -38,7 +38,6 @@ vi.mock("@/lib/auto-translate", () => ({
   autoTranslateSubCategory: vi.fn(),
   autoTranslateComposition: vi.fn(),
   autoTranslateColor: vi.fn(),
-  autoTranslateManufacturingCountry: vi.fn(),
   autoTranslateSeason: vi.fn(),
   autoTranslateCollection: vi.fn(),
 }));
@@ -179,7 +178,6 @@ export async function cleanupTestData() {
 
   await prisma.color.deleteMany({ where: { name: { startsWith: TEST_PREFIX } } });
   await prisma.composition.deleteMany({ where: { name: { startsWith: TEST_PREFIX } } });
-  await prisma.manufacturingCountry.deleteMany({ where: { name: { startsWith: TEST_PREFIX } } });
   await prisma.season.deleteMany({ where: { name: { startsWith: TEST_PREFIX } } });
   await prisma.collection.deleteMany({ where: { name: { startsWith: TEST_PREFIX } } });
 
@@ -241,9 +239,11 @@ export async function seedTestEntities() {
     data: { name: `${TEST_PREFIX}M`, position: 2 },
   });
 
-  const country = await prisma.manufacturingCountry.create({
-    data: { name: `${TEST_PREFIX}France`, isoCode: `${TEST_PREFIX}FR` },
-  });
+  // Pays de fabrication : figé dans lib/countries.ts, plus de seed BDD.
+  // `id` = code ISO alpha-2 pour rester compatible avec les tests qui
+  // passaient `manufacturingCountryId: entities.country.id`. Ces tests
+  // devront passer `countryIsoCode: entities.country.id` désormais.
+  const country = { id: "CN", code: "CN", name: "Chine" } as const;
 
   const season = await prisma.season.create({
     data: { name: `${TEST_PREFIX}PE2026` },

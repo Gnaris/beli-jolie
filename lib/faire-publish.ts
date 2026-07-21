@@ -97,7 +97,7 @@ interface FullProduct {
     percentage: Prisma.Decimal | number;
     composition: { name: string };
   }[];
-  manufacturingCountry: { isoCode: string | null } | null;
+  countryIsoCode: string | null;
   // Dimensions stockées en mm dans la BDD (cohérent avec Faire qui attend des mm).
   dimensionLength: number | null;
   dimensionWidth: number | null;
@@ -166,7 +166,7 @@ export async function loadFaireProductFull(productId: string): Promise<FullProdu
           composition: { select: { name: true } },
         },
       },
-      manufacturingCountry: { select: { isoCode: true } },
+      countryIsoCode: true,
       dimensionLength: true,
       dimensionWidth: true,
       dimensionHeight: true,
@@ -700,7 +700,7 @@ export function buildPublishContext(
     FullProduct,
     | "category"
     | "hsCode"
-    | "manufacturingCountry"
+    | "countryIsoCode"
     | "compositions"
     | "description"
     | "dimensionLength"
@@ -731,7 +731,7 @@ export function buildPublishContext(
 
   // Faire veut le pays en alpha-2 dans `made_in_country` (ex : "CN", "FR").
   // L'isoCode en BDD est déjà alpha-2 — pas de conversion à faire.
-  const rawAlpha2 = product.manufacturingCountry?.isoCode?.trim().toUpperCase() || null;
+  const rawAlpha2 = product.countryIsoCode?.trim().toUpperCase() || null;
   const countryAlpha2 = rawAlpha2 ?? "CN"; // fallback raisonnable pour catalogue made-in-China
   const countryUsedFallback = rawAlpha2 == null;
 

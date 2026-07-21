@@ -126,7 +126,7 @@ function makeUnitProduct(overrides: Record<string, unknown> = {}) {
     ],
     colorImages: [],
     compositions: [{ percentage: 92.5, composition: { name: "Argent 925", pfsCompositionRef: null } }],
-    manufacturingCountry: { isoCode: "FR", pfsCountryRef: null },
+    countryIsoCode: "FR",
     season: null,
     ...overrides,
   };
@@ -218,10 +218,10 @@ describe("ankorstoreKickoffPublish — payload kickoff", () => {
     expect(mockAddProductsToOperation).not.toHaveBeenCalled();
   });
 
-  it("made_in_country provient de manufacturingCountry.isoCode", async () => {
+  it("made_in_country provient de countryIsoCode", async () => {
     const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
     mockProductFindUnique.mockResolvedValue(
-      makeUnitProduct({ manufacturingCountry: { isoCode: "CN", pfsCountryRef: "Chine" } }),
+      makeUnitProduct({ countryIsoCode: "CN" }),
     );
 
     const result = await ankorstoreKickoffPublish("p1");

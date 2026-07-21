@@ -28,7 +28,6 @@ import {
   autoTranslateCategory,
   autoTranslateColor,
   autoTranslateComposition,
-  autoTranslateManufacturingCountry,
   autoTranslateProduct,
   autoTranslateSeason,
 } from "@/lib/auto-translate";
@@ -44,6 +43,7 @@ import {
 import { PROTECTED_SIZE_NAME, PROTECTED_SIZE_PFS_REF, isProtectedSizeName } from "@/lib/protected-sizes";
 import { requirePfsBrand } from "@/lib/pfs-brand";
 import { loadPfsImportPriceMarkup, applyImportMarkupToUnitPrice } from "@/lib/pfs-import-price-markup";
+import { getCountryByIso, getCountryByPfsRef } from "@/lib/countries";
 
 // Re-export pour ne pas casser les imports existants de `pfs-import`.
 export { sanitizePfsFamilyName, inferPfsFamilyFromCategoryLabel };
@@ -63,7 +63,6 @@ export type PfsAttributeType =
   | "category"
   | "color"
   | "composition"
-  | "country"
   | "season"
   | "size";
 
@@ -889,74 +888,8 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
       return { id: created.id, name: created.name, created: true };
     }
 
-    case "country": {
-      // Validation simple : code ISO sur 2 lettres (ex: "CN", "FR"). null sinon.
-      const cleanIso = (input.isoCode ?? "").trim().toUpperCase();
-      const isoCode = /^[A-Z]{2}$/.test(cleanIso) ? cleanIso : null;
-
-      if (linkToExistingId) {
-        // Si l'entité existe déjà mais sans isoCode, on profite du nouvel
-        // import pour le compléter (sans jamais écraser un code déjà présent).
-        const existing = await prisma.manufacturingCountry.findUnique({
-          where: { id: linkToExistingId },
-          select: { isoCode: true },
-        });
-        const data: { pfsCountryRef: string; isoCode?: string } = { pfsCountryRef: pfsRef };
-        if (isoCode && !existing?.isoCode) data.isoCode = isoCode;
-        const upd = await prisma.manufacturingCountry.update({
-          where: { id: linkToExistingId },
-          data,
-          select: { id: true, name: true },
-        });
-        return { id: upd.id, name: upd.name, created: false };
-      }
-      // Doublon PFS : si un pays du même nom existe déjà, on alias plutôt
-      // que de planter sur la contrainte unique de ManufacturingCountry.name
-      // (ou de pfsCountryRef/isoCode).
-      const existingCountryByName = await prisma.manufacturingCountry.findFirst({
-        where: { name: label },
-        select: { id: true, name: true, pfsCountryRef: true, isoCode: true },
-      });
-      if (existingCountryByName) {
-        const data: { pfsCountryRef?: string; isoCode?: string } = {};
-        if (!existingCountryByName.pfsCountryRef) data.pfsCountryRef = pfsRef;
-        if (isoCode && !existingCountryByName.isoCode) data.isoCode = isoCode;
-        if (Object.keys(data).length > 0) {
-          await prisma.manufacturingCountry.update({
-            where: { id: existingCountryByName.id },
-            data,
-          });
-        } else if (
-          existingCountryByName.pfsCountryRef &&
-          existingCountryByName.pfsCountryRef !== pfsRef
-        ) {
-          logger.warn("[PFS Import] Doublon PFS pays — alias silencieux", {
-            countryId: existingCountryByName.id,
-            countryName: existingCountryByName.name,
-            keptPfsCountryRef: existingCountryByName.pfsCountryRef,
-            ignoredPfsCountryRef: pfsRef,
-          });
-        }
-        return { id: existingCountryByName.id, name: existingCountryByName.name, created: false };
-      }
-      // `pfsRef` est le libellé FR du pays (ex: "Chine"), pas le code ISO.
-      // Le code ISO ("CN") est passé séparément via `input.isoCode` et
-      // enregistré directement, évitant à l'admin de le saisir à la main.
-      const created = await prisma.manufacturingCountry.create({
-        data: { name: label, pfsCountryRef: pfsRef, isoCode },
-        select: { id: true, name: true },
-      });
-      if (enLabel) {
-        await prisma.manufacturingCountryTranslation.upsert({
-          where: { manufacturingCountryId_locale: { manufacturingCountryId: created.id, locale: "en" } },
-          update: { name: enLabel },
-          create: { manufacturingCountryId: created.id, locale: "en", name: enLabel },
-        });
-      } else {
-        autoTranslateManufacturingCountry(created.id, created.name);
-      }
-      return { id: created.id, name: created.name, created: true };
-    }
+    // Pays : plus géré ici depuis 2026-07-21. La résolution PFS ↔ ISO se fait
+    // via `getCountryByPfsRef`/`getCountryByIso` (lib/countries.ts) au callsite.
 
     case "season": {
       if (linkToExistingId) {
@@ -1358,7 +1291,7 @@ export async function approveAndImportPfsProduct(
   const [
     primaryCategory,
     nameFallbackCategory,
-    countryRow,
+    _countryRow,
     seasonRow,
     compositionRows,
   ] = await Promise.all([
@@ -1374,12 +1307,9 @@ export async function approveAndImportPfsProduct(
           select: { id: true, name: true },
         })
       : Promise.resolve(null),
-    ctryLabelFr
-      ? prisma.manufacturingCountry.findFirst({
-          where: { pfsCountryRef: ctryLabelFr },
-          select: { id: true },
-        })
-      : Promise.resolve(null),
+    // Pays : plus de lookup BDD depuis 2026-07-21 — mapping figé côté
+     // lib/countries.ts. Résolu inline plus bas.
+    Promise.resolve(null),
     seasonRef
       ? prisma.season.findFirst({
           where: { pfsRef: seasonRef },
@@ -1442,21 +1372,22 @@ export async function approveAndImportPfsProduct(
     );
   }
 
-  let manufacturingCountryId: string | null = null;
-  if (ctryLabelFr) {
-    if (countryRow) {
-      manufacturingCountryId = countryRow.id;
+  // Résolution du pays de fabrication : d'abord par libellé PFS (« Chine »),
+  // sinon par code ISO renvoyé par PFS. Si inconnu, on log un warning et on
+  // laisse le produit sans pays — la cliente ajoute le pays dans
+  // `lib/countries.ts` si besoin.
+  let countryIsoCode: string | null = null;
+  if (ctryLabelFr || ctryCode) {
+    const byRef = ctryLabelFr ? getCountryByPfsRef(ctryLabelFr) : null;
+    const byIso = ctryCode ? getCountryByIso(ctryCode) : null;
+    const resolved = byRef ?? byIso;
+    if (resolved) {
+      countryIsoCode = resolved.code;
     } else {
-      const isoCode = ctryCode ? ctryCode.trim().toUpperCase() || null : null;
-      const ctryEnLabel = countryLabelEn(ctryCode);
-      const createdCountry = await createOrLinkMapping({
-        type: "country",
-        pfsRef: ctryLabelFr,
-        label: ctryLabelFr,
-        enLabel: ctryEnLabel,
-        isoCode,
+      logger.warn("[PFS Import] Pays inconnu dans lib/countries.ts", {
+        pfsCountryRef: ctryLabelFr,
+        isoFromPfs: ctryCode,
       });
-      manufacturingCountryId = createdCountry.id;
     }
   }
 
@@ -1653,7 +1584,7 @@ export async function approveAndImportPfsProduct(
           categoryId: category.id,
           status: finalStatus,
           isIncomplete: false,
-          manufacturingCountryId,
+          countryIsoCode,
           seasonId,
           pfsProductId: product.id,
           // Chaque produit PFS connaît sa marque — on la stocke pour

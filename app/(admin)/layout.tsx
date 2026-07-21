@@ -18,8 +18,14 @@ import { RefreshWarningProvider } from "@/components/admin/products/RecentlyRefr
 import { IneligibleRefreshProvider } from "@/components/admin/products/IneligibleRefreshModal";
 import { RefreshMarketplacePromptProvider } from "@/components/admin/products/RefreshMarketplaceDialog";
 import { AdminWidgetsRail } from "@/components/admin/widgets-rail";
-import PfsImportPill from "@/components/admin/orders/pfs/PfsImportPill";
+import { MarketplaceMaintenanceProvider } from "@/components/admin/products/MarketplaceMaintenanceContext";
 import { getCachedSiteConfig, getCachedPfsCredentials } from "@/lib/cached-data";
+import { getCurrentTenant } from "@/lib/tenant";
+import { getMarketplaceMaintenance } from "@/lib/platform-config";
+
+/** Slugs du tenant "maître" — voit l'entrée "Contrôle plateforme" dans la sidebar.
+ *  Prod = "beliandjolie", dev-local = "beli-jolie". */
+const PLATFORM_ADMIN_TENANT_SLUGS = new Set(["beliandjolie", "beli-jolie"]);
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -55,13 +61,19 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     pfsCreds,
     autoTranslateConfig,
     unmapped,
+    currentTenant,
+    maintenance,
   ] = await Promise.all([
     getCachedShopName(),
     getCachedAdminWarnings(),
     getCachedPfsCredentials(),
     getCachedSiteConfig("auto_translate_enabled"),
     getCachedUnmappedAttributes(),
+    getCurrentTenant(),
+    getMarketplaceMaintenance(),
   ]);
+
+  const isPlatformAdmin = !!currentTenant && PLATFORM_ADMIN_TENANT_SLUGS.has(currentTenant.slug);
 
   const {
     untranslatedCount,
@@ -86,7 +98,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     ["/admin/compositions", "compositions", "Ouvrir la page Compositions pour compléter les liens."],
     ["/admin/saisons", "seasons", "Ouvrir la page Saisons pour compléter les liens."],
     ["/admin/tailles", "sizes", "Ouvrir la page Tailles pour compléter les liens."],
-    ["/admin/pays", "countries", "Ouvrir la page Pays d'origine pour compléter les liens."],
     ["/admin/codes-sh", "shCodes", "Ouvrir la page Codes SH pour compléter les liens."],
   ];
   for (const [href, kind, hint] of subEntries) {
@@ -114,6 +125,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <DeeplConfigProvider enabled={translationEnabled} autoTranslateEnabled={autoTranslateEnabled}>
+    <MarketplaceMaintenanceProvider value={maintenance}>
     <MarketplaceRefreshProvider>
     <EfashionShootingBatchProvider>
     <RefreshWarningProvider>
@@ -128,6 +140,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         initials={initials}
         warnings={warningCounts}
         pendingOrdersCount={pendingOrdersCount}
+        isPlatformAdmin={isPlatformAdmin}
       >
         <AdminMobileNav
           userName={session.user.name ?? "Admin"}
@@ -141,6 +154,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             "/admin/commandes": pendingOrdersCount,
           }}
           shopName={shopName}
+          isPlatformAdmin={isPlatformAdmin}
         />
 
         <main className="flex-1 p-4 md:p-6 lg:p-8 lg:my-5 lg:mr-5 lg:rounded-[22px] lg:bg-white lg:border lg:border-zinc-200 lg:shadow-[0_20px_40px_-20px_rgba(9,9,11,0.15),0_6px_16px_-8px_rgba(9,9,11,0.06)] lg:min-h-[calc(100vh-40px)]">
@@ -149,7 +163,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </AdminDesktopShell>
 
       <AdminChatWidgetLoader />
-      <PfsImportPill />
     </div>
     </AdminWidgetsRail>
     </RefreshMarketplacePromptProvider>
@@ -157,6 +170,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     </RefreshWarningProvider>
     </EfashionShootingBatchProvider>
     </MarketplaceRefreshProvider>
+    </MarketplaceMaintenanceProvider>
     </DeeplConfigProvider>
   );
 }

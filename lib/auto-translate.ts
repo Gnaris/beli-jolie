@@ -87,13 +87,6 @@ async function autoTranslateEntity(entity: EntityTranslator) {
               create: { collectionId: entity.id, locale, name: val },
             });
             break;
-          case "manufacturing-country":
-            await prisma.manufacturingCountryTranslation.upsert({
-              where: { manufacturingCountryId_locale: { manufacturingCountryId: entity.id, locale } },
-              update: { name: val },
-              create: { manufacturingCountryId: entity.id, locale, name: val },
-            });
-            break;
           case "season":
             await prisma.seasonTranslation.upsert({
               where: { seasonId_locale: { seasonId: entity.id, locale } },
@@ -138,10 +131,6 @@ export function autoTranslateSubCategory(id: string, name: string, skipLocales?:
 
 export function autoTranslateCollection(id: string, name: string, skipLocales?: string[]) {
   return autoTranslateEntity({ table: "collection", idField: "collectionId", id, name, skipLocales }).catch(() => {});
-}
-
-export function autoTranslateManufacturingCountry(id: string, name: string, skipLocales?: string[]) {
-  return autoTranslateEntity({ table: "manufacturing-country", idField: "manufacturingCountryId", id, name, skipLocales }).catch(() => {});
 }
 
 export function autoTranslateSeason(id: string, name: string, skipLocales?: string[]) {

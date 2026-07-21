@@ -27,6 +27,7 @@ import {
 import { getImagePaths } from "@/lib/image-utils";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { normalizePrimaryFlag } from "@/lib/normalize-primary-flag";
+import { getCountryByIso, listManufacturingCountries } from "@/lib/countries";
 import { anyVariantHasImage } from "@/lib/variant-image-coverage";
 import { resolvePrimaryColorId, listAvailableColorIds } from "@/lib/product-primary-color";
 import {
@@ -217,7 +218,7 @@ export interface ProductInput {
   dimensionDiameter: number | null;
   dimensionCircumference: number | null;
   hsCodeId?: string | null;
-  manufacturingCountryId?: string | null;
+  countryIsoCode?: string | null;
   seasonId?: string | null;
   /** Note interne admin. Jamais exposée sur le site ni marketplaces. */
   note?: string | null;
@@ -439,10 +440,9 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   const categoryExists = await prisma.category.findUnique({ where: { id: input.categoryId }, select: { id: true } });
   if (!categoryExists) throw new Error("La catégorie sélectionnée n'existe plus. Rechargez la page.");
 
-  // Vérifier les FK optionnelles
-  if (input.manufacturingCountryId) {
-    const countryExists = await prisma.manufacturingCountry.findUnique({ where: { id: input.manufacturingCountryId }, select: { id: true } });
-    if (!countryExists) throw new Error("Le pays de fabrication sélectionné n'existe plus. Rechargez la page.");
+  // Vérifier le pays de fabrication (ISO alpha-2 dans lib/countries.ts)
+  if (input.countryIsoCode && !getCountryByIso(input.countryIsoCode)) {
+    throw new Error("Le pays de fabrication sélectionné n'existe pas.");
   }
   if (input.seasonId) {
     const seasonExists = await prisma.season.findUnique({ where: { id: input.seasonId }, select: { id: true } });
@@ -499,7 +499,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       dimensionDiameter:     input.dimensionDiameter,
       dimensionCircumference: input.dimensionCircumference,
       hsCodeId: input.hsCodeId || null,
-      manufacturingCountryId: input.manufacturingCountryId || null,
+      countryIsoCode: input.countryIsoCode || null,
       seasonId: input.seasonId || null,
       discountPercent: input.discountPercent,
       sizeDetailsTu: input.sizeDetailsTu?.trim() || null,
@@ -740,7 +740,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       description: true,
       note: true,
       categoryId: true,
-      manufacturingCountryId: true,
+      countryIsoCode: true,
       seasonId: true,
       dimensionLength: true,
       dimensionWidth: true,
@@ -770,10 +770,9 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   const categoryExists = await prisma.category.findUnique({ where: { id: input.categoryId }, select: { id: true } });
   if (!categoryExists) throw new Error("La catégorie sélectionnée n'existe plus. Rechargez la page.");
 
-  // Vérifier les FK optionnelles
-  if (input.manufacturingCountryId) {
-    const countryExists = await prisma.manufacturingCountry.findUnique({ where: { id: input.manufacturingCountryId }, select: { id: true } });
-    if (!countryExists) throw new Error("Le pays de fabrication sélectionné n'existe plus. Rechargez la page.");
+  // Vérifier le pays de fabrication (ISO alpha-2 dans lib/countries.ts)
+  if (input.countryIsoCode && !getCountryByIso(input.countryIsoCode)) {
+    throw new Error("Le pays de fabrication sélectionné n'existe pas.");
   }
   if (input.seasonId) {
     const seasonExists = await prisma.season.findUnique({ where: { id: input.seasonId }, select: { id: true } });
@@ -884,7 +883,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
         dimensionDiameter:     input.dimensionDiameter,
         dimensionCircumference: input.dimensionCircumference,
         hsCodeId: input.hsCodeId || null,
-        manufacturingCountryId: input.manufacturingCountryId || null,
+        countryIsoCode: input.countryIsoCode || null,
         seasonId: input.seasonId || null,
         discountPercent: input.discountPercent,
         sizeDetailsTu: input.sizeDetailsTu?.trim() || null,
@@ -1435,7 +1434,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       oldProduct.status !== effectiveStatus ||
       oldProduct.isBestSeller !== input.isBestSeller ||
       oldProduct.categoryId !== input.categoryId ||
-      oldProduct.manufacturingCountryId !== (input.manufacturingCountryId || null) ||
+      oldProduct.countryIsoCode !== (input.countryIsoCode || null) ||
       oldProduct.seasonId !== (input.seasonId || null) ||
       oldProduct.reference !== newRefUpper ||
       // Changement de couleur principale : impacte les marketplaces qui exposent
@@ -2048,8 +2047,8 @@ export interface BulkProductAttributesInput {
   subCategoryIds?: string[];
   /** null = retire le code SH du produit. */
   hsCodeId?: string | null;
-  /** null = retire le pays de fabrication. */
-  manufacturingCountryId?: string | null;
+  /** null = retire le pays de fabrication. Code ISO alpha-2 (ex: "CN"). */
+  countryIsoCode?: string | null;
   /** null = retire la saison. */
   seasonId?: string | null;
   isBestSeller?: boolean;
@@ -2070,7 +2069,7 @@ export async function bulkUpdateProductAttributes(
     input.categoryId !== undefined ||
     input.subCategoryIds !== undefined ||
     input.hsCodeId !== undefined ||
-    input.manufacturingCountryId !== undefined ||
+    input.countryIsoCode !== undefined ||
     input.seasonId !== undefined ||
     input.isBestSeller !== undefined ||
     input.compositions !== undefined;
@@ -2098,9 +2097,8 @@ export async function bulkUpdateProductAttributes(
     const h = await prisma.hsCode.findUnique({ where: { id: input.hsCodeId }, select: { id: true } });
     if (!h) throw new Error("Le code SH sélectionné n'existe plus. Rechargez la page.");
   }
-  if (input.manufacturingCountryId) {
-    const c = await prisma.manufacturingCountry.findUnique({ where: { id: input.manufacturingCountryId }, select: { id: true } });
-    if (!c) throw new Error("Le pays de fabrication sélectionné n'existe plus. Rechargez la page.");
+  if (input.countryIsoCode && !getCountryByIso(input.countryIsoCode)) {
+    throw new Error("Le pays de fabrication sélectionné n'existe pas.");
   }
   if (input.seasonId) {
     const s = await prisma.season.findUnique({ where: { id: input.seasonId }, select: { id: true } });
@@ -2123,10 +2121,18 @@ export async function bulkUpdateProductAttributes(
     }
   }
 
-  // Charger les produits existants
+  // Charger les produits existants (avec IDs marketplaces pour poser les flags syncRequired).
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
-    select: { id: true, reference: true, categoryId: true },
+    select: {
+      id: true,
+      reference: true,
+      categoryId: true,
+      pfsProductId: true,
+      ankorsProductId: true,
+      efashionReferenceBase: true,
+      faireProductId: true,
+    },
   });
   if (products.length === 0) throw new Error("Aucun produit trouvé.");
 
@@ -2138,7 +2144,7 @@ export async function bulkUpdateProductAttributes(
   const scalarData: Record<string, unknown> = {};
   if (input.categoryId !== undefined) scalarData.categoryId = input.categoryId;
   if (input.hsCodeId !== undefined) scalarData.hsCodeId = input.hsCodeId;
-  if (input.manufacturingCountryId !== undefined) scalarData.manufacturingCountryId = input.manufacturingCountryId;
+  if (input.countryIsoCode !== undefined) scalarData.countryIsoCode = input.countryIsoCode;
   if (input.seasonId !== undefined) scalarData.seasonId = input.seasonId;
   if (input.isBestSeller !== undefined) scalarData.isBestSeller = input.isBestSeller;
 
@@ -2160,10 +2166,21 @@ export async function bulkUpdateProductAttributes(
         const needsResetMicrostoreSub =
           needsResetSubCats || input.subCategoryIds !== undefined;
 
+        // Marketplaces liées → flag « Synchro nécessaire » systématique. Ainsi,
+        // si la cliente annule la modale de propagation qui suit ou décoche
+        // une marketplace (y compris en maintenance), le badge orange lui
+        // rappellera la modif en attente.
+        const syncFlags: Record<string, boolean> = {};
+        if (p.pfsProductId) syncFlags.pfsSyncRequired = true;
+        if (p.ankorsProductId) syncFlags.ankorsSyncRequired = true;
+        if (p.efashionReferenceBase) syncFlags.efashionSyncRequired = true;
+        if (p.faireProductId) syncFlags.faireSyncRequired = true;
+
         await tx.product.update({
           where: { id: p.id },
           data: {
             ...scalarData,
+            ...syncFlags,
             ...(input.subCategoryIds !== undefined && {
               subCategories: { set: input.subCategoryIds.map((id) => ({ id })) },
             }),
@@ -2422,6 +2439,34 @@ export async function updateVariantQuick(
     if (result.archived) {
       archivedFromOnline = result.previousStatus === "ONLINE";
       revalidateTag("products", "default");
+    }
+  }
+
+  // Toute modif prix/stock/poids/packQty pose un badge orange « Synchro nécessaire »
+  // sur les marketplaces liées. Si la cliente annule / décoche la modale de
+  // propagation (ou si la marketplace est en maintenance plateforme), le flag
+  // reste posé et le badge orange l'invite à pousser plus tard. Symétrique à
+  // updateProduct qui fait la même chose sur les champs clés.
+  const productForFlags = await prisma.product.findUnique({
+    where: { id: variant.productId },
+    select: {
+      pfsProductId: true,
+      ankorsProductId: true,
+      efashionReferenceBase: true,
+      faireProductId: true,
+    },
+  });
+  if (productForFlags) {
+    const flagsData: Prisma.ProductUpdateInput = {};
+    if (productForFlags.pfsProductId) flagsData.pfsSyncRequired = true;
+    if (productForFlags.ankorsProductId) flagsData.ankorsSyncRequired = true;
+    if (productForFlags.efashionReferenceBase) flagsData.efashionSyncRequired = true;
+    if (productForFlags.faireProductId) flagsData.faireSyncRequired = true;
+    if (Object.keys(flagsData).length > 0) {
+      await prisma.product.update({
+        where: { id: variant.productId },
+        data: flagsData,
+      });
     }
   }
 
@@ -2844,7 +2889,6 @@ export async function revalidateAfterImport() {
   revalidateTag("colors", "default");
   revalidateTag("tags", "default");
   revalidateTag("compositions", "default");
-  revalidateTag("manufacturing-countries", "default");
   revalidateTag("seasons", "default");
   revalidateTag("sizes", "default");
 }
@@ -2854,7 +2898,7 @@ export async function revalidateAfterImport() {
  */
 export async function fetchProductFormAttributes() {
   await requireAdmin();
-  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes, annexes, hsCodes] = await Promise.all([
+  const [categories, colors, compositions, tags, seasons, sizes, annexes, hsCodes] = await Promise.all([
     prisma.category.findMany({
       orderBy: { name: "asc" },
       include: { subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true, slug: true } } },
@@ -2865,10 +2909,6 @@ export async function fetchProductFormAttributes() {
     }),
     prisma.composition.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.manufacturingCountry.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, isoCode: true },
-    }),
     prisma.season.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.size.findMany({
       orderBy: { position: "asc" },
@@ -2894,7 +2934,11 @@ export async function fetchProductFormAttributes() {
     })),
     compositions,
     tags,
-    manufacturingCountries,
+    manufacturingCountries: listManufacturingCountries().map((c) => ({
+      id: c.code,
+      name: c.name,
+      isoCode: c.code,
+    })),
     seasons,
     sizes: withProtectedSize(sizes.map((s) => ({ id: s.id, name: s.name }))),
     pfsSizes,

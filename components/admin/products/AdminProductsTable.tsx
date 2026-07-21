@@ -17,6 +17,7 @@ import {
 } from "@/app/actions/admin/products";
 import { bulkAddProductsToCollection } from "@/app/actions/admin/collections";
 import { deleteProductsOnPfs, deleteProductsOnAnkorstore, deleteProductsOnEfashion, deleteProductsOnFaire } from "@/app/actions/admin/marketplace-delete";
+import { clearSyncRequiredFlag } from "@/app/actions/admin/marketplace-sync-flags";
 import { bulkAddToEfashionShootingBatch } from "@/app/actions/admin/efashion-shooting-batch";
 import BulkEditAttributesModal, { type BulkEditOptions, type BulkEditPayload } from "@/components/admin/products/BulkEditAttributesModal";
 import BulkTagsModal, { type BulkTagsOption } from "@/components/admin/products/BulkTagsModal";
@@ -40,11 +41,14 @@ import { useMarketplaceRefreshQueue } from "@/components/admin/products/Marketpl
 import { useEfashionShootingBatch } from "@/components/admin/products/EfashionShootingBatchContext";
 import { useFilterPending } from "@/components/admin/products/FilterPendingContext";
 import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
+import { useMarketplaceMaintenance } from "@/components/admin/products/MarketplaceMaintenanceContext";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import { formatRelativeDate } from "@/lib/format-date";
 import { MarketplacePushModal } from "@/components/admin/products/MarketplacePushModal";
 import BulkActionBar, { type MarketplaceKey } from "@/components/admin/products/BulkActionBar";
+import PfsVerifyBadge, { type PfsVerifyIssue } from "@/components/admin/products/PfsVerifyBadge";
+import { verifyPfsProducts } from "@/app/actions/admin/pfs-verify";
 
 const MARKETPLACE_LABEL: Record<MarketplaceKey, string> = {
   pfs: "Paris Fashion Shop",
@@ -264,9 +268,20 @@ export function computeSelectedDraftIds<
 
 // ─── Marketplace publish badge ─────────────────────────────────────────────────
 
-function DisabledMarketplaceBadge({ label }: { label: string }) {
+function DisabledMarketplaceBadge({
+  label,
+  reason = "product",
+}: {
+  label: string;
+  /** "maintenance" = coupure plateforme, "product" = case décochée par la cliente. */
+  reason?: "product" | "maintenance";
+}) {
+  const tooltip =
+    reason === "maintenance"
+      ? `${label} · en maintenance sur la plateforme`
+      : `${label} · désactivée pour ce produit`;
   return (
-    <Tooltip content={`${label} · désactivée pour ce produit`}>
+    <Tooltip content={tooltip}>
       <span
         className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold text-text-muted border border-border-dark cursor-not-allowed"
         style={{
@@ -282,6 +297,29 @@ function DisabledMarketplaceBadge({ label }: { label: string }) {
   );
 }
 
+// Petite croix affichée en haut à droite d'un badge orange « Synchro nécessaire ».
+// Un clic annule la synchro (le drapeau syncRequired est effacé, aucun envoi
+// n'est fait vers la marketplace). Le parent est responsable de la confirmation
+// et du toast — ici, on ne fait qu'appeler la callback.
+function SyncCancelCross({ onClick, marketplaceLabel }: { onClick: () => void; marketplaceLabel: string }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-[#B45309] border border-[#FED7AA] shadow-sm flex items-center justify-center hover:bg-[#FED7AA] hover:text-[#78350F] transition-colors z-10"
+      title={`Ignorer cette synchronisation ${marketplaceLabel} (le badge orange disparaîtra et le produit repassera en état « en ligne » sans rien envoyer)`}
+      aria-label={`Ignorer la synchronisation ${marketplaceLabel}`}
+    >
+      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+  );
+}
+
 function MarketplaceBadge({
   published,
   publishing = false,
@@ -289,7 +327,9 @@ function MarketplaceBadge({
   lastExportedAt = null,
   onActionClick,
   onSyncClick,
+  onCancelSyncRequired,
   disabledForProduct = false,
+  disabledReason,
 }: {
   published: boolean;
   publishing?: boolean;
@@ -298,9 +338,11 @@ function MarketplaceBadge({
   /** Ouvre la modale Publier/Lier (le parent gère ensuite les actions). */
   onActionClick?: () => void;
   onSyncClick?: () => void;
+  onCancelSyncRequired?: () => void;
   disabledForProduct?: boolean;
+  disabledReason?: "product" | "maintenance";
 }) {
-  if (disabledForProduct) return <DisabledMarketplaceBadge label="PFS" />;
+  if (disabledForProduct) return <DisabledMarketplaceBadge label="PFS" reason={disabledReason} />;
   if (publishing) {
     return (
       <span
@@ -323,21 +365,26 @@ function MarketplaceBadge({
   }
   if (published && syncRequired) {
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onSyncClick?.();
-        }}
-        className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
-        title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Paris Fashion Shop"
-      >
-        <span className="relative inline-flex">
-          <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
-          <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
-        </span>
-        PFS
-      </button>
+      <span className="relative inline-flex">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSyncClick?.();
+          }}
+          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+          title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Paris Fashion Shop"
+        >
+          <span className="relative inline-flex">
+            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
+            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+          </span>
+          PFS
+        </button>
+        {onCancelSyncRequired && (
+          <SyncCancelCross onClick={onCancelSyncRequired} marketplaceLabel="Paris Fashion Shop" />
+        )}
+      </span>
     );
   }
   if (published) {
@@ -379,7 +426,9 @@ function AnkorstoreBadge({
   lastExportedAt = null,
   onActionClick,
   onSyncClick,
+  onCancelSyncRequired,
   disabledForProduct = false,
+  disabledReason,
 }: {
   published: boolean;
   publishing?: boolean;
@@ -387,9 +436,11 @@ function AnkorstoreBadge({
   lastExportedAt?: string | null;
   onActionClick?: () => void;
   onSyncClick?: () => void;
+  onCancelSyncRequired?: () => void;
   disabledForProduct?: boolean;
+  disabledReason?: "product" | "maintenance";
 }) {
-  if (disabledForProduct) return <DisabledMarketplaceBadge label="ANKOR" />;
+  if (disabledForProduct) return <DisabledMarketplaceBadge label="ANKOR" reason={disabledReason} />;
   if (publishing) {
     return (
       <span
@@ -412,21 +463,26 @@ function AnkorstoreBadge({
   }
   if (published && syncRequired) {
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onSyncClick?.();
-        }}
-        className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
-        title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Ankorstore"
-      >
-        <span className="relative inline-flex">
-          <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
-          <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
-        </span>
-        ANKOR
-      </button>
+      <span className="relative inline-flex">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSyncClick?.();
+          }}
+          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+          title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Ankorstore"
+        >
+          <span className="relative inline-flex">
+            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
+            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+          </span>
+          ANKOR
+        </button>
+        {onCancelSyncRequired && (
+          <SyncCancelCross onClick={onCancelSyncRequired} marketplaceLabel="Ankorstore" />
+        )}
+      </span>
     );
   }
   if (published) {
@@ -468,7 +524,9 @@ function EfashionBadge({
   lastExportedAt = null,
   onActionClick,
   onSyncClick,
+  onCancelSyncRequired,
   disabledForProduct = false,
+  disabledReason,
 }: {
   linked: boolean;
   publishing?: boolean;
@@ -476,9 +534,11 @@ function EfashionBadge({
   lastExportedAt?: string | null;
   onActionClick?: () => void;
   onSyncClick?: () => void;
+  onCancelSyncRequired?: () => void;
   disabledForProduct?: boolean;
+  disabledReason?: "product" | "maintenance";
 }) {
-  if (disabledForProduct) return <DisabledMarketplaceBadge label="EF" />;
+  if (disabledForProduct) return <DisabledMarketplaceBadge label="EF" reason={disabledReason} />;
   if (publishing) {
     return (
       <span
@@ -501,21 +561,26 @@ function EfashionBadge({
   }
   if (linked && syncRequired) {
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onSyncClick?.();
-        }}
-        className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
-        title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à eFashion Paris"
-      >
-        <span className="relative inline-flex">
-          <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
-          <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
-        </span>
-        EF
-      </button>
+      <span className="relative inline-flex">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSyncClick?.();
+          }}
+          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+          title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à eFashion Paris"
+        >
+          <span className="relative inline-flex">
+            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
+            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+          </span>
+          EF
+        </button>
+        {onCancelSyncRequired && (
+          <SyncCancelCross onClick={onCancelSyncRequired} marketplaceLabel="eFashion Paris" />
+        )}
+      </span>
     );
   }
   if (linked) {
@@ -557,7 +622,9 @@ function FaireBadge({
   lastExportedAt = null,
   onActionClick,
   onSyncClick,
+  onCancelSyncRequired,
   disabledForProduct = false,
+  disabledReason,
 }: {
   published: boolean;
   publishing?: boolean;
@@ -565,9 +632,11 @@ function FaireBadge({
   lastExportedAt?: string | null;
   onActionClick?: () => void;
   onSyncClick?: () => void;
+  onCancelSyncRequired?: () => void;
   disabledForProduct?: boolean;
+  disabledReason?: "product" | "maintenance";
 }) {
-  if (disabledForProduct) return <DisabledMarketplaceBadge label="Faire" />;
+  if (disabledForProduct) return <DisabledMarketplaceBadge label="Faire" reason={disabledReason} />;
   if (publishing) {
     return (
       <span
@@ -590,21 +659,26 @@ function FaireBadge({
   }
   if (published && syncRequired) {
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onSyncClick?.();
-        }}
-        className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
-        title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Faire"
-      >
-        <span className="relative inline-flex">
-          <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
-          <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
-        </span>
-        Faire
-      </button>
+      <span className="relative inline-flex">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSyncClick?.();
+          }}
+          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+          title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Faire"
+        >
+          <span className="relative inline-flex">
+            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
+            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+          </span>
+          Faire
+        </button>
+        {onCancelSyncRequired && (
+          <SyncCancelCross onClick={onCancelSyncRequired} marketplaceLabel="Faire" />
+        )}
+      </span>
     );
   }
   if (published) {
@@ -761,6 +835,11 @@ interface AdminProduct {
   microstoreLastExportedAt: string | null;
   ankorstoreLastExportedAt: string | null;
   faireLastExportedAt: string | null;
+  /** Résultat de la dernière vérification PFS (lib/pfs-verify.ts). Alimente
+   *  la pastille affichée à côté du nom du produit dans la colonne Produit. */
+  pfsCheckedAt: string | null;
+  pfsCheckStatus: "ok" | "diff" | null;
+  pfsCheckIssues: unknown | null; // typé côté PfsVerifyBadge (PfsVerifyIssue[])
   colors: ColorVariant[];
   translations: ProductTranslation[];
 }
@@ -1470,6 +1549,7 @@ function ActionsDropdown({
   // restent dans la signature pour compat amont — on évite l'avertissement.
   void expanded;
   void onExpandToggle;
+  const maintenance = useMarketplaceMaintenance();
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
@@ -1614,44 +1694,64 @@ function ActionsDropdown({
         <button
           type="button"
           onClick={onPublishPfs}
-          disabled={pfsPublishing}
-          className={`${itemClass} ${pfsPublishing ? "opacity-50 cursor-wait" : ""}`}
+          disabled={pfsPublishing || maintenance.pfs}
+          title={maintenance.pfs ? "Paris Fashion Shop en maintenance sur la plateforme" : undefined}
+          className={`${itemClass} ${pfsPublishing || maintenance.pfs ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           <span className={iconWrap}>+</span>
-          {pfsPublishing ? "Publication PFS en cours…" : "Publier sur Paris Fashion Shop"}
+          {pfsPublishing
+            ? "Publication PFS en cours…"
+            : maintenance.pfs
+              ? "Publier sur Paris Fashion Shop — en maintenance"
+              : "Publier sur Paris Fashion Shop"}
         </button>
       )}
       {eligibility.canPublishEfashion && (
         <button
           type="button"
           onClick={onPublishEfashion}
-          disabled={efashionPublishing}
-          className={`${itemClass} ${efashionPublishing ? "opacity-50 cursor-wait" : ""}`}
+          disabled={efashionPublishing || maintenance.efashion}
+          title={maintenance.efashion ? "eFashion Paris en maintenance sur la plateforme" : undefined}
+          className={`${itemClass} ${efashionPublishing || maintenance.efashion ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           <span className={iconWrap}>+</span>
-          {efashionPublishing ? "Publication eFashion en cours…" : "Publier sur eFashion"}
+          {efashionPublishing
+            ? "Publication eFashion en cours…"
+            : maintenance.efashion
+              ? "Publier sur eFashion — en maintenance"
+              : "Publier sur eFashion"}
         </button>
       )}
       {eligibility.canPublishAnkorstore && (
         <button
           type="button"
           onClick={onPublishAnkorstore}
-          disabled={ankorstorePublishing}
-          className={`${itemClass} ${ankorstorePublishing ? "opacity-50 cursor-wait" : ""}`}
+          disabled={ankorstorePublishing || maintenance.ankorstore}
+          title={maintenance.ankorstore ? "Ankorstore en maintenance sur la plateforme" : undefined}
+          className={`${itemClass} ${ankorstorePublishing || maintenance.ankorstore ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           <span className={iconWrap}>+</span>
-          {ankorstorePublishing ? "Publication Ankorstore en cours…" : "Publier sur Ankorstore"}
+          {ankorstorePublishing
+            ? "Publication Ankorstore en cours…"
+            : maintenance.ankorstore
+              ? "Publier sur Ankorstore — en maintenance"
+              : "Publier sur Ankorstore"}
         </button>
       )}
       {eligibility.canPublishFaire && (
         <button
           type="button"
           onClick={onPublishFaire}
-          disabled={fairePublishing}
-          className={`${itemClass} ${fairePublishing ? "opacity-50 cursor-wait" : ""}`}
+          disabled={fairePublishing || maintenance.faire}
+          title={maintenance.faire ? "Faire en maintenance sur la plateforme" : undefined}
+          className={`${itemClass} ${fairePublishing || maintenance.faire ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           <span className={iconWrap}>+</span>
-          {fairePublishing ? "Publication Faire en cours…" : "Publier sur Faire"}
+          {fairePublishing
+            ? "Publication Faire en cours…"
+            : maintenance.faire
+              ? "Publier sur Faire — en maintenance"
+              : "Publier sur Faire"}
         </button>
       )}
 
@@ -1885,17 +1985,19 @@ function ProductRow({
   //  - showXxx : rendre le badge (même barré si le kill switch global est OFF)
   //  - xxxOperational : autoriser une action (publier, resync). Un kill switch
   //    OFF côté Paramètres coupe l'action mais laisse le badge visible barré.
+  const maintenance = useMarketplaceMaintenance();
   const showAnkorstore = hasAnkorstoreConfig;
   const showEfashion = hasEfashionConfig;
   const showFaire = hasFaireConfig;
-  const ankorstoreOperational = hasAnkorstoreConfig && ankorstoreEnabled;
-  const efashionOperational = hasEfashionConfig && efashionEnabled;
-  const faireOperational = hasFaireConfig && faireEnabled;
-  const pfsOperational = hasPfsConfig && pfsGloballyEnabled;
-  const pfsDisabledOverall = !product.pfsEnabled || !pfsGloballyEnabled;
-  const ankorsDisabledOverall = !product.ankorsEnabled || !ankorstoreEnabled;
-  const efashionDisabledOverall = !product.efashionEnabled || !efashionEnabled;
-  const faireDisabledOverall = !product.faireEnabled || !faireEnabled;
+  // Maintenance plateforme = coupe l'opérationnalité, même si le kill switch tenant est ON.
+  const ankorstoreOperational = hasAnkorstoreConfig && ankorstoreEnabled && !maintenance.ankorstore;
+  const efashionOperational = hasEfashionConfig && efashionEnabled && !maintenance.efashion;
+  const faireOperational = hasFaireConfig && faireEnabled && !maintenance.faire;
+  const pfsOperational = hasPfsConfig && pfsGloballyEnabled && !maintenance.pfs;
+  const pfsDisabledOverall = maintenance.pfs || !product.pfsEnabled || !pfsGloballyEnabled;
+  const ankorsDisabledOverall = maintenance.ankorstore || !product.ankorsEnabled || !ankorstoreEnabled;
+  const efashionDisabledOverall = maintenance.efashion || !product.efashionEnabled || !efashionEnabled;
+  const faireDisabledOverall = maintenance.faire || !product.faireEnabled || !faireEnabled;
   const efashionLinked = product.colors.some((c) => c.efashionProductId != null);
   const { refreshSingle } = useRefreshMarketplaceDialog({
     showPfs: pfsOperational,
@@ -2118,6 +2220,32 @@ function ProductRow({
     }]);
   }, [enqueue, product, isFairePublishing]);
 
+  // Croix « annuler la synchro » sur le badge orange. Confirmation modale puis
+  // reset du drapeau syncRequired : le produit repasse en vert « en ligne »
+  // sans qu'aucune modif ne soit envoyée à la marketplace.
+  const handleCancelSyncRequired = useCallback(
+    async (marketplace: "pfs" | "ankorstore" | "efashion" | "faire", marketplaceLabel: string) => {
+      const ok = await confirm({
+        type: "warning",
+        title: `Ignorer cette synchronisation ${marketplaceLabel} ?`,
+        message:
+          `Le badge orange disparaîtra et vos dernières modifications NE seront pas envoyées à ${marketplaceLabel}. ` +
+          `La fiche ${marketplaceLabel} restera dans son état précédent. Vous pourrez toujours synchroniser plus tard ` +
+          `en cliquant sur l'icône ↻ du produit.`,
+        confirmLabel: "Oui, ignorer",
+      });
+      if (!ok) return;
+      const res = await clearSyncRequiredFlag(product.id, marketplace);
+      if (res.success) {
+        toast.success("Synchronisation ignorée");
+        router.refresh();
+      } else {
+        toast.error("Impossible d'ignorer", res.error ?? "Erreur inconnue.");
+      }
+    },
+    [confirm, product.id, toast, router],
+  );
+
   // Toutes les couleurs uniques attribuées au produit (UNIT + PACK confondus).
   const uniqueColors = [...new Map(product.colors
     .filter((c) => c.colorId && c.color)
@@ -2219,6 +2347,16 @@ function ProductRow({
                     ⓘ
                   </span>
                 )}
+                {/* Pastille de vérification PFS — visible uniquement si le
+                    produit est lié à PFS. Reste discrète (5px), clique = vérif. */}
+                <PfsVerifyBadge
+                  productId={product.id}
+                  productName={product.name}
+                  pfsProductId={product.pfsProductId}
+                  pfsCheckedAt={product.pfsCheckedAt}
+                  pfsCheckStatus={product.pfsCheckStatus}
+                  pfsCheckIssues={product.pfsCheckIssues as PfsVerifyIssue[] | null}
+                />
               </div>
               <div className="flex items-center gap-1 mt-0.5 min-w-0">
                 <p className="font-mono text-[11px] text-text-muted truncate">{product.reference}</p>
@@ -2348,7 +2486,9 @@ function ProductRow({
                     : undefined
                 }
                 onSyncClick={handleSyncPfs}
+                onCancelSyncRequired={() => handleCancelSyncRequired("pfs", "Paris Fashion Shop")}
                 disabledForProduct={pfsDisabledOverall}
+                disabledReason={maintenance.pfs ? "maintenance" : "product"}
               />
               {showEfashion ? (
                 <EfashionBadge
@@ -2362,7 +2502,9 @@ function ProductRow({
                       : undefined
                   }
                   onSyncClick={handleSyncEfashion}
+                  onCancelSyncRequired={() => handleCancelSyncRequired("efashion", "eFashion Paris")}
                   disabledForProduct={efashionDisabledOverall}
+                  disabledReason={maintenance.efashion ? "maintenance" : "product"}
                 />
               ) : (
                 <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-secondary text-text-muted border border-border">
@@ -2380,7 +2522,9 @@ function ProductRow({
                     : undefined
                 }
                 onSyncClick={handleSyncAnkorstore}
+                onCancelSyncRequired={() => handleCancelSyncRequired("ankorstore", "Ankorstore")}
                 disabledForProduct={ankorsDisabledOverall}
+                disabledReason={maintenance.ankorstore ? "maintenance" : "product"}
               />
               {showFaire ? (
                 <FaireBadge
@@ -2394,7 +2538,9 @@ function ProductRow({
                       : undefined
                   }
                   onSyncClick={handleSyncFaire}
+                  onCancelSyncRequired={() => handleCancelSyncRequired("faire", "Faire")}
                   disabledForProduct={faireDisabledOverall}
+                  disabledReason={maintenance.faire ? "maintenance" : "product"}
                 />
               ) : (
                 <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-bg-secondary text-text-muted border border-border">
@@ -3114,31 +3260,52 @@ export default function AdminProductsTable({
         ]),
       );
       const firstName = affectedProducts[0]?.name;
-      const options = await askMarketplaceOptions({
-        count: affectedProducts.length,
-        firstProductName: firstName,
-        productIds: allProductIds,
-        showPfs: pfsProducts.length > 0,
-        showAnkorstore: ankorsProducts.length > 0,
-        showEfashion: efashionProducts.length > 0,
-        showFaire: faireProducts.length > 0,
-        // Propagation stock/prix/poids : pas de section "Boutique/Nouveauté"
-        // (elle ne concerne que le parcours Rafraîchir), et on pré-coche
-        // toutes les marketplaces liées — c'est ce que la cliente attend.
-        showBoutique: false,
-        defaultAllChecked: true,
-        title:
-          affectedProducts.length === 1
-            ? "Propager les modifications ?"
-            : `Propager les modifications à ${affectedProducts.length} produits ?`,
-        subtitle:
-          affectedProducts.length === 1 && firstName
-            ? `« ${firstName} » — cochez les marketplaces où renvoyer prix/stock/poids.`
-            : "Cochez les marketplaces où renvoyer prix/stock/poids.",
-        eyebrow: "Propagation",
-        confirmLabel: "Mettre à jour",
-      });
-      if (!options) return;
+      // Boucle : si la cliente annule la propagation, on lui confirme que
+      // les badges orange « Synchro nécessaire » suffisent. Si elle veut revenir
+      // au choix, on ré-ouvre la modale de propagation.
+      let options: Awaited<ReturnType<typeof askMarketplaceOptions>> = null;
+      while (true) {
+        options = await askMarketplaceOptions({
+          count: affectedProducts.length,
+          firstProductName: firstName,
+          productIds: allProductIds,
+          showPfs: pfsProducts.length > 0,
+          showAnkorstore: ankorsProducts.length > 0,
+          showEfashion: efashionProducts.length > 0,
+          showFaire: faireProducts.length > 0,
+          // Propagation stock/prix/poids : pas de section "Boutique/Nouveauté"
+          // (elle ne concerne que le parcours Rafraîchir), et on pré-coche
+          // toutes les marketplaces liées — c'est ce que la cliente attend.
+          showBoutique: false,
+          defaultAllChecked: true,
+          title:
+            affectedProducts.length === 1
+              ? "Propager les modifications ?"
+              : `Propager les modifications à ${affectedProducts.length} produits ?`,
+          subtitle:
+            affectedProducts.length === 1 && firstName
+              ? `« ${firstName} » — cochez les marketplaces où renvoyer prix/stock/poids.`
+              : "Cochez les marketplaces où renvoyer prix/stock/poids.",
+          eyebrow: "Propagation",
+          confirmLabel: "Mettre à jour",
+        });
+        if (options) break;
+        // Annulation : updateVariantQuick a déjà posé pfsSyncRequired /
+        // ankorsSyncRequired / efashionSyncRequired / faireSyncRequired sur
+        // les marketplaces liées → badge orange automatique. On l'explique
+        // à la cliente et on lui laisse la porte pour revenir au choix.
+        const keepPending = await confirm({
+          type: "info",
+          title: "Ne pas propager pour l'instant ?",
+          message:
+            "Vos modifications restent enregistrées côté boutique. Les marketplaces liées " +
+            "afficheront un badge orange « Synchronisation nécessaire » pour que vous puissiez " +
+            "pousser plus tard en cliquant sur ce badge.",
+          confirmLabel: "Oui, je pousserai plus tard",
+          cancelLabel: "Revenir au choix",
+        });
+        if (keepPending) return;
+      }
 
       const inputs: Parameters<typeof enqueuePfs>[0] = [];
       if (options.pfs) {
@@ -3215,6 +3382,7 @@ export default function AdminProductsTable({
     enqueuePfs,
     router,
     toast,
+    confirm,
   ]);
 
   // Sélection filtrée sur les vrais brouillons (OFFLINE + fiche incomplète).
@@ -3567,29 +3735,46 @@ export default function AdminProductsTable({
     if (!hasAnyCandidate(candidates)) return;
 
     const firstName = allProducts.find((p) => p.id === successIds[0])?.name;
-    const options = await askMarketplaceOptions({
-      count: successIds.length,
-      firstProductName: firstName,
-      productIds: allCandidateIds(candidates),
-      showPfs: pfsCandidates.length > 0,
-      showAnkorstore: ankorsCandidates.length > 0,
-      showEfashion: efashionCandidates.length > 0,
-      showFaire: faireCandidates.length > 0,
-      showBoutique: false,
-      defaultAllChecked: true,
-      title:
-        successIds.length === 1
-          ? "Propager les modifications ?"
-          : `Propager les modifications à ${successIds.length} produits ?`,
-      subtitle:
-        "Les modifications seront envoyées sur les marketplaces cochées pour les produits déjà publiés.",
-      eyebrow: "Propagation",
-      confirmLabel: "Mettre à jour",
-    });
-    if (!options) return;
+    // Boucle avec confirmation à l'annulation — les flags sont déjà posés côté
+    // serveur par bulkUpdateProductAttributes, donc le badge orange s'affichera
+    // même si la cliente clique Annuler ici.
+    let options: Awaited<ReturnType<typeof askMarketplaceOptions>> = null;
+    while (true) {
+      options = await askMarketplaceOptions({
+        count: successIds.length,
+        firstProductName: firstName,
+        productIds: allCandidateIds(candidates),
+        showPfs: pfsCandidates.length > 0,
+        showAnkorstore: ankorsCandidates.length > 0,
+        showEfashion: efashionCandidates.length > 0,
+        showFaire: faireCandidates.length > 0,
+        showBoutique: false,
+        defaultAllChecked: true,
+        title:
+          successIds.length === 1
+            ? "Propager les modifications ?"
+            : `Propager les modifications à ${successIds.length} produits ?`,
+        subtitle:
+          "Les modifications seront envoyées sur les marketplaces cochées pour les produits déjà publiés.",
+        eyebrow: "Propagation",
+        confirmLabel: "Mettre à jour",
+      });
+      if (options) break;
+      const keepPending = await confirm({
+        type: "info",
+        title: "Ne pas propager pour l'instant ?",
+        message:
+          "Vos modifications restent enregistrées côté boutique. Les marketplaces liées " +
+          "afficheront un badge orange « Synchronisation nécessaire » pour que vous puissiez " +
+          "pousser plus tard en cliquant sur ce badge.",
+        confirmLabel: "Oui, je pousserai plus tard",
+        cancelLabel: "Revenir au choix",
+      });
+      if (keepPending) return;
+    }
     const inputs = buildMarketplaceInputs(candidates, options);
     if (inputs.length > 0) enqueuePfs(inputs);
-  }, [selectedIds, startTransition, askMarketplaceOptions, allProducts, enqueuePfs, hasPfsConfig, showAnkorstore, showEfashion, showFaire]);
+  }, [selectedIds, startTransition, askMarketplaceOptions, allProducts, enqueuePfs, hasPfsConfig, showAnkorstore, showEfashion, showFaire, confirm]);
 
   const handleBulkDelete = useCallback(async (idsOverride?: string[]) => {
     const ids = idsOverride ?? [...selectedIds];
@@ -3941,6 +4126,47 @@ export default function AdminProductsTable({
   // marketplace configuré, les produits à publier (identifiant marketplace
   // absent + statut ONLINE) ou à synchroniser (drapeau *SyncRequired = true).
 
+  // Vérification PFS en lot : ne modifie ni PFS ni BJ, écrit juste
+  // pfsCheckedAt/pfsCheckStatus/pfsCheckIssues. La pastille se met à jour
+  // après revalidateTag → refresh() Next 16 (poussé par le server action).
+  const handleBulkMarketplaceVerify = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return;
+      toast.info(
+        `Vérification PFS de ${ids.length} produit${ids.length > 1 ? "s" : ""}…`,
+        "La pastille se met à jour à côté du nom de chaque produit.",
+      );
+      try {
+        const res = await verifyPfsProducts(ids);
+        if (!res.success) {
+          toast.error("Vérification impossible", res.error);
+          return;
+        }
+        const okCount = res.outcomes.filter((o) => o.ok && o.status === "ok").length;
+        const diffCount = res.outcomes.filter((o) => o.ok && o.status === "diff").length;
+        const errCount = res.outcomes.filter((o) => !o.ok).length;
+        const parts: string[] = [];
+        if (okCount > 0) parts.push(`${okCount} conforme${okCount > 1 ? "s" : ""}`);
+        if (diffCount > 0) parts.push(`${diffCount} avec écart${diffCount > 1 ? "s" : ""}`);
+        if (errCount > 0) parts.push(`${errCount} en erreur`);
+        if (diffCount === 0 && errCount === 0) {
+          toast.success("Vérification terminée", parts.join(" · "));
+        } else {
+          toast.info("Vérification terminée", parts.join(" · "));
+        }
+        // Refresh Next 16 pour recharger la liste avec les nouvelles valeurs
+        // pfsCheckedAt/pfsCheckStatus/pfsCheckIssues persistées côté serveur.
+        router.refresh();
+      } catch (e) {
+        toast.error(
+          "Vérification impossible",
+          e instanceof Error ? e.message : "Erreur inconnue.",
+        );
+      }
+    },
+    [toast, router],
+  );
+
   const handleBulkMarketplacePublish = useCallback((marketplace: MarketplaceKey, ids: string[]) => {
     if (ids.length === 0) return;
     setBulkPublishConfirm({ marketplace, ids });
@@ -4284,6 +4510,7 @@ export default function AdminProductsTable({
         onDeselectAll={() => setSelectedIds(new Set())}
         onMarketplacePublish={handleBulkMarketplacePublish}
         onMarketplaceSync={handleBulkMarketplaceSync}
+        onMarketplaceVerify={handleBulkMarketplaceVerify}
         onPublishDrafts={() => setBulkPublishDraftsOpen(true)}
         onSetBestSeller={handleBulkSetBestSeller}
         onOpenTagsModal={() => setBulkTagsOpen(true)}

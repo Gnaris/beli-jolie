@@ -76,7 +76,7 @@ describe("efashionPublishProduct — filtrage UNIT", () => {
       status: "ONLINE",
       efashionReferenceBase: null,
       category: { id: "c1", name: "Cat", efashionCategorieId: 160102 },
-      manufacturingCountry: { id: "ct1", name: "Chine", efashionProvenanceId: 1 },
+      countryIsoCode: "CN",
       season: { id: "s1", name: "PE26", efashionCollectionId: 3 },
       compositions: [
         { percentage: 100, composition: { id: "co1", name: "Métal", efashionId: 60 } },
@@ -99,7 +99,7 @@ describe("efashionPublishProduct — filtrage UNIT", () => {
       status: "ONLINE",
       efashionReferenceBase: null,
       category: { id: "c1", name: "Cat", efashionCategorieId: 160102 },
-      manufacturingCountry: { id: "ct1", name: "Chine", efashionProvenanceId: 1 },
+      countryIsoCode: "CN",
       season: { id: "s1", name: "PE26", efashionCollectionId: 3 },
       compositions: [
         { percentage: 100, composition: { id: "co1", name: "Métal", efashionId: 60 } },
@@ -127,7 +127,7 @@ describe("efashionPublishProduct — filtrage UNIT", () => {
       status: "ONLINE",
       efashionReferenceBase: null,
       category: { id: "c1", name: "Cat", efashionCategorieId: 160102 },
-      manufacturingCountry: { id: "ct1", name: "Chine", efashionProvenanceId: 1 },
+      countryIsoCode: "CN",
       season: { id: "s1", name: "PE26", efashionCollectionId: 3 },
       compositions: [],
       colors: [],

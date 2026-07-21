@@ -12,7 +12,7 @@ function buildProduct(overrides: Partial<EfashionMatchProduct> = {}): EfashionMa
     id: "p1",
     reference: "A2415-DORE",
     category: { name: "Bracelets", efashionCategorieId: 100 },
-    manufacturingCountry: { name: "Chine", efashionProvenanceId: 200 },
+    country: { name: "Chine", efashionProvenanceId: 200 },
     season: { name: "PE26", efashionCollectionId: 300 },
     compositions: [
       { composition: { name: "Acier", efashionId: 400 } },

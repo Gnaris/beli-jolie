@@ -91,7 +91,7 @@ describe("Auto-archive when all variants stock=0", () => {
       dimensionHeight: null,
       dimensionDiameter: null,
       dimensionCircumference: null,
-      manufacturingCountryId: entities.country.id,
+      countryIsoCode: entities.country.id,
       seasonId: entities.season.id,
       ...overrides,
     };

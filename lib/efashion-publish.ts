@@ -36,6 +36,7 @@ import {
   effectiveEfashionColorId,
 } from "@/lib/efashion-color-conflicts";
 import { resolveEfashionVendorPresets } from "@/lib/efashion-annexes";
+import { getCountryByIso } from "@/lib/countries";
 
 /**
  * Construit le suffixe « Dimensions : ... » ajouté à la description envoyée
@@ -86,7 +87,7 @@ export async function efashionPublishProduct(
       status: true,
       efashionReferenceBase: true,
       category: { select: { id: true, name: true, efashionCategorieId: true } },
-      manufacturingCountry: { select: { id: true, name: true, efashionProvenanceId: true } },
+      countryIsoCode: true,
       season: { select: { id: true, name: true, efashionCollectionId: true } },
       compositions: {
         select: {
@@ -183,8 +184,11 @@ export async function efashionPublishProduct(
   const missing: string[] = [];
   if (!product.category?.efashionCategorieId)
     missing.push(`catégorie « ${product.category?.name ?? "?"} » sans id eFashion`);
-  if (!product.manufacturingCountry?.efashionProvenanceId)
-    missing.push(`pays « ${product.manufacturingCountry?.name ?? "?"} » sans id eFashion`);
+  const country = getCountryByIso(product.countryIsoCode);
+  if (!country?.efashionProvenanceId)
+    missing.push(
+      `pays « ${country?.name ?? product.countryIsoCode ?? "?"} » sans id eFashion`,
+    );
   if (!product.season?.efashionCollectionId)
     missing.push(`saison « ${product.season?.name ?? "?"} » sans id eFashion`);
   if (product.compositions.length === 0) missing.push("au moins 1 composition");
@@ -314,7 +318,7 @@ export async function efashionPublishProduct(
     categorie: String(product.category!.efashionCategorieId!),
     venduPar,
     collection: String(product.season!.efashionCollectionId!),
-    paysOrigine: String(product.manufacturingCountry!.efashionProvenanceId!),
+    paysOrigine: String(country!.efashionProvenanceId!),
     taillePaquet: String(declMatch.declinaisonId), // résolu dynamiquement
     quantitePaquet: String(presets.pack),
     stock: "",

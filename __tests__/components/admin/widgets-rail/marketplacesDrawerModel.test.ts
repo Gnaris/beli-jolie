@@ -32,6 +32,7 @@ function mkItem(overrides: Partial<MarketplaceRefreshItem>): MarketplaceRefreshI
     efashionOutcome: overrides.efashionOutcome,
     faireOutcome: overrides.faireOutcome,
     completedAt: overrides.completedAt,
+    scheduledFor: overrides.scheduledFor,
   };
 }
 
@@ -151,6 +152,86 @@ describe("groupItemsByProduct", () => {
       }),
     ]);
     expect(group.latestActivityAt).toBe("2026-07-15T10:15:00.000Z");
+  });
+
+  it("produit avec scheduledFor futur (lot étalé) → section 'scheduled' + earliestScheduledFor", () => {
+    const now = Date.parse("2026-07-21T10:00:00.000Z");
+    const in10min = "2026-07-21T10:10:00.000Z";
+    const [group] = groupItemsByProduct(
+      [
+        mkItem({
+          productId: "p1",
+          marketplace: "pfs",
+          status: "queued",
+          scheduledFor: in10min,
+        }),
+      ],
+      now,
+    );
+    expect(group.section).toBe("scheduled");
+    expect(group.earliestScheduledFor).toBe(in10min);
+  });
+
+  it("scheduledFor passé → traité comme queued classique (le worker va le prendre)", () => {
+    const now = Date.parse("2026-07-21T10:00:00.000Z");
+    const past = "2026-07-21T09:00:00.000Z";
+    const [group] = groupItemsByProduct(
+      [
+        mkItem({
+          productId: "p1",
+          marketplace: "pfs",
+          status: "queued",
+          scheduledFor: past,
+        }),
+      ],
+      now,
+    );
+    expect(group.section).toBe("queued");
+    expect(group.earliestScheduledFor).toBeNull();
+  });
+
+  it("earliestScheduledFor = le plus proche parmi plusieurs items queued", () => {
+    const now = Date.parse("2026-07-21T10:00:00.000Z");
+    const [group] = groupItemsByProduct(
+      [
+        mkItem({
+          productId: "p1",
+          marketplace: "pfs",
+          status: "queued",
+          scheduledFor: "2026-07-21T10:20:00.000Z",
+        }),
+        mkItem({
+          productId: "p1",
+          marketplace: "ankorstore",
+          status: "queued",
+          scheduledFor: "2026-07-21T10:05:00.000Z",
+        }),
+      ],
+      now,
+    );
+    expect(group.section).toBe("scheduled");
+    expect(group.earliestScheduledFor).toBe("2026-07-21T10:05:00.000Z");
+  });
+
+  it("un item in_progress l'emporte sur les items scheduled du même produit → 'active'", () => {
+    const now = Date.parse("2026-07-21T10:00:00.000Z");
+    const [group] = groupItemsByProduct(
+      [
+        mkItem({
+          productId: "p1",
+          marketplace: "pfs",
+          status: "in_progress",
+        }),
+        mkItem({
+          productId: "p1",
+          marketplace: "ankorstore",
+          status: "queued",
+          scheduledFor: "2026-07-21T10:10:00.000Z",
+        }),
+      ],
+      now,
+    );
+    expect(group.section).toBe("active");
   });
 
   it("marketplace non ciblée → cellule 'not-targeted' (badge gris)", () => {

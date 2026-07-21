@@ -27,6 +27,7 @@ import {
   type EfashionProductListItem,
 } from "@/lib/efashion-api";
 import { logger } from "@/lib/logger";
+import { getCountryByIso } from "@/lib/countries";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -133,9 +134,7 @@ export async function previewEfashionMatchByReference(
         name: true,
         efashionReferenceBase: true,
         category: { select: { id: true, name: true, efashionCategorieId: true } },
-        manufacturingCountry: {
-          select: { id: true, name: true, efashionProvenanceId: true },
-        },
+        countryIsoCode: true,
         season: { select: { id: true, name: true, efashionCollectionId: true } },
         compositions: {
           select: {
@@ -180,9 +179,10 @@ export async function previewEfashionMatchByReference(
         `Catégorie « ${product.category?.name ?? "(non renseignée)"} » sans mapping eFashion`,
       );
     }
-    if (!product.manufacturingCountry?.efashionProvenanceId) {
+    const country = getCountryByIso(product.countryIsoCode);
+    if (!country?.efashionProvenanceId) {
       missingAttributes.push(
-        `Pays de fabrication « ${product.manufacturingCountry?.name ?? "(non renseigné)"} » sans mapping eFashion`,
+        `Pays de fabrication « ${country?.name ?? product.countryIsoCode ?? "(non renseigné)"} » sans mapping eFashion`,
       );
     }
     if (!product.season?.efashionCollectionId) {

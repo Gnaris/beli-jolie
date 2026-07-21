@@ -65,7 +65,7 @@ describe("images move → drapeaux *SyncRequired (real DB)", () => {
       dimensionHeight: null,
       dimensionDiameter: null,
       dimensionCircumference: null,
-      manufacturingCountryId: entities.country.id,
+      countryIsoCode: entities.country.id,
       seasonId: entities.season.id,
       primaryColorId: entities.color1.id,
       ...overrides,

@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
 import { useEfashionShootingBatch } from "./EfashionShootingBatchContext";
+import { useMarketplaceMaintenance } from "./MarketplaceMaintenanceContext";
 import {
   computeMarketplaceBadgeState,
   findLatestOpForProduct,
@@ -55,6 +56,11 @@ interface MarketplaceStatusButtonsProps {
   ankorsEnabledForProduct?: boolean;
   efashionEnabledForProduct?: boolean;
   faireEnabledForProduct?: boolean;
+  /** Maintenance plateforme (contrôle Beliandjolie, affecte toutes les boutiques). Défaut false. */
+  pfsMaintenance?: boolean;
+  ankorstoreMaintenance?: boolean;
+  efashionMaintenance?: boolean;
+  faireMaintenance?: boolean;
 }
 
 type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire";
@@ -205,8 +211,11 @@ function StatusBadge({
   loadingLabel: string;
   /** Marketplace désactivée (soit pour ce produit, soit globalement). */
   disabledForProduct?: boolean;
-  /** Raison de la désactivation : "product" (Product.*Enabled=false) ou "global" (kill switch Paramètres). */
-  disabledReason?: "product" | "global";
+  /** Raison de la désactivation :
+   *   - "product" : Product.*Enabled=false (activable par la cliente)
+   *   - "global"  : kill switch tenant (Paramètres > Marketplaces)
+   *   - "maintenance" : maintenance plateforme (contrôle Beli & Jolie) */
+  disabledReason?: "product" | "global" | "maintenance";
 }) {
   const mp = MARKETPLACE_META[marketplace];
 
@@ -300,7 +309,9 @@ function StatusBadge({
   );
 
   const disabledTooltip =
-    disabledReason === "global"
+    disabledReason === "maintenance"
+      ? `${label} · en maintenance sur la plateforme`
+      : disabledReason === "global"
       ? `${label} · marketplace désactivée dans Paramètres`
       : `${label} · marketplace désactivée pour ce produit`;
 
@@ -320,8 +331,8 @@ function StatusBadge({
             e.stopPropagation();
             onCancelSyncRequired();
           }}
-          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-[#B45309] border border-[#FDE68A] shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[#FDE68A] hover:text-[#78350F] transition-opacity"
-          title="Ignorer cette synchronisation (le badge orange disparaîtra sans rien envoyer)"
+          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-[#B45309] border border-[#FDE68A] shadow-sm flex items-center justify-center hover:bg-[#FDE68A] hover:text-[#78350F] transition-colors"
+          title="Ignorer cette synchronisation (le badge orange disparaîtra et le produit repassera en état « en ligne » sans rien envoyer)"
           aria-label="Ignorer cette synchronisation"
         >
           {Icon.Close}
@@ -378,8 +389,19 @@ export function MarketplaceStatusButtons({
   ankorsEnabledForProduct = true,
   efashionEnabledForProduct = true,
   faireEnabledForProduct = true,
+  pfsMaintenance: pfsMaintenanceProp,
+  ankorstoreMaintenance: ankorstoreMaintenanceProp,
+  efashionMaintenance: efashionMaintenanceProp,
+  faireMaintenance: faireMaintenanceProp,
 }: MarketplaceStatusButtonsProps) {
   const router = useRouter();
+  // Contexte plateforme (monté au layout admin) — la prop reste prioritaire si
+  // fournie explicitement (utile en tests unitaires).
+  const maintenanceCtx = useMarketplaceMaintenance();
+  const pfsMaintenance = pfsMaintenanceProp ?? maintenanceCtx.pfs;
+  const ankorstoreMaintenance = ankorstoreMaintenanceProp ?? maintenanceCtx.ankorstore;
+  const efashionMaintenance = efashionMaintenanceProp ?? maintenanceCtx.efashion;
+  const faireMaintenance = faireMaintenanceProp ?? maintenanceCtx.faire;
   const { enqueue, items } = useMarketplaceRefreshQueue();
   const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
   const { confirm } = useConfirm();
@@ -719,14 +741,19 @@ export function MarketplaceStatusButtons({
   const showFaire = hasFaireConfig;
   if (!hasPfsConfig && !showAnkorstore && !showEfashion && !showFaire) return null;
 
-  const pfsDisabledOverall = !pfsEnabledForProduct || !pfsEnabled;
-  const ankorsDisabledOverall = !ankorsEnabledForProduct || !ankorstoreEnabled;
-  const efashionDisabledOverall = !efashionEnabledForProduct || !efashionEnabled;
-  const faireDisabledOverall = !faireEnabledForProduct || !faireEnabled;
-  const pfsDisabledReason: "product" | "global" = !pfsEnabled ? "global" : "product";
-  const ankorsDisabledReason: "product" | "global" = !ankorstoreEnabled ? "global" : "product";
-  const efashionDisabledReason: "product" | "global" = !efashionEnabled ? "global" : "product";
-  const faireDisabledReason: "product" | "global" = !faireEnabled ? "global" : "product";
+  // Maintenance = priorité max (contrôle Beli & Jolie, affecte toutes les boutiques).
+  const pfsDisabledOverall = pfsMaintenance || !pfsEnabledForProduct || !pfsEnabled;
+  const ankorsDisabledOverall = ankorstoreMaintenance || !ankorsEnabledForProduct || !ankorstoreEnabled;
+  const efashionDisabledOverall = efashionMaintenance || !efashionEnabledForProduct || !efashionEnabled;
+  const faireDisabledOverall = faireMaintenance || !faireEnabledForProduct || !faireEnabled;
+  const pfsDisabledReason: "product" | "global" | "maintenance" =
+    pfsMaintenance ? "maintenance" : !pfsEnabled ? "global" : "product";
+  const ankorsDisabledReason: "product" | "global" | "maintenance" =
+    ankorstoreMaintenance ? "maintenance" : !ankorstoreEnabled ? "global" : "product";
+  const efashionDisabledReason: "product" | "global" | "maintenance" =
+    efashionMaintenance ? "maintenance" : !efashionEnabled ? "global" : "product";
+  const faireDisabledReason: "product" | "global" | "maintenance" =
+    faireMaintenance ? "maintenance" : !faireEnabled ? "global" : "product";
 
   return (
     <>

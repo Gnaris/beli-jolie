@@ -76,6 +76,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlEfashionLink = searchParams.get("efashionLink") ?? "";
   const urlFaireLink = searchParams.get("faireLink") ?? "";
   const urlSyncRequired = searchParams.get("syncRequired") ?? "";
+  const urlPfsVerify = searchParams.get("pfsVerify") ?? "";
   const urlHsCodeId  = searchParams.get("hsCodeId")   ?? "";
   const urlLocked    = searchParams.get("locked")     ?? "";
   const urlPfsExportedAt        = searchParams.get("pfsExportedAt")        ?? "";
@@ -151,7 +152,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   }, [searchParams, router]);
 
   const localQ = localTerms.join(",");
-  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlFaireLink || urlSyncRequired || urlHsCodeId || urlLocked || urlPfsExportedAt || urlEfashionExportedAt || urlMicrostoreExportedAt || urlAnkorstoreExportedAt || urlFaireExportedAt);
+  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlFaireLink || urlSyncRequired || urlPfsVerify || urlHsCodeId || urlLocked || urlPfsExportedAt || urlEfashionExportedAt || urlMicrostoreExportedAt || urlAnkorstoreExportedAt || urlFaireExportedAt);
   const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
   const [filtersOpenInternal, setFiltersOpen] = useState(hasFilters);
@@ -790,6 +791,25 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                     options={[
                       { value: "", label: "Tous" },
                       { value: "1", label: "Synchro marketplace nécessaire" },
+                    ]}
+                    size="sm"
+                    searchable
+                  />
+                </FilterField>
+              )}
+              {/* Filtre statut de vérification PFS — alimenté par la pastille
+                  dans la colonne Produit (lib/pfs-verify.ts). Ne concerne que
+                  les produits liés à PFS ; les autres sont ignorés. */}
+              {hasPfsConfig && (
+                <FilterField label="Vérification PFS" active={!!urlPfsVerify}>
+                  <CustomSelect
+                    value={urlPfsVerify}
+                    onChange={(v) => navigate({ pfsVerify: v || null })}
+                    options={[
+                      { value: "", label: "Tous" },
+                      { value: "diff", label: "Vérif avec écarts" },
+                      { value: "ok", label: "Vérif conforme" },
+                      { value: "unchecked", label: "Jamais vérifié" },
                     ]}
                     size="sm"
                     searchable

@@ -40,7 +40,6 @@ export const SUPPORTED_ENTITY_TYPES = [
   "composition",
   "category",
   "subcategory",
-  "manufacturing-country",
   "season",
   "collection",
 ] as const;
@@ -165,18 +164,6 @@ async function persistTranslation(
         where: { subCategoryId_locale: { subCategoryId: entityId, locale } },
         update: { name: trimmed },
         create: { subCategoryId: entityId, locale, name: trimmed },
-      });
-      return;
-    case "manufacturing-country":
-      await prisma.manufacturingCountryTranslation.upsert({
-        where: {
-          manufacturingCountryId_locale: {
-            manufacturingCountryId: entityId,
-            locale,
-          },
-        },
-        update: { name: trimmed },
-        create: { manufacturingCountryId: entityId, locale, name: trimmed },
       });
       return;
     case "season":

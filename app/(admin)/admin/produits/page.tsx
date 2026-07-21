@@ -35,7 +35,7 @@ import CategoriesManager from "@/components/admin/categories/SubCategoryList";
 import EntityCreateButton from "@/components/admin/EntityCreateButton";
 import ColorsManager from "@/components/admin/couleurs/ColorsManager";
 import CompositionsManager from "@/components/admin/compositions/CompositionsManager";
-import ManufacturingCountriesManager from "@/components/admin/manufacturing-countries/ManufacturingCountriesManager";
+import { listManufacturingCountries } from "@/lib/countries";
 import SeasonsManager from "@/components/admin/seasons/SeasonsManager";
 import HsCodesManager from "@/components/admin/codes-sh/HsCodesManager";
 import SizesManager from "@/components/admin/tailles/SizesManager";
@@ -180,7 +180,7 @@ function countActiveFilters(p: Record<string, string | undefined>): number {
   const keys = [
     "q", "exactRef", "cat", "subCat", "tag", "composition", "hsCodeId",
     "minPrice", "maxPrice", "dateFrom", "dateTo", "updatedFrom", "updatedTo", "stockBelow",
-    "bestSeller", "important", "createdRecent", "updatedRecent", "refresh", "sort", "locked", "syncRequired", "missingImages", "translationStatus",
+    "bestSeller", "important", "createdRecent", "updatedRecent", "refresh", "sort", "locked", "syncRequired", "missingImages", "translationStatus", "pfsVerify",
     "pfsLink", "ankorsLink", "efashionLink", "faireLink",
     "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "microstoreExportedAt",
   ];
@@ -231,10 +231,11 @@ interface PageProps {
     ankorstoreExportedAt?: string;
     faireExportedAt?: string;
     translationStatus?: string;
+    pfsVerify?: string;
   }>;
 }
 
-const VALID_TABS = ["produits", "categories", "couleurs", "compositions", "pays", "saisons", "codes-sh", "tailles", "mots-cles"] as const;
+const VALID_TABS = ["produits", "categories", "couleurs", "compositions", "saisons", "codes-sh", "tailles", "mots-cles"] as const;
 type TabKey = (typeof VALID_TABS)[number];
 
 /** Render only the active tab's content server-side (avoids PFS calls + heavy queries for hidden tabs) */
@@ -244,7 +245,6 @@ function getActiveTabContent(activeTab: TabKey, params: Record<string, string | 
     case "categories":   return <CategoriesContent />;
     case "couleurs":     return <CouleursContent />;
     case "compositions": return <CompositionsContent />;
-    case "pays":         return <PaysContent />;
     case "saisons":      return <SaisonsContent />;
     case "codes-sh":     return <CodesShContent />;
     case "tailles":      return <TaillesContent />;
@@ -335,6 +335,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     ankorstoreExportedAt = "",
     faireExportedAt = "",
     translationStatus = "",
+    pfsVerify = "",
   } = params;
 
   const exactRef   = exactRefParam === "1";
@@ -386,6 +387,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     ankorstoreExportedAt,
     faireExportedAt,
     translationStatus,
+    pfsVerify,
     productIdsIn,
     productIdsNotIn,
   });
@@ -397,7 +399,6 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     tags,
     compositions,
     hsCodeRows,
-    manufacturingCountries,
     seasons,
     collectionsList,
     allTagsForBulk,
@@ -453,11 +454,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       orderBy: [{ position: "asc" }, { code: "asc" }],
       select: { id: true, code: true, label: true },
     }),
-    // Bibliothèque pays + saisons (pour la modale d'édition en masse)
-    prisma.manufacturingCountry.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    }),
+    // Saisons pour la modale d'édition en masse (les pays sont statiques dans lib/countries.ts)
     prisma.season.findMany({
       orderBy: [{ position: "asc" }, { name: "asc" }],
       select: { id: true, name: true },
@@ -556,6 +553,11 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     ankorsEnabled:        p.ankorsEnabled,
     efashionEnabled:      p.efashionEnabled,
     faireEnabled:         p.faireEnabled,
+    // Résultat de la dernière vérification PFS — alimente la pastille dans la
+    // cellule Produit (lib/pfs-verify.ts + app/actions/admin/pfs-verify.ts).
+    pfsCheckedAt:   p.pfsCheckedAt   ? p.pfsCheckedAt.toISOString() : null,
+    pfsCheckStatus: (p.pfsCheckStatus as "ok" | "diff" | null) ?? null,
+    pfsCheckIssues: (p.pfsCheckIssues as unknown) ?? null,
     pfsLastExportedAt:        p.pfsLastExportedAt        ? p.pfsLastExportedAt.toISOString()        : null,
     efashionLastExportedAt:   p.efashionLastExportedAt   ? p.efashionLastExportedAt.toISOString()   : null,
     microstoreLastExportedAt: p.microstoreLastExportedAt ? p.microstoreLastExportedAt.toISOString() : null,
@@ -657,7 +659,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
           })),
           hsCodes: hsCodes.map((h) => ({ id: h.id, code: h.code, label: h.label })),
           compositions: compositions.map((c) => ({ id: c.id, name: c.name })),
-          manufacturingCountries: manufacturingCountries.map((c) => ({ id: c.id, name: c.name })),
+          manufacturingCountries: listManufacturingCountries().map((c) => ({ id: c.code, name: c.name })),
           seasons: seasons.map((s) => ({ id: s.id, name: s.name })),
         }}
         availableTags={allTagsForBulk.map((t) => ({ id: t.id, name: t.name }))}
@@ -832,46 +834,6 @@ async function CompositionsContent() {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   TAB: Pays de fabrication
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function PaysContent() {
-  const [countries, efashionLabels] = await Promise.all([
-    prisma.manufacturingCountry.findMany({
-      orderBy: { name: "asc" },
-      include: {
-        _count: { select: { products: true } },
-        translations: true,
-      },
-    }),
-    getEfashionLabelMaps(),
-  ]);
-
-  const countryItems = countries.map((c) => ({
-    id: c.id,
-    name: c.name,
-    isoCode: c.isoCode,
-    pfsCountryRef: c.pfsCountryRef,
-    efashionProvenanceId: c.efashionProvenanceId,
-    efashionProvenanceLabel: resolveProvenanceLabel(efashionLabels, c.efashionProvenanceId),
-    productCount: c._count.products,
-    translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
-  }));
-
-  return (
-    <div className="space-y-5">
-      <PageHero
-        eyebrow="Bibliothèques · Provenance"
-        title="Pays de fabrication"
-        subtitle="Origine déclarée des produits — utilisée pour les étiquettes douane et marketplaces."
-        accent="sky"
-        actions={<EntityCreateButton type="country" label="+ Créer un pays" />}
-      />
-
-      <ManufacturingCountriesManager initialCountries={countryItems} />
-    </div>
-  );
-}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    TAB: Saisons

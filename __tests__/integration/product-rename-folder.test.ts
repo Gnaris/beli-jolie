@@ -73,7 +73,7 @@ describe("Product reference change → folder rename (real DB)", () => {
       dimensionHeight: null,
       dimensionDiameter: null,
       dimensionCircumference: null,
-      manufacturingCountryId: entities.country.id,
+      countryIsoCode: entities.country.id,
       seasonId: entities.season.id,
       ...overrides,
     };

@@ -27,6 +27,7 @@ import {
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
 import { getEfashionAnnexes } from "@/lib/efashion-annexes";
+import { getMarketplaceMaintenance } from "@/lib/platform-config";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 export const dynamic = "force-dynamic";
@@ -53,12 +54,12 @@ export default async function ModifierProduitPage({
     efashionEnabled,
     hasFaireConfig,
     faireEnabled,
+    maintenance,
   ] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
         category: true,
-        manufacturingCountry: true,
         season: true,
         colors: {
           orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
@@ -142,6 +143,7 @@ export default async function ModifierProduitPage({
     getCachedEfashionEnabled(),
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
+    getMarketplaceMaintenance(),
   ]);
 
   if (!product) notFound();
@@ -423,7 +425,7 @@ export default async function ModifierProduitPage({
             dimDiameter:      product.dimensionDiameter != null ? String(product.dimensionDiameter) : "",
             dimCircumference: product.dimensionCircumference != null ? String(product.dimensionCircumference) : "",
             hsCodeId:         product.hsCodeId ?? "",
-            manufacturingCountryId: product.manufacturingCountryId ?? "",
+            countryIsoCode: product.countryIsoCode ?? "",
             seasonId: product.seasonId ?? "",
             discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
             sizeDetailsTu: product.sizeDetailsTu ?? "",
@@ -548,6 +550,10 @@ export default async function ModifierProduitPage({
               ankorsEnabledForProduct={product.ankorsEnabled}
               efashionEnabledForProduct={product.efashionEnabled}
               faireEnabledForProduct={product.faireEnabled}
+              pfsMaintenance={maintenance.pfs}
+              ankorstoreMaintenance={maintenance.ankorstore}
+              efashionMaintenance={maintenance.efashion}
+              faireMaintenance={maintenance.faire}
             />
           </div>
         </>
@@ -612,7 +618,7 @@ export default async function ModifierProduitPage({
           dimDiameter:      product.dimensionDiameter != null ? String(product.dimensionDiameter) : "",
           dimCircumference: product.dimensionCircumference != null ? String(product.dimensionCircumference) : "",
           hsCodeId:         product.hsCodeId ?? "",
-          manufacturingCountryId: product.manufacturingCountryId ?? "",
+          countryIsoCode: product.countryIsoCode ?? "",
           seasonId: product.seasonId ?? "",
           discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
           sizeDetailsTu: product.sizeDetailsTu ?? "",

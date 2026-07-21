@@ -19,6 +19,7 @@ import { productImageDir, productImageBaseName } from "@/lib/storage";
 import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { computeMarketplaceSyncFlags } from "@/lib/marketplace-sync-flag";
+import { resolveCountryCode } from "@/lib/countries";
 import path from "path";
 
 // ─────────────────────────────────────────────
@@ -568,17 +569,15 @@ export async function processProductImport(jobId: string, maxProducts?: number):
       ),
     ];
 
-    const countryNames = [...new Set(allValidRows.filter((r) => r.manufacturingCountry).map((r) => r.manufacturingCountry!))];
     const seasonNames = [...new Set(allValidRows.filter((r) => r.season).map((r) => r.season!))];
     const hsCodes = [...new Set(allValidRows.filter((r) => r.hsCode).map((r) => r.hsCode!.trim()))];
 
-    const [dbColors, dbCategories, dbTags, dbCompositions, dbSubCategories, dbCountries, dbSeasons, dbHsCodes, existingProducts] = await Promise.all([
+    const [dbColors, dbCategories, dbTags, dbCompositions, dbSubCategories, dbSeasons, dbHsCodes, existingProducts] = await Promise.all([
       prisma.color.findMany({ where: { name: { in: colorNames } } }),
       prisma.category.findMany({ where: { name: { in: categoryNames } } }),
       prisma.tag.findMany({ where: { name: { in: tagNames } } }),
       prisma.composition.findMany({ where: { name: { in: compositionMaterials } } }),
       prisma.subCategory.findMany(),
-      prisma.manufacturingCountry.findMany({ where: { name: { in: countryNames } } }),
       prisma.season.findMany({ where: { name: { in: seasonNames } } }),
       hsCodes.length > 0
         ? prisma.hsCode.findMany({ where: { code: { in: hsCodes } }, select: { id: true, code: true } })
@@ -591,7 +590,6 @@ export async function processProductImport(jobId: string, maxProducts?: number):
     const tagMap = new Map(dbTags.map((t) => [t.name.toLowerCase(), t]));
     const compositionMap = new Map(dbCompositions.map((c) => [c.name.toLowerCase(), c]));
     const subCatMap = new Map(dbSubCategories.map((s) => [s.name.toLowerCase(), s]));
-    const countryMap = new Map(dbCountries.map((c) => [c.name.toLowerCase(), c]));
     const seasonMap = new Map(dbSeasons.map((s) => [s.name.toLowerCase(), s]));
     const hsCodeMap = new Map(dbHsCodes.map((h) => [h.code.trim(), h]));
     const existingRefs = new Set(existingProducts.map((p) => p.reference.toUpperCase()));
@@ -738,16 +736,14 @@ export async function processProductImport(jobId: string, maxProducts?: number):
           ? firstRow.similarRefs.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
           : [];
 
-        // Manufacturing country — error if not found
-        let manufacturingCountryId: string | null = null;
+        // Pays de fabrication : résolu via lib/countries.ts (par nom FR ou code ISO)
+        let countryIsoCode: string | null = null;
         if (firstRow.manufacturingCountry) {
-          const country = countryMap.get(firstRow.manufacturingCountry.toLowerCase());
-          if (country) {
-            manufacturingCountryId = country.id;
-          } else {
+          countryIsoCode = resolveCountryCode(firstRow.manufacturingCountry);
+          if (!countryIsoCode) {
             for (const row of colorRows) {
               if (!errorRows.some((e) => e._rowIndex === row._rowIndex)) {
-                errorRows.push({ ...row, errors: [`Pays de fabrication "${firstRow.manufacturingCountry}" introuvable.`] });
+                errorRows.push({ ...row, errors: [`Pays de fabrication "${firstRow.manufacturingCountry}" inconnu (attendu : nom FR ou code ISO 2 lettres, ex. "Chine" ou "CN").`] });
               }
             }
             processedCount++;
@@ -835,7 +831,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
               name: firstRow.name,
               description: firstRow.description ?? "",
               categoryId: categoryId ?? (await prisma.category.findFirst().then((c) => c?.id ?? "")),
-              manufacturingCountryId,
+              countryIsoCode,
               seasonId,
               hsCodeId,
               primaryColorId,

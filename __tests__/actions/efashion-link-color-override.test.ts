@@ -95,7 +95,7 @@ const productRow = {
   name: "Test",
   efashionReferenceBase: null,
   category: { id: "c", name: "Bijoux", efashionCategorieId: 1 },
-  manufacturingCountry: { id: "m", name: "Chine", efashionProvenanceId: 2 },
+  country: { id: "m", name: "Chine", efashionProvenanceId: 2 },
   season: { id: "s", name: "PE26", efashionCollectionId: 3 },
   compositions: [{ composition: { id: "co", name: "Acier", efashionId: 4 } }],
   colors: [

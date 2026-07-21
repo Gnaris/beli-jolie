@@ -245,31 +245,6 @@ describe("Entity CRUD (real DB)", () => {
     });
   });
 
-  // ─── ManufacturingCountry CRUD ─────────────────────────────────
-
-  describe("ManufacturingCountry", () => {
-    let countryId: string;
-
-    it("should create a country", async () => {
-      const country = await prisma.manufacturingCountry.create({
-        data: {
-          name: `${TEST_PREFIX}Turquie`,
-          isoCode: `${TEST_PREFIX}TR`,
-          pfsCountryRef: `${TEST_PREFIX}TR`,
-        },
-      });
-      countryId = country.id;
-
-      expect(country.isoCode).toBe(`${TEST_PREFIX}TR`);
-    });
-
-    it("should delete country", async () => {
-      await prisma.manufacturingCountry.delete({ where: { id: countryId } });
-      const found = await prisma.manufacturingCountry.findUnique({ where: { id: countryId } });
-      expect(found).toBeNull();
-    });
-  });
-
   // ─── Collection CRUD ───────────────────────────────────────────
 
   describe("Collection", () => {

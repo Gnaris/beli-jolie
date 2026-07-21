@@ -177,15 +177,9 @@ export const getCachedHsCodes = unstable_cache(
 );
 
 // ─── Pays de fabrication ─────────────────────────────────────────────────────
-export const getCachedManufacturingCountries = unstable_cache(
-  async () =>
-    prisma.manufacturingCountry.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, isoCode: true },
-    }),
-  ["filter-manufacturing-countries"],
-  { revalidate: 60, tags: ["manufacturing-countries"] }
-);
+// La liste des pays est figée dans `lib/countries.ts` — plus de table BDD, plus
+// de cache. Les appels historiques passent directement par `listCountries()` ou
+// `listManufacturingCountries()`.
 
 // ─── Tailles (bibliothèque globale) ───────────────────────────────────────────
 export const getCachedSizes = unstable_cache(
@@ -774,7 +768,7 @@ export const getCachedUnmappedAttributes = tenantScopedCacheWithTid(
     return computeUnmappedAttributes(tid, flags);
   },
   ["unmapped-attributes"],
-  { revalidate: 300, tags: ["categories", "colors", "compositions", "seasons", "sizes", "manufacturing-countries", "hs-codes", "site-config"] }
+  { revalidate: 300, tags: ["categories", "colors", "compositions", "seasons", "sizes", "hs-codes", "site-config"] }
 );
 
 // ─── Dashboard aggregate stats (expensive, cache 5min) ──────────────────────

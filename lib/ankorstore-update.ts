@@ -128,7 +128,7 @@ interface FullProduct {
     percentage: number | { toString(): string };
     composition: { name: string; pfsCompositionRef: string | null };
   }[];
-  manufacturingCountry: { isoCode: string | null; pfsCountryRef: string | null } | null;
+  countryIsoCode: string | null;
   season: { pfsRef: string | null } | null;
 }
 
@@ -208,7 +208,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           composition: { select: { name: true, pfsCompositionRef: true } },
         },
       },
-      manufacturingCountry: { select: { isoCode: true, pfsCountryRef: true } },
+      countryIsoCode: true,
       season: { select: { pfsRef: true } },
     },
   }) as unknown as FullProduct | null;
@@ -299,10 +299,7 @@ function buildProductFieldsSnapshot(
     name: product.name,
     description: safeDescription,
     vatRate: config.vatRate,
-    countryCode:
-      product.manufacturingCountry?.isoCode ??
-      product.manufacturingCountry?.pfsCountryRef ??
-      "FR",
+    countryCode: product.countryIsoCode ?? "FR",
     unitMultiplier: 1,
     brandName,
     weightGrams: toIntegerOrNull(firstVariantWeight, 1000),

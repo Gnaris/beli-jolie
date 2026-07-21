@@ -20,6 +20,8 @@ import PfsKpiRow from "./PfsKpiRow";
 import PfsTopClients from "./PfsTopClients";
 import PfsTopProducts from "./PfsTopProducts";
 import PfsOrdersTable from "./PfsOrdersTable";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useRightRail } from "@/components/admin/widgets-rail";
 
 interface Props {
   initialSyncMeta: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
@@ -40,11 +42,17 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
   const [selectedOrder, setSelectedOrder] = useState<PfsOrderDetailFull | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [importState, setImportState] = useState<{ status: string; processedOrders: number; totalOrders: number } | null>(
-    null,
-  );
+  const [importRunning, setImportRunning] = useState(false);
   const [syncMeta, setSyncMeta] = useState(initialSyncMeta);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [, startTransition] = useTransition();
+  const { confirm } = useConfirm();
+  const { open: openWidget } = useRightRail();
+
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const refresh = useCallback(async () => {
     const [nextStats, nextList] = await Promise.all([
@@ -60,34 +68,37 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
     void refresh();
   }, [refresh]);
 
-  // Polling du widget import — actif dès qu'un import RUNNING
+  // Polling léger de l'état d'import — sert uniquement à :
+  //  - désactiver le bouton « Importer l'historique PFS » pendant qu'un import tourne
+  //  - rafraîchir liste/stats + compteur « commandes en base » quand un import
+  //    se termine, sans que la cliente ait à recharger la page
+  // Les détails (progression, commandes en cours, journal) sont dans le widget
+  // rail (PfsImportDrawer) qui a son propre polling.
   useEffect(() => {
     let cancelled = false;
+    let wasRunning = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
-      const state = await getPfsImportStateAction();
-      if (cancelled) return;
-      if (state.status === "RUNNING") {
-        setImportState({
-          status: state.status,
-          processedOrders: state.processedOrders,
-          totalOrders: state.totalOrders,
-        });
-        setTimeout(tick, 3000);
-      } else if (state.status === "DONE" || state.status === "ERROR" || state.status === "STOPPED") {
-        setImportState({
-          status: state.status,
-          processedOrders: state.processedOrders,
-          totalOrders: state.totalOrders,
-        });
-        // recharge liste + stats une fois l'import fini
-        void refresh();
-      } else {
-        setImportState(null);
+      try {
+        const state = await getPfsImportStateAction();
+        if (cancelled) return;
+        const running = state.status === "RUNNING";
+        setImportRunning(running);
+        if (!running && wasRunning) {
+          // Import qui vient de se terminer → refresh liste + stats.
+          void refresh();
+          void getPfsSyncMeta().then(setSyncMeta);
+        }
+        wasRunning = running;
+        timer = setTimeout(tick, running ? 3000 : 8000);
+      } catch {
+        timer = setTimeout(tick, 8000);
       }
     };
     void tick();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [refresh]);
 
@@ -102,6 +113,15 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
   }, []);
 
   const onSyncNow = useCallback(async () => {
+    const ok = await confirm({
+      type: "info",
+      title: "Synchroniser les commandes Paris Fashion Shop ?",
+      message:
+        "Nous allons récupérer les commandes récentes depuis Paris Fashion Shop et mettre à jour le tableau. Cela ne prend en général que quelques secondes.",
+      confirmLabel: "Synchroniser",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
     setSyncing(true);
     try {
       await syncPfsOrdersNow();
@@ -111,26 +131,61 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
     } finally {
       setSyncing(false);
     }
-  }, [refresh]);
+  }, [refresh, confirm]);
 
   const onStartImport = useCallback(async () => {
-    const state = await startPfsHistoricalImport();
-    setImportState({
-      status: state.status,
-      processedOrders: state.processedOrders,
-      totalOrders: state.totalOrders,
+    const ok = await confirm({
+      type: "warning",
+      title: "Importer tout l'historique Paris Fashion Shop ?",
+      message:
+        "Nous allons récupérer l'intégralité de vos commandes Paris Fashion Shop depuis le début. Cette opération peut durer plusieurs minutes selon le volume ; vous pouvez continuer à utiliser le site pendant ce temps. Un import est déjà quotidien en automatique — lancez-le uniquement si vous voulez rattraper un historique complet.",
+      confirmLabel: "Lancer l'import",
+      cancelLabel: "Annuler",
     });
-  }, []);
+    if (!ok) return;
+    await startPfsHistoricalImport();
+    setImportRunning(true);
+    // Ouvre le tiroir « Import commandes PFS » du rail widget pour suivre la progression en direct.
+    openWidget("pfs-import");
+  }, [confirm, openWidget]);
 
   const lastSyncedLabel = useMemo(() => {
     if (!syncMeta.lastSyncedAt) return "Jamais";
     const ts = new Date(syncMeta.lastSyncedAt);
-    const min = Math.max(0, Math.round((Date.now() - ts.getTime()) / 60000));
+    const min = Math.max(0, Math.round((nowTick - ts.getTime()) / 60000));
     if (min === 0) return "À l'instant";
     if (min < 60) return `il y a ${min} min`;
     const h = Math.round(min / 60);
     return `il y a ${h} h`;
-  }, [syncMeta.lastSyncedAt]);
+  }, [syncMeta.lastSyncedAt, nowTick]);
+
+  const AUTO_SYNC_INTERVAL_MS = 5 * 60_000;
+  const nextSyncLabel = useMemo(() => {
+    if (!syncMeta.lastSyncedAt) return null;
+    const lastTs = new Date(syncMeta.lastSyncedAt).getTime();
+    const remaining = lastTs + AUTO_SYNC_INTERVAL_MS - nowTick;
+    if (remaining <= 0) return "à l'instant";
+    const totalSec = Math.ceil(remaining / 1000);
+    const mm = Math.floor(totalSec / 60);
+    const ss = totalSec % 60;
+    return `${mm}:${ss.toString().padStart(2, "0")}`;
+  }, [syncMeta.lastSyncedAt, nowTick]);
+
+  // Rafraîchissement silencieux de l'horodatage quand le compteur passe à 0
+  useEffect(() => {
+    if (syncing || !syncMeta.lastSyncedAt) return;
+    const lastTs = new Date(syncMeta.lastSyncedAt).getTime();
+    const overdueBy = nowTick - (lastTs + AUTO_SYNC_INTERVAL_MS);
+    if (overdueBy < 0) return;
+    // Poll toutes les ~15 s tant que le worker n'a pas mis à jour le timestamp
+    if (Math.floor(overdueBy / 1000) % 15 !== 0) return;
+    void getPfsSyncMeta().then((meta) => {
+      setSyncMeta(meta);
+      if (meta.lastSyncedAt && meta.lastSyncedAt !== syncMeta.lastSyncedAt) {
+        void refresh();
+      }
+    });
+  }, [nowTick, syncMeta.lastSyncedAt, syncing, refresh]);
 
   if (!syncMeta.hasCredentials) {
     return (
@@ -152,6 +207,18 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
         <div className="flex items-center gap-3">
           <div className="text-xs text-text-muted">
             Dernière synchro : <span className="text-text-primary font-medium">{lastSyncedLabel}</span>
+            {nextSyncLabel && (
+              <>
+                <span className="mx-2 opacity-40">·</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Prochaine auto dans{" "}
+                  <span className="text-text-primary font-medium tabular-nums">
+                    {nextSyncLabel}
+                  </span>
+                </span>
+              </>
+            )}
             <span className="mx-2 opacity-40">·</span>
             <span className="text-text-primary font-medium">
               {syncMeta.totalOrdersInDb.toLocaleString("fr-FR")}
@@ -168,13 +235,10 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
           </button>
           <button
             type="button"
-            onClick={() => void onStartImport()}
-            disabled={importState?.status === "RUNNING"}
-            className="rounded-xl bg-slate-900 text-white text-sm px-4 py-2 hover:bg-slate-800 disabled:opacity-50"
+            onClick={() => (importRunning ? openWidget("pfs-import") : void onStartImport())}
+            className="rounded-xl bg-slate-900 text-white text-sm px-4 py-2 hover:bg-slate-800"
           >
-            {importState?.status === "RUNNING"
-              ? `Import en cours (${importState.processedOrders}/${importState.totalOrders})`
-              : "Importer l'historique PFS"}
+            {importRunning ? "Voir l'import en cours" : "Importer l'historique PFS"}
           </button>
         </div>
       </section>

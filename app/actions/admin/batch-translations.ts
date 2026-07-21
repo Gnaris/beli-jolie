@@ -14,7 +14,7 @@ async function requireAdmin() {
   }
 }
 
-type EntityType = "color" | "composition" | "tag" | "category" | "subcategory" | "collection" | "manufacturing-country" | "season";
+type EntityType = "color" | "composition" | "tag" | "category" | "subcategory" | "collection" | "season";
 
 interface BatchItem {
   id: string;
@@ -79,13 +79,6 @@ export async function batchUpdateTranslations(
             create: { collectionId: item.id, locale, name: val },
           });
           break;
-        case "manufacturing-country":
-          await prisma.manufacturingCountryTranslation.upsert({
-            where: { manufacturingCountryId_locale: { manufacturingCountryId: item.id, locale } },
-            update: { name: val },
-            create: { manufacturingCountryId: item.id, locale, name: val },
-          });
-          break;
         case "season":
           await prisma.seasonTranslation.upsert({
             where: { seasonId_locale: { seasonId: item.id, locale } },
@@ -119,10 +112,6 @@ export async function batchUpdateTranslations(
     case "collection":
       revalidatePath("/admin/collections");
       revalidateTag("collections", "default");
-      break;
-    case "manufacturing-country":
-      revalidatePath("/admin/produits");
-      revalidateTag("manufacturing-countries", "default");
       break;
     case "season":
       revalidatePath("/admin/produits");

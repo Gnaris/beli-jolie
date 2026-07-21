@@ -6,6 +6,7 @@ import {
   isItemActive,
   useMarketplaceRefreshQueue,
 } from "./MarketplaceRefreshContext";
+import { useMarketplaceMaintenance } from "./MarketplaceMaintenanceContext";
 
 // Sous-ensemble des champs d'AdminProduct nécessaires à la barre — évite
 // d'importer tout le type et de forcer les refactos si l'entité principale
@@ -64,6 +65,12 @@ interface Props {
   onDeselectAll: () => void;
   onMarketplacePublish: (marketplace: MarketplaceKey, productIds: string[]) => void;
   onMarketplaceSync: (marketplace: MarketplaceKey, productIds: string[]) => void;
+  /**
+   * Vérification PFS : lance une comparaison locale ↔ PFS sur les produits
+   * sélectionnés déjà liés (pfsProductId !== null). Sans modifier ni PFS ni
+   * BJ. Résultat affiché via la pastille dans le tableau (colonne Produit).
+   */
+  onMarketplaceVerify?: (productIds: string[]) => void;
   onPublishDrafts?: () => void;
   /**
    * Bascule le drapeau best-seller sur toute la sélection. Impacte PFS :
@@ -179,6 +186,7 @@ export default function BulkActionBar({
   onDeselectAll,
   onMarketplacePublish,
   onMarketplaceSync,
+  onMarketplaceVerify,
   onPublishDrafts,
   onSetBestSeller,
   onOpenTagsModal,
@@ -581,6 +589,14 @@ export default function BulkActionBar({
                     setMarketplacesOpen(false);
                     onMarketplaceSync(k, products.map((p) => p.id));
                   }}
+                  onVerify={
+                    onMarketplaceVerify
+                      ? (products) => {
+                          setMarketplacesOpen(false);
+                          onMarketplaceVerify(products.map((p) => p.id));
+                        }
+                      : undefined
+                  }
                   onClose={() => setMarketplacesOpen(false)}
                 />
               )}
@@ -697,6 +713,7 @@ function MarketplacePanel({
   totalSelected,
   onPublish,
   onSync,
+  onVerify,
   onClose,
 }: {
   counts: ReturnType<typeof computeMarketplaceCounts>;
@@ -704,8 +721,15 @@ function MarketplacePanel({
   totalSelected: number;
   onPublish: (k: MarketplaceKey, products: BulkBarProduct[]) => void;
   onSync: (k: MarketplaceKey, products: BulkBarProduct[]) => void;
+  /**
+   * Vérification (PFS uniquement pour le moment). Cible = les produits déjà
+   * liés à PFS dans la sélection courante (alreadyOn.pfs). Non fourni si la
+   * page appelante ne câble pas la vérif.
+   */
+  onVerify?: (products: BulkBarProduct[]) => void;
   onClose: () => void;
 }) {
+  const maintenance = useMarketplaceMaintenance();
   const order: MarketplaceKey[] = ["pfs", "ankorstore", "efashion", "faire"];
 
   const totalActions = order.reduce((acc, k) => {
@@ -760,28 +784,48 @@ function MarketplacePanel({
           const syncTargets = hasFlagged ? sync : alreadyOn;
           const canSync = syncTargets.length > 0;
           const actionCount = (publish.length > 0 ? 1 : 0) + (canSync ? 1 : 0);
+          const inMaintenance = maintenance[k];
           return (
-            <div key={k} className="px-5 py-4 border-b border-border-light last:border-b-0">
+            <div
+              key={k}
+              className={`px-5 py-4 border-b border-border-light last:border-b-0 ${
+                inMaintenance ? "bg-[#FEF2F2]/40" : ""
+              }`}
+            >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className={`w-7 h-7 rounded-lg bg-gradient-to-br ${meta.gradient} flex items-center justify-center text-white text-[11px] font-bold`}>
+                  <div
+                    className={`w-7 h-7 rounded-lg bg-gradient-to-br ${meta.gradient} flex items-center justify-center text-white text-[11px] font-bold`}
+                    style={inMaintenance ? { filter: "grayscale(1) brightness(0.85)" } : undefined}
+                  >
                     {meta.initial}
                   </div>
                   <div>
-                    <div className="font-heading font-bold text-[14px] text-text-primary">{meta.label}</div>
+                    <div className={`font-heading font-bold text-[14px] ${inMaintenance ? "text-text-muted line-through" : "text-text-primary"}`}>{meta.label}</div>
                     <div className="text-[10px] text-text-muted">{meta.subtitle}</div>
                   </div>
                 </div>
-                <span className={`text-[11px] font-semibold ${meta.accentText}`}>
-                  {actionCount} action{actionCount > 1 ? "s" : ""}
-                </span>
+                {inMaintenance ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#FEF2F2] text-[#B91C1C] border border-[#FECACA]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444] animate-pulse" />
+                    En maintenance
+                  </span>
+                ) : (
+                  <span className={`text-[11px] font-semibold ${meta.accentText}`}>
+                    {actionCount} action{actionCount > 1 ? "s" : ""}
+                  </span>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className={`grid gap-2 ${k === "pfs" && onVerify ? "grid-cols-3" : "grid-cols-2"}`}>
                 {publish.length > 0 ? (
                   <button
                     type="button"
-                    onClick={() => onPublish(k, publish)}
-                    className={`flex items-center gap-3 p-3 rounded-xl border border-border transition-all text-left ${meta.publishHover}`}
+                    onClick={() => !inMaintenance && onPublish(k, publish)}
+                    disabled={inMaintenance}
+                    title={inMaintenance ? `${meta.label} en maintenance sur la plateforme` : undefined}
+                    className={`flex items-center gap-3 p-3 rounded-xl border border-border transition-all text-left ${
+                      inMaintenance ? "opacity-50 cursor-not-allowed" : meta.publishHover
+                    }`}
                   >
                     <div className={`w-8 h-8 rounded-lg ${meta.accentBg} flex items-center justify-center flex-shrink-0`}>
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -798,19 +842,55 @@ function MarketplacePanel({
                 ) : (
                   <EmptyCard label="Rien à publier" hint="Tout est déjà en ligne" />
                 )}
+                {/* 3ᵉ carte "Vérifier" — PFS uniquement, cible = produits déjà
+                    liés (alreadyOn). N'écrit rien, compare juste et pose la
+                    pastille sur la ligne du tableau. */}
+                {k === "pfs" && onVerify && alreadyOn.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => !inMaintenance && onVerify(alreadyOn)}
+                    disabled={inMaintenance}
+                    title={
+                      inMaintenance
+                        ? "PFS en maintenance sur la plateforme"
+                        : "Compare les produits sélectionnés avec PFS sans rien modifier"
+                    }
+                    className={`flex items-center gap-3 p-3 rounded-xl border border-border transition-all text-left ${
+                      inMaintenance ? "opacity-50 cursor-not-allowed" : "hover:border-emerald-300 hover:bg-emerald-50/50"
+                    }`}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-semibold text-text-primary">Vérifier</div>
+                      <div className="text-[11px] text-text-muted">
+                        <b className="text-emerald-700">{alreadyOn.length} produit{alreadyOn.length > 1 ? "s" : ""}</b> comparé{alreadyOn.length > 1 ? "s" : ""} sans modif
+                      </div>
+                    </div>
+                  </button>
+                )}
                 {canSync && (
                   <button
                     type="button"
-                    onClick={() => onSync(k, syncTargets)}
+                    onClick={() => !inMaintenance && onSync(k, syncTargets)}
+                    disabled={inMaintenance}
                     className={`flex items-center gap-3 p-3 rounded-xl border border-border transition-all text-left ${
-                      hasFlagged
-                        ? "hover:border-amber-300 hover:bg-amber-50/50"
-                        : "hover:border-slate-300 hover:bg-slate-50/70"
+                      inMaintenance
+                        ? "opacity-50 cursor-not-allowed"
+                        : hasFlagged
+                          ? "hover:border-amber-300 hover:bg-amber-50/50"
+                          : "hover:border-slate-300 hover:bg-slate-50/70"
                     }`}
                     title={
-                      hasFlagged
-                        ? `Envoyer les changements en attente sur ${meta.label}`
-                        : `Forcer la resynchro de tous les produits déjà sur ${meta.label}`
+                      inMaintenance
+                        ? `${meta.label} en maintenance sur la plateforme`
+                        : hasFlagged
+                          ? `Envoyer les changements en attente sur ${meta.label}`
+                          : `Forcer la resynchro de tous les produits déjà sur ${meta.label}`
                     }
                   >
                     <div

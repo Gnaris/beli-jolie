@@ -197,6 +197,47 @@ describe("upsertClientCardFromPfsCustomer", () => {
     const id = await upsertClientCardFromPfsCustomer(tenantId, { ...baseCustomer, id: "" });
     expect(id).toBeNull();
   });
+
+  it("utilise la date de la commande PFS comme lastOrderAt (pas today)", async () => {
+    mockAdminCardFindFirst.mockResolvedValue(null);
+    mockAdminCardCreate.mockResolvedValue({ id: "card-new" });
+
+    const orderDate = new Date("2025-03-14T10:00:00Z");
+    await upsertClientCardFromPfsCustomer(tenantId, baseCustomer, orderDate);
+
+    const createArgs = mockAdminCardCreate.mock.calls[0][0];
+    expect(createArgs.data.lastOrderAt).toEqual(orderDate);
+  });
+
+  it("conserve lastOrderAt existant s'il est plus récent que la commande en cours d'import", async () => {
+    const olderOrder = new Date("2025-01-01T00:00:00Z");
+    const existingRecent = new Date("2026-06-30T00:00:00Z");
+    mockAdminCardFindFirst.mockResolvedValueOnce({
+      id: "card-existing",
+      lastOrderAt: existingRecent,
+    });
+    mockAdminCardUpdate.mockResolvedValue({});
+
+    await upsertClientCardFromPfsCustomer(tenantId, baseCustomer, olderOrder);
+
+    const updateArgs = mockAdminCardUpdate.mock.calls[0][0];
+    expect(updateArgs.data.lastOrderAt).toEqual(existingRecent);
+  });
+
+  it("met à jour lastOrderAt si la commande importée est plus récente", async () => {
+    const oldExisting = new Date("2024-11-15T00:00:00Z");
+    const newer = new Date("2026-05-20T00:00:00Z");
+    mockAdminCardFindFirst.mockResolvedValueOnce({
+      id: "card-existing",
+      lastOrderAt: oldExisting,
+    });
+    mockAdminCardUpdate.mockResolvedValue({});
+
+    await upsertClientCardFromPfsCustomer(tenantId, baseCustomer, newer);
+
+    const updateArgs = mockAdminCardUpdate.mock.calls[0][0];
+    expect(updateArgs.data.lastOrderAt).toEqual(newer);
+  });
 });
 
 describe("upsertPfsOrderFromDetail — matching produit", () => {

@@ -323,6 +323,26 @@ export default function ThemedProductFilters({
           {hasEfashionConfig && <LinkRadio urlKey="efashionLink" label="Lien EF" />}
           {hasAnkorstoreConfig && <LinkRadio urlKey="ankorsLink" label="Lien ANKOR" />}
           {hasFaireConfig && <LinkRadio urlKey="faireLink" label="Lien Faire" />}
+          {/* Vérification PFS — alimenté par la pastille dans la colonne
+              Produit (lib/pfs-verify.ts). Ne concerne que les produits liés. */}
+          {hasPfsConfig && (
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">
+                Vérification PFS
+              </div>
+              <CustomSelect
+                value={searchParams.get("pfsVerify") ?? ""}
+                onChange={(val) => setParam({ pfsVerify: val })}
+                options={[
+                  { value: "", label: "Tous" },
+                  { value: "diff", label: "Vérif avec écarts" },
+                  { value: "ok", label: "Vérif conforme" },
+                  { value: "unchecked", label: "Jamais vérifié" },
+                ]}
+                size="sm"
+              />
+            </div>
+          )}
           <div className="border-t border-border pt-3 flex flex-col gap-2.5">
             {hasPfsConfig && <ExportSelect urlKey="pfsExportedAt" label="Dernier export PFS" />}
             {hasEfashionConfig && <ExportSelect urlKey="efashionExportedAt" label="Dernier export EF" />}
@@ -431,7 +451,7 @@ export default function ThemedProductFilters({
       if (has("refresh")) n++;
       if (has("translationStatus")) n++;
     } else if (theme === "marketplaces") {
-      ["pfsLink", "ankorsLink", "efashionLink", "faireLink",
+      ["pfsLink", "ankorsLink", "efashionLink", "faireLink", "pfsVerify",
        "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt"].forEach((k) => has(k) && n++);
     } else if (theme === "sort") {
       // Actif seulement si `sort` porte une valeur reconnue.

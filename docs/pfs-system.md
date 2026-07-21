@@ -159,10 +159,11 @@ Copie locale des commandes PFS. **Aucune écriture** côté PFS. Séparé de `Or
 - Démarré dans `instrumentation-node.ts` sur le pattern `startXxxWorker` + `STARTUP_GUARD` symbol
 
 **Import Historique State (`lib/pfs-orders-import-state.ts`)** :
-- `SiteConfig.pfs_orders_import_state` = JSON `PfsImportState` (status IDLE|RUNNING|DONE|ERROR|STOPPED, processedOrders, totalOrders, currentPage, totalPages, imported, skipped, errorMessage)
+- `SiteConfig.pfs_orders_import_state` = JSON `PfsImportState` (status IDLE|RUNNING|DONE|ERROR|STOPPED, processedOrders, totalOrders, currentPage, totalPages, imported, skipped, unchanged, errorMessage, currentOrder, recentEvents[])
 - `SiteConfig.pfs_orders_import_stop` = "1" quand la cliente annule (lu par le stopSignal async)
 - `startPfsHistoricalImportInBackground(tenantId)` : idempotent (return current si RUNNING), fire-and-forget dans `tenantALS.run`
-- Auto-cleanup : `PfsImportPill` client appelle `acknowledgePfsHistoricalImport` 15s après DONE/ERROR/STOPPED pour reset l'état
+- `importAllPfsOrdersFor` accepte `onEvent(PfsImportEvent)` = push d'un événement dans `recentEvents` (30 max) : `{orderNumber, customerName, result: imported|unchanged|error, totalTTC, errorMessage?, at}`
+- Cleanup : bouton « Fermer le récap » du drawer widget appelle `acknowledgePfsHistoricalImport` pour reset l'état
 
 **Server Actions (`app/actions/admin/pfs-orders.ts`)** — toutes gardées par `requireAdmin() + requireCurrentTenant()` :
 - `listPfsOrders({page, perPage, q, status, carrier, period})` : liste paginée filtrable
@@ -180,7 +181,7 @@ Copie locale des commandes PFS. **Aucune écriture** côté PFS. Séparé de `Or
 - `/admin/commandes` : tabs Boutique / PFS via `?source=boutique|pfs`, tab bar `OrdersTabsNav` (contient les 2 initiales P/B avec les gradients marketplace figés)
 - `components/admin/orders/pfs/PfsOrdersView.tsx` : orchestrateur client, appelle les server actions au mount et à chaque changement de filtre
 - `PfsPeriodBar`, `PfsKpiRow`, `PfsTopClients`, `PfsTopProducts`, `PfsOrdersTable`, `PfsOrderDrawer` : sous-composants ardoise
-- `PfsImportPill` : widget flottant en bas à droite (au-dessus du FAB rail existant), poll `getPfsImportStateAction` toutes les 3s
+- `PfsImportDrawer` (`components/admin/widgets-rail/PfsImportDrawer.tsx`) : tiroir du rail widget avec accent indigo, poll `getPfsImportStateAction` (2s pendant RUNNING, 6s sinon). Affiche progression + commande en cours + journal live des 30 dernières + récap final (X importées / X déjà à jour / X ignorées). S'ouvre automatiquement quand un import démarre depuis `PfsOrdersView`.
 - `AdminCardPfsOrdersSection` : injecté dans `AdminCardDrawer` (mode edit), stats client + historique commandes PFS
 - Deep link `/admin/utilisateurs?tab=fiches&card=<id>` : auto-ouvre le drawer client (consommé par `AdminCardsPane.useEffect`)
 

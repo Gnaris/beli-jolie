@@ -16,6 +16,7 @@ import {
   getProductMarketplaceEnabled,
   marketplaceDisabledMessage,
 } from "@/lib/marketplace-enabled";
+import { getMarketplaceMaintenance, marketplaceMaintenanceMessage } from "@/lib/platform-config";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -131,6 +132,21 @@ export async function refreshProductOnMarketplaces(
 
   if (options.local) {
     await refreshLocal(productId);
+  }
+
+  const maintenance = await getMarketplaceMaintenance();
+
+  if (options.pfs && maintenance.pfs) {
+    outcome.pfs = { status: "error", message: marketplaceMaintenanceMessage("pfs") };
+    options = { ...options, pfs: false };
+  }
+  if (options.ankorstore && maintenance.ankorstore) {
+    outcome.ankorstore = { status: "error", message: marketplaceMaintenanceMessage("ankorstore") };
+    options = { ...options, ankorstore: false };
+  }
+  if (options.faire && maintenance.faire) {
+    outcome.faire = { status: "error", message: marketplaceMaintenanceMessage("faire") };
+    options = { ...options, faire: false };
   }
 
   if (options.pfs) {

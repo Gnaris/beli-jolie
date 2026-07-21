@@ -45,21 +45,29 @@ const D = Prisma.Decimal;
 export async function upsertClientCardFromPfsCustomer(
   tenantId: string,
   customer: PfsOrderDetail["customer"],
+  orderDate?: Date,
 ): Promise<string | null> {
   const pfsCustomerId = customer.id;
   if (!pfsCustomerId) return null;
 
+  // `lastOrderAt` doit refléter la date de la commande PFS (`created_at`), pas
+  // l'instant où l'import a tourné — sinon toutes les fiches se retrouvent
+  // datées d'aujourd'hui après un rattrapage. Si l'appelant ne fournit pas
+  // de date on retombe sur `now`, mais tous les flux PFS passent la vraie.
+  const effectiveOrderDate = orderDate ?? new Date();
+
   // Étape 1 : lookup direct par pfsCustomerId (le plus rapide et fiable)
   const existingByPfsId = await prisma.adminClientCard.findFirst({
     where: { tenantId, pfsCustomerId },
-    select: { id: true },
+    select: { id: true, lastOrderAt: true },
   });
   if (existingByPfsId) {
+    const nextLastOrderAt = maxDate(existingByPfsId.lastOrderAt, effectiveOrderDate);
     await prisma.adminClientCard.update({
       where: { id: existingByPfsId.id },
       data: {
         hasPfs: true,
-        lastOrderAt: new Date(),
+        lastOrderAt: nextLastOrderAt,
         ...buildOptionalCardFieldsFromCustomer(customer),
       },
     });
@@ -71,15 +79,16 @@ export async function upsertClientCardFromPfsCustomer(
   if (siret) {
     const existingBySiret = await prisma.adminClientCard.findFirst({
       where: { tenantId, siret },
-      select: { id: true },
+      select: { id: true, lastOrderAt: true },
     });
     if (existingBySiret) {
+      const nextLastOrderAt = maxDate(existingBySiret.lastOrderAt, effectiveOrderDate);
       await prisma.adminClientCard.update({
         where: { id: existingBySiret.id },
         data: {
           pfsCustomerId,
           hasPfs: true,
-          lastOrderAt: new Date(),
+          lastOrderAt: nextLastOrderAt,
           ...buildOptionalCardFieldsFromCustomer(customer),
         },
       });
@@ -100,12 +109,17 @@ export async function upsertClientCardFromPfsCustomer(
       hasPfs: true,
       pfsCustomerId,
       importedFromMarketplace: "PFS",
-      lastOrderAt: new Date(),
+      lastOrderAt: effectiveOrderDate,
       ...buildOptionalCardFieldsFromCustomer(customer),
     },
     select: { id: true },
   });
   return created.id;
+}
+
+function maxDate(a: Date | null, b: Date): Date {
+  if (!a) return b;
+  return a.getTime() >= b.getTime() ? a : b;
 }
 
 function normalizeIdentifier(raw: string | null | undefined): string | null {
@@ -171,10 +185,13 @@ export async function upsertPfsOrderFromDetail(
   tenantId: string,
   detail: PfsOrderDetail,
 ): Promise<PfsOrderUpsertResult> {
-  const adminClientCardId = await upsertClientCardFromPfsCustomer(tenantId, detail.customer);
-
   const status = normalizePfsStatus(detail.status);
   const createdAtPfs = new Date(detail.created_at);
+  const adminClientCardId = await upsertClientCardFromPfsCustomer(
+    tenantId,
+    detail.customer,
+    createdAtPfs,
+  );
   const canceledAt = detail.canceled_at ? new Date(detail.canceled_at) : null;
 
   const summary = detail.summary;
@@ -395,11 +412,30 @@ export async function syncRecentPfsOrders(tenantId: string): Promise<{
 // Import historique (bulk)
 // ─────────────────────────────────────────────
 
+export interface PfsImportCurrentOrder {
+  pfsOrderId: string;
+  orderNumber: string;
+  customerName: string;
+  totalTTC: number | null;
+  country: string | null;
+}
+
 export interface PfsImportProgress {
   totalOrders: number;
   processedOrders: number;
   currentPage: number;
   totalPages: number;
+  /** Commandes actuellement traitées par les 5 workers en parallèle. */
+  currentOrders: PfsImportCurrentOrder[];
+}
+
+export interface PfsImportEvent {
+  orderNumber: string;
+  customerName: string;
+  result: "imported" | "unchanged" | "error";
+  totalTTC: number | null;
+  errorMessage?: string;
+  at: number;
 }
 
 /** Nombre de pages de listing PFS qu'on fetch en parallèle (léger, sans risque). */
@@ -416,13 +452,19 @@ const DETAIL_CONCURRENCY = 5;
 export async function importAllPfsOrdersFor(
   tenantId: string,
   onProgress?: (p: PfsImportProgress) => void | Promise<void>,
-  opts?: { stopSignal?: () => boolean | Promise<boolean> },
+  opts?: {
+    stopSignal?: () => boolean | Promise<boolean>;
+    onEvent?: (e: PfsImportEvent) => void | Promise<void>;
+  },
 ): Promise<{ imported: number; skipped: number; unchanged: number; total: number }> {
   const first = await pfsListOrders({ page: 1, perPage: 50 });
   const totalPages = first.meta.last_page ?? 1;
   const totalOrders = first.meta.total ?? first.data.length;
 
   const state = { processed: 0, imported: 0, skipped: 0, unchanged: 0 };
+  // Map<pfsOrderId, currentOrder> — chaque worker set son entrée avant le fetch
+  // détail, delete à la fin. Snapshot en tableau à chaque emitProgress.
+  const currentOrdersMap = new Map<string, PfsImportCurrentOrder>();
 
   const emitProgress = async (currentPage: number) => {
     if (!onProgress) return;
@@ -431,7 +473,12 @@ export async function importAllPfsOrdersFor(
       processedOrders: state.processed,
       currentPage,
       totalPages,
+      currentOrders: Array.from(currentOrdersMap.values()),
     });
+  };
+
+  const emitEvent = async (e: PfsImportEvent) => {
+    if (opts?.onEvent) await opts.onEvent(e);
   };
 
   const processChunk = async (
@@ -460,6 +507,13 @@ export async function importAllPfsOrdersFor(
       } else {
         state.unchanged++;
         state.processed++;
+        await emitEvent({
+          orderNumber: it.summary.order_no,
+          customerName: it.summary.customer ?? "(inconnu)",
+          result: "unchanged",
+          totalTTC: it.summary.validated_vat ?? it.summary.order_vat ?? null,
+          at: Date.now(),
+        });
       }
     }
     if (state.processed > 0) await emitProgress(lastPage);
@@ -475,9 +529,25 @@ export async function importAllPfsOrdersFor(
         }
         const item = queue.shift();
         if (!item) break;
+        // Publie « commande en cours » AVANT l'appel détail (long ~1-2s).
+        currentOrdersMap.set(item.summary.id, {
+          pfsOrderId: item.summary.id,
+          orderNumber: item.summary.order_no,
+          customerName: item.summary.customer ?? "(inconnu)",
+          totalTTC: item.summary.validated_vat ?? item.summary.order_vat ?? null,
+          country: item.summary.country ?? null,
+        });
+        await emitProgress(item.page);
         try {
           await syncSinglePfsOrder(tenantId, item.summary.id);
           state.imported++;
+          await emitEvent({
+            orderNumber: item.summary.order_no,
+            customerName: item.summary.customer ?? "(inconnu)",
+            result: "imported",
+            totalTTC: item.summary.validated_vat ?? item.summary.order_vat ?? null,
+            at: Date.now(),
+          });
         } catch (err) {
           state.skipped++;
           logger.warn("[PFS Orders Import] Échec commande", {
@@ -485,8 +555,17 @@ export async function importAllPfsOrdersFor(
             pfsOrderId: item.summary.id,
             error: err,
           });
+          await emitEvent({
+            orderNumber: item.summary.order_no,
+            customerName: item.summary.customer ?? "(inconnu)",
+            result: "error",
+            totalTTC: item.summary.validated_vat ?? item.summary.order_vat ?? null,
+            errorMessage: err instanceof Error ? err.message : String(err),
+            at: Date.now(),
+          });
         }
         state.processed++;
+        currentOrdersMap.delete(item.summary.id);
         await emitProgress(item.page);
       }
     });

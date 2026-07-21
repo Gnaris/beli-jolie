@@ -7,6 +7,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { getCountryByIso } from "@/lib/countries";
 
 export interface EfashionValidationResult {
   productId: string;
@@ -23,7 +24,7 @@ export async function validateEfashionPublishable(
     select: {
       id: true,
       category: { select: { name: true, efashionCategorieId: true } },
-      manufacturingCountry: { select: { name: true, efashionProvenanceId: true } },
+      countryIsoCode: true,
       season: { select: { name: true, efashionCollectionId: true } },
       compositions: {
         select: { composition: { select: { name: true, efashionId: true } } },
@@ -62,8 +63,11 @@ export async function validateEfashionPublishable(
   const missing: string[] = [];
   if (!product.category?.efashionCategorieId)
     missing.push(`catégorie « ${product.category?.name ?? "?"} » sans ID eFashion`);
-  if (!product.manufacturingCountry?.efashionProvenanceId)
-    missing.push(`pays « ${product.manufacturingCountry?.name ?? "?"} » sans ID eFashion`);
+  const country = getCountryByIso(product.countryIsoCode);
+  if (!country?.efashionProvenanceId)
+    missing.push(
+      `pays « ${country?.name ?? product.countryIsoCode ?? "?"} » sans ID eFashion`,
+    );
   if (!product.season?.efashionCollectionId)
     missing.push(`saison « ${product.season?.name ?? "?"} » sans ID eFashion`);
   if (product.compositions.length === 0) missing.push("au moins 1 composition requise");

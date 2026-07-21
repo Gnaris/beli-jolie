@@ -114,7 +114,7 @@ function mkProduct(overrides: Partial<Record<string, unknown>> = {}) {
     ],
     colorImages: [{ path: "/uploads/products/a.webp", order: 0, colorId: "color-noir" }],
     compositions: [{ percentage: 100, composition: { pfsCompositionRef: "COTON" } }],
-    manufacturingCountry: { isoCode: "CN", pfsCountryRef: "CN" },
+    countryIsoCode: "CN",
     season: { pfsRef: "PE2026" },
     ...overrides,
   };

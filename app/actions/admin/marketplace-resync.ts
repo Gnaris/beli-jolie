@@ -8,6 +8,7 @@ import { pfsUpdateProductInPlace } from "@/lib/pfs-update";
 import { emitProductEvent } from "@/lib/product-events";
 import { logger } from "@/lib/logger";
 import type { MarketplacePublishOutcome } from "./marketplace-publish";
+import { isMarketplaceInMaintenance, marketplaceMaintenanceMessage } from "@/lib/platform-config";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -47,6 +48,11 @@ export async function resyncProductOnPfs(
       status: "error",
       message: "Produit non publié sur Paris Fashion Shop.",
     };
+    return outcome;
+  }
+
+  if (await isMarketplaceInMaintenance("pfs")) {
+    outcome.pfs = { status: "error", message: marketplaceMaintenanceMessage("pfs") };
     return outcome;
   }
 
@@ -110,6 +116,11 @@ export async function resyncProductOnAnkorstore(
       status: "error",
       message: "Produit non publié sur Ankorstore.",
     };
+    return outcome;
+  }
+
+  if (await isMarketplaceInMaintenance("ankorstore")) {
+    outcome.ankorstore = { status: "error", message: marketplaceMaintenanceMessage("ankorstore") };
     return outcome;
   }
 
