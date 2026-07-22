@@ -41,8 +41,8 @@ const PRODUCT_FIELDS_PULL = new Set([
   "productStatus",
 ]);
 
-const VARIANT_FIELDS_PUSH = new Set(["price", "stock", "weight"]);
-const VARIANT_FIELDS_PULL = new Set(["price", "stock", "weight"]);
+const VARIANT_FIELDS_PUSH = new Set(["price", "stock", "weight", "isActive"]);
+const VARIANT_FIELDS_PULL = new Set(["price", "stock", "weight", "isActive"]);
 
 /**
  * Legacy — le composant tooltip s'attendait à un seul helper "support Lot B".

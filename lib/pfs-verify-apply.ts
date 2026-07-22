@@ -23,6 +23,7 @@ import { pfsCheckReference, pfsGetVariants, type PfsVariantDetail } from "@/lib/
 import {
   pfsUpdateProduct,
   pfsPatchVariants,
+  pfsSetVariantsAvailability,
   pfsUpdateStatus,
   type PfsStatus,
 } from "@/lib/pfs-api-write";
@@ -82,6 +83,103 @@ interface ApplyContext {
 }
 
 // ─── Entrée principale ─────────────────────────────────────────────────────
+
+/**
+ * Applique **uniquement** les actions « Prendre PFS » (pull) sur un produit,
+ * de façon synchrone. Les actions « Envoyer vers PFS » (push) présentes dans
+ * la liste sont ignorées et retournées telles quelles dans
+ * `remainingPushActions`, pour que l'appelant puisse les enqueue dans la file
+ * marketplace en tâche de fond.
+ *
+ * Utilisé par le server action `applyPfsVerifyPullsAndCollect` : la modale de
+ * push vers Ankor/eFashion/Faire doit s'ouvrir dès que les valeurs locales
+ * sont posées ; les push PFS peuvent partir en parallèle sans faire attendre
+ * la cliente.
+ */
+export async function applyPfsVerifyPullsOnly(
+  productId: string,
+  actions: PfsVerifyActionInput[],
+): Promise<{ report: PfsVerifyApplyReport; remainingPushActions: PfsVerifyActionInput[] }> {
+  const report: PfsVerifyApplyReport = { applied: [], skipped: [], errors: [] };
+  const remainingPushActions: PfsVerifyActionInput[] = [];
+  if (actions.length === 0) return { report, remainingPushActions };
+
+  const pullActions = actions.filter((a) => a.direction === "pull");
+  for (const a of actions) {
+    if (a.direction === "push") remainingPushActions.push(a);
+  }
+  if (pullActions.length === 0) return { report, remainingPushActions };
+
+  const local = await loadProductWithVariants(productId);
+  if (!local) throw new Error("Produit introuvable en base");
+  if (!local.pfsProductId) throw new Error("Produit non publié sur PFS");
+
+  const checkRef = await pfsCheckReference(local.reference);
+  if (!checkRef?.exists || !checkRef.product) {
+    throw new Error(`Référence ${local.reference} introuvable côté PFS`);
+  }
+  const variantsResp = await pfsGetVariants(checkRef.product.id);
+
+  const [markupConfigs, outOfStockCfg] = await Promise.all([
+    loadMarketplaceMarkupConfigs(),
+    getPfsOutOfStockConfig(),
+  ]);
+
+  const ctx: ApplyContext = {
+    productId,
+    pfsProductId: local.pfsProductId,
+    local,
+    pfsProduct: checkRef.product,
+    pfsVariants: variantsResp.data ?? [],
+    markup: markupConfigs.pfs,
+    outOfStockAction: outOfStockCfg.productAction,
+    deactivateOnZeroStock: outOfStockCfg.deactivateVariant,
+  };
+
+  const productPullActions: ParsedAction[] = [];
+  const variantPullActions: ParsedAction[] = [];
+  for (const a of pullActions) {
+    const parsed = parseKey(a.key);
+    if (!parsed) {
+      report.skipped.push({ key: a.key, reason: "Clé d'écart invalide" });
+      continue;
+    }
+    if (!isFieldSupportedLotB(parsed.scope, parsed.field)) {
+      report.skipped.push({
+        key: a.key,
+        reason: `Champ « ${parsed.field} » non pris en charge dans ce lot (à venir)`,
+      });
+      continue;
+    }
+    const entry: ParsedAction = { ...parsed, direction: "pull", rawKey: a.key };
+    (parsed.scope === "product" ? productPullActions : variantPullActions).push(entry);
+  }
+
+  const pullLocalPatch: LocalPatch = { product: {}, variants: new Map() };
+  for (const a of productPullActions) {
+    try {
+      buildProductPullPatch(a, ctx, pullLocalPatch);
+      report.applied.push({ key: a.rawKey, direction: "pull" });
+    } catch (err) {
+      report.errors.push({ key: a.rawKey, error: humanizeError(err) });
+    }
+  }
+  for (const a of variantPullActions) {
+    try {
+      buildVariantPullPatch(a, ctx, pullLocalPatch);
+      report.applied.push({ key: a.rawKey, direction: "pull" });
+    } catch (err) {
+      report.errors.push({ key: a.rawKey, error: humanizeError(err) });
+    }
+  }
+
+  const hadPull = report.applied.length > 0;
+  if (hadPull) {
+    await commitLocalPatch(productId, local, pullLocalPatch);
+  }
+
+  return { report, remainingPushActions };
+}
 
 export async function applyPfsVerifyActions(
   productId: string,
@@ -279,6 +377,7 @@ async function loadProductWithVariants(productId: string) {
           stock: true,
           saleType: true,
           packQuantity: true,
+          disabled: true,
           colorId: true,
           color: { select: { pfsColorRef: true, name: true } },
           pfsColorRefOverride: true,
@@ -359,7 +458,10 @@ interface LocalPatch {
     dimensionDiameter: number | null;
     dimensionCircumference: number | null;
   }>;
-  variants: Map<string, Partial<{ unitPrice: number; stock: number; weight: number }>>;
+  variants: Map<
+    string,
+    Partial<{ unitPrice: number; stock: number; weight: number; disabled: boolean }>
+  >;
 }
 
 function buildProductPullPatch(a: ParsedAction, ctx: ApplyContext, patch: LocalPatch): void {
@@ -430,6 +532,10 @@ function buildVariantPullPatch(a: ParsedAction, ctx: ApplyContext, patch: LocalP
     case "weight":
       existing.weight = Number(pv.weight ?? 0);
       break;
+    case "isActive":
+      // PFS `is_active=true` → variante visible → `disabled=false` chez nous.
+      existing.disabled = pv.is_active === false;
+      break;
     default:
       throw new Error(`Champ variante non supporté (pull) : ${a.field}`);
   }
@@ -463,6 +569,7 @@ async function commitLocalPatch(
       if (data.unitPrice !== undefined) upd.unitPrice = new Prisma.Decimal(data.unitPrice);
       if (data.stock !== undefined) upd.stock = data.stock;
       if (data.weight !== undefined) upd.weight = data.weight;
+      if (data.disabled !== undefined) upd.disabled = data.disabled;
       await tx.productColor.update({ where: { id: variantId }, data: upd });
     }
   });
@@ -569,11 +676,22 @@ async function applyVariantPushes(
     string,
     { variant_id: string; price?: number; stock?: number; weight?: number }
   >();
+  // Les changements d'activation passent par un endpoint dédié
+  // (`variants/batch/setAvailability`). Le champ `is_active` du PATCH classique
+  // est ignoré silencieusement par PFS.
+  const availability: { pfsVariantId: string; enable: boolean }[] = [];
 
   for (const a of actions) {
     const lv = findLocalVariant(local, a.colorRef, a.variantType);
     if (!lv) throw new Error(`Variante locale ${a.colorRef}/${a.variantType} introuvable`);
     if (!lv.pfsVariantId) throw new Error(`Variante ${a.colorRef} sans identifiant PFS`);
+
+    if (a.field === "isActive") {
+      // Chez nous `disabled=true` = variante masquée. Côté PFS, on envoie
+      // l'opposé — variante visible = `enable=true`.
+      availability.push({ pfsVariantId: lv.pfsVariantId, enable: !lv.disabled });
+      continue;
+    }
 
     const entry = patches.get(lv.id) ?? { variant_id: lv.pfsVariantId };
     if (a.field === "price") {
@@ -600,6 +718,12 @@ async function applyVariantPushes(
   if (payload.length > 0) {
     logger.info("[PFS Verify Apply] Push variants", { count: payload.length });
     await pfsPatchVariants(payload);
+  }
+  if (availability.length > 0) {
+    logger.info("[PFS Verify Apply] Push variants availability", {
+      count: availability.length,
+    });
+    await pfsSetVariantsAvailability(availability);
   }
 }
 

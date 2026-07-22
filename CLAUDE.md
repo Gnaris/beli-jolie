@@ -21,9 +21,6 @@ Cliente **non-développeuse** qui dirige le projet.
 - **Suggestions** : proposer variantes UX/perf en plus. Elle décide.
 - **Tests Vitest obligatoires** sur toute feature/modif.
 
-### Dev server local
-Claude lance et garde `npm run dev` en fond dès qu'il touche au site. Redémarrer sans demander après `.env`, `prisma/schema.prisma` (+ `prisma generate && prisma db push` avant), `next.config.ts`, deps natives (`sharp`, `pdfkit`, `exceljs`). Log dans `dev-server.log` (ignoré). Ne pas relancer si déjà tourné.
-
 ### Workflow modif → validation → push
 1. Modifier **local uniquement**. Pas de push auto.
 2. Informer + trajet de test.

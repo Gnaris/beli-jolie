@@ -8,9 +8,14 @@ import { Prisma } from "@prisma/client";
 import { verifyPfsProduct, type PfsVerifyResult, type PfsVerifyError, type PfsVerifyIssue } from "@/lib/pfs-verify";
 import {
   applyPfsVerifyActions as applyPfsVerifyActionsCore,
+  applyPfsVerifyPullsOnly,
   type PfsVerifyActionInput,
   type PfsVerifyApplyReport,
 } from "@/lib/pfs-verify-apply";
+import {
+  computePfsPullEligibleMarketplaces,
+  type PfsPullEligibleMarketplace,
+} from "@/lib/pfs-verify-eligible-marketplaces";
 import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
@@ -200,4 +205,84 @@ export async function applyPfsVerifyActions(
 
   revalidateTag("products", "default");
   return { success: true, report, outcome };
+}
+
+/**
+ * Applique **uniquement les pulls** de façon synchrone, calcule les
+ * marketplaces (Ankor / eFashion / Faire) éligibles à une propagation, et
+ * retourne les pushs restants pour que l'UI puisse les enqueue en tâche de
+ * fond via la file marketplace habituelle.
+ *
+ * Utilisé par la pastille PFS : quand la cliente clique « Valider » et qu'au
+ * moins un « Prendre PFS » est demandé, ce endpoint lui rend la main tout de
+ * suite avec :
+ *  - `pulledCount`         : nombre de champs locaux modifiés (0 = rien
+ *                            n'a changé chez nous).
+ *  - `eligibleMarketplaces`: marketplaces sur lesquelles proposer la modale
+ *                            de push (produit lié + non désactivé côté
+ *                            produit + non désactivé côté système + configuré).
+ *  - `remainingPushActions`: pushs à faire côté PFS, à enqueue tel quel dans
+ *                            la marketplace queue par l'UI (mode "resync").
+ *  - `outcome`             : nouveau résultat de vérification (rafraîchit
+ *                            la pastille du produit).
+ */
+export async function applyPfsVerifyPullsAndCollect(
+  productId: string,
+  actions: PfsVerifyActionInput[],
+): Promise<
+  | {
+      success: true;
+      report: PfsVerifyApplyReport;
+      pulledCount: number;
+      eligibleMarketplaces: PfsPullEligibleMarketplace[];
+      remainingPushActions: PfsVerifyActionInput[];
+      outcome: PfsVerifyOutcome;
+    }
+  | { success: false; error: string }
+> {
+  await requireAdmin();
+
+  if (!Array.isArray(actions) || actions.length === 0) {
+    return { success: false, error: "Aucune action à appliquer" };
+  }
+  for (const a of actions) {
+    if (typeof a?.key !== "string" || (a?.direction !== "push" && a?.direction !== "pull")) {
+      return { success: false, error: "Action invalide (clé ou direction manquante)" };
+    }
+  }
+
+  let pullsResult: Awaited<ReturnType<typeof applyPfsVerifyPullsOnly>>;
+  try {
+    pullsResult = await applyPfsVerifyPullsOnly(productId, actions);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error("[PFS Verify PullsOnly] Crash", { productId, error: msg });
+    return { success: false, error: msg };
+  }
+
+  const pulledCount = pullsResult.report.applied.filter(
+    (a) => a.direction === "pull",
+  ).length;
+
+  const eligibleMarketplaces =
+    pulledCount > 0 ? await computePfsPullEligibleMarketplaces(productId) : [];
+
+  const verifyRes = await verifyPfsProducts([productId]);
+  if (!verifyRes.success) {
+    return { success: false, error: verifyRes.error };
+  }
+  const outcome = verifyRes.outcomes[0];
+  if (!outcome) {
+    return { success: false, error: "Vérification post-pull n'a rien retourné" };
+  }
+
+  revalidateTag("products", "default");
+  return {
+    success: true,
+    report: pullsResult.report,
+    pulledCount,
+    eligibleMarketplaces,
+    remainingPushActions: pullsResult.remainingPushActions,
+    outcome,
+  };
 }

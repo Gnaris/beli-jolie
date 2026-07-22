@@ -186,7 +186,11 @@ async function resolveSizeIdFromLabel(tenantId: string, sizeLabel: string | null
  * Sortie : compteur + liste des lignes sautées + IDs produits/variantes touchés
  * (pour permettre à l'UI de proposer une action marketplace derrière).
  */
-export async function deductStockFromPfsOrders(tenantId: string, actorUserId: string | null): Promise<PfsStockDeductionResult> {
+export async function deductStockFromPfsOrders(
+  tenantId: string,
+  actorUserId: string | null,
+  pfsOrderIds?: string[],
+): Promise<PfsStockDeductionResult> {
   const pending = await prisma.pfsOrderItem.findMany({
     where: {
       tenantId,
@@ -194,6 +198,7 @@ export async function deductStockFromPfsOrders(tenantId: string, actorUserId: st
       productId: { not: null },
       productColorId: { not: null },
       pfsOrder: { status: { in: ["VALIDATED", "SENT"] } },
+      ...(pfsOrderIds && pfsOrderIds.length > 0 ? { pfsOrderId: { in: pfsOrderIds } } : {}),
     },
     select: {
       id: true,
@@ -412,5 +417,221 @@ export async function deductStockFromPfsOrders(tenantId: string, actorUserId: st
     skipped,
     touchedProductIds: Array.from(touchedProductIds),
     touchedVariantIds: Array.from(touchedVariantIds),
+  };
+}
+
+// ─────────────────────────────────────────────
+// Prévisualisation d'une déduction (simulation)
+// ─────────────────────────────────────────────
+
+export interface PfsStockPreviewVariantChange {
+  productColorId: string;
+  colorLabel: string;
+  sizeLabel: string;
+  unitsRemoved: number;
+  currentStock: number;
+  nextStock: number;
+}
+
+export interface PfsStockPreviewLine {
+  pfsOrderItemId: string;
+  pfsProductRef: string;
+  productName: string | null;
+  colorLabel: string | null;
+  sizeLabel: string | null;
+  qtyValidated: number;
+  saleType: "UNIT" | "PACK";
+  variantChanges: PfsStockPreviewVariantChange[];
+  skipReason?: PfsStockDeductionSkipReason;
+}
+
+export interface PfsStockPreview {
+  orderId: string;
+  orderNumber: string;
+  lines: PfsStockPreviewLine[];
+  totalUnitsRemoved: number;
+}
+
+/**
+ * Simule la déduction stock d'une commande PFS pour la modale de prévisualisation.
+ * Ne persiste rien — reproduit uniquement la logique de `deductStockFromPfsOrders`
+ * en mémoire pour montrer à la cliente : « stock actuel → nouveau stock » par variante.
+ */
+export async function simulatePfsStockDeductionForOrder(
+  tenantId: string,
+  pfsOrderId: string,
+): Promise<PfsStockPreview | null> {
+  const order = await prisma.pfsOrder.findFirst({
+    where: { tenantId, id: pfsOrderId },
+    select: { id: true, orderNumber: true, status: true },
+  });
+  if (!order) return null;
+
+  const pending = await prisma.pfsOrderItem.findMany({
+    where: {
+      tenantId,
+      pfsOrderId: order.id,
+      stockDeductedAt: null,
+      productId: { not: null },
+      productColorId: { not: null },
+      pfsOrder: { status: { in: ["VALIDATED", "SENT"] } },
+    },
+    select: {
+      id: true,
+      pfsProductRef: true,
+      productId: true,
+      productColorId: true,
+      pfsSku: true,
+      productSnapshotName: true,
+      colorLabelFr: true,
+      sizeLabel: true,
+      qtyValidated: true,
+    },
+  });
+
+  const uniqueProductIds = Array.from(new Set(pending.map((p) => p.productId!).filter(Boolean)));
+  const bundles = await loadProductBundles(uniqueProductIds, tenantId);
+
+  // Charge les libellés (couleur / taille) des ProductColor + Sizes pour un rendu propre.
+  const variantIds = new Set<string>();
+  for (const b of bundles.values()) for (const v of b.variants) variantIds.add(v.id);
+  const [variantsMeta, sizesMeta] = await Promise.all([
+    prisma.productColor.findMany({
+      where: { tenantId, id: { in: Array.from(variantIds) } },
+      select: {
+        id: true,
+        saleType: true,
+        color: { select: { id: true, name: true } },
+        variantSizes: { select: { size: { select: { id: true, name: true } } } },
+        packLines: {
+          select: { color: { select: { id: true, name: true } } },
+        },
+      },
+    }),
+    prisma.size.findMany({
+      where: { tenantId },
+      select: { id: true, name: true },
+    }),
+  ]);
+  const colorNameByVariant = new Map<string, string>();
+  for (const v of variantsMeta) {
+    if (v.color?.name) colorNameByVariant.set(v.id, v.color.name);
+  }
+  // Map colorId → colorName pour retrouver le libellé côté PACK.
+  const colorNameByColorId = new Map<string, string>();
+  for (const v of variantsMeta) {
+    if (v.color?.id && v.color.name) colorNameByColorId.set(v.color.id, v.color.name);
+    for (const pl of v.packLines) {
+      if (pl.color?.id && pl.color.name) colorNameByColorId.set(pl.color.id, pl.color.name);
+    }
+  }
+  const sizeNameById = new Map(sizesMeta.map((s) => [s.id, s.name]));
+
+  // Retrouve la variante UNIT (colorId + sizeId).
+  const findUnit = (bundle: ProductBundle, colorId: string, sizeId: string) =>
+    findUnitVariant(bundle, colorId, sizeId);
+
+  // Stock courant simulé par variantId (partagé entre lignes pour cumuler correctement
+  // si plusieurs items PFS attaquent la même variante).
+  const simulatedStock = new Map<string, number>();
+
+  const lines: PfsStockPreviewLine[] = [];
+  let totalUnits = 0;
+
+  for (const item of pending) {
+    const productId = item.productId!;
+    const bundle = bundles.get(productId);
+    const baseLine: PfsStockPreviewLine = {
+      pfsOrderItemId: item.id,
+      pfsProductRef: item.pfsProductRef,
+      productName: item.productSnapshotName,
+      colorLabel: item.colorLabelFr,
+      sizeLabel: item.sizeLabel,
+      qtyValidated: item.qtyValidated,
+      saleType: "UNIT",
+      variantChanges: [],
+    };
+
+    if (!bundle) {
+      lines.push({ ...baseLine, skipReason: "PRODUCT_NOT_LINKED" });
+      continue;
+    }
+    const soldVariant = bundle.variants.find((v) => v.id === item.productColorId);
+    if (!soldVariant) {
+      lines.push({ ...baseLine, skipReason: "VARIANT_NOT_LINKED" });
+      continue;
+    }
+    baseLine.saleType = soldVariant.saleType;
+    if (item.qtyValidated <= 0) {
+      lines.push({ ...baseLine, skipReason: "QTY_ZERO" });
+      continue;
+    }
+
+    const sizeId = await resolveSizeIdFromLabel(tenantId, item.sizeLabel);
+    if (!sizeId && soldVariant.saleType === "UNIT") {
+      lines.push({ ...baseLine, skipReason: "SIZE_UNKNOWN" });
+      continue;
+    }
+
+    const consumptions: { colorId: string; sizeId: string; units: number }[] = [];
+    if (soldVariant.saleType === "UNIT") {
+      if (!soldVariant.colorId || !sizeId) {
+        lines.push({ ...baseLine, skipReason: "VARIANT_NOT_LINKED" });
+        continue;
+      }
+      consumptions.push({ colorId: soldVariant.colorId, sizeId, units: item.qtyValidated });
+    } else if (soldVariant.packLines.length > 0) {
+      for (const line of soldVariant.packLines) {
+        for (const s of line.sizes) {
+          if (s.quantity > 0) {
+            consumptions.push({ colorId: line.colorId, sizeId: s.sizeId, units: s.quantity * item.qtyValidated });
+          }
+        }
+      }
+    } else if (soldVariant.colorId) {
+      for (const s of soldVariant.variantSizes) {
+        if (s.quantity > 0) {
+          consumptions.push({ colorId: soldVariant.colorId, sizeId: s.sizeId, units: s.quantity * item.qtyValidated });
+        }
+      }
+    } else {
+      lines.push({ ...baseLine, skipReason: "VARIANT_NOT_LINKED" });
+      continue;
+    }
+
+    const changes: PfsStockPreviewVariantChange[] = [];
+    let missedUnit = false;
+    for (const c of consumptions) {
+      const unit = findUnit(bundle, c.colorId, c.sizeId);
+      if (!unit) {
+        missedUnit = true;
+        break;
+      }
+      const current = simulatedStock.get(unit.id) ?? unit.stock;
+      const next = Math.max(0, current - c.units);
+      simulatedStock.set(unit.id, next);
+      changes.push({
+        productColorId: unit.id,
+        colorLabel: colorNameByColorId.get(c.colorId) ?? colorNameByVariant.get(unit.id) ?? "—",
+        sizeLabel: sizeNameById.get(c.sizeId) ?? "—",
+        unitsRemoved: c.units,
+        currentStock: current,
+        nextStock: next,
+      });
+      totalUnits += c.units;
+    }
+    if (missedUnit || changes.length === 0) {
+      lines.push({ ...baseLine, skipReason: "UNIT_VARIANT_NOT_FOUND" });
+      continue;
+    }
+
+    lines.push({ ...baseLine, variantChanges: changes });
+  }
+
+  return {
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    lines,
+    totalUnitsRemoved: totalUnits,
   };
 }

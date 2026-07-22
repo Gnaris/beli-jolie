@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import type { PfsStatsBundle } from "@/app/actions/admin/pfs-orders";
+import TopPager from "./TopPager";
 
 interface Props {
   stats: PfsStatsBundle | null;
@@ -81,19 +82,32 @@ function ColorPill({
   );
 }
 
+const PER_PAGE = 10;
+
 export default function PfsTopProducts({ stats }: Props) {
   // uiSort = highlight du bouton (immédiat), sort = tri effectif (frame suivant).
   const [uiSort, setUiSort] = useState<"quantity" | "totalHT">("quantity");
   const [sort, setSort] = useState<"quantity" | "totalHT">("quantity");
   const [switching, setSwitching] = useState(false);
+  const [page, setPage] = useState(1);
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rafRef = useRef<number | null>(null);
-  const rows = useMemo(() => {
+  const allRows = useMemo(() => {
     if (!stats) return [];
     return [...stats.topProducts].sort((a, b) =>
       sort === "quantity" ? b.quantitySold - a.quantitySold : b.totalHT - a.totalHT,
     );
   }, [stats, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(allRows.length / PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const startOffset = (safePage - 1) * PER_PAGE;
+  const rows = allRows.slice(startOffset, startOffset + PER_PAGE);
+
+  // Reset à la 1ère page dès que le tri change ou que la période change.
+  useEffect(() => {
+    setPage(1);
+  }, [sort, stats]);
 
   useEffect(() => {
     return () => {
@@ -115,7 +129,7 @@ export default function PfsTopProducts({ stats }: Props) {
   };
 
   return (
-    <div className="relative rounded-2xl bg-bg-primary border border-border shadow-sm p-5">
+    <div className="relative rounded-2xl bg-bg-primary border border-border shadow-sm p-5 flex flex-col h-full">
       <div className="flex items-center gap-2 mb-4">
         <div className="text-xs uppercase tracking-[0.2em] text-text-muted font-medium">Top produits vendus</div>
         <div className="ml-auto flex gap-1">
@@ -142,17 +156,18 @@ export default function PfsTopProducts({ stats }: Props) {
       {rows.length === 0 && (
         <p className="text-sm text-text-muted py-6 text-center">Aucun produit vendu sur la période.</p>
       )}
-      <ul
-        className="divide-y divide-border max-h-[560px] overflow-y-auto overflow-x-hidden scrollbar-light"
-        style={{ scrollbarGutter: "stable" }}
-      >
-        {rows.map((p) => {
+      <ul className="divide-y divide-border flex-1 flex flex-col">
+        {rows.map((p, i) => {
+          const rank = startOffset + i + 1;
           const missing = !p.productId;
           const label = missing
             ? "Produit non présent sur notre site"
             : p.productName || p.pfsProductRef;
           const inner = (
             <>
+              <span className="w-8 shrink-0 text-center font-heading font-bold text-sm text-text-muted tabular-nums self-start pt-1">
+                #{rank}
+              </span>
               <div className="w-11 h-11 rounded-md bg-bg-secondary border border-border flex items-center justify-center text-xs text-text-muted shrink-0 overflow-hidden">
                 {missing ? (
                   "?"
@@ -199,21 +214,31 @@ export default function PfsTopProducts({ stats }: Props) {
             </>
           );
           return (
-            <li key={`${p.pfsProductRef}-${p.productId ?? "none"}`}>
+            <li key={`${p.pfsProductRef}-${p.productId ?? "none"}`} className="flex-1 flex">
               {p.productId ? (
                 <Link
                   href={`/admin/produits/${p.productId}/modifier`}
-                  className="flex items-start gap-3 py-3 -mx-2 px-2 hover:bg-bg-secondary rounded-lg"
+                  className="flex items-center gap-3 py-3 -mx-2 px-2 hover:bg-bg-secondary rounded-lg w-full h-full"
                 >
                   {inner}
                 </Link>
               ) : (
-                <div className="flex items-start gap-3 py-3 -mx-2 px-2">{inner}</div>
+                <div className="flex items-center gap-3 py-3 -mx-2 px-2 w-full h-full">{inner}</div>
               )}
             </li>
           );
         })}
       </ul>
+      {allRows.length > 0 && (
+        <TopPager
+          page={safePage}
+          totalPages={totalPages}
+          startIndex={startOffset + 1}
+          endIndex={Math.min(safePage * PER_PAGE, allRows.length)}
+          total={allRows.length}
+          onChange={setPage}
+        />
+      )}
       {switching && (
         <div
           className="absolute inset-0 rounded-2xl bg-slate-900/10 backdrop-blur-[1px] flex items-center justify-center pointer-events-none z-10"

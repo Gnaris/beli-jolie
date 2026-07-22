@@ -358,6 +358,57 @@ export async function pfsPatchVariants(
 }
 
 // ─────────────────────────────────────────────
+// 4b. Activer / désactiver variants (endpoint dédié)
+//
+// Le champ `is_active` du PATCH `/catalog/products/variants` classique est
+// ignoré silencieusement par PFS pour l'activation. Il faut utiliser
+// l'endpoint dédié `variants/batch/setAvailability`.
+// Batch : `{ "data": [{ "id": "pro_xxx", "enable": true }] }`.
+// ─────────────────────────────────────────────
+
+export async function pfsSetVariantsAvailability(
+  updates: { pfsVariantId: string; enable: boolean }[],
+): Promise<{ updated: number }> {
+  if (updates.length === 0) return { updated: 0 };
+
+  // On utilise l'endpoint INDIVIDUEL (une requête par variante) plutôt que le
+  // batch, car la forme du payload batch documentée renvoie des 200 vides
+  // pour PFS sans réellement appliquer le changement d'activation. Le retour
+  // détaillé de chaque appel est loggé pour permettre le debug.
+  let updated = 0;
+  for (const u of updates) {
+    const { status, data } = await pfsPatch(
+      `/catalog/products/variants/${encodeURIComponent(u.pfsVariantId)}/setAvailability`,
+      { enable: u.enable },
+    );
+    const bodyPreview = JSON.stringify(data).slice(0, 300);
+    logger.info("[PFS setAvailability]", {
+      pfsVariantId: u.pfsVariantId,
+      enable: u.enable,
+      status,
+      body: bodyPreview,
+    });
+    if (status !== 200) {
+      throw new Error(
+        `PFS setAvailability (${u.pfsVariantId}) failed (${status}): ${bodyPreview}`,
+      );
+    }
+    if (
+      data &&
+      typeof data === "object" &&
+      "success" in data &&
+      (data as { success: unknown }).success === false
+    ) {
+      throw new Error(
+        `PFS setAvailability (${u.pfsVariantId}) refused by API: ${bodyPreview}`,
+      );
+    }
+    updated += 1;
+  }
+  return { updated };
+}
+
+// ─────────────────────────────────────────────
 // 5a. Soft-delete product (rename ref → random alphanumeric, status → DELETED)
 // PFS has no hard-delete endpoint, so we rename + archive
 // ─────────────────────────────────────────────

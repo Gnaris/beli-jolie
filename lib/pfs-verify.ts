@@ -119,6 +119,8 @@ interface FullVariant {
   stock: number;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
+  /** Drapeau « masquée côté client » — pilote la comparaison `is_active` PFS. */
+  disabled: boolean;
   variantSizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
   colorId: string | null;
   color: { id: string; name: string; hex: string | null; pfsColorRef: string | null } | null;
@@ -298,6 +300,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           stock: true,
           saleType: true,
           packQuantity: true,
+          disabled: true,
           variantSizes: {
             select: { size: { select: { name: true, pfsSizeRef: true } }, quantity: true },
           },
@@ -438,7 +441,11 @@ function buildLocalVariantsForCompare(
         price: getPfsUnitPrice(v, pfsMarkup),
         stock: v.stock ?? 0,
         weight: v.weight,
-        isActive: deactivateOnZeroStock ? (v.stock ?? 0) > 0 : true,
+        // Une variante localement désactivée (`disabled=true` — masquée dans la
+        // boutique) doit être considérée comme `is_active=false` côté PFS. Le
+        // stock à 0 n'a d'impact que si le réglage « auto-désactivation en
+        // rupture » est activé dans Paramètres → PFS.
+        isActive: !v.disabled && (deactivateOnZeroStock ? (v.stock ?? 0) > 0 : true),
         packSignature: packSignatureFromLocalVariant(v, colorRefMap),
         packQuantity: v.packQuantity,
       },

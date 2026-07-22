@@ -17,8 +17,8 @@ describe("pfs-verify-apply — support checks (Lot B)", () => {
     }
   });
 
-  it("supporte les champs variante simples (prix / stock / poids)", () => {
-    for (const f of ["price", "stock", "weight"]) {
+  it("supporte les champs variante simples (prix / stock / poids / actif)", () => {
+    for (const f of ["price", "stock", "weight", "isActive"]) {
       expect(isPushSupportedLotB("color", f)).toBe(true);
       expect(isPullSupportedLotB("color", f)).toBe(true);
     }
@@ -31,8 +31,8 @@ describe("pfs-verify-apply — support checks (Lot B)", () => {
     }
   });
 
-  it("refuse les changements structurels (extraVariant / missingVariant / saleType / isActive)", () => {
-    for (const f of ["extraVariant", "missingVariant", "saleType", "isActive"]) {
+  it("refuse les changements structurels (extraVariant / missingVariant / saleType)", () => {
+    for (const f of ["extraVariant", "missingVariant", "saleType"]) {
       expect(isPushSupportedLotB("color", f)).toBe(false);
       expect(isPullSupportedLotB("color", f)).toBe(false);
     }
