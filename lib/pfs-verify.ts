@@ -19,13 +19,24 @@
 
 import { prisma } from "@/lib/prisma";
 import { pfsCheckReference, pfsGetVariants, type PfsVariantDetail } from "@/lib/pfs-api";
-import { pfsGetColors } from "@/lib/pfs-api-write";
+import {
+  pfsGetColors,
+  pfsGetCategories,
+  pfsGetFamilies,
+  pfsGetCountries,
+  pfsGetCompositions,
+} from "@/lib/pfs-api-write";
 import {
   applyMarketplaceMarkup,
   loadMarketplaceMarkupConfigs,
   type MarkupConfig,
 } from "@/lib/marketplace-pricing";
-import { getPfsOutOfStockConfig } from "@/lib/pfs-out-of-stock-config";
+import {
+  getPfsOutOfStockConfig,
+  type PfsOutOfStockProductAction,
+} from "@/lib/pfs-out-of-stock-config";
+import { mapLocalToPfsStatus, type PfsTargetStatus } from "@/lib/pfs-status";
+import { countryName } from "@/lib/countries";
 import { logger } from "@/lib/logger";
 
 // ─── Types publics ─────────────────────────────────────────────────────────
@@ -41,6 +52,7 @@ export type PfsVerifyIssueField =
   | "category"
   | "family"
   | "isBestSeller"
+  | "productStatus"
   | "saleType"
   | "price"
   | "stock"
@@ -69,6 +81,18 @@ export interface PfsVerifyIssue {
   expectedValue: string | null;
   /** Message court pour les extras / missing. */
   note?: string;
+  /**
+   * Raison humaine pour laquelle « Envoyer PFS » n'est pas applicable
+   * automatiquement sur cet écart (ex : mapping local manquant). Non défini =
+   * envoi autorisé. Le tooltip grise le bouton et affiche la raison.
+   */
+  pushBlocked?: string;
+  /**
+   * Raison humaine pour laquelle « Prendre PFS » n'est pas applicable
+   * automatiquement sur cet écart (ex : attribut à mapper côté site — Lot C).
+   * Non défini = récupération autorisée. Le tooltip grise le bouton.
+   */
+  pullBlocked?: string;
 }
 
 export interface PfsVerifyResult {
@@ -114,6 +138,12 @@ interface FullProduct {
   name: string;
   description: string;
   isBestSeller: boolean;
+  /**
+   * Statut Prisma local. Typé `string` pour rester compatible avec l'enum
+   * `ProductStatus` (ONLINE|OFFLINE|ARCHIVED|SYNCING) sans avoir à importer
+   * l'enum dans les tests (qui fabriquent l'objet à la main).
+   */
+  status: string;
   pfsProductId: string | null;
   dimensionLength: number | null;
   dimensionWidth: number | null;
@@ -122,17 +152,20 @@ interface FullProduct {
   dimensionCircumference: number | null;
   sizeDetailsTu: string | null;
   category: {
+    name: string;
     pfsCategoryId: string | null;
+    pfsCategoryName: string | null;
     pfsGender: string | null;
     pfsFamilyId: string | null;
+    pfsFamilyName: string | null;
   };
   colors: FullVariant[];
   compositions: {
     percentage: number | { toString(): string };
-    composition: { pfsCompositionRef: string | null };
+    composition: { pfsCompositionRef: string | null; name: string };
   }[];
   countryIsoCode: string | null;
-  season: { pfsRef: string | null } | null;
+  season: { pfsRef: string | null; name: string } | null;
 }
 
 // ─── Helpers partagés (alignés sur pfs-refresh / pfs-update) ───────────────
@@ -238,6 +271,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       name: true,
       description: true,
       isBestSeller: true,
+      status: true,
       pfsProductId: true,
       dimensionLength: true,
       dimensionWidth: true,
@@ -247,9 +281,12 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       sizeDetailsTu: true,
       category: {
         select: {
+          name: true,
           pfsCategoryId: true,
+          pfsCategoryName: true,
           pfsGender: true,
           pfsFamilyId: true,
+          pfsFamilyName: true,
         },
       },
       colors: {
@@ -284,10 +321,10 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
         orderBy: { createdAt: "asc" as const },
       },
       compositions: {
-        select: { percentage: true, composition: { select: { pfsCompositionRef: true } } },
+        select: { percentage: true, composition: { select: { pfsCompositionRef: true, name: true } } },
       },
       countryIsoCode: true,
-      season: { select: { pfsRef: true } },
+      season: { select: { pfsRef: true, name: true } },
     },
   }) as unknown as FullProduct | null;
 }
@@ -448,12 +485,43 @@ function labelForVariantType(t: "UNIT" | "PACK", packQty: number | null | undefi
 
 // ─── Comparateur principal ─────────────────────────────────────────────────
 
+/**
+ * Table de labels pour transformer les identifiants techniques PFS (Salesforce
+ * IDs, refs codes) en libellés humains français dans les tooltips. Optionnel :
+ * si absent, on affiche les identifiants bruts (rétro-compat tests).
+ */
+export interface PfsLabelMaps {
+  categoryLabelById?: Map<string, string>;
+  familyLabelById?: Map<string, string>;
+  compositionLabelByRef?: Map<string, string>;
+  countryLabelByIso?: Map<string, string>;
+}
+
+const GENDER_FR: Record<string, string> = {
+  WOMAN: "Femme",
+  MAN: "Homme",
+  KID: "Enfant",
+  SUPPLIES: "Fournitures",
+};
+
+const PULL_LOT_C_REASON =
+  "Récupération non disponible : cet attribut a besoin d'être rattaché côté site (arrivera dans un prochain lot).";
+
 export function comparePfsProduct(
   local: FullProduct,
   pfsProduct: NonNullable<Awaited<ReturnType<typeof pfsCheckReference>>["product"]>,
   pfsVariants: PfsVariantDetail[],
   colorRefMap: Map<string, string>,
-  opts: { pfsMarkup?: MarkupConfig; deactivateOnZeroStock: boolean },
+  opts: {
+    pfsMarkup?: MarkupConfig;
+    deactivateOnZeroStock: boolean;
+    /** Action PFS à appliquer sur produit quand toutes les variantes sont en
+     *  rupture. Sert à calculer le statut PFS attendu depuis le statut local. */
+    outOfStockProductAction?: PfsOutOfStockProductAction;
+    /** Tables de correspondance pour afficher des noms humains à la place
+     *  des IDs Salesforce / refs techniques. */
+    labels?: PfsLabelMaps;
+  },
 ): PfsVerifyIssue[] {
   const issues: PfsVerifyIssue[] = [];
 
@@ -499,26 +567,76 @@ export function comparePfsProduct(
       expectedDimSuffix.replace(/^\n\nDimensions : /, "") || "(aucune)",
     );
 
-  if (expectedP.composition !== actualP.composition)
-    pushProduct(
-      "composition",
-      "Composition",
-      formatCompositionForDisplay(actualP.composition),
-      formatCompositionForDisplay(expectedP.composition),
-    );
+  const labels = opts.labels;
 
-  if (expectedP.country !== actualP.country)
-    pushProduct("country", "Pays de fabrication", actualP.country || "(vide)", expectedP.country);
+  if (expectedP.composition !== actualP.composition) {
+    const iss: PfsVerifyIssue = {
+      scope: "product",
+      field: "composition",
+      fieldLabel: "Composition",
+      pfsValue: formatCompositionForDisplayHuman(actualP.composition, labels?.compositionLabelByRef),
+      expectedValue: formatCompositionForDisplayHuman(expectedP.composition, labels?.compositionLabelByRef, local.compositions),
+      pullBlocked: PULL_LOT_C_REASON,
+    };
+    issues.push(iss);
+  }
 
-  // Genre / catégorie / famille : ID Salesforce peu lisible → on l'affiche
-  // brut, l'admin sait à quoi ça correspond. Seule condition : côté local, on
-  // a bien un ID à comparer.
-  if (expectedP.gender && actualP.gender && expectedP.gender !== actualP.gender)
-    pushProduct("gender", "Genre", actualP.gender, expectedP.gender);
-  if (expectedP.category && actualP.category && expectedP.category !== actualP.category)
-    pushProduct("category", "Catégorie", actualP.category, expectedP.category);
-  if (expectedP.family && actualP.family && expectedP.family !== actualP.family)
-    pushProduct("family", "Famille", actualP.family, expectedP.family);
+  if (expectedP.country !== actualP.country) {
+    // Priorité au libellé PFS ; fallback sur la biblio locale
+    // (`lib/countries.ts::countryName`) qui couvre TOUS les codes ISO —
+    // évite d'afficher "CN" ou "FR" bruts si l'API PFS n'a pas renvoyé
+    // le libellé français ou si l'appel a échoué.
+    const humanCountry = (iso: string): string => {
+      if (!iso) return "(vide)";
+      const fromPfs = labels?.countryLabelByIso?.get(iso);
+      if (fromPfs) return fromPfs;
+      const fromLocal = countryName(iso);
+      // countryName retombe sur l'ISO majuscule si inconnu — on garde ce
+      // fallback pour être défensif.
+      return fromLocal || iso;
+    };
+    issues.push({
+      scope: "product",
+      field: "country",
+      fieldLabel: "Pays de fabrication",
+      pfsValue: humanCountry(actualP.country),
+      expectedValue: humanCountry(expectedP.country),
+      pullBlocked: PULL_LOT_C_REASON,
+    });
+  }
+
+  if (expectedP.gender && actualP.gender && expectedP.gender !== actualP.gender) {
+    issues.push({
+      scope: "product",
+      field: "gender",
+      fieldLabel: "Genre",
+      pfsValue: GENDER_FR[actualP.gender] ?? actualP.gender,
+      expectedValue: GENDER_FR[expectedP.gender] ?? expectedP.gender,
+      pullBlocked: PULL_LOT_C_REASON,
+    });
+  }
+
+  // Catégorie et famille : on merge en un seul écart « Catégorie » car
+  // dans notre modèle, la famille est déduite de la catégorie (elles
+  // changent ensemble). On affiche des libellés humains : côté site on
+  // prend `pfsCategoryName` (mapping saisi par la cliente) sinon `name` ;
+  // côté PFS on cherche le libellé via le lookup id → nom.
+  const categoryDiffers =
+    expectedP.category && actualP.category && expectedP.category !== actualP.category;
+  const familyDiffers =
+    expectedP.family && actualP.family && expectedP.family !== actualP.family;
+  if (categoryDiffers || familyDiffers) {
+    const pfsCatLabel = labels?.categoryLabelById?.get(pfsProduct.category?.id ?? "") ?? "(inconnue)";
+    const localCatLabel = local.category.pfsCategoryName || local.category.name;
+    issues.push({
+      scope: "product",
+      field: "category",
+      fieldLabel: "Catégorie",
+      pfsValue: pfsCatLabel,
+      expectedValue: localCatLabel,
+      pullBlocked: PULL_LOT_C_REASON,
+    });
+  }
 
   if (expectedP.isBestSeller !== actualP.isBestSeller)
     pushProduct(
@@ -527,6 +645,32 @@ export function comparePfsProduct(
       actualP.isBestSeller ? "Oui" : "Non",
       expectedP.isBestSeller ? "Oui" : "Non",
     );
+
+  // Statut produit : compare le statut PFS effectif (READY_FOR_SALE / DRAFT /
+  // ARCHIVED / DELETED) au statut attendu, calculé depuis le statut local
+  // (ONLINE/OFFLINE/ARCHIVED) + règle "toutes variantes en rupture".
+  // On IGNORE le statut si le local est SYNCING (état transitoire) ou si le
+  // PFS renvoie un statut inconnu — pas d'écart affiché dans ces cas.
+  if (local.status !== "SYNCING") {
+    const allZero = local.colors.every((c) => (c.stock ?? 0) <= 0);
+    const expectedPfsStatus = mapLocalToPfsStatus(
+      local.status,
+      allZero,
+      opts.outOfStockProductAction ?? "archived",
+    );
+    const actualPfsStatus = String(pfsProduct.status ?? "").toUpperCase();
+    if (
+      isKnownPfsStatus(actualPfsStatus) &&
+      actualPfsStatus !== expectedPfsStatus
+    ) {
+      pushProduct(
+        "productStatus",
+        "Statut produit",
+        labelForPfsStatus(actualPfsStatus),
+        labelForPfsStatus(expectedPfsStatus),
+      );
+    }
+  }
 
   // 2) Variantes — matching par (type, colorRef)
   const locals = buildLocalVariantsForCompare(
@@ -686,6 +830,32 @@ function formatWeight(kg: number): string {
   return `${Math.round(grams * 10) / 10} g`;
 }
 
+/**
+ * Reconnaît un statut PFS connu (les autres — string vide, valeur inattendue —
+ * sont ignorés pour éviter des faux positifs).
+ */
+function isKnownPfsStatus(s: string): s is PfsTargetStatus | "NEW" {
+  return (
+    s === "READY_FOR_SALE" ||
+    s === "DRAFT" ||
+    s === "ARCHIVED" ||
+    s === "DELETED" ||
+    s === "NEW"
+  );
+}
+
+/** Libellé humain FR pour un statut PFS. */
+function labelForPfsStatus(s: string): string {
+  switch (s) {
+    case "READY_FOR_SALE": return "En ligne";
+    case "DRAFT": return "Hors ligne (brouillon)";
+    case "ARCHIVED": return "Archivé";
+    case "DELETED": return "Supprimé";
+    case "NEW": return "Nouveau";
+    default: return s || "(inconnu)";
+  }
+}
+
 /** Rend "REF:val|REF:val" en "REF 80%, REF 20%" pour l'affichage. */
 function formatCompositionForDisplay(sig: string): string {
   if (!sig) return "(vide)";
@@ -694,6 +864,36 @@ function formatCompositionForDisplay(sig: string): string {
     .map((s) => {
       const [ref, val] = s.split(":");
       return `${ref} ${val}%`;
+    })
+    .join(", ");
+}
+
+/**
+ * Version humanisée de la composition : traduit chaque REF en libellé
+ * français via `compositionLabelByRef` (map PFS `pfsGetCompositions`).
+ * `localCompositions` sert de fallback pour la version « attendue » afin
+ * d'afficher le nom local plutôt qu'un REF normalisé si le mapping PFS
+ * ne connaît pas la référence.
+ */
+function formatCompositionForDisplayHuman(
+  sig: string,
+  labelMap?: Map<string, string>,
+  localCompositions?: FullProduct["compositions"],
+): string {
+  if (!sig) return "(vide)";
+  return sig
+    .split("|")
+    .map((s) => {
+      const [ref, val] = s.split(":");
+      let label = labelMap?.get(ref) ?? "";
+      if (!label && localCompositions) {
+        const found = localCompositions.find(
+          (c) =>
+            normalizeCompositionRef(c.composition.pfsCompositionRef ?? "") === ref,
+        );
+        if (found) label = found.composition.name;
+      }
+      return `${label || ref} ${val}%`;
     })
     .join(", ");
 }
@@ -743,11 +943,12 @@ export async function verifyPfsProduct(
     return { ok: false, error: { kind: "pfs_unreachable", message: msg } };
   }
 
-  // 3) Mapping couleurs + markup (pour convertir prix local → prix PFS attendu)
-  const [colorRefMap, markupConfigs, outOfStockCfg] = await Promise.all([
+  // 3) Mapping couleurs + markup + labels PFS pour l'affichage humain
+  const [colorRefMap, markupConfigs, outOfStockCfg, labelMaps] = await Promise.all([
     buildColorLabelToRefMap(),
     loadMarketplaceMarkupConfigs(),
     getPfsOutOfStockConfig(),
+    buildPfsLabelMaps(),
   ]);
 
   const issues = comparePfsProduct(
@@ -758,6 +959,8 @@ export async function verifyPfsProduct(
     {
       pfsMarkup: markupConfigs.pfs,
       deactivateOnZeroStock: outOfStockCfg.deactivateVariant,
+      outOfStockProductAction: outOfStockCfg.productAction,
+      labels: labelMaps,
     },
   );
 
@@ -770,6 +973,58 @@ export async function verifyPfsProduct(
       checkedAt: new Date().toISOString(),
     },
   };
+}
+
+/**
+ * Charge en parallèle les 4 listes d'attributs PFS et bâtit des Map ID → label
+ * français pour catégorie, famille, composition (par ref) et pays (par ISO).
+ * En cas d'échec, on renvoie des maps vides plutôt que de bloquer la vérif :
+ * la comparaison retombera sur les identifiants bruts.
+ */
+async function buildPfsLabelMaps(): Promise<PfsLabelMaps> {
+  const maps: PfsLabelMaps = {
+    categoryLabelById: new Map(),
+    familyLabelById: new Map(),
+    compositionLabelByRef: new Map(),
+    countryLabelByIso: new Map(),
+  };
+  await Promise.all([
+    pfsGetCategories()
+      .then((cats) => {
+        for (const c of cats) {
+          const lbl = c.labels?.fr?.trim();
+          if (lbl) maps.categoryLabelById!.set(c.id, lbl);
+        }
+      })
+      .catch((err) => logger.warn("[PFS Verify] pfsGetCategories failed", { error: err })),
+    pfsGetFamilies()
+      .then((fams) => {
+        for (const f of fams) {
+          const lbl = f.labels?.fr?.trim();
+          if (lbl) maps.familyLabelById!.set(f.id, lbl);
+        }
+      })
+      .catch((err) => logger.warn("[PFS Verify] pfsGetFamilies failed", { error: err })),
+    pfsGetCompositions()
+      .then((cs) => {
+        for (const c of cs) {
+          const lbl = c.labels?.fr?.trim();
+          if (lbl) {
+            maps.compositionLabelByRef!.set(normalizeCompositionRef(c.reference), lbl);
+          }
+        }
+      })
+      .catch((err) => logger.warn("[PFS Verify] pfsGetCompositions failed", { error: err })),
+    pfsGetCountries()
+      .then((countries) => {
+        for (const c of countries) {
+          const lbl = c.labels?.fr?.trim();
+          if (lbl) maps.countryLabelByIso!.set(c.reference, lbl);
+        }
+      })
+      .catch((err) => logger.warn("[PFS Verify] pfsGetCountries failed", { error: err })),
+  ]);
+  return maps;
 }
 
 async function buildColorLabelToRefMap(): Promise<Map<string, string>> {

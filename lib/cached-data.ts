@@ -181,10 +181,14 @@ export const getCachedHsCodes = unstable_cache(
 // de cache. Les appels historiques passent directement par `listCountries()` ou
 // `listManufacturingCountries()`.
 
-// ─── Tailles (bibliothèque globale) ───────────────────────────────────────────
-export const getCachedSizes = unstable_cache(
-  async () =>
+// ─── Tailles ────────────────────────────────────────────────────────────────
+// Multi-tenant : Size porte un tenantId depuis 2026-07-12. Le cache doit donc
+// être scopé pour éviter que la boutique A voie les tailles de la boutique B.
+export const getCachedSizes = tenantScopedCacheWithTid(
+  "filter-sizes",
+  async (tid) =>
     prisma.size.findMany({
+      where: tid === "global" ? undefined : { tenantId: tid },
       orderBy: { position: "asc" },
       select: { id: true, name: true },
     }),
@@ -193,9 +197,12 @@ export const getCachedSizes = unstable_cache(
 );
 
 // ─── Saisons ────────────────────────────────────────────────────────────────
-export const getCachedSeasons = unstable_cache(
-  async () =>
+// Multi-tenant : Season porte un tenantId depuis 2026-07-12.
+export const getCachedSeasons = tenantScopedCacheWithTid(
+  "filter-seasons",
+  async (tid) =>
     prisma.season.findMany({
+      where: tid === "global" ? undefined : { tenantId: tid },
       orderBy: [{ position: "asc" }, { name: "asc" }],
       select: { id: true, name: true },
     }),
@@ -203,10 +210,15 @@ export const getCachedSeasons = unstable_cache(
   { revalidate: 60, tags: ["seasons"] }
 );
 
-// ─── Compositions (id + name only, for public product filters) ──────────────
-export const getCachedCompositions = unstable_cache(
-  async () =>
+// ─── Compositions ───────────────────────────────────────────────────────────
+// Multi-tenant : Composition porte un tenantId depuis 2026-07-12. Sans ce
+// scope, la modale « Modifier attribut » (bulk edit) affichait toutes les
+// compositions de tous les tenants (ex. Issyma voyait celles de Beli & Jolie).
+export const getCachedCompositions = tenantScopedCacheWithTid(
+  "filter-compositions",
+  async (tid) =>
     prisma.composition.findMany({
+      where: tid === "global" ? undefined : { tenantId: tid },
       orderBy: [{ position: "asc" }, { name: "asc" }],
       select: { id: true, name: true },
     }),

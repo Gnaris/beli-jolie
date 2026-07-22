@@ -19,6 +19,7 @@ export type {
 } from "@/lib/pfs-orders-import-state";
 import type { PfsImportState } from "@/lib/pfs-orders-import-state";
 import { syncRecentPfsOrders, syncSinglePfsOrder } from "@/lib/pfs-orders-sync";
+import { getImageSrc } from "@/lib/image-utils";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -37,14 +38,33 @@ export type PfsPeriodKey =
   | "3m"
   | "6m"
   | "year"
-  | "all";
+  | "all"
+  | "custom";
 
 interface PeriodRange {
   from: Date | null;
   to: Date | null;
 }
 
-function resolvePeriod(period: PfsPeriodKey): PeriodRange {
+function parseYmd(ymd: string | null | undefined, endOfDay = false): Date | null {
+  if (!ymd) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  const year = Number(y);
+  const month = Number(mo) - 1;
+  const day = Number(d);
+  const date = endOfDay
+    ? new Date(year, month, day, 23, 59, 59, 999)
+    : new Date(year, month, day, 0, 0, 0, 0);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function resolvePeriod(
+  period: PfsPeriodKey,
+  customFrom?: string | null,
+  customTo?: string | null,
+): PeriodRange {
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   switch (period) {
@@ -64,6 +84,14 @@ function resolvePeriod(period: PfsPeriodKey): PeriodRange {
       return { from: subDays(startOfDay, 180), to: null };
     case "year":
       return { from: new Date(now.getFullYear(), 0, 1), to: null };
+    case "custom": {
+      const from = parseYmd(customFrom, false);
+      const to = parseYmd(customTo, true);
+      if (from && to && to.getTime() < from.getTime()) {
+        return { from, to: null };
+      }
+      return { from, to };
+    }
     case "all":
     default:
       return { from: null, to: null };
@@ -95,7 +123,18 @@ export interface ListPfsOrdersInput {
   status?: "NEW" | "VALIDATED" | "SENT" | "CANCELLED" | null;
   carrier?: string | null;
   period?: PfsPeriodKey;
+  /** Format YYYY-MM-DD ; utilisé uniquement quand period === "custom". */
+  customFrom?: string | null;
+  /** Format YYYY-MM-DD (inclus jusqu'à 23:59:59) ; utilisé uniquement quand period === "custom". */
+  customTo?: string | null;
 }
+
+export type PfsStockDeductionState =
+  | "NOT_APPLICABLE" // Commande NEW ou CANCELLED — pas concerné par la déduction.
+  | "NOTHING_TO_DEDUCT" // Commande VALIDATED/SENT mais aucune ligne éligible (produit non lié côté site).
+  | "PENDING" // Aucune ligne éligible n'a encore été décrémentée.
+  | "PARTIAL" // Mix : certaines lignes décrémentées, d'autres pas.
+  | "DONE"; // Toutes les lignes éligibles ont été décrémentées.
 
 export interface PfsOrderListItem {
   id: string;
@@ -111,6 +150,9 @@ export interface PfsOrderListItem {
   totalHT: number;
   hasInvoice: boolean;
   hasCredit: boolean;
+  stockDeductionState: PfsStockDeductionState;
+  stockDeductionEligibleCount: number;
+  stockDeductionDoneCount: number;
 }
 
 export interface ListPfsOrdersResult {
@@ -126,13 +168,17 @@ export async function listPfsOrders(input: ListPfsOrdersInput): Promise<ListPfsO
   const tenant = await requireCurrentTenant();
   const page = Math.max(1, input.page ?? 1);
   const perPage = Math.min(200, Math.max(1, input.perPage ?? 30));
-  const range = resolvePeriod(input.period ?? "all");
+  const range = resolvePeriod(input.period ?? "all", input.customFrom, input.customTo);
+
+  const createdAtFilter: { gte?: Date; lte?: Date } = {};
+  if (range.from) createdAtFilter.gte = range.from;
+  if (range.to) createdAtFilter.lte = range.to;
 
   const where: Record<string, unknown> = {
     tenantId: tenant.id,
     ...(input.status ? { status: input.status } : {}),
     ...(input.carrier ? { carrier: input.carrier } : {}),
-    ...(range.from ? { createdAtPfs: { gte: range.from } } : {}),
+    ...(Object.keys(createdAtFilter).length ? { createdAtPfs: createdAtFilter } : {}),
     ...(input.q
       ? {
           OR: [
@@ -170,21 +216,71 @@ export async function listPfsOrders(input: ListPfsOrdersInput): Promise<ListPfsO
     prisma.pfsOrder.count({ where }),
   ]);
 
-  const items: PfsOrderListItem[] = rows.map((r) => ({
-    id: r.id,
-    pfsOrderId: r.pfsOrderId,
-    orderNumber: r.orderNumber,
-    createdAtPfs: r.createdAtPfs.toISOString(),
-    status: r.status,
-    customerName: r.customerName,
-    customerShop: r.customerShop,
-    customerCountry: r.customerCountry,
-    carrier: r.carrier,
-    totalTTC: decimalToNumber(r.totalTTC),
-    totalHT: decimalToNumber(r.totalHT),
-    hasInvoice: r.hasInvoice,
-    hasCredit: r.hasCredit,
-  }));
+  // Charge en 1 seul groupBy le nombre d'items éligibles + le nombre déjà décrémentés
+  // par commande, pour afficher un badge « Stock déduit / partiel / à faire » par ligne.
+  const orderIds = rows.map((r) => r.id);
+  const [eligibleGroups, deductedGroups] = orderIds.length
+    ? await Promise.all([
+        prisma.pfsOrderItem.groupBy({
+          by: ["pfsOrderId"],
+          where: {
+            tenantId: tenant.id,
+            pfsOrderId: { in: orderIds },
+            productId: { not: null },
+            productColorId: { not: null },
+          },
+          _count: { id: true },
+        }),
+        prisma.pfsOrderItem.groupBy({
+          by: ["pfsOrderId"],
+          where: {
+            tenantId: tenant.id,
+            pfsOrderId: { in: orderIds },
+            productId: { not: null },
+            productColorId: { not: null },
+            stockDeductedAt: { not: null },
+          },
+          _count: { id: true },
+        }),
+      ])
+    : [[], []];
+  const eligibleByOrder = new Map(eligibleGroups.map((g) => [g.pfsOrderId, g._count.id]));
+  const deductedByOrder = new Map(deductedGroups.map((g) => [g.pfsOrderId, g._count.id]));
+
+  const items: PfsOrderListItem[] = rows.map((r) => {
+    const eligible = eligibleByOrder.get(r.id) ?? 0;
+    const done = deductedByOrder.get(r.id) ?? 0;
+    let stockDeductionState: PfsStockDeductionState;
+    if (r.status === "NEW" || r.status === "CANCELLED") {
+      stockDeductionState = "NOT_APPLICABLE";
+    } else if (eligible === 0) {
+      stockDeductionState = "NOTHING_TO_DEDUCT";
+    } else if (done === 0) {
+      stockDeductionState = "PENDING";
+    } else if (done < eligible) {
+      stockDeductionState = "PARTIAL";
+    } else {
+      stockDeductionState = "DONE";
+    }
+    return {
+      id: r.id,
+      pfsOrderId: r.pfsOrderId,
+      orderNumber: r.orderNumber,
+      createdAtPfs: r.createdAtPfs.toISOString(),
+      status: r.status,
+      customerName: r.customerName,
+      customerShop: r.customerShop,
+      customerCountry: r.customerCountry,
+      carrier: r.carrier,
+      totalTTC: decimalToNumber(r.totalTTC),
+      totalHT: decimalToNumber(r.totalHT),
+      hasInvoice: r.hasInvoice,
+      hasCredit: r.hasCredit,
+      stockDeductionState,
+      stockDeductionEligibleCount: eligible,
+      stockDeductionDoneCount: done,
+    };
+  });
 
   return {
     items,
@@ -234,6 +330,7 @@ export interface PfsTopProductColorBreakdown {
 export interface PfsTopProductRow {
   productId: string | null;
   productName: string | null;
+  productImage: string | null;
   pfsProductRef: string;
   quantitySold: number;
   totalHT: number;
@@ -250,6 +347,10 @@ export interface PfsStatsBundle {
 
 export interface GetPfsStatsInput {
   period: PfsPeriodKey;
+  /** Format YYYY-MM-DD ; utilisé uniquement quand period === "custom". */
+  customFrom?: string | null;
+  /** Format YYYY-MM-DD (inclus jusqu'à 23:59:59) ; utilisé uniquement quand period === "custom". */
+  customTo?: string | null;
   topClientsLimit?: number;
   topProductsLimit?: number;
   topClientsSort?: "totalHT" | "ordersCount";
@@ -259,15 +360,27 @@ export interface GetPfsStatsInput {
 export async function getPfsStats(input: GetPfsStatsInput): Promise<PfsStatsBundle> {
   await requireAdmin();
   const tenant = await requireCurrentTenant();
-  const range = resolvePeriod(input.period);
-  const topClientsLimit = Math.min(50, input.topClientsLimit ?? 10);
-  const topProductsLimit = Math.min(50, input.topProductsLimit ?? 10);
+  const range = resolvePeriod(input.period, input.customFrom, input.customTo);
+  // undefined = pas de limite, on retourne toute la liste (scrollable côté UI).
+  const topClientsLimit = input.topClientsLimit;
+  const topProductsLimit = input.topProductsLimit;
   const topClientsSort = input.topClientsSort ?? "totalHT";
   const topProductsSort = input.topProductsSort ?? "quantity";
 
-  const orderWhere = {
+  const createdAtFilter: { gte?: Date; lte?: Date } = {};
+  if (range.from) createdAtFilter.gte = range.from;
+  if (range.to) createdAtFilter.lte = range.to;
+
+  // Base : tenant + période (utilisé pour statusCounts qui doit refléter TOUS les statuts).
+  const statusScopeWhere = {
     tenantId: tenant.id,
-    ...(range.from ? { createdAtPfs: { gte: range.from } } : {}),
+    ...(Object.keys(createdAtFilter).length ? { createdAtPfs: createdAtFilter } : {}),
+  };
+  // Stats "métier" (KPIs, top clients, top produits) : uniquement commandes validées ou envoyées.
+  // Les nouvelles (NEW) ne sont pas encore confirmées côté PFS et les annulées ne doivent pas gonfler le CA.
+  const orderWhere = {
+    ...statusScopeWhere,
+    status: { in: ["VALIDATED", "SENT"] as ("VALIDATED" | "SENT")[] },
   };
 
   const [ordersAggregate, itemsAggregate, statusRows, customerGrouped, itemGrouped, newCustomersCount] =
@@ -282,7 +395,7 @@ export async function getPfsStats(input: GetPfsStatsInput): Promise<PfsStatsBund
         _sum: { qtyValidated: true },
       }),
       prisma.pfsOrder.groupBy({
-        where: orderWhere,
+        where: statusScopeWhere,
         by: ["status"],
         _count: { _all: true },
       }),
@@ -296,7 +409,7 @@ export async function getPfsStats(input: GetPfsStatsInput): Promise<PfsStatsBund
           topClientsSort === "ordersCount"
             ? { _count: { pfsCustomerId: "desc" } }
             : { _sum: { totalHT: "desc" } },
-        take: topClientsLimit,
+        ...(topClientsLimit ? { take: topClientsLimit } : {}),
       }),
       prisma.pfsOrderItem.groupBy({
         where: { tenantId: tenant.id, pfsOrder: orderWhere },
@@ -306,13 +419,15 @@ export async function getPfsStats(input: GetPfsStatsInput): Promise<PfsStatsBund
           topProductsSort === "quantity"
             ? { _sum: { qtyValidated: "desc" } }
             : { _sum: { totalPriceHT: "desc" } },
-        take: topProductsLimit,
+        ...(topProductsLimit ? { take: topProductsLimit } : {}),
       }),
       prisma.adminClientCard.count({
         where: {
           tenantId: tenant.id,
           importedFromMarketplace: "PFS",
-          ...(range.from ? { createdAt: { gte: range.from } } : {}),
+          ...(Object.keys(createdAtFilter).length
+            ? { createdAt: { ...createdAtFilter } }
+            : {}),
         },
       }),
     ]);
@@ -381,6 +496,26 @@ export async function getPfsStats(input: GetPfsStatsInput): Promise<PfsStatsBund
       })
     : [];
   const productNameMap = new Map(productRows.map((p) => [p.id, p.name]));
+
+  // Récupérer une image de vignette par produit (préférence : variante isPrimary).
+  const productImageMap = new Map<string, string>();
+  if (productIds.length) {
+    const imageRows = await prisma.productColorImage.findMany({
+      where: { tenantId: tenant.id, productId: { in: productIds }, order: 0 },
+      select: {
+        productId: true,
+        path: true,
+        productColor: { select: { isPrimary: true } },
+      },
+    });
+    for (const row of imageRows) {
+      const existing = productImageMap.get(row.productId);
+      const isPrimary = row.productColor?.isPrimary ?? false;
+      if (!existing || isPrimary) {
+        productImageMap.set(row.productId, row.path);
+      }
+    }
+  }
 
   // Répartition des ventes par couleur pour chaque top produit
   const topProductRefs = itemGrouped.map((r) => r.pfsProductRef);
@@ -470,14 +605,18 @@ export async function getPfsStats(input: GetPfsStatsInput): Promise<PfsStatsBund
     arr.sort((a, b) => b.quantitySold - a.quantitySold);
   }
 
-  const topProducts: PfsTopProductRow[] = itemGrouped.map((r) => ({
-    productId: r.productId,
-    productName: r.productId ? productNameMap.get(r.productId) ?? null : null,
-    pfsProductRef: r.pfsProductRef,
-    quantitySold: r._sum.qtyValidated ?? 0,
-    totalHT: decimalToNumber(r._sum.totalPriceHT),
-    colors: colorsByRef.get(r.pfsProductRef) ?? [],
-  }));
+  const topProducts: PfsTopProductRow[] = itemGrouped.map((r) => {
+    const rawImage = r.productId ? productImageMap.get(r.productId) ?? null : null;
+    return {
+      productId: r.productId,
+      productName: r.productId ? productNameMap.get(r.productId) ?? null : null,
+      productImage: rawImage ? getImageSrc(rawImage, "thumb") : null,
+      pfsProductRef: r.pfsProductRef,
+      quantitySold: r._sum.qtyValidated ?? 0,
+      totalHT: decimalToNumber(r._sum.totalPriceHT),
+      colors: colorsByRef.get(r.pfsProductRef) ?? [],
+    };
+  });
 
   const statusCounts = {
     NEW: 0,
@@ -780,21 +919,63 @@ export async function listPfsOrdersForClientCard(adminClientCardId: string): Pro
       hasCredit: true,
     },
   });
-  return rows.map((r) => ({
-    id: r.id,
-    pfsOrderId: r.pfsOrderId,
-    orderNumber: r.orderNumber,
-    createdAtPfs: r.createdAtPfs.toISOString(),
-    status: r.status,
-    customerName: r.customerName,
-    customerShop: r.customerShop,
-    customerCountry: r.customerCountry,
-    carrier: r.carrier,
-    totalTTC: decimalToNumber(r.totalTTC),
-    totalHT: decimalToNumber(r.totalHT),
-    hasInvoice: r.hasInvoice,
-    hasCredit: r.hasCredit,
-  }));
+  const orderIds = rows.map((r) => r.id);
+  const [eligibleGroups, deductedGroups] = orderIds.length
+    ? await Promise.all([
+        prisma.pfsOrderItem.groupBy({
+          by: ["pfsOrderId"],
+          where: {
+            tenantId: tenant.id,
+            pfsOrderId: { in: orderIds },
+            productId: { not: null },
+            productColorId: { not: null },
+          },
+          _count: { id: true },
+        }),
+        prisma.pfsOrderItem.groupBy({
+          by: ["pfsOrderId"],
+          where: {
+            tenantId: tenant.id,
+            pfsOrderId: { in: orderIds },
+            productId: { not: null },
+            productColorId: { not: null },
+            stockDeductedAt: { not: null },
+          },
+          _count: { id: true },
+        }),
+      ])
+    : [[], []];
+  const eligibleByOrder = new Map(eligibleGroups.map((g) => [g.pfsOrderId, g._count.id]));
+  const deductedByOrder = new Map(deductedGroups.map((g) => [g.pfsOrderId, g._count.id]));
+
+  return rows.map((r) => {
+    const eligible = eligibleByOrder.get(r.id) ?? 0;
+    const done = deductedByOrder.get(r.id) ?? 0;
+    let stockDeductionState: PfsStockDeductionState;
+    if (r.status === "NEW" || r.status === "CANCELLED") stockDeductionState = "NOT_APPLICABLE";
+    else if (eligible === 0) stockDeductionState = "NOTHING_TO_DEDUCT";
+    else if (done === 0) stockDeductionState = "PENDING";
+    else if (done < eligible) stockDeductionState = "PARTIAL";
+    else stockDeductionState = "DONE";
+    return {
+      id: r.id,
+      pfsOrderId: r.pfsOrderId,
+      orderNumber: r.orderNumber,
+      createdAtPfs: r.createdAtPfs.toISOString(),
+      status: r.status,
+      customerName: r.customerName,
+      customerShop: r.customerShop,
+      customerCountry: r.customerCountry,
+      carrier: r.carrier,
+      totalTTC: decimalToNumber(r.totalTTC),
+      totalHT: decimalToNumber(r.totalHT),
+      hasInvoice: r.hasInvoice,
+      hasCredit: r.hasCredit,
+      stockDeductionState,
+      stockDeductionEligibleCount: eligible,
+      stockDeductionDoneCount: done,
+    };
+  });
 }
 
 /** Force la revalidation du cache commandes (invalidateur pour l'UI). */

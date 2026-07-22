@@ -10,6 +10,9 @@ import { AdminProductsFilterPersistence } from "@/components/admin/products/Admi
 import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
+import PfsStockDeductionButton from "@/components/admin/products/PfsStockDeductionButton";
+import { countPendingPfsStockDeductions } from "@/lib/pfs-stock-deduction";
+import { requireCurrentTenant } from "@/lib/tenant";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
 import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
@@ -410,6 +413,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     efashionEnabled,
     hasFaireConfig,
     faireEnabled,
+    pfsStockPendingCount,
   ] = await Promise.all([
     prisma.product.findMany({
       where,
@@ -501,6 +505,10 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     getCachedEfashionEnabled(),
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
+    (async () => {
+      const t = await requireCurrentTenant();
+      return countPendingPfsStockDeductions(t.id);
+    })(),
   ]);
 
   const totalPages = Math.ceil(totalCount / perPage);
@@ -594,6 +602,12 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
             accent="emerald"
             actions={
               <>
+                <PfsStockDeductionButton
+                  initialPendingCount={pfsStockPendingCount}
+                  hasAnkorstoreConfig={hasAnkorstoreConfig}
+                  hasEfashionConfig={hasEfashionConfig}
+                  hasFaireConfig={hasFaireConfig}
+                />
                 <PrimaryActionLink href="/admin/produits/importer" variant="secondary">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />

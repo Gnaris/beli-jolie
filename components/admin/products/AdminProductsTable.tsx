@@ -2352,6 +2352,8 @@ function ProductRow({
                 <PfsVerifyBadge
                   productId={product.id}
                   productName={product.name}
+                  productReference={product.reference}
+                  productFirstImage={null}
                   pfsProductId={product.pfsProductId}
                   pfsCheckedAt={product.pfsCheckedAt}
                   pfsCheckStatus={product.pfsCheckStatus}

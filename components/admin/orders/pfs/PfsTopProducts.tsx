@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import type { PfsStatsBundle } from "@/app/actions/admin/pfs-orders";
@@ -8,6 +8,8 @@ import type { PfsStatsBundle } from "@/app/actions/admin/pfs-orders";
 interface Props {
   stats: PfsStatsBundle | null;
 }
+
+const SORT_OVERLAY_MS = 250;
 
 function formatEur(n: number) {
   return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(n)) + " €";
@@ -80,7 +82,12 @@ function ColorPill({
 }
 
 export default function PfsTopProducts({ stats }: Props) {
+  // uiSort = highlight du bouton (immédiat), sort = tri effectif (frame suivant).
+  const [uiSort, setUiSort] = useState<"quantity" | "totalHT">("quantity");
   const [sort, setSort] = useState<"quantity" | "totalHT">("quantity");
+  const [switching, setSwitching] = useState(false);
+  const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafRef = useRef<number | null>(null);
   const rows = useMemo(() => {
     if (!stats) return [];
     return [...stats.topProducts].sort((a, b) =>
@@ -88,25 +95,44 @@ export default function PfsTopProducts({ stats }: Props) {
     );
   }, [stats, sort]);
 
+  useEffect(() => {
+    return () => {
+      if (switchTimerRef.current) clearTimeout(switchTimerRef.current);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
+  const changeSort = (next: "quantity" | "totalHT") => {
+    if (next === uiSort) return;
+    setUiSort(next);
+    setSwitching(true);
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      setSort(next);
+    });
+    if (switchTimerRef.current) clearTimeout(switchTimerRef.current);
+    switchTimerRef.current = setTimeout(() => setSwitching(false), SORT_OVERLAY_MS);
+  };
+
   return (
-    <div className="rounded-2xl bg-bg-primary border border-border shadow-sm p-5">
+    <div className="relative rounded-2xl bg-bg-primary border border-border shadow-sm p-5">
       <div className="flex items-center gap-2 mb-4">
         <div className="text-xs uppercase tracking-[0.2em] text-text-muted font-medium">Top produits vendus</div>
         <div className="ml-auto flex gap-1">
           <button
             type="button"
-            onClick={() => setSort("quantity")}
+            onClick={() => changeSort("quantity")}
             className={`text-xs rounded-full px-2.5 py-1 ${
-              sort === "quantity" ? "bg-slate-900 text-white" : "bg-bg-secondary text-text-secondary"
+              uiSort === "quantity" ? "bg-slate-900 text-white" : "bg-bg-secondary text-text-secondary"
             }`}
           >
             Quantité ↓
           </button>
           <button
             type="button"
-            onClick={() => setSort("totalHT")}
+            onClick={() => changeSort("totalHT")}
             className={`text-xs rounded-full px-2.5 py-1 ${
-              sort === "totalHT" ? "bg-slate-900 text-white" : "bg-bg-secondary text-text-secondary"
+              uiSort === "totalHT" ? "bg-slate-900 text-white" : "bg-bg-secondary text-text-secondary"
             }`}
           >
             CA ↓
@@ -116,7 +142,10 @@ export default function PfsTopProducts({ stats }: Props) {
       {rows.length === 0 && (
         <p className="text-sm text-text-muted py-6 text-center">Aucun produit vendu sur la période.</p>
       )}
-      <ul className="divide-y divide-border">
+      <ul
+        className="divide-y divide-border max-h-[560px] overflow-y-auto overflow-x-hidden scrollbar-light"
+        style={{ scrollbarGutter: "stable" }}
+      >
         {rows.map((p) => {
           const missing = !p.productId;
           const label = missing
@@ -124,14 +153,26 @@ export default function PfsTopProducts({ stats }: Props) {
             : p.productName || p.pfsProductRef;
           const inner = (
             <>
-              <div className="w-11 h-11 rounded-md bg-bg-secondary border border-border flex items-center justify-center text-xs text-text-muted shrink-0">
-                {missing ? "?" : "IMG"}
+              <div className="w-11 h-11 rounded-md bg-bg-secondary border border-border flex items-center justify-center text-xs text-text-muted shrink-0 overflow-hidden">
+                {missing ? (
+                  "?"
+                ) : p.productImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={p.productImage}
+                    alt={label}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  "IMG"
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className={`font-semibold truncate ${missing ? "italic text-text-muted" : "text-text-primary"}`}>
                   {label}
                 </div>
-                <div className="text-xs text-text-muted">
+                <div className="text-xs text-text-muted truncate">
                   {p.pfsProductRef}
                   {sort === "totalHT" ? ` · ${p.quantitySold} pièce${p.quantitySold > 1 ? "s" : ""}` : ""}
                 </div>
@@ -161,7 +202,7 @@ export default function PfsTopProducts({ stats }: Props) {
             <li key={`${p.pfsProductRef}-${p.productId ?? "none"}`}>
               {p.productId ? (
                 <Link
-                  href={`/admin/produits/${p.productId}`}
+                  href={`/admin/produits/${p.productId}/modifier`}
                   className="flex items-start gap-3 py-3 -mx-2 px-2 hover:bg-bg-secondary rounded-lg"
                 >
                   {inner}
@@ -173,6 +214,17 @@ export default function PfsTopProducts({ stats }: Props) {
           );
         })}
       </ul>
+      {switching && (
+        <div
+          className="absolute inset-0 rounded-2xl bg-slate-900/10 backdrop-blur-[1px] flex items-center justify-center pointer-events-none z-10"
+          aria-hidden
+        >
+          <div className="rounded-full bg-slate-900/80 text-white text-xs font-medium px-3 py-1.5 flex items-center gap-2 shadow-lg">
+            <span className="inline-block w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+            Chargement…
+          </div>
+        </div>
+      )}
     </div>
   );
 }

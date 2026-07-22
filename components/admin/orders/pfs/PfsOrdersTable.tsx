@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { PfsOrderListItem } from "@/app/actions/admin/pfs-orders";
+import type { PfsOrderListItem, PfsStockDeductionState } from "@/app/actions/admin/pfs-orders";
 import CustomSelect from "@/components/ui/CustomSelect";
 
 const STATUS_ICONS: Record<"" | PfsOrderListItem["status"], string> = {
@@ -10,6 +10,34 @@ const STATUS_ICONS: Record<"" | PfsOrderListItem["status"], string> = {
   VALIDATED: "M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
   SENT: "M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5",
   CANCELLED: "M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+};
+
+const STOCK_META: Record<PfsStockDeductionState, { label: string; className: string; tooltip: string }> = {
+  NOT_APPLICABLE: {
+    label: "—",
+    className: "bg-bg-secondary text-text-muted border-border",
+    tooltip: "Statut de la commande non concerné (nouveau ou annulé).",
+  },
+  NOTHING_TO_DEDUCT: {
+    label: "N/A",
+    className: "bg-bg-secondary text-text-muted border-border",
+    tooltip: "Aucun produit lié — rien à déduire.",
+  },
+  PENDING: {
+    label: "À déduire",
+    className: "bg-amber-50 text-amber-700 border-amber-200",
+    tooltip: "Cette commande sera traitée au prochain clic sur « Déduire stock PFS ».",
+  },
+  PARTIAL: {
+    label: "Partiel",
+    className: "bg-amber-50 text-amber-800 border-amber-300",
+    tooltip: "Une partie du stock a été déduite. Certaines lignes n'ont pas pu être traitées.",
+  },
+  DONE: {
+    label: "Déduit",
+    className: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    tooltip: "Le stock a bien été déduit pour cette commande.",
+  },
 };
 
 const STATUS_META: Record<
@@ -106,8 +134,8 @@ export default function PfsOrdersTable(props: Props) {
               <th className="text-left px-5 py-3 font-medium">N° commande</th>
               <th className="text-left px-5 py-3 font-medium">Date</th>
               <th className="text-left px-5 py-3 font-medium">Client</th>
-              <th className="text-left px-5 py-3 font-medium">Transporteur</th>
               <th className="text-right px-5 py-3 font-medium">Montant TTC</th>
+              <th className="text-center px-5 py-3 font-medium">Stock</th>
               <th className="text-center px-5 py-3 font-medium">Statut</th>
             </tr>
           </thead>
@@ -141,9 +169,27 @@ export default function PfsOrdersTable(props: Props) {
                       {row.customerCountry ? ` · ${row.customerCountry}` : ""}
                     </div>
                   </td>
-                  <td className="px-5 py-3 text-text-secondary">{row.carrier || "—"}</td>
                   <td className="px-5 py-3 text-right font-semibold text-text-primary">
                     {row.totalTTC.toFixed(2).replace(".", ",")} €
+                  </td>
+                  <td className="px-5 py-3 text-center">
+                    {(() => {
+                      const stockMeta = STOCK_META[row.stockDeductionState];
+                      const showRatio =
+                        row.stockDeductionState === "PARTIAL" ||
+                        row.stockDeductionState === "PENDING";
+                      return (
+                        <span
+                          className={`inline-block rounded-full text-xs px-3 py-0.5 font-medium border ${stockMeta.className}`}
+                          title={stockMeta.tooltip}
+                        >
+                          {stockMeta.label}
+                          {showRatio && row.stockDeductionEligibleCount > 0
+                            ? ` ${row.stockDeductionDoneCount}/${row.stockDeductionEligibleCount}`
+                            : ""}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-5 py-3 text-center">
                     <span className={`inline-block rounded-full text-xs px-3 py-0.5 font-medium border ${meta.className}`}>

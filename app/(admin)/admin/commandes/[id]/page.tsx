@@ -41,6 +41,20 @@ export default async function AdminCommandeDetailPage({
 
   if (!order) notFound();
 
+  // Catégories par référence produit — pour le filtre du résumé.
+  // Un produit peut avoir été supprimé/renommé : ref absente = "" (masquée du filtre).
+  const productRefs = Array.from(new Set(order.items.map((i) => i.productRef)));
+  const products = productRefs.length
+    ? await prisma.product.findMany({
+        where: { reference: { in: productRefs } },
+        select: { reference: true, category: { select: { name: true } } },
+      })
+    : [];
+  const categoryByRef: Record<string, string> = {};
+  for (const p of products) {
+    if (p.category?.name) categoryByRef[p.reference] = p.category.name;
+  }
+
   const st = STATUS_CFG[order.status] ?? STATUS_CFG.PENDING;
 
   // Toute livraison hors UE (DOM-TOM inclus) → saisie manuelle uniquement :
@@ -262,6 +276,7 @@ export default async function AdminCommandeDetailPage({
       {/* ───────── Articles (3 colonnes + résumé) ───────── */}
       <OrderItemsEditor
         orderId={order.id}
+        categoryByRef={categoryByRef}
         paidAmount={floorMoney((Number(order.subtotalHT) + Number(order.carrierPrice)) * (1 + order.tvaRate))}
         paidSubtotalHT={order.paidSubtotalHT ? Number(order.paidSubtotalHT) : Number(order.subtotalHT)}
         currentSubtotalHT={Number(order.subtotalHT)}

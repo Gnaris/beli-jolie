@@ -358,11 +358,17 @@ model PfsOrderItem {
   totalPriceHT Decimal @db.Decimal(12, 2)
   weight       Decimal? @db.Decimal(10, 3)
 
+  // Timestamp de déduction du stock depuis cette ligne PFS. Null = pas encore décrémentée.
+  // Renseigné par le bouton « Déduire stock PFS » de /admin/produits ; garantit l'idempotence
+  // (ré-import PFS ne retentera pas la décrémentation).
+  stockDeductedAt DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([pfsOrderId])
   @@index([tenantId, productId])
   @@index([tenantId, pfsProductRef])
+  @@index([tenantId, stockDeductedAt])
 }
 
 // ─────────────────────────────────────────────

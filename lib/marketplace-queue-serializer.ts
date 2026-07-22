@@ -13,6 +13,17 @@ export type ClientStatus = "queued" | "in_progress" | "awaiting_callback" | "don
 export type ClientMode = "publish" | "refresh" | "resync";
 export type ClientMarketplace = "pfs" | "ankorstore" | "efashion" | "faire";
 
+/**
+ * Actions ciblées produites par la vérification PFS et poussées dans un job
+ * de la file marketplace pour affichage widget + badge en cours. Le worker
+ * détecte leur présence dans `payload.verifyActions` et dispatch vers
+ * `applyPfsVerifyActionsCore` au lieu de la sync standard REFRESH/RESYNC.
+ */
+export interface QueueVerifyAction {
+  key: string;
+  direction: "push" | "pull";
+}
+
 export interface ClientEnqueueInput {
   productId: string;
   reference: string;
@@ -27,6 +38,12 @@ export interface ClientEnqueueInput {
   };
   mode?: ClientMode;
   marketplace?: ClientMarketplace;
+  /**
+   * Optionnel : liste d'écarts à appliquer via `applyPfsVerifyActionsCore`
+   * (envoi granulaire depuis le tooltip PFS Verify). Le worker prend ce chemin
+   * quand la clé est présente ; sinon il exécute la sync marketplace complète.
+   */
+  verifyActions?: QueueVerifyAction[];
 }
 
 export interface SerializedJob {
@@ -161,6 +178,19 @@ export function validateEnqueueInput(
       it.marketplace === "faire"
         ? (it.marketplace as ClientMarketplace)
         : undefined;
+    // verifyActions optionnel — valide chaque entrée (key string non vide + direction ∈ {push,pull})
+    let verifyActions: QueueVerifyAction[] | undefined;
+    if (Array.isArray(it.verifyActions)) {
+      const parsed: QueueVerifyAction[] = [];
+      for (const raw of it.verifyActions) {
+        if (!raw || typeof raw !== "object") continue;
+        const va = raw as Record<string, unknown>;
+        if (typeof va.key !== "string" || va.key.length === 0) continue;
+        if (va.direction !== "push" && va.direction !== "pull") continue;
+        parsed.push({ key: va.key, direction: va.direction });
+      }
+      if (parsed.length > 0) verifyActions = parsed;
+    }
     out.push({
       productId: it.productId,
       reference: it.reference as string,
@@ -175,6 +205,7 @@ export function validateEnqueueInput(
       },
       mode,
       marketplace,
+      verifyActions,
     });
   }
   return { ok: true, items: out };

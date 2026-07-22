@@ -59,6 +59,13 @@ export interface MarketplaceRefreshEnqueueInput {
   mode?: QueueItemMode;
   /** Marketplace cible — défaut "pfs". */
   marketplace?: MarketplaceTarget;
+  /**
+   * Optionnel : actions ciblées produites par le tooltip « PFS Verify » (envoi
+   * granulaire par champ). Quand présent, le worker exécute
+   * `applyPfsVerifyActionsCore` au lieu de la sync marketplace standard.
+   * `marketplace` doit être `"pfs"` dans ce cas.
+   */
+  verifyActions?: { key: string; direction: "push" | "pull" }[];
 }
 
 export interface EnqueueMeta {

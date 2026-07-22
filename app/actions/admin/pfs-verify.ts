@@ -6,6 +6,11 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { verifyPfsProduct, type PfsVerifyResult, type PfsVerifyError, type PfsVerifyIssue } from "@/lib/pfs-verify";
+import {
+  applyPfsVerifyActions as applyPfsVerifyActionsCore,
+  type PfsVerifyActionInput,
+  type PfsVerifyApplyReport,
+} from "@/lib/pfs-verify-apply";
 import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
@@ -144,4 +149,55 @@ export async function verifySinglePfsProduct(
     return { success: false, error: "Aucun résultat retourné" };
   }
   return { success: true, outcome };
+}
+
+/**
+ * Applique les choix « Envoyer PFS » / « Prendre PFS » de la cliente sur les
+ * écarts du produit, puis relance une vérification pour retourner l'état à
+ * jour du tooltip.
+ *
+ * Retourne :
+ *  - `report`  : synthèse des actions (appliquées / ignorées / erreurs).
+ *  - `outcome` : nouveau résultat de vérification (peuple la pastille sans reload).
+ */
+export async function applyPfsVerifyActions(
+  productId: string,
+  actions: PfsVerifyActionInput[],
+): Promise<
+  | { success: true; report: PfsVerifyApplyReport; outcome: PfsVerifyOutcome }
+  | { success: false; error: string }
+> {
+  await requireAdmin();
+
+  if (!Array.isArray(actions) || actions.length === 0) {
+    return { success: false, error: "Aucune action à appliquer" };
+  }
+  // Validation légère avant appel core (défense en profondeur).
+  for (const a of actions) {
+    if (typeof a?.key !== "string" || (a?.direction !== "push" && a?.direction !== "pull")) {
+      return { success: false, error: "Action invalide (clé ou direction manquante)" };
+    }
+  }
+
+  let report: PfsVerifyApplyReport;
+  try {
+    report = await applyPfsVerifyActionsCore(productId, actions);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error("[PFS Verify Apply] Crash", { productId, error: msg });
+    return { success: false, error: msg };
+  }
+
+  // Relancer une vérification pour tenir le tooltip à jour.
+  const verifyRes = await verifyPfsProducts([productId]);
+  if (!verifyRes.success) {
+    return { success: false, error: verifyRes.error };
+  }
+  const outcome = verifyRes.outcomes[0];
+  if (!outcome) {
+    return { success: false, error: "Vérification post-application n'a rien retourné" };
+  }
+
+  revalidateTag("products", "default");
+  return { success: true, report, outcome };
 }

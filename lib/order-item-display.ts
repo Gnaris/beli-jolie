@@ -51,3 +51,63 @@ export function filterOrderItemsByQuery<T extends OrderItemSearchable>(items: T[
       it.colorName.toLowerCase().includes(q),
   );
 }
+
+export type OrderSummarySort = "none" | "ref_asc" | "ref_desc" | "qty_asc" | "qty_desc";
+
+export interface OrderSummaryFilters {
+  category: string;
+  sort: OrderSummarySort;
+}
+
+export interface OrderItemForSummary extends OrderItemLike, OrderItemSearchable {}
+
+/**
+ * Applique filtre catégorie + tri au résumé de la commande.
+ * - `category` = "" → toutes les catégories.
+ * - `sort` = "none" → ordre d'origine préservé (stable).
+ * `categoryByRef` mappe productRef → nom de catégorie.
+ */
+export function applyOrderSummaryFilters<T extends OrderItemForSummary>(
+  items: T[],
+  filters: OrderSummaryFilters,
+  categoryByRef: Record<string, string>,
+): T[] {
+  const filtered = filters.category
+    ? items.filter((it) => (categoryByRef[it.productRef] ?? "") === filters.category)
+    : items;
+
+  if (filters.sort === "none") return filtered;
+
+  const arr = [...filtered];
+  switch (filters.sort) {
+    case "ref_asc":
+      arr.sort((a, b) => a.productRef.localeCompare(b.productRef, "fr", { numeric: true }));
+      break;
+    case "ref_desc":
+      arr.sort((a, b) => b.productRef.localeCompare(a.productRef, "fr", { numeric: true }));
+      break;
+    case "qty_asc":
+      arr.sort((a, b) => getTotalUnits(a) - getTotalUnits(b));
+      break;
+    case "qty_desc":
+      arr.sort((a, b) => getTotalUnits(b) - getTotalUnits(a));
+      break;
+  }
+  return arr;
+}
+
+/**
+ * Liste triée alphabétiquement des catégories présentes dans les articles.
+ * Ignore les refs sans catégorie connue.
+ */
+export function listOrderSummaryCategories<T extends OrderItemSearchable>(
+  items: T[],
+  categoryByRef: Record<string, string>,
+): string[] {
+  const set = new Set<string>();
+  for (const it of items) {
+    const cat = categoryByRef[it.productRef];
+    if (cat) set.add(cat);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "fr"));
+}

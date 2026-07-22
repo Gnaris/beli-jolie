@@ -29,6 +29,8 @@ interface Props {
 
 export default function PfsOrdersView({ initialSyncMeta }: Props) {
   const [period, setPeriod] = useState<PfsPeriodKey>("month");
+  const [customFrom, setCustomFrom] = useState<string>("");
+  const [customTo, setCustomTo] = useState<string>("");
   const [stats, setStats] = useState<PfsStatsBundle | null>(null);
   const [list, setList] = useState<PfsOrderListItem[] | null>(null);
   const [listMeta, setListMeta] = useState<{ total: number; page: number; totalPages: number }>({
@@ -43,26 +45,50 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [importRunning, setImportRunning] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [syncMeta, setSyncMeta] = useState(initialSyncMeta);
-  const [nowTick, setNowTick] = useState(() => Date.now());
+  // Init à 0 (identique SSR + client 1er render) pour éviter les erreurs
+  // d'hydratation. La vraie valeur est posée dès le 1er effet côté client.
+  const [nowTick, setNowTick] = useState(0);
   const [, startTransition] = useTransition();
   const { confirm } = useConfirm();
   const { open: openWidget } = useRightRail();
 
   useEffect(() => {
+    setNowTick(Date.now());
     const id = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
 
   const refresh = useCallback(async () => {
-    const [nextStats, nextList] = await Promise.all([
-      getPfsStats({ period, topClientsLimit: 10, topProductsLimit: 10 }),
-      listPfsOrders({ page, q: q || undefined, status: statusFilter || null, period }),
-    ]);
-    setStats(nextStats);
-    setList(nextList.items);
-    setListMeta({ total: nextList.total, page: nextList.page, totalPages: nextList.totalPages });
-  }, [page, q, statusFilter, period]);
+    // En mode personnalisé, on attend au moins une des deux dates ET une plage cohérente
+    // avant d'appeler le serveur, sinon on affichrait un état vide trompeur pendant que la
+    // cliente saisit la 2ᵉ date.
+    if (period === "custom") {
+      const bothEmpty = !customFrom && !customTo;
+      const inverted = customFrom && customTo && customTo < customFrom;
+      if (bothEmpty || inverted) return;
+    }
+    setIsRefreshing(true);
+    try {
+      const [nextStats, nextList] = await Promise.all([
+        getPfsStats({ period, customFrom, customTo }),
+        listPfsOrders({
+          page,
+          q: q || undefined,
+          status: statusFilter || null,
+          period,
+          customFrom,
+          customTo,
+        }),
+      ]);
+      setStats(nextStats);
+      setList(nextList.items);
+      setListMeta({ total: nextList.total, page: nextList.page, totalPages: nextList.totalPages });
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [page, q, statusFilter, period, customFrom, customTo]);
 
   useEffect(() => {
     void refresh();
@@ -151,6 +177,9 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
 
   const lastSyncedLabel = useMemo(() => {
     if (!syncMeta.lastSyncedAt) return "Jamais";
+    // Tant que le client n'a pas encore posé nowTick (SSR + 1er render), on affiche
+    // un placeholder identique côté serveur et client (évite hydration mismatch).
+    if (nowTick === 0) return "…";
     const ts = new Date(syncMeta.lastSyncedAt);
     const min = Math.max(0, Math.round((nowTick - ts.getTime()) / 60000));
     if (min === 0) return "À l'instant";
@@ -162,6 +191,7 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
   const AUTO_SYNC_INTERVAL_MS = 5 * 60_000;
   const nextSyncLabel = useMemo(() => {
     if (!syncMeta.lastSyncedAt) return null;
+    if (nowTick === 0) return null;
     const lastTs = new Date(syncMeta.lastSyncedAt).getTime();
     const remaining = lastTs + AUTO_SYNC_INTERVAL_MS - nowTick;
     if (remaining <= 0) return "à l'instant";
@@ -203,7 +233,23 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
     <div className="space-y-4">
       {/* Barre période + import */}
       <section className="rounded-2xl bg-bg-primary border border-border shadow-sm p-4 flex flex-wrap items-center gap-3 justify-between">
-        <PfsPeriodBar value={period} onChange={setPeriod} />
+        <PfsPeriodBar
+          value={period}
+          onChange={(v) => {
+            setPeriod(v);
+            setPage(1);
+          }}
+          customFrom={customFrom}
+          customTo={customTo}
+          onCustomFromChange={(v) => {
+            setCustomFrom(v);
+            setPage(1);
+          }}
+          onCustomToChange={(v) => {
+            setCustomTo(v);
+            setPage(1);
+          }}
+        />
         <div className="flex items-center gap-3">
           <div className="text-xs text-text-muted">
             Dernière synchro : <span className="text-text-primary font-medium">{lastSyncedLabel}</span>
@@ -269,6 +315,18 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
         onOpen={onOpenOrder}
         statusCounts={stats?.statusCounts ?? null}
       />
+
+      {isRefreshing && (
+        <div
+          className="fixed inset-0 bg-slate-900/25 backdrop-blur-[1px] flex items-center justify-center z-[100]"
+          aria-live="polite"
+        >
+          <div className="rounded-full bg-slate-900/90 text-white text-sm font-medium px-5 py-2.5 flex items-center gap-2.5 shadow-2xl">
+            <span className="inline-block w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+            Chargement…
+          </div>
+        </div>
+      )}
 
       {selectedOrder && (
         <PfsOrderDrawer

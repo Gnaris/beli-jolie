@@ -122,6 +122,9 @@ export async function POST(req: NextRequest) {
             productName: input.productName,
             firstImage: input.firstImage ?? null,
             options: input.options,
+            // Optionnel : liste d'écarts à appliquer via verify-apply
+            // (tooltip PFS Verify). Ignoré par le worker sans cette clé.
+            ...(input.verifyActions ? { verifyActions: input.verifyActions } : {}),
           },
           status: "QUEUED",
           scheduledFor: schedule[index] ?? null,

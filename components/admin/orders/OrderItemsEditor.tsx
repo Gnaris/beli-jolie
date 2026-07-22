@@ -13,7 +13,13 @@ import {
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { getTotalUnits, filterOrderItemsByQuery } from "@/lib/order-item-display";
+import {
+  getTotalUnits,
+  filterOrderItemsByQuery,
+  applyOrderSummaryFilters,
+  listOrderSummaryCategories,
+  type OrderSummarySort,
+} from "@/lib/order-item-display";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -62,6 +68,7 @@ interface Props {
   readOnly?: boolean;
   clientNotifiedAt: string | null;
   hasUnconfirmedChanges: boolean;
+  categoryByRef: Record<string, string>;
 }
 
 interface ProductSearchVariant {
@@ -123,6 +130,7 @@ export default function OrderItemsEditor({
   readOnly = false,
   clientNotifiedAt,
   hasUnconfirmedChanges,
+  categoryByRef,
 }: Props) {
   const orderedItems = items.filter((i) => !i.isCompensation);
   const compensationItems = items.filter((i) => i.isCompensation);
@@ -397,6 +405,7 @@ export default function OrderItemsEditor({
         totalUnits={totalUnits}
         totalModels={totalModels}
         orderId={orderId}
+        categoryByRef={categoryByRef}
         onZoomImage={(src) => setZoomedImage(src)}
       />
 
@@ -1404,6 +1413,7 @@ function SummarySection({
   totalUnits,
   totalModels,
   orderId,
+  categoryByRef,
   onZoomImage,
 }: {
   orderedItems: OrderItemForEdit[];
@@ -1411,12 +1421,53 @@ function SummarySection({
   totalUnits: number;
   totalModels: number;
   orderId: string;
+  categoryByRef: Record<string, string>;
   onZoomImage: (src: string) => void;
 }) {
-  const allItems = [...orderedItems, ...compensationItems];
+  const allItems = useMemo(
+    () => [...orderedItems, ...compensationItems],
+    [orderedItems, compensationItems],
+  );
   const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
+  const [sort, setSort] = useState<OrderSummarySort>("none");
 
-  const filteredItems = useMemo(() => filterOrderItemsByQuery(allItems, search), [allItems, search]);
+  const availableCategories = useMemo(
+    () => listOrderSummaryCategories(allItems, categoryByRef),
+    [allItems, categoryByRef],
+  );
+
+  // Réinitialise le filtre catégorie si la catégorie sélectionnée disparaît
+  // (article ajouté/retiré côté colonne 2/3).
+  useEffect(() => {
+    if (category && !availableCategories.includes(category)) setCategory("");
+  }, [category, availableCategories]);
+
+  const filteredItems = useMemo(() => {
+    const byQuery = filterOrderItemsByQuery(allItems, search);
+    return applyOrderSummaryFilters(byQuery, { category, sort }, categoryByRef);
+  }, [allItems, search, category, sort, categoryByRef]);
+
+  const categoryOptions = useMemo(
+    () => [
+      { value: "", label: "Toutes les catégories" },
+      ...availableCategories.map((c) => ({ value: c, label: c })),
+    ],
+    [availableCategories],
+  );
+
+  const sortOptions = useMemo(
+    () => [
+      { value: "none", label: "Ordre d'origine" },
+      { value: "ref_asc", label: "Référence A → Z" },
+      { value: "ref_desc", label: "Référence Z → A" },
+      { value: "qty_asc", label: "Quantité croissante" },
+      { value: "qty_desc", label: "Quantité décroissante" },
+    ],
+    [],
+  );
+
+  const hasActiveFilter = category !== "" || sort !== "none";
 
   return (
     <section className="card overflow-hidden">
@@ -1437,17 +1488,66 @@ function SummarySection({
         </a>
       </div>
 
-      <div className="px-4 sm:px-5 py-3 border-b border-border bg-blue-50/40">
-        <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
-          Rechercher par référence ou nom
-        </label>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Ex : BR-JO-DOR-BL-1250…"
-          className="w-full mt-1 px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-        />
+      <div className="px-4 sm:px-5 py-3 border-b border-border bg-blue-50/40 space-y-3">
+        <div>
+          <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+            Rechercher par référence ou nom
+          </label>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Ex : BR-JO-DOR-BL-1250…"
+            className="w-full mt-1 px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+              Catégorie
+            </label>
+            <CustomSelect
+              value={category}
+              onChange={setCategory}
+              options={categoryOptions}
+              size="sm"
+              className="mt-1"
+              aria-label="Filtrer par catégorie"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+              Trier par
+            </label>
+            <CustomSelect
+              value={sort}
+              onChange={(v) => setSort(v as OrderSummarySort)}
+              options={sortOptions}
+              size="sm"
+              className="mt-1"
+              aria-label="Trier les articles"
+            />
+          </div>
+        </div>
+        {hasActiveFilter && (
+          <div className="flex items-center justify-between text-[11px] text-text-muted">
+            <span>
+              {filteredItems.length} article{filteredItems.length > 1 ? "s" : ""} affiché{filteredItems.length > 1 ? "s" : ""}
+              {" sur "}
+              {allItems.length}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setCategory("");
+                setSort("none");
+              }}
+              className="text-blue-600 hover:underline underline-offset-2 font-semibold"
+            >
+              Réinitialiser les filtres
+            </button>
+          </div>
+        )}
       </div>
 
       {allItems.length === 0 ? (

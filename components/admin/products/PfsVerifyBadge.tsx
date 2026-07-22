@@ -18,13 +18,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/components/ui/Toast";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { verifySinglePfsProduct } from "@/app/actions/admin/pfs-verify";
+import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
+import {
+  isPushSupportedLotB,
+  isPullSupportedLotB,
+  issueKey,
+} from "@/lib/pfs-verify-apply-shared";
 
 // ─── Types (miroir des types serveur pfs-verify) ───────────────────────────
 
 export type PfsVerifyIssueField =
   | "name" | "description" | "dimensions" | "composition"
   | "country" | "season" | "gender" | "category" | "family" | "isBestSeller"
+  | "productStatus"
   | "saleType" | "price" | "stock" | "weight" | "isActive"
   | "extraVariant" | "missingVariant";
 
@@ -40,11 +48,19 @@ export interface PfsVerifyIssue {
   pfsValue: string | null;
   expectedValue: string | null;
   note?: string;
+  /** Raison de blocage « Envoyer PFS » (serveur). Non défini = envoi OK. */
+  pushBlocked?: string;
+  /** Raison de blocage « Prendre PFS » (serveur). Non défini = récup OK. */
+  pullBlocked?: string;
 }
 
 interface Props {
   productId: string;
   productName: string;
+  /** Référence produit — utilisée pour l'entrée widget marketplace. */
+  productReference: string;
+  /** Première image (URL) — utilisée pour l'entrée widget marketplace. */
+  productFirstImage: string | null;
   /** Renseigné si le produit est lié à PFS (sinon on n'affiche rien du tout). */
   pfsProductId: string | null;
   /** Date ISO de la dernière vérif · null = jamais vérifié. */
@@ -57,11 +73,32 @@ interface Props {
 
 export default function PfsVerifyBadge(props: Props) {
   const toast = useToast();
+  const confirm = useConfirm();
+  const { enqueue, inFlightProductIds } = useMarketplaceRefreshQueue();
   const [loading, setLoading] = useState(false);
+  // Le badge est « en cours » (spinner PFS) tant que le job verify-apply pour
+  // ce produit est actif dans la file marketplace — on s'aligne sur la même
+  // notion que les autres rafraîchissements.
+  const applying = inFlightProductIds.has(props.productId);
   // État local pour rafraîchir la pastille sans full reload après revérif.
   const [checkedAt, setCheckedAt] = useState(props.pfsCheckedAt);
   const [status, setStatus] = useState<"ok" | "diff" | null>(props.pfsCheckStatus);
   const [issues, setIssues] = useState<PfsVerifyIssue[] | null>(props.pfsCheckIssues);
+
+  // Choix « Envoyer PFS » (push, défaut) / « Prendre PFS » (pull) par écart.
+  // Clé = issueKey(iss). Reset à chaque changement de liste d'écarts.
+  const [directions, setDirections] = useState<Record<string, "push" | "pull">>({});
+  useEffect(() => {
+    if (!issues) return;
+    setDirections((prev) => {
+      const next: Record<string, "push" | "pull"> = {};
+      for (const iss of issues) {
+        const k = issueKey(iss);
+        next[k] = prev[k] === "pull" ? "pull" : "push";
+      }
+      return next;
+    });
+  }, [issues]);
 
   // Re-synchroniser avec les props quand elles changent (cas bulk verify :
   // le parent re-rend avec les nouvelles valeurs après router.refresh()).
@@ -180,7 +217,54 @@ export default function PfsVerifyBadge(props: Props) {
           issues={issues}
           checkedAt={checkedAt}
           loading={loading}
+          applying={applying}
+          directions={directions}
+          onToggleDirection={(k, d) => setDirections((prev) => ({ ...prev, [k]: d }))}
           onReverify={runVerify}
+          onValidate={async () => {
+            if (!issues) return;
+            const supportedActions = issues
+              .map((iss) => ({ iss, k: issueKey(iss), dir: (directions[issueKey(iss)] ?? "push") as "push" | "pull" }))
+              .filter(({ iss, dir }) => actionBlockReason(iss, dir) === null)
+              .map(({ k, dir }) => ({ key: k, direction: dir }));
+            if (supportedActions.length === 0) {
+              toast.info("Aucune action à appliquer (tous les écarts choisis sont non pris en charge).");
+              return;
+            }
+            const pushCount = supportedActions.filter((a) => a.direction === "push").length;
+            const pullCount = supportedActions.length - pushCount;
+            const confirmed = await confirm.confirm({
+              type: "warning",
+              title: "Appliquer les corrections ?",
+              message: `${supportedActions.length} correction${supportedActions.length > 1 ? "s" : ""} vont être appliquée${supportedActions.length > 1 ? "s" : ""} :\n\n` +
+                (pushCount > 0 ? `• ${pushCount} envoi${pushCount > 1 ? "s" : ""} vers PFS (nos valeurs remplacent les leurs)\n` : "") +
+                (pullCount > 0 ? `• ${pullCount} récupération${pullCount > 1 ? "s" : ""} depuis PFS (leurs valeurs remplacent les nôtres — Ankorstore/eFashion/Faire seront marqués « Synchro nécessaire »)\n` : "") +
+                `\nCette action est irréversible depuis le tooltip.`,
+              confirmLabel: "Appliquer",
+              cancelLabel: "Annuler",
+            });
+            if (confirmed !== true) return;
+            // Enqueue un job PFS marketplace : le widget flottant l'affiche et
+            // le badge P sur la ligne du produit passe en spinner via
+            // `inFlightProductIds`. Le worker (runPfsJob) détecte
+            // `payload.verifyActions` et appelle applyPfsVerifyActionsCore.
+            enqueue([
+              {
+                productId: props.productId,
+                reference: props.productReference,
+                productName: props.productName,
+                firstImage: props.productFirstImage,
+                options: { local: false, pfs: true, ankorstore: false, efashion: false, faire: false },
+                marketplace: "pfs",
+                mode: "resync",
+                verifyActions: supportedActions,
+              },
+            ]);
+            toast.info(
+              `${supportedActions.length} correction${supportedActions.length > 1 ? "s" : ""} en cours d'envoi sur PFS`,
+              "Suivez l'avancée dans le widget en bas à droite.",
+            );
+          }}
         />
       )}
       {/* Cas edge : status=diff mais aucun issue reçu (ne devrait plus arriver
@@ -231,18 +315,49 @@ function RichDiffTooltip({
   issues,
   checkedAt,
   loading,
+  applying,
+  directions,
+  onToggleDirection,
   onReverify,
+  onValidate,
 }: {
   issues: PfsVerifyIssue[];
   checkedAt: string | null;
   loading: boolean;
+  applying: boolean;
+  directions: Record<string, "push" | "pull">;
+  onToggleDirection: (key: string, dir: "push" | "pull") => void;
   onReverify: () => void;
+  onValidate: () => void | Promise<void>;
 }) {
   // Regroupement : produit / par couleur (variantes + extras + missing)
   const grouped = useMemo(() => groupIssuesByBlock(issues), [issues]);
 
+  // Compteurs pour le footer + détection d'un blocage bloquant Valider.
+  // Un écart contribue au blocage si la direction actuellement choisie n'est
+  // pas supportée (soit par la whitelist Lot B, soit par un pushBlocked/
+  // pullBlocked renvoyé par le serveur).
+  const { pushCount, pullCount, blockedCount, blockedReasons } = useMemo(() => {
+    let push = 0, pull = 0, blocked = 0;
+    const reasons = new Set<string>();
+    for (const iss of issues) {
+      const k = issueKey(iss);
+      const dir = directions[k] ?? "push";
+      const reason = actionBlockReason(iss, dir);
+      if (reason) {
+        blocked++;
+        reasons.add(reason);
+        continue;
+      }
+      if (dir === "push") push++;
+      else pull++;
+    }
+    return { pushCount: push, pullCount: pull, blockedCount: blocked, blockedReasons: Array.from(reasons) };
+  }, [issues, directions]);
+  const totalActionable = pushCount + pullCount;
+
   return (
-    <div className="pv-rich top-full left-0 w-[380px]">
+    <div className="pv-rich top-full left-0 w-[420px]">
       <div className="rounded-xl bg-white shadow-2xl border border-slate-200">
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-100 rounded-t-xl">
@@ -253,10 +368,10 @@ function RichDiffTooltip({
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[12px] font-bold text-amber-900 leading-tight">
-              {issues.length} écart{issues.length > 1 ? "s" : ""} à corriger sur PFS
+              {issues.length} écart{issues.length > 1 ? "s" : ""} détecté{issues.length > 1 ? "s" : ""}
             </div>
             <div className="text-[10px] text-amber-700">
-              {checkedAt ? `Vérifié ${formatRelative(checkedAt)}` : "Vérifié à l'instant"} · notre site fait foi
+              {checkedAt ? `Vérifié ${formatRelative(checkedAt)}` : "Vérifié à l'instant"} · défaut : nos valeurs remplacent celles de PFS
             </div>
           </div>
         </div>
@@ -270,7 +385,13 @@ function RichDiffTooltip({
               </div>
               <ul className="divide-y divide-slate-100">
                 {grouped.productIssues.map((iss, i) => (
-                  <ProductIssueRow key={i} issue={iss} />
+                  <ProductIssueRow
+                    key={i}
+                    issue={iss}
+                    direction={directions[issueKey(iss)] ?? "push"}
+                    onToggle={(d) => onToggleDirection(issueKey(iss), d)}
+                    disabled={applying}
+                  />
                 ))}
               </ul>
             </div>
@@ -312,7 +433,13 @@ function RichDiffTooltip({
                     </div>
                     <div className="space-y-1.5">
                       {vg.issues.map((iss, i) => (
-                        <VariantFieldRow key={i} issue={iss} />
+                        <VariantFieldRow
+                          key={i}
+                          issue={iss}
+                          direction={directions[issueKey(iss)] ?? "push"}
+                          onToggle={(d) => onToggleDirection(issueKey(iss), d)}
+                          disabled={applying}
+                        />
                       ))}
                     </div>
                   </li>
@@ -374,31 +501,71 @@ function RichDiffTooltip({
           ))}
         </div>
 
-        {/* Footer */}
-        <div className="px-4 py-3 border-t border-slate-100 rounded-b-xl bg-slate-50/60 flex items-center justify-center">
-          <button
-            type="button"
-            onClick={onReverify}
-            disabled={loading}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-slate-900 hover:bg-slate-800 shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? (
-              <>
-                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle className="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
-                  <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                Vérification en cours…
-              </>
-            ) : (
-              <>
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2} aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                </svg>
-                Revérifier
-              </>
-            )}
-          </button>
+        {/* Footer — compteurs + revérifier + valider */}
+        <div className="px-4 py-3 border-t border-slate-100 rounded-b-xl bg-slate-50/60 space-y-2">
+          <div className="flex items-center justify-between gap-2 text-[10.5px] text-slate-600">
+            <div>
+              <b>{pushCount}</b> à envoyer sur PFS · <b>{pullCount}</b> à récupérer de PFS
+              {blockedCount > 0 && (
+                <> · <span className="text-rose-700 font-semibold">{blockedCount} à débloquer</span></>
+              )}
+            </div>
+          </div>
+          {blockedCount > 0 && (
+            <div className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-3 py-2 leading-snug">
+              <b>Impossible de valider :</b> {blockedCount} écart{blockedCount > 1 ? "s" : ""} ne peu{blockedCount > 1 ? "vent" : "t"} pas être appliqué{blockedCount > 1 ? "s" : ""} dans la direction choisie.
+              <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                {blockedReasons.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={onReverify}
+              disabled={loading || applying}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? (
+                <>
+                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle className="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
+                    <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Vérification…
+                </>
+              ) : (
+                <>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2} aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+                  </svg>
+                  Revérifier
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => { void onValidate(); }}
+              disabled={applying || loading || totalActionable === 0 || blockedCount > 0}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-slate-900 hover:bg-slate-800 shadow-sm transition disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed disabled:shadow-none"
+            >
+              {applying ? (
+                <>
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle className="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
+                    <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Application…
+                </>
+              ) : blockedCount > 0 ? (
+                <>Valider (bloqué)</>
+              ) : (
+                <>Valider {totalActionable > 0 ? `${totalActionable} action${totalActionable > 1 ? "s" : ""}` : ""}</>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -411,52 +578,218 @@ function RichDiffTooltip({
   );
 }
 
-function ProductIssueRow({ issue }: { issue: PfsVerifyIssue }) {
+function ProductIssueRow({
+  issue,
+  direction,
+  onToggle,
+  disabled,
+}: {
+  issue: PfsVerifyIssue;
+  direction: "push" | "pull";
+  onToggle: (d: "push" | "pull") => void;
+  disabled: boolean;
+}) {
+  const pushBlock = actionBlockReason(issue, "push");
+  const pullBlock = actionBlockReason(issue, "pull");
+  const activeBlock = direction === "push" ? pushBlock : pullBlock;
   return (
     <li className="px-3.5 py-2">
-      <div className="text-slate-900 font-bold text-[13.5px] underline underline-offset-2 decoration-amber-400 decoration-2">
-        {issue.fieldLabel}
-      </div>
-      <div className="mt-1 space-y-0.5 text-[12px]">
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-amber-700 w-14 flex-shrink-0">PFS</span>
-          <span className="text-slate-500 line-through truncate">
-            {issue.pfsValue ?? "(vide)"}
-          </span>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="text-slate-900 font-bold text-[13.5px] underline underline-offset-2 decoration-amber-400 decoration-2">
+            {issue.fieldLabel}
+          </div>
+          <div className="mt-1 space-y-0.5 text-[12px]">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-amber-700 w-14 flex-shrink-0">PFS</span>
+              <span className="text-slate-500 line-through truncate">
+                {issue.pfsValue ?? "(vide)"}
+              </span>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-emerald-700 w-14 flex-shrink-0">Attendu</span>
+              <span className="text-slate-800 font-medium truncate">
+                {issue.expectedValue ?? "(vide)"}
+              </span>
+            </div>
+          </div>
         </div>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-emerald-700 w-14 flex-shrink-0">Attendu</span>
-          <span className="text-slate-800 font-medium truncate">
-            {issue.expectedValue ?? "(vide)"}
-          </span>
-        </div>
+        <DirectionToggle
+          direction={direction}
+          onToggle={onToggle}
+          pushBlock={pushBlock}
+          pullBlock={pullBlock}
+          disabled={disabled}
+        />
       </div>
+      {activeBlock && (
+        <div className="mt-2 text-[11px] leading-snug text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-2.5 py-1.5">
+          ⚠ {activeBlock}
+        </div>
+      )}
     </li>
   );
 }
 
-function VariantFieldRow({ issue }: { issue: PfsVerifyIssue }) {
+function VariantFieldRow({
+  issue,
+  direction,
+  onToggle,
+  disabled,
+}: {
+  issue: PfsVerifyIssue;
+  direction: "push" | "pull";
+  onToggle: (d: "push" | "pull") => void;
+  disabled: boolean;
+}) {
+  const pushBlock = actionBlockReason(issue, "push");
+  const pullBlock = actionBlockReason(issue, "pull");
+  const activeBlock = direction === "push" ? pushBlock : pullBlock;
   return (
     <div>
-      <div className="text-slate-900 font-bold text-[13px] underline underline-offset-2 decoration-amber-400 decoration-2">
-        {issue.fieldLabel}
-      </div>
-      <div className="mt-0.5 space-y-0.5 text-[12px]">
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-amber-700 w-14 flex-shrink-0">PFS</span>
-          <span className="text-slate-500 line-through truncate">
-            {issue.pfsValue ?? "(vide)"}
-          </span>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="text-slate-900 font-bold text-[13px] underline underline-offset-2 decoration-amber-400 decoration-2">
+            {issue.fieldLabel}
+          </div>
+          <div className="mt-0.5 space-y-0.5 text-[12px]">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-amber-700 w-14 flex-shrink-0">PFS</span>
+              <span className="text-slate-500 line-through truncate">
+                {issue.pfsValue ?? "(vide)"}
+              </span>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-emerald-700 w-14 flex-shrink-0">Attendu</span>
+              <span className="text-slate-800 font-medium truncate">
+                {issue.expectedValue ?? "(vide)"}
+              </span>
+            </div>
+          </div>
         </div>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-emerald-700 w-14 flex-shrink-0">Attendu</span>
-          <span className="text-slate-800 font-medium truncate">
-            {issue.expectedValue ?? "(vide)"}
-          </span>
-        </div>
+        <DirectionToggle
+          direction={direction}
+          onToggle={onToggle}
+          pushBlock={pushBlock}
+          pullBlock={pullBlock}
+          disabled={disabled}
+        />
       </div>
+      {activeBlock && (
+        <div className="mt-1.5 text-[11px] leading-snug text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-2.5 py-1.5">
+          ⚠ {activeBlock}
+        </div>
+      )}
     </div>
   );
+}
+
+/**
+ * Toggle segmenté 2 boutons (« Envoyer PFS » / « Prendre PFS »).
+ * Un côté grisé signifie que le champ n'est pas encore pris en charge dans
+ * cette direction — un titre au survol explique ce qui manque (Lot C).
+ */
+function DirectionToggle({
+  direction,
+  onToggle,
+  pushBlock,
+  pullBlock,
+  disabled,
+}: {
+  direction: "push" | "pull";
+  onToggle: (d: "push" | "pull") => void;
+  /** null = OK, string = raison humaine du blocage. */
+  pushBlock: string | null;
+  pullBlock: string | null;
+  disabled: boolean;
+}) {
+  const base = "px-2 py-0.5 text-[10.5px] font-semibold rounded transition inline-flex items-center gap-1";
+  const activePush = "bg-indigo-600 text-white shadow-sm";
+  const activePull = "bg-emerald-600 text-white shadow-sm";
+  // Selected + will-fail : couleur ambre pour signaler visuellement le
+  // problème, tout en restant sélectionnable.
+  const activePushBlocked = "bg-amber-500 text-white shadow-sm";
+  const activePullBlocked = "bg-amber-500 text-white shadow-sm";
+  const inactive = "text-slate-500 hover:text-slate-800";
+  // Not selected, will-fail : reste cliquable, mais indique visuellement le
+  // risque (texte ambre + icône ⚠). On n'ajoute PAS de grayed cursor pour
+  // que la cliente comprenne que le clic est possible.
+  const inactiveBlocked = "text-amber-600 hover:text-amber-700";
+  return (
+    <div className="inline-flex items-center gap-0.5 p-0.5 rounded-md bg-slate-100 border border-slate-200 shrink-0">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); if (!disabled) onToggle("push"); }}
+        disabled={disabled}
+        title={pushBlock ?? "Envoyer notre valeur sur PFS"}
+        className={`${base} ${
+          pushBlock
+            ? direction === "push" ? activePushBlocked : inactiveBlocked
+            : direction === "push" ? activePush : inactive
+        }`}
+      >
+        {pushBlock && <DangerIcon />}
+        ↑ Envoyer
+      </button>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); if (!disabled) onToggle("pull"); }}
+        disabled={disabled}
+        title={pullBlock ?? "Récupérer la valeur PFS sur notre site"}
+        className={`${base} ${
+          pullBlock
+            ? direction === "pull" ? activePullBlocked : inactiveBlocked
+            : direction === "pull" ? activePull : inactive
+        }`}
+      >
+        {pullBlock && <DangerIcon />}
+        ↓ Prendre
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Petit triangle danger (⚠) 10×10 pour signaler qu'une direction va échouer.
+ * Hérite de la couleur de texte du bouton parent (ambre sur bouton inactif
+ * ambre, blanc sur bouton actif ambre).
+ */
+function DangerIcon() {
+  return (
+    <svg
+      className="w-2.5 h-2.5 shrink-0"
+      fill="currentColor"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d="M12 2L1 21h22L12 2zm0 6l7.53 12H4.47L12 8zm-1 4v4h2v-4h-2zm0 5v2h2v-2h-2z" />
+    </svg>
+  );
+}
+
+// `issueKey` est importé depuis `@/lib/pfs-verify-apply-shared` — même clé
+// côté client et serveur.
+export { issueKey };
+
+/**
+ * Retourne la raison qui empêche d'appliquer une action dans la direction
+ * donnée sur cet écart, ou `null` si tout est OK. Combine la whitelist
+ * client (Lot B) et les blocages ad hoc que le serveur peut poser sur une
+ * issue précise (`pushBlocked` / `pullBlocked`).
+ */
+function actionBlockReason(iss: PfsVerifyIssue, dir: "push" | "pull"): string | null {
+  if (dir === "push") {
+    if (iss.pushBlocked) return iss.pushBlocked;
+    if (!isPushSupportedLotB(iss.scope, iss.field)) {
+      return `Envoi non pris en charge pour « ${iss.fieldLabel} ».`;
+    }
+    return null;
+  }
+  if (iss.pullBlocked) return iss.pullBlocked;
+  if (!isPullSupportedLotB(iss.scope, iss.field)) {
+    return `Récupération non prise en charge pour « ${iss.fieldLabel} » (arrivera dans un prochain lot).`;
+  }
+  return null;
 }
 
 function ColorDot({ hex }: { hex?: string | null }) {

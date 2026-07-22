@@ -14,6 +14,7 @@ function makeLocalProduct(overrides: Partial<LocalProduct> = {}): LocalProduct {
     name: "Bracelet Éden",
     description: "Bracelet doré fin en laiton.",
     isBestSeller: false,
+    status: "ONLINE",
     pfsProductId: "pfs_1",
     dimensionLength: null,
     dimensionWidth: null,
@@ -22,9 +23,12 @@ function makeLocalProduct(overrides: Partial<LocalProduct> = {}): LocalProduct {
     dimensionCircumference: null,
     sizeDetailsTu: null,
     category: {
+      name: "Bracelet",
       pfsCategoryId: "cat_bracelet",
+      pfsCategoryName: "Bracelets",
       pfsGender: "WOMAN",
       pfsFamilyId: "fam_jewel",
+      pfsFamilyName: "Bijoux fantaisie",
     },
     colors: [
       makeLocalVariant({
@@ -38,10 +42,10 @@ function makeLocalProduct(overrides: Partial<LocalProduct> = {}): LocalProduct {
       }),
     ],
     compositions: [
-      { percentage: 100, composition: { pfsCompositionRef: "LAITON" } },
+      { percentage: 100, composition: { pfsCompositionRef: "LAITON", name: "Laiton" } },
     ],
     countryIsoCode: "CN",
-    season: { pfsRef: "PE2026" },
+    season: { pfsRef: "PE2026", name: "PE2026" },
   };
   return { ...base, ...overrides };
 }
@@ -203,8 +207,8 @@ describe("comparePfsProduct", () => {
   it("détecte un écart de composition (ordre indépendant)", () => {
     const local = makeLocalProduct({
       compositions: [
-        { percentage: 80, composition: { pfsCompositionRef: "LAITON" } },
-        { percentage: 20, composition: { pfsCompositionRef: "ZIRCON" } },
+        { percentage: 80, composition: { pfsCompositionRef: "LAITON", name: "Laiton" } },
+        { percentage: 20, composition: { pfsCompositionRef: "ZIRCON", name: "Zircon" } },
       ],
     });
     const pfsProduct = makePfsProduct({
@@ -218,7 +222,10 @@ describe("comparePfsProduct", () => {
     const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
     const compo = issues.find((i) => i.field === "composition");
     expect(compo).toBeDefined();
-    expect(compo?.expectedValue).toBe("LAITON 80%, ZIRCON 20%");
+    // "Attendu" utilise le nom local de la composition (fallback quand la
+    // map PFS n'est pas fournie dans les tests) ; côté PFS on garde la REF
+    // brute puisqu'aucun mapping PFS n'est câblé ici.
+    expect(compo?.expectedValue).toBe("Laiton 80%, Zircon 20%");
     expect(compo?.pfsValue).toBe("LAITON 100%");
   });
 
@@ -332,7 +339,7 @@ describe("comparePfsProduct", () => {
     // matière, on ne doit surtout pas créer un faux écart.
     const local = makeLocalProduct({
       compositions: [
-        { percentage: 100, composition: { pfsCompositionRef: "Acier inoxydable" } },
+        { percentage: 100, composition: { pfsCompositionRef: "Acier inoxydable", name: "Acier inoxydable" } },
       ],
     });
     const pfsProduct = makePfsProduct({
@@ -403,6 +410,152 @@ describe("comparePfsProduct", () => {
     expect(w).toBeDefined();
     expect(w?.pfsValue).toBe("3 g");
     expect(w?.expectedValue).toBe("2 g");
+  });
+
+  it("détecte un écart de statut (local ONLINE, PFS ARCHIVED)", () => {
+    // Cas concret : la cliente a passé le produit ONLINE côté site mais côté
+    // PFS il est encore ARCHIVED (transition manquée). Doit remonter en écart.
+    const local = makeLocalProduct(); // status: "ONLINE" + stock 28 sur ROSE
+    const pfsProduct = makePfsProduct({ status: "ARCHIVED" });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    const statusIssue = issues.find((i) => i.field === "productStatus");
+    expect(statusIssue).toBeDefined();
+    expect(statusIssue).toMatchObject({
+      scope: "product",
+      pfsValue: "Archivé",
+      expectedValue: "En ligne",
+    });
+  });
+
+  it("ne signale pas d'écart de statut si local=OFFLINE ↔ PFS=DRAFT (mapping correct)", () => {
+    const local = makeLocalProduct({ status: "OFFLINE" });
+    const pfsProduct = makePfsProduct({ status: "DRAFT" });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    expect(issues.find((i) => i.field === "productStatus")).toBeUndefined();
+  });
+
+  it("respecte la config out-of-stock pour le statut attendu (produit ONLINE mais tout en rupture → ARCHIVED attendu)", () => {
+    // Local ONLINE + toutes variantes stock=0 → attendu = ARCHIVED côté PFS
+    // (config par défaut). Si PFS est READY_FOR_SALE, on doit signaler l'écart.
+    const local = makeLocalProduct({
+      colors: [
+        makeLocalVariant({
+          id: "v1",
+          colorPfsRef: "ROSE",
+          colorName: "Rose",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 0,
+          weight: 0.02,
+        }),
+      ],
+    });
+    const pfsProduct = makePfsProduct({ status: "READY_FOR_SALE" });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 0, weight: 0.02, isActive: false }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
+      deactivateOnZeroStock: true,
+      outOfStockProductAction: "archived",
+    });
+    const statusIssue = issues.find((i) => i.field === "productStatus");
+    expect(statusIssue).toBeDefined();
+    expect(statusIssue?.expectedValue).toBe("Archivé");
+    expect(statusIssue?.pfsValue).toBe("En ligne");
+  });
+
+  it("fusionne les écarts catégorie + famille en un seul écart « Catégorie » avec libellés humains", () => {
+    const local = makeLocalProduct(); // pfsCategoryId=cat_bracelet, pfsCategoryName=Bracelets
+    const pfsProduct = makePfsProduct({
+      category: { id: "cat_collier", reference: "COLLIER" },
+      family: { id: "fam_autre", reference: "AUTRE" }, // famille change aussi
+    });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const catLabels = new Map<string, string>([
+      ["cat_bracelet", "Bracelets"],
+      ["cat_collier", "Colliers"],
+    ]);
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
+      ...NO_MARKUP,
+      labels: { categoryLabelById: catLabels },
+    });
+    // Un seul écart Catégorie, aucun écart Famille séparé
+    const cats = issues.filter((i) => i.field === "category");
+    const fams = issues.filter((i) => i.field === "family");
+    expect(cats).toHaveLength(1);
+    expect(fams).toHaveLength(0);
+    expect(cats[0].pfsValue).toBe("Colliers");
+    expect(cats[0].expectedValue).toBe("Bracelets");
+    // Le pull est bloqué (Lot C — mapping local à créer)
+    expect(cats[0].pullBlocked).toBeTruthy();
+    expect(cats[0].pushBlocked).toBeUndefined();
+  });
+
+  it("affiche le genre en français (Femme, Homme…) plutôt que WOMAN/MAN", () => {
+    const local = makeLocalProduct({
+      category: {
+        name: "Bracelet",
+        pfsCategoryId: "cat_bracelet",
+        pfsCategoryName: "Bracelets",
+        pfsGender: "WOMAN",
+        pfsFamilyId: "fam_jewel",
+        pfsFamilyName: "Bijoux fantaisie",
+      },
+    });
+    const pfsProduct = makePfsProduct({ gender: { reference: "MAN" } });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    const gender = issues.find((i) => i.field === "gender");
+    expect(gender).toBeDefined();
+    expect(gender?.pfsValue).toBe("Homme");
+    expect(gender?.expectedValue).toBe("Femme");
+    expect(gender?.pullBlocked).toBeTruthy();
+  });
+
+  it("affiche le pays en français via lib/countries.ts même sans map PFS fournie", () => {
+    // Cas réel : l'API pfsGetCountries échoue silencieusement → labels.countryLabelByIso
+    // reste vide, on ne doit pas retomber sur "CN"/"FR" bruts mais bien afficher
+    // les noms français ("Chine", "France") via countryName().
+    const local = makeLocalProduct({ countryIsoCode: "CN" });
+    const pfsProduct = makePfsProduct({ country_of_manufacture: "FR" });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    const country = issues.find((i) => i.field === "country");
+    expect(country?.pfsValue).toBe("France");
+    expect(country?.expectedValue).toBe("Chine");
+  });
+
+  it("affiche le pays en français quand la map ISO→label est fournie", () => {
+    const local = makeLocalProduct({ countryIsoCode: "CN" });
+    const pfsProduct = makePfsProduct({ country_of_manufacture: "FR" });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const countryLabels = new Map<string, string>([
+      ["CN", "Chine"],
+      ["FR", "France"],
+    ]);
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
+      ...NO_MARKUP,
+      labels: { countryLabelByIso: countryLabels },
+    });
+    const country = issues.find((i) => i.field === "country");
+    expect(country).toBeDefined();
+    expect(country?.pfsValue).toBe("France");
+    expect(country?.expectedValue).toBe("Chine");
+    expect(country?.pullBlocked).toBeTruthy();
   });
 
   it("détecte un écart best-seller (STAR côté PFS mais pas chez nous)", () => {

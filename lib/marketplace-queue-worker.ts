@@ -42,6 +42,12 @@ interface QueueJobPayload {
     efashion?: boolean;
     faire?: boolean;
   };
+  /**
+   * Actions ciblées produites par le tooltip PFS Verify. Quand présent, le
+   * worker appelle `applyPfsVerifyActionsCore` au lieu de la sync marketplace
+   * standard (REFRESH/PUBLISH/RESYNC).
+   */
+  verifyActions?: { key: string; direction: "push" | "pull" }[];
 }
 
 // ─── TargetOutcome — forme partagée avec le client (MarketplaceRefreshContext) ──
@@ -376,7 +382,59 @@ async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<void> {
   }
 
   try {
-    if (job.mode === "REFRESH") {
+    // Branche verify-apply : le tooltip PFS Verify enqueue un job avec les
+    // actions ciblées dans payload.verifyActions. On les applique et on
+    // court-circuite le switch REFRESH/PUBLISH/RESYNC.
+    if (payload.verifyActions && payload.verifyActions.length > 0) {
+      const { applyPfsVerifyActions } = await import("@/lib/pfs-verify-apply");
+      const report = await applyPfsVerifyActions(job.productId, payload.verifyActions);
+      if (report.errors.length > 0) {
+        // Concatène les erreurs pour le badge widget. On considère le job en
+        // échec dès qu'au moins une action a échoué (comportement conservateur
+        // — permet à la cliente de rejouer la sélection).
+        const message = report.errors
+          .slice(0, 3)
+          .map((e) => e.error)
+          .join(" · ");
+        pfsOutcome = { ok: false, kind: "error", message };
+      } else {
+        pfsOutcome = {
+          ok: true,
+          warning:
+            report.skipped.length > 0
+              ? `${report.skipped.length} action(s) ignorée(s)`
+              : undefined,
+        };
+      }
+      // On relance systématiquement une vérification pour actualiser
+      // `pfsCheckedAt` / `pfsCheckStatus` / `pfsCheckIssues` en BDD. Le
+      // router.refresh() côté client fera passer la pastille en vert
+      // (« Conforme ») si tous les écarts sont résolus, ou remontera la
+      // liste réduite des écarts restants (en cas de mix succès/erreur).
+      try {
+        const { verifyPfsProduct } = await import("@/lib/pfs-verify");
+        const verifyRes = await verifyPfsProduct(job.productId);
+        if (verifyRes.ok) {
+          const result = verifyRes.result;
+          await prisma.product.update({
+            where: { id: job.productId },
+            data: {
+              pfsCheckedAt: new Date(result.checkedAt),
+              pfsCheckStatus: result.status,
+              pfsCheckIssues:
+                result.issues.length === 0
+                  ? Prisma.DbNull
+                  : (result.issues as unknown as Prisma.InputJsonValue),
+            },
+          });
+        }
+      } catch (err) {
+        logger.warn("[PFS Verify Apply] Post-apply re-verify failed (non-blocking)", {
+          productId: job.productId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } else if (job.mode === "REFRESH") {
       const { pfsRefreshProduct } = await import("@/lib/pfs-refresh");
       const res = await pfsRefreshProduct(job.productId, undefined, { skipRevalidation: true });
       if (res.success) {

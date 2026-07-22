@@ -20,6 +20,7 @@ import {
   loadFullCatalog,
   invalidateCatalogCache,
 } from "@/lib/ankorstore-catalog-cache";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +34,7 @@ async function requireAdminOr401() {
   return null;
 }
 
-function buildStream(): Response {
+function buildStream(tenantId: string): Response {
   const encoder = new TextEncoder();
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let closed = false;
@@ -54,9 +55,9 @@ function buildStream(): Response {
       heartbeat = setInterval(() => safeEnqueue(": heartbeat\n\n"), 15_000);
 
       // Si le cache est déjà frais, on l'envoie tel quel et on ferme.
-      const cached = getCachedCatalog();
+      const cached = getCachedCatalog(tenantId);
       if (cached) {
-        const status = getCatalogStatus();
+        const status = getCatalogStatus(tenantId);
         send({
           type: "complete",
           entries: cached,
@@ -69,14 +70,14 @@ function buildStream(): Response {
 
       // Sinon on démarre un chargement complet et on streame la progression.
       try {
-        const entries = await loadFullCatalog((p) => {
+        const entries = await loadFullCatalog(tenantId, (p) => {
           send({
             type: "progress",
             loaded: p.loaded,
             pageIndex: p.pageIndex,
           });
         });
-        const status = getCatalogStatus();
+        const status = getCatalogStatus(tenantId);
         send({
           type: "complete",
           entries,
@@ -117,13 +118,15 @@ function buildStream(): Response {
 export async function GET() {
   const unauthorized = await requireAdminOr401();
   if (unauthorized) return unauthorized;
-  return buildStream();
+  const tenant = await requireCurrentTenant();
+  return buildStream(tenant.id);
 }
 
 export async function POST(_req: NextRequest) {
   const unauthorized = await requireAdminOr401();
   if (unauthorized) return unauthorized;
-  invalidateCatalogCache();
-  logger.info("[Ankorstore Catalog] Rechargement manuel demandé");
-  return buildStream();
+  const tenant = await requireCurrentTenant();
+  invalidateCatalogCache(tenant.id);
+  logger.info("[Ankorstore Catalog] Rechargement manuel demandé", { tenantId: tenant.id });
+  return buildStream(tenant.id);
 }

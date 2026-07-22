@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { PfsStatsBundle } from "@/app/actions/admin/pfs-orders";
 
@@ -8,6 +8,8 @@ interface Props {
   stats: PfsStatsBundle | null;
   onOpenOrder?: (id: string) => void;
 }
+
+const SORT_OVERLAY_MS = 250;
 
 function initials(s: string) {
   const parts = s.trim().split(/\s+/);
@@ -19,7 +21,14 @@ function formatEur(n: number) {
 }
 
 export default function PfsTopClients({ stats }: Props) {
+  // uiSort = highlight du bouton (mis à jour immédiatement au clic)
+  // sort   = tri effectif appliqué au tableau (mis à jour au frame suivant
+  //          pour ne pas retarder la peinture du highlight sur grosses listes)
+  const [uiSort, setUiSort] = useState<"totalHT" | "ordersCount">("totalHT");
   const [sort, setSort] = useState<"totalHT" | "ordersCount">("totalHT");
+  const [switching, setSwitching] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafRef = useRef<number | null>(null);
   const rows = useMemo(() => {
     if (!stats) return [];
     return [...stats.topClients].sort((a, b) =>
@@ -27,23 +36,42 @@ export default function PfsTopClients({ stats }: Props) {
     );
   }, [stats, sort]);
 
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
+  const changeSort = (next: "totalHT" | "ordersCount") => {
+    if (next === uiSort) return;
+    setUiSort(next);
+    setSwitching(true);
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      setSort(next);
+    });
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setSwitching(false), SORT_OVERLAY_MS);
+  };
+
   return (
-    <div className="rounded-2xl bg-bg-primary border border-border shadow-sm p-5">
+    <div className="relative rounded-2xl bg-bg-primary border border-border shadow-sm p-5">
       <div className="flex items-center gap-2 mb-4">
         <div className="text-xs uppercase tracking-[0.2em] text-text-muted font-medium">Top clients</div>
         <div className="ml-auto flex gap-1">
           <button
             type="button"
-            onClick={() => setSort("totalHT")}
+            onClick={() => changeSort("totalHT")}
             className={`text-xs rounded-full px-2.5 py-1 ${
-              sort === "totalHT" ? "bg-slate-900 text-white" : "bg-bg-secondary text-text-secondary"
+              uiSort === "totalHT" ? "bg-slate-900 text-white" : "bg-bg-secondary text-text-secondary"
             }`}
           >
             CA ↓
           </button>
           <button
             type="button"
-            onClick={() => setSort("ordersCount")}
+            onClick={() => changeSort("ordersCount")}
             className={`text-xs rounded-full px-2.5 py-1 ${
               sort === "ordersCount" ? "bg-slate-900 text-white" : "bg-bg-secondary text-text-secondary"
             }`}
@@ -55,7 +83,10 @@ export default function PfsTopClients({ stats }: Props) {
       {rows.length === 0 && (
         <p className="text-sm text-text-muted py-6 text-center">Aucun client sur la période sélectionnée.</p>
       )}
-      <ul className="divide-y divide-border">
+      <ul
+        className="divide-y divide-border max-h-[560px] overflow-y-auto overflow-x-hidden scrollbar-light"
+        style={{ scrollbarGutter: "stable" }}
+      >
         {rows.map((c) => {
           const inner = (
             <>
@@ -94,6 +125,17 @@ export default function PfsTopClients({ stats }: Props) {
           );
         })}
       </ul>
+      {switching && (
+        <div
+          className="absolute inset-0 rounded-2xl bg-slate-900/10 backdrop-blur-[1px] flex items-center justify-center pointer-events-none z-10"
+          aria-hidden
+        >
+          <div className="rounded-full bg-slate-900/80 text-white text-xs font-medium px-3 py-1.5 flex items-center gap-2 shadow-lg">
+            <span className="inline-block w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+            Chargement…
+          </div>
+        </div>
+      )}
     </div>
   );
 }

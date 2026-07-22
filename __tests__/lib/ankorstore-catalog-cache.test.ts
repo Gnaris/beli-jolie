@@ -130,7 +130,7 @@ describe("loadFullCatalog + cache TTL", () => {
     });
 
     const progress: { loaded: number; pageIndex: number }[] = [];
-    const entries = await loadFullCatalog((p) => progress.push(p));
+    const entries = await loadFullCatalog("t1", (p) => progress.push(p));
 
     expect(entries).toHaveLength(3);
     expect(progress).toHaveLength(3);
@@ -140,10 +140,10 @@ describe("loadFullCatalog + cache TTL", () => {
     expect(entries.find((e) => e.id === "p1")?.ref).toBe("A405");
 
     // Cache frais → getCachedCatalog renvoie le même contenu
-    const cached = getCachedCatalog();
+    const cached = getCachedCatalog("t1");
     expect(cached).not.toBeNull();
     expect(cached?.length).toBe(3);
-    expect(getCatalogStatus().fresh).toBe(true);
+    expect(getCatalogStatus("t1").fresh).toBe(true);
   });
 
   it("partage la promesse entre 2 appels concurrents (1 seul fetch Ankorstore)", async () => {
@@ -152,7 +152,7 @@ describe("loadFullCatalog + cache TTL", () => {
       return [makeProduct({ id: "p1", name: "X" })];
     });
 
-    const [a, b] = await Promise.all([loadFullCatalog(), loadFullCatalog()]);
+    const [a, b] = await Promise.all([loadFullCatalog("t1"), loadFullCatalog("t1")]);
 
     expect(listAllMock).toHaveBeenCalledTimes(1);
     expect(a).toEqual(b);
@@ -178,14 +178,14 @@ describe("loadFullCatalog + cache TTL", () => {
     });
 
     const firstProgress: { loaded: number; pageIndex: number }[] = [];
-    const firstPromise = loadFullCatalog((p) => firstProgress.push(p));
+    const firstPromise = loadFullCatalog("t1", (p) => firstProgress.push(p));
 
     // Laisse passer la 1re page côté 1er caller
     await new Promise((r) => setTimeout(r, 10));
 
     // 2e caller arrive en cours de route — il doit voir l'état actuel
     const lateProgress: { loaded: number; pageIndex: number }[] = [];
-    const latePromise = loadFullCatalog((p) => lateProgress.push(p));
+    const latePromise = loadFullCatalog("t1", (p) => lateProgress.push(p));
 
     // Replay immédiat de la dernière progression connue
     await new Promise((r) => setTimeout(r, 10));
@@ -204,29 +204,29 @@ describe("loadFullCatalog + cache TTL", () => {
 
   it("invalidateCatalogCache vide le cache et permet un nouveau chargement", async () => {
     listAllMock.mockResolvedValue([makeProduct({ id: "p1", name: "X" })]);
-    await loadFullCatalog();
-    expect(getCachedCatalog()).not.toBeNull();
+    await loadFullCatalog("t1");
+    expect(getCachedCatalog("t1")).not.toBeNull();
 
-    invalidateCatalogCache();
-    expect(getCachedCatalog()).toBeNull();
-    expect(getCatalogStatus().fresh).toBe(false);
+    invalidateCatalogCache("t1");
+    expect(getCachedCatalog("t1")).toBeNull();
+    expect(getCatalogStatus("t1").fresh).toBe(false);
 
     // Un nouveau chargement repart de zéro
     listAllMock.mockResolvedValue([
       makeProduct({ id: "p2", name: "Y" }),
       makeProduct({ id: "p3", name: "Z" }),
     ]);
-    const next = await loadFullCatalog();
+    const next = await loadFullCatalog("t1");
     expect(next.map((e) => e.id)).toEqual(["p2", "p3"]);
   });
 
   it("propage l'erreur API sans laisser activeLoad coincé", async () => {
     listAllMock.mockRejectedValueOnce(new Error("boom"));
-    await expect(loadFullCatalog()).rejects.toThrow("boom");
+    await expect(loadFullCatalog("t1")).rejects.toThrow("boom");
 
     // Après l'erreur, un nouvel appel doit retenter (pas bloqué par activeLoad)
     listAllMock.mockResolvedValueOnce([makeProduct({ id: "p1", name: "X" })]);
-    const next = await loadFullCatalog();
+    const next = await loadFullCatalog("t1");
     expect(next).toHaveLength(1);
   });
 
@@ -238,8 +238,27 @@ describe("loadFullCatalog + cache TTL", () => {
       makeProduct({ id: "live", name: "Produit vivant" }),
       makeProduct({ id: "old", name: "Ancien supprimé", archived: true }),
     ]);
-    const entries = await loadFullCatalog();
+    const entries = await loadFullCatalog("t1");
     expect(entries.map((e) => e.id)).toEqual(["live"]);
+  });
+
+  it("isole les caches entre deux tenants (multi-tenant)", async () => {
+    // Depuis 2026-07-12 le cache est indexé par tenantId : le catalogue de
+    // BJ ne doit jamais apparaître à Issyma (chaque tenant a son propre
+    // compte Ankorstore avec ses propres produits).
+    listAllMock.mockImplementationOnce(async () => [makeProduct({ id: "bj-only", name: "BJ" })]);
+    await loadFullCatalog("tenant-bj");
+
+    listAllMock.mockImplementationOnce(async () => [makeProduct({ id: "issyma-only", name: "Issyma" })]);
+    await loadFullCatalog("tenant-issyma");
+
+    expect(getCachedCatalog("tenant-bj")?.map((e) => e.id)).toEqual(["bj-only"]);
+    expect(getCachedCatalog("tenant-issyma")?.map((e) => e.id)).toEqual(["issyma-only"]);
+
+    // Invalider un tenant ne doit pas toucher à l'autre
+    invalidateCatalogCache("tenant-bj");
+    expect(getCachedCatalog("tenant-bj")).toBeNull();
+    expect(getCachedCatalog("tenant-issyma")?.map((e) => e.id)).toEqual(["issyma-only"]);
   });
 
   it("partage le cache via globalThis (résiste aux ré-imports type bundles séparés)", async () => {
@@ -248,24 +267,26 @@ describe("loadFullCatalog + cache TTL", () => {
     // copie du module → mémoire jamais partagée. On vérifie ici que l'état
     // vit bien sur `globalThis` sous une clé Symbol.for stable.
     listAllMock.mockResolvedValue([makeProduct({ id: "p-shared", name: "Partagé" })]);
-    await loadFullCatalog();
+    await loadFullCatalog("t1");
 
     const stateKey = Symbol.for("beliandjolie.ankorstoreCatalogCache");
     const g = globalThis as Record<symbol, unknown>;
-    const sharedState = g[stateKey] as { cachedEntries: CatalogEntry[]; loadedAt: Date | null };
+    const sharedMap = g[stateKey] as Map<string, { cachedEntries: CatalogEntry[]; loadedAt: Date | null }>;
 
+    expect(sharedMap).toBeInstanceOf(Map);
+    const sharedState = sharedMap.get("t1");
     expect(sharedState).toBeDefined();
-    expect(sharedState.loadedAt).toBeInstanceOf(Date);
-    expect(sharedState.cachedEntries).toHaveLength(1);
-    expect(sharedState.cachedEntries[0].id).toBe("p-shared");
+    expect(sharedState?.loadedAt).toBeInstanceOf(Date);
+    expect(sharedState?.cachedEntries).toHaveLength(1);
+    expect(sharedState?.cachedEntries[0].id).toBe("p-shared");
 
     // Simule un "second bundle" qui modifierait l'état partagé via la même
     // clé Symbol — l'API publique du module doit voir le changement.
-    sharedState.cachedEntries = [
-      ...sharedState.cachedEntries,
+    sharedState!.cachedEntries = [
+      ...sharedState!.cachedEntries,
       { id: "injected", name: "Autre", ref: null, externalId: null, firstImageUrl: null, variantCount: 0 },
     ];
-    const seen = getCachedCatalog();
+    const seen = getCachedCatalog("t1");
     expect(seen?.map((e) => e.id)).toEqual(["p-shared", "injected"]);
   });
 });

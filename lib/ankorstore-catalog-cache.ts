@@ -7,26 +7,30 @@
  * tokenise et passe à côté de certaines références (cf. cas A405 collé
  * à un tiret dans le nom).
  *
- * TTL : 6 heures. Reset manuel via `invalidateCatalogCache()` (bouton ↻
+ * Multi-tenant : **un cache par tenantId**. Chaque tenant a son propre compte
+ * Ankorstore (client_id/secret) — mélanger les catalogues ferait fuiter les
+ * produits d'une boutique dans une autre.
+ *
+ * TTL : 6 heures. Reset manuel via `invalidateCatalogCache(tenantId)` (bouton ↻
  * côté UI) remet le minuteur à zéro après un rechargement complet.
  *
- * Préchargement au boot pm2 : `instrumentation-node.ts` appelle
- * `preloadCatalog()` en arrière-plan pour que la 1ʳᵉ ouverture de modale
- * soit instantanée si Ankorstore est activé. Puis `startCatalogAutoReload()`
- * planifie un rechargement complet automatique toutes les 6 heures pour que
- * les nouveautés Ankorstore apparaissent sans intervention manuelle.
+ * Préchargement au boot pm2 : `instrumentation-node.ts` énumère les tenants
+ * ayant Ankorstore configuré et appelle `preloadCatalogInBackground(tenantId)`
+ * pour chacun, wrappé dans `tenantALS.run(tenantId, …)` pour que l'auth
+ * Ankorstore (cache par tenant) puisse résoudre le bon compte.
  *
  * Parallélisation : impossible. L'API Ankorstore `/products` utilise une
  * pagination par curseur (`page[after]=<dernierIdDeLaPagePrécédente>`),
  * donc chaque page nécessite l'ID de la précédente — pas de fetch parallèle
  * possible sans changer de stratégie d'indexation côté Ankorstore.
  *
- * Mémoire : 9 000 entrées × ~250 octets ≈ 2 Mo. Largement OK côté Node.
+ * Mémoire : 9 000 entrées × ~250 octets ≈ 2 Mo par tenant. Largement OK.
  */
 
 import { ankorstoreListAllProducts } from "@/lib/ankorstore-api";
 import type { AnkorstoreProduct } from "@/lib/ankorstore-api";
 import { extractReference } from "@/lib/ankorstore-match";
+import { tenantALS } from "@/lib/tenant-als";
 import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
@@ -69,7 +73,7 @@ export interface CatalogStatus {
 }
 
 // ─────────────────────────────────────────────
-// État partagé via globalThis
+// État partagé via globalThis (Map<tenantId, CatalogState>)
 // ─────────────────────────────────────────────
 //
 // Next.js compile `instrumentation.ts` et les routes API dans des bundles
@@ -79,6 +83,10 @@ export interface CatalogStatus {
 // la route `/api/admin/ankorstore-catalog` lit une autre mémoire (vide)
 // et redéclenche un téléchargement complet. On contourne en stockant
 // l'état sur `globalThis` (partagé par tous les bundles d'un même process).
+//
+// Depuis le multi-tenant (2026-07-12), l'état est une Map indexée par
+// tenantId pour ne pas mélanger les catalogues des différentes boutiques
+// (chaque tenant a son propre compte Ankorstore).
 
 const TTL_MS = 6 * 60 * 60 * 1000; // 6 heures
 const AUTO_RELOAD_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 heures
@@ -95,11 +103,20 @@ interface CatalogState {
 }
 
 const STATE_KEY = Symbol.for("beliandjolie.ankorstoreCatalogCache");
-const g = globalThis as Record<symbol, CatalogState | undefined>;
+const g = globalThis as Record<symbol, Map<string, CatalogState> | undefined>;
 
-function getState(): CatalogState {
+function getStateMap(): Map<string, CatalogState> {
   if (!g[STATE_KEY]) {
-    g[STATE_KEY] = {
+    g[STATE_KEY] = new Map<string, CatalogState>();
+  }
+  return g[STATE_KEY] as Map<string, CatalogState>;
+}
+
+function getState(tenantId: string): CatalogState {
+  const map = getStateMap();
+  let state = map.get(tenantId);
+  if (!state) {
+    state = {
       cachedEntries: [],
       loadedAt: null,
       activeLoad: null,
@@ -107,8 +124,9 @@ function getState(): CatalogState {
       currentProgress: null,
       progressListeners: new Set(),
     };
+    map.set(tenantId, state);
   }
-  return g[STATE_KEY] as CatalogState;
+  return state;
 }
 
 // ─────────────────────────────────────────────
@@ -134,8 +152,8 @@ function toCatalogEntry(p: AnkorstoreProduct): CatalogEntry {
  * Renvoie le cache s'il est encore frais (< 6h), `null` sinon.
  * Ne déclenche PAS de chargement.
  */
-export function getCachedCatalog(): CatalogEntry[] | null {
-  const state = getState();
+export function getCachedCatalog(tenantId: string): CatalogEntry[] | null {
+  const state = getState(tenantId);
   if (!state.loadedAt) return null;
   const age = Date.now() - state.loadedAt.getTime();
   if (age >= TTL_MS) return null;
@@ -145,8 +163,8 @@ export function getCachedCatalog(): CatalogEntry[] | null {
 /**
  * Statut du cache (pour l'API debug ou l'UI).
  */
-export function getCatalogStatus(): CatalogStatus {
-  const state = getState();
+export function getCatalogStatus(tenantId: string): CatalogStatus {
+  const state = getState(tenantId);
   const age = state.loadedAt ? Date.now() - state.loadedAt.getTime() : null;
   return {
     fresh: state.loadedAt !== null && age !== null && age < TTL_MS,
@@ -161,24 +179,30 @@ export function getCatalogStatus(): CatalogStatus {
  * Vide le cache. Le prochain `loadFullCatalog()` retéléchargera tout.
  * N'interrompt PAS un chargement déjà en cours.
  */
-export function invalidateCatalogCache(): void {
-  const state = getState();
+export function invalidateCatalogCache(tenantId: string): void {
+  const state = getState(tenantId);
   state.cachedEntries = [];
   state.loadedAt = null;
-  logger.info("[Ankorstore Catalog] Cache invalidé");
+  logger.info("[Ankorstore Catalog] Cache invalidé", { tenantId });
 }
 
 /**
  * Charge la liste complète depuis Ankorstore et l'écrit dans le cache.
- * Si un chargement est déjà en cours, on partage la même promesse — pas
- * de doublons d'appels API.
+ * Si un chargement est déjà en cours (pour ce tenant), on partage la même
+ * promesse — pas de doublons d'appels API.
  *
+ * IMPORTANT : cette fonction doit tourner dans un `tenantALS.run(tenantId, …)`
+ * pour que l'auth Ankorstore (cache par tenant) puisse résoudre le bon compte.
+ * En pratique on force le bind ici en interne pour couvrir les callers hors ALS.
+ *
+ * @param tenantId    Boutique dont on charge le catalogue.
  * @param onProgress  Appelé à chaque page chargée pour suivre l'avancement.
  */
 export async function loadFullCatalog(
+  tenantId: string,
   onProgress?: (p: CatalogProgress) => void,
 ): Promise<CatalogEntry[]> {
-  const state = getState();
+  const state = getState(tenantId);
 
   // Branche le callback de progression du nouveau caller sur le chargement
   // en cours (s'il y en a un) ET sur les pages futures. On le replay aussi
@@ -203,10 +227,12 @@ export async function loadFullCatalog(
     }
   }
 
-  state.activeLoad = (async () => {
+  // Bind ALS AVANT de lancer la promesse : l'auth Ankorstore lit tenantALS
+  // pour choisir le bon jeu de credentials (client_id/secret par tenant).
+  state.activeLoad = tenantALS.run(tenantId, async () => {
     const start = Date.now();
     state.currentProgress = null;
-    logger.info("[Ankorstore Catalog] Chargement complet démarré");
+    logger.info("[Ankorstore Catalog] Chargement complet démarré", { tenantId });
     try {
       const products = await ankorstoreListAllProducts({
         pageSize: 50,
@@ -229,12 +255,14 @@ export async function loadFullCatalog(
       state.cachedEntries = entries;
       state.loadedAt = new Date();
       logger.info("[Ankorstore Catalog] Chargement complet terminé", {
+        tenantId,
         entries: entries.length,
         durationMs: Date.now() - start,
       });
       return entries;
     } catch (err) {
       logger.error("[Ankorstore Catalog] Chargement complet en échec", {
+        tenantId,
         error: err as Error,
       });
       throw err;
@@ -242,7 +270,7 @@ export async function loadFullCatalog(
       state.activeLoad = null;
       state.currentProgress = null;
     }
-  })();
+  });
 
   try {
     return await state.activeLoad;
@@ -255,33 +283,33 @@ export async function loadFullCatalog(
  * Variante non-bloquante : déclenche un chargement en arrière-plan si pas
  * déjà en cours. Utilisée par l'instrumentation au boot.
  */
-export function preloadCatalogInBackground(): void {
-  const state = getState();
+export function preloadCatalogInBackground(tenantId: string): void {
+  const state = getState(tenantId);
   if (state.activeLoad) return;
-  if (getCachedCatalog()) return; // déjà frais
-  void loadFullCatalog().catch(() => {
+  if (getCachedCatalog(tenantId)) return; // déjà frais
+  void loadFullCatalog(tenantId).catch(() => {
     // Les erreurs sont déjà loggées par loadFullCatalog.
   });
 }
 
 /**
- * Démarre un rechargement automatique toutes les 6 heures.
- * Idempotent : un seul intervalle actif à la fois par process Node.
+ * Démarre un rechargement automatique toutes les 6 heures pour un tenant donné.
+ * Idempotent par tenant : un seul intervalle actif à la fois par tenant.
  *
- * Lancé une fois au boot par `instrumentation-node.ts`. Le tick force
- * l'invalidation puis relance le chargement même si le cache est encore
- * "frais", pour garantir que les nouveautés Ankorstore apparaissent au plus
- * tard 6h après leur création.
+ * Lancé une fois au boot par `instrumentation-node.ts` pour chaque tenant
+ * ayant Ankorstore configuré. Le tick force l'invalidation puis relance le
+ * chargement même si le cache est encore "frais", pour garantir que les
+ * nouveautés Ankorstore apparaissent au plus tard 6h après leur création.
  */
-export function startCatalogAutoReload(): void {
-  const state = getState();
+export function startCatalogAutoReload(tenantId: string): void {
+  const state = getState(tenantId);
   if (state.autoReloadHandle) return;
   state.autoReloadHandle = setInterval(() => {
     void (async () => {
       try {
-        logger.info("[Ankorstore Catalog] Rechargement automatique déclenché (cycle 6h)");
-        invalidateCatalogCache();
-        await loadFullCatalog();
+        logger.info("[Ankorstore Catalog] Rechargement automatique déclenché (cycle 6h)", { tenantId });
+        invalidateCatalogCache(tenantId);
+        await loadFullCatalog(tenantId);
       } catch {
         // Les erreurs sont déjà loggées par loadFullCatalog.
       }
@@ -344,14 +372,12 @@ function normalize(s: string): string {
 
 /** @internal — utilisé uniquement par les tests pour réinitialiser l'état module. */
 export function __resetCatalogCacheForTests(): void {
-  const state = getState();
-  state.cachedEntries = [];
-  state.loadedAt = null;
-  state.activeLoad = null;
-  state.currentProgress = null;
-  state.progressListeners.clear();
-  if (state.autoReloadHandle) {
-    clearInterval(state.autoReloadHandle);
-    state.autoReloadHandle = null;
+  const map = getStateMap();
+  for (const state of map.values()) {
+    if (state.autoReloadHandle) {
+      clearInterval(state.autoReloadHandle);
+      state.autoReloadHandle = null;
+    }
   }
+  map.clear();
 }

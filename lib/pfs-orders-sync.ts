@@ -255,6 +255,18 @@ export async function upsertPfsOrderFromDetail(
     created = true;
   }
 
+  // Snapshot les stockDeductedAt existants par pfsItemId pour survivre au re-sync
+  // (sinon un ré-import PFS ferait perdre la trace des lignes déjà décrémentées et
+  // le bouton « Déduire stock PFS » les retraiterait).
+  const previouslyDeductedByPfsItemId = new Map<string, Date>();
+  const existingItems = await prisma.pfsOrderItem.findMany({
+    where: { pfsOrderId: orderId, stockDeductedAt: { not: null } },
+    select: { pfsItemId: true, stockDeductedAt: true },
+  });
+  for (const ex of existingItems) {
+    if (ex.stockDeductedAt) previouslyDeductedByPfsItemId.set(ex.pfsItemId, ex.stockDeductedAt);
+  }
+
   // Rebuild items (idempotent : on efface + reinsert, simplifie la logique)
   await prisma.pfsOrderItem.deleteMany({ where: { pfsOrderId: orderId } });
 
@@ -309,6 +321,7 @@ export async function upsertPfsOrderFromDetail(
         unitPriceHT,
         totalPriceHT,
         weight: it.raw.weight != null ? new D(it.raw.weight) : null,
+        stockDeductedAt: previouslyDeductedByPfsItemId.get(it.raw.id) ?? null,
       };
     });
 

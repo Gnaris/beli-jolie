@@ -31,23 +31,59 @@ if (!g[GUARD]) {
     });
   }
 
-  // Précharge le catalogue Ankorstore en arrière-plan si la marketplace est
-  // activée. Évite la 1re attente de ~30s-1min à l'ouverture de la modale
-  // « Lier à un produit Ankorstore » après un redémarrage pm2.
-  // Non bloquant : lancé après 5s pour laisser le serveur finir de démarrer
-  // (sinon on tape Ankorstore avant même que les routes soient prêtes).
+  // Précharge le catalogue Ankorstore en arrière-plan pour chaque tenant
+  // ayant la marketplace activée. Évite la 1re attente de ~30s-1min à
+  // l'ouverture de la modale « Lier à un produit Ankorstore » après un
+  // redémarrage pm2.
+  // Multi-tenant : chaque tenant a son propre compte Ankorstore
+  // (client_id/secret) → un cache et un préchargement par tenant, wrappés
+  // dans `tenantALS.run(tenantId, …)` pour que l'auth trouve les bonnes
+  // credentials (le cache d'auth Ankorstore est indexé par tenantId).
+  // Non bloquant : lancé après 5s pour laisser le serveur finir de démarrer.
   setTimeout(() => {
     void (async () => {
       try {
-        const { getCachedAnkorstoreEnabled } = await import("@/lib/cached-data");
-        const enabled = await getCachedAnkorstoreEnabled();
-        if (!enabled) return;
+        const { prisma } = await import("@/lib/prisma");
+        const { tenantALS } = await import("@/lib/tenant-als");
         const { preloadCatalogInBackground, startCatalogAutoReload } = await import(
           "@/lib/ankorstore-catalog-cache"
         );
-        logger.info("[Ankorstore Catalog] Préchargement au démarrage déclenché");
-        preloadCatalogInBackground();
-        startCatalogAutoReload();
+
+        const tenants = await prisma.tenant.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true },
+        });
+
+        for (const t of tenants) {
+          try {
+            const rows = await prisma.siteConfig.findMany({
+              where: {
+                tenantId: t.id,
+                key: { in: ["ankors_client_id", "ankors_enabled"] },
+              },
+              select: { key: true, value: true },
+            });
+            const map = new Map(rows.map((r) => [r.key, r.value]));
+            const hasId = (map.get("ankors_client_id") ?? "").trim().length > 0;
+            const enabled = map.get("ankors_enabled") !== "false";
+            if (!hasId || !enabled) continue;
+
+            await tenantALS.run(t.id, async () => {
+              logger.info("[Ankorstore Catalog] Préchargement au démarrage déclenché", {
+                tenantId: t.id,
+                tenant: t.name,
+              });
+              preloadCatalogInBackground(t.id);
+              startCatalogAutoReload(t.id);
+            });
+          } catch (err) {
+            logger.warn("[Ankorstore Catalog] Préchargement échoué pour un tenant", {
+              tenantId: t.id,
+              tenant: t.name,
+              error: err as Error,
+            });
+          }
+        }
       } catch (err) {
         logger.warn("[Ankorstore Catalog] Préchargement au démarrage échoué", {
           error: err as Error,
