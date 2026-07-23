@@ -21,6 +21,30 @@ describe("efashion-orders-api — normalizeEfashionStatus", () => {
       expect(normalizeEfashionStatus(s)).toBe(EfashionOrderStatus.NEW);
     }
   });
+
+  it("libellé « En attente de confirmation » → NEW (pas VALIDATED)", () => {
+    // Régression : le mot "confirm" figure dans "confirmation", il ne doit pas
+    // faire matcher VALIDATED. NEW doit être détecté en priorité via "attente".
+    expect(normalizeEfashionStatus(1, "En attente de confirmation")).toBe(EfashionOrderStatus.NEW);
+  });
+
+  it("libellé « Commande confirmée » → VALIDATED", () => {
+    expect(normalizeEfashionStatus(4, "Commande confirmée")).toBe(EfashionOrderStatus.VALIDATED);
+  });
+
+  it("libellé « Commande expédiée » → SHIPPED", () => {
+    expect(normalizeEfashionStatus(2, "Commande expédiée")).toBe(EfashionOrderStatus.SHIPPED);
+  });
+
+  it("libellé « Annulée » → CANCELLED", () => {
+    expect(normalizeEfashionStatus(3, "Annulée par le vendeur")).toBe(EfashionOrderStatus.CANCELLED);
+  });
+
+  it("libellé « Pickup colis effectué » → SHIPPED", () => {
+    // Le regex SHIPPED exige explicitement « (pickup|colis) effectué » : sans le
+    // mot « effectu », on reste en pré-expédition (VALIDATED via "pret").
+    expect(normalizeEfashionStatus(8, "Pickup colis effectué")).toBe(EfashionOrderStatus.SHIPPED);
+  });
 });
 
 describe("efashion-orders-api — sumLineQuantities", () => {

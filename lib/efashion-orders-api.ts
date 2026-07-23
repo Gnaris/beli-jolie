@@ -444,16 +444,20 @@ export function normalizeEfashionStatus(
   statutLabelFr?: string | null,
 ): EfashionOrderStatus {
   // Libellé prioritaire — plus stable que l'id numérique.
-  // Ordre des regex important : SHIPPED avant VALIDATED, sinon « Pret pour
-  // pickup colis » matcherait à la fois "pickup" et "pret" (piège observé).
-  // La règle SHIPPED exige explicitement « expédié » ou « (pickup|colis) effectué ».
+  // Ordre des regex important :
+  //  1. CANCELLED / SHIPPED (états terminaux, matchent des mots explicites).
+  //  2. NEW (attente/nouvelle/brouillon) AVANT VALIDATED — sinon « En attente de
+  //     confirmation » matcherait "confirm" et serait faussement classé VALIDATED
+  //     (bug observé sur commandes eFashion id_statut=1).
+  //  3. SHIPPED avant VALIDATED reste vrai côté écriture ci-dessus, sinon
+  //     « Pret pour pickup colis » matcherait à la fois "pickup" et "pret".
   const label = (statutLabelFr ?? "").trim().toLowerCase();
   if (label) {
     if (/annul/.test(label)) return EfashionOrderStatus.CANCELLED;
     if (/exp[éeè]d|(pickup|colis) effectu/.test(label)) return EfashionOrderStatus.SHIPPED;
+    if (/attente|nouvelle|brouillon/.test(label)) return EfashionOrderStatus.NEW;
     // VALIDATED = état de pré-expédition (confirmé, en préparation, prêt à partir)
     if (/confirm|pr[ée]par|pr[êe]t/.test(label)) return EfashionOrderStatus.VALIDATED;
-    if (/attente|nouvelle|brouillon/.test(label)) return EfashionOrderStatus.NEW;
   }
   // Fallback sur l'id numérique
   switch (statutId) {
