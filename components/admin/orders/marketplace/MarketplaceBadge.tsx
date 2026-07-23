@@ -25,6 +25,11 @@ export const MARKETPLACE_META: Record<
     label: "Ankorstore",
     gradient: "linear-gradient(135deg,#0ea5e9,#38bdf8)",
   },
+  FAIRE: {
+    letter: "F",
+    label: "Faire",
+    gradient: "linear-gradient(135deg,#f59e0b,#fbbf24)",
+  },
 };
 
 interface Props {

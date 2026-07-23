@@ -8,7 +8,7 @@ import type {
 } from "@/app/actions/admin/marketplace-orders";
 import { countryFlagUrl, isKnownCountry } from "@/lib/countries";
 import TopPager from "@/components/admin/orders/pfs/TopPager";
-import MarketplaceBadge from "./MarketplaceBadge";
+import MarketplaceBadge, { MARKETPLACE_META } from "./MarketplaceBadge";
 import MarketplaceSourceFilter from "./MarketplaceSourceFilter";
 
 interface Props {
@@ -159,7 +159,7 @@ export default function MarketplaceTopClients({ stats }: Props) {
                         key={s}
                         source={s}
                         size="xs"
-                        title={`A commandé sur ${s === "PFS" ? "Paris Fashion Shop" : "eFashion Paris"}`}
+                        title={`A commandé sur ${MARKETPLACE_META[s].label}`}
                       />
                     ))}
                   </div>

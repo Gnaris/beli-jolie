@@ -53,6 +53,8 @@ export async function POST(request: NextRequest) {
       password:            formData.get("password") as string,
       confirmPassword:     formData.get("confirmPassword") as string,
       registrationMessage: (formData.get("registrationMessage") as string | null) || undefined,
+      // Absent = opt-in par défaut (compat anciens clients qui n'envoient pas le champ)
+      marketingConsent:    formData.get("marketingConsent") !== "false",
     };
 
     // Validation Zod
@@ -254,6 +256,21 @@ export async function POST(request: NextRequest) {
         status:              "PENDING",
       },
     });
+
+    // ── Consentement marketing : si décoché, on pose l'unsubscribe MARKETING_ALL ──
+    if (!data.marketingConsent) {
+      try {
+        await prisma.emailUnsubscribe.create({
+          data: {
+            email: newUser.email,
+            scope: "MARKETING_ALL",
+          },
+        });
+      } catch (err) {
+        // Ne pas bloquer l'inscription si l'écriture échoue (ex: doublon)
+        logger.error("[Register] EmailUnsubscribe creation failed", { error: err });
+      }
+    }
 
     // ── Vérification VIES (fire-and-forget) ──────────────────────────────
     if (newUser.vatNumber) {

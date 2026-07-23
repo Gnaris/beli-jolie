@@ -31,7 +31,7 @@ async function requireAdmin() {
 // Types partagés
 // ─────────────────────────────────────────────
 
-export type MarketplaceSource = "PFS" | "EFASHION" | "ANKORSTORE";
+export type MarketplaceSource = "PFS" | "EFASHION" | "ANKORSTORE" | "FAIRE";
 
 export type MarketplacePeriodKey =
   | "today"
@@ -171,6 +171,37 @@ function normalizeAnkorstoreToUnified(
   return s;
 }
 
+function normalizeFaireBddToUnified(
+  s: "NEW" | "SHIPPED" | "CANCELLED",
+): MarketplaceUnifiedStatus {
+  return s;
+}
+
+/**
+ * Libellé lisible d'un statut brut Faire (NEW, PROCESSING, BACKORDERED,
+ * SHIPPED, DELIVERED, CANCELLED). Voir docs/faire-api.md §11.2.
+ */
+function faireStatusRawLabel(raw: string): string {
+  const map: Record<string, string> = {
+    NEW: "Nouvelle",
+    PROCESSING: "En traitement",
+    BACKORDERED: "En rupture partielle",
+    SHIPPED: "Expédiée",
+    PRE_TRANSIT: "Étiquette générée",
+    IN_TRANSIT: "En cours de livraison",
+    DELIVERED: "Livrée",
+    CANCELLED: "Annulée",
+    CANCELED: "Annulée",
+  };
+  return (
+    map[raw] ??
+    raw
+      .split("_")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ")
+  );
+}
+
 const PFS_STATUS_LABEL: Record<"NEW" | "VALIDATED" | "SENT" | "CANCELLED", string> = {
   NEW: "Nouveau",
   VALIDATED: "Validé",
@@ -295,6 +326,46 @@ async function computeAnkorstoreStockDeductionMap(
   return result;
 }
 
+async function computeFaireStockDeductionMap(
+  tenantId: string,
+  rows: Array<{ id: string; status: "NEW" | "SHIPPED" | "CANCELLED" }>,
+): Promise<Map<string, MarketplaceStockDeductionState>> {
+  const result = new Map<string, MarketplaceStockDeductionState>();
+  if (!rows.length) return result;
+  const orderIds = rows.map((r) => r.id);
+  const [eligible, deducted] = await Promise.all([
+    prisma.faireOrderItem.groupBy({
+      by: ["faireOrderId"],
+      where: {
+        tenantId,
+        faireOrderId: { in: orderIds },
+        productId: { not: null },
+        productColorId: { not: null },
+      },
+      _count: { id: true },
+    }),
+    prisma.faireOrderItem.groupBy({
+      by: ["faireOrderId"],
+      where: { tenantId, faireOrderId: { in: orderIds }, stockDeductedAt: { not: null } },
+      _count: { id: true },
+    }),
+  ]);
+  const elMap = new Map(eligible.map((g) => [g.faireOrderId, g._count.id]));
+  const dedMap = new Map(deducted.map((g) => [g.faireOrderId, g._count.id]));
+  for (const r of rows) {
+    if (r.status === "NEW" || r.status === "CANCELLED") {
+      result.set(r.id, "NOT_APPLICABLE");
+    } else if ((dedMap.get(r.id) ?? 0) > 0) {
+      result.set(r.id, "DONE");
+    } else if ((elMap.get(r.id) ?? 0) === 0) {
+      result.set(r.id, "NOTHING_TO_DEDUCT");
+    } else {
+      result.set(r.id, "PENDING");
+    }
+  }
+  return result;
+}
+
 async function computeEfashionStockDeductionMap(
   tenantId: string,
   rows: Array<{ id: string; status: "NEW" | "VALIDATED" | "SHIPPED" | "CANCELLED" }>,
@@ -357,7 +428,7 @@ export interface ListMarketplaceOrdersResult {
   page: number;
   perPage: number;
   totalPages: number;
-  countsBySource: { PFS: number; EFASHION: number; ANKORSTORE: number };
+  countsBySource: { PFS: number; EFASHION: number; ANKORSTORE: number; FAIRE: number };
 }
 
 /**
@@ -376,10 +447,11 @@ export async function listMarketplaceOrders(
   const sources =
     input.sources && input.sources.length > 0
       ? input.sources
-      : (["PFS", "EFASHION", "ANKORSTORE"] as MarketplaceSource[]);
+      : (["PFS", "EFASHION", "ANKORSTORE", "FAIRE"] as MarketplaceSource[]);
   const wantsPfs = sources.includes("PFS");
   const wantsEfashion = sources.includes("EFASHION");
   const wantsAnkorstore = sources.includes("ANKORSTORE");
+  const wantsFaire = sources.includes("FAIRE");
 
   const range = resolvePeriod(input.period ?? "all", input.customFrom, input.customTo);
   const dateFilter: { gte?: Date; lte?: Date } = {};
@@ -603,14 +675,94 @@ export async function listMarketplaceOrders(
       })()
     : Promise.resolve({ items: [] as MarketplaceOrderListItem[], total: 0 });
 
-  const [pfs, efashion, ankorstore] = await Promise.all([
+  // ── Faire ──
+  const fairePromise = wantsFaire
+    ? (async () => {
+        const faireStatusMap: Record<MarketplaceUnifiedStatus, "NEW" | "SHIPPED" | "CANCELLED" | null> = {
+          NEW: "NEW",
+          VALIDATED: null, // Faire n'a pas de statut VALIDATED distinct — masqué si filtré
+          SHIPPED: "SHIPPED",
+          CANCELLED: "CANCELLED",
+        };
+        const faireStatus = input.status ? faireStatusMap[input.status] : null;
+        if (input.status && !faireStatus) {
+          return { items: [] as MarketplaceOrderListItem[], total: 0 };
+        }
+        const where: Record<string, unknown> = {
+          tenantId: tenant.id,
+          ...(faireStatus ? { status: faireStatus } : {}),
+          ...(Object.keys(dateFilter).length ? { createdAtFaire: dateFilter } : {}),
+          ...(q
+            ? {
+                OR: [
+                  { displayId: { contains: q } },
+                  { faireOrderId: { contains: q } },
+                  { customerName: { contains: q } },
+                  { customerShop: { contains: q } },
+                  { customerCountry: { contains: q } },
+                  { trackingCode: { contains: q } },
+                ],
+              }
+            : {}),
+        };
+        const [rows, total] = await Promise.all([
+          prisma.faireOrder.findMany({
+            where,
+            orderBy: { createdAtFaire: "desc" },
+            take: 500,
+            select: {
+              id: true,
+              faireOrderId: true,
+              displayId: true,
+              createdAtFaire: true,
+              status: true,
+              statusRaw: true,
+              customerName: true,
+              customerShop: true,
+              customerCountry: true,
+              carrier: true,
+              totalHT: true,
+              netAmount: true,
+            },
+          }),
+          prisma.faireOrder.count({ where }),
+        ]);
+        const stockMap = await computeFaireStockDeductionMap(
+          tenant.id,
+          rows.map((r) => ({ id: r.id, status: r.status })),
+        );
+        const items: MarketplaceOrderListItem[] = rows.map((r) => ({
+          id: r.id,
+          source: "FAIRE" as const,
+          orderNumber: r.displayId ?? r.faireOrderId,
+          createdAt: r.createdAtFaire.toISOString(),
+          status: normalizeFaireBddToUnified(r.status),
+          statusRawLabel: faireStatusRawLabel(r.statusRaw),
+          customerName: r.customerName,
+          customerShop: r.customerShop,
+          customerCountry: r.customerCountry,
+          carrier: r.carrier,
+          totalTTC: decimalToNumber(r.totalHT), // Faire ne détaille pas la VAT — HT = TTC
+          totalHT: decimalToNumber(r.totalHT),
+          hasInvoice: false, // Facturation gérée directement par Faire
+          stockDeductionState: stockMap.get(r.id) ?? "NOT_APPLICABLE",
+        }));
+        return { items, total };
+      })()
+    : Promise.resolve({ items: [] as MarketplaceOrderListItem[], total: 0 });
+
+  const [pfs, efashion, ankorstore, faire] = await Promise.all([
     pfsPromise,
     efashionPromise,
     ankorstorePromise,
+    fairePromise,
   ]);
-  const merged = [...pfs.items, ...efashion.items, ...ankorstore.items].sort(
-    (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
-  );
+  const merged = [
+    ...pfs.items,
+    ...efashion.items,
+    ...ankorstore.items,
+    ...faire.items,
+  ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 
   // Filtre stockFilter appliqué en mémoire pour rester générique.
   const stockFilter = input.stockFilter ?? "all";
@@ -637,6 +789,7 @@ export async function listMarketplaceOrders(
       PFS: pfs.total,
       EFASHION: efashion.total,
       ANKORSTORE: ankorstore.total,
+      FAIRE: faire.total,
     },
   };
 }
@@ -655,6 +808,7 @@ export interface MarketplaceStatsKpis {
     PFS: { ordersCount: number; totalHT: number };
     EFASHION: { ordersCount: number; totalHT: number };
     ANKORSTORE: { ordersCount: number; totalHT: number };
+    FAIRE: { ordersCount: number; totalHT: number };
   };
 }
 
@@ -725,12 +879,18 @@ export async function getMarketplaceStats(
   const sources =
     input.sources && input.sources.length > 0
       ? input.sources
-      : (["PFS", "EFASHION", "ANKORSTORE"] as MarketplaceSource[]);
+      : (["PFS", "EFASHION", "ANKORSTORE", "FAIRE"] as MarketplaceSource[]);
   const wantsPfs = sources.includes("PFS");
   const wantsEfashion = sources.includes("EFASHION");
   const wantsAnkorstore = sources.includes("ANKORSTORE");
-  const topClientsLimit = input.topClientsLimit ?? 50;
-  const topProductsLimit = input.topProductsLimit ?? 50;
+  const wantsFaire = sources.includes("FAIRE");
+  // Défaut généreux : le filtre local par marketplace (chip dans les cartes
+  // Top clients / Top produits) est une intersection appliquée sur ce que le
+  // serveur a renvoyé. Une limite trop basse (ex. 50) fait disparaître les
+  // marketplaces minoritaires (Ankor / eFashion / Faire) avant même que le
+  // filtre local ne s'applique. 500 couvre tous les cas réalistes.
+  const topClientsLimit = input.topClientsLimit ?? 500;
+  const topProductsLimit = input.topProductsLimit ?? 500;
 
   const pfsDateFilter: { gte?: Date; lte?: Date } = {};
   if (range.from) pfsDateFilter.gte = range.from;
@@ -741,6 +901,9 @@ export async function getMarketplaceStats(
   const ankorstoreDateFilter: { gte?: Date; lte?: Date } = {};
   if (range.from) ankorstoreDateFilter.gte = range.from;
   if (range.to) ankorstoreDateFilter.lte = range.to;
+  const faireDateFilter: { gte?: Date; lte?: Date } = {};
+  if (range.from) faireDateFilter.gte = range.from;
+  if (range.to) faireDateFilter.lte = range.to;
 
   const pfsOrderWhere = wantsPfs
     ? {
@@ -767,6 +930,15 @@ export async function getMarketplaceStats(
           : {}),
       }
     : null;
+  // Faire : on comptabilise SHIPPED uniquement. NEW = PROCESSING/BACKORDERED
+  // (encore à traiter, la vente n'est pas confirmée). CANCELLED = jamais vendue.
+  const faireOrderWhere = wantsFaire
+    ? {
+        tenantId: tenant.id,
+        status: "SHIPPED" as const,
+        ...(Object.keys(faireDateFilter).length ? { createdAtFaire: faireDateFilter } : {}),
+      }
+    : null;
 
   // ─── KPIs ─────
   const [
@@ -776,6 +948,8 @@ export async function getMarketplaceStats(
     efashionItemsAgg,
     ankorstoreAgg,
     ankorstoreItemsAgg,
+    faireAgg,
+    faireItemsAgg,
   ] = await Promise.all([
     pfsOrderWhere
       ? prisma.pfsOrder.aggregate({
@@ -819,6 +993,22 @@ export async function getMarketplaceStats(
           _sum: { multipliedQuantity: true },
         })
       : Promise.resolve({ _sum: { multipliedQuantity: 0 } }),
+    faireOrderWhere
+      ? prisma.faireOrder.aggregate({
+          where: faireOrderWhere,
+          _count: { _all: true },
+          _sum: { totalHT: true },
+        })
+      : Promise.resolve({
+          _count: { _all: 0 },
+          _sum: { totalHT: null as unknown as number | null },
+        }),
+    faireOrderWhere
+      ? prisma.faireOrderItem.aggregate({
+          where: { tenantId: tenant.id, faireOrder: faireOrderWhere },
+          _sum: { quantity: true },
+        })
+      : Promise.resolve({ _sum: { quantity: 0 } }),
   ]);
 
   const pfsOrdersCount = pfsAgg._count._all;
@@ -827,15 +1017,19 @@ export async function getMarketplaceStats(
   const efashionTotalHT = decimalToNumber(efashionAgg._sum.totalHT);
   const ankorstoreOrdersCount = ankorstoreAgg._count._all;
   const ankorstoreTotalHT = decimalToNumber(ankorstoreAgg._sum.brandTotalAmount);
-  const totalOrders = pfsOrdersCount + efashionOrdersCount + ankorstoreOrdersCount;
-  const totalHT = pfsTotalHT + efashionTotalHT + ankorstoreTotalHT;
+  const faireOrdersCount = faireAgg._count._all;
+  const faireTotalHT = decimalToNumber(faireAgg._sum.totalHT);
+  const totalOrders =
+    pfsOrdersCount + efashionOrdersCount + ankorstoreOrdersCount + faireOrdersCount;
+  const totalHT = pfsTotalHT + efashionTotalHT + ankorstoreTotalHT + faireTotalHT;
   const itemsSold =
     (pfsItemsAgg._sum.qtyValidated ?? 0) +
     (efashionItemsAgg._sum.qtyTotal ?? 0) +
-    (ankorstoreItemsAgg._sum.multipliedQuantity ?? 0);
+    (ankorstoreItemsAgg._sum.multipliedQuantity ?? 0) +
+    (faireItemsAgg._sum.quantity ?? 0);
 
   // Compte des clients uniques cross-marketplace (par email/société normalisés)
-  const [pfsClientRows, efashionClientRows, ankorstoreClientRows] = await Promise.all([
+  const [pfsClientRows, efashionClientRows, ankorstoreClientRows, faireClientRows] = await Promise.all([
     pfsOrderWhere
       ? prisma.pfsOrder.findMany({
           where: pfsOrderWhere,
@@ -879,6 +1073,22 @@ export async function getMarketplaceStats(
             adminClientCardId: true,
             brandTotalAmount: true,
             createdAtAnkor: true,
+          },
+        })
+      : Promise.resolve([]),
+    faireOrderWhere
+      ? prisma.faireOrder.findMany({
+          where: faireOrderWhere,
+          select: {
+            id: true,
+            faireRetailerId: true,
+            customerName: true,
+            customerShop: true,
+            customerEmail: true,
+            customerCountry: true,
+            adminClientCardId: true,
+            totalHT: true,
+            createdAtFaire: true,
           },
         })
       : Promise.resolve([]),
@@ -980,6 +1190,19 @@ export async function getMarketplaceStats(
       orderDate: r.createdAtAnkor,
     });
   }
+  for (const r of faireClientRows) {
+    const key = normalizeKey(r.customerEmail, r.adminClientCardId, r.customerShop ?? r.customerName);
+    upsertClient(key, {
+      source: "FAIRE",
+      customerName: r.customerName,
+      customerShop: r.customerShop,
+      customerCountry: r.customerCountry,
+      customerEmail: r.customerEmail,
+      adminClientCardId: r.adminClientCardId,
+      orderTotal: decimalToNumber(r.totalHT),
+      orderDate: r.createdAtFaire,
+    });
+  }
 
   const uniqueCustomers = clientMap.size;
   const topClients: MarketplaceTopClientRow[] = Array.from(clientMap.values())
@@ -1008,44 +1231,50 @@ export async function getMarketplaceStats(
       PFS: { ordersCount: pfsOrdersCount, totalHT: pfsTotalHT },
       EFASHION: { ordersCount: efashionOrdersCount, totalHT: efashionTotalHT },
       ANKORSTORE: { ordersCount: ankorstoreOrdersCount, totalHT: ankorstoreTotalHT },
+      FAIRE: { ordersCount: faireOrdersCount, totalHT: faireTotalHT },
     },
   };
 
   // ─── Top produits cross-marketplace avec drill-down couleur × source ─
-  const [pfsItemGrouped, efashionItemGrouped, ankorstoreItemGrouped] = await Promise.all([
+  // On inclut aussi les items dont le productId est null (produit non
+  // rattaché à la boutique) — ils apparaîtront comme « Produit non présent
+  // sur notre site » avec leur référence marketplace. Clé de groupement =
+  // productId si rattaché, sinon "ref:{reference}" pour dédoublonner les
+  // items non rattachés d'un même produit.
+  const [pfsItemGrouped, efashionItemGrouped, ankorstoreItemGrouped, faireItemGrouped] = await Promise.all([
     pfsOrderWhere
       ? prisma.pfsOrderItem.groupBy({
-          where: { tenantId: tenant.id, pfsOrder: pfsOrderWhere, productId: { not: null } },
-          by: ["productId", "productColorId", "colorLabelFr"],
+          where: { tenantId: tenant.id, pfsOrder: pfsOrderWhere },
+          by: ["productId", "pfsProductRef", "productColorId", "colorLabelFr"],
           _sum: { qtyValidated: true, totalPriceHT: true },
         })
       : Promise.resolve([]),
     efashionOrderWhere
       ? prisma.efashionOrderItem.groupBy({
-          where: {
-            tenantId: tenant.id,
-            efashionOrder: efashionOrderWhere,
-            productId: { not: null },
-          },
-          by: ["productId", "productColorId", "colorLabelFr"],
+          where: { tenantId: tenant.id, efashionOrder: efashionOrderWhere },
+          by: ["productId", "referenceBase", "productColorId", "colorLabelFr"],
           _sum: { qtyTotal: true, totalLineHT: true },
         })
       : Promise.resolve([]),
     ankorstoreOrderWhere
       ? prisma.ankorstoreOrderItem.groupBy({
-          where: {
-            tenantId: tenant.id,
-            ankorstoreOrder: ankorstoreOrderWhere,
-            productId: { not: null },
-          },
-          by: ["productId", "productColorId", "variantOptionLabel"],
+          where: { tenantId: tenant.id, ankorstoreOrder: ankorstoreOrderWhere },
+          by: ["productId", "referenceBase", "productColorId", "variantOptionLabel"],
           _sum: { multipliedQuantity: true, totalPriceHT: true },
+        })
+      : Promise.resolve([]),
+    faireOrderWhere
+      ? prisma.faireOrderItem.groupBy({
+          where: { tenantId: tenant.id, faireOrder: faireOrderWhere },
+          by: ["productId", "referenceBase", "productColorId", "variantOptionLabel"],
+          _sum: { quantity: true, totalPriceHT: true },
         })
       : Promise.resolve([]),
   ]);
 
   interface ProductAgg {
-    productId: string;
+    productId: string | null;
+    reference: string; // reference boutique (si rattaché) ou marketplace (sinon)
     quantitySold: number;
     totalHT: number;
     bySource: Map<MarketplaceSource, { quantitySold: number; totalHT: number }>;
@@ -1062,23 +1291,30 @@ export async function getMarketplaceStats(
   }
   const productMap = new Map<string, ProductAgg>();
   const upsertProduct = (
-    productId: string,
+    productId: string | null,
+    reference: string | null,
     productColorId: string | null,
     colorLabel: string | null,
     source: MarketplaceSource,
     qty: number,
     total: number,
   ) => {
-    let acc = productMap.get(productId);
+    const cleanRef = reference?.trim() || "(sans référence)";
+    // Si le produit est rattaché, la clé est son productId (unique cross-source).
+    // Sinon on utilise la référence pour dédoublonner les items non rattachés
+    // d'un même produit vendu sur plusieurs marketplaces.
+    const key = productId ?? `ref:${cleanRef.toLowerCase()}`;
+    let acc = productMap.get(key);
     if (!acc) {
       acc = {
         productId,
+        reference: cleanRef,
         quantitySold: 0,
         totalHT: 0,
         bySource: new Map(),
         colorsByPcId: new Map(),
       };
-      productMap.set(productId, acc);
+      productMap.set(key, acc);
     }
     acc.quantitySold += qty;
     acc.totalHT += total;
@@ -1108,9 +1344,9 @@ export async function getMarketplaceStats(
   };
 
   for (const g of pfsItemGrouped) {
-    if (!g.productId) continue;
     upsertProduct(
       g.productId,
+      g.pfsProductRef,
       g.productColorId,
       g.colorLabelFr,
       "PFS",
@@ -1119,9 +1355,9 @@ export async function getMarketplaceStats(
     );
   }
   for (const g of efashionItemGrouped) {
-    if (!g.productId) continue;
     upsertProduct(
       g.productId,
+      g.referenceBase,
       g.productColorId,
       g.colorLabelFr,
       "EFASHION",
@@ -1130,13 +1366,24 @@ export async function getMarketplaceStats(
     );
   }
   for (const g of ankorstoreItemGrouped) {
-    if (!g.productId) continue;
     upsertProduct(
       g.productId,
+      g.referenceBase,
       g.productColorId,
       g.variantOptionLabel,
       "ANKORSTORE",
       g._sum.multipliedQuantity ?? 0,
+      decimalToNumber(g._sum.totalPriceHT),
+    );
+  }
+  for (const g of faireItemGrouped) {
+    upsertProduct(
+      g.productId,
+      g.referenceBase,
+      g.productColorId,
+      g.variantOptionLabel,
+      "FAIRE",
+      g._sum.quantity ?? 0,
       decimalToNumber(g._sum.totalPriceHT),
     );
   }
@@ -1145,8 +1392,11 @@ export async function getMarketplaceStats(
     .sort((a, b) => b.quantitySold - a.quantitySold)
     .slice(0, topProductsLimit);
 
-  // Enrichissement produit (nom, image, ref) + couleur (hex, pattern)
-  const productIds = topProductAccs.map((p) => p.productId);
+  // Enrichissement produit (nom, image, ref) + couleur (hex, pattern).
+  // Les produits non rattachés (productId=null) n'ont pas de meta à fetcher.
+  const productIds = topProductAccs
+    .map((p) => p.productId)
+    .filter((id): id is string => Boolean(id));
   const [productRows, imageRows, colorRows] = await Promise.all([
     productIds.length
       ? prisma.product.findMany({
@@ -1191,13 +1441,13 @@ export async function getMarketplaceStats(
   const productColorMeta = new Map(colorRows.map((r) => [r.id, r.color]));
 
   const topProducts: MarketplaceTopProductRow[] = topProductAccs.map((acc) => {
-    const meta = productMeta.get(acc.productId);
-    const rawImage = imageByProduct.get(acc.productId) ?? null;
+    const meta = acc.productId ? productMeta.get(acc.productId) : null;
+    const rawImage = acc.productId ? imageByProduct.get(acc.productId) ?? null : null;
     return {
       productId: acc.productId,
       productName: meta?.name ?? null,
       productImage: rawImage ? getImageSrc(rawImage, "thumb") : null,
-      productReference: meta?.reference ?? "?",
+      productReference: meta?.reference ?? acc.reference,
       quantitySold: acc.quantitySold,
       totalHT: acc.totalHT,
       bySource: Array.from(acc.bySource.entries())
@@ -1223,7 +1473,7 @@ export async function getMarketplaceStats(
   });
 
   // ─── Compteurs par statut unifié ─
-  const [pfsStatusRows, efashionStatusRows, ankorstoreStatusRows] = await Promise.all([
+  const [pfsStatusRows, efashionStatusRows, ankorstoreStatusRows, faireStatusRows] = await Promise.all([
     wantsPfs
       ? prisma.pfsOrder.groupBy({
           where: {
@@ -1256,6 +1506,16 @@ export async function getMarketplaceStats(
           _count: { _all: true },
         })
       : Promise.resolve([]),
+    wantsFaire
+      ? prisma.faireOrder.groupBy({
+          where: {
+            tenantId: tenant.id,
+            ...(Object.keys(faireDateFilter).length ? { createdAtFaire: faireDateFilter } : {}),
+          },
+          by: ["status"],
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
   ]);
   const statusCounts: Record<MarketplaceUnifiedStatus, number> = {
     NEW: 0,
@@ -1268,6 +1528,8 @@ export async function getMarketplaceStats(
     statusCounts[normalizeEfashionToUnified(r.status)] += r._count._all;
   for (const r of ankorstoreStatusRows)
     statusCounts[normalizeAnkorstoreToUnified(r.status)] += r._count._all;
+  for (const r of faireStatusRows)
+    statusCounts[normalizeFaireBddToUnified(r.status)] += r._count._all;
 
   return {
     period: input.period,
@@ -1286,6 +1548,7 @@ export async function getMarketplaceSyncMeta(): Promise<{
   pfs: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
   efashion: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
   ankorstore: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
+  faire: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
 }> {
   await requireAdmin();
   const tenant = await requireCurrentTenant();
@@ -1293,12 +1556,15 @@ export async function getMarketplaceSyncMeta(): Promise<{
     pfsLast,
     efashionLast,
     ankorstoreLast,
+    faireLast,
     pfsCreds,
     efashionCreds,
     ankorstoreCreds,
+    faireCreds,
     pfsCount,
     efashionCount,
     ankorstoreCount,
+    faireCount,
   ] = await Promise.all([
     prisma.siteConfig.findFirst({
       where: { tenantId: tenant.id, key: "pfs_orders_last_synced_at" },
@@ -1310,6 +1576,10 @@ export async function getMarketplaceSyncMeta(): Promise<{
     }),
     prisma.siteConfig.findFirst({
       where: { tenantId: tenant.id, key: "ankorstore_orders_last_synced_at" },
+      select: { value: true },
+    }),
+    prisma.siteConfig.findFirst({
+      where: { tenantId: tenant.id, key: "faire_orders_last_synced_at" },
       select: { value: true },
     }),
     prisma.siteConfig.findMany({
@@ -1327,9 +1597,14 @@ export async function getMarketplaceSyncMeta(): Promise<{
       },
       select: { key: true, value: true },
     }),
+    prisma.siteConfig.findFirst({
+      where: { tenantId: tenant.id, key: "faire_api_key" },
+      select: { value: true },
+    }),
     prisma.pfsOrder.count({ where: { tenantId: tenant.id } }),
     prisma.efashionOrder.count({ where: { tenantId: tenant.id } }),
     prisma.ankorstoreOrder.count({ where: { tenantId: tenant.id } }),
+    prisma.faireOrder.count({ where: { tenantId: tenant.id } }),
   ]);
   const pfsMap = new Map(pfsCreds.map((r) => [r.key, r.value]));
   const efashionMap = new Map(efashionCreds.map((r) => [r.key, r.value]));
@@ -1359,6 +1634,13 @@ export async function getMarketplaceSyncMeta(): Promise<{
       hasCredentials:
         (ankorstoreMap.get("ankors_client_id") || "").trim().length > 0 &&
         (ankorstoreMap.get("ankors_client_secret") || "").trim().length > 0,
+    },
+    faire: {
+      lastSyncedAt: faireLast?.value
+        ? new Date(parseInt(faireLast.value, 10)).toISOString()
+        : null,
+      totalOrdersInDb: faireCount,
+      hasCredentials: (faireCreds?.value || "").trim().length > 0,
     },
   };
 }

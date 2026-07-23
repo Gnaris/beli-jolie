@@ -182,8 +182,10 @@ model AdminClientCard {
   efashionCustomerId      String?
   // Idem pour Ankorstore (retailer.id JSON:API — UUID).
   ankorstoreRetailerId    String?
+  // Idem pour Faire (retailer_id — "r_xxxxx" ou UUID).
+  faireRetailerId         String?
   // Marqueur "fiche créée automatiquement par une synchro marketplace"
-  // (valeurs : "PFS", "EFASHION", "ANKORSTORE"…). Utilisé pour afficher le badge "Importé auto".
+  // (valeurs : "PFS", "EFASHION", "ANKORSTORE", "FAIRE"…). Utilisé pour afficher le badge "Importé auto".
   importedFromMarketplace String?
 
   // Historique
@@ -212,6 +214,7 @@ model AdminClientCard {
   pfsOrders        PfsOrder[]
   efashionOrders   EfashionOrder[]
   ankorstoreOrders AnkorstoreOrder[]
+  faireOrders      FaireOrder[]
   productPurchases AdminClientCardProductPurchase[]
 
   @@index([tenantId])
@@ -220,6 +223,7 @@ model AdminClientCard {
   @@index([tenantId, pfsCustomerId])
   @@index([tenantId, efashionCustomerId])
   @@index([tenantId, ankorstoreRetailerId])
+  @@index([tenantId, faireRetailerId])
   @@index([tenantId, siret])
 }
 
@@ -672,6 +676,137 @@ model AnkorstoreOrderItem {
 }
 
 // ─────────────────────────────────────────────
+// Commandes Faire — LECTURE SEULE
+// Copie locale des commandes récupérées via GET /external-api/v2/orders.
+// Même logique que les autres marketplaces (source de vérité = portail brand
+// Faire). Faire NE FOURNIT PAS de webhook (confirmé 2026-06-15) → polling seul
+// via faire-orders-worker (tick 5 min).
+// ─────────────────────────────────────────────
+// Statut normalisé partagé (unifié avec PFS/eFashion/Ankorstore).
+// Le statut brut Faire ("NEW", "PROCESSING", "BACKORDERED"…) reste stocké
+// dans `statusRaw`.
+enum FaireOrderStatus {
+  NEW // "NEW" / "PROCESSING" / "BACKORDERED" — à traiter par la marque
+  SHIPPED // "SHIPPED" / "DELIVERED"
+  CANCELLED
+}
+
+model FaireOrder {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  faireOrderId String // "bo_orderabc"
+  displayId    String? // "ORD-12345"
+
+  status      FaireOrderStatus
+  statusRaw   String // "NEW"|"PROCESSING"|"BACKORDERED"|"SHIPPED"|"DELIVERED"|"CANCELLED"
+  faireSource String? // "FAIRE" ou "FAIRE_DIRECT" (channel de vente)
+  currency    String  @default("EUR")
+
+  createdAtFaire DateTime
+  updatedAtFaire DateTime?
+  shipAfter      DateTime?
+  shippedAt      DateTime?
+  canceledAt     DateTime?
+
+  // Montants HT (Faire tarifie en centimes, on convertit /100)
+  totalHT          Decimal @db.Decimal(12, 2) // Σ price_cents × quantity
+  commissionAmount Decimal @default(0) @db.Decimal(12, 2) // payout_costs.commission_cents/100
+  payoutFeeAmount  Decimal @default(0) @db.Decimal(12, 2) // payout_costs.payout_fee_cents/100
+  netAmount        Decimal @default(0) @db.Decimal(12, 2) // totalHT - commission - payout_fee
+
+  // Adresse livraison (aplatie depuis `address`)
+  shippingName        String?
+  shippingCompany     String?
+  shippingStreet      String?
+  shippingStreet2     String?
+  shippingCity        String?
+  shippingStateCode   String?
+  shippingPostalCode  String?
+  shippingCountryCode String? // ISO 3166-1 alpha-2
+  shippingPhone       String?
+
+  // Retailer (client Faire) — snapshot pour affichage sans re-query
+  faireRetailerId String
+  customerName    String // address.name ou company_name
+  customerShop    String? // address.company_name
+  customerEmail   String?
+  customerPhone   String?
+  customerCountry String? // ISO alpha-2 (adresse livraison)
+
+  // Rattachement fiche client admin — même mécanique que les autres marketplaces
+  adminClientCardId String?
+  adminClientCard   AdminClientCard? @relation(fields: [adminClientCardId], references: [id], onDelete: SetNull)
+
+  // Suivi expédition (résultat POST /orders/{id}/shipments)
+  carrier      String?
+  trackingCode String?
+  trackingUrl  String? @db.Text
+
+  // Payload brut de GET /orders/{id} pour drawer + debug
+  rawDetailJson Json?
+
+  lastSyncedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  items FaireOrderItem[]
+
+  @@unique([tenantId, faireOrderId])
+  @@index([tenantId, createdAtFaire])
+  @@index([tenantId, status])
+  @@index([tenantId, faireRetailerId])
+  @@index([adminClientCardId])
+}
+
+model FaireOrderItem {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  faireOrderId String
+  faireOrder   FaireOrder @relation(fields: [faireOrderId], references: [id], onDelete: Cascade)
+
+  // Identifiants Faire
+  faireItemId    String // "oi_1"
+  faireProductId String? // "p_abc"
+  faireVariantId String? // "po_456" (product_option_id)
+  sku            String? // "BJ-BRC-001-OR-S"
+  referenceBase  String? // segment produit extrait du SKU pour matching catalogue
+
+  // Rattachement BJ (résolution via ProductColor.faireVariantId,
+  // Product.faireProductId, puis fallback Product.reference == referenceBase)
+  productId      String?
+  product        Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productColorId String?
+  productColor   ProductColor? @relation(fields: [productColorId], references: [id], onDelete: SetNull)
+
+  // Snapshot au moment de la commande (résistant au renommage produit)
+  productSnapshotName String? // product_name
+  variantOptionLabel  String? // product_option_name (ex "Or / S")
+
+  quantity     Int
+  unitPriceHT  Decimal @db.Decimal(12, 2) // price_cents / 100
+  totalPriceHT Decimal @db.Decimal(12, 2) // unitPriceHT × quantity
+
+  includesTester Boolean @default(false)
+
+  // Déduction stock — même mécanique qu'aux autres marketplaces pour idempotence
+  stockDeductedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([faireOrderId])
+  @@index([tenantId, productId])
+  @@index([tenantId, productColorId])
+  @@index([tenantId, referenceBase])
+  @@index([tenantId, stockDeductedAt])
+}
+
+// ─────────────────────────────────────────────
 // Catalogue produits
 // ─────────────────────────────────────────────
 
@@ -953,6 +1088,7 @@ model Product {
   pfsOrderItems               PfsOrderItem[]
   efashionOrderItems          EfashionOrderItem[]
   ankorstoreOrderItems        AnkorstoreOrderItem[]
+  faireOrderItems             FaireOrderItem[]
   adminCardPurchases          AdminClientCardProductPurchase[]
   isBestSeller                Boolean                          @default(false)
   status                      ProductStatus                    @default(OFFLINE)
@@ -1474,6 +1610,7 @@ model ProductColor {
   pfsOrderItems           PfsOrderItem[]
   efashionOrderItems      EfashionOrderItem[]
   ankorstoreOrderItems    AnkorstoreOrderItem[]
+  faireOrderItems         FaireOrderItem[]
   adminCardPurchases      AdminClientCardProductPurchase[]
   disabled                Boolean                          @default(false) // Masquer côté client sans supprimer
   sku                     String?                          @unique // SKU universel: {ref}_{couleur}_{UNIT|PACK}_{index}
@@ -3044,6 +3181,9 @@ model Tenant {
 
   ankorstoreOrders     AnkorstoreOrder[]
   ankorstoreOrderItems AnkorstoreOrderItem[]
+
+  faireOrders     FaireOrder[]
+  faireOrderItems FaireOrderItem[]
 
   emailScenarios    EmailScenario[]
   emailSends        EmailSend[]

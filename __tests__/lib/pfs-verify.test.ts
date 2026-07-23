@@ -440,6 +440,36 @@ describe("comparePfsProduct", () => {
     expect(issues.find((i) => i.field === "productStatus")).toBeUndefined();
   });
 
+  it("PFS NEW s'affiche comme « Archivé » (pas « Nouveau ») quand local=ONLINE", () => {
+    // Un produit PFS en NEW = créé mais jamais activé (invisible via
+    // listProducts, affiché « brouillon » dans l'UI PFS). Sémantiquement
+    // équivalent à ARCHIVED chez nous → le modal doit afficher « Archivé »
+    // et le pull le mettra bien en ARCHIVED côté local.
+    const local = makeLocalProduct(); // status ONLINE + stock 28
+    const pfsProduct = makePfsProduct({ status: "NEW" });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    const statusIssue = issues.find((i) => i.field === "productStatus");
+    expect(statusIssue).toBeDefined();
+    expect(statusIssue?.pfsValue).toBe("Archivé");
+    expect(statusIssue?.expectedValue).toBe("En ligne");
+  });
+
+  it("ne signale pas d'écart de statut si local=ARCHIVED ↔ PFS=NEW (équivalent sémantique)", () => {
+    // Cas concret : la cliente a passé le produit en ARCHIVED côté site, et
+    // côté PFS il est en NEW (produit créé mais jamais activé, affiché
+    // « brouillon » côté UI PFS). Aucun écart bidon à afficher.
+    const local = makeLocalProduct({ status: "ARCHIVED" });
+    const pfsProduct = makePfsProduct({ status: "NEW" });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    expect(issues.find((i) => i.field === "productStatus")).toBeUndefined();
+  });
+
   it("respecte la config out-of-stock pour le statut attendu (produit ONLINE mais tout en rupture → ARCHIVED attendu)", () => {
     // Local ONLINE + toutes variantes stock=0 → attendu = ARCHIVED côté PFS
     // (config par défaut). Si PFS est READY_FOR_SALE, on doit signaler l'écart.

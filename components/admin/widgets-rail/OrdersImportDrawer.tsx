@@ -42,6 +42,14 @@ import {
   type AnkorstoreImportState,
   type AnkorstoreImportRecentEvent,
 } from "@/app/actions/admin/ankorstore-orders";
+import {
+  acknowledgeFaireHistoricalImport,
+  getFaireImportStateAction,
+  startFaireHistoricalImport,
+  stopFaireHistoricalImport,
+  type FaireImportState,
+  type FaireImportRecentEvent,
+} from "@/app/actions/admin/faire-orders";
 import { useRightRail, type RailWidgetId } from "./RightRailContext";
 import { DrawerShell } from "./DrawerShell";
 
@@ -94,10 +102,12 @@ export function OrdersImportDrawer() {
   const [pfsState, setPfsState] = useState<PfsImportState | null>(null);
   const [efState, setEfState] = useState<EfashionImportState | null>(null);
   const [ankorState, setAnkorState] = useState<AnkorstoreImportState | null>(null);
+  const [faireState, setFaireState] = useState<FaireImportState | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const pollPfsRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollEfRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollAnkorRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollFaireRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -171,33 +181,62 @@ export function OrdersImportDrawer() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const s = await getFaireImportStateAction();
+        if (cancelled) return;
+        setFaireState(s);
+        pollFaireRef.current = setTimeout(
+          tick,
+          s.status === "RUNNING" ? POLL_ACTIVE_MS : POLL_IDLE_MS,
+        );
+      } catch {
+        pollFaireRef.current = setTimeout(tick, POLL_IDLE_MS);
+      }
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      if (pollFaireRef.current) clearTimeout(pollFaireRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
     const pfsRun = pfsState?.status === "RUNNING";
     const efRun = efState?.status === "RUNNING";
     const ankorRun = ankorState?.status === "RUNNING";
-    const running = pfsRun || efRun || ankorRun;
+    const faireRun = faireState?.status === "RUNNING";
+    const running = pfsRun || efRun || ankorRun || faireRun;
     const remainingPfs = pfsRun
       ? Math.max(0, (pfsState?.totalOrders ?? 0) - (pfsState?.processedOrders ?? 0))
       : 0;
     const remainingEf = efRun
       ? Math.max(0, (efState?.totalOrders ?? 0) - (efState?.processedOrders ?? 0))
       : 0;
-    // Ankorstore : totalOrders inconnu tant que le curseur n'est pas fini →
+    // Ankorstore & Faire : totalOrders inconnu tant que le curseur n'est pas fini →
     // fallback sur processedOrders pour montrer l'activité.
     const remainingAnkor = ankorRun && ankorState
       ? ankorState.totalOrders != null
         ? Math.max(0, ankorState.totalOrders - ankorState.processedOrders)
         : ankorState.processedOrders
       : 0;
+    const remainingFaire = faireRun && faireState
+      ? faireState.totalOrders > 0
+        ? Math.max(0, faireState.totalOrders - faireState.processedOrders)
+        : faireState.processedOrders
+      : 0;
     setBadge("orders-import", {
-      count: remainingPfs + remainingEf + remainingAnkor,
+      count: remainingPfs + remainingEf + remainingAnkor + remainingFaire,
       pulse: running,
     });
     for (const legacy of LEGACY_ALIASES) setBadge(legacy, { count: 0 });
-  }, [pfsState, efState, ankorState, setBadge]);
+  }, [pfsState, efState, ankorState, faireState, setBadge]);
 
   const prevPfsRunRef = useRef(false);
   const prevEfRunRef = useRef(false);
   const prevAnkorRunRef = useRef(false);
+  const prevFaireRunRef = useRef(false);
   useEffect(() => {
     const pfsRun = pfsState?.status === "RUNNING";
     if (!prevPfsRunRef.current && pfsRun) open("orders-import");
@@ -213,11 +252,17 @@ export function OrdersImportDrawer() {
     if (!prevAnkorRunRef.current && ankorRun) open("orders-import");
     prevAnkorRunRef.current = ankorRun;
   }, [ankorState, open]);
+  useEffect(() => {
+    const faireRun = faireState?.status === "RUNNING";
+    if (!prevFaireRunRef.current && faireRun) open("orders-import");
+    prevFaireRunRef.current = faireRun;
+  }, [faireState, open]);
 
   const anyRunning =
     pfsState?.status === "RUNNING" ||
     efState?.status === "RUNNING" ||
-    ankorState?.status === "RUNNING";
+    ankorState?.status === "RUNNING" ||
+    faireState?.status === "RUNNING";
   const title = useMemo(() => {
     if (anyRunning) {
       const parts: string[] = [];
@@ -232,6 +277,11 @@ export function OrdersImportDrawer() {
           `Ankor ${ankorState.processedOrders}${ankorState.totalOrders != null ? `/${ankorState.totalOrders}` : ""}`,
         );
       }
+      if (faireState?.status === "RUNNING") {
+        parts.push(
+          `Faire ${faireState.processedOrders}${faireState.totalOrders > 0 ? `/${faireState.totalOrders}` : ""}`,
+        );
+      }
       return (
         <span className="flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
@@ -240,7 +290,7 @@ export function OrdersImportDrawer() {
       );
     }
     return "Import commandes marketplaces";
-  }, [anyRunning, pfsState, efState, ankorState]);
+  }, [anyRunning, pfsState, efState, ankorState, faireState]);
 
   if (!isOpen) return null;
 
@@ -257,6 +307,7 @@ export function OrdersImportDrawer() {
         <PfsSection state={pfsState} onStateChange={setPfsState} now={now} />
         <EfashionSection state={efState} onStateChange={setEfState} now={now} />
         <AnkorstoreSection state={ankorState} onStateChange={setAnkorState} now={now} />
+        <FaireSection state={faireState} onStateChange={setFaireState} now={now} />
       </div>
     </DrawerShell>
   );
@@ -627,10 +678,135 @@ function AnkorstoreSection({
 }
 
 // ─────────────────────────────────────────────
-// Section commune — layout identique pour les 3 sources
+// Bloc Faire
 // ─────────────────────────────────────────────
 
-type CommonState = PfsImportState | EfashionImportState | AnkorstoreImportState;
+const FAIRE_META = {
+  name: "Faire",
+  letter: "F",
+  gradient: "linear-gradient(135deg,#f59e0b,#fbbf24)",
+  barGrad: "linear-gradient(90deg,#f59e0b,#fbbf24)",
+  chipBg: "bg-amber-50/40",
+  chipRing: "border-amber-100",
+  chipText: "text-amber-700",
+  chipDot: "bg-amber-500",
+  actionBtn: "bg-amber-500 hover:bg-amber-600",
+  actionLink: "text-amber-700 hover:text-amber-800",
+};
+
+function FaireSection({
+  state,
+  onStateChange,
+  now,
+}: {
+  state: FaireImportState | null;
+  onStateChange: (s: FaireImportState) => void;
+  now: number;
+}) {
+  const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
+
+  const [displayed, setDisplayed] = useState<FaireImportRecentEvent[]>([]);
+  const pendingRef = useRef<FaireImportRecentEvent[]>([]);
+  const seenRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!state) return;
+    const chronological = [...state.recentEvents].reverse();
+    for (const ev of chronological) {
+      const k = `${ev.orderNumber}-${ev.at}-${ev.result}`;
+      if (seenRef.current.has(k)) continue;
+      seenRef.current.add(k);
+      pendingRef.current.push(ev);
+    }
+  }, [state]);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      const pending = pendingRef.current;
+      if (pending.length === 0) return;
+      const batch = pending.length > 20 ? 3 : pending.length > 8 ? 2 : 1;
+      const flushed = pending.splice(0, batch);
+      setDisplayed((prev) =>
+        [...flushed.reverse(), ...prev].slice(0, DISPLAYED_EVENTS_MAX),
+      );
+    }, EVENT_DRIP_MS);
+    return () => clearInterval(t);
+  }, []);
+
+  const onStart = useCallback(async () => {
+    setStarting(true);
+    try {
+      pendingRef.current = [];
+      seenRef.current = new Set();
+      setDisplayed([]);
+      const next = await startFaireHistoricalImport();
+      onStateChange(next);
+    } finally {
+      setStarting(false);
+    }
+  }, [onStateChange]);
+
+  const onStop = useCallback(async () => {
+    setStopping(true);
+    try {
+      await stopFaireHistoricalImport();
+    } finally {
+      setStopping(false);
+    }
+  }, []);
+
+  const onAck = useCallback(async () => {
+    await acknowledgeFaireHistoricalImport();
+    const s = await getFaireImportStateAction();
+    onStateChange(s);
+    pendingRef.current = [];
+    seenRef.current = new Set();
+    setDisplayed([]);
+  }, [onStateChange]);
+
+  return (
+    <SourceSection
+      state={state}
+      meta={FAIRE_META}
+      starting={starting}
+      stopping={stopping}
+      onStart={onStart}
+      onStop={onStop}
+      onAck={onAck}
+      pending={pendingRef.current.length}
+      events={displayed.map((ev) => ({
+        key: `${ev.orderNumber}-${ev.at}-${ev.result}`,
+        orderNumber: ev.orderNumber,
+        customerName: ev.customerName,
+        result: ev.result,
+        amount: ev.totalHT,
+        errorMessage: ev.errorMessage,
+        at: ev.at,
+      }))}
+      currentOrders={
+        state?.currentOrders.map((c) => ({
+          key: c.faireOrderId,
+          orderNumber: c.displayId,
+          customerName: c.customerName,
+          country: c.country,
+          amount: c.totalHT,
+        })) ?? []
+      }
+      now={now}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────
+// Section commune — layout identique pour les 4 sources
+// ─────────────────────────────────────────────
+
+type CommonState =
+  | PfsImportState
+  | EfashionImportState
+  | AnkorstoreImportState
+  | FaireImportState;
 
 interface SectionMeta {
   name: string;

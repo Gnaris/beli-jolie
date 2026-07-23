@@ -5,7 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 
 interface Props {
   boutiqueCount?: number;
-  /** Total cumulé PFS + eFashion + Ankorstore (et à terme Faire). */
+  /** Total cumulé PFS + eFashion + Ankorstore + Faire. */
   marketplacesCount?: number;
 }
 
@@ -77,6 +77,12 @@ export default function OrdersTabsNav({ boutiqueCount, marketplacesCount }: Prop
             style={{ background: "linear-gradient(135deg,#0ea5e9,#38bdf8)" }}
           >
             A
+          </span>
+          <span
+            className="w-6 h-6 rounded-md text-white font-heading font-bold text-xs flex items-center justify-center ring-2 ring-white"
+            style={{ background: "linear-gradient(135deg,#f59e0b,#fbbf24)" }}
+          >
+            F
           </span>
         </span>
         Marketplaces

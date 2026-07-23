@@ -33,12 +33,21 @@ import {
   getAnkorstoreOrderDetail,
   type AnkorstoreOrderDetailFull,
 } from "@/app/actions/admin/ankorstore-orders";
+import {
+  syncFaireOrdersNow,
+  startFaireHistoricalImport,
+  getFaireImportStateAction,
+  getFaireOrderDetail,
+  type FaireOrderDetailFull,
+} from "@/app/actions/admin/faire-orders";
 import PfsOrderDrawer from "@/components/admin/orders/pfs/PfsOrderDrawer";
 import PfsStockDeductionModal from "@/components/admin/orders/pfs/PfsStockDeductionModal";
 import EfashionOrderDrawer from "./EfashionOrderDrawer";
 import EfashionStockDeductionModal from "./EfashionStockDeductionModal";
 import AnkorstoreOrderDrawer from "./AnkorstoreOrderDrawer";
 import AnkorstoreStockDeductionModal from "./AnkorstoreStockDeductionModal";
+import FaireOrderDrawer from "./FaireOrderDrawer";
+import FaireStockDeductionModal from "./FaireStockDeductionModal";
 import MarketplacePeriodBar from "./MarketplacePeriodBar";
 import MarketplaceKpiRow from "./MarketplaceKpiRow";
 import MarketplaceTopClients from "./MarketplaceTopClients";
@@ -58,6 +67,7 @@ interface Props {
       totalOrdersInDb: number;
       hasCredentials: boolean;
     };
+    faire: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
   };
 }
 
@@ -71,12 +81,12 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     total: number;
     page: number;
     totalPages: number;
-    countsBySource: { PFS: number; EFASHION: number; ANKORSTORE: number };
+    countsBySource: { PFS: number; EFASHION: number; ANKORSTORE: number; FAIRE: number };
   }>({
     total: 0,
     page: 1,
     totalPages: 1,
-    countsBySource: { PFS: 0, EFASHION: 0, ANKORSTORE: 0 },
+    countsBySource: { PFS: 0, EFASHION: 0, ANKORSTORE: 0, FAIRE: 0 },
   });
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<MarketplaceUnifiedStatus | "">("");
@@ -88,6 +98,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
   const [selectedAnkorstore, setSelectedAnkorstore] = useState<AnkorstoreOrderDetailFull | null>(
     null,
   );
+  const [selectedFaire, setSelectedFaire] = useState<FaireOrderDetailFull | null>(null);
   const [deductionSource, setDeductionSource] = useState<{
     source: MarketplaceSource;
     orderId: string;
@@ -96,6 +107,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
   const [syncingPfs, setSyncingPfs] = useState(false);
   const [syncingEfashion, setSyncingEfashion] = useState(false);
   const [syncingAnkorstore, setSyncingAnkorstore] = useState(false);
+  const [syncingFaire, setSyncingFaire] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [syncMeta, setSyncMeta] = useState(initialSyncMeta);
   const [nowTick, setNowTick] = useState(0);
@@ -119,8 +131,20 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     setIsRefreshing(true);
     try {
       const sources: MarketplaceSource[] | undefined = sourceFilter ? [sourceFilter] : undefined;
+      // Limites généreuses : le filtre local par marketplace (chip dans les
+      // cartes Top clients / Top produits) fait de l'intersection sur ce que le
+      // serveur a renvoyé. Si on limite à 50, les marketplaces minoritaires
+      // (Ankor, eFashion, Faire) peuvent être totalement absentes du top 50.
+      // 500 couvre tous les cas réalistes.
       const [nextStats, nextList] = await Promise.all([
-        getMarketplaceStats({ period, customFrom, customTo, sources }),
+        getMarketplaceStats({
+          period,
+          customFrom,
+          customTo,
+          sources,
+          topClientsLimit: 500,
+          topProductsLimit: 500,
+        }),
         listMarketplaceOrders({
           page,
           perPage: 10,
@@ -150,29 +174,33 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     void refresh();
   }, [refresh]);
 
-  // Polling léger de l'état d'import (PFS + eFashion + Ankorstore) pour
-  // rafraîchir la vue à la fin de chaque import historique.
+  // Polling léger de l'état d'import (PFS + eFashion + Ankorstore + Faire)
+  // pour rafraîchir la vue à la fin de chaque import historique.
   useEffect(() => {
     let cancelled = false;
     let pfsWasRunning = false;
     let efashionWasRunning = false;
     let ankorWasRunning = false;
+    let faireWasRunning = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
       try {
-        const [pfsState, efState, ankorState] = await Promise.all([
+        const [pfsState, efState, ankorState, faireState] = await Promise.all([
           getPfsImportStateAction().catch(() => null),
           getEfashionImportStateAction().catch(() => null),
           getAnkorstoreImportStateAction().catch(() => null),
+          getFaireImportStateAction().catch(() => null),
         ]);
         if (cancelled) return;
         const pfsRun = pfsState?.status === "RUNNING";
         const efRun = efState?.status === "RUNNING";
         const ankorRun = ankorState?.status === "RUNNING";
+        const faireRun = faireState?.status === "RUNNING";
         if (
           (!pfsRun && pfsWasRunning) ||
           (!efRun && efashionWasRunning) ||
-          (!ankorRun && ankorWasRunning)
+          (!ankorRun && ankorWasRunning) ||
+          (!faireRun && faireWasRunning)
         ) {
           void refresh();
           void getMarketplaceSyncMeta().then(setSyncMeta);
@@ -180,7 +208,11 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
         pfsWasRunning = pfsRun;
         efashionWasRunning = efRun;
         ankorWasRunning = ankorRun;
-        timer = setTimeout(tick, pfsRun || efRun || ankorRun ? 3000 : 8000);
+        faireWasRunning = faireRun;
+        timer = setTimeout(
+          tick,
+          pfsRun || efRun || ankorRun || faireRun ? 3000 : 8000,
+        );
       } catch {
         timer = setTimeout(tick, 8000);
       }
@@ -201,9 +233,12 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
       } else if (row.source === "EFASHION") {
         const detail = await getEfashionOrderDetail(row.id);
         setSelectedEfashion(detail);
-      } else {
+      } else if (row.source === "ANKORSTORE") {
         const detail = await getAnkorstoreOrderDetail(row.id);
         setSelectedAnkorstore(detail);
+      } else {
+        const detail = await getFaireOrderDetail(row.id);
+        setSelectedFaire(detail);
       }
     } finally {
       setLoadingDetail(false);
@@ -352,6 +387,53 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     }
   }, [confirm, openWidget]);
 
+  const onSyncFaire = useCallback(async () => {
+    const ok = await confirm({
+      type: "info",
+      title: "Synchroniser Faire ?",
+      message: "Récupérer les commandes récentes depuis Faire.",
+      confirmLabel: "Synchroniser",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+    setSyncingFaire(true);
+    try {
+      const res = await syncFaireOrdersNow();
+      if (!res.success) {
+        toast.error("Synchro Faire échouée", res.error);
+      } else if (res.created + res.updated === 0) {
+        toast.success("Synchro Faire OK", "Aucune nouvelle commande.");
+      } else {
+        toast.success(
+          "Synchro Faire OK",
+          `${res.created} nouvelles, ${res.updated} mises à jour.`,
+        );
+      }
+      const meta = await getMarketplaceSyncMeta();
+      setSyncMeta(meta);
+      await refresh();
+    } finally {
+      setSyncingFaire(false);
+    }
+  }, [refresh, confirm, toast]);
+
+  const onStartImportFaire = useCallback(async () => {
+    const ok = await confirm({
+      type: "warning",
+      title: "Importer tout l'historique Faire ?",
+      message: "Rattrapage complet — peut durer plusieurs minutes.",
+      confirmLabel: "Lancer",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+    await startFaireHistoricalImport();
+    try {
+      openWidget("orders-import");
+    } catch {
+      /* widget pas encore intégré */
+    }
+  }, [confirm, openWidget]);
+
   const lastSyncLabel = useCallback(
     (lastSyncedAt: string | null) => {
       if (!lastSyncedAt) return "Jamais";
@@ -387,13 +469,15 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
   const noCredentials =
     !syncMeta.pfs.hasCredentials &&
     !syncMeta.efashion.hasCredentials &&
-    !syncMeta.ankorstore.hasCredentials;
+    !syncMeta.ankorstore.hasCredentials &&
+    !syncMeta.faire.hasCredentials;
 
   const closingDrawer = useMemo(
     () => () => {
       setSelectedPfs(null);
       setSelectedEfashion(null);
       setSelectedAnkorstore(null);
+      setSelectedFaire(null);
     },
     [],
   );
@@ -404,7 +488,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
         <h2 className="font-heading text-xl font-bold">Aucune marketplace configurée</h2>
         <p className="text-sm text-text-secondary mt-2 max-w-md mx-auto">
           Pour récupérer vos commandes marketplaces, ouvrez «&nbsp;Paramètres → Marketplaces&nbsp;» et
-          renseignez les identifiants de Paris Fashion Shop, eFashion Paris et/ou Ankorstore.
+          renseignez les identifiants de Paris Fashion Shop, eFashion Paris, Ankorstore et/ou Faire.
         </p>
       </div>
     );
@@ -466,6 +550,17 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
               onImport={() => void onStartImportAnkorstore()}
             />
           )}
+          {syncMeta.faire.hasCredentials && (
+            <SyncStatusPill
+              source="FAIRE"
+              lastLabel={lastSyncLabel(syncMeta.faire.lastSyncedAt)}
+              nextLabel={nextSyncLabel(syncMeta.faire.lastSyncedAt)}
+              totalInDb={syncMeta.faire.totalOrdersInDb}
+              syncing={syncingFaire}
+              onSyncNow={() => startTransition(() => void onSyncFaire())}
+              onImport={() => void onStartImportFaire()}
+            />
+          )}
         </div>
       </section>
 
@@ -523,6 +618,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
       {selectedAnkorstore && (
         <AnkorstoreOrderDrawer order={selectedAnkorstore} onClose={closingDrawer} />
       )}
+      {selectedFaire && <FaireOrderDrawer order={selectedFaire} onClose={closingDrawer} />}
       {loadingDetail && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg">
           Chargement du détail…
@@ -550,6 +646,13 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
           onDeducted={() => void refresh()}
         />
       )}
+      {deductionSource?.source === "FAIRE" && (
+        <FaireStockDeductionModal
+          orderId={deductionSource.orderId}
+          onClose={() => setDeductionSource(null)}
+          onDeducted={() => void refresh()}
+        />
+      )}
     </div>
   );
 }
@@ -571,17 +674,23 @@ function SyncStatusPill({
   onSyncNow: () => void;
   onImport: () => void;
 }) {
+  const marketplaceLabel = (() => {
+    switch (source) {
+      case "PFS":
+        return "Paris Fashion Shop";
+      case "EFASHION":
+        return "eFashion Paris";
+      case "ANKORSTORE":
+        return "Ankorstore";
+      case "FAIRE":
+        return "Faire";
+    }
+  })();
   return (
     <div className="flex items-center gap-2 rounded-xl border border-border bg-bg-secondary/50 px-3 py-1.5">
       <MarketplaceBadge source={source} size="sm" />
       <div className="text-[11px] leading-tight">
-        <div className="font-medium text-text-primary">
-          {source === "PFS"
-            ? "Paris Fashion Shop"
-            : source === "EFASHION"
-              ? "eFashion Paris"
-              : "Ankorstore"}
-        </div>
+        <div className="font-medium text-text-primary">{marketplaceLabel}</div>
         <div className="text-text-muted">
           {totalInDb.toLocaleString("fr-FR")} en base · {lastLabel}
           {nextLabel && (

@@ -88,6 +88,7 @@ export const registerSchema = z.object({
     .max(2000, "Le message ne doit pas dépasser 2000 caractères.")
     .optional()
     .or(z.literal("")),
+  marketingConsent: z.boolean().optional().default(true),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Les mots de passe ne correspondent pas.",
   path: ["confirmPassword"],

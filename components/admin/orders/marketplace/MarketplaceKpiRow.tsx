@@ -23,7 +23,7 @@ export default function MarketplaceKpiRow({ stats }: Props) {
         value={k ? formatInt(k.ordersCount) : "…"}
         hint={
           k
-            ? `${formatInt(k.bySource.PFS.ordersCount)} PFS · ${formatInt(k.bySource.EFASHION.ordersCount)} eFashion · ${formatInt(k.bySource.ANKORSTORE.ordersCount)} Ankor`
+            ? `${formatInt(k.bySource.PFS.ordersCount)} PFS · ${formatInt(k.bySource.EFASHION.ordersCount)} eFashion · ${formatInt(k.bySource.ANKORSTORE.ordersCount)} Ankor · ${formatInt(k.bySource.FAIRE.ordersCount)} Faire`
             : ""
         }
         badges
@@ -33,7 +33,7 @@ export default function MarketplaceKpiRow({ stats }: Props) {
         value={k ? formatEur(k.totalHT) : "…"}
         hint={
           k
-            ? `PFS ${formatEur(k.bySource.PFS.totalHT)} · eFashion ${formatEur(k.bySource.EFASHION.totalHT)} · Ankor ${formatEur(k.bySource.ANKORSTORE.totalHT)}`
+            ? `PFS ${formatEur(k.bySource.PFS.totalHT)} · eFashion ${formatEur(k.bySource.EFASHION.totalHT)} · Ankor ${formatEur(k.bySource.ANKORSTORE.totalHT)} · Faire ${formatEur(k.bySource.FAIRE.totalHT)}`
             : ""
         }
       />
@@ -76,6 +76,7 @@ function KpiCard({
           <MarketplaceBadge source="PFS" size="xs" />
           <MarketplaceBadge source="EFASHION" size="xs" />
           <MarketplaceBadge source="ANKORSTORE" size="xs" />
+          <MarketplaceBadge source="FAIRE" size="xs" />
         </div>
       )}
       <div className="text-xs uppercase tracking-[0.2em] text-text-muted">{label}</div>

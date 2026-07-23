@@ -492,11 +492,14 @@ function buildProductPullPatch(a: ParsedAction, ctx: ApplyContext, patch: LocalP
     case "productStatus": {
       const raw = String(pfs.status ?? "").toUpperCase();
       // On mappe le statut PFS vers un statut local pertinent (ONLINE/OFFLINE
-      // /ARCHIVED). READY_FOR_SALE + NEW → ONLINE, DRAFT → OFFLINE, ARCHIVED
-      // /DELETED → ARCHIVED. On ne remonte jamais en SYNCING (transitoire).
-      if (raw === "READY_FOR_SALE" || raw === "NEW") patch.product.status = "ONLINE";
+      // /ARCHIVED). READY_FOR_SALE → ONLINE, DRAFT → OFFLINE, ARCHIVED /
+      // DELETED / NEW → ARCHIVED. On ne remonte jamais en SYNCING (transitoire).
+      // NEW = produit PFS créé mais jamais activé (invisible via listProducts,
+      // affiché « brouillon » dans l'UI PFS) → sémantiquement équivalent à
+      // ARCHIVED chez nous, PAS à ONLINE.
+      if (raw === "READY_FOR_SALE") patch.product.status = "ONLINE";
       else if (raw === "DRAFT") patch.product.status = "OFFLINE";
-      else if (raw === "ARCHIVED" || raw === "DELETED") patch.product.status = "ARCHIVED";
+      else if (raw === "ARCHIVED" || raw === "DELETED" || raw === "NEW") patch.product.status = "ARCHIVED";
       else throw new Error(`Statut PFS inconnu : ${raw}`);
       return;
     }

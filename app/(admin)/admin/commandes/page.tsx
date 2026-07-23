@@ -36,13 +36,14 @@ export default async function AdminCommandesPage({
     source === "marketplaces" || source === "pfs" ? "marketplaces" : "boutique";
 
   const tenant = await requireCurrentTenant();
-  const [totalBoutique, totalPfs, totalEfashion, totalAnkorstore] = await Promise.all([
+  const [totalBoutique, totalPfs, totalEfashion, totalAnkorstore, totalFaire] = await Promise.all([
     prisma.order.count({ where: { tenantId: tenant.id } }),
     prisma.pfsOrder.count({ where: { tenantId: tenant.id } }),
     prisma.efashionOrder.count({ where: { tenantId: tenant.id } }),
     prisma.ankorstoreOrder.count({ where: { tenantId: tenant.id } }),
+    prisma.faireOrder.count({ where: { tenantId: tenant.id } }),
   ]);
-  const totalMarketplaces = totalPfs + totalEfashion + totalAnkorstore;
+  const totalMarketplaces = totalPfs + totalEfashion + totalAnkorstore + totalFaire;
 
   if (activeTab === "marketplaces") {
     const syncMeta = await getMarketplaceSyncMeta();

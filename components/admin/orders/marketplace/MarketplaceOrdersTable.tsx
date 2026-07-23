@@ -64,7 +64,7 @@ interface Props {
   onOpen: (row: MarketplaceOrderListItem) => void;
   onDeductClick: (row: MarketplaceOrderListItem) => void;
   statusCounts: Record<MarketplaceUnifiedStatus, number> | null;
-  countsBySource: { PFS: number; EFASHION: number; ANKORSTORE: number };
+  countsBySource: { PFS: number; EFASHION: number; ANKORSTORE: number; FAIRE: number };
 }
 
 export default function MarketplaceOrdersTable(props: Props) {
@@ -104,11 +104,12 @@ export default function MarketplaceOrdersTable(props: Props) {
     () => [
       {
         value: "",
-        label: `Toutes marketplaces (${countsBySource.PFS + countsBySource.EFASHION + countsBySource.ANKORSTORE})`,
+        label: `Toutes marketplaces (${countsBySource.PFS + countsBySource.EFASHION + countsBySource.ANKORSTORE + countsBySource.FAIRE})`,
       },
       { value: "PFS", label: `Paris Fashion Shop (${countsBySource.PFS})` },
       { value: "EFASHION", label: `eFashion Paris (${countsBySource.EFASHION})` },
       { value: "ANKORSTORE", label: `Ankorstore (${countsBySource.ANKORSTORE})` },
+      { value: "FAIRE", label: `Faire (${countsBySource.FAIRE})` },
     ],
     [countsBySource],
   );
@@ -281,6 +282,10 @@ export default function MarketplaceOrdersTable(props: Props) {
           {"  "}
           <span className="inline-flex items-center gap-1 ml-2">
             <MarketplaceBadge source="ANKORSTORE" size="xs" /> {countsBySource.ANKORSTORE}
+          </span>
+          {"  "}
+          <span className="inline-flex items-center gap-1 ml-2">
+            <MarketplaceBadge source="FAIRE" size="xs" /> {countsBySource.FAIRE}
           </span>
         </div>
         <div className="flex gap-2">

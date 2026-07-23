@@ -273,6 +273,7 @@ export default function MarketplaceTopProducts({ stats }: Props) {
                           <th className="text-right py-1 px-2">PFS</th>
                           <th className="text-right py-1 px-2">eFashion</th>
                           <th className="text-right py-1 px-2">Ankor</th>
+                          <th className="text-right py-1 px-2">Faire</th>
                           <th className="text-right py-1 px-2 font-semibold">Total</th>
                           <th className="text-right py-1 pl-2">CA HT</th>
                         </tr>
@@ -283,6 +284,7 @@ export default function MarketplaceTopProducts({ stats }: Props) {
                             PFS: 0,
                             EFASHION: 0,
                             ANKORSTORE: 0,
+                            FAIRE: 0,
                           };
                           for (const b of c.bySource) bySrc[b.source] = b.quantitySold;
                           return (
@@ -312,6 +314,9 @@ export default function MarketplaceTopProducts({ stats }: Props) {
                               </td>
                               <td className="py-1.5 px-2 text-right tabular-nums">
                                 {bySrc.ANKORSTORE || "—"}
+                              </td>
+                              <td className="py-1.5 px-2 text-right tabular-nums">
+                                {bySrc.FAIRE || "—"}
                               </td>
                               <td className="py-1.5 px-2 text-right tabular-nums font-semibold text-text-primary">
                                 {c.quantitySold}

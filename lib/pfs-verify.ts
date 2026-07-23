@@ -665,7 +665,13 @@ export function comparePfsProduct(
       allZero,
       opts.outOfStockProductAction ?? "archived",
     );
-    const actualPfsStatus = String(pfsProduct.status ?? "").toUpperCase();
+    // PFS `NEW` = produit créé mais jamais activé (invisible via listProducts,
+    // affiché « brouillon » dans l'UI PFS). Sémantiquement équivalent à
+    // ARCHIVED côté BJ (produit invisible en vitrine). On normalise avant
+    // comparaison pour ne pas générer d'écart bidon quand local=ARCHIVED ↔
+    // PFS=NEW, et pour afficher un libellé cohérent (« Archivé ») dans le modal.
+    const rawPfsStatus = String(pfsProduct.status ?? "").toUpperCase();
+    const actualPfsStatus = rawPfsStatus === "NEW" ? "ARCHIVED" : rawPfsStatus;
     if (
       isKnownPfsStatus(actualPfsStatus) &&
       actualPfsStatus !== expectedPfsStatus
@@ -858,7 +864,11 @@ function labelForPfsStatus(s: string): string {
     case "DRAFT": return "Hors ligne (brouillon)";
     case "ARCHIVED": return "Archivé";
     case "DELETED": return "Supprimé";
-    case "NEW": return "Nouveau";
+    // NEW = produit PFS créé mais jamais activé (invisible en vitrine PFS).
+    // Traité comme ARCHIVED côté BJ — libellé harmonisé pour éviter toute
+    // ambiguïté dans le modal (défensif : la comparaison normalise déjà
+    // NEW → ARCHIVED avant d'appeler ce libellé).
+    case "NEW": return "Archivé";
     default: return s || "(inconnu)";
   }
 }

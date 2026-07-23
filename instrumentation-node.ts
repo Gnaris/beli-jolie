@@ -204,6 +204,22 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de polling des commandes Faire. Même mécanique que les autres
+  // marketplaces. Faire ne fournit AUCUN webhook (§13 docs/faire-api.md) —
+  // le polling est le seul moyen de détecter les nouvelles commandes.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startFaireOrdersWorker } = await import("@/lib/faire-orders-worker");
+        startFaireOrdersWorker();
+      } catch (err) {
+        logger.error("[Faire Orders] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   // Worker des scénarios emails marketing (panier abandonné, etc.). Tick 15 min.
   // Idempotent : les scanners posent leur propre verrou (contrainte unique
   // sur EmailSend) — ré-exécuter n'envoie pas 2× le même mail.
