@@ -87,12 +87,12 @@ export interface AdminProductsFilterParams {
    */
   pfsLink?: string;
   /**
-   * Filtre sur le lien Ankorstore — un produit est considéré « lié » seulement
-   * s'il est complètement lié (produit + toutes ses couleurs UNIT). Tant qu'au
-   * moins une couleur UNIT n'a pas son `ankorsVariantId`, le produit est traité
-   * comme non lié.
-   *   - "linked"   = `ankorsProductId` renseigné ET aucune couleur UNIT sans `ankorsVariantId`
-   *   - "unlinked" = `ankorsProductId` vide OU au moins une couleur UNIT sans `ankorsVariantId`
+   * Filtre sur le lien Ankorstore — aligné sur le badge vert de la table admin
+   * qui ne regarde que `ankorsProductId`. Un produit est « lié » dès que la fiche
+   * globale a son `ankorsProductId` ; les couleurs partiellement liées sont
+   * signalées à part par le badge orange « Synchronisation nécessaire ».
+   *   - "linked"   = `ankorsProductId` renseigné
+   *   - "unlinked" = `ankorsProductId` vide
    */
   ankorsLink?: string;
   /**
@@ -379,20 +379,8 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
 
   if (params.ankorsLink === "linked") {
     where.ankorsProductId = { not: null };
-    where.AND = [
-      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
-      { NOT: { colors: { some: { saleType: "UNIT", ankorsVariantId: null } } } },
-    ];
   } else if (params.ankorsLink === "unlinked") {
-    where.AND = [
-      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
-      {
-        OR: [
-          { ankorsProductId: null },
-          { colors: { some: { saleType: "UNIT", ankorsVariantId: null } } },
-        ],
-      },
-    ];
+    where.ankorsProductId = null;
   }
 
   if (params.efashionLink === "linked") {

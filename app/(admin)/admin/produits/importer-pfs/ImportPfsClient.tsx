@@ -17,6 +17,7 @@ interface ValidatedRef {
   pfsId: string;
   reference: string;
   name: string;
+  defaultImage: string | null;
 }
 
 // ─────────────────────────────────────────
@@ -201,7 +202,7 @@ export default function ImportPfsClient({
         family: "",
         colorCount: 0,
         variantCount: 0,
-        defaultImage: null,
+        defaultImage: r.defaultImage ?? null,
       }))
     );
     setSelected(new Set(validatedRefs.map((r) => r.pfsId)));

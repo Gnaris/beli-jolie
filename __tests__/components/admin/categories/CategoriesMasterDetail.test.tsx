@@ -107,6 +107,7 @@ function makeCat(id: string, name: string, position: number): CategoryRow {
     name,
     position,
     translations: {},
+    pfsCategoryId: null,
     pfsGender: null,
     pfsFamilyName: null,
     pfsCategoryName: null,

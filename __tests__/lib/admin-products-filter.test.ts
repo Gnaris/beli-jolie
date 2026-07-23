@@ -331,25 +331,16 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ pfsLink: "lol" }).pfsProductId).toBeUndefined();
   });
 
-  it("requires both product and all UNIT colors to be linked when ankorsLink=linked", () => {
+  it("filtre ankorsLink=linked : ankorsProductId non nul, aligné sur le badge vert", () => {
     const where = buildAdminProductsWhere({ ankorsLink: "linked" });
     expect(where.ankorsProductId).toEqual({ not: null });
-    expect(where.AND).toEqual([
-      { NOT: { colors: { some: { saleType: "UNIT", ankorsVariantId: null } } } },
-    ]);
+    expect(where.AND).toBeUndefined();
   });
 
-  it("matches products that are unlinked OR have at least one unlinked UNIT color when ankorsLink=unlinked", () => {
+  it("filtre ankorsLink=unlinked : ankorsProductId null uniquement (aligné sur le badge)", () => {
     const where = buildAdminProductsWhere({ ankorsLink: "unlinked" });
-    expect(where.ankorsProductId).toBeUndefined();
-    expect(where.AND).toEqual([
-      {
-        OR: [
-          { ankorsProductId: null },
-          { colors: { some: { saleType: "UNIT", ankorsVariantId: null } } },
-        ],
-      },
-    ]);
+    expect(where.ankorsProductId).toBeNull();
+    expect(where.AND).toBeUndefined();
   });
 
   it("ignores ankorsLink when value is empty or unknown", () => {
@@ -360,14 +351,9 @@ describe("buildAdminProductsWhere", () => {
   it("combines pfsLink and ankorsLink without clobbering each other", () => {
     const where = buildAdminProductsWhere({ pfsLink: "linked", ankorsLink: "unlinked" });
     expect(where.pfsProductId).toEqual({ not: null });
+    expect(where.ankorsProductId).toBeNull();
     expect(where.AND).toEqual([
       { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
-      {
-        OR: [
-          { ankorsProductId: null },
-          { colors: { some: { saleType: "UNIT", ankorsVariantId: null } } },
-        ],
-      },
     ]);
   });
 
@@ -650,7 +636,6 @@ describe("buildAdminProductsWhere", () => {
     expect(where.efashionReferenceBase).toBeUndefined();
     expect(where.AND).toEqual([
       { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
-      { NOT: { colors: { some: { saleType: "UNIT", ankorsVariantId: null } } } },
       {
         OR: [
           { efashionReferenceBase: null },

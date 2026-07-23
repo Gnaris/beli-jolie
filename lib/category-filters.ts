@@ -2,6 +2,7 @@ export type CategoryForFilters = {
   id: string;
   name: string;
   translations: Record<string, string>;
+  pfsCategoryId: string | null;
   pfsGender: string | null;
   pfsFamilyName: string | null;
   pfsCategoryName: string | null;
@@ -32,7 +33,7 @@ export function matchesFilters(cat: CategoryForFilters, active: Set<FilterKey>):
     const en = cat.translations.en;
     if (fr && fr.trim() !== "" && en && en.trim() !== "") return false;
   }
-  if (active.has("missingPfs") && cat.pfsGender && cat.pfsFamilyName && cat.pfsCategoryName) return false;
+  if (active.has("missingPfs") && cat.pfsCategoryId) return false;
   if (active.has("missingEfashion") && cat.efashionCategorieId != null) return false;
   if (active.has("missingFaire") && cat.faireTaxonomyId != null) return false;
   return true;

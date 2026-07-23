@@ -72,6 +72,7 @@ export default async function CategoriesPage() {
     name: c.name,
     position: c.position,
     translations: buildTranslationsMap(c.name, c.translations),
+    pfsCategoryId: c.pfsCategoryId,
     pfsGender: c.pfsGender,
     pfsFamilyName: c.pfsFamilyName,
     pfsCategoryName: c.pfsCategoryName,

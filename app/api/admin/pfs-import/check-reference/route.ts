@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { pfsCheckReference } from "@/lib/pfs-api";
+import { pickDefaultImage } from "@/lib/pfs-import";
 import { logger } from "@/lib/logger";
 
 export async function POST(request: Request) {
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
         pfsId: p.id,
         reference: p.reference,
         name,
+        defaultImage: pickDefaultImage(p.images),
       },
     });
   } catch (err) {

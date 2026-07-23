@@ -6,8 +6,8 @@ import type { CategoryForFilters } from "@/lib/category-filters";
 type Cat = CategoryForFilters & { productCount: number };
 
 const cats: Cat[] = [
-  { id: "a", name: "Bagues", translations: { fr: "Bagues", en: "Rings" }, pfsGender: "W", pfsFamilyName: "B", pfsCategoryName: "Bagues", efashionCategorieId: 1, faireTaxonomyId: "x", productCount: 56 },
-  { id: "b", name: "Colliers", translations: {}, pfsGender: null, pfsFamilyName: null, pfsCategoryName: null, efashionCategorieId: null, faireTaxonomyId: null, productCount: 89 },
+  { id: "a", name: "Bagues", translations: { fr: "Bagues", en: "Rings" }, pfsCategoryId: "pfs-a", pfsGender: "W", pfsFamilyName: "B", pfsCategoryName: "Bagues", efashionCategorieId: 1, faireTaxonomyId: "x", productCount: 56 },
+  { id: "b", name: "Colliers", translations: {}, pfsCategoryId: null, pfsGender: null, pfsFamilyName: null, pfsCategoryName: null, efashionCategorieId: null, faireTaxonomyId: null, productCount: 89 },
 ];
 
 describe("CategoriesList", () => {

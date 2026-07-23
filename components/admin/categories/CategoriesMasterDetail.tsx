@@ -25,6 +25,7 @@ export type CategoryRow = {
   name: string;
   position: number;
   translations: Record<string, string>;
+  pfsCategoryId: string | null;
   pfsGender: string | null;
   pfsFamilyName: string | null;
   pfsCategoryName: string | null;
