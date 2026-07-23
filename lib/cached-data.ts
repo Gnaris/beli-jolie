@@ -516,25 +516,45 @@ export async function getCachedPfsCredentials() {
 }
 
 // ─── Ankorstore — credentials, enabled, has-config (mêmes patterns que PFS) ──
-export const getCachedAnkorstoreCredentials = tenantScopedCacheWithTid(
+async function readAnkorstoreCredentialsDirect(tid?: string) {
+  const rows = await prisma.siteConfig.findMany({
+    where: !tid || tid === "global"
+      ? { key: { in: ["ankors_client_id", "ankors_client_secret"] } }
+      : { tenantId: tid, key: { in: ["ankors_client_id", "ankors_client_secret"] } },
+  });
+  const map = new Map(
+    rows.map((r) => [r.key, decryptIfSensitive(r.key, r.value)?.trim() ?? null]),
+  );
+  return {
+    clientId: map.get("ankors_client_id") ?? null,
+    clientSecret: map.get("ankors_client_secret") ?? null,
+  };
+}
+
+const _cachedAnkorstoreCredentials = tenantScopedCacheWithTid(
   "ankorstore-credentials",
-  async (tid) => {
-    const rows = await prisma.siteConfig.findMany({
-      where: tid === "global"
-        ? { key: { in: ["ankors_client_id", "ankors_client_secret"] } }
-        : { tenantId: tid, key: { in: ["ankors_client_id", "ankors_client_secret"] } },
-    });
-    const map = new Map(
-      rows.map((r) => [r.key, decryptIfSensitive(r.key, r.value)?.trim() ?? null]),
-    );
-    return {
-      clientId: map.get("ankors_client_id") ?? null,
-      clientSecret: map.get("ankors_client_secret") ?? null,
-    };
-  },
+  async (tid) => readAnkorstoreCredentialsDirect(tid),
   ["ankorstore-credentials"],
   { revalidate: 300, tags: ["site-config"] }
 );
+
+/**
+ * Lit les identifiants Ankorstore. Cache via unstable_cache (5 min) quand on
+ * est dans un contexte Next.js (route, server action). Hors contexte (scripts
+ * tsx standalone, background fire-and-forget hors request scope), unstable_cache
+ * lève "incrementalCache missing" — on retombe sur la lecture directe Prisma.
+ */
+export async function getCachedAnkorstoreCredentials() {
+  try {
+    return await _cachedAnkorstoreCredentials();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("incrementalCache") || msg.includes("unstable_cache")) {
+      return await readAnkorstoreCredentialsDirect(await resolveTidForFallback());
+    }
+    throw err;
+  }
+}
 
 export const getCachedHasAnkorstoreConfig = tenantScopedCacheWithTid(
   "has-ankorstore-config",

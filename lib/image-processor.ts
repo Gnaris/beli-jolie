@@ -45,7 +45,10 @@ const SIZES = {
 // pour la version "large" qui sert de source aux URLs envoyées aux marketplaces.
 export const MIN_LARGE_WIDTH = 600;
 
-const WEBP_OPTS = { lossless: true, quality: 100, effort: 4 } as const;
+// effort 2 (au lieu de 4) : divise le CPU par ~2 sur la compression WebP
+// lossless. La taille de fichier n'augmente que de quelques % — imperceptible
+// visuellement et sans perte (lossless conservé).
+const WEBP_OPTS = { lossless: true, quality: 100, effort: 2 } as const;
 
 // ─────────────────────────────────────────────
 // Processing

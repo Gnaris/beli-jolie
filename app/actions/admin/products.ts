@@ -7,7 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { invalidateProductTranslations, translateTextStrict } from "@/lib/translate";
-import { notifyRestockAlerts } from "@/lib/notifications";
+import { recordRestockEvent } from "@/lib/email-marketing/back-in-stock";
 import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
@@ -1325,7 +1325,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     if (colorInput.dbId) {
       const oldStock = oldStockMap.get(colorInput.dbId) ?? 0;
       if (oldStock === 0 && colorInput.stock > 0) {
-        notifyRestockAlerts(colorInput.dbId).catch(() => {});
+        recordRestockEvent(colorInput.dbId).catch(() => {});
       }
     }
   }

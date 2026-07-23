@@ -92,22 +92,22 @@ model User {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
-  cart            Cart?
-  addresses       ShippingAddress[]
-  orders          Order[]
-  favorites       Favorite[]
-  importDrafts    ImportDraft[]
-  importJobs      ImportJob[]
-  restockAlerts   RestockAlert[]
-  stockMovements  StockMovement[]   @relation("StockMovementCreator")
-  conversations   Conversation[]
-  messagesSent    Message[]
-  claims          Claim[]
-  credits         Credit[]
-  promotionUsages PromotionUsage[]
-  productViews    ProductView[]     @relation("ProductViewer")
-  priceChanges    PriceHistory[]    @relation("PriceChanger")
-  adminClientCards AdminClientCard[] @relation("AdminCardCreator")
+  cart                       Cart?
+  addresses                  ShippingAddress[]
+  orders                     Order[]
+  favorites                  Favorite[]
+  importDrafts               ImportDraft[]
+  importJobs                 ImportJob[]
+  restockAlerts              RestockAlert[]
+  stockMovements             StockMovement[]                  @relation("StockMovementCreator")
+  conversations              Conversation[]
+  messagesSent               Message[]
+  claims                     Claim[]
+  credits                    Credit[]
+  promotionUsages            PromotionUsage[]
+  productViews               ProductView[]                    @relation("ProductViewer")
+  priceChanges               PriceHistory[]                   @relation("PriceChanger")
+  adminClientCards           AdminClientCard[]                @relation("AdminCardCreator")
   adminCardPurchaseAdditions AdminClientCardProductPurchase[] @relation("AdminCardPurchaseAdder")
 
   @@unique([tenantId, email])
@@ -143,9 +143,9 @@ model Favorite {
 // Répertoire personnel des admins (fiches manuelles, séparées des vrais comptes User)
 // ─────────────────────────────────────────────
 model AdminClientCard {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   createdById String?
-  createdBy   User?    @relation("AdminCardCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("AdminCardCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   // Identité
   firstName String
@@ -177,9 +177,13 @@ model AdminClientCard {
   // Rattachement automatique aux commandes PFS.
   // Posé quand la fiche est créée/matchée par la synchro des commandes PFS.
   // Sert de clé rapide pour retrouver le client sur les cycles de sync suivants.
-  pfsCustomerId          String?
+  pfsCustomerId           String?
+  // Idem pour eFashion Paris (id_acheteur côté API GraphQL).
+  efashionCustomerId      String?
+  // Idem pour Ankorstore (retailer.id JSON:API — UUID).
+  ankorstoreRetailerId    String?
   // Marqueur "fiche créée automatiquement par une synchro marketplace"
-  // (valeurs : "PFS", "ANKORSTORE"…). Utilisé pour afficher le badge "Importé auto".
+  // (valeurs : "PFS", "EFASHION", "ANKORSTORE"…). Utilisé pour afficher le badge "Importé auto".
   importedFromMarketplace String?
 
   // Historique
@@ -206,12 +210,16 @@ model AdminClientCard {
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
   pfsOrders        PfsOrder[]
+  efashionOrders   EfashionOrder[]
+  ankorstoreOrders AnkorstoreOrder[]
   productPurchases AdminClientCardProductPurchase[]
 
   @@index([tenantId])
   @@index([tenantId, createdAt])
   @@index([createdById])
   @@index([tenantId, pfsCustomerId])
+  @@index([tenantId, efashionCustomerId])
+  @@index([tenantId, ankorstoreRetailerId])
   @@index([tenantId, siret])
 }
 
@@ -302,9 +310,9 @@ model PfsOrder {
   carrier           String?
   paymentMethod     String?
 
-  pfsCustomerId String
-  customerName  String
-  customerShop  String?
+  pfsCustomerId   String
+  customerName    String
+  customerShop    String?
   customerCountry String? // ISO 3166-1 alpha-2
 
   adminClientCardId String?
@@ -313,9 +321,9 @@ model PfsOrder {
   statusTimelineJson Json?
   rawDetailJson      Json?
 
-  lastSyncedAt DateTime  @default(now())
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  lastSyncedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   items PfsOrderItem[]
 
@@ -335,13 +343,13 @@ model PfsOrderItem {
   pfsOrderId String
   pfsOrder   PfsOrder @relation(fields: [pfsOrderId], references: [id], onDelete: Cascade)
 
-  pfsItemId           String // "ord_9942..." — id ligne
-  pfsProductRef       String // "A1623E"
+  pfsItemId            String // "ord_9942..." — id ligne
+  pfsProductRef        String // "A1623E"
   pfsProductInternalId String? // "pro_..."
-  pfsSku              String // "A1623E_GOLDEN_TU"
+  pfsSku               String // "A1623E_GOLDEN_TU"
 
   productId      String?
-  product        Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  product        Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
   productColorId String?
   productColor   ProductColor? @relation(fields: [productColorId], references: [id], onDelete: SetNull)
 
@@ -351,11 +359,11 @@ model PfsOrderItem {
   sizeLabel           String?
   sizeDetails         String?
 
-  itemType     String  @default("ITEM")
+  itemType     String   @default("ITEM")
   qtyOrdered   Int
   qtyValidated Int
-  unitPriceHT  Decimal @db.Decimal(12, 2)
-  totalPriceHT Decimal @db.Decimal(12, 2)
+  unitPriceHT  Decimal  @db.Decimal(12, 2)
+  totalPriceHT Decimal  @db.Decimal(12, 2)
   weight       Decimal? @db.Decimal(10, 3)
 
   // Timestamp de déduction du stock depuis cette ligne PFS. Null = pas encore décrémentée.
@@ -363,11 +371,303 @@ model PfsOrderItem {
   // (ré-import PFS ne retentera pas la décrémentation).
   stockDeductedAt DateTime?
 
+  // Timestamp d'exclusion manuelle depuis la modale de prévisualisation. Non-null =
+  // l'admin a choisi « Ne pas déduire » pour le produit rattaché ; la ligne est
+  // considérée comme définitivement traitée (n'apparaît plus dans la file, aucun
+  // stock n'a été modifié). Action irréversible.
+  stockDeductionExcludedAt DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([pfsOrderId])
   @@index([tenantId, productId])
   @@index([tenantId, pfsProductRef])
+  @@index([tenantId, stockDeductedAt])
+  @@index([tenantId, stockDeductionExcludedAt])
+}
+
+// ─────────────────────────────────────────────
+// Commandes eFashion Paris — LECTURE SEULE
+// Copie locale des commandes récupérées depuis wapi.efashion-paris.com/graphql.
+// Même logique que PfsOrder : jamais renvoyée à eFashion, source de vérité = leur back-office.
+// Table séparée de PfsOrder pour préserver les champs propres à eFashion (groupage,
+// dimensions colis, tracking, remises multiples). La fusion avec PFS pour la page
+// « Marketplaces » se fait applicativement.
+// ─────────────────────────────────────────────
+// Statut normalisé partagé PFS/eFashion pour permettre des filtres unifiés.
+// Le statut brut eFashion (id_statut + libellé FR) reste stocké séparément.
+enum EfashionOrderStatus {
+  NEW // Nouvelle / en attente
+  VALIDATED // « Confirmé » côté eFashion (validée, avant expédition)
+  SHIPPED // Expédiée (statut 2 ou 8 côté eFashion)
+  CANCELLED
+}
+
+model EfashionOrder {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // ID commande eFashion (int côté API, stocké en string pour homogénéité avec PFS)
+  efashionOrderId     String // "10618644"
+  efashionOrderName   String // "F5647C490444A158967V2017"
+  efashionOrderGroupe String? // "490444"
+
+  status            EfashionOrderStatus
+  statusIdRaw       Int // 2, 8, etc. — id_statut brut eFashion
+  statusLabelFr     String // "Pickup colis effectué"
+  createdAtEfashion DateTime // dateCreation / dateCommande
+  shippedAt         DateTime?
+  canceledAt        DateTime?
+
+  // Montants HT (eFashion travaille en HT sur les commandes vendeur)
+  totalHT            Decimal  @db.Decimal(12, 2) // montantTotal
+  totalAfterDiscount Decimal  @db.Decimal(12, 2) // montantApresRemise
+  ruptureHT          Decimal  @default(0) @db.Decimal(12, 2) // montantRuptureHT
+  ca                 Decimal  @default(0) @db.Decimal(12, 2) // montantCA
+  shippingCost       Decimal? @db.Decimal(12, 2) // frais_port
+  totalWeight        Decimal? @db.Decimal(10, 3) // poids
+  parcelCount        Int      @default(1) // nb_colis
+  isFirstOrder       Boolean  @default(false)
+
+  carrier       String? // livraison.libelle
+  paymentMethod String? // paiement.texte_fr
+
+  // Client eFashion — id_acheteur
+  efashionCustomerId String
+  customerName       String // nomSociete
+  customerContact    String? // "Prénom Nom"
+  customerEmail      String?
+  customerVatIntra   String?
+  customerEori       String?
+  customerCountry    String? // ISO 3166-1 alpha-2 (adresse livraison)
+
+  // Rattachement fiche client admin — même mécanique que PfsOrder
+  adminClientCardId String?
+  adminClientCard   AdminClientCard? @relation(fields: [adminClientCardId], references: [id], onDelete: SetNull)
+
+  // Suivi expédition (recuperé via commandeEtiquettes)
+  trackingNumber String?
+  labelUrl       String?
+
+  // Payload brut de commandeById pour drawer et debug
+  rawDetailJson Json?
+
+  lastSyncedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  items EfashionOrderItem[]
+
+  @@unique([tenantId, efashionOrderId])
+  @@index([tenantId, createdAtEfashion])
+  @@index([tenantId, status])
+  @@index([tenantId, efashionCustomerId])
+  @@index([adminClientCardId])
+}
+
+model EfashionOrderItem {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  efashionOrderId String
+  efashionOrder   EfashionOrder @relation(fields: [efashionOrderId], references: [id], onDelete: Cascade)
+
+  // Identifiants ligne eFashion
+  efashionLineId    BigInt // id_ligne (14535554)
+  efashionProductId Int // id_produit (3765459) — rattachement 1-1 avec ProductColor.efashionProductId
+  efashionColorId   Int? // id_couleur (16)
+  referenceFull     String // "A257-BLANC"
+  referenceBase     String // "A257"
+
+  // Rattachement BJ (résolution best-effort via ProductColor.efashionProductId ou reference_base)
+  productId      String?
+  product        Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productColorId String?
+  productColor   ProductColor? @relation(fields: [productColorId], references: [id], onDelete: SetNull)
+
+  // Snapshot au moment de la commande (résistant au renommage produit)
+  productSnapshotName String?
+  colorLabelFr        String? // couleur_FR
+  categorySnapshot    String? // categorie
+  provenanceCode      String? // provenance_code (ex "CN")
+
+  // Quantités : eFashion découpe en 12 tailles max, on garde le JSON brut + le total
+  qtyTotal         Int // quantite_total
+  qtyPackUnit      Int // quantite_pack
+  quantitiesJson   Json // {q1..q12}
+  declinaisonsJson Json? // {d1_FR..d12_FR, d1_UK..d12_UK}
+
+  // Prix HT
+  unitPriceHT Decimal  @db.Decimal(12, 2) // prix
+  totalLineHT Decimal  @db.Decimal(12, 2) // prixLigne
+  weightUnit  Decimal? @db.Decimal(10, 3) // poids_produit
+  weightLine  Decimal? @db.Decimal(10, 3) // poids
+
+  // Déduction stock — même mécanique qu'à PFS pour idempotence
+  stockDeductedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([efashionOrderId])
+  @@index([tenantId, productId])
+  @@index([tenantId, productColorId])
+  @@index([tenantId, referenceBase])
+  @@index([tenantId, efashionProductId])
+  @@index([tenantId, stockDeductedAt])
+}
+
+// ─────────────────────────────────────────────
+// Commandes Ankorstore — LECTURE SEULE
+// Copie locale des commandes récupérées depuis /api/v1/orders (JSON:API).
+// Même logique que PfsOrder / EfashionOrder : jamais renvoyée à Ankorstore,
+// source de vérité = leur back-office. Table séparée pour préserver les champs
+// propres à Ankorstore (masterOrderId, tracking Chronopost, brand_paid, etc.).
+// ─────────────────────────────────────────────
+// Statut normalisé partagé pour permettre des filtres unifiés.
+// Le statut brut Ankorstore (statusRaw) reste stocké tel quel côté enregistrement.
+enum AnkorstoreOrderStatus {
+  NEW // submitted / needs_review / retailer_paid (en amont de la confirmation marque)
+  VALIDATED // ankor_confirmed — commande confirmée, à préparer
+  SHIPPED // shipped / delivered / brand_paid (post-expédition)
+  CANCELLED // cancelled / rejected
+}
+
+model AnkorstoreOrder {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Identifiants Ankorstore (UUID JSON:API)
+  ankorstoreOrderId       String // "1f13aa03-94c6-60b0-9680-32b64ab4e5bc"
+  ankorstoreMasterOrderId String? // master order (groupe multi-commandes)
+  reference               String // numéro lisible ("4930569")
+
+  status         AnkorstoreOrderStatus
+  statusRaw      String // "brand_paid", "cancelled", "ankor_confirmed"…
+  currency       String                @default("EUR")
+  createdAtAnkor DateTime
+  submittedAt    DateTime?
+  shippedAt      DateTime?
+  brandPaidAt    DateTime?
+  canceledAt     DateTime?
+
+  // Montants — Decimal en euros (après division /100 depuis les centimes API)
+  brandNetAmount          Decimal @db.Decimal(12, 2) // HT net après frais Ankor
+  brandTotalAmount        Decimal @db.Decimal(12, 2) // HT total commande
+  brandTotalAmountVat     Decimal @db.Decimal(12, 2) // TVA
+  brandTotalAmountWithVat Decimal @db.Decimal(12, 2) // TTC total commande
+
+  // Motifs annulation / rejet (fournis quand pertinent)
+  brandRejectReason                 String? @db.Text
+  retailerRejectReason              String? @db.Text
+  retailerCancellationRequestReason String? @db.Text
+
+  // Adresse de facturation (attributs plats sur l'order Ankor)
+  billingName             String?
+  billingOrganisationName String?
+  billingStreet           String?
+  billingPostalCode       String?
+  billingCity             String?
+  billingCountryCode      String? // ISO 3166-1 alpha-2
+
+  // Adresse de livraison (extraite de shippingOverview.shipToAddress)
+  shippingName             String?
+  shippingOrganisationName String?
+  shippingStreet           String?
+  shippingPostalCode       String?
+  shippingCity             String?
+  shippingCountryCode      String?
+
+  // Transporteur + suivi
+  shippingMethod        String? // "custom", "ankorstore", "no_shipping_needed"…
+  carrier               String? // provider (chronopost, colissimo, dhl…)
+  trackingNumber        String?
+  trackingLink          String?   @db.Text
+  trackingStatus        String? // DELIVERED, IN_TRANSIT…
+  trackingStatusDetails String?
+  trackingUpdatedAt     DateTime?
+
+  // Retailer (client Ankorstore) — snapshot pour affichage sans re-query
+  ankorstoreRetailerId String
+  customerName         String // "Prénom Nom"
+  customerShop         String? // storeName
+  customerEmail        String?
+  customerPhone        String?
+  customerVatNumber    String?
+  customerSiret        String? // businessIdentifier / taxNumber
+  customerCountry      String? // ISO 3166-1 alpha-2 (adresse livraison)
+
+  // Rattachement fiche client admin — même mécanique que PfsOrder / EfashionOrder
+  adminClientCardId String?
+  adminClientCard   AdminClientCard? @relation(fields: [adminClientCardId], references: [id], onDelete: SetNull)
+
+  // Payloads bruts (drawer + debug)
+  billingItemsJson     Json? // billing-items included (frais Ankor, shipping fees)
+  shippingOverviewJson Json? // shippingOverview attribut détail (dates, quotes, parcels)
+  rawDetailJson        Json? // payload complet du GET /orders/{id}
+
+  lastSyncedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  items AnkorstoreOrderItem[]
+
+  @@unique([tenantId, ankorstoreOrderId])
+  @@index([tenantId, createdAtAnkor])
+  @@index([tenantId, status])
+  @@index([tenantId, ankorstoreRetailerId])
+  @@index([adminClientCardId])
+}
+
+model AnkorstoreOrderItem {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  ankorstoreOrderId String
+  ankorstoreOrder   AnkorstoreOrder @relation(fields: [ankorstoreOrderId], references: [id], onDelete: Cascade)
+
+  // Identifiants Ankorstore
+  ankorstoreItemId    String // uuid order-item
+  ankorstoreVariantId String? // uuid productVariant (si include résolu)
+  ankorstoreProductId String? // uuid product (via variant.product)
+  sku                 String // "PRT35_blanc_iz0dtf3t"
+  referenceBase       String? // "PRT35" — premier segment du SKU, sert au matching catalogue
+
+  // Rattachement BJ (résolution best-effort via Product.ankorsProductId,
+  // ProductColor.ankorsVariantId, puis fallback Product.reference)
+  productId      String?
+  product        Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productColorId String?
+  productColor   ProductColor? @relation(fields: [productColorId], references: [id], onDelete: SetNull)
+
+  // Snapshot au moment de la commande (résistant au renommage)
+  productSnapshotName String?
+  variantOptionLabel  String? // couleur ou taille brute retournée par Ankor
+
+  quantity           Int
+  multipliedQuantity Int // quantity * unitMultiplier
+  unitPriceHT        Decimal @db.Decimal(12, 2) // brandUnitPrice / 100
+  totalPriceHT       Decimal @db.Decimal(12, 2) // brandAmount / 100
+  vatAmount          Decimal @db.Decimal(12, 2) // brandAmountVat / 100
+  totalWithVat       Decimal @db.Decimal(12, 2) // brandAmountWithVat / 100
+  vatRate            Decimal @db.Decimal(5, 2)
+
+  // Déduction stock — même mécanique qu'à PFS/eFashion pour idempotence
+  stockDeductedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([ankorstoreOrderId])
+  @@index([tenantId, productId])
+  @@index([tenantId, productColorId])
+  @@index([tenantId, referenceBase])
   @@index([tenantId, stockDeductedAt])
 }
 
@@ -628,18 +928,18 @@ model ProductTag {
 
 // Produit principal
 model Product {
-  id                          String                @id @default(cuid())
+  id                          String                           @id @default(cuid())
   reference                   String
   name                        String
-  description                 String                @db.Text
-  note                        String?               @db.Text
+  description                 String                           @db.Text
+  note                        String?                          @db.Text
   categoryId                  String
-  category                    Category              @relation(fields: [categoryId], references: [id])
-  subCategories               SubCategory[]         @relation("ProductSubCategories")
+  category                    Category                         @relation(fields: [categoryId], references: [id])
+  subCategories               SubCategory[]                    @relation("ProductSubCategories")
   // Sous-catégorie choisie pour la colonne "Catégorie" de l'export Microstore.
   // null = catégorie principale (comportement par défaut).
   microstoreSubCategoryId     String?
-  microstoreSubCategory       SubCategory?          @relation("ProductMicrostoreSubCategory", fields: [microstoreSubCategoryId], references: [id], onDelete: SetNull)
+  microstoreSubCategory       SubCategory?                     @relation("ProductMicrostoreSubCategory", fields: [microstoreSubCategoryId], references: [id], onDelete: SetNull)
   colors                      ProductColor[]
   colorImages                 ProductColorImage[]
   compositions                ProductComposition[]
@@ -649,26 +949,29 @@ model Product {
   translations                ProductTranslation[]
   catalogs                    CatalogProduct[]
   restockAlerts               RestockAlert[]
+  restockEvents               RestockEvent[]
   pfsOrderItems               PfsOrderItem[]
+  efashionOrderItems          EfashionOrderItem[]
+  ankorstoreOrderItems        AnkorstoreOrderItem[]
   adminCardPurchases          AdminClientCardProductPurchase[]
-  isBestSeller                Boolean               @default(false)
-  status                      ProductStatus         @default(OFFLINE)
-  isIncomplete                Boolean               @default(false) // Produit incomplet (manque prix, poids, images, etc.)
+  isBestSeller                Boolean                          @default(false)
+  status                      ProductStatus                    @default(OFFLINE)
+  isIncomplete                Boolean                          @default(false) // Produit incomplet (manque prix, poids, images, etc.)
   // Verrou manuel : quand true, le bouton « Rafraîchir » est désactivé pour ce
   // produit (boutique + marketplaces). Sert à protéger une fiche fragile ou en
   // attente d'arbitrage commercial. Indépendant du statut et des syncs.
-  locked                      Boolean               @default(false)
+  locked                      Boolean                          @default(false)
   // Marqueur « Important » côté admin — équivalent d'un favori partagé entre
   // tous les comptes ADMIN. Sert à mettre de côté rapidement une fiche
   // (étoile sur la ligne, filtre « Importants seulement » dans la liste,
   // option de tri « Importants d'abord »). N'est pas exposé côté public.
-  important                   Boolean               @default(false)
+  important                   Boolean                          @default(false)
   // Produits similaires (M2M self)
-  similarProducts             ProductSimilar[]      @relation("PSim_A")
-  similarTo                   ProductSimilar[]      @relation("PSim_B")
+  similarProducts             ProductSimilar[]                 @relation("PSim_A")
+  similarTo                   ProductSimilar[]                 @relation("PSim_B")
   // Composition produit (ensemble → sous-produits)
-  bundleChildren              ProductBundle[]       @relation("Bundle_Parent")
-  bundleParents               ProductBundle[]       @relation("Bundle_Child")
+  bundleChildren              ProductBundle[]                  @relation("Bundle_Parent")
+  bundleParents               ProductBundle[]                  @relation("Bundle_Child")
   // Dimensions optionnelles (en mm)
   dimensionLength             Float?
   dimensionWidth              Float?
@@ -679,27 +982,27 @@ model Product {
   // SetNull : si le code de la bibliothèque est supprimé, le produit perd
   // simplement son code SH.
   hsCodeId                    String?
-  hsCode                      HsCode?               @relation(fields: [hsCodeId], references: [id], onDelete: SetNull)
+  hsCode                      HsCode?                          @relation(fields: [hsCodeId], references: [id], onDelete: SetNull)
   // Code ISO alpha-2 du pays de fabrication (ex: "CN"). Mapping marketplaces
   // (refs PFS/eFashion/Faire) figé dans `lib/countries.ts`.
   countryIsoCode              String?
   seasonId                    String?
-  season                      Season?               @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  season                      Season?                          @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   // Couleur principale du produit (vue par défaut côté boutique + default_color PFS).
   // Pointe vers une couleur de la liste des variantes OU des packLines.
   primaryColorId              String?
-  primaryColor                Color?                @relation("ProductPrimaryColor", fields: [primaryColorId], references: [id], onDelete: SetNull)
+  primaryColor                Color?                           @relation("ProductPrimaryColor", fields: [primaryColorId], references: [id], onDelete: SetNull)
   // Notice à afficher en bannière quand le système a auto-promu la couleur
   // principale (suite à image manquante / mapping PFS absent / variante supprimée /
   // toutes variantes désactivées). Reset à null quand l'utilisatrice ferme la
   // bannière ou quand une sauvegarde laisse la principale dans un état valide.
   primaryColorPromotionNotice Json?
   lowStockThreshold           Int?
-  discountPercent             Decimal?              @db.Decimal(5, 2) // Remise en % (ex: 15.00 = -15%). null = pas de remise
+  discountPercent             Decimal?                         @db.Decimal(5, 2) // Remise en % (ex: 15.00 = -15%). null = pas de remise
   views                       ProductView[]
   promotions                  PromotionProduct[]
-  createdAt                   DateTime              @default(now())
-  updatedAt                   DateTime              @updatedAt
+  createdAt                   DateTime                         @default(now())
+  updatedAt                   DateTime                         @updatedAt
   lastRefreshedAt             DateTime? // Date du dernier "Rafraîchir" (remet en Nouveauté sans toucher createdAt)
 
   sizeDetailsTu String? // Détail taille unique (ex: "52-56"), champ texte libre envoyé à PFS
@@ -725,9 +1028,9 @@ model Product {
   // `pfsCheckIssues` contient la liste structurée des écarts pour le tooltip
   // (fiche produit + couleurs + variantes en trop côté PFS). null tant que
   // la vérification n'a pas été lancée.
-  pfsCheckedAt    DateTime?
-  pfsCheckStatus  String?
-  pfsCheckIssues  Json?
+  pfsCheckedAt   DateTime?
+  pfsCheckStatus String?
+  pfsCheckIssues Json?
 
   // Ankorstore — identifiants et snapshot de la dernière sync réussie
   ankorsProductId        String?
@@ -769,10 +1072,10 @@ model Product {
   // automatiques (publish/refresh/resync/stock). Défaut true = toujours actif.
   // Quand false, le badge apparaît barré + tooltip "Marketplace désactivée" et
   // toutes les modales de push filtrent ce marketplace.
-  pfsEnabled           Boolean @default(true)
-  ankorsEnabled        Boolean @default(true)
-  efashionEnabled      Boolean @default(true)
-  faireEnabled         Boolean @default(true)
+  pfsEnabled      Boolean @default(true)
+  ankorsEnabled   Boolean @default(true)
+  efashionEnabled Boolean @default(true)
+  faireEnabled    Boolean @default(true)
 
   // Dernier export Excel/ZIP réussi depuis /admin/produits → bouton « Exporter ».
   // Mis à jour automatiquement quand la cliente télécharge l'export ; null = jamais
@@ -787,8 +1090,18 @@ model Product {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
+  @@unique([tenantId, reference])
+  @@unique([tenantId, pfsProductId])
+  @@unique([tenantId, ankorsProductId])
+  @@unique([tenantId, faireProductId])
   // Performance indexes for 78k+ products
   @@index([tenantId]) // multi-tenant scoping
+  // Index composites préfixés par tenantId : couvrent les listings admin
+  // filtrés par statut et triés par date. Sans ça, MySQL doit d'abord filtrer
+  // par tenantId (injecté par l'extension) puis merger un second index sur
+  // (status, createdAt) — beaucoup plus lent à volume élevé.
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, status, updatedAt])
   @@index([status, createdAt]) // catalog listing (default sort)
   @@index([status, updatedAt]) // "new" filter sort
   @@index([status, lastRefreshedAt]) // "new" filter including refreshed products
@@ -806,10 +1119,6 @@ model Product {
   @@index([microstoreLastExportedAt])
   @@index([ankorstoreLastExportedAt])
   @@index([faireLastExportedAt])
-  @@unique([tenantId, reference])
-  @@unique([tenantId, pfsProductId])
-  @@unique([tenantId, ankorsProductId])
-  @@unique([tenantId, faireProductId])
   @@index([tenantId, efashionReferenceBase]) // NON unique : plusieurs produits BJ (1 par couleur) peuvent partager la même reference_base eFashion
 }
 
@@ -860,6 +1169,7 @@ model AnkorstoreOperation {
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
   @@index([tenantId])
+  @@index([tenantId, status]) // liste des ops en attente par tenant (worker reconcile)
   @@index([productId])
   @@index([status])
   @@index([createdAt])
@@ -924,6 +1234,7 @@ model MarketplaceRefreshJob {
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
   @@index([tenantId])
+  @@index([tenantId, status]) // file d'attente par tenant (widget marketplace + worker)
   @@index([status])
   @@index([productId])
   @@index([createdAt])
@@ -1137,15 +1448,15 @@ model PendingSimilar {
 // PACK: une couleur principale + tailles×qty + packQuantity + prix/poids/stock
 //       (ou packLines pour un PACK multi-couleurs — voir PackColorLine)
 model ProductColor {
-  id                      String              @id @default(cuid())
+  id                      String                           @id @default(cuid())
   productId               String
-  product                 Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product                 Product                          @relation(fields: [productId], references: [id], onDelete: Cascade)
   colorId                 String? // Couleur (requise en business logic, nullable en DB pour legacy)
-  color                   Color?              @relation(fields: [colorId], references: [id])
-  unitPrice               Decimal             @db.Decimal(12, 2) // Prix HT (par unité ou par paquet)
+  color                   Color?                           @relation(fields: [colorId], references: [id])
+  unitPrice               Decimal                          @db.Decimal(12, 2) // Prix HT (par unité ou par paquet)
   weight                  Float // Poids en kg
-  stock                   Int                 @default(0)
-  isPrimary               Boolean             @default(false)
+  stock                   Int                              @default(0)
+  isPrimary               Boolean                          @default(false)
   saleType                SaleType // UNIT ou PACK
   packQuantity            Int? // Quantité par paquet (null si UNIT)
   // Tailles avec quantités (UNIT, ou PACK mono-couleur)
@@ -1157,12 +1468,15 @@ model ProductColor {
   cartItems               CartItem[]
   collectionOverrides     CollectionProduct[]
   restockAlerts           RestockAlert[]
+  restockEvents           RestockEvent[]
   stockMovements          StockMovement[]
   priceHistory            PriceHistory[]
   pfsOrderItems           PfsOrderItem[]
+  efashionOrderItems      EfashionOrderItem[]
+  ankorstoreOrderItems    AnkorstoreOrderItem[]
   adminCardPurchases      AdminClientCardProductPurchase[]
-  disabled                Boolean             @default(false) // Masquer côté client sans supprimer
-  sku                     String?             @unique // SKU universel: {ref}_{couleur}_{UNIT|PACK}_{index}
+  disabled                Boolean                          @default(false) // Masquer côté client sans supprimer
+  sku                     String?                          @unique // SKU universel: {ref}_{couleur}_{UNIT|PACK}_{index}
   // Identifiant variante marketplace — renseigné à la publication live
   pfsVariantId            String?
   // Identifiant variante Ankorstore — renseigné à la publication live
@@ -1179,8 +1493,8 @@ model ProductColor {
   // Mapping eFashion secondaire propre à cette variante (override de Color.efashionColorId).
   // Même logique que pfsColorRefOverride, mais avec l'ID entier de la biblio eFashion.
   efashionColorIdOverride Int?
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
+  createdAt               DateTime                         @default(now())
+  updatedAt               DateTime                         @updatedAt
 
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
   tenantId String?
@@ -1862,13 +2176,13 @@ model LoginOtp {
 
 model AdminActionOtp {
   id         String    @id @default(cuid())
-  adminId    String    // User.id de l'admin qui a déclenché l'action
-  action     String    // "delete" | "refresh" | "archive"
-  productIds Json      // Liste des ID produits concernés (string[])
+  adminId    String // User.id de l'admin qui a déclenché l'action
+  action     String // "delete" | "refresh" | "archive"
+  productIds Json // Liste des ID produits concernés (string[])
   codeHash   String
   expiresAt  DateTime
   attempts   Int       @default(0)
-  usedAt    DateTime?
+  usedAt     DateTime?
   createdAt  DateTime  @default(now())
 
   tenantId String?
@@ -2114,6 +2428,48 @@ enum LegalDocumentType {
   CGU
   POLITIQUE_CONFIDENTIALITE
   COOKIES
+}
+
+// ─────────────────────────────────────────────
+// Emails marketing (panier abandonné, retour en stock, bienvenue, newsletter)
+// ─────────────────────────────────────────────
+
+enum EmailScenarioKey {
+  ABANDONED_CART // Panier laissé > X heures — 2 relances configurables
+  BACK_IN_STOCK // Produit favoris/RestockAlert repasse en stock
+  WELCOME // Compte client validé par l'admin
+  NEWSLETTER // Envoi manuel depuis l'admin
+}
+
+enum EmailUnsubscribeScope {
+  MARKETING_ALL // Coupe tout marketing (super-scope)
+  CART_REMINDERS // Panier abandonné uniquement
+  STOCK_ALERTS // Retour en stock uniquement
+  NEWSLETTER // Nouveautés uniquement
+}
+
+// ─────────────────────────────────────────────
+// File des retours en stock à notifier — pilotée manuellement par l'admin.
+// Chaque fois qu'une variante passe de stock=0 à stock>0, on crée un
+// enregistrement `dispatchedAt=null`. L'admin voit le compteur dans le
+// widget flottant et clique "Envoyer les notifications" quand il souhaite.
+// Le dispatch groupe par client (Favorites) et envoie 1 seul email récap
+// listant tous les produits favorisés qui viennent de repasser en stock.
+// ─────────────────────────────────────────────
+model RestockEvent {
+  id             String       @id @default(cuid())
+  tenantId       String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productColorId String
+  productColor   ProductColor @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  occurredAt     DateTime     @default(now())
+  dispatchedAt   DateTime? // null = en attente
+
+  @@index([tenantId, dispatchedAt])
+  @@index([tenantId, productId])
+  @@index([productColorId])
 }
 
 model LegalDocument {
@@ -2670,18 +3026,29 @@ model Tenant {
   SiteConfig                 SiteConfig[]
 
   // Shared libs isolées par tenant depuis 2026-07-12
-  categories                 Category[]
-  subCategories              SubCategory[]
-  colors                     Color[]
-  sizes                      Size[]
-  compositions               Composition[]
-  seasons                    Season[]
-  tags                       Tag[]
+  categories                      Category[]
+  subCategories                   SubCategory[]
+  colors                          Color[]
+  sizes                           Size[]
+  compositions                    Composition[]
+  seasons                         Season[]
+  tags                            Tag[]
   adminClientCards                AdminClientCard[]
   adminClientCardProductPurchases AdminClientCardProductPurchase[]
 
   pfsOrders     PfsOrder[]
   pfsOrderItems PfsOrderItem[]
+
+  efashionOrders     EfashionOrder[]
+  efashionOrderItems EfashionOrderItem[]
+
+  ankorstoreOrders     AnkorstoreOrder[]
+  ankorstoreOrderItems AnkorstoreOrderItem[]
+
+  emailScenarios    EmailScenario[]
+  emailSends        EmailSend[]
+  emailUnsubscribes EmailUnsubscribe[]
+  restockEvents     RestockEvent[]
 
   @@index([isActive])
 }
@@ -2696,4 +3063,73 @@ model TenantDomain {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+}
+
+// ─────────────────────────────────────────────
+// Configuration par scénario (activé/pause + délais + réglages)
+// Un seul enregistrement par (tenant, key).
+// `config` (Json) contient les réglages spécifiques :
+//   ABANDONED_CART → { reminders: [{ afterHours: 24 }, { afterHours: 72 }] }
+//   BACK_IN_STOCK  → {}  (déclenché à la mise en stock, pas de délai)
+//   WELCOME        → {}
+//   NEWSLETTER     → {}
+// ─────────────────────────────────────────────
+model EmailScenario {
+  id        String           @id @default(cuid())
+  tenantId  String
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  key       EmailScenarioKey
+  enabled   Boolean          @default(false) // Par défaut désactivé — la cliente doit l'activer explicitement
+  config    Json             @default("{}")
+  updatedAt DateTime         @updatedAt
+  createdAt DateTime         @default(now())
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+}
+
+// ─────────────────────────────────────────────
+// Historique d'envoi (dédup + stats + tracking)
+// `dedupKey` permet d'éviter les doublons : ex. "cart:<userId>:stage-0" pour
+// la 1re relance panier de ce user, "back-in-stock:<productColorId>:<userId>"
+// pour retour en stock. Unique par (tenantId, scenarioKey, dedupKey).
+// ─────────────────────────────────────────────
+model EmailSend {
+  id             String           @id @default(cuid())
+  tenantId       String
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  scenarioKey    EmailScenarioKey
+  recipientEmail String
+  userId         String? // Renseigné si envoi lié à un compte existant
+  subject        String           @db.VarChar(500)
+  dedupKey       String           @db.VarChar(300) // Clé anti-doublon (voir commentaire ci-dessus)
+  sentAt         DateTime         @default(now())
+  openedAt       DateTime? // Rempli par le pixel de tracking (1er open)
+  clickedAt      DateTime? // Rempli par la 1re redirection cliquée
+  unsubscribedAt DateTime? // Rempli si ce destinataire s'est désabonné après cet email
+  messageId      String? // Message-ID SMTP renvoyé par nodemailer
+  metadata       Json? // { cartId, productId, productColorId, stage: 0|1… }
+
+  @@unique([tenantId, scenarioKey, dedupKey])
+  @@index([tenantId])
+  @@index([tenantId, sentAt])
+  @@index([tenantId, scenarioKey])
+  @@index([recipientEmail])
+}
+
+// ─────────────────────────────────────────────
+// Désinscriptions par scope (RGPD).
+// MARKETING_ALL = super-scope qui coupe les 3 autres.
+// ─────────────────────────────────────────────
+model EmailUnsubscribe {
+  id        String                @id @default(cuid())
+  tenantId  String
+  tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email     String                @db.VarChar(320)
+  scope     EmailUnsubscribeScope
+  createdAt DateTime              @default(now())
+
+  @@unique([tenantId, email, scope])
+  @@index([tenantId])
+  @@index([email])
 }

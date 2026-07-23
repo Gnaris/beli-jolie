@@ -8,9 +8,12 @@ import { logger } from "@/lib/logger";
 import {
   countPendingPfsStockDeductions,
   deductStockFromPfsOrders,
+  simulatePfsStockDeductionAll,
   type PfsStockDeductionResult,
+  type PfsStockPreviewAll,
 } from "@/lib/pfs-stock-deduction";
 import { prisma } from "@/lib/prisma";
+import { pickFirstImage } from "@/lib/pick-first-image";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -20,8 +23,28 @@ async function requireAdmin() {
   return session;
 }
 
+/**
+ * Payload sérialisé décrivant un produit touché par la déduction, calibré
+ * pour être passé tel quel au hook `useRefreshMarketplaceDialog().refreshBulk`
+ * (les champs correspondent au type `RefreshableProduct`).
+ */
+export interface PfsStockDeductionRefreshPayload {
+  productId: string;
+  reference: string;
+  productName: string;
+  firstImage: string | null;
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
+  isIncomplete: boolean;
+  wasImported: boolean;
+  locked: boolean;
+}
+
 export type PfsStockDeductionActionResult =
-  | { success: true; result: PfsStockDeductionResult }
+  | {
+      success: true;
+      result: PfsStockDeductionResult;
+      refreshPayloads: PfsStockDeductionRefreshPayload[];
+    }
   | { success: false; error: string };
 
 export async function getPendingPfsStockDeductionCount(): Promise<number> {
@@ -30,12 +53,46 @@ export async function getPendingPfsStockDeductionCount(): Promise<number> {
   return countPendingPfsStockDeductions(tenant.id);
 }
 
-export async function runPfsStockDeduction(): Promise<PfsStockDeductionActionResult> {
+export type PfsStockDeductionPreviewResult =
+  | { success: true; preview: PfsStockPreviewAll }
+  | { success: false; error: string };
+
+/**
+ * Simule la déduction pour l'ensemble des lignes PFS en attente. Utilisée par
+ * la modale « Prévisualisation avant déduction » : renvoie la vue agrégée par
+ * produit avec image, stock actuel → nouveau stock, commandes source.
+ */
+export async function getPfsStockDeductionPreview(): Promise<PfsStockDeductionPreviewResult> {
+  await requireAdmin();
+  const tenant = await requireCurrentTenant();
+  try {
+    const preview = await simulatePfsStockDeductionAll(tenant.id);
+    return { success: true, preview };
+  } catch (err) {
+    logger.error("[PFS Stock] Preview globale échouée", { error: err });
+    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
+  }
+}
+
+export interface RunPfsStockDeductionInput {
+  /**
+   * IDs des produits que l'admin a choisi d'exclure depuis la modale de
+   * prévisualisation. Les lignes PFS concernées sont marquées
+   * `stockDeductionExcludedAt` sans jamais modifier le stock. Action définitive.
+   */
+  excludedProductIds?: string[];
+}
+
+export async function runPfsStockDeduction(
+  input?: RunPfsStockDeductionInput,
+): Promise<PfsStockDeductionActionResult> {
   const session = await requireAdmin();
   const tenant = await requireCurrentTenant();
 
   try {
-    const result = await deductStockFromPfsOrders(tenant.id, session.user.id ?? null);
+    const result = await deductStockFromPfsOrders(tenant.id, session.user.id ?? null, {
+      excludedProductIds: input?.excludedProductIds ?? [],
+    });
 
     if (result.touchedProductIds.length > 0) {
       revalidateTag("products", "default");
@@ -43,68 +100,61 @@ export async function runPfsStockDeduction(): Promise<PfsStockDeductionActionRes
       revalidatePath("/admin/produits");
     }
 
-    return { success: true, result };
+    const refreshPayloads = await buildRefreshPayloads(tenant.id, result.touchedProductIds);
+
+    return { success: true, result, refreshPayloads };
   } catch (err) {
     logger.error("[PFS Stock] Déduction échouée", { error: err });
     return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
   }
 }
 
-export type PfsStockPostDeductionMarketplace = "SHOP" | "ANKORSTORE" | "EFASHION" | "FAIRE";
+async function buildRefreshPayloads(
+  tenantId: string,
+  productIds: string[],
+): Promise<PfsStockDeductionRefreshPayload[]> {
+  if (productIds.length === 0) return [];
 
-export interface PfsStockPostDeductionActionInput {
-  productIds: string[];
-  marketplaces: PfsStockPostDeductionMarketplace[];
-}
+  const products = await prisma.product.findMany({
+    where: { tenantId, id: { in: productIds } },
+    select: {
+      id: true,
+      reference: true,
+      name: true,
+      status: true,
+      isIncomplete: true,
+      locked: true,
+      pfsProductId: true,
+      primaryColorId: true,
+      colors: {
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+        select: { colorId: true },
+      },
+    },
+  });
 
-export type PfsStockPostDeductionActionResult =
-  | { success: true; taggedCount: number }
-  | { success: false; error: string };
-
-/**
- * Après une déduction, marque les produits touchés comme « synchro nécessaire »
- * sur les marketplaces sélectionnées. PFS est volontairement exclu (PFS gère
- * son propre stock côté leur plateforme après validation de commande).
- *
- * Pour un push immédiat, le client appellera séparément le hook
- * `useRefreshMarketplaceDialog` sur la liste des productIds.
- */
-export async function markProductsSyncRequiredAfterDeduction(
-  input: PfsStockPostDeductionActionInput,
-): Promise<PfsStockPostDeductionActionResult> {
-  await requireAdmin();
-  const tenant = await requireCurrentTenant();
-
-  const productIds = Array.from(new Set(input.productIds)).filter(Boolean);
-  const marketplaces = Array.from(new Set(input.marketplaces)).filter(
-    (m): m is PfsStockPostDeductionMarketplace => m === "SHOP" || m === "ANKORSTORE" || m === "EFASHION" || m === "FAIRE",
-  );
-
-  if (productIds.length === 0 || marketplaces.length === 0) {
-    return { success: true, taggedCount: 0 };
+  const images = await prisma.productColorImage.findMany({
+    where: { productId: { in: productIds } },
+    orderBy: { order: "asc" },
+    select: { productId: true, colorId: true, path: true },
+  });
+  const imagesByKey = new Map<string, string>();
+  for (const img of images) {
+    const key = `${img.productId}::${img.colorId}`;
+    if (!imagesByKey.has(key)) imagesByKey.set(key, img.path);
   }
 
-  try {
-    const data: {
-      ankorsSyncRequired?: boolean;
-      efashionSyncRequired?: boolean;
-      faireSyncRequired?: boolean;
-      lastRefreshedAt?: Date;
-    } = {};
-    if (marketplaces.includes("ANKORSTORE")) data.ankorsSyncRequired = true;
-    if (marketplaces.includes("EFASHION")) data.efashionSyncRequired = true;
-    if (marketplaces.includes("FAIRE")) data.faireSyncRequired = true;
-    if (marketplaces.includes("SHOP")) data.lastRefreshedAt = new Date();
-
-    const touched = await prisma.product.updateMany({
-      where: { tenantId: tenant.id, id: { in: productIds } },
-      data,
-    });
-    revalidateTag("products", "default");
-    revalidatePath("/admin/produits");
-    return { success: true, taggedCount: touched.count };
-  } catch (err) {
-    logger.error("[PFS Stock] Post-déduction marketplace échouée", { error: err });
-    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
-  }
+  return products.map((p) => ({
+    productId: p.id,
+    reference: p.reference,
+    productName: p.name,
+    firstImage: pickFirstImage(
+      { primaryColorId: p.primaryColorId, colors: p.colors },
+      (colorId) => (colorId ? imagesByKey.get(`${p.id}::${colorId}`) ?? null : null),
+    ),
+    status: p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
+    isIncomplete: p.isIncomplete,
+    wasImported: !!p.pfsProductId,
+    locked: p.locked,
+  }));
 }

@@ -57,16 +57,17 @@ const ITEMS: RailItem[] = [
     ),
   },
   {
-    id: "pfs-import",
-    label: "Import commandes PFS",
+    id: "orders-import",
+    label: "Import commandes marketplaces",
     gradient: "from-indigo-500 to-violet-600",
     badgeText: "text-indigo-600",
     ring: "ring-indigo-500",
     icon: (
-      // Rond « P » — cohérent avec l'initiale marketplace PFS partout dans l'admin
-      <span className="w-5 h-5 flex items-center justify-center text-[13px] font-heading font-bold">
-        P
-      </span>
+      // Flèche descendante — un seul bouton pour PFS + eFashion (et à terme
+      // Ankorstore/Faire quand on branchera l'import de leurs commandes).
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+      </svg>
     ),
   },
   {
@@ -90,6 +91,18 @@ const ITEMS: RailItem[] = [
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25z" />
+      </svg>
+    ),
+  },
+  {
+    id: "emails",
+    label: "Emails automatiques",
+    gradient: "from-fuchsia-500 to-pink-600",
+    badgeText: "text-fuchsia-600",
+    ring: "ring-fuchsia-500",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
       </svg>
     ),
   },

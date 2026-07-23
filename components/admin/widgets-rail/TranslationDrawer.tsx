@@ -34,7 +34,8 @@ interface TranslationJob {
   completedAt: string | null;
 }
 
-const POLL_MS = 1500;
+const POLL_ACTIVE_MS = 1500;
+const POLL_IDLE_MS = 15_000;
 
 const TRANSLATION_ICON = (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
@@ -49,6 +50,7 @@ const TRANSLATION_ICON = (
 export function TranslationDrawer() {
   const { openWidget, close, setBadge } = useRightRail();
   const [jobs, setJobs] = useState<TranslationJob[]>([]);
+  const [isVisible, setIsVisible] = useState(true);
   const isMounted = useRef(true);
 
   useEffect(() => () => {
@@ -66,12 +68,29 @@ export function TranslationDrawer() {
     }
   }, []);
 
-  // Boucle de poll active en permanence (pour alimenter le badge, même tiroir fermé).
+  // Suivi de la visibilité de l'onglet — on coupe le poll si l'onglet est caché.
   useEffect(() => {
-    void load();
-    const id = window.setInterval(load, POLL_MS);
+    if (typeof document === "undefined") return;
+    const update = () => setIsVisible(document.visibilityState === "visible");
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
+  // Re-poll immédiat au retour de visibilité (capte les jobs qui ont bougé).
+  useEffect(() => {
+    if (isVisible) void load();
+  }, [isVisible, load]);
+
+  const hasActive = jobs.some((j) => j.status === "PENDING" || j.status === "PROCESSING");
+
+  // Polling adaptatif : 1,5s si un lot tourne, 15s sinon. Coupé si onglet caché.
+  useEffect(() => {
+    if (!isVisible) return;
+    const delay = hasActive ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+    const id = window.setInterval(load, delay);
     return () => window.clearInterval(id);
-  }, [load]);
+  }, [hasActive, isVisible, load]);
 
   // Alimente le badge du rail à partir de la liste des jobs actifs.
   useEffect(() => {

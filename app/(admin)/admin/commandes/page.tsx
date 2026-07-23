@@ -7,8 +7,8 @@ import { prisma } from "@/lib/prisma";
 import { requireCurrentTenant } from "@/lib/tenant";
 import ExportOrdersButton from "@/components/admin/orders/ExportOrdersButton";
 import OrdersTabsNav from "@/components/admin/orders/OrdersTabsNav";
-import PfsOrdersView from "@/components/admin/orders/pfs/PfsOrdersView";
-import { getPfsSyncMeta } from "@/app/actions/admin/pfs-orders";
+import MarketplacesOrdersView from "@/components/admin/orders/marketplace/MarketplacesOrdersView";
+import { getMarketplaceSyncMeta } from "@/app/actions/admin/marketplace-orders";
 
 export const metadata: Metadata = { title: "Commandes — Admin" };
 
@@ -31,27 +31,32 @@ export default async function AdminCommandesPage({
 
   const { status, q, page: pageParam = "1", source } = await searchParams;
   const currentPage = Math.max(1, parseInt(pageParam));
-  const activeTab: "boutique" | "pfs" = source === "pfs" ? "pfs" : "boutique";
+  // Rétrocompat : ?source=pfs redirige vers l'onglet unifié « marketplaces ».
+  const activeTab: "boutique" | "marketplaces" =
+    source === "marketplaces" || source === "pfs" ? "marketplaces" : "boutique";
 
   const tenant = await requireCurrentTenant();
-  const [totalBoutique, totalPfs] = await Promise.all([
+  const [totalBoutique, totalPfs, totalEfashion, totalAnkorstore] = await Promise.all([
     prisma.order.count({ where: { tenantId: tenant.id } }),
     prisma.pfsOrder.count({ where: { tenantId: tenant.id } }),
+    prisma.efashionOrder.count({ where: { tenantId: tenant.id } }),
+    prisma.ankorstoreOrder.count({ where: { tenantId: tenant.id } }),
   ]);
+  const totalMarketplaces = totalPfs + totalEfashion + totalAnkorstore;
 
-  if (activeTab === "pfs") {
-    const syncMeta = await getPfsSyncMeta();
+  if (activeTab === "marketplaces") {
+    const syncMeta = await getMarketplaceSyncMeta();
     return (
       <div className="space-y-6">
         <header>
           <div className="text-xs uppercase tracking-[0.2em] text-text-muted">Ventes</div>
           <h1 className="font-heading text-3xl font-bold text-text-primary mt-1">Commandes</h1>
           <p className="text-sm text-text-secondary mt-1">
-            Ventes boutique et commandes récupérées de Paris Fashion Shop.
+            Ventes boutique et commandes récupérées des marketplaces.
           </p>
         </header>
-        <OrdersTabsNav boutiqueCount={totalBoutique} pfsCount={totalPfs} />
-        <PfsOrdersView initialSyncMeta={syncMeta} />
+        <OrdersTabsNav boutiqueCount={totalBoutique} marketplacesCount={totalMarketplaces} />
+        <MarketplacesOrdersView initialSyncMeta={syncMeta} />
       </div>
     );
   }
@@ -145,7 +150,7 @@ export default async function AdminCommandesPage({
 
   return (
     <div className="space-y-6">
-      <OrdersTabsNav boutiqueCount={totalBoutique} pfsCount={totalPfs} />
+      <OrdersTabsNav boutiqueCount={totalBoutique} marketplacesCount={totalMarketplaces} />
       {/* ── HERO ── */}
       <section
         className="relative rounded-3xl border border-border p-6 md:p-8 overflow-hidden"

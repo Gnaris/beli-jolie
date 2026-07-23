@@ -5,17 +5,23 @@ import { usePathname, useSearchParams } from "next/navigation";
 
 interface Props {
   boutiqueCount?: number;
-  pfsCount?: number;
+  /** Total cumulé PFS + eFashion + Ankorstore (et à terme Faire). */
+  marketplacesCount?: number;
 }
 
-export default function OrdersTabsNav({ boutiqueCount, pfsCount }: Props) {
+type TabKey = "boutique" | "marketplaces";
+
+export default function OrdersTabsNav({ boutiqueCount, marketplacesCount }: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const active = (searchParams?.get("source") ?? "boutique") as "boutique" | "pfs";
+  const rawSource = searchParams?.get("source");
+  // Rétrocompat : ?source=pfs redirige visuellement vers l'onglet marketplaces.
+  const active: TabKey =
+    rawSource === "marketplaces" || rawSource === "pfs" ? "marketplaces" : "boutique";
 
-  const buildHref = (source: "boutique" | "pfs") => {
+  const buildHref = (source: TabKey) => {
     const params = new URLSearchParams();
-    if (source === "pfs") params.set("source", "pfs");
+    if (source === "marketplaces") params.set("source", "marketplaces");
     const qs = params.toString();
     return qs ? `${pathname}?${qs}` : pathname;
   };
@@ -44,24 +50,38 @@ export default function OrdersTabsNav({ boutiqueCount, pfsCount }: Props) {
         )}
       </Link>
       <Link
-        href={buildHref("pfs")}
+        href={buildHref("marketplaces")}
         role="tab"
-        aria-selected={active === "pfs"}
+        aria-selected={active === "marketplaces"}
         className={`px-4 py-3 flex items-center gap-2 border-b-2 text-sm transition-colors ${
-          active === "pfs"
+          active === "marketplaces"
             ? "border-text-primary text-text-primary font-semibold"
             : "border-transparent text-text-muted hover:text-text-primary"
         }`}
       >
-        <span
-          className="w-6 h-6 rounded-md text-white font-heading font-bold text-xs flex items-center justify-center"
-          style={{ background: "linear-gradient(135deg,#4f46e5,#6366f1)" }}
-        >
-          P
+        <span className="inline-flex -space-x-1.5">
+          <span
+            className="w-6 h-6 rounded-md text-white font-heading font-bold text-xs flex items-center justify-center ring-2 ring-white"
+            style={{ background: "linear-gradient(135deg,#4f46e5,#6366f1)" }}
+          >
+            P
+          </span>
+          <span
+            className="w-6 h-6 rounded-md text-white font-heading font-bold text-xs flex items-center justify-center ring-2 ring-white"
+            style={{ background: "linear-gradient(135deg,#db2777,#ec4899)" }}
+          >
+            E
+          </span>
+          <span
+            className="w-6 h-6 rounded-md text-white font-heading font-bold text-xs flex items-center justify-center ring-2 ring-white"
+            style={{ background: "linear-gradient(135deg,#0ea5e9,#38bdf8)" }}
+          >
+            A
+          </span>
         </span>
-        Paris Fashion Shop
-        {typeof pfsCount === "number" && (
-          <span className="text-xs text-text-muted">({pfsCount})</span>
+        Marketplaces
+        {typeof marketplacesCount === "number" && (
+          <span className="text-xs text-text-muted">({marketplacesCount})</span>
         )}
       </Link>
     </nav>

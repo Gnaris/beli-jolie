@@ -140,6 +140,18 @@ async function reconcileAwaitingCallback(): Promise<void> {
     if (!latestByProduct.has(op.productId)) latestByProduct.set(op.productId, op);
   }
 
+  // Prépare la liste des updates à faire, puis lance tout en parallèle. Avant :
+  // chaque `await prisma.update()` faisait un round-trip DB séquentiel — sur 20
+  // jobs en attente, ça bloquait le tick 2-4 s. En parallélisant, on descend à
+  // <500 ms même sur 100 jobs.
+  type PendingUpdate = {
+    jobId: string;
+    productId: string;
+    data: Prisma.MarketplaceRefreshJobUpdateInput;
+    emitSuccess: boolean;
+  };
+  const pending: PendingUpdate[] = [];
+
   for (const job of awaiting) {
     const latest = latestByProduct.get(job.productId);
     if (!latest || latest.status === "PENDING") continue;
@@ -153,30 +165,45 @@ async function reconcileAwaitingCallback(): Promise<void> {
             ? "Succès partiel — vérifiez le tableau de bord Ankorstore."
             : undefined,
       };
-      await prisma.marketplaceRefreshJob.update({
-        where: { id: job.id },
+      pending.push({
+        jobId: job.id,
+        productId: job.productId,
         data: {
           status: "SUCCEEDED",
           ankorsOutcome: outcome as Prisma.InputJsonValue,
           completedAt: new Date(),
         },
+        emitSuccess: true,
       });
-      revalidateProductPaths(job.productId);
-      emitProductUpdated(job.productId);
     } else if (latest.status === "FAILED") {
       const message = latest.errorMessage ?? "Opération échouée sur Ankorstore.";
       const outcome: TargetOutcome = { ok: false, kind: "error", message };
-      await prisma.marketplaceRefreshJob.update({
-        where: { id: job.id },
+      pending.push({
+        jobId: job.id,
+        productId: job.productId,
         data: {
           status: "FAILED",
           ankorsOutcome: outcome as Prisma.InputJsonValue,
           errorMessage: message,
           completedAt: new Date(),
         },
+        emitSuccess: false,
       });
-      revalidateProductPaths(job.productId);
     }
+  }
+
+  if (pending.length === 0) return;
+
+  await Promise.all(
+    pending.map((p) =>
+      prisma.marketplaceRefreshJob.update({ where: { id: p.jobId }, data: p.data }),
+    ),
+  );
+
+  // Revalidation / SSE : hors update DB, séquentiel mais rapide (cache tag reset).
+  for (const p of pending) {
+    revalidateProductPaths(p.productId);
+    if (p.emitSuccess) emitProductUpdated(p.productId);
   }
 }
 

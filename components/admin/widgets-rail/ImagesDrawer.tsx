@@ -27,7 +27,8 @@ interface JobView {
 const ACTIVE = new Set(["PENDING", "UPLOADING", "PROCESSING"]);
 const DONE = new Set(["COMPLETED", "FAILED"]);
 const RECENT_DONE_MS = 8 * 60_000;
-const POLL_MS = 4_000;
+const POLL_ACTIVE_MS = 4_000;
+const POLL_IDLE_MS = 15_000;
 
 const IMAGES_ICON = (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
@@ -38,6 +39,7 @@ const IMAGES_ICON = (
 export function ImagesDrawer() {
   const { openWidget, close, setBadge } = useRightRail();
   const [jobs, setJobs] = useState<JobView[]>([]);
+  const [isVisible, setIsVisible] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
@@ -51,12 +53,26 @@ export function ImagesDrawer() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-    const id = window.setInterval(refresh, POLL_MS);
-    return () => window.clearInterval(id);
-  }, [refresh]);
+    if (typeof document === "undefined") return;
+    const update = () => setIsVisible(document.visibilityState === "visible");
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
+  useEffect(() => {
+    if (isVisible) void refresh();
+  }, [isVisible, refresh]);
 
   const active = jobs.filter((j) => ACTIVE.has(j.status));
+
+  useEffect(() => {
+    if (!isVisible) return;
+    const delay = active.length > 0 ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+    const id = window.setInterval(refresh, delay);
+    return () => window.clearInterval(id);
+  }, [active.length, isVisible, refresh]);
+
   const recent = jobs.filter((j) => {
     if (!DONE.has(j.status)) return false;
     const age = Date.now() - new Date(j.updatedAt).getTime();

@@ -10,6 +10,7 @@ import {
   notifyClientAccountApproved,
   notifyClientAccountRejected,
 } from "@/lib/notifications";
+import { sendWelcomeEmail } from "@/lib/email-marketing/welcome";
 import type { UserStatus } from "@prisma/client";
 
 /**
@@ -54,14 +55,27 @@ export async function updateUserStatus(userId: string, status: UserStatus) {
   // (fire-and-forget : ne pas bloquer la redirection en cas d'échec SMTP).
   if (user.status !== status) {
     if (status === "APPROVED") {
-      notifyClientAccountApproved({
+      // On tente d'abord le mail marketing "Bienvenue" (charte ardoise +
+      // désinscription + tracking). Si le scénario est désactivé pour ce
+      // tenant, on tombe sur le mail transactionnel historique.
+      sendWelcomeEmail({
+        userId: user.id,
         email: user.email,
         firstName: user.firstName,
-      }).catch((err) =>
-        logger.error("[updateUserStatus] Email approbation échoué", {
-          error: err,
-        }),
-      );
+      })
+        .then((sent) => {
+          if (!sent) {
+            return notifyClientAccountApproved({
+              email: user.email,
+              firstName: user.firstName,
+            });
+          }
+        })
+        .catch((err) =>
+          logger.error("[updateUserStatus] Email approbation échoué", {
+            error: err,
+          }),
+        );
     } else if (status === "REJECTED") {
       notifyClientAccountRejected({
         email: user.email,

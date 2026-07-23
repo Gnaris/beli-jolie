@@ -423,11 +423,12 @@ export async function getPfsStats(input: GetPfsStatsInput): Promise<PfsStatsBund
   const totalTTC = decimalToNumber(ordersAggregate._sum.totalTTC);
   const itemsSold = itemsAggregate._sum.qtyValidated ?? 0;
   const uniqueCustomers = customerGrouped.length; // sur la limite du top, mais uniqueCustomers doit être le total réel — refaire une count distinct
-  // Correction : compter les distinct pfsCustomerId au vrai niveau
-  const distinctCustomers = await prisma.pfsOrder.findMany({
+  // Compte les distinct pfsCustomerId au niveau global via GROUP BY :
+  // plus efficace que `findMany distinct + select` (MySQL fait le regroupement
+  // en SQL sans transférer chaque valeur au client Prisma).
+  const distinctCustomers = await prisma.pfsOrder.groupBy({
     where: orderWhere,
-    distinct: ["pfsCustomerId"],
-    select: { pfsCustomerId: true },
+    by: ["pfsCustomerId"],
   });
 
   const kpis: PfsStatsKpis = {
@@ -1172,7 +1173,7 @@ export async function runPfsOrderStockDeductionOne(
   const tenant = await requireCurrentTenant();
   try {
     const { deductStockFromPfsOrders } = await import("@/lib/pfs-stock-deduction");
-    const result = await deductStockFromPfsOrders(tenant.id, session.user.id ?? null, [orderId]);
+    const result = await deductStockFromPfsOrders(tenant.id, session.user.id ?? null, { pfsOrderIds: [orderId] });
     if (result.touchedProductIds.length > 0) {
       revalidateTag("products", "default");
       revalidateTag("dashboard-stats", "default");

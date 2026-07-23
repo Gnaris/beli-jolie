@@ -14,7 +14,7 @@ import PfsStockDeductionButton from "@/components/admin/products/PfsStockDeducti
 import { countPendingPfsStockDeductions } from "@/lib/pfs-stock-deduction";
 import { requireCurrentTenant } from "@/lib/tenant";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedSizes } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import {
@@ -414,6 +414,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     hasFaireConfig,
     faireEnabled,
     pfsStockPendingCount,
+    allSizes,
   ] = await Promise.all([
     prisma.product.findMany({
       where,
@@ -436,7 +437,10 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
             packQuantity:        true,
             efashionProductId:   true,
             color:               { select: { name: true, hex: true, patternImage: true } },
-            variantSizes:        { select: { quantity: true, size: { select: { name: true } } } },
+            // On charge sizeId seulement — le nom est résolu ensuite via
+            // getCachedSizes() pour éviter une jointure SQL sur la table Size
+            // pour chaque variantSize (30 produits × ~4 couleurs × ~10 tailles).
+            variantSizes:        { select: { quantity: true, sizeId: true } },
           },
         },
         translations: { select: { locale: true } },
@@ -509,7 +513,12 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       const t = await requireCurrentTenant();
       return countPendingPfsStockDeductions(t.id);
     })(),
+    // Tailles en cache (60s TTL) — utilisées pour résoudre les noms des
+    // variantSizes sans passer par une jointure SQL sur la table Size.
+    getCachedSizes(),
   ]);
+
+  const sizeNameById = new Map<string, string>(allSizes.map((s) => [s.id, s.name]));
 
   const totalPages = Math.ceil(totalCount / perPage);
 
@@ -581,7 +590,12 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       saleType:          c.saleType as "UNIT" | "PACK",
       packQuantity:      c.packQuantity,
       efashionProductId: c.efashionProductId ?? null,
-      variantSizes:      c.variantSizes,
+      // Reconstitue la forme attendue par le client { quantity, size: { name } }
+      // à partir du sizeId + du cache getCachedSizes (évite la jointure SQL).
+      variantSizes:      c.variantSizes.map((vs) => ({
+        quantity: vs.quantity,
+        size: { name: sizeNameById.get(vs.sizeId) ?? "—" },
+      })),
       color:             c.color ?? { name: "—", hex: null, patternImage: null },
     })),
     translations:    p.translations,
@@ -604,6 +618,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
               <>
                 <PfsStockDeductionButton
                   initialPendingCount={pfsStockPendingCount}
+                  hasPfsConfig={hasPfsConfig}
                   hasAnkorstoreConfig={hasAnkorstoreConfig}
                   hasEfashionConfig={hasEfashionConfig}
                   hasFaireConfig={hasFaireConfig}

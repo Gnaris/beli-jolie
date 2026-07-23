@@ -3,12 +3,12 @@
  *
  * Couverture :
  *  1. enqueueTranslationJob crée un job PENDING avec le bon totalCount.
- *  2. Le worker traite un job : appelle translateToAllLocales pour chaque item,
- *     persiste les traductions dans la bonne table (colorTranslation) via upsert,
- *     met à jour currentItemText avant chaque item, incrémente doneCount, et
- *     bascule en DONE à la fin.
- *  3. Si un item échoue (translateToAllLocales renvoie {}), errorCount monte
- *     et le job continue avec les items suivants (résilience).
+ *  2. Le worker traite un job par batch : appelle translatePhrases une seule
+ *     fois pour tout un batch d'items (10 max), persiste chaque traduction dans
+ *     la bonne table via upsert, incrémente doneCount, et bascule en DONE à la
+ *     fin.
+ *  3. Si l'API ne renvoie pas de traduction pour un item (résultat absent),
+ *     errorCount monte pour cet item et le job continue avec les items suivants.
  *  4. dismissTranslationJob pose dismissedAt sans supprimer.
  *  5. dismissDoneTranslationJobs pose dismissedAt sur tous les DONE/FAILED.
  *  6. listRecentTranslationJobs filtre correctement (actifs + DONE récents non
@@ -42,7 +42,8 @@ vi.mock("@/lib/logger", () => ({
 
 const translateMock = vi.fn();
 vi.mock("@/lib/pfs-translate", () => ({
-  translateToAllLocales: (...args: unknown[]) => translateMock(...args),
+  translatePhrases: (...args: unknown[]) => translateMock(...args),
+  PFS_TRANSLATION_LOCALES: ["fr", "en", "de", "es", "it"] as const,
 }));
 
 // NON_DEFAULT_LOCALES = ["en"] (site fr/en uniquement)
@@ -106,7 +107,7 @@ describe("enqueueTranslationJob", () => {
 });
 
 describe("processJob (worker)", () => {
-  it("traduit chaque item et persiste en BDD via upsert", async () => {
+  it("traduit un batch d'items en 1 seul appel API et persiste via upsert", async () => {
     const items = [
       { id: "c1", text: "Rouge" },
       { id: "c2", text: "Bleu" },
@@ -116,21 +117,27 @@ describe("processJob (worker)", () => {
       items,
       entityType: "color",
     });
-    translateMock
-      .mockResolvedValueOnce({ en: "Red" })
-      .mockResolvedValueOnce({ en: "Blue" });
+    // Un seul appel API pour tout le batch : retourne { id: { locale: trad } }
+    translateMock.mockResolvedValueOnce({
+      c1: { en: "Red" },
+      c2: { en: "Blue" },
+    });
 
     const { __test } = await import("@/lib/translation-queue");
     await __test.processJob("job-3");
 
+    // L'API n'a été appelée qu'une fois pour les 2 items (batching)
+    expect(translateMock).toHaveBeenCalledTimes(1);
+    expect(translateMock).toHaveBeenCalledWith({ c1: "Rouge", c2: "Bleu" });
+
     // 2 traductions persistées dans colorTranslation
     expect(prismaMock.colorTranslation.upsert).toHaveBeenCalledTimes(2);
-    expect(prismaMock.colorTranslation.upsert).toHaveBeenNthCalledWith(1, {
+    expect(prismaMock.colorTranslation.upsert).toHaveBeenCalledWith({
       where: { colorId_locale: { colorId: "c1", locale: "en" } },
       update: { name: "Red" },
       create: { colorId: "c1", locale: "en", name: "Red" },
     });
-    expect(prismaMock.colorTranslation.upsert).toHaveBeenNthCalledWith(2, {
+    expect(prismaMock.colorTranslation.upsert).toHaveBeenCalledWith({
       where: { colorId_locale: { colorId: "c2", locale: "en" } },
       update: { name: "Blue" },
       create: { colorId: "c2", locale: "en", name: "Blue" },
@@ -144,7 +151,7 @@ describe("processJob (worker)", () => {
     expect(finalCall.data.completedAt).toBeInstanceOf(Date);
   });
 
-  it("incrémente errorCount si la traduction échoue mais continue", async () => {
+  it("incrémente errorCount pour les items sans traduction retournée mais continue", async () => {
     const items = [
       { id: "c1", text: "Rouge" },
       { id: "c2", text: "Bleu" },
@@ -155,10 +162,10 @@ describe("processJob (worker)", () => {
       items,
       entityType: "color",
     });
-    translateMock
-      .mockResolvedValueOnce({}) // échec silencieux (pas de traduction)
-      .mockResolvedValueOnce({ en: "Blue" })
-      .mockRejectedValueOnce(new Error("PFS down"));
+    // Seul c2 est traduit ; c1 et c3 absents de la réponse (item introuvable / API vide)
+    translateMock.mockResolvedValueOnce({
+      c2: { en: "Blue" },
+    });
 
     const { __test } = await import("@/lib/translation-queue");
     await __test.processJob("job-4");
@@ -166,7 +173,7 @@ describe("processJob (worker)", () => {
     // Une seule traduction persistée (c2 → Blue)
     expect(prismaMock.colorTranslation.upsert).toHaveBeenCalledTimes(1);
 
-    // errorCount = 2 (c1 vide + c3 exception), doneCount = 3 à la fin
+    // errorCount = 2 (c1 + c3 sans résultat), doneCount = 3 à la fin
     const updateCalls = prismaMock.translationJob.update.mock.calls;
     const withCounts = updateCalls.filter(
       (c) => c[0].data.doneCount !== undefined || c[0].data.errorCount !== undefined,
@@ -182,7 +189,7 @@ describe("processJob (worker)", () => {
       items: [{ id: "t1", text: "Élégant" }],
       entityType: "tag",
     });
-    translateMock.mockResolvedValueOnce({ en: "Elegant" });
+    translateMock.mockResolvedValueOnce({ t1: { en: "Elegant" } });
 
     const { __test } = await import("@/lib/translation-queue");
     await __test.processJob("job-5");

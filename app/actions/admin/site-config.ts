@@ -461,6 +461,13 @@ export async function updateAnkorstoreCredentials(config: {
     await setSiteConfig("ankors_client_id", encryptIfSensitive("ankors_client_id", clientId));
     await setSiteConfig("ankors_client_secret", encryptIfSensitive("ankors_client_secret", clientSecret));
     revalidateTag("site-config", "default");
+    // Invalide aussi le token OAuth en RAM pour le tenant courant : sinon le
+    // vieux access_token cache continue d'être utilisé et Ankor renvoie 401
+    // sur les endpoints qui n'ont pas de rattrapage (ex. /orders lors du
+    // premier appel). Doit être fait APRÈS le revalidateTag pour que le
+    // prochain refresh OAuth relise bien les nouveaux identifiants.
+    const { invalidateAnkorstoreToken } = await import("@/lib/ankorstore-auth");
+    await invalidateAnkorstoreToken();
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };

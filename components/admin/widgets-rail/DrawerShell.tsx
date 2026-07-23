@@ -20,7 +20,7 @@ import { useEffect, useState } from "react";
 export interface DrawerShellProps {
   open: boolean;
   onClose: () => void;
-  accent: "violet" | "sky" | "emerald" | "amber" | "rose" | "indigo";
+  accent: "violet" | "sky" | "emerald" | "amber" | "rose" | "indigo" | "fuchsia";
   eyebrow: string;
   title: React.ReactNode;
   icon: React.ReactNode;
@@ -59,6 +59,11 @@ const ACCENT_CLASSES = {
     headerGrad: "from-indigo-500 via-indigo-600 to-violet-700",
     halo: "bg-indigo-300/40",
     eyebrowText: "text-indigo-100",
+  },
+  fuchsia: {
+    headerGrad: "from-fuchsia-500 via-pink-600 to-rose-600",
+    halo: "bg-fuchsia-300/40",
+    eyebrowText: "text-fuchsia-100",
   },
 } as const;
 

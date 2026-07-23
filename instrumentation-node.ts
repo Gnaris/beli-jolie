@@ -174,6 +174,52 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de polling des commandes eFashion Paris. Même mécanique que PFS,
+  // décalé de 5s au démarrage pour ne pas taper les 2 APIs en même temps.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startEfashionOrdersWorker } = await import("@/lib/efashion-orders-worker");
+        startEfashionOrdersWorker();
+      } catch (err) {
+        logger.error("[eFashion Orders] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
+  // Worker de polling des commandes Ankorstore. Même mécanique que PFS/eFashion,
+  // décalé au démarrage pour ne pas taper les 3 APIs en même temps.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startAnkorstoreOrdersWorker } = await import("@/lib/ankorstore-orders-worker");
+        startAnkorstoreOrdersWorker();
+      } catch (err) {
+        logger.error("[Ankorstore Orders] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
+  // Worker des scénarios emails marketing (panier abandonné, etc.). Tick 15 min.
+  // Idempotent : les scanners posent leur propre verrou (contrainte unique
+  // sur EmailSend) — ré-exécuter n'envoie pas 2× le même mail.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startEmailMarketingWorker } = await import("@/lib/email-marketing/worker");
+        startEmailMarketingWorker();
+      } catch (err) {
+        logger.error("[EmailMarketing] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

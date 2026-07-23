@@ -198,6 +198,8 @@ function StatusBadge({
   loadingLabel,
   disabledForProduct = false,
   disabledReason = "product",
+  awaitingShooting = false,
+  awaitingShootingLabel,
 }: {
   state: MarketplaceBadgeState;
   /** Sert à choisir le logo rond coloré (P / A / E / F). */
@@ -216,18 +218,25 @@ function StatusBadge({
    *   - "global"  : kill switch tenant (Paramètres > Marketplaces)
    *   - "maintenance" : maintenance plateforme (contrôle Beli & Jolie) */
   disabledReason?: "product" | "global" | "maintenance";
+  /** Produit en attente de validation shooting (lot eFashion non commité). */
+  awaitingShooting?: boolean;
+  /** Texte du sublabel jaune (ex: "en attente shooting"). */
+  awaitingShootingLabel?: string;
 }) {
   const mp = MARKETPLACE_META[marketplace];
 
+  // Priorité d'affichage : disabled > loading > awaitingShooting > syncRequired > online > offline.
   const chipClasses = disabledForProduct
     ? "text-text-muted border-border-dark cursor-not-allowed"
     : state.loading
     ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
-    : state.syncRequired
-      ? "bg-[#FEF3C7] text-[#B45309] border-[#FDE68A] hover:bg-[#FDE68A] cursor-pointer"
-      : state.online
-        ? "bg-[#DCFCE7] text-[#15803D] border-[#BBF7D0] cursor-default"
-        : "bg-bg-tertiary text-text-muted border-border hover:bg-bg-secondary cursor-pointer";
+    : awaitingShooting
+      ? "bg-[#FEF08A] text-[#713F12] border-[#EAB308] hover:bg-[#FDE047] cursor-default"
+      : state.syncRequired
+        ? "bg-[#FEF3C7] text-[#B45309] border-[#FDE68A] hover:bg-[#FDE68A] cursor-pointer"
+        : state.online
+          ? "bg-[#DCFCE7] text-[#15803D] border-[#BBF7D0] cursor-default"
+          : "bg-bg-tertiary text-text-muted border-border hover:bg-bg-secondary cursor-pointer";
 
   const disabledStyle: React.CSSProperties | undefined = disabledForProduct
     ? {
@@ -269,6 +278,13 @@ function StatusBadge({
             {Icon.Spinner}
             {loadingLabel}
           </span>
+        ) : awaitingShooting ? (
+          <span>
+            {label} <span className="opacity-60">·</span>{" "}
+            <span className="font-bold">
+              {awaitingShootingLabel ?? "en attente shooting"}
+            </span>
+          </span>
         ) : state.syncRequired ? (
           <span>
             {label} <span className="opacity-60">·</span>{" "}
@@ -289,7 +305,12 @@ function StatusBadge({
 
         {/* Dot d'état à droite */}
         {!state.loading && !disabledForProduct && (
-          state.syncRequired ? (
+          awaitingShooting ? (
+            <span className="relative inline-flex">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#EAB308] animate-pulse" />
+              <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#EAB308] opacity-60 animate-ping" />
+            </span>
+          ) : state.syncRequired ? (
             <span className="relative inline-flex">
               <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse" />
               <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F59E0B] opacity-60 animate-ping" />
@@ -324,7 +345,7 @@ function StatusBadge({
       ) : (
         buttonEl
       )}
-      {state.syncRequired && onCancelSyncRequired && (
+      {state.syncRequired && !awaitingShooting && onCancelSyncRequired && (
         <button
           type="button"
           onClick={(e) => {
@@ -403,7 +424,19 @@ export function MarketplaceStatusButtons({
   const efashionMaintenance = efashionMaintenanceProp ?? maintenanceCtx.efashion;
   const faireMaintenance = faireMaintenanceProp ?? maintenanceCtx.faire;
   const { enqueue, items } = useMarketplaceRefreshQueue();
-  const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
+  const {
+    addProduct: addToEfashionShootingBatch,
+    items: efashionShootingItems,
+  } = useEfashionShootingBatch();
+  const efashionShootingEntry = useMemo(
+    () => efashionShootingItems.find((it) => it.productId === productId),
+    [efashionShootingItems, productId],
+  );
+  const efashionAwaitingShooting = Boolean(efashionShootingEntry);
+  const efashionShootingBadgeLabel =
+    efashionShootingEntry?.mode === "REFRESH"
+      ? "en attente shooting (maj)"
+      : "en attente shooting";
   const { confirm } = useConfirm();
   const toast = useToast();
 
@@ -949,9 +982,12 @@ export function MarketplaceStatusButtons({
               sublabel={null}
               disabledForProduct={efashionDisabledOverall}
               disabledReason={efashionDisabledReason}
+              awaitingShooting={efashionAwaitingShooting}
+              awaitingShootingLabel={efashionShootingBadgeLabel}
               onClick={() => {
                 if (efashionDisabledOverall) return;
                 if (efashionState.loading) return;
+                if (efashionAwaitingShooting) return;
                 if (efashionState.syncRequired) {
                   handleResyncEfashion();
                   return;
@@ -965,11 +1001,13 @@ export function MarketplaceStatusButtons({
               title={
                 efashionState.loading
                   ? "Synchronisation eFashion en cours…"
-                  : efashionState.syncRequired
-                    ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à eFashion Paris"
-                    : efashionLinked
-                      ? "Produit lié à eFashion Paris"
-                      : "Non disponible — cliquez pour publier sur eFashion Paris"
+                  : efashionAwaitingShooting
+                    ? "Dans le lot shooting eFashion — en attente de validation avant envoi"
+                    : efashionState.syncRequired
+                      ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à eFashion Paris"
+                      : efashionLinked
+                        ? "Produit lié à eFashion Paris"
+                        : "Non disponible — cliquez pour publier sur eFashion Paris"
               }
               loadingLabel="Sync eFashion…"
             />

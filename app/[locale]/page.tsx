@@ -11,6 +11,7 @@ import Footer from "@/components/layout/Footer";
 import CollectionsGrid from "@/components/home/CollectionsGrid";
 import ProductCarousel, { CarouselProduct } from "@/components/home/ProductCarousel";
 import HeroBanner from "@/components/home/HeroBanner";
+import TrustMarquee from "@/components/home/TrustMarquee";
 import FeaturedProduct from "@/components/home/FeaturedProduct";
 import TrustBand from "@/components/home/TrustBand";
 import CategoryGrid from "@/components/home/CategoryGrid";
@@ -327,22 +328,27 @@ export default async function HomePage() {
       <PublicSidebar shopName={shopName} />
 
       <main className="relative z-10 -mt-16">
-          {/* 1. Hero banner */}
+          {/* 1. Hero éditorial pleine hauteur */}
           <HeroBanner bannerImage={bannerImage} shopName={shopName} productCount={productCount} />
 
-          {/* 2. Featured product (from bestsellers) */}
+          {/* 2. Marquee défilante réassurance */}
+          <TrustMarquee />
+
+          {/* 3. Featured — split éditorial « Manifeste » */}
           {carouselList.length > 0 && carouselList[0].products.length >= 3 && (
             <FeaturedProduct
               products={carouselList[0].products.slice(0, 3)}
               clientDiscount={clientDiscount}
+              shopName={shopName}
             />
           )}
 
-          {/* 3. Product carousels — first is premium, rest are standard */}
+          {/* 4. Carrousels produits */}
           {carouselList.map((carousel, i) => (
             <ProductCarousel
               key={carousel.id}
               title={carousel.title}
+              eyebrow={i === 0 ? t("newProductsEyebrow") : undefined}
               products={carousel.products}
               viewMoreHref={carousel.viewMoreHref}
               viewMoreLabel={t("newProductsMore")}
@@ -353,18 +359,18 @@ export default async function HomePage() {
             />
           ))}
 
-          {/* 4. Collections mosaic */}
+          {/* 5. Collections mosaïque */}
           <CollectionsGrid collections={collections} />
 
-          {/* 5. Trust band */}
-          <TrustBand />
-
-          {/* 6. Category grid */}
+          {/* 6. Catégories rondes éditoriales */}
           {categories.length > 0 && (
             <CategoryGrid categories={categories} />
           )}
 
-          {/* 7. CTA banner */}
+          {/* 7. Réassurance numérotée 01-04 */}
+          <TrustBand />
+
+          {/* 8. CTA final slate-900 */}
           <CtaBanner />
 
           {/* 8. SEO text — affiché en bas de page pour Google */}

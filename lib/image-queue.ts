@@ -28,7 +28,12 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { processProductImage } from "@/lib/image-processor";
 
-const POLL_MS = 800; // tick rapide pour démarrer un nouveau job dès qu'un slot se libère
+// Poll long (5 s) : `notify()` est appelé à chaque `enqueueImageJob` et
+// `retryFailedImageJob`, donc le worker démarre un job dès qu'il arrive, sans
+// attendre le tick. L'interval sert uniquement de filet (jobs orphelins remis
+// en PENDING au boot, race conditions). Précédemment à 800 ms → ~125 requêtes
+// DB/s en idle, ~90 % de CPU inutile.
+const POLL_MS = 5000;
 const CONCURRENCY = 3; // 3 sharp en parallèle = bon compromis CPU/IO sur VPS 2 cœurs
 const RAW_DIR_KEY = "private/uploads/_image_jobs"; // hors public/, jamais servi en HTTP
 

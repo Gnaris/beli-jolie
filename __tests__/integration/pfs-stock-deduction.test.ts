@@ -11,6 +11,7 @@ import { Prisma } from "@prisma/client";
 import {
   countPendingPfsStockDeductions,
   deductStockFromPfsOrders,
+  simulatePfsStockDeductionAll,
 } from "@/lib/pfs-stock-deduction";
 
 const TENANT_SLUG = "beli-jolie";
@@ -547,6 +548,203 @@ describe("PFS stock deduction (real DB)", () => {
     expect(res.skipped).toEqual([]);
   });
 
+  it("vente PACK sans sizeLabel : déduit quand même via la composition", async () => {
+    // Régression : PFS n'envoie pas de taille sur les lignes PACK (le paquet a une
+    // composition interne). L'ancien code demandait un sizeId résolu pour toutes
+    // les lignes, ce qui sautait le PACK et laissait les UNIT sous-décrémentés.
+    const product = await prisma.product.create({
+      data: {
+        tenantId,
+        reference: `${TEST_PREFIX}PACK-NULL-SIZE`,
+        name: "Bague PACK sans taille",
+        description: "",
+        categoryId: entities.category.id,
+        status: "OFFLINE",
+      },
+    });
+    const unitVariant = await prisma.productColor.create({
+      data: {
+        tenantId,
+        productId: product.id,
+        colorId: entities.color1.id,
+        unitPrice: new Prisma.Decimal(10),
+        weight: 0.1,
+        stock: 14,
+        isPrimary: true,
+        saleType: "UNIT",
+        variantSizes: { create: [{ tenantId, sizeId: entities.size.id, quantity: 1 }] },
+      },
+    });
+    const packX12 = await prisma.productColor.create({
+      data: {
+        tenantId,
+        productId: product.id,
+        colorId: entities.color1.id,
+        unitPrice: new Prisma.Decimal(100),
+        weight: 1.2,
+        stock: 1,
+        isPrimary: false,
+        saleType: "PACK",
+        packQuantity: 12,
+        variantSizes: { create: [{ tenantId, sizeId: entities.size.id, quantity: 12 }] },
+      },
+    });
+
+    const order = await makePfsOrder({ tenantId, status: "VALIDATED", suffix: "pnull" });
+    // Line PACK sans sizeLabel (comme envoyée par PFS) — qty 1 pack
+    await prisma.pfsOrderItem.create({
+      data: {
+        tenantId,
+        pfsOrderId: order.id,
+        pfsItemId: `${TEST_PREFIX}pfs_item_pnull_pack`,
+        pfsProductRef: `${TEST_PREFIX}REF_pnull`,
+        pfsSku: `${TEST_PREFIX}SKU_pnull_pack`,
+        productId: product.id,
+        productColorId: packX12.id,
+        colorLabelFr: "Or",
+        sizeLabel: null,
+        itemType: "ITEM",
+        qtyOrdered: 1,
+        qtyValidated: 1,
+        unitPriceHT: new Prisma.Decimal(100),
+        totalPriceHT: new Prisma.Decimal(100),
+      },
+    });
+
+    const res = await deductStockFromPfsOrders(tenantId, null);
+    expect(res.processedCount).toBe(1);
+    expect(res.skipped).toEqual([]);
+    const u = await prisma.productColor.findUnique({ where: { id: unitVariant.id } });
+    const p = await prisma.productColor.findUnique({ where: { id: packX12.id } });
+    // UNIT 14 - 12 = 2, PACK cascade = floor(2/12) = 0
+    expect(u?.stock).toBe(2);
+    expect(p?.stock).toBe(0);
+  });
+
+  it("agrège plusieurs commandes sur la même variante : 1 stock final + 1 StockMovement par commande", async () => {
+    // Régression : chaque ligne PFS doit garder sa propre trace dans StockMovement
+    // (traçabilité par commande), mais le stock de la variante ne doit être écrit
+    // qu'une seule fois — la somme des consos est appliquée en une passe.
+    const product = await prisma.product.create({
+      data: {
+        tenantId,
+        reference: `${TEST_PREFIX}AGG-1`,
+        name: "Bague Or agrégée",
+        description: "",
+        categoryId: entities.category.id,
+        status: "OFFLINE",
+      },
+    });
+    const variant = await prisma.productColor.create({
+      data: {
+        tenantId,
+        productId: product.id,
+        colorId: entities.color1.id,
+        unitPrice: new Prisma.Decimal(10),
+        weight: 0.1,
+        stock: 20,
+        isPrimary: true,
+        saleType: "UNIT",
+        variantSizes: { create: [{ tenantId, sizeId: entities.size.id, quantity: 1 }] },
+      },
+    });
+
+    // 3 commandes distinctes → même produit/variante, qtés 2 + 3 + 4 = 9.
+    for (const [i, qty] of [[1, 2], [2, 3], [3, 4]] as const) {
+      const order = await makePfsOrder({ tenantId, status: "VALIDATED", suffix: `agg${i}` });
+      await makePfsItem({
+        tenantId,
+        pfsOrderId: order.id,
+        productId: product.id,
+        productColorId: variant.id,
+        suffix: `agg${i}`,
+        qtyValidated: qty,
+        sizeLabel: `${TEST_PREFIX}TU`,
+      });
+    }
+
+    const res = await deductStockFromPfsOrders(tenantId, null);
+    expect(res.processedCount).toBe(3);
+    expect(res.touchedProductIds).toContain(product.id);
+
+    // Stock final = 20 - 9 = 11.
+    const v = await prisma.productColor.findUnique({ where: { id: variant.id } });
+    expect(v?.stock).toBe(11);
+
+    // 3 StockMovement, un par commande, deltas conformes.
+    const movements = await prisma.stockMovement.findMany({
+      where: { productColorId: variant.id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(movements).toHaveLength(3);
+    expect(movements.map((m) => m.quantity).sort((a, b) => a - b)).toEqual([-4, -3, -2]);
+
+    // Toutes les lignes PFS marquées déduites.
+    const pending = await prisma.pfsOrderItem.count({
+      where: { productColorId: variant.id, stockDeductedAt: null },
+    });
+    expect(pending).toBe(0);
+  });
+
+  it("agrège avec clamp à 0 : ne crée pas de StockMovement pour la partie excédentaire", async () => {
+    // Stock 5, 2 commandes de 4 unités chacune (total demandé 8). FIFO :
+    // - cmd A (4) → stock 5→1, delta -4.
+    // - cmd B (4) → stock 1→0, delta -1 (partie excédentaire -3 non tracée).
+    const product = await prisma.product.create({
+      data: {
+        tenantId,
+        reference: `${TEST_PREFIX}AGG-CLAMP`,
+        name: "Bague clamp",
+        description: "",
+        categoryId: entities.category.id,
+        status: "OFFLINE",
+      },
+    });
+    const variant = await prisma.productColor.create({
+      data: {
+        tenantId,
+        productId: product.id,
+        colorId: entities.color1.id,
+        unitPrice: new Prisma.Decimal(10),
+        weight: 0.1,
+        stock: 5,
+        isPrimary: true,
+        saleType: "UNIT",
+        variantSizes: { create: [{ tenantId, sizeId: entities.size.id, quantity: 1 }] },
+      },
+    });
+    const orderA = await makePfsOrder({ tenantId, status: "VALIDATED", suffix: "clampA" });
+    await makePfsItem({
+      tenantId,
+      pfsOrderId: orderA.id,
+      productId: product.id,
+      productColorId: variant.id,
+      suffix: "clampA",
+      qtyValidated: 4,
+      sizeLabel: `${TEST_PREFIX}TU`,
+    });
+    const orderB = await makePfsOrder({ tenantId, status: "VALIDATED", suffix: "clampB" });
+    await makePfsItem({
+      tenantId,
+      pfsOrderId: orderB.id,
+      productId: product.id,
+      productColorId: variant.id,
+      suffix: "clampB",
+      qtyValidated: 4,
+      sizeLabel: `${TEST_PREFIX}TU`,
+    });
+
+    await deductStockFromPfsOrders(tenantId, null);
+    const v = await prisma.productColor.findUnique({ where: { id: variant.id } });
+    expect(v?.stock).toBe(0);
+    const movements = await prisma.stockMovement.findMany({
+      where: { productColorId: variant.id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(movements).toHaveLength(2);
+    expect(movements.map((m) => m.quantity).sort((a, b) => a - b)).toEqual([-4, -1]);
+  });
+
   it("skip si sizeLabel inconnu", async () => {
     const product = await prisma.product.create({
       data: {
@@ -588,5 +786,140 @@ describe("PFS stock deduction (real DB)", () => {
     expect(res.skipped[0]?.reason).toBe("SIZE_UNKNOWN");
     const v = await prisma.productColor.findUnique({ where: { id: variant.id } });
     expect(v?.stock).toBe(10);
+  });
+
+  it("exclusion : produit exclu → stock inchangé, ligne marquée stockDeductionExcludedAt, hors du count", async () => {
+    const product = await prisma.product.create({
+      data: {
+        tenantId,
+        reference: `${TEST_PREFIX}UNIT-EXCL`,
+        name: "Bague Exclue",
+        description: "",
+        categoryId: entities.category.id,
+        status: "OFFLINE",
+      },
+    });
+    const variant = await prisma.productColor.create({
+      data: {
+        tenantId,
+        productId: product.id,
+        colorId: entities.color1.id,
+        unitPrice: new Prisma.Decimal(10),
+        weight: 0.1,
+        stock: 12,
+        isPrimary: true,
+        saleType: "UNIT",
+        variantSizes: { create: [{ tenantId, sizeId: entities.size.id, quantity: 1 }] },
+      },
+    });
+    const order = await makePfsOrder({ tenantId, status: "VALIDATED", suffix: "excl" });
+    const item = await makePfsItem({
+      tenantId,
+      pfsOrderId: order.id,
+      productId: product.id,
+      productColorId: variant.id,
+      suffix: "excl",
+      qtyValidated: 4,
+      sizeLabel: `${TEST_PREFIX}TU`,
+    });
+
+    const before = await countPendingPfsStockDeductions(tenantId);
+    expect(before).toBeGreaterThanOrEqual(1);
+
+    const res = await deductStockFromPfsOrders(tenantId, null, {
+      excludedProductIds: [product.id],
+    });
+    expect(res.processedCount).toBe(0);
+    expect(res.excludedItemsCount).toBeGreaterThanOrEqual(1);
+    expect(res.excludedProductIds).toContain(product.id);
+    expect(res.touchedProductIds).not.toContain(product.id);
+
+    // Stock inchangé
+    const v = await prisma.productColor.findUnique({ where: { id: variant.id } });
+    expect(v?.stock).toBe(12);
+
+    // Ligne PFS marquée excluded, sans stockDeductedAt
+    const updated = await prisma.pfsOrderItem.findUnique({ where: { id: item.id } });
+    expect(updated?.stockDeductionExcludedAt).not.toBeNull();
+    expect(updated?.stockDeductedAt).toBeNull();
+
+    // Elle ne compte plus dans le count pending
+    expect(await countPendingPfsStockDeductions(tenantId)).toBe(before - 1);
+
+    // Un 2ᵉ appel sans exclusion ne reprend pas la ligne exclue
+    const res2 = await deductStockFromPfsOrders(tenantId, null);
+    expect(res2.processedCount).toBe(0);
+    const vAfter = await prisma.productColor.findUnique({ where: { id: variant.id } });
+    expect(vAfter?.stock).toBe(12);
+  });
+
+  it("simulation globale : renvoie la vue agrégée par produit avec stock avant/après", async () => {
+    const product = await prisma.product.create({
+      data: {
+        tenantId,
+        reference: `${TEST_PREFIX}UNIT-SIM`,
+        name: "Bague à simuler",
+        description: "",
+        categoryId: entities.category.id,
+        status: "ONLINE",
+      },
+    });
+    const variant = await prisma.productColor.create({
+      data: {
+        tenantId,
+        productId: product.id,
+        colorId: entities.color1.id,
+        unitPrice: new Prisma.Decimal(10),
+        weight: 0.1,
+        stock: 15,
+        isPrimary: true,
+        saleType: "UNIT",
+        variantSizes: { create: [{ tenantId, sizeId: entities.size.id, quantity: 1 }] },
+      },
+    });
+    const order1 = await makePfsOrder({ tenantId, status: "VALIDATED", suffix: "sim1" });
+    const order2 = await makePfsOrder({ tenantId, status: "SENT", suffix: "sim2" });
+    await makePfsItem({
+      tenantId,
+      pfsOrderId: order1.id,
+      productId: product.id,
+      productColorId: variant.id,
+      suffix: "sim1",
+      qtyValidated: 3,
+      sizeLabel: `${TEST_PREFIX}TU`,
+    });
+    await makePfsItem({
+      tenantId,
+      pfsOrderId: order2.id,
+      productId: product.id,
+      productColorId: variant.id,
+      suffix: "sim2",
+      qtyValidated: 5,
+      sizeLabel: `${TEST_PREFIX}TU`,
+    });
+
+    const preview = await simulatePfsStockDeductionAll(tenantId);
+    const p = preview.products.find((x) => x.productId === product.id);
+    expect(p).toBeDefined();
+    expect(p?.totalUnitsRemoved).toBe(8); // 3 + 5 agrégés
+    expect(p?.linesCount).toBe(2);
+    expect(p?.orderNumbers).toHaveLength(2);
+    expect(p?.variantChanges).toHaveLength(1);
+    const change = p!.variantChanges[0];
+    expect(change.productColorId).toBe(variant.id);
+    expect(change.currentStock).toBe(15);
+    expect(change.nextStock).toBe(7); // 15 - 8
+
+    // La simulation ne persiste rien
+    const stillOnStock = await prisma.productColor.findUnique({ where: { id: variant.id } });
+    expect(stillOnStock?.stock).toBe(15);
+    const stillPending = await prisma.pfsOrderItem.findMany({
+      where: { pfsOrderId: { in: [order1.id, order2.id] } },
+      select: { stockDeductedAt: true, stockDeductionExcludedAt: true },
+    });
+    for (const s of stillPending) {
+      expect(s.stockDeductedAt).toBeNull();
+      expect(s.stockDeductionExcludedAt).toBeNull();
+    }
   });
 });

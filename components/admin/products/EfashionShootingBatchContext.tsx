@@ -51,7 +51,8 @@ export function useEfashionShootingBatch(): ContextValue {
   return ctx;
 }
 
-const POLL_MS = 5_000;
+const POLL_ACTIVE_MS = 5_000;
+const POLL_IDLE_MS = 20_000;
 
 export function EfashionShootingBatchProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<EfashionShootingBatchState>({
@@ -59,6 +60,7 @@ export function EfashionShootingBatchProvider({ children }: { children: React.Re
     hasBlockingIssue: false,
   });
   const [isCommitting, setIsCommitting] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
   const inFlightRef = useRef<boolean>(false);
 
   const refresh = useCallback(async () => {
@@ -80,10 +82,23 @@ export function EfashionShootingBatchProvider({ children }: { children: React.Re
   }, []);
 
   useEffect(() => {
-    void refresh();
-    const interval = setInterval(() => void refresh(), POLL_MS);
+    if (typeof document === "undefined") return;
+    const update = () => setIsVisible(document.visibilityState === "visible");
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
+  useEffect(() => {
+    if (isVisible) void refresh();
+  }, [isVisible, refresh]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    const delay = state.items.length > 0 ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+    const interval = setInterval(() => void refresh(), delay);
     return () => clearInterval(interval);
-  }, [refresh]);
+  }, [state.items.length, isVisible, refresh]);
 
   const addProduct = useCallback(
     async (productId: string, mode: EfashionShootingMode) => {

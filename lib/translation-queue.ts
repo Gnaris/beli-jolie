@@ -21,8 +21,12 @@
 import { Prisma, type TranslationJobStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { translateToAllLocales } from "@/lib/pfs-translate";
+import { translatePhrases, PFS_TRANSLATION_LOCALES } from "@/lib/pfs-translate";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+
+// Nombre d'items envoyés dans un seul appel à l'API PFS `translatePhrases`.
+// L'API accepte un batch de clés → gain ~10× vs 1 appel par mot.
+const TRANSLATION_BATCH_SIZE = 10;
 
 const POLL_MS = 1000; // 1 tick / seconde — la traduction est lente (~500 ms/mot)
 const RECENT_DONE_LIMIT_MS = 5 * 60_000; // garder 5 min les jobs DONE visibles dans le tiroir
@@ -263,50 +267,70 @@ async function processJobBody(job: any, jobId: string): Promise<void> {
   let done = 0;
   let errors = 0;
 
-  for (const item of items) {
-    // Affichage temps réel du mot courant : on met à jour AVANT l'appel API.
+  // Découpe la liste en batches de TRANSLATION_BATCH_SIZE (défaut 10). Chaque
+  // batch = 1 seul appel API PFS pour toutes les phrases → gain ~10× vs mot
+  // par mot. L'API accepte un objet { clé: texte } et renvoie { clé: { locale: trad } }.
+  for (let start = 0; start < items.length; start += TRANSLATION_BATCH_SIZE) {
+    const batch = items.slice(start, start + TRANSLATION_BATCH_SIZE);
+
+    // Affichage temps réel : on montre le 1er mot du batch en cours.
+    const preview = batch[0]?.text.slice(0, 500) ?? null;
     await prisma.translationJob
       .update({
         where: { id: jobId },
         data: {
-          currentItemText: item.text.slice(0, 500),
+          currentItemText: preview,
           currentItemTranslation: null,
           currentLocale: null,
         },
       })
       .catch(() => {}); // si le job a été dismiss entre-temps
 
+    // Clés = item.id — l'API renvoie les traductions avec les mêmes clés en sortie.
+    const phrases: Record<string, string> = {};
+    for (const item of batch) {
+      if (item.text.trim()) phrases[item.id] = item.text;
+    }
+
+    let result: Awaited<ReturnType<typeof translatePhrases>> = null;
     try {
-      const translations = await translateToAllLocales(item.text);
-      // Ne persiste que les locales que le site utilise réellement (fr/en aujourd'hui).
-      let anyWritten = false;
-      for (const locale of NON_DEFAULT_LOCALES) {
-        const value = translations[locale];
-        if (value && value.trim()) {
-          await prisma.translationJob
-            .update({
-              where: { id: jobId },
-              data: {
-                currentItemTranslation: value.slice(0, 500),
-                currentLocale: locale,
-              },
-            })
-            .catch(() => {});
-          await persistTranslation(entityType, item.id, locale, value);
-          anyWritten = true;
-        }
-      }
-      if (!anyWritten) errors++;
+      result = await translatePhrases(phrases);
     } catch (err) {
-      errors++;
-      logger.warn("[Translation Queue] Item échoué", {
+      logger.warn("[Translation Queue] Batch échoué (API)", {
         jobId,
-        itemId: item.id,
+        batchSize: batch.length,
         error: err as Error,
       });
     }
 
-    done++;
+    // Persistance : upsert par (entityId, locale) pour chaque item du batch.
+    for (const item of batch) {
+      const perLocale = result?.[item.id];
+      let anyWritten = false;
+      if (perLocale) {
+        for (const locale of NON_DEFAULT_LOCALES) {
+          if (!(PFS_TRANSLATION_LOCALES as readonly string[]).includes(locale)) continue;
+          const value = perLocale[locale as (typeof PFS_TRANSLATION_LOCALES)[number]];
+          if (value && value.trim()) {
+            try {
+              await persistTranslation(entityType, item.id, locale, value);
+              anyWritten = true;
+            } catch (err) {
+              logger.warn("[Translation Queue] Persist échoué", {
+                jobId,
+                itemId: item.id,
+                locale,
+                error: err as Error,
+              });
+            }
+          }
+        }
+      }
+      if (!anyWritten) errors++;
+      done++;
+    }
+
+    // Un seul update de progression par batch (au lieu d'1 par mot × 2 locales).
     await prisma.translationJob
       .update({
         where: { id: jobId },

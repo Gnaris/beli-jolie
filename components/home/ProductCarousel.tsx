@@ -84,6 +84,7 @@ export interface ClientDiscountInfo {
 interface Props {
   title: string;
   subtitle?: string;
+  eyebrow?: string;
   products: CarouselProduct[];
   viewMoreHref: string;
   viewMoreLabel?: string;
@@ -538,6 +539,7 @@ function CarouselCard({
 export default function ProductCarousel({
   title,
   subtitle,
+  eyebrow,
   products,
   viewMoreHref,
   viewMoreLabel = "Voir plus",
@@ -564,25 +566,32 @@ export default function ProductCarousel({
   return (
     <section
       ref={sectionRef}
-      className={`scroll-fade-up py-10 lg:py-14 ${variant === "gray" ? "bg-bg-secondary" : "bg-bg-primary"}`}
+      className={`scroll-fade-up py-20 lg:py-24 ${variant === "gray" ? "bg-bg-secondary" : "bg-bg-primary"} ${variant === "white" ? "border-y border-border" : ""}`}
     >
       <div className="container-site" style={{ maxWidth: "1440px" }}>
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        {/* Header éditorial */}
+        <div className="flex items-end justify-between mb-12 flex-wrap gap-4">
           <div>
-            <h2 className={`font-heading font-semibold text-text-primary ${isPremium ? "text-2xl" : "text-xl"}`}>
+            {eyebrow && (
+              <p className="text-[11px] uppercase tracking-[0.22em] text-text-muted font-medium mb-4">
+                {eyebrow}
+              </p>
+            )}
+            <h2
+              className="font-heading font-bold text-text-primary leading-tight"
+              style={{ fontSize: "clamp(1.75rem, 3vw, 2.75rem)", letterSpacing: "-0.01em" }}
+            >
               {title}
             </h2>
             {subtitle && (
-              <p className="text-sm text-text-muted font-body mt-1">{subtitle}</p>
+              <p className="text-sm text-text-secondary font-body mt-2">{subtitle}</p>
             )}
-            <div className="h-px w-12 bg-border mt-3" />
           </div>
           <Link
             href={viewMoreHref}
-            className="text-sm font-medium text-text-secondary hover:text-text-primary transition-colors font-body"
+            className="hidden md:inline-flex items-center gap-2 px-5 py-2.5 border border-border rounded-full text-sm font-heading font-medium text-text-primary hover:bg-bg-dark hover:text-text-inverse hover:border-bg-dark transition-colors"
           >
-            {viewMoreLabel} &rarr;
+            {viewMoreLabel} <span aria-hidden>→</span>
           </Link>
         </div>
 
