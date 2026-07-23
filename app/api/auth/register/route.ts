@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { uploadFile, kbisDir, clientDocumentsDir, slugify } from "@/lib/storage";
-import { getCurrentTenantSlug } from "@/lib/tenant";
+import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
+import { addUnsubscribe } from "@/lib/email-marketing/unsubscribe";
 import { registerSchema } from "@/lib/validations/auth";
 import { notifyNewClientRegistration } from "@/lib/notifications";
 import { checkRegistrationSpam, logRegistration, getClientIp } from "@/lib/security";
@@ -259,16 +260,14 @@ export async function POST(request: NextRequest) {
 
     // ── Consentement marketing : si décoché, on pose l'unsubscribe MARKETING_ALL ──
     if (!data.marketingConsent) {
-      try {
-        await prisma.emailUnsubscribe.create({
-          data: {
-            email: newUser.email,
-            scope: "MARKETING_ALL",
-          },
-        });
-      } catch (err) {
-        // Ne pas bloquer l'inscription si l'écriture échoue (ex: doublon)
-        logger.error("[Register] EmailUnsubscribe creation failed", { error: err });
+      const tid = await getCurrentTenantId();
+      if (tid) {
+        try {
+          await addUnsubscribe(tid, newUser.email, "MARKETING_ALL");
+        } catch (err) {
+          // Ne pas bloquer l'inscription si l'écriture échoue
+          logger.error("[Register] EmailUnsubscribe creation failed", { error: err });
+        }
       }
     }
 
