@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { invalidateProductTranslations, translateTextStrict } from "@/lib/translate";
 import { recordRestockEvent } from "@/lib/email-marketing/back-in-stock";
+import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
