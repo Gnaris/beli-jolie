@@ -5,7 +5,13 @@ import { revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { verifyPfsProduct, type PfsVerifyResult, type PfsVerifyError, type PfsVerifyIssue } from "@/lib/pfs-verify";
+import {
+  verifyPfsProduct,
+  loadPfsVerifyContext,
+  type PfsVerifyResult,
+  type PfsVerifyError,
+  type PfsVerifyIssue,
+} from "@/lib/pfs-verify";
 import {
   applyPfsVerifyActions as applyPfsVerifyActionsCore,
   applyPfsVerifyPullsOnly,
@@ -67,6 +73,10 @@ export async function verifyPfsProducts(
 
   const outcomes: PfsVerifyOutcome[] = [];
 
+  // Précharge une seule fois les tables globales PFS + configs BDD partagées
+  // par tous les produits (évite 5 HTTP + 2 BDD redondants par produit).
+  const verifyContext = await loadPfsVerifyContext();
+
   // Concurrency = 5 (mêmes limites que le refresh en lot). PFS a son propre
   // limiter à 2 slots côté fetchWithRetry, donc on ne le sature pas.
   const CONCURRENCY = 5;
@@ -80,7 +90,7 @@ export async function verifyPfsProducts(
           if (!pid) return;
           const reference = refById.get(pid) ?? "?";
           try {
-            const res = await verifyPfsProduct(pid);
+            const res = await verifyPfsProduct(pid, verifyContext);
             if (res.ok) {
               await persistVerifyResult(pid, res.result);
               outcomes.push({

@@ -513,6 +513,19 @@ export interface PfsLabelMaps {
   countryLabelByIso?: Map<string, string>;
 }
 
+/**
+ * Contexte préchargé partagé entre plusieurs `verifyPfsProduct` d'un même lot.
+ * Regroupe les 5 tables globales PFS (colors + 4 attributs) et les 2 configs
+ * BDD (markup pricing + out-of-stock) — toutes identiques d'un produit à
+ * l'autre. Sans ce contexte, chaque verify refait 5 HTTP + 2 BDD redondants.
+ */
+export interface PfsVerifyContext {
+  colorRefMap: Map<string, string>;
+  pfsMarkup: MarkupConfig | undefined;
+  outOfStockProductAction: PfsOutOfStockProductAction;
+  labels: PfsLabelMaps;
+}
+
 const GENDER_FR: Record<string, string> = {
   WOMAN: "Femme",
   MAN: "Homme",
@@ -927,6 +940,7 @@ function formatCompositionForDisplayHuman(
 
 export async function verifyPfsProduct(
   productId: string,
+  context?: PfsVerifyContext,
 ): Promise<{ ok: true; result: PfsVerifyResult } | { ok: false; error: PfsVerifyError }> {
   const product = await loadProductFull(productId);
   if (!product) {
@@ -968,23 +982,20 @@ export async function verifyPfsProduct(
     return { ok: false, error: { kind: "pfs_unreachable", message: msg } };
   }
 
-  // 3) Mapping couleurs + markup + labels PFS pour l'affichage humain
-  const [colorRefMap, markupConfigs, outOfStockCfg, labelMaps] = await Promise.all([
-    buildColorLabelToRefMap(),
-    loadMarketplaceMarkupConfigs(),
-    getPfsOutOfStockConfig(),
-    buildPfsLabelMaps(),
-  ]);
+  // 3) Mapping couleurs + markup + labels PFS pour l'affichage humain.
+  // Réutilise le contexte préchargé si fourni (audit en lot / bulk verify) —
+  // évite 5 HTTP + 2 BDD redondants par produit.
+  const ctx = context ?? (await loadPfsVerifyContext());
 
   const issues = comparePfsProduct(
     product,
     checkRef.product,
     variantsResp.data ?? [],
-    colorRefMap,
+    ctx.colorRefMap,
     {
-      pfsMarkup: markupConfigs.pfs,
-      outOfStockProductAction: outOfStockCfg.productAction,
-      labels: labelMaps,
+      pfsMarkup: ctx.pfsMarkup,
+      outOfStockProductAction: ctx.outOfStockProductAction,
+      labels: ctx.labels,
     },
   );
 
@@ -1064,4 +1075,24 @@ async function buildColorLabelToRefMap(): Promise<Map<string, string>> {
     logger.warn("[PFS Verify] Failed to load PFS color refs", { error: err });
   }
   return map;
+}
+
+/**
+ * Précharge en parallèle les 5 tables globales PFS + 2 configs BDD partagées
+ * par tous les `verifyPfsProduct` d'un même lot. À appeler UNE FOIS au début
+ * d'un audit / bulk verify puis à passer à chaque `verifyPfsProduct`.
+ */
+export async function loadPfsVerifyContext(): Promise<PfsVerifyContext> {
+  const [colorRefMap, markupConfigs, outOfStockCfg, labelMaps] = await Promise.all([
+    buildColorLabelToRefMap(),
+    loadMarketplaceMarkupConfigs(),
+    getPfsOutOfStockConfig(),
+    buildPfsLabelMaps(),
+  ]);
+  return {
+    colorRefMap,
+    pfsMarkup: markupConfigs.pfs,
+    outOfStockProductAction: outOfStockCfg.productAction,
+    labels: labelMaps,
+  };
 }

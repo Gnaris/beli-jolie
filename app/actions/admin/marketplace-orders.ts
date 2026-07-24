@@ -13,11 +13,13 @@
  * Ajouter Ankorstore/Faire consistera à étendre l'UNION avec une 3ᵉ source.
  */
 
+import { revalidatePath, revalidateTag } from "next/cache";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireCurrentTenant } from "@/lib/tenant";
 import { getImageSrc } from "@/lib/image-utils";
+import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -1795,5 +1797,239 @@ export async function getMarketplaceSyncMeta(): Promise<{
       totalOrdersInDb: microstoreCount,
       hasCredentials: (microstoreCreds?.value || "").trim().length > 0,
     },
+  };
+}
+
+// ─────────────────────────────────────────────
+// Actions groupées : déduction stock ou marquage « déjà déduites »
+// ─────────────────────────────────────────────
+
+export interface BulkMarketplaceOrderIds {
+  PFS?: string[];
+  EFASHION?: string[];
+  ANKORSTORE?: string[];
+  FAIRE?: string[];
+}
+
+export interface BulkStockDeductionResult {
+  success: boolean;
+  processedCount: number;
+  skippedCount: number;
+  errors: Array<{ source: MarketplaceSource; message: string }>;
+}
+
+/**
+ * Déduit le stock pour un lot de commandes marketplaces sélectionnées.
+ * Les IDs sont groupés par source, chaque source est traitée en parallèle
+ * via sa lib dédiée (deductStockFromXxxOrders). Idempotent : les lignes
+ * déjà déduites sont ignorées côté lib.
+ */
+export async function bulkDeductMarketplaceOrders(
+  ids: BulkMarketplaceOrderIds,
+): Promise<BulkStockDeductionResult> {
+  const session = await requireAdmin();
+  const tenant = await requireCurrentTenant();
+  const actorId = session.user.id ?? null;
+
+  const pfsIds = (ids.PFS ?? []).filter(Boolean);
+  const efashionIds = (ids.EFASHION ?? []).filter(Boolean);
+  const ankorstoreIds = (ids.ANKORSTORE ?? []).filter(Boolean);
+  const faireIds = (ids.FAIRE ?? []).filter(Boolean);
+
+  const errors: Array<{ source: MarketplaceSource; message: string }> = [];
+  let processedCount = 0;
+  let skippedCount = 0;
+  let touched = false;
+
+  await Promise.all([
+    pfsIds.length > 0
+      ? (async () => {
+          try {
+            const { deductStockFromPfsOrders } = await import("@/lib/pfs-stock-deduction");
+            const r = await deductStockFromPfsOrders(tenant.id, actorId, { pfsOrderIds: pfsIds });
+            processedCount += r.processedCount;
+            skippedCount += r.skipped.length;
+            if (r.touchedProductIds.length > 0) touched = true;
+          } catch (err) {
+            logger.error("[Bulk Stock] PFS échec", { error: err as Error });
+            errors.push({
+              source: "PFS",
+              message: err instanceof Error ? err.message : "Erreur inconnue",
+            });
+          }
+        })()
+      : Promise.resolve(),
+    efashionIds.length > 0
+      ? (async () => {
+          try {
+            const { deductStockFromEfashionOrders } = await import(
+              "@/lib/efashion-stock-deduction"
+            );
+            const r = await deductStockFromEfashionOrders(tenant.id, actorId, efashionIds);
+            processedCount += r.processedCount;
+            skippedCount += r.skipped.length;
+            if (r.touchedProductIds.length > 0) touched = true;
+          } catch (err) {
+            logger.error("[Bulk Stock] eFashion échec", { error: err as Error });
+            errors.push({
+              source: "EFASHION",
+              message: err instanceof Error ? err.message : "Erreur inconnue",
+            });
+          }
+        })()
+      : Promise.resolve(),
+    ankorstoreIds.length > 0
+      ? (async () => {
+          try {
+            const { deductStockFromAnkorstoreOrders } = await import(
+              "@/lib/ankorstore-stock-deduction"
+            );
+            const r = await deductStockFromAnkorstoreOrders(tenant.id, actorId, ankorstoreIds);
+            processedCount += r.processedCount;
+            skippedCount += r.skipped.length;
+            if (r.touchedProductIds.length > 0) touched = true;
+          } catch (err) {
+            logger.error("[Bulk Stock] Ankorstore échec", { error: err as Error });
+            errors.push({
+              source: "ANKORSTORE",
+              message: err instanceof Error ? err.message : "Erreur inconnue",
+            });
+          }
+        })()
+      : Promise.resolve(),
+    faireIds.length > 0
+      ? (async () => {
+          try {
+            const { deductStockFromFaireOrders } = await import("@/lib/faire-stock-deduction");
+            const r = await deductStockFromFaireOrders(tenant.id, actorId, faireIds);
+            processedCount += r.processedCount;
+            skippedCount += r.skipped.length;
+            if (r.touchedProductIds.length > 0) touched = true;
+          } catch (err) {
+            logger.error("[Bulk Stock] Faire échec", { error: err as Error });
+            errors.push({
+              source: "FAIRE",
+              message: err instanceof Error ? err.message : "Erreur inconnue",
+            });
+          }
+        })()
+      : Promise.resolve(),
+  ]);
+
+  if (touched) {
+    revalidateTag("products", "default");
+    revalidateTag("dashboard-stats", "default");
+    revalidatePath("/admin/produits");
+  }
+  revalidatePath("/admin/commandes");
+
+  return {
+    success: errors.length === 0,
+    processedCount,
+    skippedCount,
+    errors,
+  };
+}
+
+export interface BulkMarkAsDeductedResult {
+  success: boolean;
+  markedCount: number;
+  errors: Array<{ source: MarketplaceSource; message: string }>;
+}
+
+/**
+ * Marque un lot de commandes marketplaces comme « déjà déduites » SANS toucher
+ * au stock. Utile quand la déduction a été faite manuellement en dehors du
+ * système ou déjà passée sur un autre outil. Action irréversible.
+ */
+export async function bulkMarkMarketplaceOrdersAsDeducted(
+  ids: BulkMarketplaceOrderIds,
+): Promise<BulkMarkAsDeductedResult> {
+  await requireAdmin();
+  const tenant = await requireCurrentTenant();
+
+  const pfsIds = (ids.PFS ?? []).filter(Boolean);
+  const efashionIds = (ids.EFASHION ?? []).filter(Boolean);
+  const ankorstoreIds = (ids.ANKORSTORE ?? []).filter(Boolean);
+  const faireIds = (ids.FAIRE ?? []).filter(Boolean);
+
+  const errors: Array<{ source: MarketplaceSource; message: string }> = [];
+  const now = new Date();
+  let markedCount = 0;
+
+  const runOne = async (
+    source: MarketplaceSource,
+    fn: () => Promise<{ count: number }>,
+  ) => {
+    try {
+      const r = await fn();
+      markedCount += r.count;
+    } catch (err) {
+      logger.error(`[Bulk MarkDeducted] ${source} échec`, { error: err as Error });
+      errors.push({
+        source,
+        message: err instanceof Error ? err.message : "Erreur inconnue",
+      });
+    }
+  };
+
+  await Promise.all([
+    pfsIds.length > 0
+      ? runOne("PFS", () =>
+          prisma.pfsOrderItem.updateMany({
+            where: {
+              tenantId: tenant.id,
+              pfsOrderId: { in: pfsIds },
+              stockDeductedAt: null,
+              stockDeductionExcludedAt: null,
+            },
+            data: { stockDeductedAt: now },
+          }),
+        )
+      : Promise.resolve(),
+    efashionIds.length > 0
+      ? runOne("EFASHION", () =>
+          prisma.efashionOrderItem.updateMany({
+            where: {
+              tenantId: tenant.id,
+              efashionOrderId: { in: efashionIds },
+              stockDeductedAt: null,
+            },
+            data: { stockDeductedAt: now },
+          }),
+        )
+      : Promise.resolve(),
+    ankorstoreIds.length > 0
+      ? runOne("ANKORSTORE", () =>
+          prisma.ankorstoreOrderItem.updateMany({
+            where: {
+              tenantId: tenant.id,
+              ankorstoreOrderId: { in: ankorstoreIds },
+              stockDeductedAt: null,
+            },
+            data: { stockDeductedAt: now },
+          }),
+        )
+      : Promise.resolve(),
+    faireIds.length > 0
+      ? runOne("FAIRE", () =>
+          prisma.faireOrderItem.updateMany({
+            where: {
+              tenantId: tenant.id,
+              faireOrderId: { in: faireIds },
+              stockDeductedAt: null,
+            },
+            data: { stockDeductedAt: now },
+          }),
+        )
+      : Promise.resolve(),
+  ]);
+
+  revalidatePath("/admin/commandes");
+
+  return {
+    success: errors.length === 0,
+    markedCount,
+    errors,
   };
 }

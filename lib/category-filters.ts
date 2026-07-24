@@ -10,6 +10,18 @@ export type CategoryForFilters = {
   faireTaxonomyId: string | null;
 };
 
+// Une catégorie est considérée mappée PFS dès que les 3 champs texte sont
+// remplis (Genre + Famille + Catégorie). L'ID Salesforce pfsCategoryId est
+// résolu automatiquement lors du 1er push PFS ; ne pas l'exiger sinon toute
+// catégorie mappée à la main via la modale apparaît comme « sans lien PFS ».
+function hasPfsMapping(cat: CategoryForFilters): boolean {
+  return (
+    !!cat.pfsGender &&
+    !!cat.pfsFamilyName?.trim() &&
+    !!cat.pfsCategoryName?.trim()
+  );
+}
+
 export type FilterKey =
   | "missingTranslation"
   | "missingPfs"
@@ -33,7 +45,7 @@ export function matchesFilters(cat: CategoryForFilters, active: Set<FilterKey>):
     const en = cat.translations.en;
     if (fr && fr.trim() !== "" && en && en.trim() !== "") return false;
   }
-  if (active.has("missingPfs") && cat.pfsCategoryId) return false;
+  if (active.has("missingPfs") && hasPfsMapping(cat)) return false;
   if (active.has("missingEfashion") && cat.efashionCategorieId != null) return false;
   if (active.has("missingFaire") && cat.faireTaxonomyId != null) return false;
   return true;

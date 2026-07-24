@@ -16,8 +16,7 @@
  * droite + dock horizontal bas + FAB mobile, unifié en un seul motif.
  */
 
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 import { useRightRail, type RailWidgetId } from "./RightRailContext";
 
 interface RailItem {
@@ -282,36 +281,20 @@ function MiniButton({
   delay: number;
   onClick: () => void;
 }) {
-  const anchorRef = useRef<HTMLButtonElement | null>(null);
-  const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null);
-
-  const show = () => {
-    if (anchorRef.current) {
-      const r = anchorRef.current.getBoundingClientRect();
-      setTooltip({ x: r.left, y: r.top + r.height / 2 });
-    }
-  };
-  const hide = () => setTooltip(null);
-
   return (
-    <>
-      <button
-        ref={anchorRef}
-        type="button"
-        aria-label={item.label}
-        onClick={() => {
-          hide();
-          onClick();
-        }}
-        onMouseEnter={show}
-        onMouseLeave={hide}
-        onFocus={show}
-        onBlur={hide}
-        className="relative focus:outline-none"
-        style={{
-          animation: `miniBtnIn 320ms cubic-bezier(.16,1,.3,1) ${delay}ms both`,
-        }}
-      >
+    <button
+      type="button"
+      aria-label={item.label}
+      onClick={onClick}
+      className="group flex items-center gap-3 focus:outline-none"
+      style={{
+        animation: `miniBtnIn 320ms cubic-bezier(.16,1,.3,1) ${delay}ms both`,
+      }}
+    >
+      <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg ring-1 ring-slate-200 whitespace-nowrap group-hover:-translate-x-0.5 transition-transform">
+        {item.label}
+      </span>
+      <span className="relative">
         {/* Halo pulsant sur mini-bouton si sa file a du travail */}
         {badge.pulse && (
           <span
@@ -319,7 +302,7 @@ function MiniButton({
           />
         )}
         <span
-          className={`relative w-12 h-12 rounded-full bg-gradient-to-br ${item.gradient} text-white shadow-xl flex items-center justify-center ring-2 ring-white hover:scale-110 transition-transform`}
+          className={`relative w-12 h-12 rounded-full bg-gradient-to-br ${item.gradient} text-white shadow-xl flex items-center justify-center ring-2 ring-white group-hover:scale-110 transition-transform`}
         >
           {item.icon}
         </span>
@@ -330,20 +313,7 @@ function MiniButton({
             {badge.count > 99 ? "99+" : badge.count}
           </span>
         )}
-      </button>
-      {tooltip &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            role="tooltip"
-            className="fixed z-[9999] pointer-events-none px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-medium whitespace-nowrap shadow-lg -translate-x-full -translate-y-1/2"
-            style={{ left: tooltip.x - 10, top: tooltip.y }}
-          >
-            {item.label}
-            <span className="absolute left-full top-1/2 -translate-y-1/2 w-0 h-0 border-4 border-transparent border-l-slate-900" />
-          </div>,
-          document.body,
-        )}
-    </>
+      </span>
+    </button>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import type { MarketplaceStatsBundle } from "@/app/actions/admin/marketplace-orders";
-import MarketplaceBadge from "./MarketplaceBadge";
 
 interface Props {
   stats: MarketplaceStatsBundle | null;
@@ -26,7 +25,6 @@ export default function MarketplaceKpiRow({ stats }: Props) {
             ? `${formatInt(k.bySource.PFS.ordersCount)} PFS · ${formatInt(k.bySource.EFASHION.ordersCount)} eFashion · ${formatInt(k.bySource.ANKORSTORE.ordersCount)} Ankor · ${formatInt(k.bySource.FAIRE.ordersCount)} Faire`
             : ""
         }
-        badges
       />
       <KpiCard
         label="CA HT cumulé"
@@ -62,23 +60,13 @@ function KpiCard({
   label,
   value,
   hint,
-  badges,
 }: {
   label: string;
   value: string;
   hint?: string;
-  badges?: boolean;
 }) {
   return (
     <div className="rounded-2xl bg-bg-primary border border-border shadow-sm p-4 relative">
-      {badges && (
-        <div className="absolute top-3 right-3 flex gap-1">
-          <MarketplaceBadge source="PFS" size="xs" />
-          <MarketplaceBadge source="EFASHION" size="xs" />
-          <MarketplaceBadge source="ANKORSTORE" size="xs" />
-          <MarketplaceBadge source="FAIRE" size="xs" />
-        </div>
-      )}
       <div className="text-xs uppercase tracking-[0.2em] text-text-muted">{label}</div>
       <div className="font-heading text-3xl font-bold text-text-primary mt-2 tabular-nums">
         {value}

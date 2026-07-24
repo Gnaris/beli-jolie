@@ -5,6 +5,9 @@ import {
   listMarketplaceOrders,
   getMarketplaceStats,
   getMarketplaceSyncMeta,
+  bulkDeductMarketplaceOrders,
+  bulkMarkMarketplaceOrdersAsDeducted,
+  type BulkMarketplaceOrderIds,
   type MarketplacePeriodKey,
   type MarketplaceOrderListItem,
   type MarketplaceStatsBundle,
@@ -128,6 +131,8 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [syncMeta, setSyncMeta] = useState(initialSyncMeta);
   const [nowTick, setNowTick] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkRunning, setBulkRunning] = useState(false);
   const [, startTransition] = useTransition();
   const { confirm } = useConfirm();
   const { open: openWidget } = useRightRail();
@@ -190,6 +195,12 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Réinitialise la sélection à chaque changement de contexte : période,
+  // filtres, page. Évite d'agir par erreur sur des commandes hors écran.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [page, q, statusFilter, sourceFilter, stockFilter, period, customFrom, customTo]);
 
   // Polling léger de l'état d'import (PFS + eFashion + Ankorstore + Faire)
   // pour rafraîchir la vue à la fin de chaque import historique.
@@ -539,13 +550,6 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     [nowTick],
   );
 
-  const noCredentials =
-    !syncMeta.pfs.hasCredentials &&
-    !syncMeta.efashion.hasCredentials &&
-    !syncMeta.ankorstore.hasCredentials &&
-    !syncMeta.faire.hasCredentials &&
-    !syncMeta.microstore.hasCredentials;
-
   const closingDrawer = useMemo(
     () => () => {
       setSelectedPfs(null);
@@ -557,22 +561,147 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     [],
   );
 
-  if (noCredentials) {
-    return (
-      <div className="rounded-2xl bg-bg-primary border border-border p-10 text-center">
-        <h2 className="font-heading text-xl font-bold">Aucune marketplace configurée</h2>
-        <p className="text-sm text-text-secondary mt-2 max-w-md mx-auto">
-          Pour récupérer vos commandes marketplaces, ouvrez «&nbsp;Paramètres → Marketplaces&nbsp;» et
-          renseignez les identifiants de Paris Fashion Shop, eFashion Paris, Ankorstore et/ou Faire.
-        </p>
-      </div>
-    );
-  }
+  // ─── Sélection bulk ────────────────────────────
+  const onToggleSelect = useCallback(
+    (row: MarketplaceOrderListItem, checked: boolean) => {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (checked) next.add(row.id);
+        else next.delete(row.id);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const onToggleSelectAll = useCallback(
+    (checked: boolean) => {
+      if (!list) return;
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const row of list) {
+          if (row.stockDeductionState !== "PENDING") continue;
+          if (checked) next.add(row.id);
+          else next.delete(row.id);
+        }
+        return next;
+      });
+    },
+    [list],
+  );
+
+  const onClearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  /** Regroupe les IDs sélectionnés par source, en ne gardant que les commandes
+   *  encore en attente de déduction (les autres n'ont rien à faire). */
+  const buildBulkPayload = useCallback((): BulkMarketplaceOrderIds => {
+    const acc: BulkMarketplaceOrderIds = {
+      PFS: [],
+      EFASHION: [],
+      ANKORSTORE: [],
+      FAIRE: [],
+    };
+    for (const row of list ?? []) {
+      if (!selectedIds.has(row.id)) continue;
+      if (row.stockDeductionState !== "PENDING") continue;
+      if (row.source === "PFS") acc.PFS!.push(row.id);
+      else if (row.source === "EFASHION") acc.EFASHION!.push(row.id);
+      else if (row.source === "ANKORSTORE") acc.ANKORSTORE!.push(row.id);
+      else if (row.source === "FAIRE") acc.FAIRE!.push(row.id);
+      // MICROSTORE : pas de déduction stock → ignoré.
+    }
+    return acc;
+  }, [list, selectedIds]);
+
+  const onBulkDeduct = useCallback(async () => {
+    const payload = buildBulkPayload();
+    const total =
+      (payload.PFS?.length ?? 0) +
+      (payload.EFASHION?.length ?? 0) +
+      (payload.ANKORSTORE?.length ?? 0) +
+      (payload.FAIRE?.length ?? 0);
+    if (total === 0) return;
+    const parts: string[] = [];
+    if (payload.PFS?.length) parts.push(`${payload.PFS.length} PFS`);
+    if (payload.EFASHION?.length) parts.push(`${payload.EFASHION.length} eFashion`);
+    if (payload.ANKORSTORE?.length) parts.push(`${payload.ANKORSTORE.length} Ankorstore`);
+    if (payload.FAIRE?.length) parts.push(`${payload.FAIRE.length} Faire`);
+    const ok = await confirm({
+      type: "warning",
+      title: `Déduire le stock de ${total} commande${total > 1 ? "s" : ""} ?`,
+      message: `Cette action décrémente le stock des articles rattachés à votre boutique pour : ${parts.join(", ")}. Les lignes sans produit rattaché sont ignorées.`,
+      confirmLabel: "Déduire maintenant",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+    setBulkRunning(true);
+    try {
+      const res = await bulkDeductMarketplaceOrders(payload);
+      if (!res.success) {
+        toast.error(
+          "Déduction partielle",
+          res.errors.map((e) => `${e.source} : ${e.message}`).join(" · "),
+        );
+      } else if (res.processedCount === 0) {
+        toast.warning(
+          "Rien à déduire",
+          "Aucune ligne éligible dans la sélection (produits non rattachés).",
+        );
+      } else {
+        toast.success(
+          "Stock déduit",
+          `${res.processedCount} ligne${res.processedCount > 1 ? "s" : ""} traitée${res.processedCount > 1 ? "s" : ""}.`,
+        );
+      }
+      setSelectedIds(new Set());
+      await refresh();
+    } finally {
+      setBulkRunning(false);
+    }
+  }, [buildBulkPayload, confirm, toast, refresh]);
+
+  const onBulkMarkDeducted = useCallback(async () => {
+    const payload = buildBulkPayload();
+    const total =
+      (payload.PFS?.length ?? 0) +
+      (payload.EFASHION?.length ?? 0) +
+      (payload.ANKORSTORE?.length ?? 0) +
+      (payload.FAIRE?.length ?? 0);
+    if (total === 0) return;
+    const ok = await confirm({
+      type: "warning",
+      title: `Marquer ${total} commande${total > 1 ? "s" : ""} comme déjà déduite${total > 1 ? "s" : ""} ?`,
+      message:
+        "Le stock ne sera pas modifié. Les commandes seront considérées comme traitées et disparaîtront de la file « À déduire ». Cette action est irréversible.",
+      confirmLabel: "Confirmer",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+    setBulkRunning(true);
+    try {
+      const res = await bulkMarkMarketplaceOrdersAsDeducted(payload);
+      if (!res.success) {
+        toast.error(
+          "Opération partielle",
+          res.errors.map((e) => `${e.source} : ${e.message}`).join(" · "),
+        );
+      } else {
+        toast.success(
+          "Marqué comme déduit",
+          `${res.markedCount} ligne${res.markedCount > 1 ? "s" : ""} marquée${res.markedCount > 1 ? "s" : ""}.`,
+        );
+      }
+      setSelectedIds(new Set());
+      await refresh();
+    } finally {
+      setBulkRunning(false);
+    }
+  }, [buildBulkPayload, confirm, toast, refresh]);
 
   return (
     <div className="space-y-4">
-      {/* Barre période + synchronisations */}
-      <section className="rounded-2xl bg-bg-primary border border-border shadow-sm p-4 flex flex-wrap items-center gap-4 justify-between">
+      {/* Barre période */}
+      <section className="rounded-2xl bg-bg-primary border border-border shadow-sm p-4">
         <MarketplacePeriodBar
           value={period}
           onChange={(v) => {
@@ -590,63 +719,61 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
             setPage(1);
           }}
         />
+      </section>
 
-        <div className="flex items-center gap-3 flex-wrap">
-          {syncMeta.pfs.hasCredentials && (
-            <SyncStatusPill
-              source="PFS"
-              lastLabel={lastSyncLabel(syncMeta.pfs.lastSyncedAt)}
-              nextLabel={nextSyncLabel(syncMeta.pfs.lastSyncedAt)}
-              totalInDb={syncMeta.pfs.totalOrdersInDb}
-              syncing={syncingPfs}
-              onSyncNow={() => startTransition(() => void onSyncPfs())}
-              onImport={() => void onStartImportPfs()}
-            />
-          )}
-          {syncMeta.efashion.hasCredentials && (
-            <SyncStatusPill
-              source="EFASHION"
-              lastLabel={lastSyncLabel(syncMeta.efashion.lastSyncedAt)}
-              nextLabel={nextSyncLabel(syncMeta.efashion.lastSyncedAt)}
-              totalInDb={syncMeta.efashion.totalOrdersInDb}
-              syncing={syncingEfashion}
-              onSyncNow={() => startTransition(() => void onSyncEfashion())}
-              onImport={() => void onStartImportEfashion()}
-            />
-          )}
-          {syncMeta.ankorstore.hasCredentials && (
-            <SyncStatusPill
-              source="ANKORSTORE"
-              lastLabel={lastSyncLabel(syncMeta.ankorstore.lastSyncedAt)}
-              nextLabel={nextSyncLabel(syncMeta.ankorstore.lastSyncedAt)}
-              totalInDb={syncMeta.ankorstore.totalOrdersInDb}
-              syncing={syncingAnkorstore}
-              onSyncNow={() => startTransition(() => void onSyncAnkorstore())}
-              onImport={() => void onStartImportAnkorstore()}
-            />
-          )}
-          {syncMeta.faire.hasCredentials && (
-            <SyncStatusPill
-              source="FAIRE"
-              lastLabel={lastSyncLabel(syncMeta.faire.lastSyncedAt)}
-              nextLabel={nextSyncLabel(syncMeta.faire.lastSyncedAt)}
-              totalInDb={syncMeta.faire.totalOrdersInDb}
-              syncing={syncingFaire}
-              onSyncNow={() => startTransition(() => void onSyncFaire())}
-              onImport={() => void onStartImportFaire()}
-            />
-          )}
-          {syncMeta.microstore.hasCredentials && (
-            <SyncStatusPill
-              source="MICROSTORE"
-              lastLabel={lastSyncLabel(syncMeta.microstore.lastSyncedAt)}
-              nextLabel={nextSyncLabel(syncMeta.microstore.lastSyncedAt)}
-              totalInDb={syncMeta.microstore.totalOrdersInDb}
-              syncing={syncingMicrostore}
-              onSyncNow={() => startTransition(() => void onSyncMicrostore())}
-              onImport={() => void onStartImportMicrostore()}
-            />
-          )}
+      {/* Rangée marketplaces — une seule ligne sur md+, wrap possible sous md */}
+      <section className="rounded-2xl bg-bg-primary border border-border shadow-sm p-3 md:p-4">
+        <div className="flex flex-wrap md:flex-nowrap items-stretch gap-2 md:gap-3 md:overflow-x-auto">
+          <SyncStatusPill
+            source="PFS"
+            connected={syncMeta.pfs.hasCredentials}
+            lastLabel={lastSyncLabel(syncMeta.pfs.lastSyncedAt)}
+            nextLabel={nextSyncLabel(syncMeta.pfs.lastSyncedAt)}
+            totalInDb={syncMeta.pfs.totalOrdersInDb}
+            syncing={syncingPfs}
+            onSyncNow={() => startTransition(() => void onSyncPfs())}
+            onImport={() => void onStartImportPfs()}
+          />
+          <SyncStatusPill
+            source="EFASHION"
+            connected={syncMeta.efashion.hasCredentials}
+            lastLabel={lastSyncLabel(syncMeta.efashion.lastSyncedAt)}
+            nextLabel={nextSyncLabel(syncMeta.efashion.lastSyncedAt)}
+            totalInDb={syncMeta.efashion.totalOrdersInDb}
+            syncing={syncingEfashion}
+            onSyncNow={() => startTransition(() => void onSyncEfashion())}
+            onImport={() => void onStartImportEfashion()}
+          />
+          <SyncStatusPill
+            source="ANKORSTORE"
+            connected={syncMeta.ankorstore.hasCredentials}
+            lastLabel={lastSyncLabel(syncMeta.ankorstore.lastSyncedAt)}
+            nextLabel={nextSyncLabel(syncMeta.ankorstore.lastSyncedAt)}
+            totalInDb={syncMeta.ankorstore.totalOrdersInDb}
+            syncing={syncingAnkorstore}
+            onSyncNow={() => startTransition(() => void onSyncAnkorstore())}
+            onImport={() => void onStartImportAnkorstore()}
+          />
+          <SyncStatusPill
+            source="FAIRE"
+            connected={syncMeta.faire.hasCredentials}
+            lastLabel={lastSyncLabel(syncMeta.faire.lastSyncedAt)}
+            nextLabel={nextSyncLabel(syncMeta.faire.lastSyncedAt)}
+            totalInDb={syncMeta.faire.totalOrdersInDb}
+            syncing={syncingFaire}
+            onSyncNow={() => startTransition(() => void onSyncFaire())}
+            onImport={() => void onStartImportFaire()}
+          />
+          <SyncStatusPill
+            source="MICROSTORE"
+            connected={syncMeta.microstore.hasCredentials}
+            lastLabel={lastSyncLabel(syncMeta.microstore.lastSyncedAt)}
+            nextLabel={nextSyncLabel(syncMeta.microstore.lastSyncedAt)}
+            totalInDb={syncMeta.microstore.totalOrdersInDb}
+            syncing={syncingMicrostore}
+            onSyncNow={() => startTransition(() => void onSyncMicrostore())}
+            onImport={() => void onStartImportMicrostore()}
+          />
         </div>
       </section>
 
@@ -685,6 +812,13 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
         onOpen={onOpenOrder}
         onDeductClick={onDeductClick}
         statusCounts={stats?.statusCounts ?? null}
+        selectedIds={selectedIds}
+        onToggleSelect={onToggleSelect}
+        onToggleSelectAll={onToggleSelectAll}
+        onClearSelection={onClearSelection}
+        onBulkDeduct={onBulkDeduct}
+        onBulkMarkDeducted={onBulkMarkDeducted}
+        bulkRunning={bulkRunning}
       />
 
       {isRefreshing && (
@@ -748,6 +882,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
 
 function SyncStatusPill({
   source,
+  connected,
   lastLabel,
   nextLabel,
   totalInDb,
@@ -756,6 +891,7 @@ function SyncStatusPill({
   onImport,
 }: {
   source: MarketplaceSource;
+  connected: boolean;
   lastLabel: string;
   nextLabel: string | null;
   totalInDb: number;
@@ -777,42 +913,65 @@ function SyncStatusPill({
         return "Microstore";
     }
   })();
+  const wrapperCls = connected
+    ? "flex flex-col gap-2 rounded-xl border border-border bg-bg-secondary/50 p-3 min-w-0 flex-1 md:min-w-[220px]"
+    : "flex flex-col gap-2 rounded-xl border border-dashed border-border bg-bg-secondary/30 p-3 min-w-0 flex-1 md:min-w-[220px] opacity-60";
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-border bg-bg-secondary/50 px-3 py-1.5">
-      <MarketplaceBadge source={source} size="sm" />
-      <div className="text-[11px] leading-tight">
-        <div className="font-medium text-text-primary">{marketplaceLabel}</div>
-        <div className="text-text-muted">
-          {totalInDb.toLocaleString("fr-FR")} en base · {lastLabel}
-          {nextLabel && (
-            <>
-              <span className="mx-1.5 opacity-40">·</span>
-              <span className="inline-flex items-center gap-1">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-text-primary tabular-nums">{nextLabel}</span>
-              </span>
-            </>
-          )}
+    <div className={wrapperCls} title={connected ? undefined : `${marketplaceLabel} — non configurée`}>
+      {/* Header : badge + nom */}
+      <div className="flex items-center gap-2 min-w-0">
+        <MarketplaceBadge source={source} size="sm" />
+        <div className="font-medium text-[12.5px] text-text-primary truncate">
+          {marketplaceLabel}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onSyncNow}
-        disabled={syncing}
-        className="rounded-lg border border-border bg-white text-xs px-2 py-1 hover:bg-bg-secondary disabled:opacity-50"
-      >
-        {syncing ? "…" : "Synchro"}
-      </button>
-      {onImport && (
+
+      {/* Infos synchro : stats + dernière + prochaine auto */}
+      <div className="text-[11px] leading-tight text-text-muted min-h-[28px]">
+        {connected ? (
+          <>
+            <div className="truncate">
+              {totalInDb.toLocaleString("fr-FR")} en base · {lastLabel}
+            </div>
+            {nextLabel && (
+              <div className="inline-flex items-center gap-1 mt-0.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-text-secondary">Prochaine&nbsp;</span>
+                <span className="text-text-primary tabular-nums font-medium">{nextLabel}</span>
+              </div>
+            )}
+          </>
+        ) : (
+          <span className="italic">Non configurée</span>
+        )}
+      </div>
+
+      {/* Boutons */}
+      <div className="flex items-center gap-1.5 mt-auto">
         <button
           type="button"
-          onClick={onImport}
-          className="rounded-lg bg-slate-900 text-white text-xs px-2 py-1 hover:bg-slate-800"
-          title="Rattrapage complet — récupère toutes les commandes non encore importées"
+          onClick={onSyncNow}
+          disabled={!connected || syncing}
+          className="flex-1 rounded-lg border border-border bg-white text-xs px-2 py-1.5 hover:bg-bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          Rattrapage
+          {syncing ? "…" : "Synchro"}
         </button>
-      )}
+        {onImport && (
+          <button
+            type="button"
+            onClick={onImport}
+            disabled={!connected}
+            className="flex-1 rounded-lg bg-slate-900 text-white text-xs px-2 py-1.5 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"
+            title={
+              connected
+                ? "Rattrapage complet — récupère toutes les commandes non encore importées"
+                : `${marketplaceLabel} — non configurée`
+            }
+          >
+            Rattrapage
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -30,6 +30,11 @@ import {
 } from "@/lib/pfs-verify-apply";
 import { isPullSupportedLotB, issueKey } from "@/lib/pfs-verify-apply-shared";
 import type { PfsVerifyIssue } from "@/lib/pfs-verify";
+import {
+  computePfsPullEligibleMarketplaces,
+  type PfsPullEligibleMarketplace,
+} from "@/lib/pfs-verify-eligible-marketplaces";
+import { prisma } from "@/lib/prisma";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -103,6 +108,10 @@ interface ApplySingleResult {
   skippedCount: number;
   errorCount: number;
   firstError?: string;
+  /** Marketplaces (hors PFS) sur lesquelles on peut propager les valeurs
+   *  fraîchement récupérées. Vide si le produit n'est lié à aucune autre
+   *  marketplace ou si les kill-switches / credentials manquent. */
+  eligibleMarketplaces: PfsPullEligibleMarketplace[];
 }
 
 /**
@@ -139,6 +148,13 @@ export async function applyPfsAuditFixesForProductAction(
   }
   try {
     const { report } = await applyPfsVerifyPullsOnly(productId, actions);
+    // Marketplaces éligibles : uniquement si au moins un pull a été appliqué
+    // (sinon rien à propager). On les renvoie au client pour qu'il puisse
+    // proposer la modale de synchronisation dans la foulée.
+    const eligibleMarketplaces =
+      report.applied.length > 0
+        ? await computePfsPullEligibleMarketplaces(productId)
+        : [];
     revalidateTag("products", "default");
     return {
       success: true,
@@ -149,6 +165,7 @@ export async function applyPfsAuditFixesForProductAction(
         skippedCount: report.skipped.length,
         errorCount: report.errors.length,
         firstError: report.errors[0]?.error,
+        eligibleMarketplaces,
       },
     };
   } catch (err) {
@@ -158,9 +175,26 @@ export async function applyPfsAuditFixesForProductAction(
   }
 }
 
+export interface BulkApplyPerProductResult {
+  productId: string;
+  reference: string;
+  productName: string;
+  firstImage: string | null;
+  /** true = pull appliqué (le produit peut être proposé à la propagation
+   *  marketplaces). false = échec ou rien de corrigeable. */
+  ok: boolean;
+  eligibleMarketplaces: PfsPullEligibleMarketplace[];
+  error?: string;
+}
+
 /**
  * Applique les corrections sur tous les produits audités passés en paramètre.
  * Concurrency 5 (aligné sur l'audit lui-même et sur `verifyPfsProducts`).
+ *
+ * Renvoie en plus `perProduct` : pour chaque produit corrigé, la liste des
+ * marketplaces éligibles à une propagation (hors PFS). L'UI s'en sert pour
+ * proposer une modale unique « Envoyer aussi sur Ankor/eFashion/Faire ? »
+ * juste après le clic « Tout modifier depuis PFS ».
  */
 export async function bulkApplyPfsAuditFixesAction(
   items: { productId: string; issues: PfsVerifyIssue[] }[],
@@ -171,16 +205,67 @@ export async function bulkApplyPfsAuditFixesAction(
       appliedProducts: number;
       failedProducts: number;
       firstError?: string;
+      perProduct: BulkApplyPerProductResult[];
     }
   | { success: false; error: string }
 > {
   await requireAdmin();
   if (items.length === 0) {
-    return { success: true, totalProducts: 0, appliedProducts: 0, failedProducts: 0 };
+    return {
+      success: true,
+      totalProducts: 0,
+      appliedProducts: 0,
+      failedProducts: 0,
+      perProduct: [],
+    };
   }
   try {
+    // Précharge les métadonnées d'affichage (nom + 1ʳᵉ image) pour tous les
+    // produits en une seule requête — l'UI en a besoin pour la modale de
+    // propagation marketplace qui suit le bulk apply.
+    const productIds = items.map((it) => it.productId);
+    const meta = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: {
+        id: true,
+        reference: true,
+        name: true,
+        primaryColorId: true,
+        colors: { select: { colorId: true } },
+      },
+    });
+    const images = await prisma.productColorImage.findMany({
+      where: { productId: { in: productIds } },
+      orderBy: { order: "asc" },
+      select: { productId: true, colorId: true, path: true },
+    });
+    const firstImgByPC = new Map<string, string>();
+    for (const img of images) {
+      const k = `${img.productId}::${img.colorId}`;
+      if (!firstImgByPC.has(k)) firstImgByPC.set(k, img.path);
+    }
+    const metaById = new Map(
+      meta.map((m) => {
+        const primary = m.primaryColorId
+          ? firstImgByPC.get(`${m.id}::${m.primaryColorId}`)
+          : null;
+        const fallback = m.colors
+          .map((c) => (c.colorId ? firstImgByPC.get(`${m.id}::${c.colorId}`) : null))
+          .find((v): v is string => !!v);
+        return [
+          m.id,
+          {
+            reference: m.reference,
+            name: m.name,
+            firstImage: primary ?? fallback ?? null,
+          },
+        ] as const;
+      }),
+    );
+
     const CONCURRENCY = 5;
     const queue = [...items];
+    const perProduct: BulkApplyPerProductResult[] = [];
     let appliedProducts = 0;
     let failedProducts = 0;
     let firstError: string | undefined;
@@ -191,20 +276,46 @@ export async function bulkApplyPfsAuditFixesAction(
           while (queue.length > 0) {
             const it = queue.shift();
             if (!it) return;
+            const info = metaById.get(it.productId) ?? {
+              reference: "?",
+              name: "?",
+              firstImage: null,
+            };
             const actions = buildPullActionsFromIssues(it.issues);
             if (actions.length === 0) {
               // Rien à corriger → pas une erreur, on n'incrémente rien
               continue;
             }
             try {
-              await applyPfsVerifyPullsOnly(it.productId, actions);
+              const { report } = await applyPfsVerifyPullsOnly(it.productId, actions);
               appliedProducts++;
+              const eligible =
+                report.applied.length > 0
+                  ? await computePfsPullEligibleMarketplaces(it.productId)
+                  : [];
+              perProduct.push({
+                productId: it.productId,
+                reference: info.reference,
+                productName: info.name,
+                firstImage: info.firstImage,
+                ok: true,
+                eligibleMarketplaces: eligible,
+              });
             } catch (err) {
               failedProducts++;
               const msg = err instanceof Error ? err.message : String(err);
               if (!firstError) firstError = `${it.productId} : ${msg}`;
               logger.error("[PFS Audit Bulk Apply] Product failed", {
                 productId: it.productId,
+                error: msg,
+              });
+              perProduct.push({
+                productId: it.productId,
+                reference: info.reference,
+                productName: info.name,
+                firstImage: info.firstImage,
+                ok: false,
+                eligibleMarketplaces: [],
                 error: msg,
               });
             }
@@ -220,6 +331,7 @@ export async function bulkApplyPfsAuditFixesAction(
       appliedProducts,
       failedProducts,
       firstError,
+      perProduct,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

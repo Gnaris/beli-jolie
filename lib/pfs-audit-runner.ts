@@ -17,7 +17,11 @@
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { tenantALS } from "@/lib/tenant-als";
-import { verifyPfsProduct, type PfsVerifyIssue } from "@/lib/pfs-verify";
+import {
+  verifyPfsProduct,
+  loadPfsVerifyContext,
+  type PfsVerifyIssue,
+} from "@/lib/pfs-verify";
 import { Prisma } from "@prisma/client";
 
 export type PfsAuditStatus = "IDLE" | "RUNNING" | "DONE" | "ERROR" | "STOPPED";
@@ -59,7 +63,7 @@ export interface PfsAuditState {
 
 const KEY_STATE = "pfs_audit_state";
 const KEY_STOP = "pfs_audit_stop";
-const CONCURRENCY = 5;
+const CONCURRENCY = 10;
 
 const EMPTY_STATE: PfsAuditState = {
   status: "IDLE",
@@ -181,6 +185,10 @@ export async function startPfsAuditInBackground(
 
   void tenantALS.run(tenantId, async () => {
     try {
+      // Précharge une seule fois les 5 tables globales PFS + configs BDD
+      // partagées par tous les produits. Économise 5 HTTP + 2 BDD × N produits.
+      const verifyContext = await loadPfsVerifyContext();
+
       const queue = [...products];
       const results: PfsAuditProductResult[] = [];
       let processed = 0;
@@ -215,7 +223,7 @@ export async function startPfsAuditInBackground(
               const p = queue.shift();
               if (!p) return;
               try {
-                const res = await verifyPfsProduct(p.id);
+                const res = await verifyPfsProduct(p.id, verifyContext);
                 processed++;
                 if (res.ok) {
                   // Persist les champs pfsCheckedAt/Status/Issues comme le fait
@@ -272,7 +280,10 @@ export async function startPfsAuditInBackground(
                   errorKind: "pfs_unreachable",
                 });
               }
-              if (processed % 20 === 0 || Date.now() - lastFlush > 500) {
+              // Flush plus fréquent qu'avant (5/500ms au lieu de 20/500ms) pour
+              // que le widget en temps réel voie les nouveaux écarts apparaître
+              // rapidement — le poll client est à 1.5s.
+              if (processed % 5 === 0 || Date.now() - lastFlush > 500) {
                 await flush();
               }
             }

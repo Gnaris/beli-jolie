@@ -4,8 +4,11 @@
  * Tiroir « Audit PFS » du widget flottant unique en bas à droite.
  *
  * Poll l'état de l'audit toutes les 2 s (1.5 s si RUNNING) et affiche :
- *  - Phase RUNNING → barre de progression + « X / N produits · Y% ». Aucun
- *    résultat listé pendant l'audit (le compteur incrémental prêtait à confusion).
+ *  - Phase RUNNING → mini barre de progression en tête + liste des écarts
+ *    remontés en temps réel (le runner flush toutes les 500 ms). Les filtres
+ *    et le bouton « Détail » restent utilisables. Le bouton « Modifier depuis
+ *    PFS » est actif dès qu'un écart apparaît (les workers ne repassent jamais
+ *    sur un produit déjà audité, donc pas de collision).
  *  - Phase DONE ou STOPPED → filtres (Tous / Corrigeables / À la main / Erreurs)
  *    + liste scrollable de cartes produits avec boutons Ignorer, Modifier
  *    depuis PFS et Détail. Footer sticky : « Tout modifier depuis PFS ».
@@ -41,11 +44,23 @@ import {
   isPullSupportedLotB,
   countPullableIssues,
 } from "@/lib/pfs-verify-apply-shared";
+import { useRefreshMarketplacePrompt } from "@/components/admin/products/RefreshMarketplaceDialog";
+import {
+  useMarketplaceRefreshQueue,
+  type MarketplaceRefreshEnqueueInput,
+} from "@/components/admin/products/MarketplaceRefreshContext";
+import type { PfsPullEligibleMarketplace } from "@/lib/pfs-verify-eligible-marketplaces";
 
 type Filter = "all" | "fixable" | "manual" | "error";
 
 const POLL_ACTIVE_MS = 1500;
 const POLL_IDLE_MS = 15_000;
+
+function labelForMarketplace(m: PfsPullEligibleMarketplace): string {
+  if (m === "ankorstore") return "Ankorstore";
+  if (m === "efashion") return "eFashion";
+  return "Faire";
+}
 
 const AUDIT_ICON = (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
@@ -59,11 +74,20 @@ export function PfsAuditDrawer() {
   const toast = useToast();
   const confirm = useConfirm();
   const { openWidget, close, open, setBadge } = useRightRail();
+  const { ask: askRefreshOptions } = useRefreshMarketplacePrompt();
+  const { enqueue } = useMarketplaceRefreshQueue();
   const [state, setState] = useState<PfsAuditState | null>(null);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<Filter>("all");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [isVisible, setIsVisible] = useState(true);
+  // Loading unitaire : ID du produit dont on applique le fix actuellement
+  // (spinner sur la carte + bouton désactivé).
+  const [fixingProductId, setFixingProductId] = useState<string | null>(null);
+  // Loading bulk : compteur { done, total } pendant « Tout modifier depuis PFS ».
+  // Null = pas de bulk en cours. On remplace le body de la liste par un écran
+  // dédié pour que la cliente sache ce qui se passe.
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const isMounted = useRef(true);
   const previousStatusRef = useRef<string | null>(null);
   const doneToastFiredRef = useRef(false);
@@ -101,15 +125,26 @@ export function PfsAuditDrawer() {
   const status = state?.status ?? "IDLE";
   const isRunning = status === "RUNNING";
   const isDone = status === "DONE" || status === "STOPPED";
+  const isDrawerOpen = openWidget === "pfs-audit";
 
-  // Polling adaptatif
+  // Refresh immédiat quand la cliente ouvre le tiroir — sinon on doit attendre
+  // le prochain tick de poll (1.5 s) pour voir l'état à jour, notamment quand
+  // un audit vient d'être lancé depuis le bouton « Auditer PFS ».
+  useEffect(() => {
+    if (isDrawerOpen) void load();
+  }, [isDrawerOpen, load]);
+
+  // Polling adaptatif :
+  //  - Tiroir ouvert          → poll rapide (1.5 s) pour affichage temps réel.
+  //  - Tiroir fermé + RUNNING → poll lent (15 s) juste pour maintenir le badge.
+  //  - Tiroir fermé + IDLE    → pas de poll (économise CPU/BDD).
   useEffect(() => {
     if (!isVisible) return;
-    if (status === "IDLE") return;
-    const delay = isRunning ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+    if (!isDrawerOpen && status === "IDLE") return;
+    const delay = isDrawerOpen ? POLL_ACTIVE_MS : POLL_IDLE_MS;
     const id = window.setInterval(load, delay);
     return () => window.clearInterval(id);
-  }, [isRunning, status, isVisible, load]);
+  }, [isDrawerOpen, status, isVisible, load]);
 
   // Alimente le badge du rail (compteur = écarts + erreurs, pulse si RUNNING)
   useEffect(() => {
@@ -152,10 +187,90 @@ export function PfsAuditDrawer() {
     }
   }, [state?.status]);
 
+  // ─── Révélation progressive (« un par un ») ──────────────────────────────
+  // Pendant et après l'audit, on affiche les nouveaux produits en écart un à
+  // un avec 150 ms d'intervalle — même si le serveur en flushe 5 d'un coup.
+  // Cet effet rend l'apparition lisible plutôt que de faire pop plusieurs
+  // cartes en même temps. Le drain se poursuit naturellement même après la
+  // fin de l'audit (DONE / STOPPED) tant qu'il reste des IDs à révéler.
+  const revealedIdsRef = useRef<Set<string>>(new Set());
+  const pendingIdsRef = useRef<string[]>([]);
+  const revealTimerRef = useRef<number | null>(null);
+  const [revealTick, setRevealTick] = useState(0);
+  const justRevealedIdRef = useRef<string | null>(null);
+  // Traque le startedAt du dernier audit connu. Un changement de valeur =
+  // nouvel audit démarré → il faut réinitialiser revealedIds, la file en
+  // attente ET les dismissedIds (sinon un produit validé lors d'un audit
+  // précédent reste masqué au nouvel audit — bug remonté par la cliente).
+  const lastStartedAtRef = useRef<number | null>(null);
+
+  const tickReveal = useCallback(() => {
+    const id = pendingIdsRef.current.shift();
+    if (id === undefined) {
+      revealTimerRef.current = null;
+      return;
+    }
+    revealedIdsRef.current.add(id);
+    justRevealedIdRef.current = id;
+    setRevealTick((t) => t + 1);
+    revealTimerRef.current = window.setTimeout(tickReveal, 150);
+  }, []);
+
+  const resetRevealState = useCallback(() => {
+    revealedIdsRef.current = new Set();
+    pendingIdsRef.current = [];
+    justRevealedIdRef.current = null;
+    if (revealTimerRef.current !== null) {
+      window.clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+    setRevealTick((t) => t + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!state || state.status === "IDLE") {
+      resetRevealState();
+      lastStartedAtRef.current = null;
+      setDismissedIds(new Set());
+      return;
+    }
+    // Nouvel audit (startedAt a changé) → reset complet : révélation ET
+    // dismissedIds (E841C validé au précédent audit doit pouvoir reréapparaître).
+    if (state.startedAt !== lastStartedAtRef.current) {
+      resetRevealState();
+      setDismissedIds(new Set());
+      lastStartedAtRef.current = state.startedAt;
+    }
+    // Enqueue les nouveaux IDs (par ordre d'apparition dans state.results).
+    for (const r of state.results) {
+      const id = r.productId;
+      if (revealedIdsRef.current.has(id)) continue;
+      if (pendingIdsRef.current.includes(id)) continue;
+      pendingIdsRef.current.push(id);
+    }
+    if (revealTimerRef.current === null && pendingIdsRef.current.length > 0) {
+      tickReveal();
+    }
+  }, [state, tickReveal, resetRevealState]);
+
+  // Cleanup du timer au démontage.
+  useEffect(() => {
+    return () => {
+      if (revealTimerRef.current !== null) {
+        window.clearTimeout(revealTimerRef.current);
+        revealTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const visibleResults = useMemo(() => {
     if (!state) return [] as PfsAuditProductResult[];
-    return state.results.filter((r) => !dismissedIds.has(r.productId));
-  }, [state, dismissedIds]);
+    return state.results.filter(
+      (r) => !dismissedIds.has(r.productId) && revealedIdsRef.current.has(r.productId),
+    );
+    // revealTick force la re-évaluation quand un nouveau ID est révélé.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, dismissedIds, revealTick]);
 
   const fixableResults = useMemo(
     () => visibleResults.filter((r) => r.ok && countPullableIssues(r.issues) > 0),
@@ -173,7 +288,6 @@ export function PfsAuditDrawer() {
   }, [visibleResults]);
 
   const filtered = useMemo(() => {
-    if (isRunning) return [];
     switch (filter) {
       case "fixable":
         return visibleResults.filter((r) => r.ok && countPullableIssues(r.issues) > 0);
@@ -185,7 +299,7 @@ export function PfsAuditDrawer() {
       default:
         return visibleResults;
     }
-  }, [visibleResults, filter, isRunning]);
+  }, [visibleResults, filter]);
 
   const handleCancel = useCallback(async () => {
     const ok = await confirm.confirm({
@@ -212,7 +326,53 @@ export function PfsAuditDrawer() {
   const handleFixOne = useCallback(
     async (r: PfsAuditProductResult) => {
       if (!r.ok) return;
-      const res = await applyPfsAuditFixesForProductAction(r.productId, r.issues);
+      if (fixingProductId) return; // évite double clic pendant qu'une correction est en cours
+
+      // Confirmation renforcée si le fix va supprimer / ajouter une variante
+      // (missingVariant → suppression locale, extraVariant → ajout local). Ces
+      // actions sont destructives / structurelles et méritent une alerte
+      // explicite au lieu du clic-et-oubli habituel.
+      const toDelete = r.issues.filter(
+        (iss) =>
+          iss.field === "missingVariant" &&
+          !iss.pullBlocked &&
+          isPullSupportedLotB(iss.scope, iss.field),
+      );
+      const toAdd = r.issues.filter(
+        (iss) =>
+          iss.field === "extraVariant" &&
+          !iss.pullBlocked &&
+          isPullSupportedLotB(iss.scope, iss.field),
+      );
+      if (toDelete.length > 0 || toAdd.length > 0) {
+        const deleteList = toDelete
+          .map((i) => `• ${i.colorName ?? i.colorRef ?? "?"} sera supprimée`)
+          .join("\n");
+        const addList = toAdd
+          .map((i) => `• ${i.colorName ?? i.colorRef ?? "?"} sera ajoutée`)
+          .join("\n");
+        const ok = await confirm.confirm({
+          type: "warning",
+          title: `Modifier « ${r.name} » depuis PFS ?`,
+          message:
+            `Cette action va modifier des couleurs sur votre site :\n\n` +
+            [deleteList, addList].filter(Boolean).join("\n") +
+            `\n\nLes autres écarts (prix / stock / poids…) seront aussi corrigés.\n\n` +
+            `Cette action est irréversible.`,
+          confirmLabel: "Modifier",
+          cancelLabel: "Annuler",
+        });
+        if (!ok) return;
+      }
+
+      // Loading : spinner sur la carte + bouton désactivé.
+      setFixingProductId(r.productId);
+      let res: Awaited<ReturnType<typeof applyPfsAuditFixesForProductAction>>;
+      try {
+        res = await applyPfsAuditFixesForProductAction(r.productId, r.issues);
+      } finally {
+        setFixingProductId(null);
+      }
       if (!res.success) {
         toast.error(`Correction impossible pour « ${r.name} »`, res.error);
         return;
@@ -225,17 +385,127 @@ export function PfsAuditDrawer() {
       );
       setDismissedIds((prev) => new Set(prev).add(r.productId));
       router.refresh();
+
+      // Propagation aux autres marketplaces : ouvre la modale de choix si le
+      // produit est lié à Ankor/eFashion/Faire (PFS exclu — c'est la source).
+      const eligible = res.result.eligibleMarketplaces;
+      if (eligible.length === 0) return;
+      const eligibleSet = new Set<PfsPullEligibleMarketplace>(eligible);
+      const askMarketplaceOptions = () =>
+        askRefreshOptions({
+          count: 1,
+          firstProductName: r.name,
+          showPfs: false,
+          showAnkorstore: eligibleSet.has("ankorstore"),
+          showEfashion: eligibleSet.has("efashion"),
+          showFaire: eligibleSet.has("faire"),
+          productIds: [r.productId],
+          title: "Propager vers vos marketplaces ?",
+          subtitle: `« ${r.name} » — envoyer aussi les nouvelles valeurs.`,
+          eyebrow: "Synchronisation",
+          confirmLabel: "Synchroniser",
+          showBoutique: false,
+          defaultAllChecked: true,
+        });
+      let options = await askMarketplaceOptions();
+
+      // Confirmation si la cliente annule ou décoche tout : les autres
+      // marketplaces vont afficher le badge « Synchro nécessaire » car un pull
+      // PFS a été appliqué. On lui donne une chance de rouvrir le modal.
+      while (!options || (!options.ankorstore && !options.efashion && !options.faire)) {
+        const proceed = await confirm.confirm({
+          type: "info",
+          title: "Ne pas propager aux marketplaces maintenant ?",
+          message:
+            `Les valeurs sont bien mises à jour sur votre site.\n\n` +
+            `Les marketplaces liées (${eligible.map(labelForMarketplace).join(" · ")}) ` +
+            `afficheront un badge orange « Synchro nécessaire » — vous pourrez les propager plus tard ` +
+            `depuis la ligne du produit dans le tableau.`,
+          confirmLabel: "OK, plus tard",
+          cancelLabel: "Rouvrir le choix marketplace",
+        });
+        if (proceed) return;
+        options = await askMarketplaceOptions();
+      }
+      const inputs: MarketplaceRefreshEnqueueInput[] = [];
+      if (options.ankorstore && eligibleSet.has("ankorstore")) {
+        inputs.push({
+          productId: r.productId,
+          reference: r.reference,
+          productName: r.name,
+          firstImage: r.firstImage,
+          options: { local: false, pfs: false, ankorstore: true, efashion: false, faire: false },
+          marketplace: "ankorstore",
+          mode: "resync",
+        });
+      }
+      if (options.efashion && eligibleSet.has("efashion")) {
+        inputs.push({
+          productId: r.productId,
+          reference: r.reference,
+          productName: r.name,
+          firstImage: r.firstImage,
+          options: { local: false, pfs: false, ankorstore: false, efashion: true, faire: false },
+          marketplace: "efashion",
+          mode: "resync",
+        });
+      }
+      if (options.faire && eligibleSet.has("faire")) {
+        inputs.push({
+          productId: r.productId,
+          reference: r.reference,
+          productName: r.name,
+          firstImage: r.firstImage,
+          options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+          marketplace: "faire",
+          mode: "resync",
+        });
+      }
+      if (inputs.length === 0) return;
+      enqueue(inputs);
+      toast.info(
+        `${inputs.length} synchronisation${inputs.length > 1 ? "s" : ""} lancée${inputs.length > 1 ? "s" : ""}`,
+        "Suivez l'avancée dans le widget en bas à droite.",
+      );
     },
-    [toast, router],
+    [toast, router, askRefreshOptions, enqueue, confirm, fixingProductId],
   );
 
   const handleFixAll = useCallback(async () => {
     if (fixableResults.length === 0) return;
+
+    // Compte les actions structurelles (variantes ajoutées / supprimées) pour
+    // prévenir explicitement dans la confirmation — ces changements de
+    // structure côté site sont bien plus impactants qu'un simple update de prix.
+    let variantsToDelete = 0;
+    let variantsToAdd = 0;
+    for (const r of fixableResults) {
+      if (!r.ok) continue;
+      for (const iss of r.issues) {
+        if (iss.pullBlocked) continue;
+        if (!isPullSupportedLotB(iss.scope, iss.field)) continue;
+        if (iss.field === "missingVariant") variantsToDelete++;
+        else if (iss.field === "extraVariant") variantsToAdd++;
+      }
+    }
+    const structuralLines: string[] = [];
+    if (variantsToDelete > 0) {
+      structuralLines.push(
+        `• ${variantsToDelete} couleur${variantsToDelete > 1 ? "s" : ""} sera${variantsToDelete > 1 ? "ont" : ""} SUPPRIMÉE${variantsToDelete > 1 ? "S" : ""} de votre site`,
+      );
+    }
+    if (variantsToAdd > 0) {
+      structuralLines.push(
+        `• ${variantsToAdd} couleur${variantsToAdd > 1 ? "s" : ""} sera${variantsToAdd > 1 ? "ont" : ""} AJOUTÉE${variantsToAdd > 1 ? "S" : ""} sur votre site`,
+      );
+    }
+
     const ok = await confirm.confirm({
       type: "warning",
       title: `Modifier ${fixableResults.length} produit${fixableResults.length > 1 ? "s" : ""} depuis PFS ?`,
       message:
         `Toutes les valeurs corrigeables seront remplacées par celles de PFS.\n\n` +
+        (structuralLines.length > 0 ? structuralLines.join("\n") + "\n\n" : "") +
         `Les marketplaces liées (Ankorstore / eFashion / Faire) seront marquées « Synchro nécessaire ».\n\n` +
         `Cette action est irréversible.`,
       confirmLabel: "Tout modifier",
@@ -246,7 +516,16 @@ export function PfsAuditDrawer() {
     const items = fixableResults
       .filter((r): r is Extract<PfsAuditProductResult, { ok: true }> => r.ok)
       .map((r) => ({ productId: r.productId, issues: r.issues }));
-    const res = await bulkApplyPfsAuditFixesAction(items);
+
+    // Loading bloquant : la cliente voit "Correction en cours…" pendant que
+    // le server action tourne (peut prendre plusieurs secondes pour N produits).
+    setBulkProgress({ done: 0, total: items.length });
+    let res: Awaited<ReturnType<typeof bulkApplyPfsAuditFixesAction>>;
+    try {
+      res = await bulkApplyPfsAuditFixesAction(items);
+    } finally {
+      setBulkProgress(null);
+    }
     if (!res.success) {
       toast.error("Correction en masse impossible", res.error);
       return;
@@ -263,12 +542,109 @@ export function PfsAuditDrawer() {
       return next;
     });
     router.refresh();
-  }, [fixableResults, confirm, toast, router]);
+
+    // Propagation en masse aux autres marketplaces. On ne propose que les
+    // marketplaces où AU MOINS UN produit corrigé est éligible. Pour chaque
+    // marketplace cochée, on enqueue uniquement les produits éligibles à
+    // cette marketplace (pas d'enqueue à blanc si le produit n'est pas lié).
+    const okProducts = res.perProduct.filter((p) => p.ok);
+    const hasAnkor = okProducts.some((p) => p.eligibleMarketplaces.includes("ankorstore"));
+    const hasEfashion = okProducts.some((p) => p.eligibleMarketplaces.includes("efashion"));
+    const hasFaire = okProducts.some((p) => p.eligibleMarketplaces.includes("faire"));
+    if (!hasAnkor && !hasEfashion && !hasFaire) return;
+
+    const affectedProductIds = okProducts.map((p) => p.productId);
+    const eligibleLabels: string[] = [];
+    if (hasAnkor) eligibleLabels.push("Ankorstore");
+    if (hasEfashion) eligibleLabels.push("eFashion");
+    if (hasFaire) eligibleLabels.push("Faire");
+    const askMarketplaceOptions = () =>
+      askRefreshOptions({
+        count: okProducts.length,
+        firstProductName: okProducts[0]?.productName,
+        showPfs: false,
+        showAnkorstore: hasAnkor,
+        showEfashion: hasEfashion,
+        showFaire: hasFaire,
+        productIds: affectedProductIds,
+        title: `Propager sur vos marketplaces ?`,
+        subtitle: `${okProducts.length} produit${okProducts.length > 1 ? "s" : ""} corrigé${okProducts.length > 1 ? "s" : ""} — envoyer aussi les nouvelles valeurs.`,
+        eyebrow: "Synchronisation",
+        confirmLabel: "Synchroniser",
+        showBoutique: false,
+        defaultAllChecked: true,
+      });
+    let options = await askMarketplaceOptions();
+
+    // Confirmation si la cliente annule / décoche tout : les marketplaces
+    // vont passer en badge orange « Synchro nécessaire ». On lui laisse la
+    // possibilité de rouvrir le modal si c'était un clic malheureux.
+    while (!options || (!options.ankorstore && !options.efashion && !options.faire)) {
+      const proceed = await confirm.confirm({
+        type: "info",
+        title: "Ne pas propager aux marketplaces maintenant ?",
+        message:
+          `Les ${okProducts.length} produits corrigés sont mis à jour sur votre site.\n\n` +
+          `Chaque marketplace liée (${eligibleLabels.join(" · ")}) affichera un badge orange ` +
+          `« Synchro nécessaire » — vous pourrez les propager plus tard depuis la ligne du produit dans le tableau.`,
+        confirmLabel: "OK, plus tard",
+        cancelLabel: "Rouvrir le choix marketplace",
+      });
+      if (proceed) return;
+      options = await askMarketplaceOptions();
+    }
+
+    const inputs: MarketplaceRefreshEnqueueInput[] = [];
+    for (const p of okProducts) {
+      const set = new Set<PfsPullEligibleMarketplace>(p.eligibleMarketplaces);
+      if (options.ankorstore && set.has("ankorstore")) {
+        inputs.push({
+          productId: p.productId,
+          reference: p.reference,
+          productName: p.productName,
+          firstImage: p.firstImage,
+          options: { local: false, pfs: false, ankorstore: true, efashion: false, faire: false },
+          marketplace: "ankorstore",
+          mode: "resync",
+        });
+      }
+      if (options.efashion && set.has("efashion")) {
+        inputs.push({
+          productId: p.productId,
+          reference: p.reference,
+          productName: p.productName,
+          firstImage: p.firstImage,
+          options: { local: false, pfs: false, ankorstore: false, efashion: true, faire: false },
+          marketplace: "efashion",
+          mode: "resync",
+        });
+      }
+      if (options.faire && set.has("faire")) {
+        inputs.push({
+          productId: p.productId,
+          reference: p.reference,
+          productName: p.productName,
+          firstImage: p.firstImage,
+          options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+          marketplace: "faire",
+          mode: "resync",
+        });
+      }
+    }
+    if (inputs.length === 0) return;
+    enqueue(inputs, { intervalMs: options.intervalMs ?? 0 });
+    toast.info(
+      `${inputs.length} synchronisation${inputs.length > 1 ? "s" : ""} lancée${inputs.length > 1 ? "s" : ""}`,
+      "Suivez l'avancée dans le widget en bas à droite.",
+    );
+  }, [fixableResults, confirm, toast, router, askRefreshOptions, enqueue]);
 
   const pct = state && state.total > 0 ? Math.round((state.processed / state.total) * 100) : 0;
 
   const title = isRunning
-    ? "Vérification en cours…"
+    ? counts.all > 0
+      ? `Vérification… · ${counts.all} écart${counts.all > 1 ? "s" : ""}`
+      : "Vérification en cours…"
     : state?.status === "STOPPED"
       ? "Audit interrompu"
       : isDone
@@ -294,14 +670,15 @@ export function PfsAuditDrawer() {
             <button
               type="button"
               onClick={handleDismissAudit}
-              className="px-3 py-2 rounded-xl text-[12px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition"
+              disabled={bulkProgress !== null}
+              className="px-3 py-2 rounded-xl text-[12px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Fermer et oublier
             </button>
             <button
               type="button"
               onClick={handleFixAll}
-              disabled={fixableResults.length === 0}
+              disabled={fixableResults.length === 0 || bulkProgress !== null}
               className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-[12.5px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition disabled:bg-slate-300 disabled:cursor-not-allowed"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24" aria-hidden="true">
@@ -331,36 +708,36 @@ export function PfsAuditDrawer() {
       }
     >
       {/* Body */}
-      {!state || status === "IDLE" ? (
+      {bulkProgress ? (
+        <BulkApplyingScreen total={bulkProgress.total} />
+      ) : !state || status === "IDLE" ? (
         <div className="p-6 text-center">
           <p className="text-sm text-slate-500">Aucun audit lancé pour le moment.</p>
           <p className="text-[11px] text-slate-400 mt-1">
             Cliquez sur « Auditer PFS » en haut de la page Produits pour vérifier tous les produits liés à PFS.
           </p>
         </div>
-      ) : isRunning ? (
-        <div className="p-4 space-y-4">
-          <div>
-            <div className="flex items-center justify-between text-[11px] text-slate-600 mb-1.5">
-              <span>
-                <b className="text-slate-900 tabular-nums">{state.processed.toLocaleString("fr-FR")}</b> / {state.total.toLocaleString("fr-FR")} produits
-              </span>
-              <span className="tabular-nums">{pct}%</span>
-            </div>
-            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </div>
-          <div className="text-[11px] text-slate-500 leading-snug">
-            Les écarts seront listés ici quand l'audit sera terminé.
-          </div>
-        </div>
       ) : (
         <>
-          <div className="px-3 pt-3 pb-2 sticky top-0 bg-slate-50/95 backdrop-blur z-10 border-b border-slate-100">
+          {/* En-tête sticky : progression (si RUNNING) + tabs filtres */}
+          <div className="px-3 pt-3 pb-2 sticky top-0 bg-slate-50/95 backdrop-blur z-10 border-b border-slate-100 space-y-2">
+            {isRunning && (
+              <div>
+                <div className="flex items-center justify-between text-[11px] text-slate-600 mb-1">
+                  <span>
+                    <b className="text-slate-900 tabular-nums">{state.processed.toLocaleString("fr-FR")}</b>
+                    <span className="text-slate-400"> / {state.total.toLocaleString("fr-FR")}</span>
+                  </span>
+                  <span className="tabular-nums text-slate-500">{pct}%</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            )}
             <div className="flex items-center flex-wrap gap-1 p-1 rounded-xl bg-white ring-1 ring-slate-200">
               <FilterTab active={filter === "all"} onClick={() => setFilter("all")}>Tous ({counts.all})</FilterTab>
               <FilterTab active={filter === "fixable"} onClick={() => setFilter("fixable")}>Corrigeables ({counts.fixable})</FilterTab>
@@ -374,7 +751,9 @@ export function PfsAuditDrawer() {
           <div className="px-3 py-3 space-y-2">
             {filtered.length === 0 ? (
               <div className="text-center text-[12px] text-slate-500 py-8">
-                Aucun résultat dans cette catégorie.
+                {isRunning
+                  ? "Aucun écart pour l'instant — les produits s'afficheront ici au fur et à mesure."
+                  : "Aucun résultat dans cette catégorie."}
               </div>
             ) : (
               filtered.map((r) => (
@@ -382,6 +761,8 @@ export function PfsAuditDrawer() {
                   key={r.productId}
                   result={r}
                   expanded={expandedIds.has(r.productId)}
+                  justRevealed={justRevealedIdRef.current === r.productId}
+                  fixing={fixingProductId === r.productId}
                   onToggleExpand={() =>
                     setExpandedIds((prev) => {
                       const next = new Set(prev);
@@ -418,15 +799,41 @@ function FilterTab({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
+function BulkApplyingScreen({ total }: { total: number }) {
+  return (
+    <div className="p-6 flex flex-col items-center justify-center h-full text-center gap-4">
+      <div className="relative w-14 h-14">
+        <div className="absolute inset-0 rounded-full border-4 border-slate-200" />
+        <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-emerald-500 border-r-emerald-500 animate-spin" />
+      </div>
+      <div>
+        <div className="text-sm font-semibold text-slate-900">
+          Correction en cours…
+        </div>
+        <div className="text-[12px] text-slate-500 mt-1">
+          {total} produit{total > 1 ? "s" : ""} en train d&apos;être mis à jour depuis PFS.
+        </div>
+        <div className="text-[11px] text-slate-400 mt-2">
+          Ne fermez pas cette fenêtre — cela peut prendre quelques secondes.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProductCard({
   result,
   expanded,
+  justRevealed,
+  fixing,
   onToggleExpand,
   onIgnore,
   onFix,
 }: {
   result: PfsAuditProductResult;
   expanded: boolean;
+  justRevealed?: boolean;
+  fixing?: boolean;
   onToggleExpand: () => void;
   onIgnore: () => void;
   onFix: () => void;
@@ -446,7 +853,20 @@ function ProductCard({
   const subtitle = !result.ok ? result.error : summarizeIssues(result.issues);
 
   return (
-    <div className={`rounded-xl bg-white ring-1 shadow-sm overflow-hidden ${!result.ok ? "ring-rose-200" : "ring-slate-200"}`}>
+    <div
+      className={`relative rounded-xl bg-white ring-1 shadow-sm overflow-hidden ${!result.ok ? "ring-rose-200" : "ring-slate-200"} ${justRevealed ? "animate-pfs-appear" : ""}`}
+    >
+      {fixing && (
+        <div className="absolute inset-0 z-10 bg-white/85 backdrop-blur-[2px] flex items-center justify-center gap-2 rounded-xl">
+          <div className="relative w-5 h-5">
+            <div className="absolute inset-0 rounded-full border-2 border-slate-200" />
+            <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-emerald-500 border-r-emerald-500 animate-spin" />
+          </div>
+          <span className="text-[12px] font-semibold text-slate-700">
+            Correction en cours…
+          </span>
+        </div>
+      )}
       <div className="flex items-start gap-2.5 p-2.5">
         <div className="w-11 h-11 rounded-lg bg-slate-100 overflow-hidden shrink-0">
           {result.firstImage ? (
@@ -478,7 +898,8 @@ function ProductCard({
               <button
                 type="button"
                 onClick={onFix}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-white bg-slate-900 hover:bg-black shadow-sm"
+                disabled={fixing}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-white bg-slate-900 hover:bg-black shadow-sm disabled:bg-slate-400 disabled:cursor-not-allowed"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M6 5l7 7-7 7" />
@@ -515,39 +936,66 @@ function ProductCard({
 
 function IssueLine({ issue }: { issue: PfsVerifyIssue }) {
   const blocked = issue.pullBlocked || !isPullSupportedLotB(issue.scope, issue.field);
+  const colorLbl = issue.colorName ?? issue.colorRef ?? "?";
+  const isStructural = issue.field === "missingVariant" || issue.field === "extraVariant";
   const label = issue.field === "extraVariant"
-    ? `Couleur en trop (${issue.colorName ?? issue.colorRef ?? "?"})`
+    ? `Couleur en trop chez PFS (${colorLbl})`
     : issue.field === "missingVariant"
-      ? `Couleur manquante (${issue.colorName ?? issue.colorRef ?? "?"})`
+      ? `Couleur absente de PFS (${colorLbl})`
       : issue.colorName
         ? `${issue.fieldLabel} · ${issue.colorName}`
         : issue.fieldLabel;
+
+  // Pour les actions structurelles, on affiche explicitement CE QUI VA SE
+  // PASSER si la cliente clique « Modifier depuis PFS » (l'ancien rendu
+  // "(vide) → (vide)" ne parlait à personne).
+  const structuralAction = !isStructural
+    ? null
+    : issue.field === "missingVariant"
+      ? { text: "Sera supprimée de votre site", tone: "rose" as const }
+      : { text: "Sera ajoutée sur votre site", tone: "emerald" as const };
+
   const before = issue.expectedValue ?? "(vide)";
   const after = issue.pfsValue ?? "(vide)";
 
   return (
     <div className={`text-[11px] leading-snug ${blocked ? "opacity-60" : ""}`}>
       <div className="font-semibold text-slate-700 truncate">{label}</div>
-      <div className="text-slate-500 truncate">
-        <span className="line-through">{before}</span>
-        {!blocked && (
-          <>
-            <span className="mx-1 text-emerald-600">→</span>
-            <span className="text-slate-900 font-semibold">{after}</span>
-          </>
-        )}
-        {blocked && (
-          <span className="ml-2 text-[10px] italic text-slate-400">(à la main)</span>
-        )}
-      </div>
+      {structuralAction ? (
+        <div
+          className={`truncate font-semibold ${
+            blocked
+              ? "text-slate-500"
+              : structuralAction.tone === "rose"
+                ? "text-rose-700"
+                : "text-emerald-700"
+          }`}
+        >
+          {blocked ? "À faire à la main" : `→ ${structuralAction.text}`}
+        </div>
+      ) : (
+        <div className="text-slate-500 truncate">
+          <span className="line-through">{before}</span>
+          {!blocked && (
+            <>
+              <span className="mx-1 text-emerald-600">→</span>
+              <span className="text-slate-900 font-semibold">{after}</span>
+            </>
+          )}
+          {blocked && (
+            <span className="ml-2 text-[10px] italic text-slate-400">(à la main)</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 function summarizeIssues(issues: PfsVerifyIssue[]): string {
   const labels = issues.slice(0, 2).map((iss) => {
-    if (iss.field === "extraVariant") return `Couleur en trop (${iss.colorName ?? iss.colorRef})`;
-    if (iss.field === "missingVariant") return `Couleur manquante (${iss.colorName ?? iss.colorRef})`;
+    const colorLbl = iss.colorName ?? iss.colorRef ?? "?";
+    if (iss.field === "extraVariant") return `${colorLbl} → à ajouter chez nous`;
+    if (iss.field === "missingVariant") return `${colorLbl} → à supprimer chez nous`;
     return iss.colorName ? `${iss.fieldLabel} (${iss.colorName})` : iss.fieldLabel;
   });
   const extra = issues.length - labels.length;

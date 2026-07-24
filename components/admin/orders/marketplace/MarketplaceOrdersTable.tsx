@@ -64,7 +64,22 @@ interface Props {
   onOpen: (row: MarketplaceOrderListItem) => void;
   onDeductClick: (row: MarketplaceOrderListItem) => void;
   statusCounts: Record<MarketplaceUnifiedStatus, number> | null;
-  countsBySource: { PFS: number; EFASHION: number; ANKORSTORE: number; FAIRE: number };
+  countsBySource: {
+    PFS: number;
+    EFASHION: number;
+    ANKORSTORE: number;
+    FAIRE: number;
+    MICROSTORE: number;
+  };
+  /** IDs sélectionnés (id de commande — attention aux collisions inter-source :
+   *  ici on suit les IDs Prisma qui sont uniques cross-marketplace). */
+  selectedIds: Set<string>;
+  onToggleSelect: (row: MarketplaceOrderListItem, checked: boolean) => void;
+  onToggleSelectAll: (checked: boolean) => void;
+  onClearSelection: () => void;
+  onBulkDeduct: () => void;
+  onBulkMarkDeducted: () => void;
+  bulkRunning: boolean;
 }
 
 export default function MarketplaceOrdersTable(props: Props) {
@@ -87,6 +102,13 @@ export default function MarketplaceOrdersTable(props: Props) {
     onDeductClick,
     statusCounts,
     countsBySource,
+    selectedIds,
+    onToggleSelect,
+    onToggleSelectAll,
+    onClearSelection,
+    onBulkDeduct,
+    onBulkMarkDeducted,
+    bulkRunning,
   } = props;
 
   const statusOptions = useMemo(
@@ -104,12 +126,13 @@ export default function MarketplaceOrdersTable(props: Props) {
     () => [
       {
         value: "",
-        label: `Toutes marketplaces (${countsBySource.PFS + countsBySource.EFASHION + countsBySource.ANKORSTORE + countsBySource.FAIRE})`,
+        label: `Toutes marketplaces (${countsBySource.PFS + countsBySource.EFASHION + countsBySource.ANKORSTORE + countsBySource.FAIRE + countsBySource.MICROSTORE})`,
       },
       { value: "PFS", label: `Paris Fashion Shop (${countsBySource.PFS})` },
       { value: "EFASHION", label: `eFashion Paris (${countsBySource.EFASHION})` },
       { value: "ANKORSTORE", label: `Ankorstore (${countsBySource.ANKORSTORE})` },
       { value: "FAIRE", label: `Faire (${countsBySource.FAIRE})` },
+      { value: "MICROSTORE", label: `Microstore (${countsBySource.MICROSTORE})` },
     ],
     [countsBySource],
   );
@@ -124,19 +147,39 @@ export default function MarketplaceOrdersTable(props: Props) {
     [],
   );
 
+  /** Lignes de la page courante éligibles à une action bulk (état PENDING). */
+  const selectableItems = useMemo(
+    () => (items ?? []).filter((r) => r.stockDeductionState === "PENDING"),
+    [items],
+  );
+  const allPageSelected =
+    selectableItems.length > 0 && selectableItems.every((r) => selectedIds.has(r.id));
+  const somePageSelected =
+    selectableItems.length > 0 && selectableItems.some((r) => selectedIds.has(r.id));
+
+  /** Détermine si au moins une commande sélectionnée est en attente de déduction. */
+  const anySelectedPending = useMemo(() => {
+    if (!items) return false;
+    return items.some((r) => selectedIds.has(r.id) && r.stockDeductionState === "PENDING");
+  }, [items, selectedIds]);
+
+  const selectedCount = selectedIds.size;
+
   return (
     <section className="rounded-2xl bg-bg-primary border border-border shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-border flex flex-wrap items-center gap-3">
+      {/* Barre de filtres — titre sur sa propre ligne, filtres alignés à
+       *  l'horizontale en dessous, avec retour à la ligne si vraiment étroit. */}
+      <div className="p-4 border-b border-border space-y-3">
         <div className="text-xs uppercase tracking-[0.2em] text-text-muted font-medium">
           Commandes marketplaces
         </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <input
             type="search"
             value={q}
             onChange={(e) => onQChange(e.target.value)}
             placeholder="N° commande, société, pays…"
-            className="text-sm rounded-lg border border-border px-3 py-1.5 w-56 focus:outline-none focus:ring-2 focus:ring-slate-300"
+            className="text-sm rounded-lg border border-border px-3 py-1.5 flex-1 min-w-[200px] focus:outline-none focus:ring-2 focus:ring-slate-300"
           />
           <CustomSelect
             value={sourceFilter}
@@ -144,7 +187,7 @@ export default function MarketplaceOrdersTable(props: Props) {
             options={sourceOptions}
             size="sm"
             aria-label="Filtrer par marketplace"
-            className="min-w-[210px]"
+            className="min-w-[190px]"
           />
           <CustomSelect
             value={statusFilter}
@@ -152,7 +195,7 @@ export default function MarketplaceOrdersTable(props: Props) {
             options={statusOptions}
             size="sm"
             aria-label="Filtrer par statut"
-            className="min-w-[210px]"
+            className="min-w-[170px]"
           />
           <CustomSelect
             value={stockFilter}
@@ -160,15 +203,76 @@ export default function MarketplaceOrdersTable(props: Props) {
             options={stockOptions}
             size="sm"
             aria-label="Filtrer par état de déduction"
-            className="min-w-[210px]"
+            className="min-w-[170px]"
           />
         </div>
       </div>
+
+      {/* Barre d'actions bulk — visible dès qu'au moins 1 commande est cochée */}
+      {selectedCount > 0 && (
+        <div className="px-4 py-3 border-b border-border bg-slate-50 flex flex-wrap items-center gap-3">
+          <div className="text-sm font-medium text-text-primary">
+            {selectedCount} sélectionnée{selectedCount > 1 ? "s" : ""}
+          </div>
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={onClearSelection}
+              disabled={bulkRunning}
+              className="text-xs rounded-lg border border-border bg-white px-3 py-1.5 hover:bg-bg-secondary disabled:opacity-50"
+            >
+              Désélectionner
+            </button>
+            <button
+              type="button"
+              onClick={onBulkDeduct}
+              disabled={!anySelectedPending || bulkRunning}
+              title={
+                anySelectedPending
+                  ? "Décrémente le stock des articles rattachés à votre boutique."
+                  : "Aucune commande « À déduire » dans la sélection."
+              }
+              className="text-xs font-medium rounded-lg bg-emerald-600 text-white px-3 py-1.5 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
+            >
+              {bulkRunning && (
+                <span className="inline-block w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+              )}
+              Déduire le stock
+            </button>
+            <button
+              type="button"
+              onClick={onBulkMarkDeducted}
+              disabled={!anySelectedPending || bulkRunning}
+              title={
+                anySelectedPending
+                  ? "Marque les commandes comme déjà déduites sans toucher au stock. Irréversible."
+                  : "Aucune commande « À déduire » dans la sélection."
+              }
+              className="text-xs font-medium rounded-lg bg-slate-900 text-white px-3 py-1.5 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Marquer comme déjà déduites
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-bg-secondary text-xs uppercase tracking-wider text-text-muted">
             <tr>
+              <th className="text-center px-3 py-3 font-medium w-10">
+                <input
+                  type="checkbox"
+                  aria-label="Tout sélectionner"
+                  checked={allPageSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = !allPageSelected && somePageSelected;
+                  }}
+                  disabled={selectableItems.length === 0 || bulkRunning}
+                  onChange={(e) => onToggleSelectAll(e.target.checked)}
+                  className="w-4 h-4 accent-slate-900 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                />
+              </th>
               <th className="text-center px-3 py-3 font-medium w-12">#</th>
               <th className="text-left px-3 py-3 font-medium w-10"></th>
               <th className="text-left px-5 py-3 font-medium">N° commande</th>
@@ -185,12 +289,32 @@ export default function MarketplaceOrdersTable(props: Props) {
               const stock = STOCK_META[row.stockDeductionState];
               const isClickableStock = row.stockDeductionState === "PENDING";
               const rank = (page - 1) * perPage + i + 1;
+              const checked = selectedIds.has(row.id);
+              const selectable = row.stockDeductionState === "PENDING";
               return (
                 <tr
                   key={`${row.source}-${row.id}`}
                   onClick={() => onOpen(row)}
-                  className="hover:bg-bg-secondary cursor-pointer"
+                  className={`hover:bg-bg-secondary cursor-pointer ${checked ? "bg-slate-50" : ""}`}
                 >
+                  <td
+                    className="px-3 py-3 text-center"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label={`Sélectionner ${row.orderNumber}`}
+                      checked={checked}
+                      disabled={!selectable || bulkRunning}
+                      onChange={(e) => onToggleSelect(row, e.target.checked)}
+                      title={
+                        selectable
+                          ? undefined
+                          : "Sélection réservée aux commandes « À déduire »."
+                      }
+                      className="w-4 h-4 accent-slate-900 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    />
+                  </td>
                   <td className="px-3 py-3 text-center font-heading font-bold text-sm text-text-muted tabular-nums">
                     #{rank}
                   </td>
@@ -253,14 +377,14 @@ export default function MarketplaceOrdersTable(props: Props) {
             })}
             {items && items.length === 0 && (
               <tr>
-                <td colSpan={8} className="text-center py-10 text-text-muted text-sm">
+                <td colSpan={9} className="text-center py-10 text-text-muted text-sm">
                   Aucune commande sur la période sélectionnée.
                 </td>
               </tr>
             )}
             {items === null && (
               <tr>
-                <td colSpan={8} className="text-center py-10 text-text-muted text-sm">
+                <td colSpan={9} className="text-center py-10 text-text-muted text-sm">
                   Chargement…
                 </td>
               </tr>
@@ -286,6 +410,10 @@ export default function MarketplaceOrdersTable(props: Props) {
           {"  "}
           <span className="inline-flex items-center gap-1 ml-2">
             <MarketplaceBadge source="FAIRE" size="xs" /> {countsBySource.FAIRE}
+          </span>
+          {"  "}
+          <span className="inline-flex items-center gap-1 ml-2">
+            <MarketplaceBadge source="MICROSTORE" size="xs" /> {countsBySource.MICROSTORE}
           </span>
         </div>
         <div className="flex gap-2">
@@ -314,5 +442,5 @@ export default function MarketplaceOrdersTable(props: Props) {
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _keepImport = MARKETPLACE_META;
+void _keepImport;

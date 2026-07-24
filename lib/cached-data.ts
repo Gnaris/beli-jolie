@@ -838,18 +838,6 @@ export const getCachedAdminWarnings = tenantScopedCacheWithTid(
   { revalidate: 300, tags: ["products", "categories", "colors", "tags", "compositions", "orders"] }
 );
 
-// ─── Attributs sans mapping marketplace (cache 5min, invalidé sur mut. mappings) ──
-export const getCachedUnmappedAttributes = tenantScopedCacheWithTid(
-  "unmapped-attributes",
-  async (tid) => {
-    const { computeUnmappedAttributes, loadMarketplaceFlags } = await import("@/lib/unmapped-attributes");
-    const flags = await loadMarketplaceFlags();
-    return computeUnmappedAttributes(tid, flags);
-  },
-  ["unmapped-attributes"],
-  { revalidate: 300, tags: ["categories", "colors", "compositions", "seasons", "sizes", "hs-codes", "site-config"] }
-);
-
 // ─── Dashboard aggregate stats (expensive, cache 5min) ──────────────────────
 export const getCachedDashboardStats = tenantScopedCacheWithTid(
   "dashboard-stats",

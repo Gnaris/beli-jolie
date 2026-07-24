@@ -6,6 +6,7 @@ import {
   getCachedSiteConfig, getCachedPfsBrand, getCachedPfsEnabled,
   getCachedHasEfashionConfig, getCachedEfashionEnabled,
   getCachedHasFaireConfig, getCachedFaireEnabled,
+  getCachedHasMicrostoreConfig,
 } from "@/lib/cached-data";
 import { getStripeAccountInfo, getStripeConfigStatus } from "@/lib/stripe";
 import { parseDisplayConfig } from "@/lib/product-display";
@@ -81,14 +82,15 @@ export default async function ParametresPage({
   const meta = settingsTabMetadata(activeTab);
 
   // Compte de marketplaces configurées pour le badge du menu
-  const [hasPfs, hasAnkor, hasEfashion, hasFaire] = await Promise.all([
+  const [hasPfs, hasAnkor, hasEfashion, hasFaire, hasMicrostore] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "pfs_email" }, select: { key: true } }).then(Boolean),
     getCachedHasAnkorstoreConfig(),
     getCachedHasEfashionConfig(),
     getCachedHasFaireConfig(),
+    getCachedHasMicrostoreConfig(),
   ]);
-  const mpConnected = [hasPfs, hasAnkor, hasEfashion, hasFaire].filter(Boolean).length;
-  const mpBadge = `${mpConnected}/4`;
+  const mpConnected = [hasPfs, hasAnkor, hasEfashion, hasFaire, hasMicrostore].filter(Boolean).length;
+  const mpBadge = `${mpConnected}/5`;
 
   return (
     <div className="space-y-6">
@@ -587,6 +589,7 @@ async function MarketplacesTab() {
     hasEfashionConfig, efashionEnabled,
     efashionMarkupType, efashionMarkupValue, efashionMarkupRounding,
     microstoreMarkupType, microstoreMarkupValue, microstoreMarkupRounding,
+    hasMicrostoreConfig, microstoreEnabledRow, microstoreExpiresRow,
     hasFaireConfig, faireEnabled,
     faireWholesaleType, faireWholesaleValue, faireWholesaleRounding,
     faireRetailType, faireRetailValue, faireRetailRounding,
@@ -620,6 +623,9 @@ async function MarketplacesTab() {
     getCachedSiteConfig("microstore_price_markup_type"),
     getCachedSiteConfig("microstore_price_markup_value"),
     getCachedSiteConfig("microstore_price_markup_rounding"),
+    getCachedHasMicrostoreConfig(),
+    prisma.siteConfig.findFirst({ where: { key: "microstore_enabled" }, select: { value: true } }),
+    prisma.siteConfig.findFirst({ where: { key: "microstore_expires_at" }, select: { value: true } }),
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
     getCachedSiteConfig("faire_wholesale_markup_type"),
@@ -643,6 +649,15 @@ async function MarketplacesTab() {
   ]);
 
   const markupMap = new Map(markupRows.map((r) => [r.key, r.value]));
+
+  // Microstore : le toggle est ON par défaut (comportement historique de
+  // MicrostoreConnectCard) ; ISO d'expiration dérivé du timestamp seconde.
+  const microstoreEnabled = microstoreEnabledRow?.value !== "false";
+  const microstoreExpiresSec = microstoreExpiresRow?.value ? Number(microstoreExpiresRow.value) : null;
+  const microstoreExpiresAtIso =
+    microstoreExpiresSec && Number.isFinite(microstoreExpiresSec)
+      ? new Date(microstoreExpiresSec * 1000).toISOString()
+      : null;
 
   const stats = {
     pfs:        { published: pfsPublished, toSync: pfsToSync, lastSyncAt: pfsLast?.updatedAt?.toISOString() ?? null },
@@ -670,6 +685,9 @@ async function MarketplacesTab() {
       efashionEnabled={efashionEnabled}
       hasFaireConfig={hasFaireConfig}
       faireEnabled={faireEnabled}
+      hasMicrostoreConfig={hasMicrostoreConfig}
+      microstoreEnabled={microstoreEnabled}
+      microstoreExpiresAtIso={microstoreExpiresAtIso}
       stats={stats}
       markupSettings={{
         pfs: {

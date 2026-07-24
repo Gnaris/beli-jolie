@@ -7,6 +7,7 @@ import {
   updateAnkorstoreCredentials, validateAnkorstoreCredentials, toggleAnkorstoreEnabled,
   updateEfashionCredentials, validateEfashionCredentials, toggleEfashionEnabled,
   updateFaireCredentials, validateFaireCredentials, toggleFaireEnabled,
+  toggleMicrostoreEnabled,
   updateMarketplaceMarkup,
   loadPfsBrands, updatePfsBrand,
   updatePfsOutOfStockConfig,
@@ -41,6 +42,9 @@ interface Props {
   efashionEnabled: boolean;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  hasMicrostoreConfig: boolean;
+  microstoreEnabled: boolean;
+  microstoreExpiresAtIso: string | null;
   stats: {
     pfs: MarketplaceStats;
     ankorstore: MarketplaceStats;
@@ -392,62 +396,6 @@ function KpiTile({ label, value, icon, accent, small }: { label: string; value: 
   );
 }
 
-// ─── Carte Microstore (différente, plus discrète) ─────────────────────────
-function MicrostoreCard({ previewLines, onOpenSettings }: { previewLines: { label: string; value: string }[]; onOpenSettings: () => void }) {
-  const brand = MARKETPLACES_BRAND.microstore;
-  return (
-    <div className="relative overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-bg-secondary to-bg-tertiary shadow-sm">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-5 p-5 sm:p-6">
-        <div className="flex items-center gap-4 sm:flex-1">
-          <Logo brandKey="microstore" />
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="font-heading text-base font-semibold text-text-primary">{brand.name}</h3>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-bg-primary border border-border text-text-secondary">
-                Export Excel
-              </span>
-            </div>
-            <p className="font-body text-xs text-text-muted mt-0.5">
-              Export Excel produits + import des commandes via QR code (comme WhatsApp Web).
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 sm:items-center sm:flex-1">
-          <div className="rounded-2xl bg-bg-primary border border-border-light p-3.5">
-            <div className="flex items-center gap-1.5 mb-2 text-text-muted">
-              <Icons.Calculator className="w-3 h-3" />
-              <span className="font-body text-[10px] font-semibold uppercase tracking-wider">Aperçu prix</span>
-            </div>
-            <div className="space-y-1">
-              {previewLines.map((line, i) => (
-                <div key={i} className="flex items-baseline justify-between gap-3">
-                  <span className="font-body text-xs text-text-secondary">{line.label}</span>
-                  <span className="font-heading text-sm font-semibold tabular-nums text-text-primary">{line.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl border border-border bg-bg-primary text-text-primary text-sm font-body font-medium hover:bg-bg-secondary transition-colors"
-          >
-            <Icons.Settings className="w-4 h-4" />
-            Markup
-          </button>
-          <Link
-            href="/admin/parametres/microstore"
-            className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl bg-text-primary text-text-inverse text-sm font-body font-medium hover:bg-text-primary/90 transition-colors"
-          >
-            Connexion QR →
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Slide-over drawer ─────────────────────────────────────────────────────
 function Drawer({ open, onClose, brandKey, children }: { open: boolean; onClose: () => void; brandKey: MarketplaceKey | null; children: React.ReactNode }) {
   // Lock body scroll while open
@@ -642,6 +590,9 @@ export default function MarketplaceConfig({
   efashionEnabled: initialEfashionEnabled,
   hasFaireConfig,
   faireEnabled: initialFaireEnabled,
+  hasMicrostoreConfig,
+  microstoreEnabled: initialMicrostoreEnabled,
+  microstoreExpiresAtIso,
   stats,
   markupSettings,
 }: Props) {
@@ -707,6 +658,8 @@ export default function MarketplaceConfig({
 
   // ── Microstore ──────────────────────────────────────────────────────────────
   const [microMarkup, setMicroMarkup] = useState<MarkupState>(markupSettings.microstore);
+  const [microEnabled, setMicroEnabled] = useState(initialMicrostoreEnabled);
+  const [isTogglingMicro, startTogglingMicro] = useTransition();
 
   // ── Shared ──────────────────────────────────────────────────────────────────
   const [isSavingMarkup, startSavingMarkup] = useTransition();
@@ -757,7 +710,10 @@ export default function MarketplaceConfig({
       hasAnkorstoreConfig && ankEnabled,
       hasFaireConfig && faiEnabled,
       hasEfashionConfig && efaEnabled,
+      hasMicrostoreConfig && microEnabled,
     ];
+    // Microstore ne publie pas de produits : on ne l'inclut pas dans les
+    // compteurs "Publiés / À synchroniser / Dernière sync".
     const totalPublished = stats.pfs.published + stats.ankorstore.published + stats.efashion.published + stats.faire.published;
     const totalToSync = stats.pfs.toSync + stats.ankorstore.toSync + stats.efashion.toSync + stats.faire.toSync;
     const lastSyncs = [stats.pfs.lastSyncAt, stats.ankorstore.lastSyncAt, stats.efashion.lastSyncAt, stats.faire.lastSyncAt].filter((x): x is string => !!x);
@@ -769,7 +725,7 @@ export default function MarketplaceConfig({
       totalToSync,
       lastSyncAt,
     };
-  }, [hasPfsConfig, pfsBrand, pfsEnabled, hasAnkorstoreConfig, ankEnabled, hasFaireConfig, faiEnabled, hasEfashionConfig, efaEnabled, stats]);
+  }, [hasPfsConfig, pfsBrand, pfsEnabled, hasAnkorstoreConfig, ankEnabled, hasFaireConfig, faiEnabled, hasEfashionConfig, efaEnabled, hasMicrostoreConfig, microEnabled, stats]);
 
   // ── PFS brand picker ────────────────────────────────────────────────────────
   function openBrandPicker() {
@@ -935,6 +891,15 @@ export default function MarketplaceConfig({
     });
   }
 
+  // ── Microstore handlers ─────────────────────────────────────────────────────
+  function handleMicroToggle(v: boolean) {
+    startTogglingMicro(async () => {
+      const r = await toggleMicrostoreEnabled(v);
+      if (r.success) { setMicroEnabled(v); toast.success(v ? "Microstore activé" : "Microstore en pause", v ? "L'import de commandes est de nouveau disponible." : "Bouton d'import masqué (la session reste enregistrée)."); }
+      else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
+    });
+  }
+
   // ── Sauvegarde markup global ───────────────────────────────────────────────
   function handleSaveMarkup() {
     showLoading();
@@ -979,6 +944,12 @@ export default function MarketplaceConfig({
     stats: MarketplaceStats;
     onOpenSettings: () => void;
     ctaLabel: string;
+    /**
+     * Marketplace sans publish automatique (Microstore : import commandes
+     * seulement). Les colonnes stats "En ligne / À sync / Dernière sync"
+     * s'affichent en "—" au lieu de 0.
+     */
+    noSyncStats?: boolean;
     /** Contrôle du toggle ON/OFF (absent si marketplace non configurée). */
     enabledControl?: {
       checked: boolean;
@@ -1034,6 +1005,21 @@ export default function MarketplaceConfig({
       ctaLabel: hasFaireConfig ? "Réglages" : "Configurer",
       enabledControl: hasFaireConfig
         ? { checked: faiEnabled, toggling: isTogglingFai, onToggle: handleFaiToggle }
+        : undefined,
+    },
+    {
+      brandKey: "microstore",
+      subtitle: hasMicrostoreConfig
+        ? (microEnabled ? "Import commandes · QR" : "Désactivé")
+        : "Non connecté",
+      status: hasMicrostoreConfig ? "ok" : "off",
+      enabled: hasMicrostoreConfig && microEnabled,
+      stats: { published: 0, toSync: 0, lastSyncAt: null },
+      noSyncStats: true,
+      onOpenSettings: () => setDrawerKey("microstore"),
+      ctaLabel: hasMicrostoreConfig ? "Réglages" : "Connecter",
+      enabledControl: hasMicrostoreConfig
+        ? { checked: microEnabled, toggling: isTogglingMicro, onToggle: handleMicroToggle }
         : undefined,
     },
   ];
@@ -1143,17 +1129,17 @@ export default function MarketplaceConfig({
                       )}
                     </td>
                     <td className="py-4 px-3 text-right tabular-nums font-body text-sm font-semibold text-text-primary">
-                      {row.status === "off" ? "—" : row.stats.published.toLocaleString("fr-FR")}
+                      {row.status === "off" || row.noSyncStats ? "—" : row.stats.published.toLocaleString("fr-FR")}
                     </td>
                     <td className="py-4 px-3 text-right tabular-nums font-body text-sm">
-                      {row.status === "off" || row.stats.toSync === 0 ? (
+                      {row.status === "off" || row.noSyncStats || row.stats.toSync === 0 ? (
                         <span className="text-text-muted">—</span>
                       ) : (
                         <span className="text-amber-700 font-medium">{row.stats.toSync}</span>
                       )}
                     </td>
                     <td className="py-4 px-3 text-right font-body text-xs text-text-muted">
-                      {formatRelative(row.stats.lastSyncAt)}
+                      {row.noSyncStats ? "—" : formatRelative(row.stats.lastSyncAt)}
                     </td>
                     <td className="py-4 pl-3 pr-5 text-right">
                       <button
@@ -1210,19 +1196,19 @@ export default function MarketplaceConfig({
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-lg bg-bg-secondary/50 py-2">
                     <div className="font-heading text-base font-semibold tabular-nums text-text-primary">
-                      {row.status === "off" ? "—" : row.stats.published.toLocaleString("fr-FR")}
+                      {row.status === "off" || row.noSyncStats ? "—" : row.stats.published.toLocaleString("fr-FR")}
                     </div>
                     <div className="text-[10px] uppercase tracking-wider text-text-muted mt-0.5">En ligne</div>
                   </div>
                   <div className="rounded-lg bg-bg-secondary/50 py-2">
-                    <div className={`font-heading text-base font-semibold tabular-nums ${row.stats.toSync > 0 ? "text-amber-700" : "text-text-muted"}`}>
-                      {row.status === "off" ? "—" : row.stats.toSync || "—"}
+                    <div className={`font-heading text-base font-semibold tabular-nums ${!row.noSyncStats && row.stats.toSync > 0 ? "text-amber-700" : "text-text-muted"}`}>
+                      {row.status === "off" || row.noSyncStats ? "—" : row.stats.toSync || "—"}
                     </div>
                     <div className="text-[10px] uppercase tracking-wider text-text-muted mt-0.5">À sync</div>
                   </div>
                   <div className="rounded-lg bg-bg-secondary/50 py-2">
                     <div className="font-body text-[11px] text-text-primary leading-tight pt-1">
-                      {formatRelative(row.stats.lastSyncAt)}
+                      {row.noSyncStats ? "—" : formatRelative(row.stats.lastSyncAt)}
                     </div>
                     <div className="text-[10px] uppercase tracking-wider text-text-muted mt-0.5">Sync</div>
                   </div>
@@ -1232,12 +1218,6 @@ export default function MarketplaceConfig({
           })}
         </div>
       </div>
-
-      {/* ── Microstore (export Excel séparé) ────────────────────────────── */}
-      <MicrostoreCard
-        previewLines={previews.microstore.map((l) => ({ label: l.label, value: l.value }))}
-        onOpenSettings={() => setDrawerKey("microstore")}
-      />
 
       {/* ── Aperçu prix HT (accordéon replié par défaut) ────────────────── */}
       <details className="group rounded-2xl border border-border bg-bg-primary shadow-sm">
@@ -1573,14 +1553,65 @@ export default function MarketplaceConfig({
       </Drawer>
 
       <Drawer open={drawerKey === "microstore"} onClose={() => setDrawerKey(null)} brandKey="microstore">
+        <DrawerSection
+          icon={<Icons.Plug className="w-4 h-4" />}
+          title="Connexion"
+          subtitle="Session QR / bookmarklet — nécessaire pour importer les commandes."
+        >
+          {hasMicrostoreConfig ? (
+            (() => {
+              const days = microstoreExpiresAtIso
+                ? Math.max(0, Math.floor((new Date(microstoreExpiresAtIso).getTime() - Date.now()) / 86_400_000))
+                : null;
+              const soon = days !== null && days <= 14;
+              return (
+                <div className={`rounded-xl border p-3.5 ${soon ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+                  <div className="flex items-start gap-2.5">
+                    <span className={`w-2 h-2 mt-1.5 rounded-full ${soon ? "bg-amber-500" : "bg-emerald-500"}`} />
+                    <div className="flex-1">
+                      <p className={`font-body text-sm font-medium ${soon ? "text-amber-900" : "text-emerald-900"}`}>
+                        Session active
+                      </p>
+                      <p className={`font-body text-[11px] mt-0.5 ${soon ? "text-amber-800" : "text-emerald-800"}`}>
+                        {days !== null
+                          ? soon
+                            ? `Expire dans ${days} j — pensez à re-scanner un QR bientôt.`
+                            : `Valide encore ${days} j.`
+                          : "Session valide."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-xl border border-border-light bg-bg-secondary/60 p-3.5">
+              <p className="font-body text-sm text-text-primary font-medium">Pas encore connecté</p>
+              <p className="font-body text-[11px] text-text-muted mt-0.5">
+                Scannez un QR code ou utilisez le bookmarklet depuis la page dédiée.
+              </p>
+            </div>
+          )}
+          <div className="mt-3">
+            <Link
+              href="/admin/parametres/microstore"
+              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors"
+            >
+              {hasMicrostoreConfig ? "Gérer la connexion" : "Se connecter à Microstore"} →
+            </Link>
+          </div>
+        </DrawerSection>
+
         <DrawerSection icon={<Icons.Bolt className="w-4 h-4" />} title="Majoration prix" subtitle="Appliquée aux prix exportés dans le fichier Excel Microstore.">
           <MarkupRow label="Prix Excel" state={microMarkup} onChange={setMicroMarkup} />
           <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
         </DrawerSection>
+
         <DrawerSection icon={<Icons.Clock className="w-4 h-4" />} title="Comment ça marche" subtitle={undefined}>
           <p className="font-body text-xs text-text-secondary leading-relaxed">
-            Microstore n&apos;a pas de connexion automatique. Depuis la liste des produits, cliquez sur « Exporter » pour générer le fichier Excel
-            avec les prix calculés selon la majoration ci-dessus, puis uploadez-le manuellement dans Microstore.
+            Microstore n&apos;a pas de publish automatique. Depuis la liste des produits, cliquez sur « Exporter » pour générer le fichier Excel
+            avec les prix calculés selon la majoration ci-dessus, puis uploadez-le manuellement dans Microstore. Les commandes reçues sont
+            importées via la connexion QR ci-dessus.
           </p>
         </DrawerSection>
       </Drawer>

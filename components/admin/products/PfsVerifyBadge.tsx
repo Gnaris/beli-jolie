@@ -26,6 +26,7 @@ import {
 } from "@/app/actions/admin/pfs-verify";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
 import { useRefreshMarketplacePrompt } from "@/components/admin/products/RefreshMarketplaceDialog";
+import { usePfsAuditActive } from "@/components/admin/products/PfsAuditActiveContext";
 import type { PfsPullEligibleMarketplace } from "@/lib/pfs-verify-eligible-marketplaces";
 import { isPullSupportedLotB, issueKey } from "@/lib/pfs-verify-apply-shared";
 
@@ -73,6 +74,7 @@ export default function PfsVerifyBadge(props: Props) {
   const confirm = useConfirm();
   const { enqueue, inFlightProductIds } = useMarketplaceRefreshQueue();
   const { ask: askRefreshOptions } = useRefreshMarketplacePrompt();
+  const { auditRunning } = usePfsAuditActive();
   const [loading, setLoading] = useState(false);
   const applying = inFlightProductIds.has(props.productId);
   const [submitting, setSubmitting] = useState(false);
@@ -96,7 +98,11 @@ export default function PfsVerifyBadge(props: Props) {
 
   if (!props.pfsProductId) return null;
 
-  const state: "unchecked" | "loading" | "ok" | "diff" = loading
+  // Pendant un audit de masse, on force TOUTES les pastilles en "loading"
+  // — l'utilisatrice voit d'un coup d'œil que la vérif tourne partout.
+  // Le state réel (ok/diff/unchecked) reprend automatiquement à la fin
+  // de l'audit via router.refresh() déclenché par le drawer.
+  const state: "unchecked" | "loading" | "ok" | "diff" = loading || auditRunning
     ? "loading"
     : status === "ok"
       ? "ok"
@@ -106,6 +112,10 @@ export default function PfsVerifyBadge(props: Props) {
 
   const runVerify = async () => {
     if (loading) return;
+    // Bloque un verify unitaire pendant qu'un audit de masse tourne — sinon
+    // les 2 lectures PFS peuvent se marcher dessus et l'audit remplacera
+    // ensuite la valeur écrite par le clic manuel.
+    if (auditRunning) return;
     setLoading(true);
     try {
       const res = await verifySinglePfsProduct(props.productId);
