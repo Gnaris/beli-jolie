@@ -2053,6 +2053,12 @@ export interface BulkProductAttributesInput {
   /** null = retire la saison. */
   seasonId?: string | null;
   isBestSeller?: boolean;
+  /**
+   * Marqueur « Important » admin (étoile jaune de la ligne). Aucun effet sur
+   * les marketplaces ni sur la boutique publique — sert uniquement au
+   * filtrage / tri interne admin. Pas de flag `*SyncRequired` posé.
+   */
+  important?: boolean;
   /** Remplace toute la composition. Liste vide = on supprime la composition. */
   compositions?: { compositionId: string; percentage: number }[];
 }
@@ -2073,6 +2079,7 @@ export async function bulkUpdateProductAttributes(
     input.countryIsoCode !== undefined ||
     input.seasonId !== undefined ||
     input.isBestSeller !== undefined ||
+    input.important !== undefined ||
     input.compositions !== undefined;
   if (!hasAny) throw new Error("Aucune modification demandée.");
 
@@ -2148,6 +2155,9 @@ export async function bulkUpdateProductAttributes(
   if (input.countryIsoCode !== undefined) scalarData.countryIsoCode = input.countryIsoCode;
   if (input.seasonId !== undefined) scalarData.seasonId = input.seasonId;
   if (input.isBestSeller !== undefined) scalarData.isBestSeller = input.isBestSeller;
+  // « Important » n'impacte ni marketplaces ni boutique publique : pas de flag
+  // syncRequired à poser, on met juste à jour la colonne.
+  if (input.important !== undefined) scalarData.important = input.important;
 
   // Boucle produit (transactions individuelles pour ne pas tout perdre si un
   // produit échoue ; les vérifs FK ont déjà été faites en amont).
@@ -2171,11 +2181,26 @@ export async function bulkUpdateProductAttributes(
         // si la cliente annule la modale de propagation qui suit ou décoche
         // une marketplace (y compris en maintenance), le badge orange lui
         // rappellera la modif en attente.
+        // Exception : si le SEUL champ modifié est `important` (marqueur admin
+        // interne), on ne pose aucun drapeau syncRequired — cette étoile n'est
+        // jamais poussée vers les marketplaces.
+        const onlyImportantChange =
+          input.important !== undefined &&
+          input.categoryId === undefined &&
+          input.subCategoryIds === undefined &&
+          input.hsCodeId === undefined &&
+          input.countryIsoCode === undefined &&
+          input.seasonId === undefined &&
+          input.isBestSeller === undefined &&
+          input.compositions === undefined;
+
         const syncFlags: Record<string, boolean> = {};
-        if (p.pfsProductId) syncFlags.pfsSyncRequired = true;
-        if (p.ankorsProductId) syncFlags.ankorsSyncRequired = true;
-        if (p.efashionReferenceBase) syncFlags.efashionSyncRequired = true;
-        if (p.faireProductId) syncFlags.faireSyncRequired = true;
+        if (!onlyImportantChange) {
+          if (p.pfsProductId) syncFlags.pfsSyncRequired = true;
+          if (p.ankorsProductId) syncFlags.ankorsSyncRequired = true;
+          if (p.efashionReferenceBase) syncFlags.efashionSyncRequired = true;
+          if (p.faireProductId) syncFlags.faireSyncRequired = true;
+        }
 
         await tx.product.update({
           where: { id: p.id },

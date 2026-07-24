@@ -41,18 +41,24 @@ const catOverrides = CAT_OVERRIDES_PATH
 const CATS = {
   "耳环":          { category: "Boucles d'oreilles", sub: "" },
   "耳钉":          { category: "Boucles d'oreilles", sub: "" },
+  "耳针":          { category: "Boucles d'oreilles", sub: "Puce d'oreille" },
+  "耳拍":          { category: "Boucles d'oreilles", sub: "" },
   "耳骨夹":        { category: "Boucles d'oreilles", sub: "Clips" },
   "耳夹":          { category: "Boucles d'oreilles", sub: "Clips" },
   "单只耳环":      { category: "Boucles d'oreilles", sub: "À l'unité" },
   "项链":          { category: "Collier",            sub: "" },
+  "项链刚":        { category: "Collier",            sub: "" },
   "胸链":          { category: "Collier",            sub: "Collier de dos" },
   "戒指":          { category: "Bague",              sub: "" },
   "手链":          { category: "Bracelet",           sub: "" },
+  "手链刚":        { category: "Bracelet",           sub: "" },
   "手镯":          { category: "Bracelet",           sub: "Jonc" },
   "光面手镯":      { category: "Bracelet",           sub: "Jonc" },
   "豹纹绳子手镯":  { category: "Bracelet",           sub: "Jonc" },
   "脚链":          { category: "Bracelet",           sub: "Chaîne de cheville" },
   "手背链":        { category: "Bracelet",           sub: "Bracelet de main" },
+  "臂镯":          { category: "Bracelet bras",      sub: "" },
+  "腰链":          { category: "Chaîne de taille",   sub: "" },
   "胸针":          { category: "Broche",             sub: "" },
 };
 
@@ -122,6 +128,64 @@ const COLORS = {
   "1号红色":        "Rouge",
   "9号粉色":        "Rose",
   "12号蓝色":       "Bleu",
+  "样咖":           "Marron",
+  // Fournisseur J — préfixes "N#色" (n° d'échantillon devant la couleur) — confirmé 2026-07-24
+  "11#绿色":        "Vert",
+  "22#白色":        "Blanc",
+  "16#粉色":        "Rose",
+  // ── Ajouts 2026-07-24 ──
+  // Fournisseur A — bicolores + rouges spécifiques
+  "梅红":           "Fuchsia",
+  "枣红":           "Bordeaux",
+  "虎石":           "Marron",
+  "金+红":          "Rouge",
+  "金+彩":          "Multicolore",
+  "金+绿":          "Vert",
+  "金+宝蓝":        "Bleu",
+  "钢+白":          "Blanc",
+  "钢+黑":          "Noir",
+  "白+绿":          "Vert",
+  "白+粉":          "Rose",
+  // "白+胡兰" est résolu dynamiquement dans le pipeline (Bleu par défaut,
+  // Marine si le produit contient déjà une variante Bleu). Voir hook plus bas.
+  // Fournisseur WF — extensions
+  "金-紫色":        "Violet",
+  "金-黄色":        "Jaune",
+  "金-混彩":        "Multicolore",
+  "金-深浅紫":      "Violet",
+  "金-蓝+绿":       "Bleu",
+  "金-如样色粉钻":  "Rose",
+  "金-如样粉钻":    "Rose",
+  // Fournisseur E — bicolores multi-nuances (règle : on garde la couleur de base)
+  "16K金白色+米白色":     "Blanc",
+  "16K金浅粉色+深粉色":   "Rose",
+  "16K金天蓝色+湖蓝色":   "Bleu",
+  // Fournisseur N — variantes zircons et bicolores condensés
+  "16k":                "Doré",
+  "16K金色+粉钻":       "Rose",
+  "16K金色+白钻":       "Doré",
+  "16K+白钻":           "Doré",
+  "16K白钻":            "Doré",
+  "16K金色+绿钻":       "Vert",
+  "16K+彩钻":           "Multicolore",
+  "16k金色彩钻":        "Multicolore",
+  "钢+白钻":            "Argent",
+  "金+白色":            "Blanc",
+  "金白":               "Blanc",
+  "金+粉色":            "Rose",
+  "金+彩色":            "Multicolore",
+  "金+混彩色":          "Multicolore",
+  "金+大红+粉":         "Rouge",
+  "金+深蓝+湖兰":       "Marine",
+  "金+祖母绿+青柠":     "Vert",
+  // Fournisseur G — préfixe "贝" (nacre/coquille) → couleur de base
+  "蓝贝":               "Bleu",
+  "粉贝":               "Rose",
+  "白贝":               "Blanc",
+  "黑贝":               "Noir",
+  "绿贝":               "Vert",
+  "咖贝":               "Marron",
+  "粉贝\n金色":         "Rose",
   // Fournisseur ZC — plating
   "16K炉内真金":    "Doré",
   "14K炉内真金":    "Doré",
@@ -140,9 +204,47 @@ const parsed = JSON.parse(fs.readFileSync(PARSED_PATH, "utf-8"));
 const stillUnknownCats = new Set();
 const stillUnknownColors = new Set();
 
+// ── Désambiguïsation pré-fusion : même référence mais fullRef différent ──
+// Exemple N801 : deux entrées ["N801-111-550"] et ["N801-885-450"] avec des
+// prix codés différents = 2 produits distincts. On renomme les suivants
+// "N801(2)", "N801(3)"… pour éviter la fusion abusive.
+const seenByRefFullRef = new Map();
+const renamed = [];
+for (const p of parsed.products) {
+  const key = p.reference;
+  const existing = seenByRefFullRef.get(key);
+  if (!existing) {
+    seenByRefFullRef.set(key, [p.fullRef]);
+    continue;
+  }
+  if (existing.includes(p.fullRef)) continue; // même fullRef → sera fusionné par la logique aval
+  existing.push(p.fullRef);
+  const newRef = `${p.reference}(${existing.length})`;
+  renamed.push({ from: p.reference, to: newRef, fullRef: p.fullRef });
+  p.reference = newRef;
+}
+if (renamed.length) {
+  console.log(`ℹ️  ${renamed.length} référence(s) renommée(s) (même code, produits distincts) :`);
+  for (const r of renamed) console.log(`   - ${r.from} → ${r.to}  (fullRef ${r.fullRef})`);
+}
+
+function resolveOverride(ov) {
+  if (!ov) return null;
+  if (typeof ov === "string") return CATS[ov] || { category: ov, sub: "" };
+  return { category: ov.category, sub: ov.sub || "" };
+}
+
 const skipped = [];
+const junkFiltered = [];
+const REF_SHAPE = /^[A-Za-z]+\d+[A-Za-z]?(\(\d+\))?$/; // ex A2493, WF39A, N801(2)
 const translated = parsed.products
   .filter((p) => {
+    // Filtre les "produits fantômes" (notes de conditionnement, en-têtes, etc.)
+    // dont la référence ne ressemble pas à un code produit standard.
+    if (!REF_SHAPE.test(p.reference)) {
+      junkFiltered.push(p.reference);
+      return false;
+    }
     if (skipRefs.has(p.reference)) {
       skipped.push(p.reference);
       return false;
@@ -151,35 +253,34 @@ const translated = parsed.products
   })
   .map((p) => {
   // 1) override explicite par référence (catégorie passée par la cliente)
-  let cat = null;
-  const override = catOverrides[p.reference];
-  if (override) {
-    // L'override peut être un nom chinois (resolvé via CATS) ou un nom français direct
-    cat = CATS[override] || { category: override, sub: "" };
-  } else {
-    cat = CATS[p.pinmingZh];
-  }
+  const overrideResolved = resolveOverride(catOverrides[p.reference]);
+  const cat = overrideResolved || CATS[p.pinmingZh];
   if (!cat) stillUnknownCats.add(p.pinmingZh || `(sans catégorie : ${p.reference})`);
-  const variants = p.colors.map((c) => {
-    const colorFR = COLORS[c.colorZh];
+  const variants = [];
+  let hasBleu = false;
+  // Première passe : résout les couleurs simples et détecte si Bleu est présent
+  for (const c of p.colors) {
+    let colorFR = COLORS[c.colorZh];
+    if (c.colorZh === "白+胡兰") { colorFR = "__DEFER_BAIHULAN__"; }
     if (!colorFR) stillUnknownColors.add(c.colorZh);
-    return {
+    if (colorFR === "Bleu") hasBleu = true;
+    variants.push({
       color: colorFR || `(?) ${c.colorZh}`,
       sale_type: "UNIT",
       size: "Taille unique",
       unit_price: c.price,
       stock: c.qty,
-    };
-  });
+    });
+  }
+  // Deuxième passe : résout "白+胡兰" (Marine si Bleu déjà présent, sinon Bleu)
+  for (const v of variants) {
+    if (v.color === "__DEFER_BAIHULAN__") v.color = hasBleu ? "Marine" : "Bleu";
+  }
   return {
     reference: p.reference,
     fullRef: p.fullRef,
     category: cat ? cat.category : `(?) ${p.pinmingZh}`,
-    // Sous-catégories laissées vides volontairement : l'import ne fait pas
-    // de quick-create fiable pour les sous-cats et la cliente peut les
-    // affecter manuellement après import si besoin. Le mapping reste tracé
-    // dans references/mapping.md pour réutilisation future.
-    sub_categories: "",
+    sub_categories: cat ? cat.sub || "" : "",
     variants,
   };
 });
@@ -212,8 +313,77 @@ if (fusions.length) {
   fusions.forEach(([ref, n]) => console.log(`   - ${ref} (${n}× → 1 produit, stocks additionnés)`));
 }
 
+// ── Génération auto des parures (règle confirmée 2026-07-24) ──
+// Quand plusieurs refs partagent la même base (ex J226 + J226A + J226B),
+// on crée une ref supplémentaire baseE représentant la parure complète :
+//   - Catégorie : Parures de bijoux
+//   - Couleurs : intersection des couleurs des pièces (dispo dans TOUTES)
+//   - Stock : 1000 pour chaque couleur (règle cliente)
+//   - Prix : max du prix de chaque pièce (souvent Doré), sommé sur toutes
+//            les pièces → prix unique identique pour toutes les couleurs
+function refBase(ref) {
+  // "J226" → "J226", "J226A" → "J226", "N801(2)" → "N801(2)" (parens = variante,
+  // ne fait pas partie du même groupe parure).
+  const m = ref.match(/^([A-Za-z]+\d+)([A-Za-z]?)$/);
+  return m ? m[1] : null;
+}
+const groups = new Map();
+for (const p of merged) {
+  const base = refBase(p.reference);
+  if (!base) continue;
+  if (!groups.has(base)) groups.set(base, []);
+  groups.get(base).push(p);
+}
+const parures = [];
+for (const [base, pieces] of groups) {
+  if (pieces.length < 2) continue;
+  const parureRef = `${base}E`;
+  // Ne pas écraser une vraie ref existante
+  if (merged.some((p) => p.reference === parureRef)) {
+    console.log(`⚠️  Parure ${parureRef} ignorée : ref déjà présente dans le bon.`);
+    continue;
+  }
+  // Intersection des couleurs
+  const colorSets = pieces.map((p) => new Set(p.variants.map((v) => v.color)));
+  const common = [...colorSets[0]].filter((c) => colorSets.every((s) => s.has(c)));
+  if (!common.length) {
+    console.log(`⚠️  Parure ${parureRef} ignorée : aucune couleur commune aux pièces.`);
+    continue;
+  }
+  // Prix : somme des prix max de chaque pièce
+  const price = pieces.reduce((sum, p) => {
+    const maxP = Math.max(...p.variants.map((v) => Number(v.unit_price) || 0));
+    return sum + maxP;
+  }, 0);
+  const parureVariants = common.map((color) => ({
+    color,
+    sale_type: "UNIT",
+    size: "Taille unique",
+    unit_price: Number(price.toFixed(2)),
+    stock: 1000,
+  }));
+  parures.push({
+    reference: parureRef,
+    fullRef: parureRef,
+    category: "Parures de bijoux",
+    sub_categories: "",
+    variants: parureVariants,
+    _parureOf: pieces.map((p) => p.reference),
+  });
+}
+if (parures.length) {
+  console.log(`✨ ${parures.length} parure(s) générée(s) :`);
+  for (const p of parures) {
+    console.log(`   - ${p.reference} (à partir de ${p._parureOf.join(" + ")}) — ${p.variants.length} couleur(s) @ ${p.variants[0].unit_price}€`);
+  }
+  merged.push(...parures);
+}
+
 if (skipped.length) {
   console.log(`ℹ️  ${skipped.length} produits déjà en BDD exclus : ${skipped.join(", ")}`);
+}
+if (junkFiltered.length) {
+  console.log(`ℹ️  ${junkFiltered.length} ligne(s) non-produit(s) filtrée(s) (notes de conditionnement, etc.)`);
 }
 
 if (stillUnknownCats.size || stillUnknownColors.size) {

@@ -4352,6 +4352,53 @@ export default function AdminProductsTable({
     });
   }, [selectedIds, confirm, toast, startTransition]);
 
+  // ─── « Important » en masse ─────────────────────────────────────────────
+  // Étoile jaune admin (filtrage/tri interne). Aucun impact marketplaces ni
+  // boutique publique : le serveur skippe les drapeaux syncRequired quand
+  // seul `important` est modifié.
+  const handleBulkSetImportant = useCallback(async (important: boolean) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const plural = ids.length > 1 ? "s" : "";
+    const action = important ? "marquer" : "retirer";
+    const ok = await confirm({
+      type: "info",
+      title: `${important ? "Marquer" : "Retirer"} ${ids.length} produit${plural} comme important${plural} ?`,
+      message: important
+        ? "L'étoile admin sera ajoutée. Aucun impact sur les marketplaces ni la boutique."
+        : "L'étoile admin sera retirée. Aucun impact sur les marketplaces ni la boutique.",
+      confirmLabel: `Oui, ${action}`,
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+
+    setBulkActionLabel(
+      `${important ? "Marquage" : "Retrait"} important de ${ids.length} produit${plural}…`,
+    );
+    startTransition(async () => {
+      try {
+        const r = await bulkUpdateProductAttributes(ids, { important });
+        if (r.updated > 0 && r.errors.length === 0) {
+          toast.success(
+            `${r.updated} produit${r.updated > 1 ? "s" : ""} modifié${r.updated > 1 ? "s" : ""}`,
+            important ? "Étoile important ajoutée." : "Étoile important retirée.",
+          );
+        } else if (r.errors.length > 0) {
+          toast.error(
+            `${r.errors.length} produit${r.errors.length > 1 ? "s" : ""} en erreur`,
+            r.errors.slice(0, 3).map((e) => e.reference).join(", "),
+          );
+        } else {
+          toast.info("Aucun changement", "Les produits étaient déjà dans cet état.");
+        }
+      } catch (e) {
+        toast.error("Modification impossible", e instanceof Error ? e.message : "Erreur inconnue.");
+      } finally {
+        setBulkActionLabel(null);
+      }
+    });
+  }, [selectedIds, confirm, toast, startTransition]);
+
   // ─── Tags en masse ──────────────────────────────────────────────────────
   // Ouvert par le menu Plus. Handler appelé par la modale BulkTagsModal.
   const handleBulkTagsApply = useCallback(
@@ -4515,6 +4562,7 @@ export default function AdminProductsTable({
         onMarketplaceVerify={handleBulkMarketplaceVerify}
         onPublishDrafts={() => setBulkPublishDraftsOpen(true)}
         onSetBestSeller={handleBulkSetBestSeller}
+        onSetImportant={handleBulkSetImportant}
         onOpenTagsModal={() => setBulkTagsOpen(true)}
         onOpenCollectionModal={() => setBulkCollectionOpen(true)}
       />

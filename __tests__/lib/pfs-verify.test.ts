@@ -60,6 +60,7 @@ function makeLocalVariant(o: {
   stock: number;
   weight: number;
   packQuantity?: number | null;
+  disabled?: boolean;
   packLines?: LocalProduct["colors"][number]["packLines"];
   variantSizes?: LocalProduct["colors"][number]["variantSizes"];
 }): LocalProduct["colors"][number] {
@@ -71,6 +72,7 @@ function makeLocalVariant(o: {
     stock: o.stock,
     saleType: o.saleType,
     packQuantity: o.packQuantity ?? null,
+    disabled: o.disabled ?? false,
     variantSizes: o.variantSizes ?? [
       { size: { name: "TU", pfsSizeRef: "TU" }, quantity: 1 },
     ],
@@ -172,7 +174,7 @@ function makePfsVariant(o: {
   return base;
 }
 
-const NO_MARKUP = { deactivateOnZeroStock: true };
+const NO_MARKUP = {};
 const EMPTY_COLOR_MAP = new Map<string, string>();
 
 // ─── Tests comparePfsProduct ──────────────────────────────────────────────
@@ -412,6 +414,61 @@ describe("comparePfsProduct", () => {
     expect(w?.expectedValue).toBe("2 g");
   });
 
+  it("ne signale pas d'écart isActive quand disabled=false même si stock=0 (align push semantics)", () => {
+    // Bug 2026-07-24 : quand la config `pfs_out_of_stock_deactivate_variant`
+    // était true, une variante disabled=false + stock=0 générait un écart
+    // isActive (expected=false calculé depuis stock=0) que le pull ne pouvait
+    // pas résoudre (pull écrit disabled=false, valeur déjà présente). Le
+    // compare est désormais aligné sur le push (`enable: !disabled`).
+    const local = makeLocalProduct({
+      colors: [
+        makeLocalVariant({
+          id: "v1",
+          colorPfsRef: "ROSE",
+          colorName: "Rose",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 0,
+          weight: 0.02,
+          disabled: false,
+        }),
+      ],
+    });
+    const pfsProduct = makePfsProduct();
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 0, weight: 0.02, isActive: true }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    expect(issues.find((i) => i.field === "isActive")).toBeUndefined();
+  });
+
+  it("signale un écart isActive uniquement sur le flag disabled (pull effectif)", () => {
+    // disabled=true localement, PFS is_active=true → écart, pull doit fixer.
+    const local = makeLocalProduct({
+      colors: [
+        makeLocalVariant({
+          id: "v1",
+          colorPfsRef: "ROSE",
+          colorName: "Rose",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 10,
+          weight: 0.02,
+          disabled: true,
+        }),
+      ],
+    });
+    const pfsProduct = makePfsProduct();
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 10, weight: 0.02, isActive: true }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    const iss = issues.find((i) => i.field === "isActive");
+    expect(iss).toBeDefined();
+    expect(iss?.pfsValue).toBe("Oui");
+    expect(iss?.expectedValue).toBe("Non");
+  });
+
   it("détecte un écart de statut (local ONLINE, PFS ARCHIVED)", () => {
     // Cas concret : la cliente a passé le produit ONLINE côté site mais côté
     // PFS il est encore ARCHIVED (transition manquée). Doit remonter en écart.
@@ -491,7 +548,6 @@ describe("comparePfsProduct", () => {
       makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 0, weight: 0.02, isActive: false }),
     ];
     const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
-      deactivateOnZeroStock: true,
       outOfStockProductAction: "archived",
     });
     const statusIssue = issues.find((i) => i.field === "productStatus");

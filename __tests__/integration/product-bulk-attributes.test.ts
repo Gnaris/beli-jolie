@@ -153,6 +153,79 @@ describe("bulkUpdateProductAttributes (real DB)", () => {
     expect(updated.every((p) => p.isBestSeller === false)).toBe(true);
   });
 
+  it("met à jour le drapeau `important` sur tous les produits", async () => {
+    const result = await bulkUpdateProductAttributes(productIds, { important: true });
+    expect(result.updated).toBe(2);
+    expect(result.errors).toHaveLength(0);
+
+    const updated = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { important: true },
+    });
+    expect(updated.every((p) => p.important === true)).toBe(true);
+  });
+
+  it("retire le drapeau `important` (false)", async () => {
+    await bulkUpdateProductAttributes(productIds, { important: true });
+    const result = await bulkUpdateProductAttributes(productIds, { important: false });
+    expect(result.updated).toBe(2);
+    const updated = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { important: true },
+    });
+    expect(updated.every((p) => p.important === false)).toBe(true);
+  });
+
+  it("ne pose PAS de drapeaux syncRequired quand seul `important` est modifié", async () => {
+    // Simuler des produits déjà publiés sur toutes les marketplaces.
+    await prisma.product.updateMany({
+      where: { id: { in: productIds } },
+      data: {
+        pfsProductId: "test-pfs-id",
+        ankorsProductId: "test-ankors-id",
+        efashionReferenceBase: "test-efashion-ref",
+        faireProductId: "test-faire-id",
+        pfsSyncRequired: false,
+        ankorsSyncRequired: false,
+        efashionSyncRequired: false,
+        faireSyncRequired: false,
+      },
+    });
+
+    const result = await bulkUpdateProductAttributes(productIds, { important: true });
+    expect(result.updated).toBe(2);
+
+    const updated = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: {
+        important: true,
+        pfsSyncRequired: true,
+        ankorsSyncRequired: true,
+        efashionSyncRequired: true,
+        faireSyncRequired: true,
+      },
+    });
+    for (const p of updated) {
+      expect(p.important).toBe(true);
+      expect(p.pfsSyncRequired).toBe(false);
+      expect(p.ankorsSyncRequired).toBe(false);
+      expect(p.efashionSyncRequired).toBe(false);
+      expect(p.faireSyncRequired).toBe(false);
+    }
+
+    // Nettoyage : retirer les identifiants marketplace fictifs pour ne pas
+    // polluer les tests suivants qui pourraient s'appuyer sur un état vierge.
+    await prisma.product.updateMany({
+      where: { id: { in: productIds } },
+      data: {
+        pfsProductId: null,
+        ankorsProductId: null,
+        efashionReferenceBase: null,
+        faireProductId: null,
+      },
+    });
+  });
+
   it("change la catégorie et vide les sous-cats existantes (héritées de l'ancienne catégorie)", async () => {
     // Pré-conditionner avec une sous-cat sur la catégorie initiale
     await prisma.product.update({

@@ -150,7 +150,7 @@ export default function CustomSelect({
       switch (e.key) {
         case "Escape":
           setOpen(false);
-          triggerRef.current?.focus();
+          triggerRef.current?.focus({ preventScroll: true });
           break;
         case "ArrowDown": {
           e.preventDefault();
@@ -195,7 +195,7 @@ export default function CustomSelect({
     onChange(val);
     setOpen(false);
     setSearchQuery("");
-    triggerRef.current?.focus();
+    triggerRef.current?.focus({ preventScroll: true });
   }
 
   const menu = open && mounted && (

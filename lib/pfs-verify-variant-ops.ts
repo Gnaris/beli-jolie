@@ -26,6 +26,7 @@ import sharp from "sharp";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
+  pfsCheckReference,
   pfsGetVariants,
   type PfsVariantDetail,
   type PfsVariantItem,
@@ -266,8 +267,21 @@ export async function pullAddLocalVariantFromPfs(
   if (!product) return { ok: false, error: "Produit introuvable." };
   if (!product.pfsProductId) return { ok: false, error: "Produit non publié sur PFS." };
 
+  logger.info("[PFS Verify Ops] Pull add variant — start", {
+    productId,
+    reference: product.reference,
+    pfsVariantId,
+  });
+
   // Récupération de l'état PFS complet pour trouver la variante ciblée.
-  const variantsResp = await pfsGetVariants(product.pfsProductId);
+  // On charge aussi checkRef pour disposer des images produit (fallback quand
+  // `pfsGetVariants` renvoie une variante sans `images` — ce qui arrive
+  // fréquemment sur les couleurs importées avant l'ajout du champ variant.
+  // Sans ce fallback, la nouvelle variante était créée sans aucune photo).
+  const [variantsResp, checkRef] = await Promise.all([
+    pfsGetVariants(product.pfsProductId),
+    pfsCheckReference(product.reference),
+  ]);
   const pfsVariants: PfsVariantDetail[] = variantsResp.data ?? [];
   const pv = pfsVariants.find((v) => v.id === pfsVariantId);
   if (!pv) {
@@ -276,9 +290,10 @@ export async function pullAddLocalVariantFromPfs(
       error: `Variante ${pfsVariantId} introuvable côté PFS — peut-être déjà supprimée.`,
     };
   }
+  const productImages = checkRef?.product?.images ?? {};
 
   const warnings: string[] = [];
-  const rv = await resolveVariant(pv as PfsVariantItem, warnings);
+  const rv = await resolveVariant(pv as PfsVariantItem, warnings, productImages);
   if (!rv) {
     return { ok: false, error: `Résolution PFS impossible pour la variante ${pfsVariantId}.` };
   }
@@ -427,6 +442,15 @@ export async function pullAddLocalVariantFromPfs(
       });
     }
   }, { timeout: 30000 });
+
+  logger.info("[PFS Verify Ops] Pull add variant — done", {
+    productId,
+    reference: product.reference,
+    pfsVariantId,
+    localColorId: rv.colorId,
+    saleType: rv.saleType,
+    imagesCount: processedImages.length,
+  });
 
   return {
     ok: true,

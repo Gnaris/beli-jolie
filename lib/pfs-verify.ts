@@ -429,7 +429,6 @@ function buildLocalVariantsForCompare(
   product: FullProduct,
   colorRefMap: Map<string, string>,
   pfsMarkup: MarkupConfig | undefined,
-  deactivateOnZeroStock: boolean,
 ): LocalVariantForCompare[] {
   const out: LocalVariantForCompare[] = [];
   for (const v of product.colors) {
@@ -447,11 +446,15 @@ function buildLocalVariantsForCompare(
         price: getPfsUnitPrice(v, pfsMarkup),
         stock: v.stock ?? 0,
         weight: v.weight,
-        // Une variante localement désactivée (`disabled=true` — masquée dans la
-        // boutique) doit être considérée comme `is_active=false` côté PFS. Le
-        // stock à 0 n'a d'impact que si le réglage « auto-désactivation en
-        // rupture » est activé dans Paramètres → PFS.
-        isActive: !v.disabled && (deactivateOnZeroStock ? (v.stock ?? 0) > 0 : true),
+        // On compare l'état ACTIF/INACTIF sur le seul flag `disabled` — c'est
+        // ce même flag que le push renvoie à PFS (`enable: !disabled` dans
+        // `applyVariantPushes`). Autrefois on incluait aussi `stock === 0`
+        // quand `deactivateOnZeroStock=true`, mais cette logique était
+        // asymétrique : une variante disabled=false + stock=0 générait un
+        // écart isActive qu'aucun pull ne pouvait résoudre (pull écrivait
+        // disabled=false, valeur déjà présente). Si l'auto-désactivation en
+        // rupture est activée, le compare stock détectera déjà l'écart.
+        isActive: !v.disabled,
         packSignature: packSignatureFromLocalVariant(v, colorRefMap),
         packQuantity: v.packQuantity,
       },
@@ -527,7 +530,6 @@ export function comparePfsProduct(
   colorRefMap: Map<string, string>,
   opts: {
     pfsMarkup?: MarkupConfig;
-    deactivateOnZeroStock: boolean;
     /** Action PFS à appliquer sur produit quand toutes les variantes sont en
      *  rupture. Sert à calculer le statut PFS attendu depuis le statut local. */
     outOfStockProductAction?: PfsOutOfStockProductAction;
@@ -696,7 +698,6 @@ export function comparePfsProduct(
     local,
     colorRefMap,
     opts.pfsMarkup,
-    opts.deactivateOnZeroStock,
   );
   const localByKey = new Map<string, LocalVariantForCompare>();
   for (const l of locals) localByKey.set(localMatchKey(l), l);
@@ -982,7 +983,6 @@ export async function verifyPfsProduct(
     colorRefMap,
     {
       pfsMarkup: markupConfigs.pfs,
-      deactivateOnZeroStock: outOfStockCfg.deactivateVariant,
       outOfStockProductAction: outOfStockCfg.productAction,
       labels: labelMaps,
     },

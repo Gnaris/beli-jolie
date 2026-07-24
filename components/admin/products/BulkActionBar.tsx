@@ -78,6 +78,12 @@ interface Props {
    * bulkUpdateProductAttributes côté server action).
    */
   onSetBestSeller: (isBestSeller: boolean) => void;
+  /**
+   * Bascule le marqueur « Important » (étoile jaune admin) sur toute la
+   * sélection. Aucun effet marketplaces ni boutique publique — usage admin
+   * uniquement pour filtrage / tri.
+   */
+  onSetImportant: (important: boolean) => void;
   /** Ouvre la modale « Tags en masse » (ajouter / retirer). */
   onOpenTagsModal: () => void;
   /** Ouvre la modale « Ajouter à une collection ». */
@@ -189,6 +195,7 @@ export default function BulkActionBar({
   onMarketplaceVerify,
   onPublishDrafts,
   onSetBestSeller,
+  onSetImportant,
   onOpenTagsModal,
   onOpenCollectionModal,
 }: Props) {
@@ -198,6 +205,8 @@ export default function BulkActionBar({
   // Sous-menu best-seller : true = on affiche les 2 choix (Marquer / Retirer)
   // dans le menu Plus. Se remet à false à chaque ouverture du menu.
   const [bestSellerSubOpen, setBestSellerSubOpen] = useState(false);
+  // Sous-menu Important : même principe (Marquer / Retirer l'étoile admin).
+  const [importantSubOpen, setImportantSubOpen] = useState(false);
   const barRef = useRef<HTMLDivElement | null>(null);
 
   const someSelected = selectedProducts.length > 0;
@@ -208,12 +217,16 @@ export default function BulkActionBar({
       setMarketplacesOpen(false);
       setPlusOpen(false);
       setBestSellerSubOpen(false);
+      setImportantSubOpen(false);
     }
   }, [someSelected]);
 
-  // Reset le sous-menu best-seller quand on ferme le menu Plus.
+  // Reset les sous-menus quand on ferme le menu Plus.
   useEffect(() => {
-    if (!plusOpen) setBestSellerSubOpen(false);
+    if (!plusOpen) {
+      setBestSellerSubOpen(false);
+      setImportantSubOpen(false);
+    }
   }, [plusOpen]);
 
   useEffect(() => {
@@ -546,6 +559,51 @@ export default function BulkActionBar({
                       title="Best-seller"
                       hint="Marquer ou retirer l'étoile"
                       onClick={() => setBestSellerSubOpen(true)}
+                    />
+                  )}
+
+                  {/* Important : étoile jaune admin — filtrage/tri interne
+                      uniquement. Aucun impact marketplaces ni boutique. */}
+                  {importantSubOpen ? (
+                    <div className="bg-yellow-50/40 border-y border-yellow-100">
+                      <button
+                        type="button"
+                        onClick={() => setImportantSubOpen(false)}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-[11px] text-yellow-800 hover:bg-yellow-50 font-medium"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                        </svg>
+                        Retour
+                      </button>
+                      <MenuItem
+                        icon={<svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+                        iconClass="bg-yellow-100 text-yellow-700"
+                        title="Marquer important"
+                        hint="Étoile admin · filtrage interne"
+                        onClick={() => {
+                          setPlusOpen(false);
+                          onSetImportant(true);
+                        }}
+                      />
+                      <MenuItem
+                        icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+                        iconClass="bg-slate-100 text-slate-600"
+                        title="Retirer important"
+                        hint="Enlève l'étoile admin"
+                        onClick={() => {
+                          setPlusOpen(false);
+                          onSetImportant(false);
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <MenuItem
+                      icon={<svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+                      iconClass="bg-yellow-50 text-yellow-700"
+                      title="Important"
+                      hint="Marquer ou retirer l'étoile admin"
+                      onClick={() => setImportantSubOpen(true)}
                     />
                   )}
 

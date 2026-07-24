@@ -71,6 +71,60 @@ La colonne `颜色` (« yanse ») indique la couleur.
 | 黄             | Jaune       | Fournisseur ZC : abrégé de 黄色 (à créer — 2026-06-18) |
 | 绿             | Vert        | Fournisseur ZC : abrégé de 绿色 (说明) — 2026-06-18 |
 
+### Couleurs confirmées 2026-07-24 (ajouts au fil du bon multi-fournisseurs)
+
+| Chinois | Couleur BDD | Fournisseur / Notes |
+|---|---|---|
+| 梅红 | Fuchsia | A |
+| 枣红 | Bordeaux | A — nouvelle couleur à créer |
+| 虎石 | Marron | A — agate œil-de-tigre |
+| 金+红 | Rouge | A |
+| 金+彩 | Multicolore | A |
+| 金+绿 | Vert | A |
+| 金+宝蓝 | Bleu | A |
+| 钢+白 | Blanc | A — bicolore, cliente a choisi Blanc dominant |
+| 钢+黑 | Noir | A — bicolore, Noir dominant |
+| 白+绿 | Vert | A — cliente a choisi Vert dominant |
+| 白+粉 | Rose | A — Rose dominant |
+| 白+胡兰 | Bleu OU Marine | A — **résolu dynamiquement** : Marine si le produit a déjà une variante Bleu, sinon Bleu |
+| 金-紫色 | Violet | WF |
+| 金-黄色 | Jaune | WF — nouvelle couleur à créer |
+| 金-混彩 | Multicolore | WF |
+| 金-深浅紫 | Violet | WF |
+| 金-蓝+绿 | Bleu | WF — bicolore, Bleu dominant |
+| 金-如样色粉钻 | Rose | WF — zircon rose |
+| 金-如样粉钻 | Rose | WF — idem |
+| 16K金白色+米白色 | Blanc | E — bicolore blanc + beige |
+| 16K金浅粉色+深粉色 | Rose | E — deux nuances de rose |
+| 16K金天蓝色+湖蓝色 | Bleu | E — bleu ciel + turquoise |
+| 16k | Doré | N — métal seul |
+| 16K金色+粉钻 | Rose | N — zircon rose |
+| 16K金色+白钻 / 16K+白钻 / 16K白钻 | Doré | N — règle « zircon blanc = métal seul » |
+| 16K金色+绿钻 | Vert | N |
+| 16K+彩钻 / 16k金色彩钻 | Multicolore | N |
+| 钢+白钻 | Argent | N |
+| 金+白色 / 金白 | Blanc | N |
+| 金+粉色 | Rose | N |
+| 金+彩色 / 金+混彩色 | Multicolore | N |
+| 金+大红+粉 | Rouge | N — tricolore, Rouge dominant |
+| 金+深蓝+湖兰 | Marine | N — bleu foncé + turquoise, Marine dominant |
+| 金+祖母绿+青柠 | Vert | N — émeraude + citron vert |
+| 蓝贝 / 粉贝 / 白贝 / 黑贝 / 绿贝 / 咖贝 | Bleu / Rose / Blanc / Noir / Vert / Marron | G — préfixe 贝 = nacre/coquille |
+| 粉贝 + 金色 (bicolore) | Rose | G — Rose dominant |
+| 样咖 | Marron | J — échantillon café |
+| 11#绿色 / 22#白色 / 16#粉色 | Vert / Blanc / Rose | J — préfixe n° d'échantillon devant la couleur |
+
+### Nouvelles catégories confirmées 2026-07-24
+
+| Chinois | Catégorie BDD | Sous-catégorie | Notes |
+|---|---|---|---|
+| 耳针 | Boucles d'oreilles | Puce d'oreille | Sous-cat à créer côté site |
+| 耳拍 | Boucles d'oreilles | — | Cliente confirme mono-catégorie |
+| 手链刚 | Bracelet | — | Fournisseur N — variation orthographique de 手链 (suffixe 刚 = code annotation) |
+| 项链刚 | Collier | — | Idem 手链刚 pour collier |
+| 臂镯 | Bracelet bras | — | **Nouvelle catégorie principale** |
+| 腰链 | Chaîne de taille | — | **Nouvelle catégorie principale** |
+
 ### Convention fournisseur WF (Weifan) — confirmée 2026-06-12
 
 Les couleurs du fournisseur WF utilisent toutes des préfixes/suffixes :
@@ -182,6 +236,32 @@ Format souvent rencontré : `A2235-1118-520` → ref = `A2235`, dernière partie
 `货号` (« huohao ») du bon = la référence complète (ex: `A2493-448-280`).
 **Référence produit côté site** = première partie avant le premier `-` → `A2493`.
 Le suffixe `A` (ex: `A2518A`) fait partie de la référence (variante du même ensemble) — à garder tel quel.
+
+---
+
+## Règle « mise à jour de stock » (confirmée 2026-07-24)
+
+Quand une référence du bon existe **déjà en BDD prod** (`beliandjolie`), on ne l'ajoute PAS au fichier Excel d'import. À la place :
+
+1. **Passer le produit à `important = true`** en BDD prod (`Product.important`). Ce booléen existe déjà côté schema : il affiche une étoile dans la liste admin, active le filtre « Importants seulement » et le tri « Importants d'abord ». Ça sert à mettre en évidence les produits qu'on vient de restocker.
+2. **Modification directe en BDD prod** (SSH `root@72.61.106.128` → mysql `beliandjolie`) pour ajouter le stock à chaque `ProductColor` existant qui correspond à une couleur du bon.
+3. **Nouvelle couleur** (présente dans le bon mais absente en BDD) → **option C** : lister ces cas pour décision manuelle de la cliente (ne PAS créer automatiquement).
+4. Chaque produit prod ayant 2 `ProductColor` par couleur (UNIT + PACK), à trancher au cas par cas si on ajoute à UNIT seulement, PACK seulement ou les deux.
+
+`find-existing-refs-prod.cjs` sert à récupérer la liste des refs existantes en une passe.
+
+## Règle « parure automatique » (confirmée 2026-07-24)
+
+Quand un même bon contient plusieurs références qui partagent la **même base** (ex : `J226` + `J226A` + `J226B` ou `A2518` + `A2518A`), c'est un **ensemble de bijoux assortis**. Le skill génère automatiquement une **référence supplémentaire** représentant la parure complète :
+
+- **Nom de la ref parure** : base + suffixe `E` (ex : `J226E`, `A2518E`). Toujours `E`, jamais autre lettre.
+- **Catégorie** : `Parures de bijoux`.
+- **Couleurs** : intersection — uniquement les couleurs présentes dans **toutes** les pièces du groupe.
+- **Stock** : **1000** en dur, quelle que soit la disponibilité des pièces (règle cliente).
+- **Prix** : **identique pour toutes les couleurs de la parure** = somme du **prix maximum** de chaque pièce (le plus souvent le Doré). Exemple J226/A/B : max(8,7) + max(6.8,5.8) + max(10,9) = 24.80 € appliqué à toutes les couleurs.
+- **Détection** : regrouper par « ref sans suffixe alphabétique final ». Si le groupe contient au moins 2 refs distinctes, on génère la parure. Si le groupe n'a qu'une seule ref, pas de parure.
+
+Cette règle s'applique **à tous les fournisseurs**, dans `translate-and-build.cjs` (après fusion des doublons, avant écriture du JSON pour `build-import.cjs`).
 
 ---
 

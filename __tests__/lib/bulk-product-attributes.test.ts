@@ -100,6 +100,56 @@ describe("bulkUpdateProductAttributes — validation amont", () => {
     ).rejects.toThrow(/100%/);
   });
 
+  it("passe `important: true` seul sans poser aucun drapeau syncRequired", async () => {
+    // Produit déjà publié sur toutes les marketplaces — l'appelant ne modifie
+    // que `important`, donc les drapeaux syncRequired doivent rester inertes.
+    prismaMock.product.findMany.mockResolvedValueOnce([
+      {
+        id: "p1",
+        reference: "REF1",
+        categoryId: "cat1",
+        pfsProductId: "pfs-1",
+        ankorsProductId: "ankors-1",
+        efashionReferenceBase: "efashion-1",
+        faireProductId: "faire-1",
+      },
+    ]);
+    const r = await bulkUpdateProductAttributes(["p1"], { important: true });
+    expect(r.updated).toBe(1);
+    expect(prismaMock.product.update).toHaveBeenCalledTimes(1);
+    const callArgs = prismaMock.product.update.mock.calls[0][0];
+    expect(callArgs.data.important).toBe(true);
+    expect(callArgs.data.pfsSyncRequired).toBeUndefined();
+    expect(callArgs.data.ankorsSyncRequired).toBeUndefined();
+    expect(callArgs.data.efashionSyncRequired).toBeUndefined();
+    expect(callArgs.data.faireSyncRequired).toBeUndefined();
+  });
+
+  it("`important` combiné avec un autre champ pose bien les drapeaux syncRequired", async () => {
+    prismaMock.category.findUnique.mockResolvedValueOnce({ id: "catA" });
+    prismaMock.product.findMany.mockResolvedValueOnce([
+      {
+        id: "p1",
+        reference: "REF1",
+        categoryId: "catB",
+        pfsProductId: "pfs-1",
+        ankorsProductId: null,
+        efashionReferenceBase: null,
+        faireProductId: null,
+      },
+    ]);
+    await bulkUpdateProductAttributes(["p1"], {
+      important: true,
+      categoryId: "catA",
+    });
+    const callArgs = prismaMock.product.update.mock.calls[0][0];
+    expect(callArgs.data.important).toBe(true);
+    expect(callArgs.data.categoryId).toBe("catA");
+    // Seule PFS est liée sur ce produit → seul son drapeau doit être posé.
+    expect(callArgs.data.pfsSyncRequired).toBe(true);
+    expect(callArgs.data.ankorsSyncRequired).toBeUndefined();
+  });
+
   it("accepte une composition vide (= efface la composition)", async () => {
     prismaMock.product.findMany.mockResolvedValueOnce([
       { id: "p1", reference: "REF1", categoryId: "cat1" },
