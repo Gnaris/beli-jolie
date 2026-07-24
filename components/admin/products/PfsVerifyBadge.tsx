@@ -16,7 +16,7 @@
  * Le site local fait foi : PFS = « à corriger », Attendu = « côté site ».
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
@@ -50,6 +50,8 @@ export interface PfsVerifyIssue {
   colorHex?: string | null;
   variantType?: "UNIT" | "PACK";
   packQuantity?: number | null;
+  /** Renseigné pour les issues `extraVariant` (id PFS de la variante en trop). */
+  pfsVariantId?: string;
   pfsValue: string | null;
   expectedValue: string | null;
   note?: string;
@@ -86,6 +88,11 @@ export default function PfsVerifyBadge(props: Props) {
   // ce produit est actif dans la file marketplace — on s'aligne sur la même
   // notion que les autres rafraîchissements.
   const applying = inFlightProductIds.has(props.productId);
+  // Feedback pendant la phase asynchrone du bouton « Valider » : couvre le
+  // temps entre le clic (post-confirmation) et l'ouverture de la modale de
+  // push marketplaces. Sans ça, la cliente clique et rien ne bouge pendant
+  // le call serveur → sensation de bug (2026-07-24).
+  const [submitting, setSubmitting] = useState(false);
   // État local pour rafraîchir la pastille sans full reload après revérif.
   const [checkedAt, setCheckedAt] = useState(props.pfsCheckedAt);
   const [status, setStatus] = useState<"ok" | "diff" | null>(props.pfsCheckStatus);
@@ -159,8 +166,11 @@ export default function PfsVerifyBadge(props: Props) {
         toast.success(`« ${props.productName} » conforme à PFS`);
       } else if (o.status === "diff" && (o.issueCount ?? 0) > 0) {
         toast.info(
-          `« ${props.productName} » : ${o.issueCount} écart${(o.issueCount ?? 0) > 1 ? "s" : ""} avec PFS`,
+          `${o.issueCount} écart${(o.issueCount ?? 0) > 1 ? "s" : ""} détecté${(o.issueCount ?? 0) > 1 ? "s" : ""} — ouverture du détail`,
         );
+        // Ouverture directe de la modale d'écarts après vérif unitaire
+        // (bulk verify passe par BulkActionBar, ne déclenche pas ce chemin).
+        setModalOpen(true);
       }
     } catch (err) {
       toast.error(
@@ -242,10 +252,22 @@ export default function PfsVerifyBadge(props: Props) {
           checkedAt={checkedAt}
           loading={loading}
           applying={applying}
+          submitting={submitting}
           directions={directions}
           onToggleDirection={(k, d) => setDirections((prev) => ({ ...prev, [k]: d }))}
           onClose={() => setModalOpen(false)}
           onReverify={runVerify}
+          onSetAllDirections={(dir) => {
+            if (!issues) return;
+            setDirections((prev) => {
+              const next = { ...prev };
+              for (const iss of issues) {
+                if (actionBlockReason(iss, dir) !== null) continue;
+                next[issueKey(iss)] = dir;
+              }
+              return next;
+            });
+          }}
           onValidate={async () => {
             if (!issues) return;
             const supportedActions = issues
@@ -262,161 +284,166 @@ export default function PfsVerifyBadge(props: Props) {
               type: "warning",
               title: "Appliquer les corrections ?",
               message: `${supportedActions.length} correction${supportedActions.length > 1 ? "s" : ""} vont être appliquée${supportedActions.length > 1 ? "s" : ""} :\n\n` +
-                (pushCount > 0 ? `• ${pushCount} envoi${pushCount > 1 ? "s" : ""} vers PFS (nos valeurs remplacent les leurs)\n` : "") +
-                (pullCount > 0 ? `• ${pullCount} récupération${pullCount > 1 ? "s" : ""} depuis PFS (leurs valeurs remplacent les nôtres — Ankorstore/eFashion/Faire seront marqués « Synchro nécessaire »)\n` : "") +
-                `\nCette action est irréversible depuis le tooltip.`,
+                (pushCount > 0 ? `• ${pushCount} action${pushCount > 1 ? "s" : ""} sur PFS (envoi/ajout/retrait selon la ligne)\n` : "") +
+                (pullCount > 0 ? `• ${pullCount} action${pullCount > 1 ? "s" : ""} chez nous (récupération/ajout/retrait — Ankorstore/eFashion/Faire seront marqués « Synchro nécessaire »)\n` : "") +
+                `\nCette action est irréversible depuis la modale.`,
               confirmLabel: "Appliquer",
               cancelLabel: "Annuler",
             });
             if (confirmed !== true) return;
 
-            // Cas 1 — Aucun pull : comportement historique. Un seul job PFS
-            // marketplace qui embarque tous les pushs, worker se débrouille.
-            if (pullCount === 0) {
-              enqueue([
-                {
+            setSubmitting(true);
+            try {
+              // Cas 1 — Aucun pull : comportement historique. Un seul job PFS
+              // marketplace qui embarque tous les pushs, worker se débrouille.
+              if (pullCount === 0) {
+                enqueue([
+                  {
+                    productId: props.productId,
+                    reference: props.productReference,
+                    productName: props.productName,
+                    firstImage: props.productFirstImage,
+                    options: { local: false, pfs: true, ankorstore: false, efashion: false, faire: false },
+                    marketplace: "pfs",
+                    mode: "resync",
+                    verifyActions: supportedActions,
+                  },
+                ]);
+                toast.info(
+                  `${supportedActions.length} correction${supportedActions.length > 1 ? "s" : ""} en cours d'envoi sur PFS`,
+                  "Suivez l'avancée dans le widget en bas à droite.",
+                );
+                return;
+              }
+
+              // Cas 2 — Au moins un pull : on applique les pulls SYNCHRONIQUEMENT
+              // (la BDD est à jour au moment où la modale s'ouvre), on récupère
+              // les marketplaces éligibles à la propagation, et on enqueue les
+              // pushs PFS séparément si présents (widget progrès en parallèle).
+              const res = await applyPfsVerifyPullsAndCollect(props.productId, supportedActions);
+              if (!res.success) {
+                toast.error("Application des « Prendre PFS » échouée", res.error);
+                return;
+              }
+
+              // Rafraîchit la pastille localement (pas de reload).
+              setCheckedAt(res.outcome.checkedAt ?? new Date().toISOString());
+              setStatus(res.outcome.status ?? null);
+              setIssues(res.outcome.issues ?? null);
+
+              // Pushs PFS restants : envoyés en tâche de fond via le widget.
+              if (res.remainingPushActions.length > 0) {
+                enqueue([
+                  {
+                    productId: props.productId,
+                    reference: props.productReference,
+                    productName: props.productName,
+                    firstImage: props.productFirstImage,
+                    options: { local: false, pfs: true, ankorstore: false, efashion: false, faire: false },
+                    marketplace: "pfs",
+                    mode: "resync",
+                    verifyActions: res.remainingPushActions.map((a) => ({
+                      key: a.key,
+                      direction: a.direction,
+                    })),
+                  },
+                ]);
+              }
+
+              if (res.pulledCount === 0) {
+                // Tous les pulls ont été skipped/errored côté serveur — rien à
+                // propager. On informe et on s'arrête.
+                const firstErr = res.report.errors[0]?.error;
+                if (firstErr) {
+                  toast.error("Aucune correction locale appliquée", firstErr);
+                } else {
+                  toast.info("Aucune correction locale appliquée");
+                }
+                return;
+              }
+
+              // Cas 2a — Pulls appliqués mais aucune marketplace tierce à
+              // proposer : toast rassurant et on s'arrête là.
+              if (res.eligibleMarketplaces.length === 0) {
+                toast.success(
+                  "Modifications appliquées",
+                  "Aucune marketplace à synchroniser pour ce produit.",
+                );
+                return;
+              }
+
+              // Cas 2b — Pulls appliqués + marketplaces éligibles : ouvrir la
+              // modale de push, réutilisation stricte de RefreshMarketplaceDialog.
+              const eligibleSet = new Set<PfsPullEligibleMarketplace>(res.eligibleMarketplaces);
+              const options = await askRefreshOptions({
+                count: 1,
+                firstProductName: props.productName,
+                showPfs: false,
+                showAnkorstore: eligibleSet.has("ankorstore"),
+                showEfashion: eligibleSet.has("efashion"),
+                showFaire: eligibleSet.has("faire"),
+                productIds: [props.productId],
+                title: "Propager vers vos marketplaces ?",
+                subtitle: `« ${props.productName} » — les valeurs récupérées depuis PFS peuvent être envoyées.`,
+                eyebrow: "Synchronisation",
+                confirmLabel: "Synchroniser",
+                showBoutique: false,
+                defaultAllChecked: true,
+              });
+              if (!options) {
+                // Refus : les flags *SyncRequired restent posés, les badges
+                // marketplace resteront en orange « Synchro nécessaire ».
+                return;
+              }
+
+              // Confirmation : un job par marketplace cochée, mode "resync"
+              // (update en place, pas de nouvelle fiche).
+              const inputs = [] as Parameters<typeof enqueue>[0];
+              if (options.ankorstore && eligibleSet.has("ankorstore")) {
+                inputs.push({
                   productId: props.productId,
                   reference: props.productReference,
                   productName: props.productName,
                   firstImage: props.productFirstImage,
-                  options: { local: false, pfs: true, ankorstore: false, efashion: false, faire: false },
-                  marketplace: "pfs",
+                  options: { local: false, pfs: false, ankorstore: true, efashion: false, faire: false },
+                  marketplace: "ankorstore",
                   mode: "resync",
-                  verifyActions: supportedActions,
-                },
-              ]);
+                });
+              }
+              if (options.efashion && eligibleSet.has("efashion")) {
+                inputs.push({
+                  productId: props.productId,
+                  reference: props.productReference,
+                  productName: props.productName,
+                  firstImage: props.productFirstImage,
+                  options: { local: false, pfs: false, ankorstore: false, efashion: true, faire: false },
+                  marketplace: "efashion",
+                  mode: "resync",
+                });
+              }
+              if (options.faire && eligibleSet.has("faire")) {
+                inputs.push({
+                  productId: props.productId,
+                  reference: props.productReference,
+                  productName: props.productName,
+                  firstImage: props.productFirstImage,
+                  options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
+                  marketplace: "faire",
+                  mode: "resync",
+                });
+              }
+              if (inputs.length === 0) {
+                // Cliente a tout décoché — équivalent à un refus silencieux.
+                return;
+              }
+              enqueue(inputs);
               toast.info(
-                `${supportedActions.length} correction${supportedActions.length > 1 ? "s" : ""} en cours d'envoi sur PFS`,
+                `${inputs.length} synchronisation${inputs.length > 1 ? "s" : ""} lancée${inputs.length > 1 ? "s" : ""}`,
                 "Suivez l'avancée dans le widget en bas à droite.",
               );
-              return;
+            } finally {
+              setSubmitting(false);
             }
-
-            // Cas 2 — Au moins un pull : on applique les pulls SYNCHRONIQUEMENT
-            // (la BDD est à jour au moment où la modale s'ouvre), on récupère
-            // les marketplaces éligibles à la propagation, et on enqueue les
-            // pushs PFS séparément si présents (widget progrès en parallèle).
-            const res = await applyPfsVerifyPullsAndCollect(props.productId, supportedActions);
-            if (!res.success) {
-              toast.error("Application des « Prendre PFS » échouée", res.error);
-              return;
-            }
-
-            // Rafraîchit la pastille localement (pas de reload).
-            setCheckedAt(res.outcome.checkedAt ?? new Date().toISOString());
-            setStatus(res.outcome.status ?? null);
-            setIssues(res.outcome.issues ?? null);
-
-            // Pushs PFS restants : envoyés en tâche de fond via le widget.
-            if (res.remainingPushActions.length > 0) {
-              enqueue([
-                {
-                  productId: props.productId,
-                  reference: props.productReference,
-                  productName: props.productName,
-                  firstImage: props.productFirstImage,
-                  options: { local: false, pfs: true, ankorstore: false, efashion: false, faire: false },
-                  marketplace: "pfs",
-                  mode: "resync",
-                  verifyActions: res.remainingPushActions.map((a) => ({
-                    key: a.key,
-                    direction: a.direction,
-                  })),
-                },
-              ]);
-            }
-
-            if (res.pulledCount === 0) {
-              // Tous les pulls ont été skipped/errored côté serveur — rien à
-              // propager. On informe et on s'arrête.
-              const firstErr = res.report.errors[0]?.error;
-              if (firstErr) {
-                toast.error("Aucune correction locale appliquée", firstErr);
-              } else {
-                toast.info("Aucune correction locale appliquée");
-              }
-              return;
-            }
-
-            // Cas 2a — Pulls appliqués mais aucune marketplace tierce à
-            // proposer : toast rassurant et on s'arrête là.
-            if (res.eligibleMarketplaces.length === 0) {
-              toast.success(
-                "Modifications appliquées",
-                "Aucune marketplace à synchroniser pour ce produit.",
-              );
-              return;
-            }
-
-            // Cas 2b — Pulls appliqués + marketplaces éligibles : ouvrir la
-            // modale de push, réutilisation stricte de RefreshMarketplaceDialog.
-            const eligibleSet = new Set<PfsPullEligibleMarketplace>(res.eligibleMarketplaces);
-            const options = await askRefreshOptions({
-              count: 1,
-              firstProductName: props.productName,
-              showPfs: false,
-              showAnkorstore: eligibleSet.has("ankorstore"),
-              showEfashion: eligibleSet.has("efashion"),
-              showFaire: eligibleSet.has("faire"),
-              productIds: [props.productId],
-              title: "Propager vers vos marketplaces ?",
-              subtitle: `« ${props.productName} » — les valeurs récupérées depuis PFS peuvent être envoyées.`,
-              eyebrow: "Synchronisation",
-              confirmLabel: "Synchroniser",
-              showBoutique: false,
-              defaultAllChecked: true,
-            });
-            if (!options) {
-              // Refus : les flags *SyncRequired restent posés, les badges
-              // marketplace resteront en orange « Synchro nécessaire ».
-              return;
-            }
-
-            // Confirmation : un job par marketplace cochée, mode "resync"
-            // (update en place, pas de nouvelle fiche).
-            const inputs = [] as Parameters<typeof enqueue>[0];
-            if (options.ankorstore && eligibleSet.has("ankorstore")) {
-              inputs.push({
-                productId: props.productId,
-                reference: props.productReference,
-                productName: props.productName,
-                firstImage: props.productFirstImage,
-                options: { local: false, pfs: false, ankorstore: true, efashion: false, faire: false },
-                marketplace: "ankorstore",
-                mode: "resync",
-              });
-            }
-            if (options.efashion && eligibleSet.has("efashion")) {
-              inputs.push({
-                productId: props.productId,
-                reference: props.productReference,
-                productName: props.productName,
-                firstImage: props.productFirstImage,
-                options: { local: false, pfs: false, ankorstore: false, efashion: true, faire: false },
-                marketplace: "efashion",
-                mode: "resync",
-              });
-            }
-            if (options.faire && eligibleSet.has("faire")) {
-              inputs.push({
-                productId: props.productId,
-                reference: props.productReference,
-                productName: props.productName,
-                firstImage: props.productFirstImage,
-                options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
-                marketplace: "faire",
-                mode: "resync",
-              });
-            }
-            if (inputs.length === 0) {
-              // Cliente a tout décoché — équivalent à un refus silencieux.
-              return;
-            }
-            enqueue(inputs);
-            toast.info(
-              `${inputs.length} synchronisation${inputs.length > 1 ? "s" : ""} lancée${inputs.length > 1 ? "s" : ""}`,
-              "Suivez l'avancée dans le widget en bas à droite.",
-            );
           }}
         />
       )}
@@ -460,10 +487,12 @@ function DiffModal({
   checkedAt,
   loading,
   applying,
+  submitting,
   directions,
   onToggleDirection,
   onClose,
   onReverify,
+  onSetAllDirections,
   onValidate,
 }: {
   productName: string;
@@ -472,10 +501,12 @@ function DiffModal({
   checkedAt: string | null;
   loading: boolean;
   applying: boolean;
+  submitting: boolean;
   directions: Record<string, "push" | "pull">;
   onToggleDirection: (key: string, dir: "push" | "pull") => void;
   onClose: () => void;
   onReverify: () => void;
+  onSetAllDirections: (dir: "push" | "pull") => void;
   onValidate: () => void | Promise<void>;
 }) {
   // Regroupement : produit / par couleur (variantes + extras + missing)
@@ -503,6 +534,26 @@ function DiffModal({
     return { pushCount: push, pullCount: pull, blockedCount: blocked, blockedReasons: Array.from(reasons) };
   }, [issues, directions]);
   const totalActionable = pushCount + pullCount;
+
+  // Compteurs pour les boutons « tout envoyer » / « tout prendre » : combien
+  // d'écarts peuvent basculer dans la direction visée (les non-bloqués).
+  const { pushableTotal, pullableTotal, allPush, allPull } = useMemo(() => {
+    let pushable = 0, pullable = 0, currentPush = 0, currentPull = 0;
+    for (const iss of issues) {
+      const k = issueKey(iss);
+      const dir = directions[k] ?? "push";
+      if (actionBlockReason(iss, "push") === null) pushable++;
+      if (actionBlockReason(iss, "pull") === null) pullable++;
+      if (dir === "push") currentPush++;
+      else currentPull++;
+    }
+    return {
+      pushableTotal: pushable,
+      pullableTotal: pullable,
+      allPush: pushable > 0 && currentPush === issues.length,
+      allPull: pullable > 0 && currentPull === issues.length,
+    };
+  }, [issues, directions]);
 
   return (
     <div className="fixed inset-0 z-[100]" role="dialog" aria-modal="true">
@@ -547,27 +598,66 @@ function DiffModal({
               </button>
             </div>
 
-            {/* KPI + rappel du défaut */}
-            <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-900 text-white">
-                  ↑ {pushCount} à envoyer
+            {/* Barre bascule groupée — appliquer un choix à toutes les lignes
+                d'un seul clic (2026-07-24). Bloqué si aucune ligne éligible
+                ou si toutes sont déjà dans la direction visée. */}
+            <div className="flex justify-center mt-4">
+              <div className="inline-flex items-center gap-2 px-2 py-1.5 rounded-2xl bg-slate-100 ring-1 ring-slate-200">
+                <span className="text-[10.5px] uppercase tracking-[0.14em] font-bold text-slate-500 pl-2 pr-1">
+                  Tout choisir
                 </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 ring-1 ring-slate-300">
-                  ↓ {pullCount} à récupérer
-                </span>
-                {blockedCount > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 ring-1 ring-rose-200">
-                    ⚠ {blockedCount} bloqué{blockedCount > 1 ? "s" : ""}
-                  </span>
-                )}
+                <button
+                  type="button"
+                  onClick={() => onSetAllDirections("push")}
+                  disabled={applying || loading || pushableTotal === 0 || allPush}
+                  title={
+                    pushableTotal === 0
+                      ? "Aucun écart ne peut être envoyé sur PFS."
+                      : allPush
+                        ? "Toutes les lignes sont déjà en envoi."
+                        : `Basculer les ${pushableTotal} lignes possibles en « Envoyer sur PFS »`
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-semibold text-white bg-slate-900 hover:bg-black transition disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M6 5l7 7-7 7" />
+                  </svg>
+                  Tout envoyer sur PFS
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSetAllDirections("pull")}
+                  disabled={applying || loading || pullableTotal === 0 || allPull}
+                  title={
+                    pullableTotal === 0
+                      ? "Aucun écart ne peut être récupéré depuis PFS."
+                      : allPull
+                        ? "Toutes les lignes sont déjà en récupération."
+                        : `Basculer les ${pullableTotal} lignes possibles en « Prendre depuis PFS »`
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-semibold text-white bg-slate-900 hover:bg-black transition disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-3.5 h-3.5 rotate-180" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M6 5l7 7-7 7" />
+                  </svg>
+                  Tout prendre depuis PFS
+                </button>
               </div>
-              <div className="text-[11px] text-slate-600">
-                Défaut :
-                <span className="inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full bg-slate-900 text-white font-semibold">
-                  Nos valeurs → PFS
+            </div>
+
+            {/* KPI récap */}
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-900 text-white">
+                ↑ {pushCount} à envoyer
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 ring-1 ring-slate-300">
+                ↓ {pullCount} à récupérer
+              </span>
+              {blockedCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 ring-1 ring-rose-200">
+                  ⚠ {blockedCount} bloqué{blockedCount > 1 ? "s" : ""}
                 </span>
-              </div>
+              )}
             </div>
 
             {/* En-têtes de colonnes */}
@@ -657,23 +747,13 @@ function DiffModal({
                 {block.extras.length > 0 && (
                   <div className="mt-2 space-y-2">
                     {block.extras.map((iss, i) => (
-                      <div
+                      <DiffRow
                         key={`extra-${i}`}
-                        className="rounded-2xl bg-white ring-1 ring-slate-300 border-l-4 border-slate-900 p-3 flex items-start gap-2.5"
-                      >
-                        <svg className="w-5 h-5 text-slate-700 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <div className="min-w-0">
-                          <div className="text-[12.5px] font-bold text-slate-900 flex items-center gap-1.5">
-                            <ColorDot hex={block.colorHex} />
-                            Couleur {block.colorName ?? block.colorRef} à retirer de PFS
-                          </div>
-                          <div className="text-[11.5px] text-slate-600 mt-0.5">
-                            {iss.note ?? "Cette variante n'existe plus chez nous."}
-                          </div>
-                        </div>
-                      </div>
+                        issue={iss}
+                        direction={directions[issueKey(iss)] ?? "push"}
+                        onToggle={(d) => onToggleDirection(issueKey(iss), d)}
+                        disabled={applying}
+                      />
                     ))}
                   </div>
                 )}
@@ -681,23 +761,13 @@ function DiffModal({
                 {block.missing.length > 0 && (
                   <div className="mt-2 space-y-2">
                     {block.missing.map((iss, i) => (
-                      <div
+                      <DiffRow
                         key={`missing-${i}`}
-                        className="rounded-2xl bg-white ring-1 ring-slate-300 border-l-4 border-slate-900 p-3 flex items-start gap-2.5"
-                      >
-                        <svg className="w-5 h-5 text-slate-700 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                        </svg>
-                        <div className="min-w-0">
-                          <div className="text-[12.5px] font-bold text-slate-900 flex items-center gap-1.5">
-                            <ColorDot hex={block.colorHex} />
-                            Couleur {block.colorName ?? block.colorRef} à ajouter sur PFS
-                          </div>
-                          <div className="text-[11.5px] text-slate-600 mt-0.5">
-                            {iss.note ?? "Cette variante existe chez nous mais pas sur PFS."}
-                          </div>
-                        </div>
-                      </div>
+                        issue={iss}
+                        direction={directions[issueKey(iss)] ?? "push"}
+                        onToggle={(d) => onToggleDirection(issueKey(iss), d)}
+                        disabled={applying}
+                      />
                     ))}
                   </div>
                 )}
@@ -726,7 +796,7 @@ function DiffModal({
               <button
                 type="button"
                 onClick={onReverify}
-                disabled={loading || applying}
+                disabled={loading || applying || submitting}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-semibold text-slate-700 bg-white ring-1 ring-slate-300 hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (
@@ -749,16 +819,16 @@ function DiffModal({
               <button
                 type="button"
                 onClick={() => { void onValidate(); }}
-                disabled={applying || loading || totalActionable === 0 || blockedCount > 0}
+                disabled={applying || loading || submitting || totalActionable === 0 || blockedCount > 0}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold text-white bg-slate-900 hover:bg-black shadow-sm transition disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed disabled:shadow-none"
               >
-                {applying ? (
+                {submitting || applying ? (
                   <>
                     <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
                       <circle className="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
                       <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    Application…
+                    {submitting ? "Application en cours…" : "Application…"}
                   </>
                 ) : blockedCount > 0 ? (
                   <>Valider (bloqué)</>
@@ -813,6 +883,17 @@ function DiffRow({
   const pfsCardRing = pfsChosen ? "ring-2 ring-slate-900" : "ring-1 ring-slate-300";
   const nousCardRing = nousChosen ? "ring-2 ring-slate-900" : "ring-1 ring-slate-300";
 
+  // Rendu contextuel des 2 cartes selon la nature de l'écart (scalaire vs
+  // structurel). Pour missing/extra la carte "vide" affiche une pastille
+  // grisée « absente » et la carte "présente" décrit la variante.
+  const displays = describeIssueForDiffRow(issue);
+  // Libellés d'action contextualisés (« Envoyer/Prendre » pour les scalaires,
+  // « Ajouter/Retirer » pour les structurelles).
+  const pushLabel = actionShortLabel(issue, "push");
+  const pullLabel = actionShortLabel(issue, "pull");
+  const currentLabel = direction === "push" ? pushLabel : pullLabel;
+  const oppositeLabel = direction === "push" ? pullLabel : pushLabel;
+
   return (
     <div>
       <div className="grid grid-cols-[1fr_80px_1fr] gap-2 sm:gap-3 items-stretch">
@@ -824,10 +905,10 @@ function DiffRow({
             </div>
           )}
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 truncate">
-            {issue.fieldLabel}
+            {displays.leftLabel}
           </div>
           <div className="text-[13px] text-slate-700 font-medium break-words">
-            {issue.pfsValue ?? <span className="italic text-slate-400">(vide)</span>}
+            {displays.leftValue}
           </div>
         </div>
 
@@ -844,11 +925,9 @@ function DiffRow({
             title={
               otherBlock
                 ? `Bascule impossible : ${otherBlock}`
-                : direction === "push"
-                  ? "Cliquer pour récupérer la valeur PFS à la place"
-                  : "Cliquer pour envoyer notre valeur sur PFS à la place"
+                : `Cliquer pour basculer en « ${oppositeLabel} »`
             }
-            aria-label={direction === "push" ? "Envoyer sur PFS — cliquer pour inverser" : "Récupérer depuis PFS — cliquer pour inverser"}
+            aria-label={`${currentLabel} — cliquer pour basculer en « ${oppositeLabel} »`}
             className={
               direction === "push"
                 ? `w-10 h-10 rounded-full bg-slate-900 text-white shadow ring-2 ring-white flex items-center justify-center transition ${canToggle ? "hover:bg-black" : "opacity-60 cursor-not-allowed"}`
@@ -866,8 +945,8 @@ function DiffRow({
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M6 5l7 7-7 7" />
             </svg>
           </button>
-          <div className="text-[9px] uppercase tracking-wider font-bold text-slate-600 text-center">
-            {direction === "push" ? "Envoyer" : "Prendre"}
+          <div className="text-[9px] uppercase tracking-wider font-bold text-slate-600 text-center leading-tight">
+            {currentLabel}
           </div>
         </div>
 
@@ -879,10 +958,10 @@ function DiffRow({
             </div>
           )}
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-700 mb-1 truncate">
-            {issue.fieldLabel}
+            {displays.rightLabel}
           </div>
           <div className="text-[13px] text-slate-900 font-semibold break-words">
-            {issue.expectedValue ?? <span className="italic text-slate-400">(vide)</span>}
+            {displays.rightValue}
           </div>
         </div>
       </div>
@@ -894,6 +973,81 @@ function DiffRow({
       )}
     </div>
   );
+}
+
+/**
+ * Retourne le libellé court affiché sous la flèche centrale (et dans les
+ * titres/tooltips). Contextualisé selon la nature de l'écart :
+ *
+ *   - Scalaire (prix / stock / etc.)  → « Envoyer » / « Prendre »
+ *   - missingVariant + push           → « Ajouter sur PFS »
+ *   - missingVariant + pull           → « Retirer chez nous »
+ *   - extraVariant   + push           → « Retirer de PFS »
+ *   - extraVariant   + pull           → « Ajouter chez nous »
+ */
+export function actionShortLabel(iss: PfsVerifyIssue, dir: "push" | "pull"): string {
+  if (iss.field === "missingVariant") {
+    return dir === "push" ? "Ajouter sur PFS" : "Retirer chez nous";
+  }
+  if (iss.field === "extraVariant") {
+    return dir === "push" ? "Retirer de PFS" : "Ajouter chez nous";
+  }
+  return dir === "push" ? "Envoyer" : "Prendre";
+}
+
+/**
+ * Prépare les 4 zones textuelles (label + valeur pour chaque carte) d'une
+ * DiffRow. Pour un écart scalaire, on affiche PFS/expected tels quels. Pour
+ * missing/extra on remplace les valeurs vides par « (absente) » et on
+ * décrit la variante existante côté opposé.
+ */
+export function describeIssueForDiffRow(iss: PfsVerifyIssue): {
+  leftLabel: string;
+  leftValue: ReactNode;
+  rightLabel: string;
+  rightValue: ReactNode;
+} {
+  const emptyBadge = (
+    <span className="italic text-slate-400">(absente)</span>
+  );
+  const describeVariant = () => {
+    const type =
+      iss.variantType === "PACK"
+        ? iss.packQuantity && iss.packQuantity > 1
+          ? `pack de ${iss.packQuantity}`
+          : "pack"
+        : "unité";
+    const label = iss.colorName ?? iss.colorRef ?? "?";
+    return (
+      <span>
+        Variante « {label} »{" "}
+        <span className="text-[11px] text-slate-500">— {type}</span>
+      </span>
+    );
+  };
+
+  if (iss.field === "missingVariant") {
+    return {
+      leftLabel: "Couleur absente sur PFS",
+      leftValue: emptyBadge,
+      rightLabel: "Couleur présente chez nous",
+      rightValue: describeVariant(),
+    };
+  }
+  if (iss.field === "extraVariant") {
+    return {
+      leftLabel: "Couleur présente sur PFS",
+      leftValue: describeVariant(),
+      rightLabel: "Couleur absente chez nous",
+      rightValue: emptyBadge,
+    };
+  }
+  return {
+    leftLabel: iss.fieldLabel,
+    leftValue: iss.pfsValue ?? <span className="italic text-slate-400">(vide)</span>,
+    rightLabel: iss.fieldLabel,
+    rightValue: iss.expectedValue ?? <span className="italic text-slate-400">(vide)</span>,
+  };
 }
 
 // `issueKey` est importé depuis `@/lib/pfs-verify-apply-shared` — même clé

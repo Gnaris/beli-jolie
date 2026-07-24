@@ -41,6 +41,12 @@ import {
   isPushSupportedLotB as isPushSupportedLotBShared,
   isPullSupportedLotB as isPullSupportedLotBShared,
 } from "@/lib/pfs-verify-apply-shared";
+import {
+  pushAddPfsVariantFromLocal,
+  pushRemovePfsVariant,
+  pullAddLocalVariantFromPfs,
+  pullRemoveLocalVariant,
+} from "@/lib/pfs-verify-variant-ops";
 import { Prisma } from "@prisma/client";
 
 // ─── Types publics ─────────────────────────────────────────────────────────
@@ -138,6 +144,7 @@ export async function applyPfsVerifyPullsOnly(
 
   const productPullActions: ParsedAction[] = [];
   const variantPullActions: ParsedAction[] = [];
+  const structuralPullActions: ParsedAction[] = [];
   for (const a of pullActions) {
     const parsed = parseKey(a.key);
     if (!parsed) {
@@ -152,7 +159,24 @@ export async function applyPfsVerifyPullsOnly(
       continue;
     }
     const entry: ParsedAction = { ...parsed, direction: "pull", rawKey: a.key };
-    (parsed.scope === "product" ? productPullActions : variantPullActions).push(entry);
+    if (isStructuralField(parsed.field)) {
+      structuralPullActions.push(entry);
+    } else if (parsed.scope === "product") {
+      productPullActions.push(entry);
+    } else {
+      variantPullActions.push(entry);
+    }
+  }
+
+  // Actions structurelles (missing/extra variant) : appliquées via les
+  // opérations atomiques dédiées, en dehors du patch groupé.
+  for (const a of structuralPullActions) {
+    try {
+      await applyStructuralAction(a, ctx);
+      report.applied.push({ key: a.rawKey, direction: "pull" });
+    } catch (err) {
+      report.errors.push({ key: a.rawKey, error: humanizeError(err) });
+    }
   }
 
   const pullLocalPatch: LocalPatch = { product: {}, variants: new Map() };
@@ -173,8 +197,8 @@ export async function applyPfsVerifyPullsOnly(
     }
   }
 
-  const hadPull = report.applied.length > 0;
-  if (hadPull) {
+  const hadPatch = Object.keys(pullLocalPatch.product).length > 0 || pullLocalPatch.variants.size > 0;
+  if (hadPatch) {
     await commitLocalPatch(productId, local, pullLocalPatch);
   }
 
@@ -225,6 +249,9 @@ export async function applyPfsVerifyActions(
   const productPullActions: ParsedAction[] = [];
   const variantPushActions: ParsedAction[] = [];
   const variantPullActions: ParsedAction[] = [];
+  // Actions structurelles (ajout/suppression de variante). Traitées à part
+  // via `applyStructuralAction` — ni un patch produit, ni un batch variante.
+  const structuralActions: ParsedAction[] = [];
 
   for (const a of actions) {
     const parsed = parseKey(a.key);
@@ -240,10 +267,27 @@ export async function applyPfsVerifyActions(
       continue;
     }
     const entry: ParsedAction = { ...parsed, direction: a.direction, rawKey: a.key };
+    if (isStructuralField(parsed.field)) {
+      structuralActions.push(entry);
+      continue;
+    }
     if (parsed.scope === "product") {
       (a.direction === "push" ? productPushActions : productPullActions).push(entry);
     } else {
       (a.direction === "push" ? variantPushActions : variantPullActions).push(entry);
+    }
+  }
+
+  // ── PHASE 1.5 : Actions structurelles (add/remove variante) ─────────────
+  // On les applique en premier — elles changent le nombre de variantes en
+  // base, ce qui doit précéder tout patch de variantes scalaires. Chaque
+  // opération est atomique (create + upload photos, ou delete).
+  for (const a of structuralActions) {
+    try {
+      await applyStructuralAction(a, ctx);
+      report.applied.push({ key: a.rawKey, direction: a.direction });
+    } catch (err) {
+      report.errors.push({ key: a.rawKey, error: humanizeError(err) });
     }
   }
 
@@ -268,15 +312,19 @@ export async function applyPfsVerifyActions(
     }
   }
 
-  const hadPull = report.applied.some((a) => a.direction === "pull");
-  if (hadPull) {
+  const hadScalarPull =
+    Object.keys(pullLocalPatch.product).length > 0 || pullLocalPatch.variants.size > 0;
+  if (hadScalarPull) {
     await commitLocalPatch(productId, local, pullLocalPatch);
   }
 
   // ── PHASE 3 : Appliquer les PUSHs (local → PFS) ─────────────────────────
-  // On repart d'un state local frais (celui après les pulls) pour lire
-  // les valeurs à envoyer.
-  const freshLocal = hadPull ? await loadProductWithVariants(productId) : local;
+  // On repart d'un state local frais si la BDD locale a bougé — soit par un
+  // pull scalaire (commitLocalPatch), soit par une action structurelle
+  // (add/remove variante côté nous). Sans ça, `freshLocal.colors` ne reflète
+  // pas l'état réel et un push suivant peut échouer ou ignorer une variante.
+  const hadLocalMutation = hadScalarPull || structuralActions.length > 0;
+  const freshLocal = hadLocalMutation ? await loadProductWithVariants(productId) : local;
   if (!freshLocal) throw new Error("Produit introuvable après pull");
 
   // 3a — produit-level push
@@ -781,4 +829,64 @@ export function extractDimensionsFromPfs(pfsDescription: string): {
 
 function humanizeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+// ─── Actions structurelles (ajout / suppression de variante) ───────────────
+
+/**
+ * Champs qui ne sont pas des scalaires patchables mais des opérations
+ * atomiques sur la structure (une couleur en plus / en moins). Traités
+ * séparément par `applyStructuralAction` — jamais dans les patches groupés.
+ */
+function isStructuralField(field: string): boolean {
+  return field === "missingVariant" || field === "extraVariant";
+}
+
+/**
+ * Route une action `missingVariant` / `extraVariant` vers la bonne opération
+ * atomique dans `lib/pfs-verify-variant-ops`. Sémantique :
+ *
+ *   missingVariant + push → « Ajouter sur PFS » (pushAddPfsVariantFromLocal)
+ *   missingVariant + pull → « Retirer chez nous » (pullRemoveLocalVariant)
+ *   extraVariant   + push → « Retirer de PFS » (pushRemovePfsVariant)
+ *   extraVariant   + pull → « Ajouter chez nous » (pullAddLocalVariantFromPfs)
+ *
+ * Pour `extraVariant`, l'id PFS de la variante est retrouvé en cherchant dans
+ * `ctx.pfsVariants` par (colorRef, variantType) — la source de vérité chargée
+ * en tête de `applyPfsVerifyActions`.
+ */
+async function applyStructuralAction(a: ParsedAction, ctx: ApplyContext): Promise<void> {
+  const variantType = a.variantType === "PACK" ? "PACK" : "UNIT";
+
+  if (a.field === "missingVariant") {
+    if (a.direction === "push") {
+      const res = await pushAddPfsVariantFromLocal(ctx.productId, a.colorRef, variantType);
+      if (!res.ok) throw new Error(res.error);
+      return;
+    }
+    // pull → retirer chez nous
+    const res = await pullRemoveLocalVariant(ctx.productId, a.colorRef, variantType);
+    if (!res.ok) throw new Error(res.error);
+    return;
+  }
+
+  if (a.field === "extraVariant") {
+    // La variante n'existe pas chez nous — on retrouve son id PFS depuis
+    // l'état chargé au début de l'apply (ctx.pfsVariants).
+    const pv = findPfsVariant(ctx.pfsVariants, a.colorRef, variantType);
+    if (!pv) {
+      throw new Error(`Variante PFS ${a.colorRef}/${variantType} introuvable — a-t-elle déjà été supprimée ?`);
+    }
+    if (a.direction === "push") {
+      const res = await pushRemovePfsVariant(pv.id);
+      if (!res.ok) throw new Error(res.error);
+      return;
+    }
+    // pull → ajouter chez nous
+    const res = await pullAddLocalVariantFromPfs(ctx.productId, pv.id);
+    if (!res.ok) throw new Error(res.error);
+    return;
+  }
+
+  throw new Error(`Champ structurel non pris en charge : ${a.field}`);
 }

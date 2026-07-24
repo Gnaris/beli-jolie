@@ -75,6 +75,13 @@ export interface PfsVerifyIssue {
   variantType?: "UNIT" | "PACK";
   /** Quantité du pack (utile pour libellé "Pack de 3"). */
   packQuantity?: number | null;
+  /**
+   * Identifiant PFS de la variante — indispensable pour `extraVariant` (permet
+   * de la supprimer côté PFS ou de l'importer chez nous depuis la modale
+   * d'écarts sans re-fetch complet). Non renseigné pour les issues
+   * `missingVariant` (la variante n'existe pas encore côté PFS).
+   */
+  pfsVariantId?: string;
   /** Valeur actuellement chez PFS. */
   pfsValue: string | null;
   /** Valeur attendue (= côté site). */
@@ -349,7 +356,6 @@ function buildExpectedProductSnapshot(p: FullProduct): ProductLevelSnapshot {
   const compo = p.compositions
     .filter((c) => c.composition.pfsCompositionRef)
     .map((c) => ({ id: normalizeCompositionRef(c.composition.pfsCompositionRef!), value: Number(c.percentage) }));
-  if (compo.length === 0) compo.push({ id: "ACIERINOXYDABLE", value: 100 });
   const compoStr = compo
     .map((c) => `${c.id}:${c.value}`)
     .sort()
@@ -810,6 +816,7 @@ export function comparePfsProduct(
       colorName,
       colorHex,
       variantType: type,
+      pfsVariantId: pv.id,
       pfsValue: null,
       expectedValue: null,
       note: "Cette variante existe sur PFS mais plus sur notre site.",

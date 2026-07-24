@@ -41,8 +41,29 @@ const PRODUCT_FIELDS_PULL = new Set([
   "productStatus",
 ]);
 
-const VARIANT_FIELDS_PUSH = new Set(["price", "stock", "weight", "isActive"]);
-const VARIANT_FIELDS_PULL = new Set(["price", "stock", "weight", "isActive"]);
+// `missingVariant` / `extraVariant` sont considérés comme des champs "variante"
+// à part entière depuis 2026-07-24 : la modale d'écarts propose désormais
+// d'ajouter/retirer une couleur des deux côtés (site ou PFS).
+//   - `missingVariant` (côté nous, pas côté PFS) → push = "Ajouter sur PFS",
+//     pull = "Retirer chez nous".
+//   - `extraVariant`  (côté PFS, pas côté nous) → push = "Retirer de PFS",
+//     pull = "Ajouter chez nous".
+const VARIANT_FIELDS_PUSH = new Set([
+  "price",
+  "stock",
+  "weight",
+  "isActive",
+  "missingVariant",
+  "extraVariant",
+]);
+const VARIANT_FIELDS_PULL = new Set([
+  "price",
+  "stock",
+  "weight",
+  "isActive",
+  "missingVariant",
+  "extraVariant",
+]);
 
 /**
  * Legacy — le composant tooltip s'attendait à un seul helper "support Lot B".

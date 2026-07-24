@@ -1015,7 +1015,7 @@ interface ResolvedPackLine {
   sizeEntries: { sizeId: string; quantity: number }[];
 }
 
-interface ResolvedVariant {
+export interface ResolvedVariant {
   colorId: string;
   /** Identifiant PFS de la variante — stocké en base pour le refresh / publish ultérieur. */
   pfsVariantId: string;
@@ -1275,7 +1275,13 @@ export async function approveAndImportPfsProduct(
   const ctryCode = detail?.country_of_manufacture ?? null;
   const ctryLabelFr = ctryCode ? countryLabel(ctryCode) : null;
   const seasonRef = detail?.collection?.reference ?? null;
+  // `pfsRef` = code stable côté PFS (« COTTON », « ELASTHANNE »…) — c'est ce
+  // que PFS renvoie et attend en écriture. `label` = libellé FR affiché à la
+  // cliente et stocké dans Composition.name. Historiquement les deux étaient
+  // confondus (label FR utilisé comme ref), ce qui cassait la vérification
+  // PFS et empêchait la correction « Envoyer PFS » d'aboutir.
   const materialEntries = (detail?.material_composition ?? []).map((mat) => ({
+    pfsRef: mat.reference,
     label: mat.labels?.fr ?? mat.labels?.en ?? mat.reference,
     percentage: mat.percentage,
   }));
@@ -1318,7 +1324,7 @@ export async function approveAndImportPfsProduct(
       : Promise.resolve(null),
     materialEntries.length > 0
       ? prisma.composition.findMany({
-          where: { pfsCompositionRef: { in: materialEntries.map((m) => m.label) } },
+          where: { pfsCompositionRef: { in: materialEntries.map((m) => m.pfsRef) } },
           select: { id: true, pfsCompositionRef: true },
         })
       : Promise.resolve([]),
@@ -1407,23 +1413,23 @@ export async function approveAndImportPfsProduct(
     seasonId = createdSeason.id;
   }
 
-  const compositionByLabel = new Map(compositionRows.map((c) => [c.pfsCompositionRef, c]));
+  const compositionByRef = new Map(compositionRows.map((c) => [c.pfsCompositionRef, c]));
   const compositionsInput: { compositionId: string; percentage: number }[] = [];
   for (const mat of materialEntries) {
-    let comp = compositionByLabel.get(mat.label);
+    let comp = compositionByRef.get(mat.pfsRef);
     if (!comp) {
       const matSource = detail?.material_composition?.find(
-        (m) => (m.labels?.fr ?? m.labels?.en ?? m.reference) === mat.label,
+        (m) => m.reference === mat.pfsRef,
       );
       const enLabel = pickEnLabel(matSource?.labels);
       const createdComp = await createOrLinkMapping({
         type: "composition",
-        pfsRef: mat.label,
+        pfsRef: mat.pfsRef,
         label: mat.label,
         enLabel,
       });
-      comp = { id: createdComp.id, pfsCompositionRef: mat.label };
-      compositionByLabel.set(mat.label, comp);
+      comp = { id: createdComp.id, pfsCompositionRef: mat.pfsRef };
+      compositionByRef.set(mat.pfsRef, comp);
     }
     compositionsInput.push({ compositionId: comp.id, percentage: mat.percentage });
   }
@@ -1782,7 +1788,7 @@ async function resolveSizeEntries(
   return out;
 }
 
-async function resolveVariant(
+export async function resolveVariant(
   v: PfsVariantItem,
   warnings: string[],
   productImages: Record<string, string | string[]> = {},
@@ -1966,7 +1972,7 @@ export type DownloadedImage = {
  * (cf. Task 4) qui décide quoi faire des buffers une fois tous les téléchargements OK.
  * Si des images échouent après les 3 passes → erreur (le produit sera supprimé).
  */
-async function downloadAllVariantImagesToBuffers(
+export async function downloadAllVariantImagesToBuffers(
   productId: string,
   reference: string,
   colorNames: Map<string, string>,

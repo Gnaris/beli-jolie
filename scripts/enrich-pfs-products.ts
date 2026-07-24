@@ -46,6 +46,7 @@ async function enrichOne(t: Target): Promise<{ ok: true } | { ok: false; error: 
     // ── Composition
     if (t.needCompositions && (detail.material_composition?.length ?? 0) > 0) {
       const materialEntries = detail.material_composition.map((mat) => ({
+        pfsRef: mat.reference,
         label: mat.labels?.fr ?? mat.labels?.en ?? mat.reference,
         percentage: mat.percentage,
         enLabel: pickEnLabel(mat.labels),
@@ -53,7 +54,7 @@ async function enrichOne(t: Target): Promise<{ ok: true } | { ok: false; error: 
       const compositionsInput: { compositionId: string; percentage: number }[] = [];
       for (const mat of materialEntries) {
         const existing = await prisma.composition.findFirst({
-          where: { pfsCompositionRef: mat.label },
+          where: { pfsCompositionRef: mat.pfsRef },
           select: { id: true },
         });
         let compositionId: string;
@@ -62,7 +63,7 @@ async function enrichOne(t: Target): Promise<{ ok: true } | { ok: false; error: 
         } else {
           const created = await createOrLinkMapping({
             type: "composition",
-            pfsRef: mat.label,
+            pfsRef: mat.pfsRef,
             label: mat.label,
             enLabel: mat.enLabel,
           });

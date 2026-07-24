@@ -484,7 +484,13 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                           disabled={previewPending}
                           onClick={() => {
                             setProfileOpen(false);
-                            startPreviewTransition(() => disableAdminPreview());
+                            startPreviewTransition(async () => {
+                              await disableAdminPreview();
+                              // Full reload obligatoire : le soft nav RSC depuis
+                              // /fr/... vers /admin (non-localisée) affiche une
+                              // page blanche jusqu'au refresh (surtout Issyma).
+                              window.location.href = "/admin";
+                            });
                           }}
                           className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-warning hover:text-text-primary hover:bg-bg-secondary transition-colors font-body font-medium disabled:opacity-60"
                         >
@@ -671,7 +677,10 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                       disabled={previewPending}
                       onClick={() => {
                         setMobileOpen(false);
-                        startPreviewTransition(() => disableAdminPreview());
+                        startPreviewTransition(async () => {
+                          await disableAdminPreview();
+                          window.location.href = "/admin";
+                        });
                       }}
                       className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-warning hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors font-body font-medium disabled:opacity-60 mb-1"
                     >

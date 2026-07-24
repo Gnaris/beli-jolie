@@ -14,7 +14,7 @@
  * ailleurs dans le code — ça garantit qu'on reste au courant si on ajoute
  * un jour un cache ou une couche de sécurité).
  */
-import { unstable_cache, revalidateTag } from "next/cache";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 
 export const MARKETPLACES = ["pfs", "ankorstore", "efashion", "faire"] as const;
@@ -33,10 +33,14 @@ export type MarketplaceMaintenance = Record<MarketplaceKey, boolean>;
 const CACHE_TAG = "platform-config";
 
 /**
- * Lecture directe (bypass cache) — utilisée par la page de contrôle plateforme
- * pour afficher l'état à jour immédiatement après un toggle.
+ * Lecture des 4 flags marketplace. Pas de cache : la table a au plus 4 lignes,
+ * la requête est indexée par PK. Historiquement on passait par `unstable_cache`
+ * mais son invalidation par `revalidateTag` ne se propageait pas de manière
+ * fiable entre tenants sous Next 16 (le badge « en maintenance » restait
+ * absent sur Issyma après un toggle depuis Beli & Jolie). Une lecture directe
+ * à chaque render de layout admin coûte < 1 ms et garantit un état cohérent.
  */
-async function readMarketplaceMaintenanceDirect(): Promise<MarketplaceMaintenance> {
+export async function getMarketplaceMaintenance(): Promise<MarketplaceMaintenance> {
   const rows = await prisma.platformConfig.findMany({
     where: {
       key: {
@@ -57,31 +61,6 @@ async function readMarketplaceMaintenanceDirect(): Promise<MarketplaceMaintenanc
     efashion: map.get(PLATFORM_KEYS.efashionMaintenance) === "true",
     faire: map.get(PLATFORM_KEYS.faireMaintenance) === "true",
   };
-}
-
-/**
- * Lecture cachée des 4 flags marketplace. Cache 5 min, invalidé par
- * `revalidateTag("platform-config")` (appelé au sein de `setMarketplaceMaintenance`).
- *
- * IMPORTANT : hors contexte Next.js (scripts CLI, boot instrumentation),
- * `unstable_cache` throw. On retombe alors sur la lecture directe.
- */
-const _cachedMarketplaceMaintenance = unstable_cache(
-  readMarketplaceMaintenanceDirect,
-  ["platform-config", "marketplace-maintenance"],
-  { revalidate: 300, tags: [CACHE_TAG] },
-);
-
-export async function getMarketplaceMaintenance(): Promise<MarketplaceMaintenance> {
-  try {
-    return await _cachedMarketplaceMaintenance();
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "";
-    if (msg.includes("incrementalCache") || msg.includes("unstable_cache")) {
-      return readMarketplaceMaintenanceDirect();
-    }
-    throw err;
-  }
 }
 
 /** Sucre : est-ce que cette marketplace est en maintenance globale ? */

@@ -31,11 +31,18 @@ describe("pfs-verify-apply — support checks (Lot B)", () => {
     }
   });
 
-  it("refuse les changements structurels (extraVariant / missingVariant / saleType)", () => {
-    for (const f of ["extraVariant", "missingVariant", "saleType"]) {
-      expect(isPushSupportedLotB("color", f)).toBe(false);
-      expect(isPullSupportedLotB("color", f)).toBe(false);
+  it("accepte les 2 actions structurelles sur variante (missing/extra) — introduites 2026-07-24", () => {
+    for (const f of ["missingVariant", "extraVariant"]) {
+      // Push et pull sont supportés : la modale d'écarts propose désormais
+      // « Ajouter/Retirer sur PFS » et « Ajouter/Retirer chez nous ».
+      expect(isPushSupportedLotB("color", f)).toBe(true);
+      expect(isPullSupportedLotB("color", f)).toBe(true);
     }
+  });
+
+  it("refuse toujours saleType (changement de type de vente non automatisé)", () => {
+    expect(isPushSupportedLotB("color", "saleType")).toBe(false);
+    expect(isPullSupportedLotB("color", "saleType")).toBe(false);
   });
 });
 
