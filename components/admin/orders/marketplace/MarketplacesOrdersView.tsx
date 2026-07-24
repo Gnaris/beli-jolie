@@ -40,6 +40,13 @@ import {
   getFaireOrderDetail,
   type FaireOrderDetailFull,
 } from "@/app/actions/admin/faire-orders";
+import {
+  syncMicrostoreOrdersNow,
+  startMicrostoreHistoricalImport,
+  getMicrostoreOrderDetail,
+  type MicrostoreOrderDetailFull,
+} from "@/app/actions/admin/microstore-orders";
+import MicrostoreOrderDrawer from "./MicrostoreOrderDrawer";
 import PfsOrderDrawer from "@/components/admin/orders/pfs/PfsOrderDrawer";
 import PfsStockDeductionModal from "@/components/admin/orders/pfs/PfsStockDeductionModal";
 import EfashionOrderDrawer from "./EfashionOrderDrawer";
@@ -68,6 +75,7 @@ interface Props {
       hasCredentials: boolean;
     };
     faire: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
+    microstore: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
   };
 }
 
@@ -81,12 +89,18 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     total: number;
     page: number;
     totalPages: number;
-    countsBySource: { PFS: number; EFASHION: number; ANKORSTORE: number; FAIRE: number };
+    countsBySource: {
+      PFS: number;
+      EFASHION: number;
+      ANKORSTORE: number;
+      FAIRE: number;
+      MICROSTORE: number;
+    };
   }>({
     total: 0,
     page: 1,
     totalPages: 1,
-    countsBySource: { PFS: 0, EFASHION: 0, ANKORSTORE: 0, FAIRE: 0 },
+    countsBySource: { PFS: 0, EFASHION: 0, ANKORSTORE: 0, FAIRE: 0, MICROSTORE: 0 },
   });
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<MarketplaceUnifiedStatus | "">("");
@@ -99,6 +113,8 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     null,
   );
   const [selectedFaire, setSelectedFaire] = useState<FaireOrderDetailFull | null>(null);
+  const [selectedMicrostore, setSelectedMicrostore] =
+    useState<MicrostoreOrderDetailFull | null>(null);
   const [deductionSource, setDeductionSource] = useState<{
     source: MarketplaceSource;
     orderId: string;
@@ -108,6 +124,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
   const [syncingEfashion, setSyncingEfashion] = useState(false);
   const [syncingAnkorstore, setSyncingAnkorstore] = useState(false);
   const [syncingFaire, setSyncingFaire] = useState(false);
+  const [syncingMicrostore, setSyncingMicrostore] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [syncMeta, setSyncMeta] = useState(initialSyncMeta);
   const [nowTick, setNowTick] = useState(0);
@@ -236,6 +253,9 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
       } else if (row.source === "ANKORSTORE") {
         const detail = await getAnkorstoreOrderDetail(row.id);
         setSelectedAnkorstore(detail);
+      } else if (row.source === "MICROSTORE") {
+        const detail = await getMicrostoreOrderDetail(row.id);
+        setSelectedMicrostore(detail);
       } else {
         const detail = await getFaireOrderDetail(row.id);
         setSelectedFaire(detail);
@@ -417,6 +437,59 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     }
   }, [refresh, confirm, toast]);
 
+  const onSyncMicrostore = useCallback(async () => {
+    const ok = await confirm({
+      type: "info",
+      title: "Synchroniser Microstore ?",
+      message: "Récupérer les commandes récentes depuis Microstore.",
+      confirmLabel: "Synchroniser",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+    setSyncingMicrostore(true);
+    try {
+      const res = await syncMicrostoreOrdersNow();
+      if (res.sessionExpired) {
+        toast.error(
+          "Session Microstore expirée",
+          "Reconnectez-vous depuis Paramètres → Microstore.",
+        );
+      } else if (!res.success) {
+        toast.error("Synchro Microstore échouée", res.error);
+      } else if ((res.created ?? 0) + (res.updated ?? 0) === 0) {
+        toast.success("Synchro Microstore OK", "Aucune nouvelle commande.");
+      } else {
+        toast.success(
+          "Synchro Microstore OK",
+          `${res.created ?? 0} nouvelles, ${res.updated ?? 0} mises à jour.`,
+        );
+      }
+      const meta = await getMarketplaceSyncMeta();
+      setSyncMeta(meta);
+      await refresh();
+    } finally {
+      setSyncingMicrostore(false);
+    }
+  }, [refresh, confirm, toast]);
+
+  const onStartImportMicrostore = useCallback(async () => {
+    const ok = await confirm({
+      type: "warning",
+      title: "Rattrapage complet Microstore ?",
+      message:
+        "Récupère toutes les commandes des 5 dernières années en tâche de fond. Suivez la progression dans le widget en bas à droite.",
+      confirmLabel: "Lancer le rattrapage",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+    await startMicrostoreHistoricalImport();
+    try {
+      openWidget("orders-import");
+    } catch {
+      /* widget pas encore intégré */
+    }
+  }, [confirm, openWidget]);
+
   const onStartImportFaire = useCallback(async () => {
     const ok = await confirm({
       type: "warning",
@@ -470,7 +543,8 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     !syncMeta.pfs.hasCredentials &&
     !syncMeta.efashion.hasCredentials &&
     !syncMeta.ankorstore.hasCredentials &&
-    !syncMeta.faire.hasCredentials;
+    !syncMeta.faire.hasCredentials &&
+    !syncMeta.microstore.hasCredentials;
 
   const closingDrawer = useMemo(
     () => () => {
@@ -478,6 +552,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
       setSelectedEfashion(null);
       setSelectedAnkorstore(null);
       setSelectedFaire(null);
+      setSelectedMicrostore(null);
     },
     [],
   );
@@ -561,6 +636,17 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
               onImport={() => void onStartImportFaire()}
             />
           )}
+          {syncMeta.microstore.hasCredentials && (
+            <SyncStatusPill
+              source="MICROSTORE"
+              lastLabel={lastSyncLabel(syncMeta.microstore.lastSyncedAt)}
+              nextLabel={nextSyncLabel(syncMeta.microstore.lastSyncedAt)}
+              totalInDb={syncMeta.microstore.totalOrdersInDb}
+              syncing={syncingMicrostore}
+              onSyncNow={() => startTransition(() => void onSyncMicrostore())}
+              onImport={() => void onStartImportMicrostore()}
+            />
+          )}
         </div>
       </section>
 
@@ -619,6 +705,9 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
         <AnkorstoreOrderDrawer order={selectedAnkorstore} onClose={closingDrawer} />
       )}
       {selectedFaire && <FaireOrderDrawer order={selectedFaire} onClose={closingDrawer} />}
+      {selectedMicrostore && (
+        <MicrostoreOrderDrawer order={selectedMicrostore} onClose={closingDrawer} />
+      )}
       {loadingDetail && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg">
           Chargement du détail…
@@ -672,7 +761,7 @@ function SyncStatusPill({
   totalInDb: number;
   syncing: boolean;
   onSyncNow: () => void;
-  onImport: () => void;
+  onImport?: () => void;
 }) {
   const marketplaceLabel = (() => {
     switch (source) {
@@ -684,6 +773,8 @@ function SyncStatusPill({
         return "Ankorstore";
       case "FAIRE":
         return "Faire";
+      case "MICROSTORE":
+        return "Microstore";
     }
   })();
   return (
@@ -712,14 +803,16 @@ function SyncStatusPill({
       >
         {syncing ? "…" : "Synchro"}
       </button>
-      <button
-        type="button"
-        onClick={onImport}
-        className="rounded-lg bg-slate-900 text-white text-xs px-2 py-1 hover:bg-slate-800"
-        title="Importer l'historique complet"
-      >
-        Historique
-      </button>
+      {onImport && (
+        <button
+          type="button"
+          onClick={onImport}
+          className="rounded-lg bg-slate-900 text-white text-xs px-2 py-1 hover:bg-slate-800"
+          title="Rattrapage complet — récupère toutes les commandes non encore importées"
+        >
+          Rattrapage
+        </button>
+      )}
     </div>
   );
 }

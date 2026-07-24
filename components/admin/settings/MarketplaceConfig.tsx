@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   updatePfsCredentials, validatePfsCredentials, togglePfsEnabled,
@@ -407,12 +408,12 @@ function MicrostoreCard({ previewLines, onOpenSettings }: { previewLines: { labe
               </span>
             </div>
             <p className="font-body text-xs text-text-muted mt-0.5">
-              Pas de connexion : le fichier Excel se génère depuis la liste des produits.
+              Export Excel produits + import des commandes via QR code (comme WhatsApp Web).
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4 sm:items-center sm:flex-1">
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 sm:items-center sm:flex-1">
           <div className="rounded-2xl bg-bg-primary border border-border-light p-3.5">
             <div className="flex items-center gap-1.5 mb-2 text-text-muted">
               <Icons.Calculator className="w-3 h-3" />
@@ -433,8 +434,14 @@ function MicrostoreCard({ previewLines, onOpenSettings }: { previewLines: { labe
             className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl border border-border bg-bg-primary text-text-primary text-sm font-body font-medium hover:bg-bg-secondary transition-colors"
           >
             <Icons.Settings className="w-4 h-4" />
-            Régler le markup
+            Markup
           </button>
+          <Link
+            href="/admin/parametres/microstore"
+            className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl bg-text-primary text-text-inverse text-sm font-body font-medium hover:bg-text-primary/90 transition-colors"
+          >
+            Connexion QR →
+          </Link>
         </div>
       </div>
     </div>

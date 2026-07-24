@@ -334,7 +334,8 @@ async function scanFaireByPrefix(reference: string): Promise<{
   pagesScanned: number;
   truncated: boolean;
 }> {
-  const needle = `${reference.toLowerCase()}_`;
+  const ref = reference.toLowerCase();
+  const needle = `${ref}_`;
   const matches: FaireApiProduct[] = [];
   let pagesScanned = 0;
   let truncated = false;
@@ -360,11 +361,16 @@ async function scanFaireByPrefix(reference: string): Promise<{
 
     for (const p of products) {
       const variants = p.variants ?? [];
+      // Match si au moins une variante :
+      //   - a un SKU commençant par « <ref>_ » (format long généré chez nous)
+      //   - OU a un SKU strictement égal à la référence (fiche Faire créée à
+      //     la main où le SKU = simplement la référence produit, cas vu sur
+      //     Issyma 93126 le 2026-07-24).
       if (
-        variants.some(
-          (v) =>
-            typeof v.sku === "string" && v.sku.toLowerCase().startsWith(needle),
-        )
+        variants.some((v) => {
+          const sku = typeof v.sku === "string" ? v.sku.toLowerCase() : "";
+          return sku.startsWith(needle) || sku === ref;
+        })
       ) {
         matches.push(p);
       }
@@ -469,15 +475,17 @@ export async function previewFaireMatchBySku(
         //      a un suffixe d'ID variante différent (re-création locale,
         //      publication manuelle, etc.).
         const reference = faireSkuInput.toLowerCase();
+        // On essaie en priorité les SKUs longs générés côté BJ, MAIS aussi la
+        // référence exacte : certaines fiches Faire (souvent celles créées à
+        // la main) portent simplement la référence produit comme SKU sur toutes
+        // les variantes (cas Issyma 93126 le 2026-07-24). Sans cet essai,
+        // la recherche rapide échoue et on tombe forcément sur le scan lent.
         const matchingLocalSkus = allLocalSkus.filter((s) =>
           s.toLowerCase().startsWith(`${reference}_`),
         );
-        if (matchingLocalSkus.length > 0) {
-          const multi = await searchFaireByMultipleSkus(matchingLocalSkus);
-          products = multi.products;
-        } else {
-          products = [];
-        }
+        const candidateSkus = [faireSkuInput, ...matchingLocalSkus];
+        const multi = await searchFaireByMultipleSkus(candidateSkus);
+        products = multi.products;
         if (products.length === 0) {
           const scan = await scanFaireByPrefix(reference);
           products = scan.products;

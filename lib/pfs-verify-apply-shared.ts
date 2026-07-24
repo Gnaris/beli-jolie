@@ -90,3 +90,25 @@ export function isPullSupportedLotB(scope: "product" | "color", field: string) {
 export function issueKey(iss: PfsVerifyIssue): string {
   return [iss.scope, iss.field, iss.colorRef ?? "", iss.variantType ?? ""].join(":");
 }
+
+// ─── Comptage des écarts corrigeables par pull (client + serveur) ──────────
+
+/**
+ * Compte les écarts d'un produit qui peuvent être corrigés automatiquement
+ * via un pull PFS → site. Un écart est corrigeable si :
+ *   - le champ est dans la whitelist Lot B (`isPullSupportedLotB`) ET
+ *   - le serveur n'a pas posé de blocage ad hoc (`pullBlocked`).
+ *
+ * Utilisé par l'audit PFS (modale + bouton « Tout modifier ») pour n'appeler
+ * `applyPfsVerifyPullsOnly` que sur des produits qui ont au moins un écart
+ * automatiquement corrigeable.
+ */
+export function countPullableIssues(issues: PfsVerifyIssue[]): number {
+  let n = 0;
+  for (const iss of issues) {
+    if (iss.pullBlocked) continue;
+    if (!isPullSupportedLotB(iss.scope, iss.field)) continue;
+    n++;
+  }
+  return n;
+}

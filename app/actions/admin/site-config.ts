@@ -606,6 +606,54 @@ export async function validateFaireCredentials(config: {
   }
 }
 
+// ─── Microstore (Dokkr) — session QR-code, expire ~1 an ────────────────────
+
+/**
+ * Déconnecte Microstore : supprime la clé de session + le mask token de
+ * SiteConfig et invalide les caches. Utilisé par le bouton « Déconnecter »
+ * de la page paramètres et automatiquement quand la clé est expirée
+ * (détection err 6011/6061 lors d'un appel API).
+ */
+export async function disconnectMicrostore(): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await prisma.siteConfig.deleteMany({
+      where: {
+        key: {
+          in: [
+            "microstore_session_key",
+            "microstore_mask_token",
+            "microstore_expires_at",
+            "microstore_enabled",
+          ],
+        },
+      },
+    });
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
+  }
+}
+
+/**
+ * Bascule l'état activé/désactivé de l'intégration Microstore (indépendant
+ * de la connexion : on peut être connecté mais désactivé).
+ */
+export async function toggleMicrostoreEnabled(
+  enabled: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await setSiteConfig("microstore_enabled", enabled ? "true" : "false");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
+  }
+}
+
 // ─── Service de traduction (Paris Fashion Shop) ────────────────────────────
 
 /**

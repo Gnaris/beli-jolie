@@ -15,7 +15,13 @@ import { useEffect, useRef, useState } from "react";
 import type { MarketplaceSource } from "@/app/actions/admin/marketplace-orders";
 import { MARKETPLACE_META } from "./MarketplaceBadge";
 
-const ALL_SOURCES: MarketplaceSource[] = ["PFS", "EFASHION", "ANKORSTORE", "FAIRE"];
+const ALL_SOURCES: MarketplaceSource[] = [
+  "PFS",
+  "EFASHION",
+  "ANKORSTORE",
+  "FAIRE",
+  "MICROSTORE",
+];
 
 interface Props {
   selected: MarketplaceSource[];

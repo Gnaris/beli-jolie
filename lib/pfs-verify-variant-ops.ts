@@ -419,6 +419,12 @@ export async function pullAddLocalVariantFromPfs(
     }
 
     if (processedImages.length > 0) {
+      // `skipDuplicates` évite le crash quand la couleur importée a déjà des
+      // photos locales sur les mêmes ordres — cas typique : image orpheline
+      // laissée par un ancien variant, ou même couleur portée par un autre
+      // saleType. La contrainte unique est (productId, colorId, order) ; les
+      // photos existantes restent visibles pour la nouvelle variante puisque
+      // l'affichage se fait par colorId.
       await tx.productColorImage.createMany({
         data: processedImages.map((pi) => ({
           productId,
@@ -427,6 +433,7 @@ export async function pullAddLocalVariantFromPfs(
           path: pi.dbPath,
           order: pi.order,
         })),
+        skipDuplicates: true,
       });
     }
 

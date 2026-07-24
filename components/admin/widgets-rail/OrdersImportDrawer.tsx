@@ -50,6 +50,14 @@ import {
   type FaireImportState,
   type FaireImportRecentEvent,
 } from "@/app/actions/admin/faire-orders";
+import {
+  acknowledgeMicrostoreHistoricalImport,
+  getMicrostoreImportStateAction,
+  startMicrostoreHistoricalImport,
+  stopMicrostoreHistoricalImport,
+  type MicrostoreImportState,
+  type MicrostoreImportRecentEvent,
+} from "@/app/actions/admin/microstore-orders";
 import { useRightRail, type RailWidgetId } from "./RightRailContext";
 import { DrawerShell } from "./DrawerShell";
 
@@ -103,11 +111,13 @@ export function OrdersImportDrawer() {
   const [efState, setEfState] = useState<EfashionImportState | null>(null);
   const [ankorState, setAnkorState] = useState<AnkorstoreImportState | null>(null);
   const [faireState, setFaireState] = useState<FaireImportState | null>(null);
+  const [microstoreState, setMicrostoreState] = useState<MicrostoreImportState | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const pollPfsRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollEfRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollAnkorRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollFaireRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollMicrostoreRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -203,11 +213,34 @@ export function OrdersImportDrawer() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const s = await getMicrostoreImportStateAction();
+        if (cancelled) return;
+        setMicrostoreState(s);
+        pollMicrostoreRef.current = setTimeout(
+          tick,
+          s.status === "RUNNING" ? POLL_ACTIVE_MS : POLL_IDLE_MS,
+        );
+      } catch {
+        pollMicrostoreRef.current = setTimeout(tick, POLL_IDLE_MS);
+      }
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      if (pollMicrostoreRef.current) clearTimeout(pollMicrostoreRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
     const pfsRun = pfsState?.status === "RUNNING";
     const efRun = efState?.status === "RUNNING";
     const ankorRun = ankorState?.status === "RUNNING";
     const faireRun = faireState?.status === "RUNNING";
-    const running = pfsRun || efRun || ankorRun || faireRun;
+    const microstoreRun = microstoreState?.status === "RUNNING";
+    const running = pfsRun || efRun || ankorRun || faireRun || microstoreRun;
     const remainingPfs = pfsRun
       ? Math.max(0, (pfsState?.totalOrders ?? 0) - (pfsState?.processedOrders ?? 0))
       : 0;
@@ -226,17 +259,23 @@ export function OrdersImportDrawer() {
         ? Math.max(0, faireState.totalOrders - faireState.processedOrders)
         : faireState.processedOrders
       : 0;
+    const remainingMicrostore = microstoreRun && microstoreState
+      ? microstoreState.totalOrders > 0
+        ? Math.max(0, microstoreState.totalOrders - microstoreState.processedOrders)
+        : microstoreState.processedOrders
+      : 0;
     setBadge("orders-import", {
-      count: remainingPfs + remainingEf + remainingAnkor + remainingFaire,
+      count: remainingPfs + remainingEf + remainingAnkor + remainingFaire + remainingMicrostore,
       pulse: running,
     });
     for (const legacy of LEGACY_ALIASES) setBadge(legacy, { count: 0 });
-  }, [pfsState, efState, ankorState, faireState, setBadge]);
+  }, [pfsState, efState, ankorState, faireState, microstoreState, setBadge]);
 
   const prevPfsRunRef = useRef(false);
   const prevEfRunRef = useRef(false);
   const prevAnkorRunRef = useRef(false);
   const prevFaireRunRef = useRef(false);
+  const prevMicrostoreRunRef = useRef(false);
   useEffect(() => {
     const pfsRun = pfsState?.status === "RUNNING";
     if (!prevPfsRunRef.current && pfsRun) open("orders-import");
@@ -257,12 +296,18 @@ export function OrdersImportDrawer() {
     if (!prevFaireRunRef.current && faireRun) open("orders-import");
     prevFaireRunRef.current = faireRun;
   }, [faireState, open]);
+  useEffect(() => {
+    const microstoreRun = microstoreState?.status === "RUNNING";
+    if (!prevMicrostoreRunRef.current && microstoreRun) open("orders-import");
+    prevMicrostoreRunRef.current = microstoreRun;
+  }, [microstoreState, open]);
 
   const anyRunning =
     pfsState?.status === "RUNNING" ||
     efState?.status === "RUNNING" ||
     ankorState?.status === "RUNNING" ||
-    faireState?.status === "RUNNING";
+    faireState?.status === "RUNNING" ||
+    microstoreState?.status === "RUNNING";
   const title = useMemo(() => {
     if (anyRunning) {
       const parts: string[] = [];
@@ -282,6 +327,11 @@ export function OrdersImportDrawer() {
           `Faire ${faireState.processedOrders}${faireState.totalOrders > 0 ? `/${faireState.totalOrders}` : ""}`,
         );
       }
+      if (microstoreState?.status === "RUNNING") {
+        parts.push(
+          `Microstore ${microstoreState.processedOrders}${microstoreState.totalOrders > 0 ? `/${microstoreState.totalOrders}` : ""}`,
+        );
+      }
       return (
         <span className="flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
@@ -290,7 +340,7 @@ export function OrdersImportDrawer() {
       );
     }
     return "Import commandes marketplaces";
-  }, [anyRunning, pfsState, efState, ankorState, faireState]);
+  }, [anyRunning, pfsState, efState, ankorState, faireState, microstoreState]);
 
   if (!isOpen) return null;
 
@@ -308,6 +358,11 @@ export function OrdersImportDrawer() {
         <EfashionSection state={efState} onStateChange={setEfState} now={now} />
         <AnkorstoreSection state={ankorState} onStateChange={setAnkorState} now={now} />
         <FaireSection state={faireState} onStateChange={setFaireState} now={now} />
+        <MicrostoreSection
+          state={microstoreState}
+          onStateChange={setMicrostoreState}
+          now={now}
+        />
       </div>
     </DrawerShell>
   );
@@ -799,14 +854,136 @@ function FaireSection({
 }
 
 // ─────────────────────────────────────────────
-// Section commune — layout identique pour les 4 sources
+// Bloc Microstore
+// ─────────────────────────────────────────────
+
+const MICROSTORE_META = {
+  name: "Microstore",
+  letter: "M",
+  gradient: "linear-gradient(135deg,#0891b2,#22d3ee)",
+  barGrad: "linear-gradient(90deg,#0891b2,#22d3ee)",
+  chipBg: "bg-cyan-50/40",
+  chipRing: "border-cyan-100",
+  chipText: "text-cyan-700",
+  chipDot: "bg-cyan-500",
+  actionBtn: "bg-cyan-500 hover:bg-cyan-600",
+  actionLink: "text-cyan-700 hover:text-cyan-800",
+};
+
+function MicrostoreSection({
+  state,
+  onStateChange,
+  now,
+}: {
+  state: MicrostoreImportState | null;
+  onStateChange: (s: MicrostoreImportState) => void;
+  now: number;
+}) {
+  const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
+
+  const [displayed, setDisplayed] = useState<MicrostoreImportRecentEvent[]>([]);
+  const pendingRef = useRef<MicrostoreImportRecentEvent[]>([]);
+  const seenRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!state) return;
+    const chronological = [...state.recentEvents].reverse();
+    for (const ev of chronological) {
+      const k = `${ev.orderNumber}-${ev.at}-${ev.result}`;
+      if (seenRef.current.has(k)) continue;
+      seenRef.current.add(k);
+      pendingRef.current.push(ev);
+    }
+  }, [state]);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      const pending = pendingRef.current;
+      if (pending.length === 0) return;
+      const batch = pending.length > 20 ? 3 : pending.length > 8 ? 2 : 1;
+      const flushed = pending.splice(0, batch);
+      setDisplayed((prev) =>
+        [...flushed.reverse(), ...prev].slice(0, DISPLAYED_EVENTS_MAX),
+      );
+    }, EVENT_DRIP_MS);
+    return () => clearInterval(t);
+  }, []);
+
+  const onStart = useCallback(async () => {
+    setStarting(true);
+    try {
+      pendingRef.current = [];
+      seenRef.current = new Set();
+      setDisplayed([]);
+      const next = await startMicrostoreHistoricalImport();
+      onStateChange(next);
+    } finally {
+      setStarting(false);
+    }
+  }, [onStateChange]);
+
+  const onStop = useCallback(async () => {
+    setStopping(true);
+    try {
+      await stopMicrostoreHistoricalImport();
+    } finally {
+      setStopping(false);
+    }
+  }, []);
+
+  const onAck = useCallback(async () => {
+    await acknowledgeMicrostoreHistoricalImport();
+    const s = await getMicrostoreImportStateAction();
+    onStateChange(s);
+    pendingRef.current = [];
+    seenRef.current = new Set();
+    setDisplayed([]);
+  }, [onStateChange]);
+
+  return (
+    <SourceSection
+      state={state}
+      meta={MICROSTORE_META}
+      starting={starting}
+      stopping={stopping}
+      onStart={onStart}
+      onStop={onStop}
+      onAck={onAck}
+      pending={pendingRef.current.length}
+      events={displayed.map((ev) => ({
+        key: `${ev.orderNumber}-${ev.at}-${ev.result}`,
+        orderNumber: ev.orderNumber,
+        customerName: ev.customerName,
+        result: ev.result,
+        amount: ev.totalHT,
+        errorMessage: ev.errorMessage,
+        at: ev.at,
+      }))}
+      currentOrders={
+        state?.currentOrders.map((c) => ({
+          key: c.microstoreOrderId,
+          orderNumber: c.microstoreOrderId,
+          customerName: c.customerName,
+          country: c.country,
+          amount: c.totalHT,
+        })) ?? []
+      }
+      now={now}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────
+// Section commune — layout identique pour les 5 sources
 // ─────────────────────────────────────────────
 
 type CommonState =
   | PfsImportState
   | EfashionImportState
   | AnkorstoreImportState
-  | FaireImportState;
+  | FaireImportState
+  | MicrostoreImportState;
 
 interface SectionMeta {
   name: string;

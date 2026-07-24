@@ -31,7 +31,7 @@ async function requireAdmin() {
 // Types partagés
 // ─────────────────────────────────────────────
 
-export type MarketplaceSource = "PFS" | "EFASHION" | "ANKORSTORE" | "FAIRE";
+export type MarketplaceSource = "PFS" | "EFASHION" | "ANKORSTORE" | "FAIRE" | "MICROSTORE";
 
 export type MarketplacePeriodKey =
   | "today"
@@ -428,7 +428,13 @@ export interface ListMarketplaceOrdersResult {
   page: number;
   perPage: number;
   totalPages: number;
-  countsBySource: { PFS: number; EFASHION: number; ANKORSTORE: number; FAIRE: number };
+  countsBySource: {
+    PFS: number;
+    EFASHION: number;
+    ANKORSTORE: number;
+    FAIRE: number;
+    MICROSTORE: number;
+  };
 }
 
 /**
@@ -447,11 +453,12 @@ export async function listMarketplaceOrders(
   const sources =
     input.sources && input.sources.length > 0
       ? input.sources
-      : (["PFS", "EFASHION", "ANKORSTORE", "FAIRE"] as MarketplaceSource[]);
+      : (["PFS", "EFASHION", "ANKORSTORE", "FAIRE", "MICROSTORE"] as MarketplaceSource[]);
   const wantsPfs = sources.includes("PFS");
   const wantsEfashion = sources.includes("EFASHION");
   const wantsAnkorstore = sources.includes("ANKORSTORE");
   const wantsFaire = sources.includes("FAIRE");
+  const wantsMicrostore = sources.includes("MICROSTORE");
 
   const range = resolvePeriod(input.period ?? "all", input.customFrom, input.customTo);
   const dateFilter: { gte?: Date; lte?: Date } = {};
@@ -751,17 +758,98 @@ export async function listMarketplaceOrders(
       })()
     : Promise.resolve({ items: [] as MarketplaceOrderListItem[], total: 0 });
 
-  const [pfs, efashion, ankorstore, faire] = await Promise.all([
+  // ── Microstore ─
+  const microstorePromise = wantsMicrostore
+    ? (async () => {
+        const microstoreStatusMap: Record<
+          MarketplaceUnifiedStatus,
+          "NEW" | "SHIPPED" | "CANCELLED" | null
+        > = {
+          NEW: "NEW",
+          VALIDATED: null, // Microstore n'a pas de statut VALIDATED
+          SHIPPED: "SHIPPED",
+          CANCELLED: "CANCELLED",
+        };
+        const microstoreStatus = input.status ? microstoreStatusMap[input.status] : null;
+        if (input.status && !microstoreStatus) {
+          return { items: [] as MarketplaceOrderListItem[], total: 0 };
+        }
+        const where: Record<string, unknown> = {
+          tenantId: tenant.id,
+          ...(microstoreStatus ? { status: microstoreStatus } : {}),
+          ...(Object.keys(dateFilter).length ? { createdAtMicrostore: dateFilter } : {}),
+          ...(q
+            ? {
+                OR: [
+                  { microstoreOrderId: { contains: q } },
+                  { customerName: { contains: q } },
+                  { customerCompany: { contains: q } },
+                  { customerCountry: { contains: q } },
+                ],
+              }
+            : {}),
+        };
+        const [rows, total] = await Promise.all([
+          prisma.microstoreOrder.findMany({
+            where,
+            orderBy: { createdAtMicrostore: "desc" },
+            take: 500,
+            select: {
+              id: true,
+              microstoreOrderId: true,
+              createdAtMicrostore: true,
+              status: true,
+              customerName: true,
+              customerCompany: true,
+              customerCountry: true,
+              totalHT: true,
+              shippingLabel: true,
+            },
+          }),
+          prisma.microstoreOrder.count({ where }),
+        ]);
+        const items: MarketplaceOrderListItem[] = rows.map((r) => ({
+          id: r.id,
+          source: "MICROSTORE" as const,
+          orderNumber: r.microstoreOrderId,
+          createdAt: r.createdAtMicrostore.toISOString(),
+          status: r.status === "SHIPPED"
+            ? "SHIPPED"
+            : r.status === "CANCELLED"
+            ? "CANCELLED"
+            : "NEW",
+          statusRawLabel:
+            r.status === "SHIPPED"
+              ? "Expédiée"
+              : r.status === "CANCELLED"
+              ? "Annulée"
+              : "À préparer",
+          customerName: r.customerName,
+          customerShop: r.customerCompany,
+          customerCountry: r.customerCountry,
+          carrier: r.shippingLabel, // mode de livraison texte
+          totalTTC: decimalToNumber(r.totalHT), // Microstore ne détaille pas la TVA
+          totalHT: decimalToNumber(r.totalHT),
+          hasInvoice: false,
+          stockDeductionState: "NOT_APPLICABLE",
+        }));
+        return { items, total };
+      })()
+    : Promise.resolve({ items: [] as MarketplaceOrderListItem[], total: 0 });
+
+  const [pfs, efashion, ankorstore, faire, microstore] = await Promise.all([
     pfsPromise,
     efashionPromise,
     ankorstorePromise,
     fairePromise,
+    microstorePromise,
   ]);
   const merged = [
     ...pfs.items,
     ...efashion.items,
     ...ankorstore.items,
     ...faire.items,
+    ...microstore.items,
   ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 
   // Filtre stockFilter appliqué en mémoire pour rester générique.
@@ -790,6 +878,7 @@ export async function listMarketplaceOrders(
       EFASHION: efashion.total,
       ANKORSTORE: ankorstore.total,
       FAIRE: faire.total,
+      MICROSTORE: microstore.total,
     },
   };
 }
@@ -809,6 +898,7 @@ export interface MarketplaceStatsKpis {
     EFASHION: { ordersCount: number; totalHT: number };
     ANKORSTORE: { ordersCount: number; totalHT: number };
     FAIRE: { ordersCount: number; totalHT: number };
+    MICROSTORE: { ordersCount: number; totalHT: number };
   };
 }
 
@@ -879,11 +969,12 @@ export async function getMarketplaceStats(
   const sources =
     input.sources && input.sources.length > 0
       ? input.sources
-      : (["PFS", "EFASHION", "ANKORSTORE", "FAIRE"] as MarketplaceSource[]);
+      : (["PFS", "EFASHION", "ANKORSTORE", "FAIRE", "MICROSTORE"] as MarketplaceSource[]);
   const wantsPfs = sources.includes("PFS");
   const wantsEfashion = sources.includes("EFASHION");
   const wantsAnkorstore = sources.includes("ANKORSTORE");
   const wantsFaire = sources.includes("FAIRE");
+  const wantsMicrostore = sources.includes("MICROSTORE");
   // Défaut généreux : le filtre local par marketplace (chip dans les cartes
   // Top clients / Top produits) est une intersection appliquée sur ce que le
   // serveur a renvoyé. Une limite trop basse (ex. 50) fait disparaître les
@@ -904,6 +995,9 @@ export async function getMarketplaceStats(
   const faireDateFilter: { gte?: Date; lte?: Date } = {};
   if (range.from) faireDateFilter.gte = range.from;
   if (range.to) faireDateFilter.lte = range.to;
+  const microstoreDateFilter: { gte?: Date; lte?: Date } = {};
+  if (range.from) microstoreDateFilter.gte = range.from;
+  if (range.to) microstoreDateFilter.lte = range.to;
 
   const pfsOrderWhere = wantsPfs
     ? {
@@ -1011,6 +1105,37 @@ export async function getMarketplaceStats(
       : Promise.resolve({ _sum: { quantity: 0 } }),
   ]);
 
+  // Microstore : NEW + SHIPPED comptent (déjà payées côté client). Pas
+  // d'items groupby ici pour rester léger : on somme quantity depuis les
+  // MicrostoreOrderItem.
+  const microstoreOrderWhere = wantsMicrostore
+    ? {
+        tenantId: tenant.id,
+        status: { in: ["NEW", "SHIPPED"] as ("NEW" | "SHIPPED")[] },
+        ...(Object.keys(microstoreDateFilter).length
+          ? { createdAtMicrostore: microstoreDateFilter }
+          : {}),
+      }
+    : null;
+  const [microstoreAgg, microstoreItemsAgg] = await Promise.all([
+    microstoreOrderWhere
+      ? prisma.microstoreOrder.aggregate({
+          where: microstoreOrderWhere,
+          _count: { _all: true },
+          _sum: { totalHT: true },
+        })
+      : Promise.resolve({
+          _count: { _all: 0 },
+          _sum: { totalHT: null as unknown as number | null },
+        }),
+    microstoreOrderWhere
+      ? prisma.microstoreOrderItem.aggregate({
+          where: { tenantId: tenant.id, microstoreOrder: microstoreOrderWhere },
+          _sum: { quantity: true },
+        })
+      : Promise.resolve({ _sum: { quantity: 0 } }),
+  ]);
+
   const pfsOrdersCount = pfsAgg._count._all;
   const pfsTotalHT = decimalToNumber(pfsAgg._sum.totalHT);
   const efashionOrdersCount = efashionAgg._count._all;
@@ -1019,14 +1144,22 @@ export async function getMarketplaceStats(
   const ankorstoreTotalHT = decimalToNumber(ankorstoreAgg._sum.brandTotalAmount);
   const faireOrdersCount = faireAgg._count._all;
   const faireTotalHT = decimalToNumber(faireAgg._sum.totalHT);
+  const microstoreOrdersCount = microstoreAgg._count._all;
+  const microstoreTotalHT = decimalToNumber(microstoreAgg._sum.totalHT);
   const totalOrders =
-    pfsOrdersCount + efashionOrdersCount + ankorstoreOrdersCount + faireOrdersCount;
-  const totalHT = pfsTotalHT + efashionTotalHT + ankorstoreTotalHT + faireTotalHT;
+    pfsOrdersCount +
+    efashionOrdersCount +
+    ankorstoreOrdersCount +
+    faireOrdersCount +
+    microstoreOrdersCount;
+  const totalHT =
+    pfsTotalHT + efashionTotalHT + ankorstoreTotalHT + faireTotalHT + microstoreTotalHT;
   const itemsSold =
     (pfsItemsAgg._sum.qtyValidated ?? 0) +
     (efashionItemsAgg._sum.qtyTotal ?? 0) +
     (ankorstoreItemsAgg._sum.multipliedQuantity ?? 0) +
-    (faireItemsAgg._sum.quantity ?? 0);
+    (faireItemsAgg._sum.quantity ?? 0) +
+    (microstoreItemsAgg._sum.quantity ?? 0);
 
   // Compte des clients uniques cross-marketplace (par email/société normalisés)
   const [pfsClientRows, efashionClientRows, ankorstoreClientRows, faireClientRows] = await Promise.all([
@@ -1232,6 +1365,7 @@ export async function getMarketplaceStats(
       EFASHION: { ordersCount: efashionOrdersCount, totalHT: efashionTotalHT },
       ANKORSTORE: { ordersCount: ankorstoreOrdersCount, totalHT: ankorstoreTotalHT },
       FAIRE: { ordersCount: faireOrdersCount, totalHT: faireTotalHT },
+      MICROSTORE: { ordersCount: microstoreOrdersCount, totalHT: microstoreTotalHT },
     },
   };
 
@@ -1549,6 +1683,7 @@ export async function getMarketplaceSyncMeta(): Promise<{
   efashion: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
   ankorstore: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
   faire: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
+  microstore: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
 }> {
   await requireAdmin();
   const tenant = await requireCurrentTenant();
@@ -1606,6 +1741,17 @@ export async function getMarketplaceSyncMeta(): Promise<{
     prisma.ankorstoreOrder.count({ where: { tenantId: tenant.id } }),
     prisma.faireOrder.count({ where: { tenantId: tenant.id } }),
   ]);
+  const [microstoreLast, microstoreCreds, microstoreCount] = await Promise.all([
+    prisma.siteConfig.findFirst({
+      where: { tenantId: tenant.id, key: "microstore_orders_last_synced_at" },
+      select: { value: true },
+    }),
+    prisma.siteConfig.findFirst({
+      where: { tenantId: tenant.id, key: "microstore_session_key" },
+      select: { value: true },
+    }),
+    prisma.microstoreOrder.count({ where: { tenantId: tenant.id } }),
+  ]);
   const pfsMap = new Map(pfsCreds.map((r) => [r.key, r.value]));
   const efashionMap = new Map(efashionCreds.map((r) => [r.key, r.value]));
   const ankorstoreMap = new Map(ankorstoreCreds.map((r) => [r.key, r.value]));
@@ -1641,6 +1787,13 @@ export async function getMarketplaceSyncMeta(): Promise<{
         : null,
       totalOrdersInDb: faireCount,
       hasCredentials: (faireCreds?.value || "").trim().length > 0,
+    },
+    microstore: {
+      lastSyncedAt: microstoreLast?.value
+        ? new Date(parseInt(microstoreLast.value, 10)).toISOString()
+        : null,
+      totalOrdersInDb: microstoreCount,
+      hasCredentials: (microstoreCreds?.value || "").trim().length > 0,
     },
   };
 }

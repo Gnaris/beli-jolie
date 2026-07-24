@@ -30,6 +30,11 @@ export const MARKETPLACE_META: Record<
     label: "Faire",
     gradient: "linear-gradient(135deg,#f59e0b,#fbbf24)",
   },
+  MICROSTORE: {
+    letter: "M",
+    label: "Microstore",
+    gradient: "linear-gradient(135deg,#0891b2,#22d3ee)",
+  },
 };
 
 interface Props {

@@ -714,6 +714,53 @@ export const getCachedFaireEnabled = tenantScopedCacheWithTid(
   { revalidate: 300, tags: ["site-config"] }
 );
 
+// ─── Microstore — session key, has-config (auth QR-code, expire ~1 an) ────────
+async function readMicrostoreSessionKeyDirect(tid?: string) {
+  const row = await prisma.siteConfig.findFirst({
+    where:
+      !tid || tid === "global"
+        ? { key: "microstore_session_key" }
+        : { tenantId: tid, key: "microstore_session_key" },
+  });
+  if (!row?.value) return null;
+  return decryptIfSensitive("microstore_session_key", row.value)?.trim() || null;
+}
+
+const _cachedMicrostoreSessionKey = tenantScopedCacheWithTid(
+  "microstore-session-key",
+  async (tid) => readMicrostoreSessionKeyDirect(tid),
+  ["microstore-session-key"],
+  { revalidate: 300, tags: ["site-config"] },
+);
+
+export async function getCachedMicrostoreSessionKey() {
+  try {
+    return await _cachedMicrostoreSessionKey();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("incrementalCache") || msg.includes("unstable_cache")) {
+      return await readMicrostoreSessionKeyDirect(await resolveTidForFallback());
+    }
+    throw err;
+  }
+}
+
+export const getCachedHasMicrostoreConfig = tenantScopedCacheWithTid(
+  "has-microstore-config",
+  async (tid) => {
+    const row = await prisma.siteConfig.findFirst({
+      where:
+        tid === "global"
+          ? { key: "microstore_session_key" }
+          : { tenantId: tid, key: "microstore_session_key" },
+      select: { key: true },
+    });
+    return !!row;
+  },
+  ["has-microstore-config"],
+  { revalidate: 300, tags: ["site-config"] },
+);
+
 // ─── Product count (expensive count on 78k rows, cache 5min) ───────────────────
 // Scope explicite : dans unstable_cache l'ALS est vide, l'extension Prisma
 // retombe en passthrough (fuite cross-tenant).

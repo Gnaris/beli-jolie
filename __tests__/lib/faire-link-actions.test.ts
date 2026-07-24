@@ -240,8 +240,9 @@ describe("previewFaireMatchBySku", () => {
 
   it("utilise la référence du produit quand l'input est vide (pré-rempli UI)", async () => {
     prismaMock.product.findUnique.mockResolvedValueOnce(buildBjProduct());
-    // 2 couleurs → 2 SKUs candidats essayés en parallèle, puis fallback scan
-    // car les SKUs locaux ne matchent rien. On simule 3 appels vides.
+    // 3 SKUs candidats essayés en parallèle : F137 exact + 2 SKUs longs des
+    // couleurs locales. Puis fallback scan car aucun ne matche.
+    mockFaireSearchOk([]);
     mockFaireSearchOk([]);
     mockFaireSearchOk([]);
     mockFaireSearchOk([]); // scan préfixe page 1
@@ -252,19 +253,22 @@ describe("previewFaireMatchBySku", () => {
 
     // Le champ pré-rempli côté UI = la référence du produit, pas un SKU long
     expect(res.data.faireSkuInput).toBe("F137");
-    // 2 SKUs locaux essayés + 1 scan = 3 appels
-    expect(faireApiMock.faireFetch).toHaveBeenCalledTimes(3);
+    // 1 SKU exact (référence) + 2 SKUs longs + 1 scan = 4 appels
+    expect(faireApiMock.faireFetch).toHaveBeenCalledTimes(4);
     const urls = faireApiMock.faireFetch.mock.calls.map(
       (c: unknown[]) => c[0] as string,
     );
-    // Les 2 premiers appels ciblent des SKUs commençant par "f137_"
-    expect(/sku=f137_.+_UNIT_/.test(urls[0])).toBe(true);
+    // Le 1er appel cible la référence exacte, les 2 suivants les SKUs longs
+    expect(urls[0]).toMatch(/sku=F137(&|$)/);
     expect(/sku=f137_.+_UNIT_/.test(urls[1])).toBe(true);
+    expect(/sku=f137_.+_UNIT_/.test(urls[2])).toBe(true);
   });
 
   it("trouve un produit en essayant les SKUs locaux à partir d'une référence", async () => {
     prismaMock.product.findUnique.mockResolvedValueOnce(buildBjProduct());
-    // 1ère tentative (couleur Doré) → trouve. 2ème (Argenté) → vide.
+    // 3 candidats essayés en parallèle : ref exacte (vide) + Doré (trouve)
+    // + Argenté (vide).
+    mockFaireSearchOk([]);
     mockFaireSearchOk([buildFaireProduct()]);
     mockFaireSearchOk([]);
 
@@ -273,6 +277,47 @@ describe("previewFaireMatchBySku", () => {
     if (!res.success) return;
     expect(res.data.faireProductId).toBe("p_abc123");
     expect(res.data.candidates).toHaveLength(2);
+  });
+
+  it("trouve une fiche Faire créée à la main dont le SKU = la référence exacte", async () => {
+    // Cas réel Issyma 93126 (2026-07-24) : la fiche Faire a été publiée avec
+    // toutes ses variantes portant simplement `93126` comme SKU. Le format
+    // long généré chez nous ne matche rien, mais l'essai « ref exacte »
+    // (ajouté au même passage que les SKUs longs) doit trouver le produit.
+    const bj = buildBjProduct({
+      reference: "93126",
+      colors: [
+        {
+          id: "pc-blanc",
+          saleType: "UNIT",
+          unitPrice: { toString: () => "10.00" },
+          stock: 3,
+          faireVariantId: null,
+          color: { id: "c-blanc", name: "Blanc", hex: "#fff", patternImage: null },
+          images: [],
+        },
+      ],
+    });
+    prismaMock.product.findUnique.mockResolvedValueOnce(bj);
+    // 1er appel = SKU exact "93126" → trouve la fiche.
+    mockFaireSearchOk([
+      {
+        id: "p_bwthbwqvta",
+        name: "Robe longue en coton col chemise",
+        lifecycle_state: "PUBLISHED",
+        variants: [
+          { id: "po_1", sku: "93126", options: [{ name: "Color", value: "Blanc" }] },
+        ],
+      },
+    ]);
+    // 2e appel = SKU long "93126_blanc_..." → vide (parallèle avec le 1er).
+    mockFaireSearchOk([]);
+
+    const res = await previewFaireMatchBySku("p1", "93126");
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+    expect(res.data.faireProductId).toBe("p_bwthbwqvta");
+    expect(res.data.candidates).toHaveLength(1);
   });
 
   it("suggère le mapping en se basant sur le SKU Faire (couvre 'Argenté' BJ ↔ 'argent' SKU)", async () => {
@@ -298,7 +343,8 @@ describe("previewFaireMatchBySku", () => {
       ],
     });
     prismaMock.product.findUnique.mockResolvedValueOnce(bj);
-    // SKUs locaux essayés en parallèle → vide (suffixe ID différent)
+    // 2 candidats essayés en parallèle (ref exacte + 1 SKU long) → vides.
+    mockFaireSearchOk([]);
     mockFaireSearchOk([]);
     // Fallback scan préfixe → produit Faire avec SKU custom
     mockFaireSearchOk([
@@ -383,6 +429,8 @@ describe("previewFaireMatchBySku", () => {
 
   it("utilise la 1ère image variante quand le produit Faire n'a pas d'image racine", async () => {
     prismaMock.product.findUnique.mockResolvedValueOnce(buildBjProduct());
+    // 3 candidats en parallèle (ref exacte + 2 SKUs longs) → tous vides
+    mockFaireSearchOk([]);
     mockFaireSearchOk([]);
     mockFaireSearchOk([]);
     // Fallback scan : produit SANS images racine, mais variantes avec images
@@ -414,7 +462,8 @@ describe("previewFaireMatchBySku", () => {
 
   it("fallback : scanne le catalogue Faire par préfixe SKU quand les SKUs locaux ne matchent pas", async () => {
     prismaMock.product.findUnique.mockResolvedValueOnce(buildBjProduct());
-    // (1) Les 2 SKUs locaux sont essayés → rien.
+    // (1) Les 3 candidats (ref exacte + 2 SKUs longs) sont essayés → rien.
+    mockFaireSearchOk([]);
     mockFaireSearchOk([]);
     mockFaireSearchOk([]);
     // (2) Fallback : scan page 1 du catalogue.
@@ -457,8 +506,8 @@ describe("previewFaireMatchBySku", () => {
     expect(res.success).toBe(true);
     if (!res.success) return;
     expect(res.data.faireProductId).toBe("p_old_publish");
-    // SKU local n'a pas matché → 2 appels SKU + 1 appel scan = 3 au total
-    expect(faireApiMock.faireFetch).toHaveBeenCalledTimes(3);
+    // 3 candidats SKU (ref exacte + 2 longs) + 1 appel scan = 4 au total
+    expect(faireApiMock.faireFetch).toHaveBeenCalledTimes(4);
   });
 
   it("prend le produit PUBLISHED si plusieurs matchent et signale les autres", async () => {

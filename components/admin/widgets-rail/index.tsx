@@ -13,6 +13,7 @@ import { ImagesDrawer } from "./ImagesDrawer";
 import { ShootingDrawer } from "./ShootingDrawer";
 import { EmailsDrawer } from "./EmailsDrawer";
 import { OrdersImportDrawer } from "./OrdersImportDrawer";
+import { PfsAuditDrawer } from "./PfsAuditDrawer";
 
 export function AdminWidgetsRail({ children }: { children: React.ReactNode }) {
   return (
@@ -28,6 +29,7 @@ export function AdminWidgetsRail({ children }: { children: React.ReactNode }) {
           Il accepte aussi les clés legacy "pfs-import" / "efashion-import" pour
           garantir la rétrocompat avec les points d'ouverture existants. */}
       <OrdersImportDrawer />
+      <PfsAuditDrawer />
     </RightRailProvider>
   );
 }

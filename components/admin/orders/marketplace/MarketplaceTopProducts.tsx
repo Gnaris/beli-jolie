@@ -285,6 +285,7 @@ export default function MarketplaceTopProducts({ stats }: Props) {
                             EFASHION: 0,
                             ANKORSTORE: 0,
                             FAIRE: 0,
+                            MICROSTORE: 0,
                           };
                           for (const b of c.bySource) bySrc[b.source] = b.quantitySold;
                           return (

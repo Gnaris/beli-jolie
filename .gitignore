@@ -104,3 +104,7 @@ docs/superpowers/
 
 # Scripts de dev multi-tenant test (crawl agents + rapports)
 /scripts/dev/multi-tenant-test/
+
+# Sondes Ankorstore (outputs JSON de debug, régénérés à chaque run)
+/scripts/.ankorstore-orders-probe/
+/scripts/.ankorstore-orders-probe-run.log

@@ -213,38 +213,6 @@ describe("buildPfsVariantCreatePayload — PACK", () => {
   });
 });
 
-// ─── Tests sur les libellés côté client (helpers pris dans PfsVerifyBadge) ─
-//
-// On importe uniquement les helpers purs — pas le composant React entier —
-// pour éviter d'avoir besoin de jsdom / next/cache.
-
-describe("PfsVerifyBadge — actionShortLabel", () => {
-  // Import dynamique pour éviter le tree-shaking React côté vitest node.
-  it("libellés adaptés selon le type d'écart", async () => {
-    const { actionShortLabel } = await import("@/components/admin/products/PfsVerifyBadge");
-    const scalarIss: PfsVerifyIssue = {
-      scope: "color", field: "price", fieldLabel: "Prix",
-      colorRef: "ROSE", variantType: "UNIT",
-      pfsValue: "10", expectedValue: "12",
-    };
-    expect(actionShortLabel(scalarIss, "push")).toBe("Envoyer");
-    expect(actionShortLabel(scalarIss, "pull")).toBe("Prendre");
-
-    const missing: PfsVerifyIssue = {
-      ...scalarIss,
-      field: "missingVariant",
-      fieldLabel: "Variante manquante",
-    };
-    expect(actionShortLabel(missing, "push")).toBe("Ajouter sur PFS");
-    expect(actionShortLabel(missing, "pull")).toBe("Retirer chez nous");
-
-    const extra: PfsVerifyIssue = {
-      ...scalarIss,
-      field: "extraVariant",
-      fieldLabel: "Variante en trop",
-      pfsVariantId: "pv_123",
-    };
-    expect(actionShortLabel(extra, "push")).toBe("Retirer de PFS");
-    expect(actionShortLabel(extra, "pull")).toBe("Ajouter chez nous");
-  });
-});
+// Note : les helpers de libellés « actionShortLabel » ont été retirés le
+// 2026-07-24 avec le passage du vérificateur en mode pull-only (plus de flèche
+// bascule). La modale n'affiche plus qu'une seule action « Prendre depuis PFS ».

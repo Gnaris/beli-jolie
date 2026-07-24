@@ -48,7 +48,6 @@ import { formatRelativeDate } from "@/lib/format-date";
 import { MarketplacePushModal } from "@/components/admin/products/MarketplacePushModal";
 import BulkActionBar, { type MarketplaceKey } from "@/components/admin/products/BulkActionBar";
 import PfsVerifyBadge, { type PfsVerifyIssue } from "@/components/admin/products/PfsVerifyBadge";
-import { verifyPfsProducts } from "@/app/actions/admin/pfs-verify";
 
 const MARKETPLACE_LABEL: Record<MarketplaceKey, string> = {
   pfs: "Paris Fashion Shop",
@@ -4128,47 +4127,6 @@ export default function AdminProductsTable({
   // marketplace configuré, les produits à publier (identifiant marketplace
   // absent + statut ONLINE) ou à synchroniser (drapeau *SyncRequired = true).
 
-  // Vérification PFS en lot : ne modifie ni PFS ni BJ, écrit juste
-  // pfsCheckedAt/pfsCheckStatus/pfsCheckIssues. La pastille se met à jour
-  // après revalidateTag → refresh() Next 16 (poussé par le server action).
-  const handleBulkMarketplaceVerify = useCallback(
-    async (ids: string[]) => {
-      if (ids.length === 0) return;
-      toast.info(
-        `Vérification PFS de ${ids.length} produit${ids.length > 1 ? "s" : ""}…`,
-        "La pastille se met à jour à côté du nom de chaque produit.",
-      );
-      try {
-        const res = await verifyPfsProducts(ids);
-        if (!res.success) {
-          toast.error("Vérification impossible", res.error);
-          return;
-        }
-        const okCount = res.outcomes.filter((o) => o.ok && o.status === "ok").length;
-        const diffCount = res.outcomes.filter((o) => o.ok && o.status === "diff").length;
-        const errCount = res.outcomes.filter((o) => !o.ok).length;
-        const parts: string[] = [];
-        if (okCount > 0) parts.push(`${okCount} conforme${okCount > 1 ? "s" : ""}`);
-        if (diffCount > 0) parts.push(`${diffCount} avec écart${diffCount > 1 ? "s" : ""}`);
-        if (errCount > 0) parts.push(`${errCount} en erreur`);
-        if (diffCount === 0 && errCount === 0) {
-          toast.success("Vérification terminée", parts.join(" · "));
-        } else {
-          toast.info("Vérification terminée", parts.join(" · "));
-        }
-        // Refresh Next 16 pour recharger la liste avec les nouvelles valeurs
-        // pfsCheckedAt/pfsCheckStatus/pfsCheckIssues persistées côté serveur.
-        router.refresh();
-      } catch (e) {
-        toast.error(
-          "Vérification impossible",
-          e instanceof Error ? e.message : "Erreur inconnue.",
-        );
-      }
-    },
-    [toast, router],
-  );
-
   const handleBulkMarketplacePublish = useCallback((marketplace: MarketplaceKey, ids: string[]) => {
     if (ids.length === 0) return;
     setBulkPublishConfirm({ marketplace, ids });
@@ -4559,7 +4517,6 @@ export default function AdminProductsTable({
         onDeselectAll={() => setSelectedIds(new Set())}
         onMarketplacePublish={handleBulkMarketplacePublish}
         onMarketplaceSync={handleBulkMarketplaceSync}
-        onMarketplaceVerify={handleBulkMarketplaceVerify}
         onPublishDrafts={() => setBulkPublishDraftsOpen(true)}
         onSetBestSeller={handleBulkSetBestSeller}
         onSetImportant={handleBulkSetImportant}

@@ -109,6 +109,7 @@ model User {
   priceChanges               PriceHistory[]                   @relation("PriceChanger")
   adminClientCards           AdminClientCard[]                @relation("AdminCardCreator")
   adminCardPurchaseAdditions AdminClientCardProductPurchase[] @relation("AdminCardPurchaseAdder")
+  microstoreOrders           MicrostoreOrder[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, siret])
@@ -184,6 +185,8 @@ model AdminClientCard {
   ankorstoreRetailerId    String?
   // Idem pour Faire (retailer_id — "r_xxxxx" ou UUID).
   faireRetailerId         String?
+  // Idem pour Microstore (client_info.client_id, ex "10900").
+  microstoreClientId      String?
   // Marqueur "fiche créée automatiquement par une synchro marketplace"
   // (valeurs : "PFS", "EFASHION", "ANKORSTORE", "FAIRE"…). Utilisé pour afficher le badge "Importé auto".
   importedFromMarketplace String?
@@ -215,6 +218,7 @@ model AdminClientCard {
   efashionOrders   EfashionOrder[]
   ankorstoreOrders AnkorstoreOrder[]
   faireOrders      FaireOrder[]
+  microstoreOrders MicrostoreOrder[]
   productPurchases AdminClientCardProductPurchase[]
 
   @@index([tenantId])
@@ -224,6 +228,7 @@ model AdminClientCard {
   @@index([tenantId, efashionCustomerId])
   @@index([tenantId, ankorstoreRetailerId])
   @@index([tenantId, faireRetailerId])
+  @@index([tenantId, microstoreClientId])
   @@index([tenantId, siret])
 }
 
@@ -807,6 +812,134 @@ model FaireOrderItem {
 }
 
 // ─────────────────────────────────────────────
+// Microstore (Dokkr) — commandes importées via QR-code session
+// L'API Microstore n'a ni webhook ni push : on pull périodiquement via
+// GET /order/new_view_all + GET /pluginsWeb/orderInfo/{id}.
+// Les commandes sont marquées « déjà payées » à l'import (choix cliente).
+// ─────────────────────────────────────────────
+
+enum MicrostoreOrderStatus {
+  NEW // Nouvelle commande, à préparer (goods_status=1, shipping_status=0)
+  SHIPPED // Expédiée (shipping_status=all shipped)
+  CANCELLED // Annulée côté Microstore
+}
+
+model MicrostoreOrder {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Identifiant côté Microstore (doc_info.id — ex "1001026").
+  microstoreOrderId String
+  posNum            String? // doc_info.pos_num
+
+  status    MicrostoreOrderStatus @default(NEW)
+  statusRaw String // "shipping_status/goods_status" raw pour debug
+  currency  String                @default("EUR")
+
+  // Timestamps Microstore (ctime = Unix sec)
+  createdAtMicrostore DateTime
+  updatedAtMicrostore DateTime?
+  shippedAt           DateTime?
+  canceledAt          DateTime?
+
+  // Montants
+  totalHT        Decimal @db.Decimal(12, 2) // doc_info.total_price
+  paidPrice      Decimal @default(0) @db.Decimal(12, 2)
+  shippingPrice  Decimal @default(0) @db.Decimal(12, 2)
+  shippingLabel  String? // doc_info.shipping_name (ex "Regrouper mes commandes / Group my orders")
+  remark         String? @db.Text // Note laissée par le client sur Microstore
+  invoiceTitle   String? // doc_info.invoice_title
+
+  // Adresse livraison (aplatie depuis client_info)
+  shippingName        String? // address_name (ex "Robin Rossignol")
+  shippingCompany     String?
+  shippingStreet      String? @db.Text
+  shippingCity        String?
+  shippingPostalCode  String?
+  shippingCountryCode String? // ISO alpha-2 (mappé depuis "FRANCE"→"FR")
+  shippingPhone       String?
+
+  // Snapshot client
+  microstoreClientId String? // client_info.client_id (Microstore internal ID)
+  customerName       String
+  customerCompany    String?
+  customerEmail      String?
+  customerPhone      String?
+  customerCountry    String?
+  customerVatNumber  String? // vat_num
+
+  // Rattachement fiche client admin
+  adminClientCardId String?
+  adminClientCard   AdminClientCard? @relation(fields: [adminClientCardId], references: [id], onDelete: SetNull)
+
+  // Rattachement User (créé automatiquement si l'email est nouveau)
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Payload brut de GET /pluginsWeb/orderInfo/{id} pour debug et migration
+  rawDetailJson Json?
+
+  lastSyncedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  items MicrostoreOrderItem[]
+
+  @@unique([tenantId, microstoreOrderId])
+  @@index([tenantId, createdAtMicrostore])
+  @@index([tenantId, status])
+  @@index([tenantId, microstoreClientId])
+  @@index([adminClientCardId])
+  @@index([userId])
+}
+
+model MicrostoreOrderItem {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  microstoreOrderInternalId String
+  microstoreOrder           MicrostoreOrder @relation(fields: [microstoreOrderInternalId], references: [id], onDelete: Cascade)
+
+  // Identifiants Microstore
+  microstoreItemId   String // goods_info.id
+  microstoreGoodsId  String? // goods_info.goods_id
+  microstoreSkuId    String? // goods_info.sku_id
+  itemRef            String // notre référence produit (ex "V346", "ZC22E") — matching principal
+  goodsSn            String? // EAN 13 (ex "2039760012845")
+  microstoreColorId  String? // goods_info.color_id
+  colorNameSnapshot  String? // goods_info.color_name (ex "Doré", "Bleu")
+  sizeNameSnapshot   String? // goods_info.size_name (souvent vide)
+  productSnapshotName String? @db.Text // goods_info.name
+
+  // Rattachement BJ (matching EAN puis fallback itemRef+color)
+  productId      String?
+  product        Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productColorId String?
+  productColor   ProductColor? @relation(fields: [productColorId], references: [id], onDelete: SetNull)
+
+  quantity     Int
+  unitPriceHT  Decimal @db.Decimal(12, 2) // goods_info.price
+  totalPriceHT Decimal @db.Decimal(12, 2) // goods_info.sale_sub_price
+
+  imageUrl String? @db.Text // goods_info.img
+
+  // Idempotence de déduction stock (comme les autres marketplaces)
+  stockDeductedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([microstoreOrderInternalId])
+  @@index([tenantId, productId])
+  @@index([tenantId, productColorId])
+  @@index([tenantId, itemRef])
+  @@index([tenantId, stockDeductedAt])
+}
+
+// ─────────────────────────────────────────────
 // Catalogue produits
 // ─────────────────────────────────────────────
 
@@ -1089,6 +1222,7 @@ model Product {
   efashionOrderItems          EfashionOrderItem[]
   ankorstoreOrderItems        AnkorstoreOrderItem[]
   faireOrderItems             FaireOrderItem[]
+  microstoreOrderItems        MicrostoreOrderItem[]
   adminCardPurchases          AdminClientCardProductPurchase[]
   isBestSeller                Boolean                          @default(false)
   status                      ProductStatus                    @default(OFFLINE)
@@ -1611,6 +1745,7 @@ model ProductColor {
   efashionOrderItems      EfashionOrderItem[]
   ankorstoreOrderItems    AnkorstoreOrderItem[]
   faireOrderItems         FaireOrderItem[]
+  microstoreOrderItems    MicrostoreOrderItem[]
   adminCardPurchases      AdminClientCardProductPurchase[]
   disabled                Boolean                          @default(false) // Masquer côté client sans supprimer
   sku                     String?                          @unique // SKU universel: {ref}_{couleur}_{UNIT|PACK}_{index}
@@ -3184,6 +3319,9 @@ model Tenant {
 
   faireOrders     FaireOrder[]
   faireOrderItems FaireOrderItem[]
+
+  microstoreOrders     MicrostoreOrder[]
+  microstoreOrderItems MicrostoreOrderItem[]
 
   emailScenarios    EmailScenario[]
   emailSends        EmailSend[]
