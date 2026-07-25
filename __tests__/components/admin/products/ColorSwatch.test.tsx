@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, afterEach } from "vitest";
-import { ColorSwatch } from "@/components/admin/products/AdminProductsTable";
+import { ColorSwatch, isColorOutOfStock } from "@/components/admin/products/AdminProductsTable";
 
 describe("ColorSwatch", () => {
   afterEach(() => cleanup());
@@ -58,5 +58,53 @@ describe("ColorSwatch", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent("Vert");
     fireEvent.blur(el);
     expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("entoure la pastille en rouge et enrichit l'aria-label quand outOfStock=true", () => {
+    render(
+      <ColorSwatch
+        color={{ name: "Argent", hex: "#C0C0C0", patternImage: null }}
+        outOfStock
+      />,
+    );
+    const el = screen.getByLabelText("Argent — rupture de stock");
+    expect(el).toBeInTheDocument();
+    expect(el.getAttribute("data-out-of-stock")).toBe("true");
+    // La couleur rouge (#DC2626) doit apparaître dans le boxShadow d'entourage.
+    expect(el.className).toContain("shadow-[0_0_0_2px_#DC2626]");
+  });
+
+  it("laisse l'aria-label neutre quand outOfStock est absent ou faux", () => {
+    render(<ColorSwatch color={{ name: "Cuivre", hex: "#B87333", patternImage: null }} />);
+    const el = screen.getByLabelText("Cuivre");
+    expect(el.hasAttribute("data-out-of-stock")).toBe(false);
+  });
+});
+
+describe("isColorOutOfStock", () => {
+  it("renvoie true quand toutes les variantes partageant le colorId sont à 0", () => {
+    const colors = [
+      { colorId: "c1", stock: 0 },
+      { colorId: "c1", stock: 0 },
+      { colorId: "c2", stock: 3 },
+    ];
+    expect(isColorOutOfStock(colors, "c1")).toBe(true);
+  });
+
+  it("renvoie false dès qu'au moins une variante de la couleur a du stock", () => {
+    const colors = [
+      { colorId: "c1", stock: 0 },
+      { colorId: "c1", stock: 2 },
+    ];
+    expect(isColorOutOfStock(colors, "c1")).toBe(false);
+  });
+
+  it("renvoie false quand aucune variante ne matche le colorId (couleur orpheline)", () => {
+    const colors = [{ colorId: "c1", stock: 0 }];
+    expect(isColorOutOfStock(colors, "c2")).toBe(false);
+  });
+
+  it("renvoie false pour un colorId null (variante legacy sans couleur)", () => {
+    expect(isColorOutOfStock([{ colorId: null, stock: 0 }], null)).toBe(false);
   });
 });

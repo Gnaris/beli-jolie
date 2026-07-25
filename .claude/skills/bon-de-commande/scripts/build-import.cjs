@@ -112,30 +112,54 @@ function colLetter(index) {
 }
 
 function nameFromCategory(cat) {
-  // Catégories au singulier côté site Beli & Jolie.
+  // Noms alignés sur les catégories réellement présentes en BDD beliandjolie.com
   const map = {
-    "Boucle d'oreille":   "Boucles d'oreilles en acier inoxydable",
+    "Boucles d'oreilles": "Boucles d'oreilles en acier inoxydable",
     "Collier":            "Collier en acier inoxydable",
-    "Bague":              "Bague en acier inoxydable",
+    "Bague ajustable":    "Bague ajustable en acier inoxydable",
     "Bracelet":           "Bracelet en acier inoxydable",
     "Pendentif":          "Pendentif en acier inoxydable",
     "Broche":             "Broche en acier inoxydable",
-    "Bracelet de main":   "Bracelet de main en acier inoxydable",
     "Chaîne de cheville": "Chaîne de cheville en acier inoxydable",
+    "Chaîne de taille":   "Chaîne de taille en acier inoxydable",
+    "Parure de bijoux":   "Parure de bijoux en acier inoxydable",
   };
   return map[cat] || `${cat} en acier inoxydable`;
 }
 
+// Poids par défaut (kg) par catégorie — valeurs indicatives, éditables ensuite
+// dans l'admin. Confirmé cliente 2026-07-25 (option A).
+const DEFAULT_WEIGHT_KG = {
+  "Bague ajustable":    0.005,
+  "Boucles d'oreilles": 0.010,
+  "Bracelet":           0.015,
+  "Collier":            0.020,
+  "Chaîne de cheville": 0.015,
+  "Chaîne de taille":   0.030,
+  "Chaîne de corps":    0.030,
+  "Pendentif":          0.005,
+  "Broche":             0.015,
+  "Parure de bijoux":   0.050,
+  "Piercing":           0.005,
+  "Lunettes":           0.030,
+  "Porte-clé":          0.020,
+};
+
+function weightFromCategory(cat) {
+  return DEFAULT_WEIGHT_KG[cat] || 0.020;
+}
+
 function descFromCategory(cat) {
   const map = {
-    "Boucle d'oreille":   "Boucles d'oreilles en acier inoxydable, hypoallergéniques et résistantes à l'eau. Bijou femme léger et durable au design moderne, idéal pour un usage quotidien ou en cadeau.",
+    "Boucles d'oreilles": "Boucles d'oreilles en acier inoxydable, hypoallergéniques et résistantes à l'eau. Bijou femme léger et durable au design moderne, idéal pour un usage quotidien ou en cadeau.",
     "Collier":            "Collier en acier inoxydable, hypoallergénique et résistant à l'eau. Bijou femme délicat et durable, parfait pour un look chic au quotidien ou en cadeau.",
-    "Bague":              "Bague en acier inoxydable, hypoallergénique et résistante à l'eau. Anneau durable et confortable, idéal pour un usage quotidien.",
+    "Bague ajustable":    "Bague ajustable en acier inoxydable, hypoallergénique et résistante à l'eau. Anneau durable, confortable et adaptable à tous les doigts.",
     "Bracelet":           "Bracelet en acier inoxydable, hypoallergénique et résistant à l'eau. Bijou femme léger et durable, parfait pour un look moderne au quotidien.",
     "Pendentif":          "Pendentif en acier inoxydable, hypoallergénique et résistant à l'eau. Bijou femme délicat et durable.",
     "Broche":             "Broche en acier inoxydable, hypoallergénique et résistante à l'eau. Bijou femme durable au design moderne.",
-    "Bracelet de main":   "Bracelet de main en acier inoxydable, hypoallergénique et résistant à l'eau. Bijou femme léger et durable.",
     "Chaîne de cheville": "Chaîne de cheville en acier inoxydable, hypoallergénique et résistante à l'eau. Bijou femme léger et durable.",
+    "Chaîne de taille":   "Chaîne de taille en acier inoxydable, hypoallergénique et résistante à l'eau. Bijou femme raffiné pour souligner la silhouette.",
+    "Parure de bijoux":   "Parure de bijoux en acier inoxydable, hypoallergénique et résistante à l'eau. Ensemble coordonné pour un look complet et harmonieux.",
   };
   return map[cat] || `${cat} en acier inoxydable, hypoallergénique et résistant à l'eau.`;
 }
@@ -192,7 +216,7 @@ async function main() {
         pack_qty: v.pack_qty || "",
         discount_type: v.discount_type || "",
         discount_value: v.discount_value || "",
-        weight_kg: v.weight_kg || "",
+        weight_kg: v.weight_kg || weightFromCategory(p.category),
       });
     });
   }

@@ -9,27 +9,33 @@
 La colonne `品名` (« pinming ») du bon de commande indique le type de bijou.
 Si elle contient `返单`, le produit existe déjà → à mettre dans la liste séparée (ne pas inclure dans l'Excel).
 
-> ⚠️ **Règles d'orthographe cliente (confirmées 2026-06-12)** :
+> ⚠️ **Règles d'orthographe cliente (confirmées 2026-06-12, alignées BDD 2026-07-25)** :
 > - Catégories au **singulier** sauf **« Boucles d'oreilles »** qui reste au pluriel (cas particulier — l'objet va par paire).
-> - **« Bracelet de main »** et **« Chaîne de cheville »** sont des **sous-catégories** de Bracelet, pas des catégories à part.
+> - **戒指 = « Bague ajustable »** (pas juste « Bague » — c'est le libellé exact du site).
+> - **Parure de bijoux** au singulier (BDD prod).
+> - **« Chaîne de cheville »** = **catégorie principale** (pas sous-cat de Bracelet).
+> - **« Collier de dos »** = **sous-catégorie de Collier** (une seule sous-cat active).
+> - **Sous-catégories inexistantes en BDD** (Clips, Puce d'oreille, Jonc, Bracelet de main, À l'unité) → laissées **vides** dans l'import ; la cliente les créera à la volée dans l'admin si besoin.
 
 | Chinois (品名) | Catégorie BDD       | Sous-catégorie       | Notes                                         |
 |----------------|---------------------|----------------------|-----------------------------------------------|
 | 耳环           | Boucles d'oreilles  | —                    | Boucles d'oreilles standard                   |
-| 耳钉           | Boucles d'oreilles  | —                    | Puce d'oreille (stud) — confirmé 2026-06-12   |
-| 耳骨夹         | Boucles d'oreilles  | Clips                | Confirmé par la cliente le 2026-06-12         |
-| 耳夹           | Boucles d'oreilles  | Clips                | Confirmé 2026-06-18 (idem 耳骨夹)             |
-| 单只耳环       | Boucles d'oreilles  | À l'unité            | Une boucle pour une seule oreille (mono-puce) |
+| 耳钉           | Boucles d'oreilles  | —                    | Puce d'oreille (stud)                         |
+| 耳骨夹         | Boucles d'oreilles  | —                    | Clips (sous-cat pas en BDD → vide)            |
+| 耳夹           | Boucles d'oreilles  | —                    | Clips (sous-cat pas en BDD → vide)            |
+| 单只耳环       | Boucles d'oreilles  | —                    | Mono-puce (sous-cat pas en BDD → vide)        |
 | 项链           | Collier             | —                    | Collier                                       |
-| 胸链           | Collier             | Collier de dos       | Confirmé par la cliente le 2026-06-12         |
-| 戒指           | Bague               | —                    | Bague                                         |
+| 胸链           | Collier             | Collier de dos       | Sous-cat active en BDD                        |
+| 戒指           | **Bague ajustable** | —                    | Aligné BDD prod 2026-07-25                    |
 | 手链           | Bracelet            | —                    | Bracelet chaîne                               |
-| 手镯           | Bracelet            | Jonc                 | Confirmé par la cliente le 2026-06-12         |
-| 光面手镯       | Bracelet            | Jonc                 | Jonc lisse                                    |
-| 豹纹绳子手镯   | Bracelet            | Jonc                 | Cas unique (motif léopard cordon)             |
-| 脚链           | Bracelet            | Chaîne de cheville   | Confirmé 2026-06-12 (sous-cat de Bracelet)    |
-| 手背链         | Bracelet            | Bracelet de main     | Confirmé 2026-06-12 (sous-cat de Bracelet)    |
-| 胸针           | Broche              | —                    | **Nouvelle catégorie** — confirmée 2026-06-12 |
+| 手镯           | Bracelet            | —                    | Jonc (sous-cat pas en BDD → vide)             |
+| 光面手镯       | Bracelet            | —                    | Jonc lisse (sous-cat pas en BDD → vide)       |
+| 豹纹绳子手镯   | Bracelet            | —                    | Motif léopard cordon                          |
+| 脚链           | **Chaîne de cheville** | —                | Catégorie principale (2026-07-25)             |
+| 手背链         | Bracelet            | —                    | Bracelet de main (sous-cat pas en BDD → vide) |
+| 臂镯           | Bracelet            | —                    | Bracelet bras (fallback Bracelet 2026-07-25)  |
+| 腰链           | Chaîne de taille    | —                    |                                               |
+| 胸针           | Broche              | —                    |                                               |
 
 ---
 
@@ -164,14 +170,53 @@ Les couleurs du fournisseur WF utilisent toutes des préfixes/suffixes :
 - Rouge
 - Marron
 
-## Catégories produits déjà créées en BDD (au 2026-06-12)
+## Catégories produits réellement en BDD prod beliandjolie.com (vérifié 2026-07-25)
 
-- Boucles d'oreilles
-- Colliers
-- Bracelets
-- Bagues
+- Bague ajustable
+- Boîtes & Pochettes
+- Boucles d'oreilles (sous-cat : Créoles)
+- Bracelet
+- Broche
+- Chaîne de cheville
+- Chaîne de corps
+- Chaîne de taille
+- Collier (sous-cat : Sautoir)
+- Collier de dos
+- Lot de bagues avec présentoir
+- Lot de bijoux mixtes avec présentoir
+- Lot de boucles d'oreilles avec présentoir
+- Lot de bracelets avec présentoir
+- Lot de chaînes de cheville avec présentoir
+- Lot de colliers avec présentoir
+- Lot de parures de bijoux avec présentoir
+- Lunettes
+- Parure de bijoux
 - Pendentif
-- Parures de bijoux
+- Piercing (sous-cat : Piercing nombril)
+- Porte-clé
+- Présentoir
+- Sacs
+
+## Poids par défaut (kg) par catégorie — confirmé 2026-07-25 (option A)
+
+| Catégorie              | Poids kg |
+|------------------------|----------|
+| Bague ajustable        | 0.005    |
+| Boucles d'oreilles     | 0.010    |
+| Bracelet               | 0.015    |
+| Collier                | 0.020    |
+| Chaîne de cheville     | 0.015    |
+| Chaîne de taille       | 0.030    |
+| Chaîne de corps        | 0.030    |
+| Pendentif              | 0.005    |
+| Broche                 | 0.015    |
+| Parure de bijoux       | 0.050    |
+| Piercing               | 0.005    |
+| Lunettes               | 0.030    |
+| Porte-clé              | 0.020    |
+| (défaut)               | 0.020    |
+
+La cliente peut éditer la valeur ligne par ligne dans l'Excel avant import si besoin.
 
 ---
 

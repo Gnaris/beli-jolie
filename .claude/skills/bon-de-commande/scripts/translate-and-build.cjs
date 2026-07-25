@@ -38,26 +38,30 @@ const catOverrides = CAT_OVERRIDES_PATH
 // Règle cliente (2026-06-12) : catégories au singulier SAUF "Boucles d'oreilles"
 // qui reste au pluriel (cas particulier — c'est l'objet qui va par paire).
 // "Bracelet de main" et "Chaîne de cheville" sont des sous-catégories de Bracelet.
+// Catégories alignées sur ce qui existe réellement en BDD prod beliandjolie.com
+// (vérifié 2026-07-25). Les sous-catégories inexistantes en BDD sont laissées
+// vides — la cliente les créera à la volée dans l'admin si besoin.
+// Seules sous-cats existantes utilisées ici : "Collier de dos" (sous Collier).
 const CATS = {
   "耳环":          { category: "Boucles d'oreilles", sub: "" },
   "耳钉":          { category: "Boucles d'oreilles", sub: "" },
-  "耳针":          { category: "Boucles d'oreilles", sub: "Puce d'oreille" },
+  "耳针":          { category: "Boucles d'oreilles", sub: "" },
   "耳拍":          { category: "Boucles d'oreilles", sub: "" },
-  "耳骨夹":        { category: "Boucles d'oreilles", sub: "Clips" },
-  "耳夹":          { category: "Boucles d'oreilles", sub: "Clips" },
-  "单只耳环":      { category: "Boucles d'oreilles", sub: "À l'unité" },
+  "耳骨夹":        { category: "Boucles d'oreilles", sub: "" },
+  "耳夹":          { category: "Boucles d'oreilles", sub: "" },
+  "单只耳环":      { category: "Boucles d'oreilles", sub: "" },
   "项链":          { category: "Collier",            sub: "" },
   "项链刚":        { category: "Collier",            sub: "" },
   "胸链":          { category: "Collier",            sub: "Collier de dos" },
-  "戒指":          { category: "Bague",              sub: "" },
+  "戒指":          { category: "Bague ajustable",    sub: "" },
   "手链":          { category: "Bracelet",           sub: "" },
   "手链刚":        { category: "Bracelet",           sub: "" },
-  "手镯":          { category: "Bracelet",           sub: "Jonc" },
-  "光面手镯":      { category: "Bracelet",           sub: "Jonc" },
-  "豹纹绳子手镯":  { category: "Bracelet",           sub: "Jonc" },
-  "脚链":          { category: "Bracelet",           sub: "Chaîne de cheville" },
-  "手背链":        { category: "Bracelet",           sub: "Bracelet de main" },
-  "臂镯":          { category: "Bracelet bras",      sub: "" },
+  "手镯":          { category: "Bracelet",           sub: "" },
+  "光面手镯":      { category: "Bracelet",           sub: "" },
+  "豹纹绳子手镯":  { category: "Bracelet",           sub: "" },
+  "脚链":          { category: "Chaîne de cheville", sub: "" },
+  "手背链":        { category: "Bracelet",           sub: "" },
+  "臂镯":          { category: "Bracelet",           sub: "" },
   "腰链":          { category: "Chaîne de taille",   sub: "" },
   "胸针":          { category: "Broche",             sub: "" },
 };
@@ -285,6 +289,43 @@ const translated = parsed.products
   };
 });
 
+// ── Fusion intra-produit : deux couleurs chinoises qui mappent au MÊME
+//    français (ex : 白色 + 金+白 → Blanc) doivent devenir une seule variante,
+//    stocks additionnés, prix max conservé. Sinon l'écran d'import refuse le
+//    fichier (« Variante en doublon : Blanc / UNIT »).
+function dedupeVariants(variants) {
+  const byKey = new Map();
+  const collisions = [];
+  for (const v of variants) {
+    const key = `${v.color}|${v.sale_type || "UNIT"}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, v);
+      continue;
+    }
+    collisions.push({ key, addedStock: Number(v.stock) || 0, addedPrice: Number(v.unit_price) || 0 });
+    existing.stock = (Number(existing.stock) || 0) + (Number(v.stock) || 0);
+    const existingPrice = Number(existing.unit_price) || 0;
+    const newPrice = Number(v.unit_price) || 0;
+    if (newPrice > existingPrice) existing.unit_price = v.unit_price;
+  }
+  return { list: [...byKey.values()], collisions };
+}
+const intraCollisionsLog = [];
+for (const p of translated) {
+  const { list, collisions } = dedupeVariants(p.variants);
+  p.variants = list;
+  if (collisions.length) {
+    intraCollisionsLog.push({ ref: p.reference, collisions });
+  }
+}
+if (intraCollisionsLog.length) {
+  console.log(`ℹ️  ${intraCollisionsLog.length} référence(s) avec couleurs fusionnées (même couleur FR, chinois différents) :`);
+  for (const c of intraCollisionsLog) {
+    console.log(`   - ${c.ref} : ${c.collisions.map((x) => x.key).join(", ")}`);
+  }
+}
+
 // ── Fusion des références en doublon dans le bon ──
 // Certains fournisseurs (WF) listent un même produit sur plusieurs lots/boîtes.
 // On les fusionne : variants par couleur additionnent les stocks.
@@ -298,9 +339,12 @@ for (const p of translated) {
   }
   fusionsCount[p.reference] = (fusionsCount[p.reference] || 1) + 1;
   for (const v of p.variants) {
-    const same = existing.variants.find((x) => x.color === v.color);
+    const same = existing.variants.find((x) => x.color === v.color && (x.sale_type || "UNIT") === (v.sale_type || "UNIT"));
     if (same) {
       same.stock = (Number(same.stock) || 0) + (Number(v.stock) || 0);
+      const existingPrice = Number(same.unit_price) || 0;
+      const newPrice = Number(v.unit_price) || 0;
+      if (newPrice > existingPrice) same.unit_price = v.unit_price;
     } else {
       existing.variants.push(v);
     }
@@ -365,7 +409,7 @@ for (const [base, pieces] of groups) {
   parures.push({
     reference: parureRef,
     fullRef: parureRef,
-    category: "Parures de bijoux",
+    category: "Parure de bijoux",
     sub_categories: "",
     variants: parureVariants,
     _parureOf: pieces.map((p) => p.reference),

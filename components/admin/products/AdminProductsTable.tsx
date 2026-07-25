@@ -726,6 +726,8 @@ interface ColorVariant {
   weight: number;
   stock: number;
   isPrimary: boolean;
+  /** Variante masquée côté client (bouton « Désactiver » dans l'édition complète). */
+  disabled: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   variantSizes?: VariantSizeEntry[];
@@ -733,13 +735,26 @@ interface ColorVariant {
   efashionProductId?: number | null;
 }
 
+// Une couleur (au sens palette produit) est en rupture quand TOUTES les variantes
+// qui partagent son colorId ont un stock à 0. Exporté pour permettre les tests
+// unitaires ainsi que la réutilisation ailleurs (ex. cartes mobiles).
+export function isColorOutOfStock(colors: Pick<ColorVariant, "colorId" | "stock">[], colorId: string | null): boolean {
+  if (!colorId) return false;
+  const sameColor = colors.filter((c) => c.colorId === colorId);
+  if (sameColor.length === 0) return false;
+  return sameColor.every((c) => c.stock === 0);
+}
+
 // Pastille de couleur avec légende flottante instantanée au survol.
 // La légende est portée dans `document.body` pour éviter les clipping de
 // `overflow-hidden` sur la table (cf. conteneur rounded-2xl overflow-hidden).
 export function ColorSwatch({
   color,
+  outOfStock = false,
 }: {
   color: { name: string; hex: string | null; patternImage?: string | null };
+  /** Encadre la pastille en rouge quand toutes les variantes de cette couleur sont à 0. */
+  outOfStock?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const anchorRef = useRef<HTMLSpanElement | null>(null);
@@ -771,8 +786,13 @@ export function ColorSwatch({
         onFocus={showTip}
         onBlur={hideTip}
         tabIndex={0}
-        aria-label={color.name}
-        className="inline-block w-[18px] h-[18px] rounded-full border-[1.5px] border-white shadow-[0_0_0_1px_rgba(0,0,0,0.14)] cursor-default outline-none focus:ring-2 focus:ring-emerald-400/60"
+        aria-label={outOfStock ? `${color.name} — rupture de stock` : color.name}
+        data-out-of-stock={outOfStock ? "true" : undefined}
+        className={
+          outOfStock
+            ? "inline-block w-[18px] h-[18px] rounded-full border-[1.5px] border-white shadow-[0_0_0_2px_#DC2626] cursor-default outline-none focus:ring-2 focus:ring-red-500/60"
+            : "inline-block w-[18px] h-[18px] rounded-full border-[1.5px] border-white shadow-[0_0_0_1px_rgba(0,0,0,0.14)] cursor-default outline-none focus:ring-2 focus:ring-emerald-400/60"
+        }
         style={bg}
       />
       {hovered && coords && createPortal(
@@ -1192,7 +1212,7 @@ function VariantRow({
 
   return (
     <tr className={computeVariantRowClass(stockCurrent)}>
-      {/* Couleur */}
+      {/* Couleur + état activée/désactivée (chip vert/rouge à droite du nom). */}
       <td className="px-4 py-3">
         <div className="flex items-center gap-2.5">
           <span
@@ -1206,6 +1226,15 @@ function VariantRow({
           />
           <span className="text-xs font-semibold font-body text-text-primary">
             {variant.color.name}
+          </span>
+          <span
+            role="status"
+            aria-label={variant.disabled ? "Variante désactivée" : "Variante activée"}
+            className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide text-white ${
+              variant.disabled ? "bg-red-600" : "bg-emerald-600"
+            }`}
+          >
+            {variant.disabled ? "Désactivée" : "Activée"}
           </span>
         </div>
       </td>
@@ -2408,7 +2437,11 @@ function ProductRow({
               {uniqueColors.length > 0 && (
                 <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                   {uniqueColors.map((v) => (
-                    <ColorSwatch key={v.colorId!} color={v.color} />
+                    <ColorSwatch
+                      key={v.colorId!}
+                      color={v.color}
+                      outOfStock={isColorOutOfStock(product.colors, v.colorId)}
+                    />
                   ))}
                 </div>
               )}
