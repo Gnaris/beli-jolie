@@ -124,6 +124,52 @@ export interface EfashionUpdateOutcome {
   noChanges?: boolean;
 }
 
+/**
+ * Filet de sécurité « couleur ajoutée localement mais inconnue d'eFashion ».
+ *
+ * Contexte : eFashion n'a pas d'endpoint « ajouter une couleur » sur un produit
+ * existant. Si l'utilisatrice relie manuellement un `ProductColor` à un
+ * `id_produit` eFashion inexistant/supprimé, aucune erreur ne remonte à
+ * l'appel : les push suivants (stock, description) répondent `200` mais ne
+ * stockent rien. On tag alors la variante orpheline pour skipper les push et
+ * remonter une erreur claire qui pointe vers un « Rafraîchir » complet.
+ *
+ * ⚠️ IMPORTANT — filtrage anti-faux-positif :
+ * En mode `forceFullSync=true` (bouton « Rafraîchir »), le diff met TOUTES
+ * les variantes dans `added` (parce que `prev=null`). Sans filtrage, on
+ * marquerait comme « orpheline » toute variante qui n'apparaît pas dans le
+ * listing eFashion — y compris les variantes qu'on a nous-mêmes cachées en
+ * poussant `visible=false` (couleur locale `disabled=true`). eFashion les
+ * exclut alors de son listing groupe (même filtre `premelFilter: "tous"`),
+ * ce qui déclenchait le faux positif « Écru inconnue » sur la référence
+ * 92952 issyma le 26/07/2026.
+ *
+ * Correctif : on ignore les variantes déjà connues du snapshot RÉEL (pas
+ * celui forcé à null par `forceFullSync`). Le filet cible uniquement les
+ * VRAIES nouvelles variantes.
+ */
+export function computeOrphanEfashionIds(
+  addedVariants: readonly { efashionProductId: number }[],
+  liveEfIds: ReadonlySet<number>,
+  realPrevSnapshotVariants: readonly { efashionProductId: number }[] | null,
+): Set<number> {
+  const orphans = new Set<number>();
+  const knownFromPrevSnapshot = new Set(
+    (realPrevSnapshotVariants ?? []).map((v) => v.efashionProductId),
+  );
+  for (const added of addedVariants) {
+    // Ancienne variante (déjà présente dans le snapshot RÉEL) → pas d'alerte.
+    // Elle peut être absente du listing eFashion parce qu'on a poussé
+    // visible=false auparavant (couleur locale désactivée) : légitime,
+    // pas d'action requise, pas de warning à faire remonter.
+    if (knownFromPrevSnapshot.has(added.efashionProductId)) continue;
+    if (!liveEfIds.has(added.efashionProductId)) {
+      orphans.add(added.efashionProductId);
+    }
+  }
+  return orphans;
+}
+
 export async function efashionUpdateProductInPlace(
   productId: string,
   opts: UpdateOpts = {},
@@ -217,9 +263,14 @@ export async function efashionUpdateProductInPlace(
 
   // Snapshot précédent — utilisé en plusieurs endroits (auto-création des
   // couleurs, fallback main, diff). Déclaré tôt pour partager.
-  const previousSnapshot = opts.forceFullSync
-    ? null
-    : (product.efashionLastSyncSnapshot as EfashionSnapshot | null);
+  // Snapshot RÉEL (toujours celui persisté en BDD). Sert au filet de sécurité
+  // « couleur inconnue d'eFashion » pour distinguer une nouvelle variante
+  // (jamais synchronisée) d'une variante ancienne. En `forceFullSync`, on
+  // passe `null` au diff pour tout re-pousser, mais le filet doit garder la
+  // vraie mémoire pour ne pas paniquer sur les anciennes variantes.
+  const realPrevSnapshot =
+    (product.efashionLastSyncSnapshot as EfashionSnapshot | null) ?? null;
+  const previousSnapshot = opts.forceFullSync ? null : realPrevSnapshot;
 
   // eFashion ne synchronise que les variantes UNIT. Une variante PACK qui
   // posséderait un efashionProductId (cas legacy avant le script de migration)
@@ -1143,14 +1194,14 @@ export async function efashionUpdateProductInPlace(
   // (forceFullSync, qui met previousSnapshot à null) — laissant les
   // efashionProductId orphelins passer à travers et générer des « 200 OK
   // silencieux » côté eFashion (cas W124/Fuchsia 25-29/06/2026).
-  const skippedAddedEfIds = new Set<number>();
-  if (!opts.isPostPublishAlignment && liveById.size > 0) {
-    for (const added of diff.added) {
-      if (!liveById.has(added.efashionProductId)) {
-        skippedAddedEfIds.add(added.efashionProductId);
-      }
-    }
-  }
+  const skippedAddedEfIds =
+    !opts.isPostPublishAlignment && liveById.size > 0
+      ? computeOrphanEfashionIds(
+          diff.added,
+          new Set(liveById.keys()),
+          realPrevSnapshot?.variants ?? null,
+        )
+      : new Set<number>();
   if (skippedAddedEfIds.size > 0) {
     colorsSkippedCount = skippedAddedEfIds.size;
     errors.push(
