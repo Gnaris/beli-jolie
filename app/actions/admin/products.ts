@@ -834,6 +834,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       totalPackQty: number;
       pfsColorRefOverride: string | null;
       efashionColorIdOverride: number | null;
+      disabled: boolean;
     }>;
     variantIdMap: { colorInput: ColorInput; variantId: string; isNew: boolean }[];
     orphanImagePaths: string[];
@@ -917,7 +918,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     const existingVariants = await tx.productColor.findMany({
       where: { productId: id },
       select: { id: true, colorId: true, stock: true, unitPrice: true, saleType: true, packQuantity: true,
-        pfsColorRefOverride: true, efashionColorIdOverride: true,
+        pfsColorRefOverride: true, efashionColorIdOverride: true, disabled: true,
         variantSizes: { select: { quantity: true } },
         packLines: { select: { colorId: true } } },
     });
@@ -931,6 +932,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       totalPackQty: v.variantSizes?.reduce((s: number, vs: { quantity: number }) => s + vs.quantity, 0) || (v.packQuantity ?? 12),
       pfsColorRefOverride: v.pfsColorRefOverride ?? null,
       efashionColorIdOverride: v.efashionColorIdOverride ?? null,
+      disabled: v.disabled ?? false,
     }]));
     // Verrouillage post-création : on garde colorId / saleType / packQuantity
     // de la base et on ignore ce que le client envoie pour les variantes existantes.
@@ -1408,7 +1410,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
           Number(prev.unitPrice) !== Number(c.unitPrice) ||
           prev.stock !== c.stock ||
           prev.pfsColorRefOverride !== newPfsOverride ||
-          prev.efashionColorIdOverride !== newEfashionOverride
+          prev.efashionColorIdOverride !== newEfashionOverride ||
+          prev.disabled !== (c.disabled ?? false)
         ) {
           variantsChanged = true;
           break;

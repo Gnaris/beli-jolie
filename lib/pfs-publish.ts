@@ -65,6 +65,7 @@ interface FullVariant {
   weight: number;
   stock: number;
   isPrimary: boolean;
+  disabled: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   variantSizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
@@ -156,6 +157,24 @@ function resolvePfsColorRef(
   return colorRefMap?.get(color.name) ?? color.name;
 }
 
+/**
+ * Décide du flag `is_active` PFS d'une variante.
+ *
+ * - Variante `disabled` localement (case décochée dans le tiroir) → toujours
+ *   `false`, indépendamment du stock. PFS n'exposera plus la variante côté
+ *   vitrine partenaire, mais le vrai stock BDD reste intact — réactiver la
+ *   variante repousse `is_active: true` (et son stock) au prochain sync.
+ * - `deactivateOnZeroStock` = true (config PFS par défaut) → `stock > 0`
+ *   suffit. Sinon, `is_active` est toujours vrai tant que non désactivée.
+ */
+export function pfsComputeVariantIsActive(
+  variant: { stock: number | null; disabled: boolean },
+  deactivateOnZeroStock: boolean,
+): boolean {
+  if (variant.disabled) return false;
+  return deactivateOnZeroStock ? (variant.stock ?? 0) > 0 : true;
+}
+
 function getPfsUnitPrice(variant: FullVariant, markup?: MarkupConfig): number {
   const price = Number(variant.unitPrice);
   let unitPrice: number;
@@ -202,6 +221,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           weight: true,
           stock: true,
           isPrimary: true,
+          disabled: true,
           saleType: true,
           packQuantity: true,
           variantSizes: {
@@ -429,7 +449,7 @@ export async function pfsPublishProduct(
             price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
             weight: variant.weight,
             stock_qty: variant.stock ?? 0,
-            is_active: outOfStockCfg.deactivateVariant ? (variant.stock ?? 0) > 0 : true,
+            is_active: pfsComputeVariantIsActive(variant, outOfStockCfg.deactivateVariant),
           },
         });
       }
@@ -481,7 +501,7 @@ export async function pfsPublishProduct(
             price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
             weight: variant.weight,
             stock_qty: variant.stock ?? 0,
-            is_active: outOfStockCfg.deactivateVariant ? (variant.stock ?? 0) > 0 : true,
+            is_active: pfsComputeVariantIsActive(variant, outOfStockCfg.deactivateVariant),
             packs: packEntries,
           },
         });

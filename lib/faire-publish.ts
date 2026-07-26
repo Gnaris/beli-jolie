@@ -66,6 +66,7 @@ interface FullVariant {
   weight: number;
   stock: number;
   isPrimary: boolean;
+  disabled: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   colorId: string | null;
@@ -136,6 +137,7 @@ export async function loadFaireProductFull(productId: string): Promise<FullProdu
           weight: true,
           stock: true,
           isPrimary: true,
+          disabled: true,
           saleType: true,
           packQuantity: true,
           colorId: true,
@@ -238,6 +240,10 @@ function packColorLabel(v: FullVariant): string {
 
 function effectiveStock(v: FullVariant, productStatus: string): number {
   if (productStatus === "ARCHIVED") return 0;
+  // Variante désactivée localement : Faire n'a pas de vrai flag « désactiver »
+  // par variante — la seule façon propre de la rendre inachetable côté portail
+  // est de pousser stock = 0. Le vrai stock reste en BDD (réactivable).
+  if (v.disabled) return 0;
   return v.stock ?? 0;
 }
 
@@ -360,7 +366,8 @@ function buildFaireLines(
       // shouldExposeSizeAxis ne renvoie true que quand ≥ 2 tailles existent,
       // donc les variantes sans taille sont marginales.
       for (const s of v.variantSizes) {
-        const perSize = product.status === "ARCHIVED" ? 0 : s.quantity;
+        // Variante désactivée = toutes ses lignes-taille passent à 0.
+        const perSize = product.status === "ARCHIVED" || v.disabled ? 0 : s.quantity;
         lines.push({ bjVariant: v, sizeName: s.size.name, stockEffective: perSize });
       }
     } else {
@@ -512,7 +519,11 @@ export function buildFaireProductPayload(
         sku,
         name: variantName,
         available_quantity: stock,
-        active: stock > 0 || product.status !== "ARCHIVED",
+        // Une variante désactivée doit être `active: false` côté Faire pour ne
+        // plus s'afficher, en plus du stock 0. Sans ça, elle reste visible
+        // « épuisée » sur le portail alors que la cliente l'a explicitement
+        // masquée.
+        active: !v.disabled && (stock > 0 || product.status !== "ARCHIVED"),
         options: optionsPayload,
         ...(images ? { images } : {}),
         ...(measurements ? { measurements } : {}),

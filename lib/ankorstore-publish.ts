@@ -60,6 +60,7 @@ interface FullVariant {
   weight: number;
   stock: number;
   isPrimary: boolean;
+  disabled: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   sku: string | null;
@@ -145,6 +146,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           weight: true,
           stock: true,
           isPrimary: true,
+          disabled: true,
           saleType: true,
           packQuantity: true,
           sku: true,
@@ -216,14 +218,18 @@ function getVariantStock(variant: FullVariant): number {
  *   au prochain push. Choix volontaire — l'API publique Ankorstore n'expose
  *   pas de "désactiver", donc mettre stock à 0 = seule façon propre de
  *   rendre un produit inachetable depuis l'API officielle.
- * - ONLINE → vrai stock local envoyé.
+ * - Variante `disabled` localement → même logique : stock forcé à 0. Le vrai
+ *   stock reste en BDD ; réactiver la variante repousse le vrai stock au
+ *   prochain sync.
+ * - ONLINE + variante active → vrai stock local envoyé.
  */
-function getEffectiveStockForAnkorstore(
-  variant: FullVariant,
+export function getEffectiveStockForAnkorstore(
+  variant: Pick<FullVariant, "stock" | "disabled">,
   productStatus: string,
 ): number {
   if (productStatus === "ARCHIVED" || productStatus === "OFFLINE") return 0;
-  return getVariantStock(variant);
+  if (variant.disabled) return 0;
+  return variant.stock ?? 0;
 }
 
 function getAnkorstoreWholesalePrice(variant: FullVariant, markup: MarkupConfig): number {

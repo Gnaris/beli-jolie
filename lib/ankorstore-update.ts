@@ -48,6 +48,7 @@ import {
   readCallbackStatus,
   extractFailureReason,
   fetchDetailedFailureMessage,
+  getEffectiveStockForAnkorstore,
 } from "@/lib/ankorstore-publish";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
@@ -83,6 +84,7 @@ interface FullVariant {
   weight: number;
   stock: number;
   isPrimary: boolean;
+  disabled: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   sku: string | null;
@@ -173,6 +175,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           weight: true,
           stock: true,
           isPrimary: true,
+          disabled: true,
           saleType: true,
           packQuantity: true,
           sku: true,
@@ -317,14 +320,10 @@ function buildVariantSnapshot(
   config: AnkorstorePricingConfig,
 ): AnkorstoreVariantSnapshot {
   const sku = buildVariantSku(product, variant, index);
-  // ARCHIVED ou OFFLINE localement → stock forcé à 0 côté AS (produit retiré
-  // de la vente). Réversible : repasser en ONLINE renverra le vrai stock au
-  // prochain push. L'API publique Ankorstore n'expose pas de "désactiver",
-  // donc stock 0 = seule façon propre de rendre un produit inachetable.
-  const stock =
-    product.status === "ARCHIVED" || product.status === "OFFLINE"
-      ? 0
-      : (variant.stock ?? 0);
+  // Stock envoyé à AS : 0 si le produit est ARCHIVED/OFFLINE OU si la variante
+  // est désactivée localement (case « désactivée »). Le vrai stock reste en
+  // BDD ; ré-activer la variante repousse le vrai stock au prochain sync.
+  const stock = getEffectiveStockForAnkorstore(variant, product.status);
   const colorLabel =
     variant.saleType === "PACK"
       ? getPackColorLabel(variant)
@@ -592,7 +591,12 @@ export async function ankorstoreKickoffUpdate(
     }
     const nextImagesSnap = buildImagesSnapshot(product);
 
-    const allVariantsOutOfStock = product.colors.every((v) => (v.stock ?? 0) === 0);
+    // Une variante désactivée compte comme « out of stock » pour ce calcul :
+    // sinon un produit dont toutes les variantes sont désactivées passerait
+    // encore en ONLINE côté AS alors que rien n'est achetable.
+    const allVariantsOutOfStock = product.colors.every(
+      (v) => v.disabled || (v.stock ?? 0) === 0,
+    );
     const targetStatus: AnkorstoreStatus =
       product.status === "ARCHIVED"
         ? "archived"
@@ -907,13 +911,8 @@ export async function ankorstoreKickoffUpdate(
         return {
           sku,
           ian: null,
-          // ARCHIVED ou OFFLINE localement → stock 0 forcé (retiré de la
-          // vente). Réversible : repasser en ONLINE renverra le vrai stock
-          // au prochain push.
-          stockQuantity:
-            product.status === "ARCHIVED" || product.status === "OFFLINE"
-              ? 0
-              : (variant.stock ?? 0),
+          // Stock effectif envoyé — voir getEffectiveStockForAnkorstore.
+          stockQuantity: getEffectiveStockForAnkorstore(variant, product.status),
           isAlwaysInStock: false,
           wholesalePrice: variantWholesale,
           retailPrice: variantRetail,

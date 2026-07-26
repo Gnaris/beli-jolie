@@ -28,6 +28,7 @@ import {
   type PfsVariantCreateData,
   type PfsVariantUpdateData,
 } from "@/lib/pfs-api-write";
+import { pfsComputeVariantIsActive } from "@/lib/pfs-publish";
 import { pfsGetVariants, pfsCheckReference } from "@/lib/pfs-api";
 import { mapLocalToPfsStatus } from "@/lib/pfs-status";
 import { getPfsOutOfStockConfig } from "@/lib/pfs-out-of-stock-config";
@@ -77,6 +78,7 @@ interface FullVariant {
   weight: number;
   stock: number;
   isPrimary: boolean;
+  disabled: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   variantSizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
@@ -164,6 +166,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           weight: true,
           stock: true,
           isPrimary: true,
+          disabled: true,
           saleType: true,
           packQuantity: true,
           variantSizes: {
@@ -328,7 +331,7 @@ function buildVariantCreateData(
   pfsMarkup?: MarkupConfig,
   deactivateOnZeroStock = true,
 ): PfsVariantCreateData | null {
-  const isActive = deactivateOnZeroStock ? (variant.stock ?? 0) > 0 : true;
+  const isActive = pfsComputeVariantIsActive(variant, deactivateOnZeroStock);
   if (variant.saleType === "UNIT") {
     const colorRef = getEffectiveColorRef(variant, colorRefMap);
     if (!colorRef) return null;
@@ -508,7 +511,7 @@ function buildVariantSnapshot(
     price: getPfsUnitPrice(variant, pfsMarkup),
     stock,
     weight: variant.weight,
-    isActive: deactivateOnZeroStock ? stock > 0 : true,
+    isActive: pfsComputeVariantIsActive(variant, deactivateOnZeroStock),
     colorRef: effective,
     saleType: variant.saleType,
     packSignature: computePackSignatureFromEntries(packEntries),
@@ -926,7 +929,7 @@ export async function pfsUpdateProductInPlace(
         price_eur_ex_vat: getPfsUnitPrice(bjVariant, pfsMarkup),
         stock_qty: bjVariant.stock ?? 0,
         weight: bjVariant.weight,
-        is_active: outOfStockCfg.deactivateVariant ? (bjVariant.stock ?? 0) > 0 : true,
+        is_active: pfsComputeVariantIsActive(bjVariant, outOfStockCfg.deactivateVariant),
       }));
 
       try {
