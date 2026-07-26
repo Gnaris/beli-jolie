@@ -194,6 +194,128 @@ export function buildPatchBody(
   return out;
 }
 
+/**
+ * Aligne un PATCH body Faire avec l'état RÉEL du produit côté Faire, quand ce
+ * dernier a été créé hors Beli & Jolie (portail Faire, ou brand qui a bougé
+ * les libellés manuellement).
+ *
+ * Faire refuse toute modif d'options d'une variante existante avec :
+ *   « Product variant options cannot be changed. » (HTTP 400)
+ * Cette erreur tombe DÈS QUE le nom de dimension ou la casse d'une valeur
+ * diverge — même si conceptuellement on parle de la même couleur. Cas vu en
+ * prod (2026-07, tenant issyma, produit 93126) :
+ *   - Faire stocke `variant_option_sets: [{ name: "Couleur", values:
+ *     ["Vert pomme", "marron", ...] }]`
+ *   - Notre code envoie `[{ name: "Color", values: ["Vert Pomme",
+ *     "Brun foncé", ...] }]` + 2 nouvelles couleurs (Moutarde, Taupe).
+ *   → Faire lit ça comme « tu renommes la dimension ET tu changes les
+ *     libellés des variantes existantes » → refus global.
+ *
+ * Deux normalisations appliquées :
+ *   1. Nom de dimension : on remplace nos noms par ceux de Faire, par index
+ *      (dimension i BJ ↔ dimension i Faire). Suffisant tant qu'on n'a que 2
+ *      axes max (Color puis Size).
+ *   2. Valeur des options des variantes EXISTANTES (id Faire connu) : on
+ *      force la valeur exacte que Faire a stockée pour ce vid. Résultat :
+ *      les variantes existantes restent bit-à-bit identiques côté options,
+ *      seules les NOUVELLES apparaissent avec nos libellés BJ.
+ *
+ * `variant_option_sets.values` est aussi reconstruit : valeurs Faire d'abord
+ * (ordre + casse originaux), puis ajout des nouvelles valeurs BJ absentes
+ * (comparaison casse-insensible pour ne pas insérer un doublon comme
+ * "Vert Pomme" à côté de "Vert pomme").
+ */
+export function reconcilePatchBodyWithFaireOptions(
+  patchBody: Record<string, unknown>,
+  faireState: {
+    variants: { id: string; options?: { name?: string; value?: string }[] }[];
+    variantOptionSets: { name: string; values: string[] }[];
+  },
+): Record<string, unknown> {
+  if (faireState.variantOptionSets.length === 0) return patchBody;
+
+  const bjOptionSets = Array.isArray(patchBody.variant_option_sets)
+    ? (patchBody.variant_option_sets as { name?: string; values?: string[] }[])
+    : [];
+
+  // Map { name BJ → name Faire } par index de dimension (couleur puis taille).
+  const nameMap = new Map<string, string>();
+  for (let i = 0; i < bjOptionSets.length; i++) {
+    const bjName = bjOptionSets[i]?.name;
+    const faireName = faireState.variantOptionSets[i]?.name;
+    if (
+      typeof bjName === "string" &&
+      typeof faireName === "string" &&
+      bjName !== faireName
+    ) {
+      nameMap.set(bjName, faireName);
+    }
+  }
+
+  // Map { vid Faire → options[] réelles } — pour caler les variantes existantes.
+  const faireOptionsByVid = new Map<string, { name: string; value: string }[]>();
+  for (const v of faireState.variants) {
+    const opts = (v.options ?? [])
+      .filter(
+        (o): o is { name: string; value: string } =>
+          typeof o?.name === "string" && typeof o?.value === "string",
+      );
+    if (opts.length > 0) faireOptionsByVid.set(v.id, opts);
+  }
+
+  const rewrittenBody: Record<string, unknown> = { ...patchBody };
+
+  // 1) Reconstruit variants[]
+  if (Array.isArray(patchBody.variants)) {
+    rewrittenBody.variants = (patchBody.variants as Record<string, unknown>[]).map(
+      (v) => {
+        const vid = typeof v.id === "string" ? v.id : null;
+        const faireOpts = vid ? faireOptionsByVid.get(vid) : undefined;
+        const bjOpts = Array.isArray(v.options)
+          ? (v.options as { name?: string; value?: string }[])
+          : [];
+        const rewrittenOptions = bjOpts.map((opt, idx) => {
+          const renamedName =
+            typeof opt.name === "string"
+              ? (nameMap.get(opt.name) ?? opt.name)
+              : opt.name;
+          // Variante existante : force les valeurs Faire (par index).
+          if (faireOpts && faireOpts[idx]) {
+            return { name: faireOpts[idx].name, value: faireOpts[idx].value };
+          }
+          return { name: renamedName, value: opt.value };
+        });
+        return { ...v, options: rewrittenOptions };
+      },
+    );
+  }
+
+  // 2) Reconstruit variant_option_sets : name Faire + valeurs mergées.
+  if (bjOptionSets.length > 0) {
+    rewrittenBody.variant_option_sets = bjOptionSets.map((set, i) => {
+      const faireSet = faireState.variantOptionSets[i];
+      if (!faireSet) return set;
+      const faireValues = faireSet.values;
+      const bjValues = Array.isArray(set.values) ? set.values : [];
+      const knownLower = new Set(faireValues.map((v) => v.toLowerCase()));
+      const additional: string[] = [];
+      for (const v of bjValues) {
+        const key = v.toLowerCase();
+        if (!knownLower.has(key)) {
+          knownLower.add(key);
+          additional.push(v);
+        }
+      }
+      return {
+        name: faireSet.name,
+        values: [...faireValues, ...additional],
+      };
+    });
+  }
+
+  return rewrittenBody;
+}
+
 export async function faireUpdateProduct(
   productId: string,
   options?: { forceFullSync?: boolean },
@@ -298,8 +420,14 @@ export async function faireUpdateProduct(
   // initial à travers les fermetures, on fige donc l'id ici.
   const faireProductIdForFetch: string = meta.faireProductId;
   type FaireProductState = {
-    variants: { id: string; sku: string; images?: { id?: string }[] }[];
+    variants: {
+      id: string;
+      sku: string;
+      images?: { id?: string }[];
+      options?: { name?: string; value?: string }[];
+    }[];
     rootImages: { id: string; tags?: string[] }[];
+    variantOptionSets: { name: string; values: string[] }[];
   };
   let faireProductStateCache: FaireProductState | null | undefined;
   async function getFaireProductState(): Promise<FaireProductState | null> {
@@ -318,18 +446,37 @@ export async function faireUpdateProduct(
       }
       const data = (await res.json().catch(() => null)) as
         | {
-            variants?: { id?: string; sku?: string; images?: { id?: string }[] }[];
+            variants?: {
+              id?: string;
+              sku?: string;
+              images?: { id?: string }[];
+              options?: { name?: string; value?: string }[];
+            }[];
             images?: { id?: string; tags?: string[] }[];
+            variant_option_sets?: { name?: string; values?: string[] }[];
           }
         | null;
       faireProductStateCache = {
         variants: (data?.variants ?? []).filter(
-          (v): v is { id: string; sku: string; images?: { id?: string }[] } =>
-            typeof v.id === "string" && typeof v.sku === "string",
+          (v): v is {
+            id: string;
+            sku: string;
+            images?: { id?: string }[];
+            options?: { name?: string; value?: string }[];
+          } => typeof v.id === "string" && typeof v.sku === "string",
         ),
         rootImages: (data?.images ?? []).filter(
           (i): i is { id: string; tags?: string[] } => typeof i.id === "string",
         ),
+        variantOptionSets: (data?.variant_option_sets ?? [])
+          .filter(
+            (s): s is { name: string; values: string[] } =>
+              typeof s?.name === "string" && Array.isArray(s?.values),
+          )
+          .map((s) => ({
+            name: s.name,
+            values: s.values.filter((v): v is string => typeof v === "string"),
+          })),
       };
       return faireProductStateCache;
     } catch (err) {
@@ -543,11 +690,23 @@ export async function faireUpdateProduct(
   }
 
   if (hasProductPatchPayload) {
+    // Réconciliation options ↔ Faire — évite « Product variant options cannot
+    // be changed » quand le produit a été créé hors BJ (nom de dimension ou
+    // casse divergents). Nécessaire uniquement quand on inclut variants[] ou
+    // variant_option_sets, c.-à-d. `hasNewVariants`. Cf. docstring de
+    // reconcilePatchBodyWithFaireOptions.
+    let bodyToSend: Record<string, unknown> = patchBody;
+    if (hasNewVariants) {
+      const state = await getFaireProductState();
+      if (state) {
+        bodyToSend = reconcilePatchBodyWithFaireOptions(patchBody, state);
+      }
+    }
     try {
       const res = await faireFetch(`/products/${encodeURIComponent(meta.faireProductId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json; charset=utf-8" },
-        body: JSON.stringify(patchBody),
+        body: JSON.stringify(bodyToSend),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
