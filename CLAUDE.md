@@ -26,8 +26,17 @@ Cliente **non-développeuse** qui dirige le projet.
 2. Informer + trajet de test.
 3. Attendre décision :
    - **« Mettre de côté »** → garder pour push groupé.
-   - **« Push en production »** : **backup prod obligatoire d'abord** (voir bloc ci-dessous) → `git add/commit/push` → SSH `root@72.61.106.128 /var/www/beliandjolie` → `git fetch/reset --hard origin/master` → `npm install` (si deps) + `prisma generate && prisma db push --skip-generate` (si schema) → `NODE_OPTIONS='--max-old-space-size=4096' npm run build` → `pm2 restart beliandjolie` → **vérif visiteur des 2 tenants** (`curl -sL` beliandjolie.com + issyma.fr, vérif `<title>` distinct).
+   - **« Push en production »** : **pré-flight obligatoire** (voir bloc ci-dessous) → **backup prod obligatoire d'abord** (voir bloc ci-dessous) → `git add/commit/push` → SSH `root@72.61.106.128 /var/www/beliandjolie` → `git fetch/reset --hard origin/master` → `npm install` (si deps) + `prisma generate && prisma db push --skip-generate` (si schema) → `NODE_OPTIONS='--max-old-space-size=4096' npm run build` → `pm2 restart beliandjolie` → **vérif visiteur des 2 tenants** (`curl -sL` beliandjolie.com + issyma.fr, vérif `<title>` distinct).
 4. L'informer à la fin. Code identique local/GitHub/VPS.
+
+**Pré-flight AVANT push prod (obligatoire, sans demander)** — un `pm2 restart` tue tous les workers en cours (image queue, translation, marketplace queue, PFS refresh, chat, shooting eFashion…) ; **ne jamais** déclencher un restart si un travail est en vol côté cliente. Vérifs à faire dans cet ordre, et **remonter à la cliente** si l'une répond « occupé » — attendre son go explicite avant de continuer :
+1. **Widget flottant marketplaces** — SQL sur le VPS : `mysql beliandjolie -e "SELECT status, marketplace, COUNT(*) FROM MarketplaceRefreshJob WHERE status IN ('QUEUED','IN_PROGRESS','AWAITING_CALLBACK') GROUP BY status, marketplace;"`. Si ≥ 1 ligne → « Il y a X jobs marketplace en cours (Rafraîchir/Publier/Resync), tu veux que j'attende ? ».
+2. **Widget flottant images** — `mysql beliandjolie -e "SELECT status, COUNT(*) FROM ImageProcessingJob WHERE status IN ('PENDING','PROCESSING') GROUP BY status;"`. Si > 0 → même question. Un restart met tous les PROCESSING en PENDING (idempotent) mais l'attente utilisateur devient plus longue et un job Sharp/WebP en cours peut foirer.
+3. **Callbacks Ankorstore en attente** — `mysql beliandjolie -e "SELECT status, type, COUNT(*) FROM AnkorstoreOperation WHERE status='PENDING' GROUP BY status, type;"`. Si > 0 → prévenir. Un callback perdu = ré-cliquer sur « Publier » côté BJ pour relancer.
+4. **Ankorstore catalog / imports en cours** — grep bref des dernières 60 s de logs (`tail -200 /root/.pm2/logs/beliandjolie-out.log | grep -E "Ankorstore Catalog|Chargement|Import|Preview job"`). Si activité récente → attendre.
+5. **Traductions / mails** — `mysql beliandjolie -e "SELECT status, COUNT(*) FROM TranslationJob WHERE status IN ('PENDING','PROCESSING') GROUP BY status; SELECT status, COUNT(*) FROM EmailQueueJob WHERE status IN ('PENDING','PROCESSING') GROUP BY status;"`. Si > 0 → prévenir.
+
+Une fois **tout** confirmé calme (ou go explicite de la cliente), on enchaîne backup + deploy. Après restart, refaire le SELECT MarketplaceRefreshJob pour vérifier qu'aucun job n'est resté bloqué en IN_PROGRESS (le startup sweep du worker les marque FAILED, mais un race condition rare peut en laisser un — nettoyer manuellement si besoin).
 
 **Backup avant push prod (obligatoire, sans demander)** — dans `/root/backups/pre-push-YYYYMMDD-HHMMSS/` :
 1. `mkdir -p` du dossier horodaté.
