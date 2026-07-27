@@ -49,3 +49,31 @@ pm2 restart beliandjolie
 
 Une seule commande peut être scriptée si besoin (`deploy.sh`) mais reste
 lancée à la main pour garder le contrôle sur les moments de déploiement.
+
+## Déploiement rapide (build local) — `deploy-fast.ps1`
+
+Depuis 2026-07-27 : script PowerShell qui **compile sur le PC** au lieu du VPS,
+puis rsync le `.next/` compilé. Réduit un deploy de ~10 min à ~1-2 min.
+
+Étapes exécutées :
+
+1. Pre-flight VPS (jobs marketplace/images/traduction/mail/Ankor callbacks)
+2. Vérif git local + commit/push si nécessaire
+3. Backup complet VPS (mysqldump + git archive + `.env` + uploads hardlinks)
+4. `npm run build` **en local**
+5. `tar` + `scp` du `.next/` vers le VPS (sans `.next/cache/`)
+6. Sur le VPS : `git reset --hard origin/master` + `npm install` + `prisma generate` + `prisma db push --skip-generate` + extract `.next/` + `pm2 restart beliandjolie`
+7. Vérif visiteur (curl `beliandjolie.com` + `issyma.fr`)
+8. Vérif post-deploy des jobs bloqués
+
+**Usage** (depuis la racine du projet, dans PowerShell) :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/deploy/deploy-fast.ps1
+```
+
+**Pré-requis PC** : `git`, `npm`, `ssh`, `scp`, `tar` (tous natifs Windows 10+
+avec Git for Windows installé). Clé SSH configurée pour `root@72.61.106.128`.
+
+**Rollback** : le script affiche à la fin le chemin du backup + les commandes
+exactes pour revenir en arrière (git reset + zcat mysql).
