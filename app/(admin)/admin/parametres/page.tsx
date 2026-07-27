@@ -19,6 +19,7 @@ import AdminPasswordResetButton from "@/components/admin/settings/AdminPasswordR
 import MaintenanceModeToggle from "@/components/admin/settings/MaintenanceModeToggle";
 import CatalogDisplayConfig from "@/components/admin/settings/CatalogDisplayConfig";
 import RefreshWarningConfig from "@/components/admin/settings/RefreshWarningConfig";
+import BrandedReferenceBadgeConfig from "@/components/admin/settings/BrandedReferenceBadgeConfig";
 import HomepageCarouselsConfig from "@/components/admin/settings/HomepageCarouselsConfig";
 import StockDisplayConfig from "@/components/admin/settings/StockDisplayConfig";
 import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
@@ -66,6 +67,7 @@ const Ico = {
   search:    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/></svg>,
   card:      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg>,
   bell:      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
+  tag:       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41 13 21l-9-9V4h8l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>,
 };
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -293,19 +295,21 @@ async function SocieteTab() {
    TAB : Catalogue
    ═══════════════════════════════════════════════════════════════════════════ */
 async function CatalogueTab() {
-  const [displayConfigRow, categories, dbCollections, dbTags, refreshWarnEnabledRow, refreshWarnDaysRow] = await Promise.all([
+  const [displayConfigRow, categories, dbCollections, dbTags, refreshWarnEnabledRow, refreshWarnDaysRow, brandedBadgeRow] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "product_display_config" } }),
     prisma.category.findMany({ orderBy: [{ position: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
     prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.siteConfig.findFirst({ where: { key: "refresh_warning_enabled" } }),
     prisma.siteConfig.findFirst({ where: { key: "refresh_warning_days" } }),
+    prisma.siteConfig.findFirst({ where: { key: "branded_reference_badge_enabled" } }),
   ]);
 
   const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
   const refreshWarnEnabled = refreshWarnEnabledRow?.value === "true";
   const parsedRefreshDays = refreshWarnDaysRow ? parseInt(refreshWarnDaysRow.value, 10) : NaN;
   const refreshWarnDays = Number.isFinite(parsedRefreshDays) && parsedRefreshDays > 0 ? parsedRefreshDays : 7;
+  const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
 
   return (
     <CardsStack>
@@ -322,6 +326,14 @@ async function CatalogueTab() {
           collections={dbCollections}
           tags={dbTags}
         />
+      </SettingCard>
+
+      <SettingCard
+        icon={Ico.tag}
+        title="Marquer la référence sur la 1ʳᵉ image"
+        description="Ajoute automatiquement un badge « Réf » en haut à droite de la 1ère photo — boutique et marketplaces"
+      >
+        <BrandedReferenceBadgeConfig initialEnabled={brandedBadgeEnabled} />
       </SettingCard>
 
       <SettingCard

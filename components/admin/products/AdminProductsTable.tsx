@@ -59,17 +59,11 @@ const MARKETPLACE_LABEL: Record<MarketplaceKey, string> = {
 // Modales lourdes — chargées à l'ouverture seulement pour alléger le bundle
 // initial de la table produits (cf. audit perf 2026-05-31).
 const LinkPfsProductModal = dynamic(
-  () => import("@/components/admin/products/LinkPfsProductModal"),
+  () => import("@/components/admin/products/LinkMarketplaceModal"),
 );
-const LinkAnkorstoreProductModal = dynamic(
-  () => import("@/components/admin/products/LinkAnkorstoreProductModal"),
-);
-const LinkEfashionProductModal = dynamic(
-  () => import("@/components/admin/products/LinkEfashionProductModal"),
-);
-const LinkFaireProductModal = dynamic(
-  () => import("@/components/admin/products/LinkFaireProductModal"),
-);
+const LinkAnkorstoreProductModal = LinkPfsProductModal;
+const LinkEfashionProductModal = LinkPfsProductModal;
+const LinkFaireProductModal = LinkPfsProductModal;
 const BulkPublishDraftsModal = dynamic(
   () => import("@/components/admin/products/BulkPublishDraftsModal"),
 );
@@ -2848,6 +2842,7 @@ function ProductRow({
           invalide en HTML et déclenche une hydration error côté Next 16. */}
       {linkPfsOpen && createPortal(
         <LinkPfsProductModal
+          marketplace="pfs"
           productId={product.id}
           productName={product.name}
           reference={product.reference}
@@ -2861,6 +2856,7 @@ function ProductRow({
 
       {linkAkOpen && createPortal(
         <LinkAnkorstoreProductModal
+          marketplace="ankorstore"
           productId={product.id}
           productName={product.name}
           reference={product.reference}
@@ -2874,6 +2870,7 @@ function ProductRow({
 
       {linkEfOpen && createPortal(
         <LinkEfashionProductModal
+          marketplace="efashion"
           productId={product.id}
           productName={product.name}
           reference={product.reference}
@@ -2887,6 +2884,7 @@ function ProductRow({
 
       {linkFaireOpen && createPortal(
         <LinkFaireProductModal
+          marketplace="faire"
           productId={product.id}
           productName={product.name}
           reference={product.reference}
@@ -3322,6 +3320,8 @@ export default function AdminProductsTable({
               : "Cochez les marketplaces où renvoyer prix/stock/poids.",
           eyebrow: "Propagation",
           confirmLabel: "Mettre à jour",
+          actionLabel: "mettre à jour",
+          actionMode: "update",
         });
         if (options) break;
         // Annulation : updateVariantQuick a déjà posé pfsSyncRequired /

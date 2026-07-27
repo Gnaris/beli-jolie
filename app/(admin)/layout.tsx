@@ -12,6 +12,7 @@ import AdminDesktopShell from "@/components/admin/AdminDesktopShell";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
 import { MarketplaceRefreshProvider } from "@/components/admin/products/MarketplaceRefreshContext";
+import { MarketplaceLinkProvider } from "@/components/admin/products/MarketplaceLinkContext";
 import { EfashionShootingBatchProvider } from "@/components/admin/products/EfashionShootingBatchContext";
 import { RefreshWarningProvider } from "@/components/admin/products/RecentlyRefreshedWarningModal";
 import { IneligibleRefreshProvider } from "@/components/admin/products/IneligibleRefreshModal";
@@ -104,6 +105,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <DeeplConfigProvider enabled={translationEnabled} autoTranslateEnabled={autoTranslateEnabled}>
     <MarketplaceMaintenanceProvider value={maintenance}>
+    <MarketplaceLinkProvider>
     <MarketplaceRefreshProvider>
     <EfashionShootingBatchProvider>
     <RefreshWarningProvider>
@@ -150,6 +152,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     </RefreshWarningProvider>
     </EfashionShootingBatchProvider>
     </MarketplaceRefreshProvider>
+    </MarketplaceLinkProvider>
     </MarketplaceMaintenanceProvider>
     </DeeplConfigProvider>
   );

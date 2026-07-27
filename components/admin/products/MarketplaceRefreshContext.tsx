@@ -77,7 +77,10 @@ interface MarketplaceRefreshContextValue {
   items: MarketplaceRefreshItem[];
   enqueue: (inputs: MarketplaceRefreshEnqueueInput[], meta?: EnqueueMeta) => void;
   clear: () => void;
-  stop: () => void;
+  /** Sans argument : arrête tous les queued. Avec `mode` : ne stoppe que
+   *  les queued de ce mode (permet d'arrêter uniquement les rafraîchissements
+   *  sans toucher aux modifications). */
+  stop: (mode?: QueueItemMode) => void;
   isAllFinished: boolean;
   runningCount: number;
   queuedCount: number;
@@ -249,17 +252,24 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     })();
   }, [pollOnce]);
 
-  const stop = useCallback(() => {
-    void (async () => {
-      try {
-        await fetch("/api/admin/marketplace-queue/stop", { method: "POST" });
-      } catch {
-        // ignored
-      } finally {
-        void pollOnce();
-      }
-    })();
-  }, [pollOnce]);
+  const stop = useCallback(
+    (mode?: QueueItemMode) => {
+      void (async () => {
+        try {
+          await fetch("/api/admin/marketplace-queue/stop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(mode ? { mode } : {}),
+          });
+        } catch {
+          // ignored
+        } finally {
+          void pollOnce();
+        }
+      })();
+    },
+    [pollOnce],
+  );
 
   // ── Refresh RSC quand des items basculent en "done" ───────────────
   // Comme avant : on rafraîchit les données serveur (badges marketplace,

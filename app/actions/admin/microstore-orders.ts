@@ -3,8 +3,7 @@
 /**
  * Server actions Microstore Orders — lecture + import.
  *
- * Ces actions s'appellent depuis la page /admin/parametres/microstore (bouton
- * "Importer les commandes") et depuis la page /admin/commandes/microstore.
+ * Ces actions s'appellent depuis la page /admin/commandes/microstore.
  */
 
 import { revalidatePath, revalidateTag } from "next/cache";
@@ -55,7 +54,6 @@ export async function importMicrostoreOrders(input: {
       toDate: input.toDate,
     });
     revalidatePath("/admin/commandes/microstore");
-    revalidatePath("/admin/parametres/microstore");
     revalidateTag(`microstore-orders:${tenant.id}`, "default");
     return { success: true, result };
   } catch (err) {

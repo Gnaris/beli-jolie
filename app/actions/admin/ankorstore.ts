@@ -166,6 +166,9 @@ export async function removeAnkorstoreMatch(
 // ─────────────────────────────────────────────
 
 export interface AnkorstoreLinkPreviewLocalColor {
+  productImage: string | null;
+  weightKg: number;
+  existingAnkorstoreVariantId: string | null;
   /** Id de la ProductColor (jointure produit/couleur). */
   productColorId: string;
   /** Id de la Color (bibliothèque). */
@@ -181,6 +184,7 @@ export interface AnkorstoreLinkPreviewLocalColor {
 }
 
 export interface AnkorstoreLinkPreviewVariant {
+  weightKg: number;
   ankorstoreVariantId: string;
   sku: string | null;
   /** Option couleur côté Ankorstore (renseignée dans variant.options). */
@@ -237,9 +241,11 @@ export async function previewAnkorstoreProductForLinking(
               id: true,
               colorId: true,
               sku: true,
+              weight: true,
               ankorsVariantId: true,
               color: { select: { name: true, hex: true, patternImage: true } },
               variantSizes: { select: { size: { select: { name: true } } }, take: 1 },
+              images: { select: { path: true }, orderBy: { order: "asc" }, take: 1 },
             },
           },
         },
@@ -286,6 +292,9 @@ export async function previewAnkorstoreProductForLinking(
       akProduct.variants.find((v) => v.images?.[0]?.url)?.images?.[0]?.url ??
       null;
 
+    // Ankorstore stocke le poids au niveau produit (shape_properties.weight.amount en kg).
+    // Toutes les variantes d'un même produit partagent donc le même poids.
+    const productWeightKg = akProduct.shape_properties?.weight?.amount ?? 0;
     const variants: AnkorstoreLinkPreviewVariant[] = akProduct.variants.map((v) => {
       const colorOption =
         v.options?.find((o) => o.name === "color")?.value ?? null;
@@ -301,10 +310,14 @@ export async function previewAnkorstoreProductForLinking(
         wholesalePrice: Number(v.wholesalePrice ?? 0),
         retailPrice: Number(v.retailPrice ?? 0),
         stockQuantity: v.stockQuantity ?? 0,
+        weightKg: productWeightKg,
         suggestedLocalColorId: suggestedByAkVariantId.get(v.id) ?? null,
       };
     });
 
+    // Image de fallback si la couleur courante n'a pas d'image : première image d'une autre couleur du produit.
+    const fallbackImage =
+      bjProductRaw.colors.find((c) => c.images.length > 0)?.images[0]?.path ?? null;
     const localColors: AnkorstoreLinkPreviewLocalColor[] = bjProductRaw.colors
       .filter((pc) => pc.colorId && pc.color)
       .map((pc) => ({
@@ -315,7 +328,19 @@ export async function previewAnkorstoreProductForLinking(
         patternImage: pc.color!.patternImage ?? null,
         sku: pc.sku ?? null,
         sizeName: pc.variantSizes[0]?.size.name ?? null,
-        isAlreadyLinked: pc.ankorsVariantId !== null,
+        productImage: pc.images[0]?.path ?? fallbackImage,
+        weightKg: Number(pc.weight ?? 0),
+        // Une couleur BJ est « déjà liée » côté Ankor uniquement si sa variante
+        // Ankor courante existe dans la liste des variantes du produit qu'on regarde.
+        // Sinon c'est une liaison résiduelle vers un ancien produit Ankor — on ignore.
+        existingAnkorstoreVariantId:
+          pc.ankorsVariantId &&
+          akProduct.variants.some((v) => v.id === pc.ankorsVariantId)
+            ? pc.ankorsVariantId
+            : null,
+        isAlreadyLinked:
+          pc.ankorsVariantId !== null &&
+          akProduct.variants.some((v) => v.id === pc.ankorsVariantId),
       }));
 
     return {

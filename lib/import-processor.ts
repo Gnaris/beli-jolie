@@ -1671,7 +1671,7 @@ export async function processImageBatch(
  * COMPLETED. Appelé une fois que tous les lots ont été traités via
  * `processImageBatch`.
  */
-export async function finalizeImageImport(jobId: string): Promise<void> {
+export async function finalizeImageImport(jobId: string, tenantSlug?: string): Promise<void> {
   const job = await prisma.importJob.findUnique({ where: { id: jobId } });
   if (!job || !job.tempDir) throw new Error("Job introuvable ou tempDir manquant.");
 
@@ -1768,6 +1768,10 @@ export async function finalizeImageImport(jobId: string): Promise<void> {
         });
       }
     }
+
+    // Note : plus besoin de générer un fichier « branded » — l'image est
+    // servie à la volée par /api/branded-image quand le toggle est ON.
+    void tenantSlug;
   }
 
   await prisma.importJob.update({
@@ -1816,7 +1820,7 @@ export async function processImageImport(jobId: string, tenantSlug: string): Pro
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 
-    await finalizeImageImport(jobId);
+    await finalizeImageImport(jobId, tenantSlug);
   } catch (err) {
     logger.error(`[import-processor] Image job ${jobId} failed`, { error: err });
     await prisma.importJob.update({

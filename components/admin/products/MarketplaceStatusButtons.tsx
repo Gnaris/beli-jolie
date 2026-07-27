@@ -14,10 +14,10 @@ import {
 import SetPfsBrandModal from "./SetPfsBrandModal";
 
 // Modales lourdes — chargées à l'ouverture pour alléger le bundle initial.
-const LinkAnkorstoreProductModal = dynamic(() => import("./LinkAnkorstoreProductModal"));
-const LinkEfashionProductModal = dynamic(() => import("./LinkEfashionProductModal"));
-const LinkPfsProductModal = dynamic(() => import("./LinkPfsProductModal"));
-const LinkFaireProductModal = dynamic(() => import("./LinkFaireProductModal"));
+const LinkPfsProductModal = dynamic(() => import("./LinkMarketplaceModal"));
+const LinkAnkorstoreProductModal = LinkPfsProductModal;
+const LinkEfashionProductModal = LinkPfsProductModal;
+const LinkFaireProductModal = LinkPfsProductModal;
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -1293,6 +1293,7 @@ export function MarketplaceStatusButtons({
 
       {linkPfsOpen && (
         <LinkPfsProductModal
+          marketplace="pfs"
           productId={productId}
           productName={productName}
           reference={reference}
@@ -1302,6 +1303,7 @@ export function MarketplaceStatusButtons({
 
       {linkAkOpen && (
         <LinkAnkorstoreProductModal
+          marketplace="ankorstore"
           productId={productId}
           productName={productName}
           reference={reference}
@@ -1319,6 +1321,7 @@ export function MarketplaceStatusButtons({
 
       {linkEfOpen && (
         <LinkEfashionProductModal
+          marketplace="efashion"
           productId={productId}
           productName={productName}
           reference={reference}
@@ -1328,6 +1331,7 @@ export function MarketplaceStatusButtons({
 
       {linkFaireOpen && (
         <LinkFaireProductModal
+          marketplace="faire"
           productId={productId}
           productName={productName}
           reference={reference}

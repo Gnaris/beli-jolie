@@ -275,9 +275,17 @@ function buildDimensionsSuffix(
   return `\n\nDimensions : ${parts.join(" / ")}`;
 }
 
-async function convertToJpeg(imagePath: string): Promise<Buffer> {
+async function convertToJpeg(imagePath: string, brandedReference?: string): Promise<Buffer> {
   const { readFile, keyFromDbPath } = await import("@/lib/storage");
-  const buffer = await readFile(keyFromDbPath(imagePath));
+  let buffer = await readFile(keyFromDbPath(imagePath));
+  if (brandedReference) {
+    const { composeBrandedBuffer } = await import("@/lib/branded-image");
+    buffer = await composeBrandedBuffer({
+      sourceBuffer: buffer,
+      reference: brandedReference,
+      size: "large",
+    });
+  }
   return sharp(buffer).jpeg({ quality: 100, chromaSubsampling: "4:4:4", mozjpeg: true }).toBuffer();
 }
 
@@ -518,9 +526,33 @@ function buildVariantSnapshot(
   };
 }
 
+/**
+ * Marqueur inséré dans le snapshot PFS pour signaler qu'un slot doit être
+ * uploadé avec le badge « Référence » composé à la volée à partir du path
+ * source encodé. Format : `__BRANDED__:<sourcePath>`.
+ *
+ * Avantages :
+ *  - la diff standard `diffSnapshots` compare des strings et détecte
+ *    naturellement le passage raw ↔ marker → déclenche upload.
+ *  - le path source reste encodé, donc la régénération du buffer est
+ *    déterministe (pas besoin d'un lookup séparé).
+ */
+const PFS_BRANDED_MARKER_PREFIX = "__BRANDED__:";
+
+function encodeBrandedMarker(sourcePath: string): string {
+  return `${PFS_BRANDED_MARKER_PREFIX}${sourcePath}`;
+}
+
+export function decodePfsBrandedMarker(path: string): string | null {
+  return path.startsWith(PFS_BRANDED_MARKER_PREFIX)
+    ? path.slice(PFS_BRANDED_MARKER_PREFIX.length)
+    : null;
+}
+
 function buildImagesSnapshot(
   product: FullProduct,
   colorIdToPfsRef: Map<string, string>,
+  opts?: { brandedBadgeEnabled: boolean; primaryColorId: string | null },
 ): PfsImagesSnapshot {
   const out: PfsImagesSnapshot = {};
   // Source unique : product.colorImages (level produit, dédupliqué).
@@ -537,12 +569,26 @@ function buildImagesSnapshot(
     if (!byColor.has(colorRef)) byColor.set(colorRef, []);
     byColor.get(colorRef)!.push({ path: img.path, order: img.order });
   }
+  const primaryPfsColorRef = opts?.primaryColorId
+    ? colorIdToPfsRef.get(opts.primaryColorId) ?? null
+    : null;
   for (const [colorRef, list] of byColor) {
     const sorted = [...list].sort((a, b) => a.order - b.order);
     out[colorRef] = {};
-    sorted.forEach((img, i) => {
-      out[colorRef][String(i + 1)] = img.path;
-    });
+    const isPrimary =
+      opts?.brandedBadgeEnabled === true && colorRef === primaryPfsColorRef && sorted.length > 0;
+    if (isPrimary) {
+      // Insertion virtuelle du badge en slot 1, décalage des vraies photos
+      // en slots 2..5 (cap à 5 slots totaux comme les autres couleurs).
+      out[colorRef]["1"] = encodeBrandedMarker(sorted[0]!.path);
+      sorted.slice(0, 4).forEach((img, i) => {
+        out[colorRef][String(i + 2)] = img.path;
+      });
+    } else {
+      sorted.forEach((img, i) => {
+        out[colorRef][String(i + 1)] = img.path;
+      });
+    }
   }
   return out;
 }
@@ -620,6 +666,16 @@ export async function pfsUpdateProductInPlace(
       }
     }
 
+    // Toggle badge « Réf » : compose le badge en mémoire sur le buffer PFS
+    // pour la 1ère image (slot 1) de la couleur principale.
+    const primaryPfsColorRef =
+      product.primaryColorId ? colorIdToPfsRef.get(product.primaryColorId) ?? null : null;
+    const brandedBadgeRow = await prisma.siteConfig.findFirst({
+      where: { key: "branded_reference_badge_enabled" },
+      select: { value: true },
+    });
+    const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
+
     const allVariantsOutOfStock = product.colors.every((v) => (v.stock ?? 0) === 0);
     const targetStatus = mapLocalToPfsStatus(
       product.status,
@@ -653,7 +709,10 @@ export async function pfsUpdateProductInPlace(
         );
       }
     }
-    const nextImagesSnap = buildImagesSnapshot(product, colorIdToPfsRef);
+    const nextImagesSnap = buildImagesSnapshot(product, colorIdToPfsRef, {
+      brandedBadgeEnabled,
+      primaryColorId: product.primaryColorId,
+    });
 
     const nextSnapshot: PfsSyncSnapshot = {
       schemaVersion: PFS_SNAPSHOT_VERSION,
@@ -670,6 +729,12 @@ export async function pfsUpdateProductInPlace(
     const realPrevSnapshot = readPreviousSnapshot(product.pfsLastSyncSnapshot);
     const prevSnapshot = options?.forceFullSync ? null : realPrevSnapshot;
     const diff = diffSnapshots(prevSnapshot, nextSnapshot);
+
+    // Note : plus besoin de forcer manuellement l'upload du slot 1 quand le
+    // toggle branded change — `buildImagesSnapshot` insère un marker
+    // `__BRANDED__:<sourcePath>` en slot 1 pour la couleur principale, et
+    // la diff standard voit un path différent → upload naturellement planifié.
+    nextSnapshot.brandedBadgeApplied = brandedBadgeEnabled;
 
     // committedSnapshot accumule ce qui a réussi côté PFS — initialisé sur le
     // vrai snapshot précédent (même en mode force) pour préserver l'état connu
@@ -1234,9 +1299,21 @@ export async function pfsUpdateProductInPlace(
       // 3b. Uploads ciblés (slots nouveaux ou modifiés)
       for (const { colorRef, slot, path } of diff.imagesToUpload) {
         try {
-          const jpegBuffer = await convertToJpeg(path);
+          // Le path peut être :
+          //  - un chemin BDD classique (`/uploads/…/foo.webp`)
+          //  - un marker `__BRANDED__:<sourcePath>` posé par `buildImagesSnapshot`
+          //    pour signaler qu'il faut composer le badge sur la source.
+          const brandedSource = decodePfsBrandedMarker(path);
+          const uploadSourcePath = brandedSource ?? path;
+          const jpegBuffer = await convertToJpeg(
+            uploadSourcePath,
+            brandedSource ? product.reference : undefined,
+          );
           await pfsUploadImage(pfsProductId, jpegBuffer, slot, colorRef, `image_${slot}.jpg`);
           ensureColor(colorRef);
+          // On stocke le path tel quel (avec ou sans marker) dans le snapshot
+          // committé : au prochain diff, si le marker disparaît (toggle OFF),
+          // la diff détectera un changement → re-upload de la version brute.
           committedSnapshot.images[colorRef][String(slot)] = path;
           totalUploaded++;
         } catch (err) {
@@ -1340,6 +1417,7 @@ export async function pfsUpdateProductInPlace(
     // PFS vient de recevoir l'état courant → le drapeau « Synchronisation
     // nécessaire » côté admin doit retomber. Si le push n'a pas réussi
     // (catch plus haut), on n'arrive jamais ici → le drapeau reste à true.
+    committedSnapshot.brandedBadgeApplied = brandedBadgeEnabled;
     const dbUpdate: Record<string, unknown> = {
       pfsLastSyncSnapshot: committedSnapshot,
       pfsSyncRequired: false,

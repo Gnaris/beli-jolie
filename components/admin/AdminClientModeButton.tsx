@@ -12,6 +12,12 @@ export default function AdminClientModeButton({ compact = false }: { compact?: b
     startTransition(async () => {
       try {
         await enableAdminPreview();
+        // Full reload obligatoire : le soft nav RSC après un redirect() serveur
+        // resservait parfois le cache Router du domaine BJ sur issyma.fr → la
+        // home Beli & Jolie s'affichait alors qu'on cliquait Mode client sur
+        // Issyma. window.location résout "/" sur le host courant, symétrique
+        // à disableAdminPreview.
+        window.location.href = "/";
       } finally {
         hideLoading();
       }

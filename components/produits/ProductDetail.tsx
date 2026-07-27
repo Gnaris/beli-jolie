@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "@/i18n/navigation";
 import Image from "@/components/ui/SmartImage";
 import { useRouter } from "@/i18n/navigation";
@@ -879,10 +880,12 @@ export default function ProductDetail({
         );
       })()}
 
-      {/* Lightbox */}
-      {zoomedSrc && (
+      {/* Lightbox — portal vers <body> pour sortir du contexte d'empilement
+          `relative z-10` du layout produit, sinon le header (fixed z-50)
+          rogne l'image en plein écran. */}
+      {zoomedSrc && typeof document !== "undefined" && createPortal(
         <div
-          className="fixed inset-0 z-50 bg-black/90 sm:bg-black/80 flex items-center justify-center p-0 sm:p-4 animate-lightbox-in touch-manipulation"
+          className="fixed inset-0 z-[100] bg-black/90 sm:bg-black/80 flex items-center justify-center p-0 sm:p-4 animate-lightbox-in touch-manipulation"
           onClick={() => setZoomedSrc(null)}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -899,7 +902,8 @@ export default function ProductDetail({
           >
             ×
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

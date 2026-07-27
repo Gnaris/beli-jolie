@@ -1499,6 +1499,15 @@ export async function efashionUpdateProductInPlace(
       force: !!opts.forceFullSync,
     });
 
+    // Toggle badge « Réf » : la 1ère image de la couleur principale reçoit
+    // le badge composé en mémoire côté efashionUploadProductPhotos.
+    const brandedBadgeRow = await prisma.siteConfig.findFirst({
+      where: { key: "branded_reference_badge_enabled" },
+      select: { value: true },
+    });
+    const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
+    const primaryColorId = product.primaryColorId ?? null;
+
     const productRefBase = product.efashionReferenceBase;
     for (const variant of variantsNeedingImageSync) {
       const efId = variant.efashionProductId;
@@ -1540,19 +1549,38 @@ export async function efashionUpdateProductInPlace(
         const sorted = [...images].sort((a, b) => a.order - b.order);
         const localColor = linkedColors.find((c) => c.efashionProductId === efId);
         const colorName = localColor?.colorId ? `color-${localColor.colorId}` : "color";
-        for (let idx = 0; idx < sorted.length; idx++) {
-          const img = sorted[idx];
+        const isPrimaryVariant =
+          brandedBadgeEnabled &&
+          primaryColorId != null &&
+          localColor?.colorId === primaryColorId &&
+          sorted.length > 0;
+        // Toggle branded actif sur la couleur principale :
+        //   → upload 1 = badge composé sur la source (devient c.jpg côté eFashion)
+        //   → upload 2 = même source, brute (devient z-1.jpg)
+        //   → uploads 3..5 = photos brutes suivantes (z-2.jpg, z-3.jpg, z-4.jpg)
+        // Cap à 5 uploads (comme les autres couleurs).
+        interface UploadEntry { dbPath: string; branded: boolean }
+        const uploadList: UploadEntry[] = isPrimaryVariant
+          ? [
+              { dbPath: sorted[0]!.dbPath, branded: true },
+              ...sorted.slice(0, 4).map((img) => ({ dbPath: img.dbPath, branded: false })),
+            ]
+          : sorted.slice(0, 5).map((img) => ({ dbPath: img.dbPath, branded: false }));
+        for (let idx = 0; idx < uploadList.length; idx++) {
+          const entry = uploadList[idx]!;
           await efashionUploadProductPhotos(efId, [
             {
-              dbPath: img.dbPath,
+              dbPath: entry.dbPath,
               filename: `${productRefBase}-${colorName}-${idx + 1}.jpg`,
+              ...(entry.branded ? { brandedReference: product.reference } : {}),
             },
           ]);
         }
         imagesUpdatedCount++;
         logger.info("[eFashion] Photos resynchronisées", {
           efId,
-          count: sorted.length,
+          count: uploadList.length,
+          brandedInserted: isPrimaryVariant,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

@@ -701,6 +701,22 @@ export async function updateRefreshWarning(
   }
 }
 
+// ─── Badge « Réf » sur la 1ère image produit ──────────────────────────────
+
+export async function updateBrandedReferenceBadge(
+  enabled: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await setSiteConfig("branded_reference_badge_enabled", enabled ? "true" : "false");
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
 // ─── Auto-translate toggle ─────────────────────────────────────────────────
 
 export async function updateAutoTranslate(

@@ -1,9 +1,7 @@
 "use server";
 import { getServerSession } from "next-auth";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
-import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 
 export async function enableAdminPreview() {
   const session = await getServerSession(authOptions);
@@ -15,11 +13,11 @@ export async function enableAdminPreview() {
     sameSite: "lax",
     maxAge: 60 * 60 * 8, // 8 heures
   });
-  // Redirect absolu vers le host courant : sur issyma.fr, "/" résolu comme
-  // path relatif peut être ré-ancré sur NEXTAUTH_URL (beliandjolie.com) selon
-  // le mode de rendu → l'admin issyma se retrouve sur beliandjolie.com/.
-  const baseUrl = await getCurrentTenantBaseUrl();
-  redirect(`${baseUrl}/`);
+  // Pas de redirect() serveur : même en pointant l'absolue vers le host
+  // courant, Next.js gardait la navigation en "soft" (RSC) et resservait
+  // parfois le cache Router du domaine BJ (issyma affichait la home BJ).
+  // Le client fait un full reload via window.location.href — symétrique à
+  // disableAdminPreview.
 }
 
 export async function disableAdminPreview() {

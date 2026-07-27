@@ -104,7 +104,16 @@ export async function efashionDeleteProductPhoto(args: {
  */
 export async function efashionUploadProductPhotos(
   efashionProductId: number,
-  photos: Array<{ dbPath: string; filename: string }>,
+  photos: Array<{
+    dbPath: string;
+    filename: string;
+    /**
+     * Si présent, compose le badge « Réf » sur la photo AVANT la conversion
+     * JPEG. Utilisé pour la 1ère image de la couleur principale quand le
+     * toggle `branded_reference_badge_enabled` est actif.
+     */
+    brandedReference?: string;
+  }>,
 ): Promise<UploadPhotoResult> {
   if (photos.length === 0) {
     return { success: true, photos: [], nbPhotos: 0 };
@@ -122,6 +131,17 @@ export async function efashionUploadProductPhotos(
       throw new Error(
         `Impossible de lire l'image ${photo.dbPath} : ${err instanceof Error ? err.message : String(err)}`,
       );
+    }
+    // Optionnel : badge « Réf » composé sur la photo. Compose d'abord un
+    // WebP puis JPEG-converti dessous — préserve la couleur/qualité de la
+    // source pendant que le badge est appliqué proprement par Sharp.
+    if (photo.brandedReference) {
+      const { composeBrandedBuffer } = await import("@/lib/branded-image");
+      sourceBuffer = await composeBrandedBuffer({
+        sourceBuffer,
+        reference: photo.brandedReference,
+        size: "large",
+      });
     }
     // eFashion attend strictement du JPEG (cf. docs/efashion-api.md §18.3 et
     // scripts/efashion-test-upload-photos.ts qui convertit aussi avec sharp).

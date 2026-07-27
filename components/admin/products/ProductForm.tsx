@@ -104,6 +104,10 @@ interface ProductFormProps {
   efashionEnabled?: boolean;
   hasFaireConfig?: boolean;
   faireEnabled?: boolean;
+  /** Toggle SiteConfig « branded_reference_badge_enabled ». Active la vignette
+   *  « photo marquée » (aperçu du badge « Réf ») avec un cadenas sur la 1ère
+   *  position de la couleur principale dans l'onglet Photos. */
+  brandedBadgeEnabled?: boolean;
   /** Liste des couleurs PFS disponibles (pour le sélecteur de mapping secondaire). */
   pfsColorOptions?: PfsColorOption[];
   /** Liste des couleurs eFashion disponibles (pour le sélecteur de mapping secondaire). */
@@ -399,6 +403,7 @@ export default function ProductForm({
   ankorstoreEnabled = false,
   hasFaireConfig = false,
   faireEnabled = false,
+  brandedBadgeEnabled = false,
   pfsColorOptions,
   efashionColorOptions,
   initialSyncing = false,
@@ -2164,6 +2169,8 @@ export default function ProductForm({
                 : "Cochez les marketplaces où renvoyer les modifications.",
               eyebrow: isArchivingNow ? "Archivage" : "Publier",
               confirmLabel: isArchivingNow ? "Propager" : "Publier",
+              actionLabel: isArchivingNow ? "archiver" : "publier",
+              actionMode: isArchivingNow ? "archive" : "update",
             });
             if (options) break;
             const keepPending = await confirmDialog({
@@ -2936,6 +2943,7 @@ export default function ProductForm({
               primaryColorId={primaryColorId}
               onChangePrimaryColorId={setPrimaryColorId}
               productReference={reference}
+              brandedBadgeEnabled={brandedBadgeEnabled}
             />
           )}
 

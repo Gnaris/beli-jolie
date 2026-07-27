@@ -23,6 +23,15 @@
  * Toute nouvelle écriture utilise les tirets (`-md`, `-thumb`).
  */
 export function getImagePaths(storedPath: string) {
+  // URL dynamique du badge « Réf » : dérive md/thumb en swappant `size=`.
+  if (storedPath.startsWith("/api/branded-image?")) {
+    return {
+      large:  storedPath.replace(/[?&]size=[a-z]+/i, (m) => (m[0] === "?" ? "?size=large" : "&size=large")),
+      medium: storedPath.replace(/[?&]size=[a-z]+/i, (m) => (m[0] === "?" ? "?size=medium" : "&size=medium")),
+      thumb:  storedPath.replace(/[?&]size=[a-z]+/i, (m) => (m[0] === "?" ? "?size=thumb" : "&size=thumb")),
+    };
+  }
+
   const lastDot = storedPath.lastIndexOf(".");
   if (lastDot === -1) {
     return { large: storedPath, medium: storedPath, thumb: storedPath };
@@ -71,6 +80,11 @@ export function getImageSrc(
 
   // Absolute URL (e.g. PFS CDN) — pass through
   if (storedPath.startsWith("http")) return storedPath;
+
+  // Badge « Réf » dynamique — dérive md/thumb via getImagePaths.
+  if (storedPath.startsWith("/api/branded-image?")) {
+    return getImagePaths(storedPath)[size];
+  }
 
   // Legacy non-webp images — return as-is (no md/thumb variants exist)
   if (!storedPath.endsWith(".webp")) return storedPath;

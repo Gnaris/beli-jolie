@@ -45,6 +45,10 @@ export interface EfashionLinkCandidate {
   nbPhotos: number;
   /** URL publique de la 1ʳᵉ photo eFashion (peut être 404 si nbPhotos=0). */
   imageUrl: string | null;
+  /** Prix eFashion en euros (0 si non renseigné). */
+  priceEur: number;
+  /** Poids eFashion en kg (converti depuis grammes). */
+  weightKg: number;
   /** Couleur locale BJ pré-suggérée par matching insensible aux accents/case (peut être null). */
   suggestedLocalColorId: string | null;
 }
@@ -62,6 +66,8 @@ export interface EfashionLinkLocalColor {
   unitPrice: number | null;
   /** Stock UNIT cumulé pour cette couleur. */
   unitStock: number | null;
+  /** Poids BJ (variante UNIT) en kg. */
+  weightKg: number;
 }
 
 export interface EfashionPackOnlyColor {
@@ -147,6 +153,7 @@ export async function previewEfashionMatchByReference(
             saleType: true,
             unitPrice: true,
             stock: true,
+            weight: true,
             efashionProductId: true,
             color: {
               select: {
@@ -261,6 +268,7 @@ export async function previewEfashionMatchByReference(
         unitImage: string | null;
         unitPrice: number | null;
         unitStock: number;
+        unitWeightKg: number;
         hasUnit: boolean;
       }
     >();
@@ -276,12 +284,14 @@ export async function previewEfashionMatchByReference(
         unitImage: null,
         unitPrice: null,
         unitStock: 0,
+        unitWeightKg: 0,
         hasUnit: false,
       };
       if (pc.saleType === "UNIT") {
         bucket.hasUnit = true;
         bucket.unitStock += pc.stock ?? 0;
         if (bucket.unitPrice === null) bucket.unitPrice = Number(pc.unitPrice);
+        if (bucket.unitWeightKg === 0) bucket.unitWeightKg = Number(pc.weight ?? 0);
         if (!bucket.unitImage && pc.images.length > 0) {
           bucket.unitImage = pc.images[0].path;
         }
@@ -290,6 +300,16 @@ export async function previewEfashionMatchByReference(
     }
 
     const linkableColors = Array.from(colorBuckets.values()).filter((b) => b.hasUnit);
+
+    // Fallback image : si aucune couleur UNIT n'a d'image, on prend la 1ʳᵉ image
+    // trouvée sur n'importe quelle variante du produit (y compris PACK).
+    const anyImage =
+      linkableColors.find((b) => b.unitImage)?.unitImage ??
+      product.colors.find((pc) => pc.images.length > 0)?.images[0]?.path ??
+      null;
+    for (const b of linkableColors) {
+      if (!b.unitImage) b.unitImage = anyImage;
+    }
     const packOnlyColors: EfashionPackOnlyColor[] = Array.from(colorBuckets.values())
       .filter((b) => !b.hasUnit)
       .map((b) => ({
@@ -313,6 +333,11 @@ export async function previewEfashionMatchByReference(
           stockValue: it.stock_value,
           nbPhotos: it.nb_photos,
           imageUrl: it.nb_photos > 0 ? buildEfashionPhotoUrl(it.id_produit) : null,
+          // it.prix en euros, it.poids en kg (eFashion stocke et renvoie le poids
+          // en kg — cf. efashion-publish.ts ligne 317 qui envoie ProductColor.weight
+          // en direct sans conversion).
+          priceEur: Number(it.prix ?? 0),
+          weightKg: Number(it.poids ?? 0),
           suggestedLocalColorId: suggested?.id ?? null,
         };
       },
@@ -333,6 +358,7 @@ export async function previewEfashionMatchByReference(
           productImage: c.unitImage,
           unitPrice: c.unitPrice,
           unitStock: c.hasUnit ? c.unitStock : null,
+          weightKg: c.unitWeightKg,
         })),
         packOnlyColors,
         candidates,

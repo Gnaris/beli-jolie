@@ -8,7 +8,14 @@ import NextImage, { type ImageProps } from "next/image";
 // sert directement `/uploads/` et que ces fichiers sont déjà des WebP
 // pré-optimisés (3 tailles via sharp), on shortcut l'optimiseur.
 export function shouldBypassOptimizer(src: ImageProps["src"]): boolean {
-  return typeof src === "string" && src.startsWith("/uploads/");
+  if (typeof src !== "string") return false;
+  // Fichiers uploadés : nginx sert directement, pas besoin de l'optimiseur.
+  if (src.startsWith("/uploads/")) return true;
+  // Endpoint dynamique du badge « Réf » : Sharp compose déjà en WebP/JPEG,
+  // Next.js n'a rien à optimiser (et refuserait les URLs à query string sans
+  // config `images.localPatterns`).
+  if (src.startsWith("/api/branded-image")) return true;
+  return false;
 }
 
 // Drop-in remplacement de `next/image`.

@@ -359,6 +359,11 @@ export async function faireUpdateProduct(
   // DELETED.
   const tenantId = await getCurrentTenantIdSafe();
   const imageBaseUrl = tenantId ? (await getTenantBaseUrl(tenantId)) ?? undefined : undefined;
+  const brandedBadgeRow = await prisma.siteConfig.findFirst({
+    where: { key: "branded_reference_badge_enabled" },
+    select: { value: true },
+  });
+  const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
   const { body, variants, productImageUrls } = buildFaireProductPayload(
     product,
     ctx,
@@ -367,6 +372,7 @@ export async function faireUpdateProduct(
     lifecycleState === "UNPUBLISHED" ? "PUBLISHED" : lifecycleState,
     `update-${meta.faireProductId}`,
     imageBaseUrl,
+    brandedBadgeEnabled,
   );
   // Override le lifecycle dans le body (publish met DRAFT par défaut).
   body.lifecycle_state = lifecycleState;
@@ -813,6 +819,14 @@ export async function faireUpdateProduct(
       );
   const variantsImagesChangedSet = new Set(diff.variantsImagesChanged);
 
+  // Variantes fantômes détectées à ce stade (PATCH variant 404) : leur
+  // faireVariantId en BDD pointe vers un vid Faire supprimé. La purge amont
+  // (bloc « 3.ter ») ne les a pas attrapées — soit le GET produit avait été
+  // mis en cache avant la disparition, soit Faire a supprimé la variante en
+  // réponse au PATCH product qui vient d'être envoyé. On les nettoie ici,
+  // on les ré-inclura comme créations à la prochaine synchro.
+  const stalesPurgedInLoop: { sku: string; staleVid: string }[] = [];
+
   // ⚠️ Bug Faire « 2 images principales » : même quand le diff identifie qu'une
   // image a changé (variantsImagesChanged.has(sku) = true), envoyer la nouvelle
   // URL directement dans le PATCH variant échoue avec HTTP 400 « Tentative de
@@ -904,6 +918,31 @@ export async function faireUpdateProduct(
       );
       if (!res.ok) {
         const text = await res.text().catch(() => "");
+        // Cas 404 : la variante existe encore en BDD BJ mais Faire ne la
+        // connaît plus (suppression manuelle sur le portail, ou race avec le
+        // PATCH product qu'on vient d'envoyer). Plutôt que bloquer toute la
+        // synchro, on purge le vid côté BDD et on saute cette variante — la
+        // prochaine synchro la ré-inclura dans variants[] comme création.
+        if (res.status === 404) {
+          logger.warn("[Faire Update] PATCH variant 404 — variante fantôme purgée", {
+            productId,
+            sku,
+            faireVid,
+          });
+          const bjVariantId = bjVariantIdBySku.get(sku);
+          if (bjVariantId) {
+            await prisma.productColor.update({
+              where: { id: bjVariantId },
+              data: { faireVariantId: null },
+            });
+          }
+          if (nextSnapshot.variants[sku]) {
+            nextSnapshot.variants[sku].faireVariantId = null;
+          }
+          faireVariantIdBySku.delete(sku);
+          stalesPurgedInLoop.push({ sku, staleVid: faireVid });
+          continue;
+        }
         logger.error("[Faire Update] PATCH variant failed", {
           productId,
           sku,
@@ -950,7 +989,11 @@ export async function faireUpdateProduct(
   // En resynchro forcée, on pousse le stock de TOUTES les variantes (même 0)
   // pour aligner Faire sur la BDD, indépendamment du diff. Sinon, on garde
   // la logique nominale basée sur le diff.
-  const stockUpdates = forceFullSync
+  // Skus dont le vid a été purgé pendant la boucle PATCH variant : on saute
+  // stock/prix pour eux (la variante n'existe plus côté Faire ; la prochaine
+  // synchro la recréera avec son stock/prix initial via le PATCH consolidé).
+  const stalePurgedSkuSet = new Set(stalesPurgedInLoop.map((s) => s.sku));
+  const stockUpdates = (forceFullSync
     ? Object.keys(nextSnapshot.variants).filter((sku) =>
         faireVariantIdBySku.has(sku),
       )
@@ -965,7 +1008,8 @@ export async function faireUpdateProduct(
                 return prev && prev.availableQuantity !== next.availableQuantity;
               })),
         ]),
-      );
+      )
+  ).filter((sku) => !stalePurgedSkuSet.has(sku));
   if (stockUpdates.length > 0) {
     const updates: FaireInventoryUpdate[] = stockUpdates.map((sku) => ({
       sku,
@@ -1014,6 +1058,7 @@ export async function faireUpdateProduct(
           );
         }),
       ]);
+  for (const sku of stalePurgedSkuSet) priceChangedSkus.delete(sku);
   if (priceChangedSkus.size > 0) {
     const priceUpdates: FairePriceUpdate[] = [];
     for (const sku of priceChangedSkus) {
@@ -1032,6 +1077,28 @@ export async function faireUpdateProduct(
         error: `PATCH prix échoué (${pricesRes.failedCount}/${priceUpdates.length} SKU).`,
       };
     }
+  }
+
+  // Si des variantes fantômes ont été nettoyées dans la boucle PATCH variant,
+  // on garde `faireSyncRequired = true` pour que la prochaine synchro les
+  // recrée via le PATCH consolidé (variants[]). Le badge orange « Synchro
+  // nécessaire » reste donc affiché côté admin, signal explicite qu'il faut
+  // relancer.
+  if (stalesPurgedInLoop.length > 0) {
+    logger.warn("[Faire Update] Vids stales purgés en cours de boucle — resync requise", {
+      productId,
+      stales: stalesPurgedInLoop,
+    });
+    await prisma.product.update({
+      where: { id: productId },
+      data: { faireLastSyncSnapshot: nextSnapshot as unknown as Prisma.JsonObject },
+    });
+    try {
+      revalidateTag("products", "default");
+    } catch {
+      // hors contexte Next
+    }
+    return { success: true, diff, noop: false };
   }
 
   await saveSnapshot(productId, nextSnapshot);

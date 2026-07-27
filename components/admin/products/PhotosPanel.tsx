@@ -35,6 +35,9 @@ interface Props {
   primaryColorId: string | null;
   onChangePrimaryColorId: (colorId: string) => void;
   productReference?: string;
+  /** Quand true, affiche un aperçu « photo marquée » (badge « Réf ») avec
+   *  un cadenas au-dessus des slots de la couleur principale. */
+  brandedBadgeEnabled?: boolean;
 }
 
 const MAX_SLOTS = 5;
@@ -124,6 +127,7 @@ export default function PhotosPanel({
   primaryColorId,
   onChangePrimaryColorId,
   productReference,
+  brandedBadgeEnabled = false,
 }: Props) {
   const { confirm } = useConfirm();
   const [zoomed, setZoomed] = useState<{ src: string; downloadName: string } | null>(null);
@@ -197,6 +201,7 @@ export default function PhotosPanel({
             onChangeImages={onChangeImages}
             onMovePhoto={movePhoto}
             productReference={productReference}
+            brandedBadgeEnabled={brandedBadgeEnabled}
             onZoom={(src, downloadName) => setZoomed({ src, downloadName })}
             onConfirmDelete={async () => {
               return confirm({
@@ -260,6 +265,7 @@ interface PhotoRowProps {
   onMovePhoto: (fromGroupKey: string, fromPos: number, toGroupKey: string, toPos: number) => void;
   onConfirmDelete: () => Promise<boolean | "secondary">;
   productReference?: string;
+  brandedBadgeEnabled?: boolean;
   onZoom: (src: string, downloadName: string) => void;
 }
 
@@ -531,6 +537,7 @@ function PhotoRow({
   onMovePhoto,
   onConfirmDelete,
   productReference,
+  brandedBadgeEnabled = false,
   onZoom,
 }: PhotoRowProps) {
   const state = colorImages.find((c) => c.groupKey === groupKey);
@@ -717,38 +724,197 @@ function PhotoRow({
         </div>
       </div>
 
-      {/* Colonne droite : 5 slots */}
-      <div className="grid grid-cols-5 gap-2">
-        {Array.from({ length: MAX_SLOTS }, (_, pos) => {
-          const idx = state?.orders.indexOf(pos) ?? -1;
-          const src = idx >= 0 ? state?.imagePreviews[idx] : undefined;
-          if (src) {
-            const refPart = productReference ? slugForFile(productReference) : "photo";
-            const colorPart = slugForFile(colorName || "couleur");
-            const downloadName = `${refPart}-${colorPart}-${pos + 1}.${extFromSrc(src)}`;
-            return (
-              <FilledSlot
-                key={pos}
-                groupKey={groupKey}
-                position={pos}
-                src={src}
-                downloadName={downloadName}
-                onRemove={() => removeAt(pos)}
-                onDropReorder={(fromGroupKey, fromPos) => onMovePhoto(fromGroupKey, fromPos, groupKey, pos)}
-                onZoom={() => onZoom(src, downloadName)}
+      {/* Colonne droite : quand le toggle badge est actif sur la couleur
+          principale ET qu'il y a au moins une photo, la 1ère tuile devient
+          la photo marquée verrouillée (labellée « 1 · Principale ») et les
+          vraies photos sont limitées à 4 (au lieu de 5). Le total reste
+          5 tuiles → même taille que les autres couleurs. */}
+      {(() => {
+        const idx0 = state?.orders.indexOf(0) ?? -1;
+        const sourceDbPath = idx0 >= 0 ? state?.uploadedPaths[idx0] : undefined;
+        const sourceBlob = idx0 >= 0 ? state?.imagePreviews[idx0] : undefined;
+        const refForBadge = productReference?.trim() || null;
+        const showBrandedPhantom =
+          isPrimary && brandedBadgeEnabled && !!(sourceDbPath || sourceBlob);
+        const brandedPreviewUrl = showBrandedPhantom && sourceDbPath && refForBadge
+          ? `/api/branded-image?src=${encodeURIComponent(sourceDbPath)}&ref=${encodeURIComponent(refForBadge)}&size=thumb&v=v2`
+          : null;
+        const brandedLargeUrl = showBrandedPhantom && sourceDbPath && refForBadge
+          ? `/api/branded-image?src=${encodeURIComponent(sourceDbPath)}&ref=${encodeURIComponent(refForBadge)}&size=large&v=v2`
+          : null;
+        const refPart = productReference ? slugForFile(productReference) : "photo";
+        const colorPart = slugForFile(colorName || "couleur");
+        const brandedDownloadName = `${refPart}-${colorPart}-ref.webp`;
+        // Nombre de tuiles réelles à rendre : 4 si branded (pour laisser
+        // la place au phantom en position 1), sinon 5 comme d'habitude.
+        const realSlotCount = showBrandedPhantom ? MAX_SLOTS - 1 : MAX_SLOTS;
+        // Décalage de label côté UI : la 1ère vraie photo (DB pos 0) s'affiche
+        // « 2 » quand le phantom occupe la position 1.
+        const labelOffset = showBrandedPhantom ? 1 : 0;
+        // Overflow-visible via `pt-2 pr-2` : le cadenas dépasse en haut-droite
+        // du phantom, il ne doit pas être clippé par le container parent.
+        return (
+          <div className="grid grid-cols-5 gap-2 pt-2 pr-2">
+            {showBrandedPhantom && (
+              <BrandedPhantomSlot
+                previewUrl={brandedPreviewUrl}
+                fallbackBlob={!brandedPreviewUrl ? sourceBlob : undefined}
+                reference={refForBadge}
+                zoomUrl={brandedLargeUrl}
+                downloadName={brandedDownloadName}
+                onZoom={onZoom}
               />
-            );
-          }
-          return (
-            <EmptySlot
-              key={pos}
-              position={pos}
-              disabled={(state?.imagePreviews.length ?? 0) >= MAX_SLOTS}
-              onPick={(file) => addFile(file, pos)}
-              onDropReorder={(fromGroupKey, fromPos) => onMovePhoto(fromGroupKey, fromPos, groupKey, pos)}
-            />
-          );
-        })}
+            )}
+            {Array.from({ length: realSlotCount }, (_, pos) => {
+              const idx = state?.orders.indexOf(pos) ?? -1;
+              const src = idx >= 0 ? state?.imagePreviews[idx] : undefined;
+              const displayNumber = pos + 1 + labelOffset;
+              // Quand branded ON, aucune vraie photo n'est « principale » côté
+              // UI (le phantom l'est). Sinon comportement historique : pos 0 = principale.
+              const isPrimaryLabel = !showBrandedPhantom && pos === 0;
+              if (src) {
+                const downloadName = `${refPart}-${colorPart}-${displayNumber}.${extFromSrc(src)}`;
+                return (
+                  <FilledSlot
+                    key={pos}
+                    groupKey={groupKey}
+                    position={pos}
+                    displayNumber={displayNumber}
+                    isPrimaryLabel={isPrimaryLabel}
+                    src={src}
+                    downloadName={downloadName}
+                    onRemove={() => removeAt(pos)}
+                    onDropReorder={(fromGroupKey, fromPos) => onMovePhoto(fromGroupKey, fromPos, groupKey, pos)}
+                    onZoom={() => onZoom(src, downloadName)}
+                  />
+                );
+              }
+              return (
+                <EmptySlot
+                  key={pos}
+                  position={pos}
+                  displayNumber={displayNumber}
+                  disabled={(state?.imagePreviews.length ?? 0) >= realSlotCount}
+                  onPick={(file) => addFile(file, pos)}
+                  onDropReorder={(fromGroupKey, fromPos) => onMovePhoto(fromGroupKey, fromPos, groupKey, pos)}
+                />
+              );
+            })}
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+/**
+ * Slot fantôme non-éditable qui apparaît en 1ère position d'une couleur
+ * principale quand le toggle « badge Référence » est actif. Reprend la
+ * vignette de la 1ère vraie photo composée avec le badge (endpoint dynamique),
+ * pose un cadenas sur la bordure et un libellé « Réf verrouillée » discret.
+ */
+function BrandedPhantomSlot({
+  previewUrl,
+  fallbackBlob,
+  reference,
+  zoomUrl,
+  downloadName,
+  onZoom,
+}: {
+  previewUrl: string | null;
+  fallbackBlob: string | undefined;
+  reference: string | null;
+  zoomUrl: string | null;
+  downloadName: string;
+  onZoom: (src: string, downloadName: string) => void;
+}) {
+  const clickable = !!zoomUrl;
+  const handleZoom = () => {
+    if (zoomUrl) onZoom(zoomUrl, downloadName);
+  };
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  return (
+    // Wrapper overflow-visible + z-10 pour que le cadenas déborde sans se
+    // faire clipper par le rounded-xl / overflow-hidden de la tuile interne.
+    <div className="relative overflow-visible z-10">
+      <div
+        className="group relative aspect-square rounded-lg border-2 border-slate-900 bg-slate-50 overflow-hidden shadow-sm"
+        title={
+          reference
+            ? `Position verrouillée — badge « Référence ${reference} » ajouté automatiquement.`
+            : "Position verrouillée — le badge Référence sera ajouté au save."
+        }
+        aria-label="Position verrouillée par le badge Référence"
+      >
+        {previewUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={previewUrl}
+            alt="Aperçu photo marquée"
+            className="w-full h-full object-cover pointer-events-none"
+            draggable={false}
+          />
+        ) : fallbackBlob ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={fallbackBlob}
+            alt="Aperçu 1ère photo (en attente d'enregistrement)"
+            className="w-full h-full object-contain opacity-60 pointer-events-none"
+            draggable={false}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-[10px] text-text-muted font-body text-center px-1">
+            Ajoutez une photo
+          </div>
+        )}
+
+        {/* Overlay au survol : zoom + download (même pattern que FilledSlot). */}
+        {clickable && (
+          <div
+            className={`absolute inset-0 flex items-center justify-center gap-2 bg-black/40 transition-opacity pointer-events-none group-hover:opacity-100 ${
+              downloadMenuOpen ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            <button
+              type="button"
+              onClick={handleZoom}
+              onMouseDown={(e) => e.stopPropagation()}
+              title="Agrandir la photo marquée"
+              aria-label="Agrandir la photo marquée"
+              className="pointer-events-auto w-8 h-8 rounded-full bg-white/95 hover:bg-white text-slate-900 flex items-center justify-center shadow cursor-pointer"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M10.5 7v7M7 10.5h7M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z" />
+              </svg>
+            </button>
+            {zoomUrl && (
+              <DownloadFormatMenu
+                src={zoomUrl}
+                baseName={downloadName}
+                containerClassName="pointer-events-auto relative"
+                buttonClassName="w-8 h-8 rounded-full bg-white/95 hover:bg-white text-slate-900 flex items-center justify-center shadow cursor-pointer"
+                iconClassName="w-4 h-4"
+                menuAlign="above"
+                title="Télécharger la photo marquée"
+                ariaLabel="Télécharger la photo marquée"
+                onMouseDown={(e) => e.stopPropagation()}
+                onOpenChange={setDownloadMenuOpen}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Numéro simple « 1 » (même style que les autres slots) */}
+        <span className="absolute top-1 left-1 inline-flex items-center rounded-full text-white text-[9px] font-bold font-body px-1.5 py-0.5 pointer-events-none bg-bg-dark">
+          1
+        </span>
+      </div>
+      {/* Cadenas EN DEHORS de la tuile (dans le wrapper overflow-visible) — pas clippé. */}
+      <div className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-slate-900 text-white flex items-center justify-center shadow-md ring-2 ring-white pointer-events-none z-20">
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4" y="11" width="16" height="10" rx="2" />
+          <path d="M8 11V7a4 4 0 018 0v4" />
+        </svg>
       </div>
     </div>
   );
@@ -774,6 +940,8 @@ function decodePhotoDnd(raw: string): { groupKey: string; position: number } | n
 function FilledSlot({
   groupKey,
   position,
+  displayNumber,
+  isPrimaryLabel,
   src,
   downloadName,
   onRemove,
@@ -782,13 +950,19 @@ function FilledSlot({
 }: {
   groupKey: string;
   position: number;
+  /** Numéro affiché sur la tuile (1..N). Peut différer de `position + 1`
+   *  quand le phantom « Réf » verrouille la position 1 côté UI. */
+  displayNumber?: number;
+  /** Affiche le tag « principale » à côté du numéro. Par défaut, position 0. */
+  isPrimaryLabel?: boolean;
   src: string;
   downloadName: string;
   onRemove: () => void;
   onDropReorder: (fromGroupKey: string, fromPos: number) => void;
   onZoom: () => void;
 }) {
-  const isPrimary = position === 0;
+  const shownNumber = displayNumber ?? position + 1;
+  const isPrimary = isPrimaryLabel ?? position === 0;
   const [isDropTarget, setIsDropTarget] = useState(false);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
 
@@ -848,7 +1022,7 @@ function FilledSlot({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
-        alt={`Position ${position + 1}`}
+        alt={`Position ${shownNumber}`}
         className="w-full h-full object-cover pointer-events-none"
         draggable={false}
       />
@@ -866,7 +1040,7 @@ function FilledSlot({
           onClick={onZoom}
           {...stopDrag}
           title="Agrandir"
-          aria-label={`Agrandir l'image en position ${position + 1}`}
+          aria-label={`Agrandir l'image en position ${shownNumber}`}
           className="pointer-events-auto w-8 h-8 rounded-full bg-white/95 hover:bg-white text-slate-900 flex items-center justify-center shadow cursor-pointer"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -881,7 +1055,7 @@ function FilledSlot({
           iconClassName="w-4 h-4"
           menuAlign="above"
           title="Télécharger"
-          ariaLabel={`Télécharger l'image en position ${position + 1}`}
+          ariaLabel={`Télécharger l'image en position ${shownNumber}`}
           onMouseDown={stopDrag.onMouseDown}
           onDragStart={stopDrag.onDragStart}
           onOpenChange={setDownloadMenuOpen}
@@ -893,7 +1067,7 @@ function FilledSlot({
           isPrimary ? "bg-bg-dark" : "bg-black/55"
         }`}
       >
-        {position + 1}
+        {shownNumber}
         {isPrimary && (
           <span className="ml-1 hidden sm:inline font-medium">· principale</span>
         )}
@@ -914,15 +1088,19 @@ function FilledSlot({
 
 function EmptySlot({
   position,
+  displayNumber,
   disabled,
   onPick,
   onDropReorder,
 }: {
   position: number;
+  /** Numéro affiché sur la tuile (1..N). Peut différer de `position + 1`. */
+  displayNumber?: number;
   disabled: boolean;
   onPick: (file: File) => void;
   onDropReorder: (fromGroupKey: string, fromPos: number) => void;
 }) {
+  const shownNumber = displayNumber ?? position + 1;
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDropTarget, setIsDropTarget] = useState(false);
 
@@ -971,14 +1149,14 @@ function EmptySlot({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      title={disabled ? "5 photos maximum" : `Ajouter une image en position ${position + 1}`}
-      aria-label={`Ajouter une image en position ${position + 1}`}
+      title={disabled ? "Nombre maximum de photos atteint" : `Ajouter une image en position ${shownNumber}`}
+      aria-label={`Ajouter une image en position ${shownNumber}`}
       className={`relative aspect-square rounded-lg border-2 border-dashed bg-bg-primary hover:border-bg-dark hover:bg-bg-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed ${
         isDropTarget ? "border-bg-dark bg-bg-secondary ring-2 ring-bg-dark/30" : "border-border-strong"
       }`}
     >
       <span className="absolute top-1 left-1 rounded-full bg-black/55 text-white text-[9px] font-bold font-body px-1.5 py-0.5">
-        {position + 1}
+        {shownNumber}
       </span>
       <span className="text-2xl text-text-muted leading-none font-body">+</span>
       <input

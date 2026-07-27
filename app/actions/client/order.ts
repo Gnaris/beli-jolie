@@ -55,7 +55,7 @@ export async function cancelOrder(orderId: string): Promise<void> {
   revalidatePath("/commandes");
   revalidatePath(`/commandes/${orderId}`);
 }
-import { generateOrderPDF, type OrderItemPDF } from "@/lib/pdf-order";
+import type { OrderItemPDF } from "@/lib/pdf-order";
 import { createEasyExpressShipment, fetchEasyExpressLabel } from "@/lib/easy-express";
 import { getStripeInstance } from "@/lib/stripe";
 import { notifyAdminNewOrder, notifyOrderStatusChange } from "@/lib/notifications";
@@ -617,47 +617,9 @@ export async function placeOrder(
     logger.warn("[placeOrder] Easy-Express", { error: eeResult.error });
   }
 
-  // ── PDF ─────────────────────────────────────
-  let pdfBuffer: Buffer | null = null;
-  try {
-    pdfBuffer = await generateOrderPDF({
-      orderNumber,
-      createdAt:       order.createdAt,
-      clientCompany:   user.company,
-      clientFirstName: user.firstName,
-      clientLastName:  user.lastName,
-      clientEmail:     user.email,
-      clientPhone:     user.phone,
-      clientSiret:     user.siret,
-      clientVatNumber: user.vatNumber ?? null,
-      shipLabel:       address.label,
-      shipFirstName:   address.firstName,
-      shipLastName:    address.lastName,
-      shipCompany:     address.company ?? null,
-      shipAddress1:    address.address1,
-      shipAddress2:    address.address2 ?? null,
-      shipZipCode:     address.zipCode,
-      shipCity:        address.city,
-      shipCountry:     address.country,
-      carrierName:     input.carrierName,
-      carrierPrice:    input.carrierPrice,
-      clientDiscountAmt: Number(clientDiscountAmt),
-      promoCode:       order.promoCode ?? null,
-      promoDiscount:   Number(order.promoDiscount ?? 0),
-      creditApplied:   Number(order.creditApplied ?? 0),
-      tvaRate,
-      subtotalHT,
-      tvaAmount,
-      totalTTC,
-      items:           orderItems,
-    });
-  } catch (err) {
-    logger.error("[placeOrder] PDF error", { error: err });
-  }
-
   // ── Emails (fire-and-forget) ─────────────────
-  // Notif admin (avec PDF en pièce jointe si dispo) + confirmation client.
-  notifyAdminNewOrder({ orderId: order.id, pdfBuffer }).catch((err) =>
+  // Notif admin (mail léger sans PDF — voir lib/notifications.ts) + confirmation client.
+  notifyAdminNewOrder({ orderId: order.id }).catch((err) =>
     logger.error("[placeOrder] Notif admin error", { error: err })
   );
   notifyOrderStatusChange({ orderId: order.id, newStatus: "PENDING" }).catch((err) =>

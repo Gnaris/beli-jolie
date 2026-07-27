@@ -44,6 +44,7 @@ import {
   type FaireVariantSnapshot,
 } from "@/lib/faire-sync-diff";
 import { buildFaireImageUrl } from "@/lib/marketplace-image";
+import { buildBrandedMarketplaceUrl } from "@/lib/branded-image-display";
 import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
 
 // ─────────────────────────────────────────────
@@ -392,6 +393,12 @@ export function buildFaireProductPayload(
    * (isolation multi-tenant du path).
    */
   imageBaseUrl?: string,
+  /**
+   * Toggle `branded_reference_badge_enabled`. Quand true, la 1ʳᵉ image de la
+   * couleur principale est remplacée par l'URL `/api/branded-image?...` qui
+   * compose le badge « Réf » à la volée (JPEG pour Faire).
+   */
+  brandedBadgeEnabled: boolean = false,
 ): {
   body: Record<string, unknown>;
   variants: FaireVariantPayload[];
@@ -402,6 +409,33 @@ export function buildFaireProductPayload(
   const imagesByColorId = buildImagesByColorId(product.colorImages);
   const sizeAxis = shouldExposeSizeAxis(product);
   const lines = buildFaireLines(product, sizeAxis);
+
+  // Helper URL Faire pour une image donnée : bascule sur /api/branded-image
+  // (format JPEG, minWidth 1000) quand c'est la 1ère image de la couleur
+  // principale ET que le toggle badge est actif.
+  const brandedBaseUrl =
+    imageBaseUrl ??
+    process.env.MARKETPLACE_IMAGE_BASE_URL ??
+    process.env.NEXTAUTH_URL ??
+    "https://beliandjolie.com";
+  const faireUrlFor = (
+    path: string,
+    context: { colorId: string | null; index: number },
+  ): string => {
+    if (
+      brandedBadgeEnabled &&
+      product.primaryColorId &&
+      context.colorId === product.primaryColorId &&
+      context.index === 0
+    ) {
+      return buildBrandedMarketplaceUrl(path, product.reference, {
+        baseUrl: brandedBaseUrl,
+        size: "large",
+        format: "jpeg",
+      });
+    }
+    return buildFaireImageUrl(path, imageBaseUrl);
+  };
 
   const skuByLine = buildFaireVariantSkus(
     product.reference,
@@ -437,12 +471,29 @@ export function buildFaireProductPayload(
     // `sequence` (0-indexed) : Faire utilise ce champ pour l'ordre d'affichage
     // côté galerie de la variante. Sans ça, Faire conserve l'ordre historique
     // des images existantes même quand on PATCH avec un nouveau tableau.
-    const images = imgPaths.length > 0
-      ? imgPaths.slice(0, 5).map((p, idx) => ({
-          url: buildFaireImageUrl(p, imageBaseUrl),
+    // Toggle badge sur couleur principale : on INSÈRE l'URL brandée en tête
+    // (sequence 0) puis on conserve la source brute juste après (sequence 1).
+    let variantImagesList: { url: string; sequence: number }[] | undefined;
+    if (imgPaths.length > 0) {
+      const brandedUrl = faireUrlFor(imgPaths[0]!, { colorId: v.colorId ?? null, index: 0 });
+      const rawFirstUrl = faireUrlFor(imgPaths[0]!, { colorId: v.colorId ?? null, index: 999 });
+      const isBrandedInserted = brandedUrl !== rawFirstUrl;
+      if (isBrandedInserted) {
+        variantImagesList = [
+          { url: brandedUrl, sequence: 0 },
+          ...imgPaths.slice(0, 4).map((p, idx) => ({
+            url: faireUrlFor(p, { colorId: v.colorId ?? null, index: 999 }),
+            sequence: idx + 1,
+          })),
+        ];
+      } else {
+        variantImagesList = imgPaths.slice(0, 5).map((p, idx) => ({
+          url: faireUrlFor(p, { colorId: v.colorId ?? null, index: idx }),
           sequence: idx,
-        }))
-      : undefined;
+        }));
+      }
+    }
+    const images = variantImagesList;
 
     // measurements (schéma `ExternalMeasurementsV2`, cf. docs/faire-api.md §6).
     // - weight : poids en grammes (BDD = kg → ×1000). `mass_unit` obligatoire si weight.
@@ -595,11 +646,32 @@ export function buildFaireProductPayload(
   // n'avait aucun effet visible côté portail Faire.
   //
   // `sequence` (0, 1, 2…) reste utile pour l'ordre dans la galerie complète.
-  const productImages = galleryPaths.map((p, idx) => ({
-    url: buildFaireImageUrl(p, imageBaseUrl),
-    sequence: idx,
-    ...(idx === 0 ? { tags: ["Hero"] } : {}),
-  }));
+  // Le 1er élément de galleryPaths provient toujours de la couleur principale
+  // (cf. `orderedColorIds` ci-dessus). Toggle branded → on INSÈRE l'URL brandée
+  // en tête (Hero) puis la photo brute en sequence 1, puis les autres.
+  let productImages: { url: string; sequence: number; tags?: string[] }[];
+  if (galleryPaths.length > 0) {
+    const brandedUrl = faireUrlFor(galleryPaths[0]!, { colorId: product.primaryColorId ?? null, index: 0 });
+    const rawFirstUrl = faireUrlFor(galleryPaths[0]!, { colorId: product.primaryColorId ?? null, index: 999 });
+    const isBrandedInserted = brandedUrl !== rawFirstUrl;
+    if (isBrandedInserted) {
+      productImages = [
+        { url: brandedUrl, sequence: 0, tags: ["Hero"] },
+        ...galleryPaths.slice(0, 4).map((p, idx) => ({
+          url: faireUrlFor(p, { colorId: null, index: 999 }),
+          sequence: idx + 1,
+        })),
+      ];
+    } else {
+      productImages = galleryPaths.map((p, idx) => ({
+        url: faireUrlFor(p, { colorId: idx === 0 ? (product.primaryColorId ?? null) : null, index: idx }),
+        sequence: idx,
+        ...(idx === 0 ? { tags: ["Hero"] } : {}),
+      }));
+    }
+  } else {
+    productImages = [];
+  }
 
   // Note : `sale_state` est read-only côté Faire — c'est Faire qui bascule
   // automatiquement entre FOR_SALE et SALES_PAUSED selon le stock vs MOQ.
@@ -868,6 +940,11 @@ export async function fairePublishProduct(
   const configs = await loadMarketplaceMarkupConfigs();
   const lifecycleState = options.lifecycleState ?? "DRAFT";
   const imageBaseUrl = await resolveTenantImageBaseUrl();
+  const brandedBadgeRow = await prisma.siteConfig.findFirst({
+    where: { key: "branded_reference_badge_enabled" },
+    select: { value: true },
+  });
+  const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
   const { body, variants, productImagesCount, productImageUrls } = buildFaireProductPayload(
     product,
     ctx,
@@ -876,6 +953,7 @@ export async function fairePublishProduct(
     lifecycleState,
     undefined,
     imageBaseUrl,
+    brandedBadgeEnabled,
   );
 
   // Validation locale (rejet rapide avant l'aller-retour HTTP).

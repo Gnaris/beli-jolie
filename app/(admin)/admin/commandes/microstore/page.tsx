@@ -121,10 +121,10 @@ export default async function MicrostoreOrdersPage() {
               Microstore n'est pas encore connecté
             </div>
             <div className="text-xs text-amber-800 mt-1">
-              Connectez votre compte via QR code pour pouvoir importer vos commandes.
+              Connectez votre compte depuis les paramètres pour pouvoir importer vos commandes.
             </div>
             <Link
-              href="/admin/parametres/microstore"
+              href="/admin/parametres?tab=marketplaces"
               className="inline-block mt-2 h-9 px-4 rounded-lg bg-amber-800 text-white text-xs font-body font-bold hover:bg-amber-900 transition-colors leading-9"
             >
               Aller à la connexion →

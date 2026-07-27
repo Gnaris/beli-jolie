@@ -46,12 +46,20 @@ export interface PfsLinkCandidate {
   pfsColorHex: string;
   /** Aperçu de la couleur (motif PFS, peut être null). */
   pfsColorImage: string | null;
-  /** Libellé taille (ex: "TU", "S"). Pour un PACK : "PACK x N". */
+  /** Libellé taille (ex: "TU", "S"). Pour un PACK : "PACK x N" (pour compat). */
   sizeLabel: string;
+  /** Liste des vraies tailles du paquet pour un PACK (ex: ["S", "M", "L"]). Vide pour un ITEM. */
+  packSizes: string[];
   /** Prix unité (EUR HT, ce que PFS reçoit). */
   priceUnit: number;
+  /** Prix total (paquet complet) EUR HT — pour un PACK. Pour un ITEM : identique à priceUnit. */
+  priceTotal: number;
+  /** Nombre d'articles dans le paquet (null pour ITEM/UNIT). */
+  packQuantity: number | null;
   /** Quantité en stock côté PFS. */
   stockQty: number;
+  /** Poids PFS en kg (0 si absent). */
+  weightKg: number;
   /** Visible/active côté PFS. */
   isActive: boolean;
   /** Première image de la variante (URL publique PFS). */
@@ -74,8 +82,14 @@ export interface PfsLinkLocalColor {
   productImage: string | null;
   /** Prix unitaire BJ (pour UNIT) ou prix total (pour PACK). */
   unitPrice: number;
+  /** Nombre d'articles dans le paquet (null pour UNIT). */
+  packQuantity: number | null;
+  /** Libellés de tailles vendues pour cette couleur (ex: ["S", "M", "L"] ou ["TU"]). */
+  sizes: string[];
   /** Stock BJ pour cette variante. */
   stock: number;
+  /** Poids BJ en kg. */
+  weightKg: number;
   /** Référence PFS de couleur déjà mappée chez nous (Color.pfsColorRef). */
   existingPfsColorRef: string | null;
 }
@@ -171,6 +185,8 @@ export async function previewPfsMatchByReference(
             saleType: true,
             unitPrice: true,
             stock: true,
+            weight: true,
+            packQuantity: true,
             pfsVariantId: true,
             color: {
               select: {
@@ -180,6 +196,9 @@ export async function previewPfsMatchByReference(
                 patternImage: true,
                 pfsColorRef: true,
               },
+            },
+            variantSizes: {
+              select: { size: { select: { name: true } } },
             },
             images: {
               select: { path: true },
@@ -245,7 +264,10 @@ export async function previewPfsMatchByReference(
         saleType: pc.saleType,
         productImage: pc.images[0]?.path ?? null,
         unitPrice: Number(pc.unitPrice),
+        packQuantity: pc.packQuantity ?? null,
+        sizes: pc.variantSizes.map((vs) => vs.size?.name).filter(Boolean) as string[],
         stock: pc.stock ?? 0,
+        weightKg: Number(pc.weight ?? 0),
         existingPfsColorRef: pc.color!.pfsColorRef,
       }));
 
@@ -283,8 +305,23 @@ export async function previewPfsMatchByReference(
         pfsColorHex: colorHex,
         pfsColorImage: colorImage,
         sizeLabel: buildSizeLabel(v),
+        packSizes:
+          v.type === "PACK"
+            ? Array.from(
+                new Set(
+                  (v.packs ?? []).flatMap((p) =>
+                    (p.sizes ?? [])
+                      .filter((sz) => (sz.qty ?? 0) > 0)
+                      .map((sz) => sz.size),
+                  ),
+                ),
+              )
+            : [],
         priceUnit: v.price_sale?.unit?.value ?? 0,
+        priceTotal: v.price_sale?.total?.value ?? v.price_sale?.unit?.value ?? 0,
+        packQuantity: v.type === "PACK" ? (v.pieces ?? null) : null,
         stockQty: v.stock_qty ?? 0,
+        weightKg: v.weight ?? 0,
         isActive: !!v.is_active,
         imageUrl: firstImageOf(variantImages),
         suggestedLocalColorId: suggested?.productColorId ?? null,

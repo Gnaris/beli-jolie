@@ -190,9 +190,17 @@ function getPfsUnitPrice(variant: FullVariant, markup?: MarkupConfig): number {
 const getSizeRef = (vs: { size: { name: string; pfsSizeRef: string | null } }) =>
   vs.size.pfsSizeRef || vs.size.name || "TU";
 
-async function convertToJpeg(imagePath: string): Promise<Buffer> {
+async function convertToJpeg(imagePath: string, brandedReference?: string): Promise<Buffer> {
   const { readFile, keyFromDbPath } = await import("@/lib/storage");
-  const buffer = await readFile(keyFromDbPath(imagePath));
+  let buffer = await readFile(keyFromDbPath(imagePath));
+  if (brandedReference) {
+    const { composeBrandedBuffer } = await import("@/lib/branded-image");
+    buffer = await composeBrandedBuffer({
+      sourceBuffer: buffer,
+      reference: brandedReference,
+      size: "large",
+    });
+  }
   return sharp(buffer).jpeg({ quality: 100, chromaSubsampling: "4:4:4", mozjpeg: true }).toBuffer();
 }
 
@@ -621,6 +629,16 @@ export async function pfsPublishProduct(
       }
     }
 
+    // PFS-ref de la couleur principale — sert à identifier le colorRef qui
+    // recevra le badge « Réf » sur son 1er slot.
+    const primaryPfsColorRef =
+      product.primaryColorId ? colorIdToPfsRef.get(product.primaryColorId) ?? null : null;
+    const brandedBadgeRow = await prisma.siteConfig.findFirst({
+      where: { key: "branded_reference_badge_enabled" },
+      select: { value: true },
+    });
+    const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
+
     // Group images by their colorId — source = product.colorImages (level produit, dédupliqué)
     const seenImageKeys = new Set<string>();
     for (const img of product.colorImages) {
@@ -645,7 +663,15 @@ export async function pfsPublishProduct(
         const results = await Promise.allSettled(
           batch.map(async (img, batchIdx) => {
             const slot = i + batchIdx + 1;
-            const jpegBuffer = await convertToJpeg(img.path);
+            const applyBrandedBadge =
+              brandedBadgeEnabled &&
+              primaryPfsColorRef != null &&
+              colorRef === primaryPfsColorRef &&
+              slot === 1;
+            const jpegBuffer = await convertToJpeg(
+              img.path,
+              applyBrandedBadge ? product.reference : undefined,
+            );
             await pfsUploadImage(createdPfsProductId!, jpegBuffer, slot, colorRef, `image_${slot}.jpg`);
             return slot;
           }),

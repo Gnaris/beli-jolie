@@ -82,6 +82,25 @@ export interface FaireVariant {
   active?: boolean;
   options?: { name: string; value: string }[];
   images?: { url: string }[];
+  /** Bloc mesurements moderne (poids en grammes, dimensions en cm). */
+  measurements?: {
+    weight?: number;
+    mass_unit?: "GRAMS" | "KILOGRAMS";
+    length?: number;
+    width?: number;
+    height?: number;
+    distance_unit?: "CENTIMETERS" | "INCHES";
+  };
+  /** Prix moderne par région (geo_constraint). Remplace wholesale/retail_price_cents dépréciés. */
+  prices?: Array<{
+    geo_constraint?: { country_group?: string; country?: string };
+    prices?: Array<{
+      currency?: string;
+      wholesale_price?: { amount_minor?: number };
+      retail_price?: { amount_minor?: number };
+    }>;
+  }>;
+  lifecycle_state?: string;
 }
 
 /**

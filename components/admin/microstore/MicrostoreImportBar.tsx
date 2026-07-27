@@ -81,7 +81,7 @@ export default function MicrostoreImportBar({ defaultFromDate, defaultToDate }: 
             </p>
           </div>
           <Link
-            href="/admin/parametres/microstore"
+            href="/admin/parametres?tab=marketplaces"
             className="text-xs text-text-muted hover:text-text-primary font-body"
           >
             Paramètres →

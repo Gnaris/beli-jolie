@@ -9,6 +9,8 @@ import { useMarketplaceMaintenance } from "@/components/admin/products/Marketpla
 // Types
 // ─────────────────────────────────────────────
 
+type ActionMode = "refresh" | "update" | "archive";
+
 interface AskInput {
   count: number;
   firstProductName?: string;
@@ -36,6 +38,18 @@ interface AskInput {
    *  Défaut false. À utiliser pour les propagations et synchronisations où
    *  la cliente veut cocher tout par défaut. */
   defaultAllChecked?: boolean;
+  /** Verbe d'action injecté dans « À {actionLabel} » (tuile KPI verte) et
+   *  « X à {actionLabel} » (compteur sous chaque carte marketplace). Défaut
+   *  « rafraîchir ». À utiliser pour les flux propagation stock/prix/poids
+   *  (« mettre à jour »), synchronisation, publication, archivage, etc. */
+  actionLabel?: string;
+  /** Mode d'action : contrôle la phrase de description sous chaque marketplace.
+   *  - "refresh" (défaut) : « Crée une nouvelle fiche … puis supprime l'ancienne ».
+   *  - "update" : « Envoie les nouvelles valeurs à la fiche existante ».
+   *  - "archive" : « Met la fiche hors ligne ».
+   *  Ne touche pas au ticket de shooting eFashion — celui-ci reste piloté par
+   *  `showBoutique` (uniquement présent sur le parcours "Rafraîchir"). */
+  actionMode?: ActionMode;
 }
 
 interface MarketplaceEnabledCounts {
@@ -74,7 +88,7 @@ interface MarketplaceMeta {
   activeClass: string;
   switchOnClass: string;
   hoverBorderClass: string;
-  description: string;
+  descriptions: Record<ActionMode, string>;
   warning?: { title: string; body: string };
 }
 
@@ -89,8 +103,17 @@ const BOUTIQUE: MarketplaceMeta = {
   activeClass: "",
   switchOnClass: "bg-bg-dark",
   hoverBorderClass: "hover:border-border-dark",
-  description:
-    "Le produit réapparaîtra dans la section « Nouveautés » pendant 30 jours sur votre boutique.",
+  // La boutique n'est proposée que sur le parcours "Rafraîchir"
+  // (showBoutique=true). Les autres modes réutilisent le même texte
+  // pour rester safe si un futur flux l'affichait.
+  descriptions: {
+    refresh:
+      "Le produit réapparaîtra dans la section « Nouveautés » pendant 30 jours sur votre boutique.",
+    update:
+      "Le produit réapparaîtra dans la section « Nouveautés » pendant 30 jours sur votre boutique.",
+    archive:
+      "Le produit réapparaîtra dans la section « Nouveautés » pendant 30 jours sur votre boutique.",
+  },
 };
 
 const MARKETPLACES: Record<Exclude<MarketplaceKey, "local">, MarketplaceMeta> = {
@@ -103,8 +126,14 @@ const MARKETPLACES: Record<Exclude<MarketplaceKey, "local">, MarketplaceMeta> = 
     activeClass: "",
     switchOnClass: "bg-bg-dark",
     hoverBorderClass: "hover:border-border-dark",
-    description:
-      "Crée une nouvelle fiche PFS avec la référence en cours, puis supprime l'ancienne.",
+    descriptions: {
+      refresh:
+        "Crée une nouvelle fiche PFS avec la référence en cours, puis supprime l'ancienne.",
+      update:
+        "Envoie les nouvelles valeurs à la fiche PFS existante.",
+      archive:
+        "Met la fiche PFS hors ligne (archivée).",
+    },
   },
   ankorstore: {
     key: "ankorstore",
@@ -115,8 +144,14 @@ const MARKETPLACES: Record<Exclude<MarketplaceKey, "local">, MarketplaceMeta> = 
     activeClass: "",
     switchOnClass: "bg-bg-dark",
     hoverBorderClass: "hover:border-border-dark",
-    description:
-      "Crée une nouvelle fiche Ankorstore, puis archive l'ancienne. Traitement en arrière-plan.",
+    descriptions: {
+      refresh:
+        "Crée une nouvelle fiche Ankorstore, puis archive l'ancienne. Traitement en arrière-plan.",
+      update:
+        "Envoie les nouvelles valeurs à la fiche Ankorstore. Traitement en arrière-plan.",
+      archive:
+        "Met la fiche Ankorstore hors ligne. Traitement en arrière-plan.",
+    },
   },
   efashion: {
     key: "efashion",
@@ -127,7 +162,11 @@ const MARKETPLACES: Record<Exclude<MarketplaceKey, "local">, MarketplaceMeta> = 
     activeClass: "",
     switchOnClass: "bg-bg-dark",
     hoverBorderClass: "hover:border-border-dark",
-    description: "Renvoie infos, photos, prix et stock à eFashion.",
+    descriptions: {
+      refresh: "Renvoie infos, photos, prix et stock à eFashion.",
+      update: "Envoie les nouvelles valeurs à la fiche eFashion existante.",
+      archive: "Met la fiche eFashion hors ligne.",
+    },
     warning: {
       title: "Ticket de shooting",
       body:
@@ -143,8 +182,14 @@ const MARKETPLACES: Record<Exclude<MarketplaceKey, "local">, MarketplaceMeta> = 
     activeClass: "",
     switchOnClass: "bg-bg-dark",
     hoverBorderClass: "hover:border-border-dark",
-    description:
-      "Crée une nouvelle fiche Faire, puis supprime l'ancienne.",
+    descriptions: {
+      refresh:
+        "Crée une nouvelle fiche Faire, puis supprime l'ancienne.",
+      update:
+        "Envoie les nouvelles valeurs à la fiche Faire existante.",
+      archive:
+        "Met la fiche Faire hors ligne.",
+    },
   },
 };
 
@@ -205,6 +250,8 @@ function MarketplaceCard({
   totalSelected,
   isRefreshFlow,
   inMaintenance = false,
+  actionLabel,
+  actionMode,
 }: {
   meta: MarketplaceMeta;
   checked: boolean;
@@ -218,6 +265,10 @@ function MarketplaceCard({
   isRefreshFlow?: boolean;
   /** Maintenance plateforme active — coupe l'interaction et affiche un badge dédié. */
   inMaintenance?: boolean;
+  /** Verbe pour le compteur « X à {actionLabel} ». Défaut « rafraîchir ». */
+  actionLabel: string;
+  /** Mode d'action — sélectionne la description à afficher. */
+  actionMode: ActionMode;
 }) {
   // Maintenance prend priorité sur "désactivé pour toute la sélection".
   const allDisabled =
@@ -284,14 +335,14 @@ function MarketplaceCard({
               />
             )}
           </div>
-          <p className="text-xs text-text-secondary leading-relaxed">{meta.description}</p>
+          <p className="text-xs text-text-secondary leading-relaxed">{meta.descriptions[actionMode]}</p>
 
           {/* Compteurs "à rafraîchir / sautés" (mode bulk avec productIds) */}
           {showCounts && !allDisabled && (
             <div className="flex items-center gap-3 mt-2 text-[11px] font-semibold">
               <span className="inline-flex items-center gap-1 text-[color:var(--color-success)]">
                 <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--color-success)]" />
-                {enabledCount} à rafraîchir
+                {enabledCount} à {actionLabel}
               </span>
               {disabledCount! > 0 && (
                 <span className="inline-flex items-center gap-1 text-[color:var(--color-warning)]">
@@ -513,6 +564,8 @@ function Modal({ input, onResult }: ModalProps) {
         ? "Choisissez où le rafraîchir."
         : "Les options s'appliqueront à tous les produits sélectionnés.");
   const eyebrow = input.eyebrow ?? "Rafraîchir";
+  const actionLabel = input.actionLabel ?? "rafraîchir";
+  const actionMode: ActionMode = input.actionMode ?? "refresh";
 
   function handleConfirm() {
     if (confirmDisabled) return;
@@ -610,7 +663,7 @@ function Modal({ input, onResult }: ModalProps) {
                     className="text-[10px] font-bold uppercase text-[color:var(--color-success)] mb-1"
                     style={{ letterSpacing: "0.18em" }}
                   >
-                    À rafraîchir
+                    À {actionLabel}
                   </div>
                   <div className="font-heading text-2xl font-bold text-[color:var(--color-success)]">
                     {totalIds - totalDisabled}
@@ -648,6 +701,8 @@ function Modal({ input, onResult }: ModalProps) {
                 meta={BOUTIQUE}
                 checked={state.local}
                 onToggle={(v) => setState((prev) => ({ ...prev, local: v }))}
+                actionLabel={actionLabel}
+                actionMode={actionMode}
               />
             </div>
           )}
@@ -676,6 +731,8 @@ function Modal({ input, onResult }: ModalProps) {
                     totalSelected={totalIds}
                     isRefreshFlow={showBoutique}
                     inMaintenance={maintenance[k]}
+                    actionLabel={actionLabel}
+                    actionMode={actionMode}
                   />
                 ))}
               </div>

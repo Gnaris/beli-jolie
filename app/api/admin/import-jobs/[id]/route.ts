@@ -127,7 +127,7 @@ export async function POST(
           // tempDir absent → on finalise sans rien traiter
         }
 
-        await finalizeImageImport(id);
+        await finalizeImageImport(id, tenant.slug);
       } catch (err) {
         logger.error("[import-jobs] Background finalize error", { error: err, jobId: id });
         await prisma.importJob.update({

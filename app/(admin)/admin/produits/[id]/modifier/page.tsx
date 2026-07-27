@@ -55,6 +55,7 @@ export default async function ModifierProduitPage({
     hasFaireConfig,
     faireEnabled,
     maintenance,
+    brandedBadgeRow,
   ] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
@@ -144,7 +145,9 @@ export default async function ModifierProduitPage({
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
     getMarketplaceMaintenance(),
+    prisma.siteConfig.findFirst({ where: { key: "branded_reference_badge_enabled" }, select: { value: true } }),
   ]);
+  const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
 
   if (!product) notFound();
 
@@ -375,6 +378,7 @@ export default async function ModifierProduitPage({
           efashionEnabled={efashionEnabled}
           hasFaireConfig={hasFaireConfig}
           faireEnabled={faireEnabled}
+          brandedBadgeEnabled={brandedBadgeEnabled}
           pfsColorOptions={pfsColorOptions}
           efashionColorOptions={efashionColorOptions}
           initialData={{
@@ -569,6 +573,7 @@ export default async function ModifierProduitPage({
         efashionEnabled={efashionEnabled}
         hasFaireConfig={hasFaireConfig}
         faireEnabled={faireEnabled}
+        brandedBadgeEnabled={brandedBadgeEnabled}
         pfsColorOptions={pfsColorOptions}
         initialData={{
           reference:         product.reference,

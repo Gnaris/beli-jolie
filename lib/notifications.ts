@@ -610,11 +610,13 @@ export async function notifyClientClaimUpdate(params: {
 
 interface NewOrderAdminData {
   orderId: string;
-  pdfBuffer?: Buffer | null;
 }
 
 /**
- * Envoi un email à l'admin dès qu'une nouvelle commande est passée.
+ * Envoi un email de notification à l'admin dès qu'une nouvelle commande est
+ * passée. Volontairement minimal : n° de commande, client, montant, lien vers
+ * l'admin. Pas de PDF joint ni de détail des articles (elle consulte la
+ * commande complète en cliquant sur le bouton).
  * Fire-and-forget — les erreurs sont loggées, jamais propagées.
  */
 export async function notifyAdminNewOrder(
@@ -632,8 +634,15 @@ export async function notifyAdminNewOrder(
 
     const order = await prisma.order.findUnique({
       where: { id: data.orderId },
-      include: {
-        items: { orderBy: { createdAt: "asc" } },
+      select: {
+        id: true,
+        orderNumber: true,
+        clientCompany: true,
+        clientEmail: true,
+        clientPhone: true,
+        subtotalHT: true,
+        carrierPrice: true,
+        tvaRate: true,
       },
     });
     if (!order) {
@@ -642,125 +651,42 @@ export async function notifyAdminNewOrder(
     }
 
     const baseUrl = await getCurrentTenantBaseUrl();
-
-    const itemsHtml = order.items
-      .map(
-        (item) => `
-      <tr>
-        <td style="padding:8px 12px;border-bottom:1px solid #E5E5E5;">
-          <strong>${escapeHtml(item.productName)}</strong><br/>
-          <small style="color:#6B6B6B;">Réf. ${escapeHtml(item.productRef)} · ${escapeHtml(item.colorName)}${item.saleType === "PACK" ? ` · Paquet ×${item.packQty}` : ""}</small>
-        </td>
-        <td style="padding:8px 12px;text-align:center;border-bottom:1px solid #E5E5E5;">${item.quantity}</td>
-        <td style="padding:8px 12px;text-align:right;border-bottom:1px solid #E5E5E5;">${Number(item.lineTotal).toFixed(2)} €</td>
-      </tr>`
-      )
-      .join("");
+    const totalTTC = floorMoney(
+      (Number(order.subtotalHT) + Number(order.carrierPrice)) * (1 + order.tvaRate),
+    );
+    const clientLabel = order.clientCompany?.trim() || order.clientEmail;
 
     const html = `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+      <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:#1A1A1A;">
         <div style="background:#1A1A1A;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0;">
           <h2 style="margin:0;font-size:18px;">🛒 Nouvelle commande reçue</h2>
           <p style="margin:6px 0 0;opacity:0.85;font-size:13px;">N° ${escapeHtml(order.orderNumber)}</p>
         </div>
         <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
-          <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px;">
-            <tr style="background:#F3F4F6;">
-              <td style="padding:10px 14px;font-weight:bold;width:40%;">Client</td>
-              <td style="padding:10px 14px;">${escapeHtml(order.clientCompany || "")}</td>
-            </tr>
-            <tr>
-              <td style="padding:10px 14px;font-weight:bold;">Email</td>
-              <td style="padding:10px 14px;">${escapeHtml(order.clientEmail)}</td>
-            </tr>
-            <tr style="background:#F3F4F6;">
-              <td style="padding:10px 14px;font-weight:bold;">Téléphone</td>
-              <td style="padding:10px 14px;">${escapeHtml(order.clientPhone || "")}</td>
-            </tr>
-            <tr>
-              <td style="padding:10px 14px;font-weight:bold;">Livraison</td>
-              <td style="padding:10px 14px;">${escapeHtml(order.shipAddress1)}, ${escapeHtml(order.shipZipCode)} ${escapeHtml(order.shipCity)} (${escapeHtml(order.shipCountry)})</td>
-            </tr>
-            <tr style="background:#F3F4F6;">
-              <td style="padding:10px 14px;font-weight:bold;">Transporteur</td>
-              <td style="padding:10px 14px;">${escapeHtml(order.carrierName || "—")}</td>
-            </tr>
-          </table>
-
-          <h3 style="font-size:13px;color:#6B6B6B;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 10px;">
-            Articles commandés
-          </h3>
-          <table style="width:100%;border-collapse:collapse;font-size:13px;">
-            <thead>
-              <tr style="background:#F7F7F8;">
-                <th style="padding:8px 12px;text-align:left;">Produit</th>
-                <th style="padding:8px 12px;text-align:center;">Qté</th>
-                <th style="padding:8px 12px;text-align:right;">Total HT</th>
-              </tr>
-            </thead>
-            <tbody>${itemsHtml}</tbody>
-          </table>
-
-          ${(() => {
-            const subHT = Number(order.subtotalHT);
-            const carrierHT = Number(order.carrierPrice);
-            const rate = order.tvaRate;
-            const tvaProducts = floorMoney(subHT * rate);
-            const tvaShipping = floorMoney(carrierHT * rate);
-            const total = floorMoney((subHT + carrierHT) * (1 + rate));
-            const rateLabel = rate === 0 ? "exonéré" : `${(rate * 100).toFixed(0)}%`;
-            return `<table style="width:260px;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:13px;">
-            <tr>
-              <td style="padding:4px 0;color:#6B6B6B;">Sous-total HT</td>
-              <td style="padding:4px 0;text-align:right;">${subHT.toFixed(2)} €</td>
-            </tr>
-            <tr>
-              <td style="padding:4px 0;color:#6B6B6B;">Frais de port HT</td>
-              <td style="padding:4px 0;text-align:right;">${carrierHT === 0 ? "Gratuit" : `${carrierHT.toFixed(2)} €`}</td>
-            </tr>
-            <tr>
-              <td style="padding:4px 0;color:#6B6B6B;">TVA sur articles (${rateLabel})</td>
-              <td style="padding:4px 0;text-align:right;">${tvaProducts.toFixed(2)} €</td>
-            </tr>
-            ${carrierHT > 0 && rate > 0 ? `<tr>
-              <td style="padding:4px 0;color:#6B6B6B;">TVA sur port (${rateLabel})</td>
-              <td style="padding:4px 0;text-align:right;">${tvaShipping.toFixed(2)} €</td>
-            </tr>` : ""}
-            <tr style="border-top:2px solid #1A1A1A;">
-              <td style="padding:8px 0;font-weight:bold;">Total TTC</td>
-              <td style="padding:8px 0;text-align:right;font-weight:bold;">${total.toFixed(2)} €</td>
-            </tr>
-          </table>`;
-          })()}
-
-          <div style="text-align:center;margin-top:28px;">
+          <p style="font-size:15px;line-height:1.6;margin:0 0 14px;">
+            <strong>${escapeHtml(clientLabel)}</strong> vient de passer commande.
+          </p>
+          <p style="font-size:15px;line-height:1.6;margin:0 0 20px;">
+            Montant total : <strong>${totalTTC.toFixed(2)} € TTC</strong>
+          </p>
+          <div style="text-align:center;">
             <a href="${baseUrl}/admin/commandes/${order.id}"
                style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
               Voir la commande →
             </a>
           </div>
         </div>
-
         <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
           ${escapeHtml(shopName)} — Notification automatique
         </p>
       </div>
     `;
 
-    const attachments: { filename: string; content: Buffer }[] = [];
-    if (data.pdfBuffer) {
-      attachments.push({
-        filename: `Commande-${order.orderNumber}.pdf`,
-        content: data.pdfBuffer,
-      });
-    }
-
     await sendMail({
       fromName: shopName,
       to: notifyEmail,
-      subject: `🛒 Nouvelle commande ${order.orderNumber} — ${order.clientCompany || order.clientEmail}`,
+      subject: `🛒 Nouvelle commande ${order.orderNumber} — ${clientLabel}`,
       html,
-      attachments,
     });
   } catch (err) {
     logger.error("[new-order-admin] Erreur envoi email", { detail: err instanceof Error ? err.message : String(err) });

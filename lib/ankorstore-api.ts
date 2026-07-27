@@ -54,6 +54,16 @@ export interface AnkorstoreProduct {
   archived: boolean;
   images: { order: number; url: string }[];
   variants: AnkorstoreVariant[]; // hydraté via include=productVariant(s)
+  /** Bloc shape_properties renvoyé par l'API (weight en kg, dimensions). */
+  shape_properties?: {
+    weight?: { amount: number };
+    dimensions?: {
+      unit_code?: string;
+      width?: number;
+      height?: number;
+      length?: number;
+    };
+  } | null;
 }
 
 // ─────────────────────────────────────────────

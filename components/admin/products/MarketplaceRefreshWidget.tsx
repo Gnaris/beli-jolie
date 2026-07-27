@@ -859,7 +859,7 @@ export function MarketplaceRefreshWidget() {
           {queuedCount > 0 && (
             <button
               type="button"
-              onClick={stop}
+              onClick={() => stop()}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-red-600 border border-red-100 hover:bg-red-50 whitespace-nowrap"
               title="Arrêter tous les rafraîchissements en attente"
             >

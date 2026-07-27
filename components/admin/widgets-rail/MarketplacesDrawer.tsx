@@ -36,16 +36,25 @@ import {
   useMarketplaceRefreshQueue,
   type MarketplaceRefreshItem,
   type MarketplaceTarget,
+  type QueueItemMode,
 } from "@/components/admin/products/MarketplaceRefreshContext";
 import {
+  useMarketplaceLinkJobs,
+  type LinkJob,
+} from "@/components/admin/products/MarketplaceLinkContext";
+import { getImageSrc } from "@/lib/image-utils";
+import {
+  bucketGroupsByMode,
   cellCopyable,
   cellTooltipBody,
   cellTooltipTitle,
-  groupItemsByProduct,
+  groupItemsByProductAndMode,
   MARKETPLACE_LABEL,
   MARKETPLACE_ORDER,
+  MODE_LABEL,
   type GroupSection,
   type MarketplaceCell,
+  type ModeBucket,
   type ProductGroup,
 } from "./marketplacesDrawerModel";
 
@@ -67,6 +76,11 @@ export function MarketplacesDrawer() {
   const { openWidget, close, setBadge } = useRightRail();
   const { items, clear, enqueue, runningCount, queuedCount, stop } =
     useMarketplaceRefreshQueue();
+  const {
+    jobs: linkJobs,
+    activeCount: linkActiveCount,
+    dismissJob: dismissLinkJob,
+  } = useMarketplaceLinkJobs();
   const toast = useToast();
   const { confirm } = useConfirm();
 
@@ -75,7 +89,10 @@ export function MarketplacesDrawer() {
   // resterait figée à l'ouverture du tiroir.
   const nowMs = useNowTick(items.some((i) => Boolean(i.scheduledFor)) ? 1_000 : null);
 
-  const groups = useMemo(() => groupItemsByProduct(items, nowMs), [items, nowMs]);
+  const groups = useMemo(
+    () => groupItemsByProductAndMode(items, nowMs),
+    [items, nowMs],
+  );
   const bySection: Record<GroupSection, ProductGroup[]> = {
     errors: [],
     active: [],
@@ -118,12 +135,16 @@ export function MarketplacesDrawer() {
     return Number.isFinite(t) ? t + 2 * 60_000 : null;
   }, [bySection.scheduled]);
 
+  const linkErrorCount = linkJobs.filter((j) => j.status === "error").length;
+
   useEffect(() => {
+    const totalActive = activeCount + linkActiveCount;
+    const totalErr = errorCount + linkErrorCount;
     setBadge("marketplaces", {
-      count: activeCount || errorCount,
-      pulse: activeCount > 0 || errorCount > 0,
+      count: totalActive || totalErr,
+      pulse: totalActive > 0 || totalErr > 0,
     });
-  }, [activeCount, errorCount, setBadge]);
+  }, [activeCount, errorCount, linkActiveCount, linkErrorCount, setBadge]);
 
   const totalProcessed = bySection.done.length;
   const totalPlanned = groups.length;
@@ -154,6 +175,24 @@ export function MarketplacesDrawer() {
     toast.success(
       "File arrêtée",
       `${label} retiré${queuedCount > 1 ? "s" : ""}. Les envois en cours vont se terminer.`,
+    );
+  };
+
+  const onStopMode = async (mode: QueueItemMode, queuedCountForMode: number) => {
+    if (queuedCountForMode === 0) return;
+    const noun = MODE_LABEL[mode].short;
+    const label = `${queuedCountForMode} ${noun}${queuedCountForMode > 1 ? "s" : ""} en attente`;
+    const ok = await confirm({
+      type: "warning",
+      title: `Arrêter les ${noun}s suivants ?`,
+      message: `${label} ${queuedCountForMode > 1 ? "seront retirés" : "sera retiré"} de la file. Les envois déjà démarrés se terminent normalement. Les autres catégories ne sont pas touchées.`,
+      confirmLabel: "Arrêter cette catégorie",
+    });
+    if (!ok) return;
+    stop(mode);
+    toast.success(
+      "Catégorie arrêtée",
+      `${label} retiré${queuedCountForMode > 1 ? "s" : ""}. Les autres actions continuent normalement.`,
     );
   };
 
@@ -239,15 +278,18 @@ export function MarketplacesDrawer() {
         ) : undefined
       }
     >
-      {groups.length === 0 ? (
+      {linkJobs.length > 0 && (
+        <LinkJobsSection jobs={linkJobs} onDismiss={dismissLinkJob} />
+      )}
+      {groups.length === 0 && linkJobs.length === 0 ? (
         <div className="p-6 text-center">
           <p className="text-sm text-slate-500">Aucune synchro en cours.</p>
           <p className="text-[11px] text-slate-400 mt-1">
-            Les rafraîchissements marketplaces déclenchés depuis la page Produits
+            Les rafraîchissements et liaisons marketplaces déclenchés depuis la page Produits
             apparaîtront ici.
           </p>
         </div>
-      ) : (
+      ) : groups.length === 0 ? null : (
         <>
           {nextScheduled && (
             <NextDepartureBanner
@@ -268,45 +310,172 @@ export function MarketplacesDrawer() {
               </div>
             </div>
           )}
-          <SectionBlock
-            title="Erreurs"
-            tone="rose"
-            groups={bySection.errors}
-            defaultOpen
-            tooltipHandle={tooltipHandle}
-            onRetry={retryErrorsOf}
-          />
-          <SectionBlock
-            title="En cours"
-            tone="sky"
-            groups={bySection.active}
-            defaultOpen
-            tooltipHandle={tooltipHandle}
-          />
-          <SectionBlock
-            title="Planifiés"
-            tone="indigo"
-            groups={bySection.scheduled}
-            defaultOpen
-            tooltipHandle={tooltipHandle}
-            nowMs={nowMs}
-          />
-          <SectionBlock
-            title="En attente"
-            tone="slate"
-            groups={bySection.queued}
-            tooltipHandle={tooltipHandle}
-          />
-          <SectionBlock
-            title="Terminés"
-            tone="emerald"
-            groups={bySection.done}
-            tooltipHandle={tooltipHandle}
-          />
+          {bucketGroupsByMode(groups).map((bucket) => (
+            <ModeSection
+              key={bucket.mode}
+              bucket={bucket}
+              tooltipHandle={tooltipHandle}
+              onRetry={retryErrorsOf}
+              nowMs={nowMs}
+              onStopMode={() => void onStopMode(bucket.mode, bucket.queuedItemCount)}
+            />
+          ))}
         </>
       )}
       <MarketplaceTooltipHost handleRef={tooltipHandle} />
     </DrawerShell>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────
+// Section de haut niveau : regroupement par mode (Modifications /
+// Rafraîchissements / Synchronisations). Contient les mêmes sous-blocs
+// Erreurs / En cours / Planifiés / En attente / Terminés, filtrés sur les
+// produits de ce mode uniquement.
+// ────────────────────────────────────────────────────────────────
+
+const MODE_ACCENT: Record<QueueItemMode, { grad: string; text: string; badge: string; ring: string }> = {
+  publish: {
+    grad: "from-emerald-50/60 to-white",
+    text: "text-emerald-800",
+    badge: "bg-emerald-100 text-emerald-700",
+    ring: "ring-emerald-200",
+  },
+  refresh: {
+    grad: "from-sky-50/60 to-white",
+    text: "text-sky-800",
+    badge: "bg-sky-100 text-sky-700",
+    ring: "ring-sky-200",
+  },
+  resync: {
+    grad: "from-violet-50/60 to-white",
+    text: "text-violet-800",
+    badge: "bg-violet-100 text-violet-700",
+    ring: "ring-violet-200",
+  },
+};
+
+function ModeSection({
+  bucket,
+  tooltipHandle,
+  onRetry,
+  nowMs,
+  onStopMode,
+}: {
+  bucket: ModeBucket;
+  tooltipHandle: React.MutableRefObject<TooltipHandle | null>;
+  onRetry: (group: ProductGroup) => void;
+  nowMs: number;
+  onStopMode: () => void;
+}) {
+  const meta = MODE_LABEL[bucket.mode];
+  const accent = MODE_ACCENT[bucket.mode];
+
+  const bySection: Record<GroupSection, ProductGroup[]> = {
+    errors: [],
+    active: [],
+    scheduled: [],
+    queued: [],
+    done: [],
+  };
+  for (const g of bucket.groups) bySection[g.section].push(g);
+  bySection.scheduled.sort((a, b) => {
+    const ta = a.earliestScheduledFor ? Date.parse(a.earliestScheduledFor) : 0;
+    const tb = b.earliestScheduledFor ? Date.parse(b.earliestScheduledFor) : 0;
+    return ta - tb;
+  });
+
+  // Section ouverte par défaut si urgence (erreur / en cours), sinon repliée.
+  const defaultOpen = bucket.errorGroupCount > 0 || bucket.activeGroupCount > 0;
+
+  return (
+    <details
+      open={defaultOpen}
+      className="border-b border-slate-200 group/mode"
+    >
+      <summary
+        className={`px-4 py-3 flex items-center gap-2.5 cursor-pointer hover:brightness-95 bg-gradient-to-r ${accent.grad} list-none`}
+      >
+        <svg
+          className="w-3.5 h-3.5 text-slate-500 transition-transform group-open/mode:rotate-90 flex-shrink-0"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={2.5}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        <span className={`text-[13px] font-heading font-bold flex-1 ${accent.text}`}>
+          {meta.title}
+        </span>
+        {bucket.errorGroupCount > 0 && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">
+            {bucket.errorGroupCount} err.
+          </span>
+        )}
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${accent.badge}`}>
+          {bucket.groups.length}
+        </span>
+        {bucket.queuedItemCount > 0 && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onStopMode();
+            }}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/80 text-rose-700 text-[10px] font-semibold hover:bg-rose-50 ring-1 ring-rose-200 transition-colors"
+            title={`Retire les ${bucket.queuedItemCount} envoi(s) de cette catégorie encore en attente`}
+          >
+            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z"
+              />
+            </svg>
+            Arrêter ({bucket.queuedItemCount})
+          </button>
+        )}
+      </summary>
+      <div>
+        <SectionBlock
+          title="Erreurs"
+          tone="rose"
+          groups={bySection.errors}
+          defaultOpen
+          tooltipHandle={tooltipHandle}
+          onRetry={onRetry}
+        />
+        <SectionBlock
+          title="En cours"
+          tone="sky"
+          groups={bySection.active}
+          defaultOpen
+          tooltipHandle={tooltipHandle}
+        />
+        <SectionBlock
+          title="Planifiés"
+          tone="indigo"
+          groups={bySection.scheduled}
+          defaultOpen
+          tooltipHandle={tooltipHandle}
+          nowMs={nowMs}
+        />
+        <SectionBlock
+          title="En attente"
+          tone="slate"
+          groups={bySection.queued}
+          tooltipHandle={tooltipHandle}
+        />
+        <SectionBlock
+          title="Terminés"
+          tone="emerald"
+          groups={bySection.done}
+          tooltipHandle={tooltipHandle}
+        />
+      </div>
+    </details>
   );
 }
 
@@ -929,6 +1098,155 @@ export function groupErrorsByProduct(
 // ────────────────────────────────────────────────────────────────
 // Utilitaires
 // ────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────
+// Section « Liaisons manuelles » — jobs de LinkMarketplaceModal
+// ────────────────────────────────────────────────────────────────
+
+const LINK_MKT_LABEL: Record<LinkJob["marketplace"], { name: string; grad: string }> = {
+  pfs: { name: "PFS", grad: "linear-gradient(135deg,#4f46e5,#6366f1)" },
+  ankorstore: { name: "Ankorstore", grad: "linear-gradient(135deg,#0ea5e9,#38bdf8)" },
+  efashion: { name: "eFashion", grad: "linear-gradient(135deg,#db2777,#ec4899)" },
+  faire: { name: "Faire", grad: "linear-gradient(135deg,#f59e0b,#fbbf24)" },
+};
+
+function LinkJobsSection({
+  jobs,
+  onDismiss,
+}: {
+  jobs: LinkJob[];
+  onDismiss: (id: string) => void;
+}) {
+  const inProgress = jobs.filter((j) => j.status === "in_progress");
+  const errors = jobs.filter((j) => j.status === "error");
+  const done = jobs.filter((j) => j.status === "done");
+  return (
+    <details open className="border-b border-slate-100 group/section">
+      <summary className="px-4 py-2.5 flex items-center gap-2 cursor-pointer hover:bg-slate-50/60 bg-indigo-50/40 list-none">
+        <svg
+          className="w-3.5 h-3.5 text-slate-500 transition-transform group-open/section:rotate-90"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={2.5}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        <span className="text-sm font-semibold flex-1 text-indigo-800">Liaisons manuelles</span>
+        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+          {jobs.length}
+        </span>
+      </summary>
+      <div className="p-3 space-y-2.5">
+        {[...inProgress, ...errors, ...done].map((j) => (
+          <LinkJobCard key={j.id} job={j} onDismiss={() => onDismiss(j.id)} />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function LinkJobCard({ job, onDismiss }: { job: LinkJob; onDismiss: () => void }) {
+  const meta = LINK_MKT_LABEL[job.marketplace];
+  const borderCls =
+    job.status === "in_progress"
+      ? "border-slate-200"
+      : job.status === "done"
+        ? "border-emerald-200"
+        : "border-rose-200";
+  return (
+    <div className={`bg-white rounded-xl overflow-hidden shadow-sm border ${borderCls}`}>
+      <div className="px-3 py-2.5 flex items-center gap-2.5">
+        {job.productImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={getImageSrc(job.productImage, "thumb")}
+            alt=""
+            className="w-11 h-11 rounded-lg object-cover bg-slate-100 ring-1 ring-slate-200"
+          />
+        ) : (
+          <div className="w-11 h-11 rounded-lg bg-slate-100 ring-1 ring-slate-200 flex items-center justify-center text-[10px] text-slate-400 font-semibold">
+            IMG
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span
+              className="px-1.5 py-0.5 rounded-full text-white text-[9px] font-semibold uppercase tracking-wider"
+              style={{ background: meta.grad }}
+            >
+              {meta.name}
+            </span>
+            <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500 font-semibold">
+              {job.status === "in_progress"
+                ? "Liaison en cours"
+                : job.status === "done"
+                  ? "Terminée"
+                  : "Échec"}
+            </span>
+          </div>
+          <p className="text-[13px] font-semibold truncate text-slate-800 mt-0.5" title={job.productName}>
+            {job.productName}
+          </p>
+          <div className="text-[11px] font-mono text-slate-500 truncate">Réf. {job.reference}</div>
+          {job.status === "done" && job.linkedCount !== undefined && (
+            <div className="text-[11px] text-emerald-700 mt-0.5">
+              ✓ {job.linkedCount} variante{job.linkedCount > 1 ? "s" : ""} liée
+              {job.linkedCount > 1 ? "s" : ""}
+            </div>
+          )}
+          {job.status === "error" && job.error && (
+            <div className="text-[11px] text-rose-700 mt-0.5">{job.error}</div>
+          )}
+        </div>
+        <div className="shrink-0 flex flex-col items-end gap-1">
+          {job.status === "in_progress" && (
+            <svg
+              className="w-4 h-4 text-sky-600 animate-spin"
+              fill="none"
+              viewBox="0 0 24 24"
+              aria-label="En cours"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth={4}
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+          )}
+          {job.status === "done" && (
+            <span className="w-5 h-5 rounded-full bg-emerald-500 text-white text-xs font-bold flex items-center justify-center">
+              ✓
+            </span>
+          )}
+          {job.status === "error" && (
+            <span className="w-5 h-5 rounded-full bg-rose-500 text-white text-xs font-bold flex items-center justify-center">
+              !
+            </span>
+          )}
+          {job.status !== "in_progress" && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="text-slate-400 hover:text-slate-700 text-xs px-1"
+              aria-label="Retirer"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function relativeTime(iso: string): string {
   const then = Date.parse(iso);

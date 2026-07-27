@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   updatePfsCredentials, validatePfsCredentials, togglePfsEnabled,
@@ -17,6 +16,7 @@ import { MarkupRow, type MarkupState } from "@/components/admin/settings/MarkupR
 import { MARKETPLACES_BRAND, brandGradient, type MarketplaceKey } from "@/lib/marketplaces-brand";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+import MicrostoreConnectCard from "@/components/admin/settings/MicrostoreConnectCard";
 
 interface MarketplaceStats {
   published: number;
@@ -1556,63 +1556,18 @@ export default function MarketplaceConfig({
         <DrawerSection
           icon={<Icons.Plug className="w-4 h-4" />}
           title="Connexion"
-          subtitle="Session QR / bookmarklet — nécessaire pour importer les commandes."
+          subtitle="Nécessaire pour importer les commandes Microstore."
         >
-          {hasMicrostoreConfig ? (
-            (() => {
-              const days = microstoreExpiresAtIso
-                ? Math.max(0, Math.floor((new Date(microstoreExpiresAtIso).getTime() - Date.now()) / 86_400_000))
-                : null;
-              const soon = days !== null && days <= 14;
-              return (
-                <div className={`rounded-xl border p-3.5 ${soon ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
-                  <div className="flex items-start gap-2.5">
-                    <span className={`w-2 h-2 mt-1.5 rounded-full ${soon ? "bg-amber-500" : "bg-emerald-500"}`} />
-                    <div className="flex-1">
-                      <p className={`font-body text-sm font-medium ${soon ? "text-amber-900" : "text-emerald-900"}`}>
-                        Session active
-                      </p>
-                      <p className={`font-body text-[11px] mt-0.5 ${soon ? "text-amber-800" : "text-emerald-800"}`}>
-                        {days !== null
-                          ? soon
-                            ? `Expire dans ${days} j — pensez à re-scanner un QR bientôt.`
-                            : `Valide encore ${days} j.`
-                          : "Session valide."}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()
-          ) : (
-            <div className="rounded-xl border border-border-light bg-bg-secondary/60 p-3.5">
-              <p className="font-body text-sm text-text-primary font-medium">Pas encore connecté</p>
-              <p className="font-body text-[11px] text-text-muted mt-0.5">
-                Scannez un QR code ou utilisez le bookmarklet depuis la page dédiée.
-              </p>
-            </div>
-          )}
-          <div className="mt-3">
-            <Link
-              href="/admin/parametres/microstore"
-              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors"
-            >
-              {hasMicrostoreConfig ? "Gérer la connexion" : "Se connecter à Microstore"} →
-            </Link>
-          </div>
+          <MicrostoreConnectCard
+            initiallyConnected={hasMicrostoreConfig}
+            initiallyEnabled={microEnabled}
+            initialExpiresAtIso={microstoreExpiresAtIso}
+          />
         </DrawerSection>
 
         <DrawerSection icon={<Icons.Bolt className="w-4 h-4" />} title="Majoration prix" subtitle="Appliquée aux prix exportés dans le fichier Excel Microstore.">
           <MarkupRow label="Prix Excel" state={microMarkup} onChange={setMicroMarkup} />
           <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
-        </DrawerSection>
-
-        <DrawerSection icon={<Icons.Clock className="w-4 h-4" />} title="Comment ça marche" subtitle={undefined}>
-          <p className="font-body text-xs text-text-secondary leading-relaxed">
-            Microstore n&apos;a pas de publish automatique. Depuis la liste des produits, cliquez sur « Exporter » pour générer le fichier Excel
-            avec les prix calculés selon la majoration ci-dessus, puis uploadez-le manuellement dans Microstore. Les commandes reçues sont
-            importées via la connexion QR ci-dessus.
-          </p>
         </DrawerSection>
       </Drawer>
     </div>

@@ -30,6 +30,7 @@ import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { getCachedAnkorstoreEnabled } from "@/lib/cached-data";
 import { buildMarketplaceImageUrl } from "@/lib/marketplace-image";
+import { buildBrandedMarketplaceUrl } from "@/lib/branded-image-display";
 import { emitProductEvent } from "@/lib/product-events";
 import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
 import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
@@ -280,6 +281,7 @@ function buildAnkorstoreVariants(
   retailMarkup: MarkupConfig,
   imagesByColorId: Map<string, string[]>,
   imageBaseUrl?: string,
+  urlFor?: (path: string, context: { colorId: string | null; index: number }) => string,
 ): {
   bjVariantId: string;
   sku: string;
@@ -306,10 +308,27 @@ function buildAnkorstoreVariants(
     // Images de la variante : prises depuis colorImages filtrées par colorId.
     const variantColorId = variant.colorId ?? "";
     const paths = imagesByColorId.get(variantColorId) ?? [];
-    const variantImages = paths.map((p, idx) => ({
-      order: idx + 1,
-      url: buildPublicImageUrl(p, imageBaseUrl),
-    }));
+    const resolveUrl = urlFor ?? ((p: string) => buildPublicImageUrl(p, imageBaseUrl));
+    // Toggle badge sur la couleur principale : on INSÈRE l'URL brandée en
+    // tête (index 0) ET on conserve la photo brute juste après → la variante
+    // reçoit 2 photos au lieu de 1 (badge + brute). resolveUrl détecte
+    // index=0 sur la couleur principale et renvoie l'URL /api/branded-image.
+    const branded = resolveUrl(paths[0] ?? "", { colorId: variantColorId || null, index: 0 });
+    const isBrandedInserted =
+      paths.length > 0 &&
+      branded !== resolveUrl(paths[0]!, { colorId: variantColorId || null, index: 999 });
+    const variantImages = isBrandedInserted
+      ? [
+          { order: 1, url: branded },
+          ...paths.slice(0, 4).map((p, idx) => ({
+            order: idx + 2,
+            url: resolveUrl(p, { colorId: variantColorId || null, index: 999 }),
+          })),
+        ]
+      : paths.map((p, idx) => ({
+          order: idx + 1,
+          url: resolveUrl(p, { colorId: variantColorId || null, index: idx }),
+        }));
 
     if (variant.saleType === "UNIT") {
       const colorLabel = variant.color?.name ?? "Couleur";
@@ -419,6 +438,36 @@ export async function buildPublishProductInput(productId: string): Promise<
   const tenantId = await getCurrentTenantIdSafe();
   const imageBaseUrl = tenantId ? (await getTenantBaseUrl(tenantId)) ?? undefined : undefined;
 
+  // Toggle badge « Réf » : remplace la 1ère image de la couleur principale
+  // par l'URL /api/branded-image?... (WebP, Ankorstore accepte).
+  const brandedBadgeRow = await prisma.siteConfig.findFirst({
+    where: { key: "branded_reference_badge_enabled" },
+    select: { value: true },
+  });
+  const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
+  const brandedBaseUrl =
+    imageBaseUrl ??
+    process.env.MARKETPLACE_IMAGE_BASE_URL ??
+    process.env.NEXTAUTH_URL ??
+    "https://beliandjolie.com";
+  const ankorUrlFor = (
+    path: string,
+    context: { colorId: string | null; index: number },
+  ): string => {
+    if (
+      brandedBadgeEnabled &&
+      product.primaryColorId &&
+      context.colorId === product.primaryColorId &&
+      context.index === 0
+    ) {
+      return buildBrandedMarketplaceUrl(path, product.reference, {
+        baseUrl: brandedBaseUrl,
+        size: "large",
+      });
+    }
+    return buildPublicImageUrl(path, imageBaseUrl);
+  };
+
   const variantEntries = buildAnkorstoreVariants(
     product,
     product.colors,
@@ -426,6 +475,7 @@ export async function buildPublishProductInput(productId: string): Promise<
     pricing.retail,
     imagesByColorId,
     imageBaseUrl,
+    ankorUrlFor,
   );
 
   const allVariantsOutOfStock =
@@ -446,13 +496,32 @@ export async function buildPublishProductInput(productId: string): Promise<
   const primaryColorPaths = primaryColorId
     ? (imagesByColorId.get(primaryColorId) ?? [])
     : [];
+  // mainImage = badge composé (URL /api/branded-image) si toggle actif,
+  // sinon la 1ère photo brute comme avant.
   const mainImage = primaryColorPaths[0]
-    ? buildPublicImageUrl(primaryColorPaths[0], imageBaseUrl)
+    ? ankorUrlFor(primaryColorPaths[0], { colorId: primaryColorId, index: 0 })
     : undefined;
-  const productImages = primaryColorPaths.slice(1).map((path, idx) => ({
-    order: idx + 2,
-    url: buildPublicImageUrl(path, imageBaseUrl),
-  }));
+  // Détecter si le badge a été inséré (mainImage = URL branded différente
+  // du buildPublicImageUrl de la même source). Si oui, la 1ère photo brute
+  // reste comme 1ère image additionnelle (order 2).
+  const mainRaw = primaryColorPaths[0]
+    ? ankorUrlFor(primaryColorPaths[0], { colorId: primaryColorId, index: 999 })
+    : undefined;
+  const brandedInsertedAtMain = !!mainImage && !!mainRaw && mainImage !== mainRaw;
+  const productImages = brandedInsertedAtMain
+    ? [
+        // 1ère photo brute (source du badge) juste après le badge
+        { order: 2, url: mainRaw! },
+        // Puis les photos suivantes
+        ...primaryColorPaths.slice(1, 4).map((path, idx) => ({
+          order: idx + 3,
+          url: ankorUrlFor(path, { colorId: primaryColorId, index: 999 }),
+        })),
+      ]
+    : primaryColorPaths.slice(1).map((path, idx) => ({
+        order: idx + 2,
+        url: ankorUrlFor(path, { colorId: primaryColorId, index: idx + 1 }),
+      }));
 
   // Poids envoyé en kg sans préciser l'unité : Ankorstore applique "kg"
   // par défaut côté plateforme, et envoyer unit_code provoque l'affichage

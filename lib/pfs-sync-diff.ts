@@ -68,6 +68,13 @@ export interface PfsSyncSnapshot {
   images: PfsImagesSnapshot;
   status: string;
   isBestSeller: boolean;
+  /**
+   * État du toggle « badge Référence » au moment du dernier push. Sert à
+   * détecter un changement de toggle entre 2 syncs et forcer un re-upload
+   * de la 1ère image de la couleur principale (le path DB étant inchangé,
+   * la diff standard ne verrait rien). Optionnel pour rétro-compat.
+   */
+  brandedBadgeApplied?: boolean;
 }
 
 export interface PfsSyncDiff {

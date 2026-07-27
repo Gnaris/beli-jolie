@@ -75,9 +75,17 @@ function generateRandomRef(): string {
   return ref;
 }
 
-async function convertToJpeg(imagePath: string): Promise<Buffer> {
+async function convertToJpeg(imagePath: string, brandedReference?: string): Promise<Buffer> {
   const { readFile, keyFromDbPath } = await import("@/lib/storage");
-  const buffer = await readFile(keyFromDbPath(imagePath));
+  let buffer = await readFile(keyFromDbPath(imagePath));
+  if (brandedReference) {
+    const { composeBrandedBuffer } = await import("@/lib/branded-image");
+    buffer = await composeBrandedBuffer({
+      sourceBuffer: buffer,
+      reference: brandedReference,
+      size: "large",
+    });
+  }
   return sharp(buffer).jpeg({ quality: 100, chromaSubsampling: "4:4:4", mozjpeg: true }).toBuffer();
 }
 
@@ -660,19 +668,46 @@ export async function pfsRefreshProduct(
       imagesByColor.get(colorRef)!.push({ path: img.path, order: img.order });
     }
 
-    let totalImages = 0;
-    let uploadedImages = 0;
-    for (const imgs of imagesByColor.values()) totalImages += imgs.length;
+    // Toggle badge « Référence » : insère une entrée virtuelle « branded »
+    // en tête de la liste de la couleur principale. Cap à 5 slots (comme
+    // les autres couleurs), la 5ème vraie photo est dropée si nécessaire.
+    const primaryPfsColorRef =
+      product.primaryColorId ? colorIdToPfsRef.get(product.primaryColorId) ?? null : null;
+    const brandedBadgeRow = await prisma.siteConfig.findFirst({
+      where: { key: "branded_reference_badge_enabled" },
+      select: { value: true },
+    });
+    const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
 
-    const POOL_SIZE = 3;
+    interface UploadEntry { path: string; branded: boolean }
+    const uploadsByColor = new Map<string, UploadEntry[]>();
     for (const [colorRef, images] of imagesByColor) {
       const sorted = images.sort((a, b) => a.order - b.order);
-      for (let i = 0; i < sorted.length; i += POOL_SIZE) {
-        const batch = sorted.slice(i, i + POOL_SIZE);
+      const isPrimary = brandedBadgeEnabled && colorRef === primaryPfsColorRef && sorted.length > 0;
+      const entries: UploadEntry[] = isPrimary
+        ? [
+            { path: sorted[0]!.path, branded: true },
+            ...sorted.slice(0, 4).map((img) => ({ path: img.path, branded: false })),
+          ]
+        : sorted.slice(0, 5).map((img) => ({ path: img.path, branded: false }));
+      uploadsByColor.set(colorRef, entries);
+    }
+
+    let totalImages = 0;
+    let uploadedImages = 0;
+    for (const entries of uploadsByColor.values()) totalImages += entries.length;
+
+    const POOL_SIZE = 3;
+    for (const [colorRef, entries] of uploadsByColor) {
+      for (let i = 0; i < entries.length; i += POOL_SIZE) {
+        const batch = entries.slice(i, i + POOL_SIZE);
         const results = await Promise.allSettled(
-          batch.map(async (img, batchIdx) => {
+          batch.map(async (entry, batchIdx) => {
             const slot = i + batchIdx + 1;
-            const jpegBuffer = await convertToJpeg(img.path);
+            const jpegBuffer = await convertToJpeg(
+              entry.path,
+              entry.branded ? product.reference : undefined,
+            );
             await pfsUploadImage(newPfsProductId!, jpegBuffer, slot, colorRef, `image_${slot}.jpg`);
             return slot;
           }),

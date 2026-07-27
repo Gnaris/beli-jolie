@@ -573,6 +573,8 @@ export function PfsAuditDrawer() {
         confirmLabel: "Synchroniser",
         showBoutique: false,
         defaultAllChecked: true,
+        actionLabel: "synchroniser",
+        actionMode: "update",
       });
     let options = await askMarketplaceOptions();
 

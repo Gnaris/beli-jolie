@@ -67,6 +67,8 @@ export interface FaireLinkCandidate {
   wholesalePriceCents: number | null;
   /** Prix retail en centimes. */
   retailPriceCents: number | null;
+  /** Poids Faire en grammes (0 si non renseigné). */
+  weightGrams: number;
   /** lifecycle_state de la variante (PUBLISHED / DRAFT / UNPUBLISHED / DELETED). */
   lifecycleState: string | null;
   /** Première image de la variante (URL Faire CDN). */
@@ -91,6 +93,8 @@ export interface FaireLinkLocalColor {
   unitPrice: number;
   /** Stock BJ pour cette variante. */
   stock: number;
+  /** Poids BJ en kg. */
+  weightKg: number;
   /** SKU local généré (pour aider l'admin à retrouver la même variante côté Faire). */
   expectedFaireSku: string;
 }
@@ -169,6 +173,24 @@ interface FaireApiVariant {
   retail_price_cents?: number;
   options?: { name?: string; value?: string }[];
   images?: { url?: string; sequence?: number }[];
+  /** Poids et dimensions (schéma ExternalMeasurementsV2). weight en grammes. */
+  measurements?: {
+    weight?: number;
+    mass_unit?: "GRAMS" | "KILOGRAMS";
+    length?: number;
+    width?: number;
+    height?: number;
+    distance_unit?: "CENTIMETERS" | "INCHES";
+  };
+  /** Prix moderne par géo-région (remplace wholesale/retail_price_cents dépréciés). */
+  prices?: Array<{
+    geo_constraint?: { country_group?: string; country?: string };
+    prices?: Array<{
+      currency?: string;
+      wholesale_price?: { amount_minor?: number };
+      retail_price?: { amount_minor?: number };
+    }>;
+  }>;
 }
 
 /**
@@ -418,6 +440,7 @@ export async function previewFaireMatchBySku(
             saleType: true,
             unitPrice: true,
             stock: true,
+            weight: true,
             faireVariantId: true,
             color: {
               select: {
@@ -504,9 +527,9 @@ export async function previewFaireMatchBySku(
       };
     }
 
-    // 2. Local colors BJ
+    // 2. Local colors BJ — Faire ne vend qu'en UNIT (les PACK sont ignorés)
     const localColors: FaireLinkLocalColor[] = product.colors
-      .filter((pc) => pc.color)
+      .filter((pc) => pc.color && pc.saleType === "UNIT")
       .map((pc) => ({
         productColorId: pc.id,
         colorId: pc.color!.id,
@@ -517,6 +540,7 @@ export async function previewFaireMatchBySku(
         productImage: pc.images[0]?.path ?? null,
         unitPrice: Number(pc.unitPrice),
         stock: pc.stock ?? 0,
+        weightKg: Number(pc.weight ?? 0),
         expectedFaireSku: skuMap.get(pc.id) ?? product.reference,
       }));
 
@@ -613,6 +637,16 @@ export async function previewFaireMatchBySku(
           }
         }
 
+        // Faire moderne : les prix sont dans `variants[].prices[]` avec
+        // geo_constraint (EUROPEAN_UNION/EUR pour nous). Les champs racine
+        // wholesale_price_cents/retail_price_cents sont dépréciés et souvent
+        // nuls sur les fiches publiées après 2021.
+        const euBlock = (v.prices ?? []).find((p) =>
+          p.prices?.some((pp) => pp.currency === "EUR"),
+        ) ?? v.prices?.[0];
+        const euPrices = euBlock?.prices?.find((pp) => pp.currency === "EUR") ?? euBlock?.prices?.[0];
+        const wholesaleFromPrices = euPrices?.wholesale_price?.amount_minor ?? null;
+        const retailFromPrices = euPrices?.retail_price?.amount_minor ?? null;
         return {
           faireVariantId: v.id,
           faireSku: v.sku,
@@ -622,11 +656,12 @@ export async function previewFaireMatchBySku(
           wholesalePriceCents:
             typeof v.wholesale_price_cents === "number"
               ? v.wholesale_price_cents
-              : null,
+              : wholesaleFromPrices,
           retailPriceCents:
             typeof v.retail_price_cents === "number"
               ? v.retail_price_cents
-              : null,
+              : retailFromPrices,
+          weightGrams: v.measurements?.weight ?? 0,
           lifecycleState: v.lifecycle_state ?? null,
           imageUrl: viaProxyIfFaireCdn(firstVariantImage(v)),
           suggestedLocalColorId: suggested?.productColorId ?? null,

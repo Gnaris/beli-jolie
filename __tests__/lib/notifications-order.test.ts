@@ -85,11 +85,10 @@ describe("notifyAdminNewOrder", () => {
     cachedMock.getCachedCompanyInfo.mockResolvedValue({ email: "hello@maboutique.com" });
   });
 
-  it("envoie un email à l'admin avec le récap et le PDF en pièce jointe", async () => {
+  it("envoie une notification légère à l'admin (n° + client + total + lien, sans PDF)", async () => {
     prismaMock.order.findUnique.mockResolvedValueOnce(buildFakeOrder());
-    const pdf = Buffer.from("%PDF-fake");
 
-    await notifyAdminNewOrder({ orderId: "order-1", pdfBuffer: pdf });
+    await notifyAdminNewOrder({ orderId: "order-1" });
 
     expect(sentMails).toHaveLength(1);
     const sent = sentMails[0];
@@ -97,28 +96,17 @@ describe("notifyAdminNewOrder", () => {
     expect(sent.subject).toContain("K7X9M2PH");
     expect(sent.subject).toContain("ACME Corp");
     expect(sent.html).toContain("ACME Corp");
-    expect(sent.html).toContain("Produit A");
-    // Total TTC = floor((100 HT + 6.90 port) × 1.20) = floor(128.28) = 128.28
-    // (arrondi vers le bas au centime pour matcher la facturation externe)
+    // Total TTC = floor((100 HT + 6.90 port) × 1.20) = 128.28 €
     expect(sent.html).toContain("128.28");
-    expect(sent.attachments).toHaveLength(1);
-    expect(sent.attachments?.[0].filename).toBe("Commande-K7X9M2PH.pdf");
-    expect(sent.attachments?.[0].content).toBe(pdf);
-  });
-
-  it("n'envoie pas de pièce jointe si pdfBuffer est absent", async () => {
-    prismaMock.order.findUnique.mockResolvedValueOnce(buildFakeOrder());
-
-    await notifyAdminNewOrder({ orderId: "order-1", pdfBuffer: null });
-
-    expect(sentMails).toHaveLength(1);
-    expect(sentMails[0].attachments).toEqual([]);
+    // Notification minimale : pas de détail par article, pas de PJ.
+    expect(sent.html).not.toContain("Produit A");
+    expect(sent.attachments ?? []).toHaveLength(0);
   });
 
   it("n'envoie rien si aucun email admin n'est configuré", async () => {
     cachedMock.getCachedCompanyInfo.mockResolvedValueOnce({ email: null } as never);
 
-    await notifyAdminNewOrder({ orderId: "order-1", pdfBuffer: null });
+    await notifyAdminNewOrder({ orderId: "order-1" });
 
     expect(sentMails).toHaveLength(0);
     expect(prismaMock.order.findUnique).not.toHaveBeenCalled();
@@ -128,7 +116,7 @@ describe("notifyAdminNewOrder", () => {
     prismaMock.order.findUnique.mockRejectedValueOnce(new Error("DB down"));
 
     await expect(
-      notifyAdminNewOrder({ orderId: "order-1", pdfBuffer: null })
+      notifyAdminNewOrder({ orderId: "order-1" })
     ).resolves.toBeUndefined();
 
     expect(loggerMock.error).toHaveBeenCalled();
