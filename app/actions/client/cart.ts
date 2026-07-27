@@ -275,6 +275,7 @@ export async function setCartItemQuantity(variantId: string, quantity: number) {
     if (existing) {
       await prisma.cartItem.delete({ where: { id: existing.id } });
       revalidatePath("/panier");
+      revalidatePath("/panier/commande");
     }
     return { success: true as const, quantity: 0, capped: false };
   }
@@ -317,6 +318,7 @@ export async function setCartItemQuantity(variantId: string, quantity: number) {
   }
 
   revalidatePath("/panier");
+  revalidatePath("/panier/commande");
   return { success: true as const, quantity: cappedQty, capped };
 }
 
@@ -391,6 +393,7 @@ export async function addToCart(variantId: string, quantity: number = 1) {
   }
 
   revalidatePath("/panier");
+  revalidatePath("/panier/commande");
 }
 
 // ─────────────────────────────────────────────
@@ -419,6 +422,7 @@ export async function updateCartItem(cartItemId: string, quantity: number) {
   if (quantity <= 0) {
     await prisma.cartItem.delete({ where: { id: cartItemId } });
     revalidatePath("/panier");
+    revalidatePath("/panier/commande");
     return undefined;
   }
 
@@ -441,6 +445,7 @@ export async function updateCartItem(cartItemId: string, quantity: number) {
   });
 
   revalidatePath("/panier");
+  revalidatePath("/panier/commande");
   return { quantity: finalQuantity, capped: finalQuantity < quantity };
 }
 
@@ -458,6 +463,7 @@ export async function removeFromCart(cartItemId: string) {
 
   await prisma.cartItem.delete({ where: { id: cartItemId } });
   revalidatePath("/panier");
+  revalidatePath("/panier/commande");
 }
 
 // ─────────────────────────────────────────────
@@ -472,6 +478,7 @@ export async function clearCart() {
 
   await prisma.cartItem.deleteMany({ where: { cartId: cart.id } });
   revalidatePath("/panier");
+  revalidatePath("/panier/commande");
 }
 
 // ─────────────────────────────────────────────
