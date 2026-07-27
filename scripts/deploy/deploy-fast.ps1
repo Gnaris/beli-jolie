@@ -1,5 +1,24 @@
 # deploy-fast.ps1
 #
+# ⚠️ CASSÉ 2026-07-28 — NE PAS UTILISER ⚠️
+#
+# Turbopack hashe les noms des modules externes (sharp/pdfkit/playwright/exceljs)
+# avec des infos de chemin de resolution. Le hash Windows ne matche pas le hash
+# Linux, donc au boot le VPS crashe sur :
+#   Error: Cannot find module 'sharp-20c6a5da84e2135f'
+#
+# `serverExternalPackages` ne protège PAS de ce bug en mode Turbopack.
+#
+# Solutions à explorer pour rendre ce script fonctionnel :
+#   (a) Utiliser `next build` sans --turbopack (webpack respecte les externals
+#       correctement, mais compile 2-3× plus lentement)
+#   (b) Builder en local dans WSL2 ou Docker Linux (hash match VPS)
+#   (c) Passer par GitHub Actions runner Ubuntu + rsync l'artifact
+#
+# En attendant, garder le workflow VPS-build classique documenté dans CLAUDE.md.
+#
+# ────────────────────────────────────────────────────────────────────────────
+#
 # Deploy rapide vers le VPS Hostinger :
 #   1) Pre-flight : verifie qu'aucun job n'est en cours cote prod
 #   2) Verifie git local (commit + push si necessaire)
@@ -13,6 +32,10 @@
 #
 # Usage :
 #   powershell -ExecutionPolicy Bypass -File scripts/deploy/deploy-fast.ps1
+
+Write-Host "⚠️  Ce script est CASSE — Turbopack + externals incompatibles cross-platform." -ForegroundColor Red
+Write-Host "    Voir l'en-tete du fichier pour details. Sortie." -ForegroundColor Red
+exit 1
 
 $ErrorActionPreference = "Stop"
 
