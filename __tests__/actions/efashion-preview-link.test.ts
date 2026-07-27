@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const {
   findUniqueMock,
+  productColorImageFindManyMock,
   efashionGetMeMock,
   efashionListProductsMock,
   buildEfashionPhotoUrlMock,
   getServerSessionMock,
 } = vi.hoisted(() => ({
   findUniqueMock: vi.fn(),
+  productColorImageFindManyMock: vi.fn().mockResolvedValue([]),
   efashionGetMeMock: vi.fn().mockResolvedValue({ id_vendeur: 999 }),
   efashionListProductsMock: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   buildEfashionPhotoUrlMock: vi.fn(() => "https://efashion.cdn/photo.jpg"),
@@ -17,6 +19,7 @@ const {
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     product: { findUnique: findUniqueMock },
+    productColorImage: { findMany: productColorImageFindManyMock },
   },
 }));
 vi.mock("@/lib/efashion-api", async () => {

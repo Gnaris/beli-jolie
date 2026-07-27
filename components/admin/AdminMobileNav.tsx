@@ -247,6 +247,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                           )}
                           <Link
                             href={item.href}
+                            scroll={item.href !== "/admin/produits"}
                             onClick={() => {
                               if (!sopen) toggleSubmenu(item.href);
                               setOpen(false);
@@ -288,6 +289,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                                 <Link
                                   key={c.href}
                                   href={c.href}
+                                  scroll={c.href !== "/admin/produits"}
                                   onClick={() => setOpen(false)}
                                   className={`relative flex items-center gap-2 pl-8 pr-3 py-1.5 rounded-md text-[12.5px] transition-colors ${
                                     subActive
@@ -319,6 +321,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                     <Link
                       key={item.href}
                       href={item.href}
+                      scroll={item.href !== "/admin/produits"}
                       onClick={() => setOpen(false)}
                       target={item.external ? "_blank" : undefined}
                       rel={item.external ? "noopener noreferrer" : undefined}

@@ -814,6 +814,9 @@ interface AdminProduct {
   name: string;
   status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
   isIncomplete: boolean;
+  /** Nombre de couleurs actives (non désactivées) sans aucune image.
+   *  Calculé côté serveur. 0 pour les produits archivés. */
+  colorsMissingImageCount: number;
   /** Verrou manuel : si true, désactive le bouton « Rafraîchir ». */
   locked: boolean;
   /** Marqueur « Important » (favori admin partagé) — étoile visible sur la ligne. */
@@ -2624,6 +2627,14 @@ function ProductRow({
                   title="Certaines variantes sont en rupture de stock"
                 >
                   Stock partiel
+                </span>
+              )}
+              {product.colorsMissingImageCount > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                  title="Une ou plusieurs couleurs actives n'ont pas encore d'image"
+                >
+                  {product.colorsMissingImageCount} couleur{product.colorsMissingImageCount > 1 ? "s" : ""} sans image
                 </span>
               )}
               {isDeleting && (

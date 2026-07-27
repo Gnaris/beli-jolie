@@ -201,6 +201,24 @@ export default function BulkActionBar({
   // Sous-menu Important : même principe (Marquer / Retirer l'étoile admin).
   const [importantSubOpen, setImportantSubOpen] = useState(false);
   const barRef = useRef<HTMLDivElement | null>(null);
+  // Sentinelle placée juste au-dessus de la barre sticky. Quand elle sort du
+  // viewport (le user scrolle), on sait que la barre est « collée » en haut,
+  // et on bascule son fond en noir.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const [isStuck, setIsStuck] = useState(false);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    // Garde jsdom / env sans IntersectionObserver (tests unitaires). La barre
+    // reste alors en mode « pas collée » — comportement neutre.
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      ([entry]) => setIsStuck(!entry.isIntersecting),
+      { threshold: 0 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   const someSelected = selectedProducts.length > 0;
 
@@ -295,9 +313,16 @@ export default function BulkActionBar({
   const productIds = useMemo(() => selectedProducts.map((p) => p.id), [selectedProducts]);
 
   return (
+    <>
+      {/* Sentinelle 1px pour détecter l'état « collé en haut » via IntersectionObserver. */}
+      <div ref={sentinelRef} aria-hidden className="h-px -mb-px" />
     <div
       aria-hidden={!someSelected}
-      className={`grid transition-all duration-300 ease-out ${
+      // sticky top-4 : la barre est dans le flux au-dessus du tableau, puis
+      // se colle en haut de l'écran (16px d'offset) dès qu'on scrolle. Largeur
+      // pleine du conteneur parent (pas de max-width). z-40 la garde au-dessus
+      // du tableau mais sous les modales (z-50) et le widget flottant (z-9001).
+      className={`sticky top-4 z-40 grid transition-all duration-300 ease-out ${
         someSelected
           ? "grid-rows-[1fr] opacity-100 mb-3"
           : "grid-rows-[0fr] opacity-0 mb-0 pointer-events-none"
@@ -306,18 +331,13 @@ export default function BulkActionBar({
       <div className="min-h-0 overflow-visible">
         <div
           ref={barRef}
-          className="relative rounded-2xl border border-border-strong/80 bg-white shadow-[0_10px_25px_-8px_rgba(24,24,27,0.12),0_4px_10px_-2px_rgba(24,24,27,0.06)]"
+          data-stuck={isStuck ? "true" : undefined}
+          className={`relative rounded-2xl border transition-colors duration-200 ${
+            isStuck
+              ? "bg-slate-900 border-slate-800 shadow-[0_10px_25px_-8px_rgba(0,0,0,0.35),0_4px_10px_-2px_rgba(0,0,0,0.2)]"
+              : "bg-white border-border-strong/80 shadow-[0_10px_25px_-8px_rgba(24,24,27,0.12),0_4px_10px_-2px_rgba(24,24,27,0.06)]"
+          }`}
         >
-          {/* Bande dégradée fine en haut (langage cockpit). Quand une action
-              bulk est en cours (pendingLabel non-null), on remplace le fond
-              statique par un dégradé qui glisse en boucle pour signaler
-              l'activité — le voile blanc au-dessus du tableau confirme visuellement. */}
-          {showPending ? (
-            <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-2xl animate-bulk-bar-shimmer" />
-          ) : (
-            <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-2xl bg-gradient-to-r from-emerald-400 via-cyan-500 to-violet-500" />
-          )}
-
           <div className="flex items-center gap-2 lg:gap-3 px-3 lg:px-4 py-3 flex-wrap">
             {/* Compteur intelligent */}
             <div className="flex items-center gap-3 pr-2">
@@ -327,15 +347,15 @@ export default function BulkActionBar({
                 </svg>
               </div>
               <div className="leading-tight">
-                <div className="font-heading font-bold text-[15px] tabular-nums text-text-primary">
+                <div className={`font-heading font-bold text-[15px] tabular-nums transition-colors ${isStuck ? "text-white" : "text-text-primary"}`}>
                   {selectedProducts.length} produit{selectedProducts.length > 1 ? "s" : ""}
                 </div>
-                <div className="text-[11px] font-medium text-text-muted flex items-center gap-1">
-                  {counts.online > 0 && <span className="text-emerald-600 tabular-nums">{counts.online} en ligne</span>}
+                <div className={`text-[11px] font-medium flex items-center gap-1 transition-colors ${isStuck ? "text-slate-400" : "text-text-muted"}`}>
+                  {counts.online > 0 && <span className={`tabular-nums ${isStuck ? "text-emerald-400" : "text-emerald-600"}`}>{counts.online} en ligne</span>}
                   {counts.online > 0 && counts.draft > 0 && <span>·</span>}
-                  {counts.draft > 0 && <span className="text-slate-500 tabular-nums">{counts.draft} brouillon{counts.draft > 1 ? "s" : ""}</span>}
+                  {counts.draft > 0 && <span className={`tabular-nums ${isStuck ? "text-slate-300" : "text-slate-500"}`}>{counts.draft} brouillon{counts.draft > 1 ? "s" : ""}</span>}
                   {(counts.online > 0 || counts.draft > 0) && counts.archived > 0 && <span>·</span>}
-                  {counts.archived > 0 && <span className="text-amber-600 tabular-nums">{counts.archived} archivé{counts.archived > 1 ? "s" : ""}</span>}
+                  {counts.archived > 0 && <span className={`tabular-nums ${isStuck ? "text-amber-400" : "text-amber-600"}`}>{counts.archived} archivé{counts.archived > 1 ? "s" : ""}</span>}
                 </div>
               </div>
             </div>
@@ -358,7 +378,7 @@ export default function BulkActionBar({
               </div>
             )}
 
-            <Separator />
+            <Separator isStuck={isStuck} />
 
             {/* Groupe Statut */}
             <div className="flex items-center gap-1">
@@ -389,7 +409,7 @@ export default function BulkActionBar({
                 ligne (image, prix, stock, catégorie…) et liste les manques. */}
             {draftCount > 0 && onPublishDrafts && (
               <>
-                <Separator />
+                <Separator isStuck={isStuck} />
                 <button
                   type="button"
                   onClick={onPublishDrafts}
@@ -409,7 +429,7 @@ export default function BulkActionBar({
               </>
             )}
 
-            <Separator />
+            <Separator isStuck={isStuck} />
 
             {/* Marketplaces + actions */}
             <div className="flex items-center gap-1 relative">
@@ -645,7 +665,7 @@ export default function BulkActionBar({
               )}
             </div>
 
-            <Separator />
+            <Separator isStuck={isStuck} />
 
             <SegButton onClick={onDelete} disabled={isPending} tone="red">
               <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
@@ -657,7 +677,11 @@ export default function BulkActionBar({
             <button
               type="button"
               onClick={onDeselectAll}
-              className="ml-1 w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-text-muted"
+              className={`ml-1 w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                isStuck
+                  ? "text-slate-300 hover:bg-slate-800"
+                  : "text-text-muted hover:bg-slate-100"
+              }`}
               title="Désélectionner"
               aria-label="Désélectionner"
             >
@@ -669,13 +693,14 @@ export default function BulkActionBar({
         </div>
       </div>
     </div>
+    </>
   );
 }
 
 // ─── Helpers UI ────────────────────────────────────────────────────────────
 
-function Separator() {
-  return <div className="hidden md:block w-px h-[26px] bg-border-strong flex-shrink-0" />;
+function Separator({ isStuck }: { isStuck?: boolean }) {
+  return <div className={`hidden md:block w-px h-[26px] flex-shrink-0 transition-colors ${isStuck ? "bg-slate-700" : "bg-border-strong"}`} />;
 }
 
 type Tone = "emerald" | "slate" | "amber" | "indigo" | "sky" | "red";

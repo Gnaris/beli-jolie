@@ -182,14 +182,14 @@ interface FaireApiVariant {
     height?: number;
     distance_unit?: "CENTIMETERS" | "INCHES";
   };
-  /** Prix moderne par géo-région (remplace wholesale/retail_price_cents dépréciés). */
+  /** Prix moderne par géo-région (remplace wholesale/retail_price_cents dépréciés).
+   *  ⚠️ Shape plat côté GET (ExternalProductVariantV2.Price) — chaque entrée est
+   *  directement `{ geo_constraint, wholesale_price, retail_price }`. Le shape
+   *  imbriqué `prices[].prices[]` n'existe que côté PATCH `product-prices/by-*`. */
   prices?: Array<{
     geo_constraint?: { country_group?: string; country?: string };
-    prices?: Array<{
-      currency?: string;
-      wholesale_price?: { amount_minor?: number };
-      retail_price?: { amount_minor?: number };
-    }>;
+    wholesale_price?: { amount_minor?: number; currency?: string };
+    retail_price?: { amount_minor?: number; currency?: string };
   }>;
 }
 
@@ -527,7 +527,26 @@ export async function previewFaireMatchBySku(
       };
     }
 
-    // 2. Local colors BJ — Faire ne vend qu'en UNIT (les PACK sont ignorés)
+    // 2. Local colors BJ — Faire ne vend qu'en UNIT (les PACK sont ignorés).
+    //    Fallback image en 2 niveaux :
+    //     (a) image portée directement par la ProductColor (via `pc.images`) ;
+    //     (b) image portée au niveau (productId, colorId) mais non attachée à
+    //         cette ProductColor précise — cas fréquent après propagation de
+    //         couleur, où `ProductColorImage.productColorId` reste `null`.
+    //     (c) dernier recours : n'importe quelle image d'une autre couleur du
+    //         produit (y compris PACK).
+    //    Sans ces fallbacks, la case « Notre Boutique » de la modale affiche
+    //    « Pas d'image » sur les produits type E841C alors qu'une image existe.
+    const allProductImages = await prisma.productColorImage.findMany({
+      where: { productId: product.id },
+      orderBy: { order: "asc" },
+      select: { colorId: true, path: true },
+    });
+    const imageByColorId = new Map<string, string>();
+    for (const img of allProductImages) {
+      if (!imageByColorId.has(img.colorId)) imageByColorId.set(img.colorId, img.path);
+    }
+    const anyProductImage = allProductImages[0]?.path ?? null;
     const localColors: FaireLinkLocalColor[] = product.colors
       .filter((pc) => pc.color && pc.saleType === "UNIT")
       .map((pc) => ({
@@ -537,7 +556,10 @@ export async function previewFaireMatchBySku(
         hex: pc.color!.hex,
         patternImage: pc.color!.patternImage,
         saleType: pc.saleType,
-        productImage: pc.images[0]?.path ?? null,
+        productImage:
+          pc.images[0]?.path ??
+          imageByColorId.get(pc.color!.id) ??
+          anyProductImage,
         unitPrice: Number(pc.unitPrice),
         stock: pc.stock ?? 0,
         weightKg: Number(pc.weight ?? 0),
@@ -637,16 +659,19 @@ export async function previewFaireMatchBySku(
           }
         }
 
-        // Faire moderne : les prix sont dans `variants[].prices[]` avec
-        // geo_constraint (EUROPEAN_UNION/EUR pour nous). Les champs racine
-        // wholesale_price_cents/retail_price_cents sont dépréciés et souvent
-        // nuls sur les fiches publiées après 2021.
-        const euBlock = (v.prices ?? []).find((p) =>
-          p.prices?.some((pp) => pp.currency === "EUR"),
-        ) ?? v.prices?.[0];
-        const euPrices = euBlock?.prices?.find((pp) => pp.currency === "EUR") ?? euBlock?.prices?.[0];
-        const wholesaleFromPrices = euPrices?.wholesale_price?.amount_minor ?? null;
-        const retailFromPrices = euPrices?.retail_price?.amount_minor ?? null;
+        // Faire moderne : `variants[].prices[]` est un tableau plat où chaque
+        // entrée est directement `{ geo_constraint, wholesale_price, retail_price }`
+        // (pas d'imbrication `prices[].prices[]` — ce shape n'existe que sur
+        // les endpoints PATCH `product-prices/by-*`). On cherche l'entrée
+        // EUROPEAN_UNION en priorité, sinon on prend la première.
+        // Les champs racine wholesale_price_cents/retail_price_cents sont
+        // dépréciés et souvent nuls sur les fiches publiées après 2021.
+        const euPrice =
+          (v.prices ?? []).find(
+            (p) => p.geo_constraint?.country_group === "EUROPEAN_UNION",
+          ) ?? v.prices?.[0];
+        const wholesaleFromPrices = euPrice?.wholesale_price?.amount_minor ?? null;
+        const retailFromPrices = euPrice?.retail_price?.amount_minor ?? null;
         return {
           faireVariantId: v.id,
           faireSku: v.sku,

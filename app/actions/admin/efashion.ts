@@ -272,6 +272,20 @@ export async function previewEfashionMatchByReference(
         hasUnit: boolean;
       }
     >();
+    // Récupère TOUTES les images du produit (y compris celles dont
+    // ProductColorImage.productColorId est null — cas fréquent après propagation
+    // de couleur : les images sont rattachées à (productId, colorId) mais pas
+    // à une ProductColor précise, donc absentes du include `pc.images`).
+    const allProductImages = await prisma.productColorImage.findMany({
+      where: { productId: product.id },
+      orderBy: { order: "asc" },
+      select: { colorId: true, path: true },
+    });
+    const imageByColorId = new Map<string, string>();
+    for (const img of allProductImages) {
+      if (!imageByColorId.has(img.colorId)) imageByColorId.set(img.colorId, img.path);
+    }
+
     for (const pc of product.colors) {
       if (!pc.color) continue;
       const colorId = pc.color.id;
@@ -292,8 +306,9 @@ export async function previewEfashionMatchByReference(
         bucket.unitStock += pc.stock ?? 0;
         if (bucket.unitPrice === null) bucket.unitPrice = Number(pc.unitPrice);
         if (bucket.unitWeightKg === 0) bucket.unitWeightKg = Number(pc.weight ?? 0);
-        if (!bucket.unitImage && pc.images.length > 0) {
-          bucket.unitImage = pc.images[0].path;
+        if (!bucket.unitImage) {
+          bucket.unitImage =
+            pc.images[0]?.path ?? imageByColorId.get(colorId) ?? null;
         }
       }
       colorBuckets.set(colorId, bucket);
@@ -302,10 +317,11 @@ export async function previewEfashionMatchByReference(
     const linkableColors = Array.from(colorBuckets.values()).filter((b) => b.hasUnit);
 
     // Fallback image : si aucune couleur UNIT n'a d'image, on prend la 1ʳᵉ image
-    // trouvée sur n'importe quelle variante du produit (y compris PACK).
+    // trouvée sur n'importe quelle variante du produit (y compris PACK, y
+    // compris images orphelines via allProductImages).
     const anyImage =
       linkableColors.find((b) => b.unitImage)?.unitImage ??
-      product.colors.find((pc) => pc.images.length > 0)?.images[0]?.path ??
+      allProductImages[0]?.path ??
       null;
     for (const b of linkableColors) {
       if (!b.unitImage) b.unitImage = anyImage;

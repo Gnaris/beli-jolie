@@ -211,6 +211,10 @@ export async function efashionListProduitStocks(
  *  - S'arrête tôt si on a déjà au moins un match exact et que la page
  *    courante n'en apporte aucun nouveau (court-circuit pour les références
  *    très partagées).
+ *  - S'arrête aussi tôt (`NO_MATCH_BAILOUT_PAGES` par défaut = 3) si on n'a
+ *    obtenu aucun match exact après plusieurs pages — évite le scan 30 pages
+ *    quand la référence n'existe pas côté eFashion ou que le filtre eFashion
+ *    élargit trop (`reference=A24` matche `A2410,A2415,…` sans exact `A24`).
  *
  * Pas d'I/O en dehors de `efashionListProducts` → testable en injectant un
  * `listFn` mocké.
@@ -221,11 +225,14 @@ export async function efashionListByReferenceBaseExact(opts: {
   premelFilter?: EfashionPremelFilter;
   pageSize?: number;
   maxPages?: number;
+  /** Nombre max de pages consécutives sans aucun match exact avant abandon. */
+  noMatchBailoutPages?: number;
   /** Hook test-only : remplace l'appel API par une fonction mock. */
   listFn?: typeof efashionListProducts;
 }): Promise<EfashionProductListItem[]> {
   const PAGE_SIZE = opts.pageSize ?? 50;
   const MAX_PAGES = opts.maxPages ?? 30;
+  const NO_MATCH_BAILOUT_PAGES = opts.noMatchBailoutPages ?? 3;
   const needle = opts.referenceBase.toLowerCase().trim();
   const premelFilter = opts.premelFilter ?? "tous";
   const listFn = opts.listFn ?? efashionListProducts;
@@ -249,7 +256,13 @@ export async function efashionListByReferenceBaseExact(opts: {
     ).length;
     const totalExact = exactMatchesSoFar + newExact;
     skip += PAGE_SIZE;
+    // (1) On a des exacts et la page courante n'en apporte aucun nouveau :
+    //     on a tout ramassé pour cette référence.
     if (totalExact > 0 && newExact === 0) break;
+    // (2) Après N pages sans aucun exact, on abandonne. Cas courant :
+    //     référence tapée qui n'existe pas côté eFashion, mais l'API renvoie
+    //     50 items par page (filtre `reference` élargi type LIKE).
+    if (totalExact === 0 && page + 1 >= NO_MATCH_BAILOUT_PAGES) break;
     exactMatchesSoFar = totalExact;
   }
 

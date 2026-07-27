@@ -54,16 +54,12 @@ describe("BulkActionBar — pendingLabel", () => {
   it("n'affiche pas de badge « en cours » quand pendingLabel est null", () => {
     render(<BulkActionBar {...baseProps} pendingLabel={null} />);
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
-    // La bande dégradée est statique.
-    expect(document.querySelector(".animate-bulk-bar-shimmer")).toBeNull();
   });
 
-  it("affiche le badge avec le libellé fourni + bande animée quand pendingLabel est défini", () => {
+  it("affiche le badge avec le libellé fourni quand pendingLabel est défini", () => {
     render(<BulkActionBar {...baseProps} pendingLabel="Traduction de 3 produits en cours…" />);
     const badge = screen.getByRole("status");
     expect(badge).toHaveTextContent("Traduction de 3 produits en cours…");
-    // La bande dégradée du haut a basculé sur l'animation shimmer.
-    expect(document.querySelector(".animate-bulk-bar-shimmer")).not.toBeNull();
   });
 
   it("traite pendingLabel absent (undefined) comme pas d'action en cours", () => {

@@ -68,7 +68,7 @@ export function AdminProductsFilterPersistence() {
     const savedSp = new URLSearchParams(saved);
     if (isBlankProductsUrl(savedSp)) return;
 
-    router.replace(`${pathname}?${saved}`);
+    router.replace(`${pathname}?${saved}`, { scroll: false });
   }, [router, pathname, searchString]);
 
   // (2) Sauvegarde à chaque changement effectif de searchParams.

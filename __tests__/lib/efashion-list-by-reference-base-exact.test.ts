@@ -142,10 +142,77 @@ describe("efashionListByReferenceBaseExact", () => {
       idVendeur: 2017,
       referenceBase: "A11",
       listFn,
+      // On désactive le bailout no-match pour tester spécifiquement maxPages.
+      noMatchBailoutPages: 1000,
       maxPages: 5,
     });
 
     expect(listFn).toHaveBeenCalledTimes(5);
+  });
+
+  it("abandonne après NO_MATCH_BAILOUT_PAGES pages sans aucun match exact", async () => {
+    // Régression : sans ce garde-fou, une référence inexistante côté eFashion
+    // (ou un filtre `reference` trop élargi côté API) faisait scanner jusqu'à
+    // 30 pages × 50 items = 1500 fiches en séquentiel, plusieurs secondes.
+    // Avec le bailout par défaut = 3, on ne fait plus que 3 appels max.
+    const listFn = vi.fn().mockImplementation(async () => ({
+      items: Array.from({ length: 50 }, (_, i) =>
+        makeItem({ id_produit: Math.random(), reference_base: `A1100${i}` }),
+      ),
+      total: 5000,
+    }));
+
+    const res = await efashionListByReferenceBaseExact({
+      idVendeur: 2017,
+      referenceBase: "A11",
+      listFn,
+    });
+
+    expect(res).toEqual([]);
+    expect(listFn).toHaveBeenCalledTimes(3);
+  });
+
+  it("noMatchBailoutPages est configurable (bailout à 2 → 2 appels max sans exact)", async () => {
+    const listFn = vi.fn().mockImplementation(async () => ({
+      items: [makeItem({ reference_base: "A1100" })],
+      total: 100,
+    }));
+
+    await efashionListByReferenceBaseExact({
+      idVendeur: 2017,
+      referenceBase: "A11",
+      listFn,
+      noMatchBailoutPages: 2,
+    });
+
+    expect(listFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("le bailout no-match ne coupe pas la pagination quand un exact a déjà été trouvé", async () => {
+    // Cas où on trouve 1 exact page 0, puis une longue série de non-exacts.
+    // Le bailout doit être neutre : c'est la règle « exacts>0 + page sans nouveau exact »
+    // qui doit gérer l'arrêt.
+    const page0 = [
+      makeItem({ id_produit: 111, reference_base: "A11" }),
+      makeItem({ id_produit: 999, reference_base: "A1100" }),
+    ];
+    const page1PartialsOnly = Array.from({ length: 30 }, (_, i) =>
+      makeItem({ id_produit: 3000 + i, reference_base: `A11X${i}` }),
+    );
+    const listFn = vi
+      .fn()
+      .mockResolvedValueOnce({ items: page0, total: 100 })
+      .mockResolvedValueOnce({ items: page1PartialsOnly, total: 100 });
+
+    const res = await efashionListByReferenceBaseExact({
+      idVendeur: 2017,
+      referenceBase: "A11",
+      listFn,
+    });
+
+    expect(res.map((it) => it.id_produit)).toEqual([111]);
+    // 2 appels : trouve exact page 0, page 1 sans nouveau exact → arrêt.
+    expect(listFn).toHaveBeenCalledTimes(2);
   });
 
   it("transmet le premelFilter et la pageSize voulus à l'API", async () => {

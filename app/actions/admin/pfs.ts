@@ -252,7 +252,25 @@ export async function previewPfsMatchByReference(
     }
     const pfsVariants = variantsRes.data ?? [];
 
-    // 3. Local colors BJ (toutes, UNIT et PACK — PFS gère les deux)
+    // 3. Local colors BJ (toutes, UNIT et PACK — PFS gère les deux).
+    //    Fallback image en 2 niveaux :
+    //     (a) image portée directement par la ProductColor (via `pc.images`) ;
+    //     (b) image portée au niveau (productId, colorId) mais non attachée à
+    //         cette ProductColor précise — cas fréquent après propagation de
+    //         couleur, où `ProductColorImage.productColorId` reste `null`.
+    //     (c) dernier recours : n'importe quelle image du produit.
+    //    Sans ces fallbacks, la case « Notre Boutique » de la modale affiche
+    //    « Pas d'image » sur les produits type E841C alors qu'une image existe.
+    const allProductImages = await prisma.productColorImage.findMany({
+      where: { productId: product.id },
+      orderBy: { order: "asc" },
+      select: { colorId: true, path: true },
+    });
+    const imageByColorId = new Map<string, string>();
+    for (const img of allProductImages) {
+      if (!imageByColorId.has(img.colorId)) imageByColorId.set(img.colorId, img.path);
+    }
+    const anyProductImage = allProductImages[0]?.path ?? null;
     const localColors: PfsLinkLocalColor[] = product.colors
       .filter((pc) => pc.color)
       .map((pc) => ({
@@ -262,7 +280,10 @@ export async function previewPfsMatchByReference(
         hex: pc.color!.hex,
         patternImage: pc.color!.patternImage,
         saleType: pc.saleType,
-        productImage: pc.images[0]?.path ?? null,
+        productImage:
+          pc.images[0]?.path ??
+          imageByColorId.get(pc.color!.id) ??
+          anyProductImage,
         unitPrice: Number(pc.unitPrice),
         packQuantity: pc.packQuantity ?? null,
         sizes: pc.variantSizes.map((vs) => vs.size?.name).filter(Boolean) as string[],

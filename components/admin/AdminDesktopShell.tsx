@@ -270,6 +270,7 @@ export default function AdminDesktopShell({
                         title={item.label}
                         target={item.external ? "_blank" : undefined}
                         rel={item.external ? "noopener noreferrer" : undefined}
+                        scroll={item.href !== "/admin/produits"}
                         className={`relative flex items-center justify-center px-3 py-2.5 rounded-xl transition-colors group ${
                           parentActive
                             ? "bg-zinc-100 text-zinc-900"
@@ -325,6 +326,7 @@ export default function AdminDesktopShell({
                             )}
                             <Link
                               href={item.href}
+                              scroll={item.href !== "/admin/produits"}
                               onClick={() => {
                                 if (!open) toggleSubmenu(item.href);
                               }}
@@ -360,6 +362,7 @@ export default function AdminDesktopShell({
                         <AdminWarningTooltip warning={warning}>
                           <Link
                             href={item.href}
+                            scroll={item.href !== "/admin/produits"}
                             target={item.external ? "_blank" : undefined}
                             rel={item.external ? "noopener noreferrer" : undefined}
                             className={`${itemBaseCls} ${itemActiveCls}`}
@@ -401,6 +404,7 @@ export default function AdminDesktopShell({
                               <AdminWarningTooltip key={c.href} warning={subWarning}>
                                 <Link
                                   href={c.href}
+                                  scroll={c.href !== "/admin/produits"}
                                   className={`relative flex items-center gap-2 pl-8 pr-3 py-1.5 rounded-md text-[12.5px] transition-colors ${
                                     subActive
                                       ? "bg-zinc-100 text-zinc-900 font-semibold"

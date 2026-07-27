@@ -7,6 +7,7 @@ import ThemedProductFilters from "@/components/admin/products/ThemedProductFilte
 import AdminProductsTable from "@/components/admin/products/AdminProductsTable";
 import { FilterPendingProvider } from "@/components/admin/products/FilterPendingContext";
 import { AdminProductsFilterPersistence } from "@/components/admin/products/AdminProductsFilterPersistence";
+import { AdminProductsScrollPersistence } from "@/components/admin/products/AdminProductsScrollPersistence";
 import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
@@ -19,6 +20,7 @@ import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCa
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import { maybeBrandifyPath } from "@/lib/branded-image-display";
+import { countColorsMissingImage } from "@/lib/colors-missing-image";
 import {
   buildAdminProductsWhere,
   buildAdminProductsOrderBy,
@@ -557,12 +559,19 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     const firstImageBrandified = p.primaryColorId
       ? maybeBrandifyPath(rawFirstImage, p.primaryColorId, p.primaryColorId, p.reference, brandedEnabled, "thumb")
       : rawFirstImage;
+    const colorsMissingImageCount = countColorsMissingImage({
+      status: p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
+      productId: p.id,
+      colors: p.colors,
+      imagesByProductColor,
+    });
     return {
     id:              p.id,
     reference:       p.reference,
     name:            p.name,
     status:          p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
     isIncomplete:    p.isIncomplete,
+    colorsMissingImageCount,
     locked:          p.locked,
     important:       p.important,
     categoryName:    p.category.name,
@@ -619,6 +628,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   return (
     <FilterPendingProvider>
     <AdminProductsFilterPersistence />
+    <AdminProductsScrollPersistence />
     <div className="space-y-5">
       {/* ─── Carte commune Hero + Onglets + Filtres (look maquette Ardoise) ─── */}
       <div className="bg-bg-primary border border-border rounded-2xl shadow-sm">

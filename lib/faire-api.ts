@@ -91,14 +91,13 @@ export interface FaireVariant {
     height?: number;
     distance_unit?: "CENTIMETERS" | "INCHES";
   };
-  /** Prix moderne par région (geo_constraint). Remplace wholesale/retail_price_cents dépréciés. */
+  /** Prix moderne par région (geo_constraint). Remplace wholesale/retail_price_cents dépréciés.
+   *  ⚠️ Shape plat côté GET (`ExternalProductVariantV2.Price`) — à ne pas confondre
+   *  avec le shape imbriqué `prices[].prices[]` utilisé côté PATCH `product-prices/by-*`. */
   prices?: Array<{
     geo_constraint?: { country_group?: string; country?: string };
-    prices?: Array<{
-      currency?: string;
-      wholesale_price?: { amount_minor?: number };
-      retail_price?: { amount_minor?: number };
-    }>;
+    wholesale_price?: { amount_minor?: number; currency?: string };
+    retail_price?: { amount_minor?: number; currency?: string };
   }>;
   lifecycle_state?: string;
 }

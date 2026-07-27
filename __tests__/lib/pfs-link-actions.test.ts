@@ -47,6 +47,9 @@ const prismaMock: any = {
     updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     update: vi.fn().mockResolvedValue({}),
   },
+  productColorImage: {
+    findMany: vi.fn().mockResolvedValue([]),
+  },
   color: {
     updateMany: vi.fn().mockResolvedValue({ count: 0 }),
   },
@@ -80,6 +83,7 @@ beforeEach(() => {
   prismaMock.color.updateMany.mockResolvedValue({ count: 0 });
   prismaMock.productColor.update.mockResolvedValue({});
   prismaMock.product.update.mockResolvedValue({});
+  prismaMock.productColorImage.findMany.mockResolvedValue([]);
   pfsApiMock.pfsCheckReference.mockReset();
   pfsApiMock.pfsGetVariants.mockReset();
   pfsUpdateMock.pfsUpdateProductInPlace.mockReset();
@@ -109,6 +113,7 @@ function buildBjProduct(overrides: Partial<any> = {}) {
           pfsColorRef: null,
         },
         images: [{ path: "/uploads/produits/A2415_or-1.webp" }],
+        variantSizes: [],
       },
       {
         id: "pc-arg",
@@ -124,6 +129,7 @@ function buildBjProduct(overrides: Partial<any> = {}) {
           pfsColorRef: null,
         },
         images: [],
+        variantSizes: [],
       },
     ],
     ...overrides,
@@ -294,6 +300,52 @@ describe("previewPfsMatchByReference", () => {
     expect(res.data.existingLinks).toEqual({ "pc-or": "pfs-vid-or" });
   });
 
+  it("fallback image : une couleur sans photo réutilise l'image d'une autre couleur du produit", async () => {
+    // Régression : avant le fix, une couleur BJ sans image renvoyait productImage:null.
+    // Résultat : la modale affichait « Pas d'image » côté « Notre Boutique » même
+    // quand une autre couleur du même produit avait une photo utilisable.
+    prismaMock.product.findUnique.mockResolvedValueOnce(buildBjProduct());
+    // Table ProductColorImage : l'image de pc-or au niveau (productId, colorId).
+    prismaMock.productColorImage.findMany.mockResolvedValueOnce([
+      { colorId: "c-or", path: "/uploads/produits/A2415_or-1.webp" },
+    ]);
+    pfsApiMock.pfsCheckReference.mockResolvedValueOnce(buildPfsCheckResponse());
+    pfsApiMock.pfsGetVariants.mockResolvedValueOnce(buildPfsVariants());
+
+    const res = await previewPfsMatchByReference("p1", "A2415");
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+
+    // pc-or a l'image via pc.images, pc-arg récupère l'image de pc-or via
+    // le fallback allProductImages.
+    const or = res.data.localColors.find((c) => c.productColorId === "pc-or");
+    const arg = res.data.localColors.find((c) => c.productColorId === "pc-arg");
+    expect(or?.productImage).toBe("/uploads/produits/A2415_or-1.webp");
+    expect(arg?.productImage).toBe("/uploads/produits/A2415_or-1.webp");
+  });
+
+  it("fallback image niveau produit : image orpheline sans ProductColor liée (cas E841C)", async () => {
+    // Cas réel E841C : images stockées dans ProductColorImage avec
+    // productColorId=NULL. Le include Prisma `pc.images` les ignore. Sans
+    // le fix, la modale affichait « Aucune photo côté boutique ».
+    const product = buildBjProduct();
+    product.colors[0].images = [];
+    product.colors[1].images = [];
+    prismaMock.product.findUnique.mockResolvedValueOnce(product);
+    prismaMock.productColorImage.findMany.mockResolvedValueOnce([
+      { colorId: "c-or", path: "/uploads/produits/E841C-1.webp" },
+    ]);
+    pfsApiMock.pfsCheckReference.mockResolvedValueOnce(buildPfsCheckResponse());
+    pfsApiMock.pfsGetVariants.mockResolvedValueOnce(buildPfsVariants());
+
+    const res = await previewPfsMatchByReference("p1", "A2415");
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+    for (const lc of res.data.localColors) {
+      expect(lc.productImage).toBe("/uploads/produits/E841C-1.webp");
+    }
+  });
+
   it("propose les couleurs PACK ET UNIT (PFS gère les deux types)", async () => {
     const product = buildBjProduct({
       colors: [
@@ -311,6 +363,7 @@ describe("previewPfsMatchByReference", () => {
             pfsColorRef: null,
           },
           images: [],
+          variantSizes: [],
         },
       ],
     });

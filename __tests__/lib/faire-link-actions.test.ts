@@ -56,6 +56,9 @@ const prismaMock: any = {
     updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     update: vi.fn().mockResolvedValue({}),
   },
+  productColorImage: {
+    findMany: vi.fn().mockResolvedValue([]),
+  },
 };
 prismaMock.$transaction = vi.fn(async (fn: any) => {
   if (typeof fn === "function") return fn(prismaMock);
@@ -85,6 +88,7 @@ beforeEach(() => {
   prismaMock.productColor.updateMany.mockResolvedValue({ count: 0 });
   prismaMock.productColor.update.mockResolvedValue({});
   prismaMock.product.update.mockResolvedValue({});
+  prismaMock.productColorImage.findMany.mockResolvedValue([]);
   faireApiMock.faireFetch.mockReset();
   faireUpdateMock.faireUpdateProduct.mockReset();
   faireUpdateMock.faireUpdateProduct.mockResolvedValue({
@@ -531,6 +535,131 @@ describe("previewFaireMatchBySku", () => {
     expect(res.data.faireProductId).toBe("p_live");
     expect(res.data.faireLifecycleState).toBe("PUBLISHED");
     expect(res.data.otherMatchesCount).toBe(2);
+  });
+
+  it("fallback image : une couleur UNIT sans photo réutilise l'image d'une autre couleur du produit", async () => {
+    // Régression : avant le fix, une couleur BJ sans image renvoyait productImage:null.
+    // Résultat : la modale affichait « Pas d'image » côté « Notre Boutique » même
+    // quand une autre couleur du même produit avait une photo utilisable.
+    prismaMock.product.findUnique.mockResolvedValueOnce(buildBjProduct());
+    // La table ProductColorImage contient l'image de pc-or au niveau (productId, colorId).
+    prismaMock.productColorImage.findMany.mockResolvedValueOnce([
+      { colorId: "c-or", path: "/uploads/produits/F137_or-1.webp" },
+    ]);
+    mockFaireSearchOk([buildFaireProduct()]);
+
+    const res = await previewFaireMatchBySku("p1", "f137_dore_UNIT_xxxx");
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+
+    // pc-or a l'image directement via pc.images, pc-arg n'en a pas
+    // → pc-arg récupère l'image via allProductImages (fallback final).
+    const or = res.data.localColors.find((c) => c.productColorId === "pc-or");
+    const arg = res.data.localColors.find((c) => c.productColorId === "pc-arg");
+    expect(or?.productImage).toBe("/uploads/produits/F137_or-1.webp");
+    expect(arg?.productImage).toBe("/uploads/produits/F137_or-1.webp");
+  });
+
+  it("fallback image niveau produit : image existe mais aucune ProductColor ne la référence (cas E841C)", async () => {
+    // Cas réel E841C : les images sont stockées dans ProductColorImage avec
+    // productColorId=NULL (rattachées uniquement au couple productId+colorId
+    // après propagation de couleur). Le include Prisma `pc.images` ne les
+    // retourne PAS. Avant le fix, la modale affichait « Aucune photo côté
+    // boutique » à tort. Le fallback via query séparée doit les capter.
+    const bj = buildBjProduct();
+    // Simule le cas : aucune ProductColor n'a d'image via pc.images.
+    bj.colors[0].images = [];
+    bj.colors[1].images = [];
+    prismaMock.product.findUnique.mockResolvedValueOnce(bj);
+    // Mais la table ProductColorImage a bien une image orpheline.
+    prismaMock.productColorImage.findMany.mockResolvedValueOnce([
+      { colorId: "c-or", path: "/uploads/produits/E841C_dore-1.webp" },
+    ]);
+    mockFaireSearchOk([buildFaireProduct()]);
+
+    const res = await previewFaireMatchBySku("p1", "f137_dore_UNIT_xxxx");
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+
+    // Les 2 couleurs récupèrent l'image via le fallback allProductImages.
+    for (const lc of res.data.localColors) {
+      expect(lc.productImage).toBe("/uploads/produits/E841C_dore-1.webp");
+    }
+  });
+
+  it("lit le prix EUR depuis le format moderne variants[].prices[] (flat, pas nested)", async () => {
+    // Régression : avant le fix, le code cherchait `p.prices?.some(pp => pp.currency === "EUR")`
+    // en supposant un shape imbriqué `prices[].prices[]`, mais côté GET produit,
+    // le shape officiel Faire est plat : chaque entrée = { geo_constraint, wholesale_price, retail_price }.
+    // Résultat : le prix retombait toujours à 0 → l'UI affichait « — ».
+    prismaMock.product.findUnique.mockResolvedValueOnce(buildBjProduct());
+    mockFaireSearchOk([
+      {
+        id: "p_modern",
+        name: "Bague",
+        lifecycle_state: "PUBLISHED",
+        variants: [
+          {
+            id: "po_modern",
+            sku: "f137_dore_UNIT_xxxx",
+            options: [{ name: "Color", value: "Doré" }],
+            // Format moderne officiel : PAS de wholesale_price_cents/retail_price_cents racine
+            prices: [
+              {
+                geo_constraint: { country_group: "EUROPEAN_UNION" },
+                wholesale_price: { amount_minor: 1290, currency: "EUR" },
+                retail_price: { amount_minor: 2580, currency: "EUR" },
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const res = await previewFaireMatchBySku("p1", "f137_dore_UNIT_xxxx");
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+    expect(res.data.candidates).toHaveLength(1);
+    expect(res.data.candidates[0].wholesalePriceCents).toBe(1290);
+    expect(res.data.candidates[0].retailPriceCents).toBe(2580);
+  });
+
+  it("préfère le bloc EUROPEAN_UNION quand plusieurs zones géo cohabitent", async () => {
+    prismaMock.product.findUnique.mockResolvedValueOnce(buildBjProduct());
+    mockFaireSearchOk([
+      {
+        id: "p_multi_geo",
+        name: "Bague",
+        lifecycle_state: "PUBLISHED",
+        variants: [
+          {
+            id: "po_multi_geo",
+            sku: "f137_dore_UNIT_xxxx",
+            options: [{ name: "Color", value: "Doré" }],
+            prices: [
+              // USA d'abord dans le tableau — ne doit pas être choisi.
+              {
+                geo_constraint: { country: "USA" },
+                wholesale_price: { amount_minor: 999, currency: "USD" },
+                retail_price: { amount_minor: 1999, currency: "USD" },
+              },
+              // EU : c'est ce prix qu'on doit renvoyer.
+              {
+                geo_constraint: { country_group: "EUROPEAN_UNION" },
+                wholesale_price: { amount_minor: 1290, currency: "EUR" },
+                retail_price: { amount_minor: 2580, currency: "EUR" },
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const res = await previewFaireMatchBySku("p1", "f137_dore_UNIT_xxxx");
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+    expect(res.data.candidates[0].wholesalePriceCents).toBe(1290);
+    expect(res.data.candidates[0].retailPriceCents).toBe(2580);
   });
 
   it("remonte HTTP non-OK comme erreur lisible (SKU complet → 1 seul appel)", async () => {

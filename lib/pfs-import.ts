@@ -1024,6 +1024,12 @@ export interface ResolvedVariant {
   stock: number;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
+  /**
+   * Reflète `is_active` PFS. Une variante désactivée côté PFS doit rester
+   * désactivée après import (mappée sur `ProductColor.disabled = true`),
+   * sinon des variantes retirées de la vente réapparaissent en ligne.
+   */
+  isActive: boolean;
   /** Référence PFS de la couleur principale (toujours renseignée, sert à détecter la couleur par défaut). */
   primaryPfsColorRef: string;
   /** Labels localisés de la première couleur (normalisés). Sert au matching default_color. */
@@ -1623,6 +1629,7 @@ export async function approveAndImportPfsProduct(
             packQuantity: pv.rv.packQuantity,
             sku: generateSku(reference, skuColorNames, pv.rv.saleType, pv.index + 1),
             pfsVariantId: pv.rv.pfsVariantId,
+            disabled: !pv.rv.isActive,
           },
           select: { id: true },
         });
@@ -1883,6 +1890,7 @@ export async function resolveVariant(
     stock: v.stock_qty ?? 0,
     saleType: v.type === "PACK" ? "PACK" : "UNIT",
     packQuantity: v.type === "PACK" ? (v.pieces ?? 1) : null,
+    isActive: v.is_active !== false,
     primaryPfsColorRef: colorRef,
     primaryColorLabels,
     isStar: v.is_star === true,

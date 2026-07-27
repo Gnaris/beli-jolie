@@ -769,7 +769,16 @@ function Step2Result({
                 {preview.productName}
               </div>
               <div className="text-xs text-text-muted mt-1 space-y-0.5">
-                <div>{preview.localColors.length} couleur(s)</div>
+                <div>
+                  {preview.localColors.length} couleur(s)
+                  {" "}
+                  {preview.localColors.filter((c) => c.productImage).length === 0 &&
+                    preview.localColors.length > 0 && (
+                      <span className="text-amber-700 font-medium">
+                        · Aucune photo côté boutique
+                      </span>
+                    )}
+                </div>
                 {minBj !== null && maxBj !== null && (
                   <div>
                     {minBj === maxBj

@@ -315,9 +315,19 @@ export async function previewAnkorstoreProductForLinking(
       };
     });
 
-    // Image de fallback si la couleur courante n'a pas d'image : première image d'une autre couleur du produit.
-    const fallbackImage =
-      bjProductRaw.colors.find((c) => c.images.length > 0)?.images[0]?.path ?? null;
+    // Fallback image en 2 niveaux (couvre le cas où ProductColorImage.productColorId
+    // est null — images propagées au niveau (productId, colorId) sans être liées à
+    // une ProductColor précise).
+    const allProductImages = await prisma.productColorImage.findMany({
+      where: { productId: bjProductRaw.id },
+      orderBy: { order: "asc" },
+      select: { colorId: true, path: true },
+    });
+    const imageByColorId = new Map<string, string>();
+    for (const img of allProductImages) {
+      if (!imageByColorId.has(img.colorId)) imageByColorId.set(img.colorId, img.path);
+    }
+    const fallbackImage = allProductImages[0]?.path ?? null;
     const localColors: AnkorstoreLinkPreviewLocalColor[] = bjProductRaw.colors
       .filter((pc) => pc.colorId && pc.color)
       .map((pc) => ({
@@ -328,7 +338,10 @@ export async function previewAnkorstoreProductForLinking(
         patternImage: pc.color!.patternImage ?? null,
         sku: pc.sku ?? null,
         sizeName: pc.variantSizes[0]?.size.name ?? null,
-        productImage: pc.images[0]?.path ?? fallbackImage,
+        productImage:
+          pc.images[0]?.path ??
+          imageByColorId.get(pc.colorId as string) ??
+          fallbackImage,
         weightKg: Number(pc.weight ?? 0),
         // Une couleur BJ est « déjà liée » côté Ankor uniquement si sa variante
         // Ankor courante existe dans la liste des variantes du produit qu'on regarde.
