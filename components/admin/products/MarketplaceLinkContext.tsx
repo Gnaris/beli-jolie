@@ -31,6 +31,12 @@ export interface LinkJob {
   status: LinkJobStatus;
   error?: string;
   linkedCount?: number;
+  /** Couleurs BJ créées côté marketplace pendant la liaison. */
+  createdCount?: number;
+  /** Variantes orphelines supprimées côté marketplace pendant la liaison. */
+  deletedCount?: number;
+  /** Variantes marketplace importées en ProductColor BJ pendant la liaison. */
+  importedCount?: number;
   startedAt: number;
   doneAt?: number;
 }
@@ -47,6 +53,9 @@ export type LinkJobExecutor = () => Promise<{
   success: boolean;
   error?: string;
   linked?: number;
+  autoCreatedOnMarketplace?: number;
+  deletedOnMarketplace?: number;
+  importedFromMarketplace?: number;
 }>;
 
 interface Value {
@@ -82,6 +91,9 @@ export function MarketplaceLinkProvider({ children }: { children: ReactNode }) {
                   status: res.success ? "done" : "error",
                   error: res.success ? undefined : res.error ?? "Erreur inconnue.",
                   linkedCount: res.linked,
+                  createdCount: res.autoCreatedOnMarketplace,
+                  deletedCount: res.deletedOnMarketplace,
+                  importedCount: res.importedFromMarketplace,
                   doneAt: Date.now(),
                 }
               : j,

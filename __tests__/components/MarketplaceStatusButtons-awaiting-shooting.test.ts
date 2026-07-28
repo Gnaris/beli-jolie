@@ -33,7 +33,11 @@ describe("MarketplaceStatusButtons — badge jaune « en attente shooting »", (
 
   it("applique un style jaune vif (yellow-500 border) prioritaire sur syncRequired", () => {
     // #EAB308 = yellow-500 (bordure + dot). #FEF08A = yellow-200 (fond).
-    expect(SRC).toMatch(/bg-\[#FEF08A\][^"']*text-\[#713F12\][^"']*border-\[#EAB308\]/);
+    // Depuis la refonte carte, ces classes sont réparties dans getCardStateClasses
+    // (bg + border sur la carte, text sur le header) — on vérifie leur présence
+    // simultanée sans exiger qu'elles soient sur la même ligne.
+    expect(SRC).toMatch(/bg-\[#FEF08A\] border-\[#EAB308\]/);
+    expect(SRC).toMatch(/text-\[#713F12\]/);
     // La cascade de classes doit tester awaitingShooting AVANT state.syncRequired.
     const awaitingIdx = SRC.indexOf("awaitingShooting");
     const syncIdx = SRC.indexOf("state.syncRequired");

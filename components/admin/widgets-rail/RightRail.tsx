@@ -57,7 +57,7 @@ const ITEMS: RailItem[] = [
   },
   {
     id: "orders-import",
-    label: "Import commandes marketplaces",
+    label: "Import commandes / clients marketplaces",
     gradient: "from-indigo-500 to-violet-600",
     badgeText: "text-indigo-600",
     ring: "ring-indigo-500",

@@ -21,6 +21,7 @@ import {
   type LinkPreview,
   type LinkCandidate,
   type LinkLocalColor,
+  type LinkIntents,
 } from "./linkMarketplaceAdapters";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -72,6 +73,15 @@ export default function LinkMarketplaceModal({
   const [markup, setMarkup] = useState<MarkupConfig | null>(null);
   const [shopName, setShopName] = useState<string>("notre boutique");
   const [mapping, setMapping] = useState<Record<string, string>>({});
+  // Intentions explicites de l'admin sur les couleurs non-mappées :
+  //  - colorsToCreate : productColorId des couleurs BJ à créer côté marketplace (+ upload photo)
+  //  - orphansToDelete : candidate.id des variantes marketplace à supprimer
+  //  - orphansToImport : candidate.id des variantes marketplace à importer en tant que ProductColor BJ + lier
+  // orphansToDelete et orphansToImport sont exclusifs. Chaque orpheline marketplace
+  // DOIT être dans l'un des deux (validation étape 4 bloque sinon).
+  const [colorsToCreate, setColorsToCreate] = useState<Set<string>>(() => new Set());
+  const [orphansToDelete, setOrphansToDelete] = useState<Set<string>>(() => new Set());
+  const [orphansToImport, setOrphansToImport] = useState<Set<string>>(() => new Set());
 
   // Charge la config majoration + nom boutique du tenant courant une seule fois
   useEffect(() => {
@@ -117,6 +127,11 @@ export default function LinkMarketplaceModal({
         if (res.success) {
           setPreview(res.data);
           setMapping(buildInitialMapping(res.data));
+          // Reset des intentions à chaque nouvelle recherche pour éviter de
+          // trainer un choix d'une fiche marketplace précédente.
+          setColorsToCreate(new Set());
+          setOrphansToDelete(new Set());
+          setOrphansToImport(new Set());
           if (res.data.marketplaceProductId) setStep(2);
         } else {
           setSearchError(res.error);
@@ -161,6 +176,45 @@ export default function LinkMarketplaceModal({
       next[productColorId] = variantId;
       return next;
     });
+    // Choisir une variante marketplace annule l'intention « créer » pour cette couleur.
+    setColorsToCreate((prev) => {
+      if (!prev.has(productColorId)) return prev;
+      const next = new Set(prev);
+      next.delete(productColorId);
+      return next;
+    });
+  }
+
+  function toggleCreateColor(productColorId: string) {
+    setColorsToCreate((prev) => {
+      const next = new Set(prev);
+      if (next.has(productColorId)) next.delete(productColorId);
+      else next.add(productColorId);
+      return next;
+    });
+    // Marquer une couleur BJ « à créer » annule sa liaison à une variante marketplace.
+    setMapping((prev) => {
+      if (!(productColorId in prev)) return prev;
+      const next = { ...prev };
+      delete next[productColorId];
+      return next;
+    });
+  }
+
+  function setOrphanChoice(candidateId: string, choice: "delete" | "import") {
+    // Choix exclusif : marquer « supprimer » enlève « importer », et inversement.
+    setOrphansToDelete((prev) => {
+      const next = new Set(prev);
+      if (choice === "delete") next.add(candidateId);
+      else next.delete(candidateId);
+      return next;
+    });
+    setOrphansToImport((prev) => {
+      const next = new Set(prev);
+      if (choice === "import") next.add(candidateId);
+      else next.delete(candidateId);
+      return next;
+    });
   }
 
   function autoMap() {
@@ -200,8 +254,39 @@ export default function LinkMarketplaceModal({
       return;
     }
 
-    if (Object.keys(mapping).length === 0) {
-      toast.error("Aucune couleur liée", `Sélectionne au moins une variante ${meta.name}.`);
+    const totalCoverage = Object.keys(mapping).length + colorsToCreate.size + orphansToImport.size;
+    if (totalCoverage === 0) {
+      toast.error(
+        "Aucune couleur traitée",
+        `Sélectionne au moins une variante ${meta.name} à lier, ou marque une couleur à créer/importer.`,
+      );
+      return;
+    }
+
+    // Validation dure : toute variante marketplace non-mappée doit être soit
+    // supprimée soit importée. Aucune orpheline non-tranchée n'est autorisée.
+    const linkedVariantIds = new Set(Object.values(mapping).filter(Boolean));
+    const unresolvedOrphans = preview.candidates.filter(
+      (c) => !linkedVariantIds.has(c.id) && !orphansToDelete.has(c.id) && !orphansToImport.has(c.id),
+    );
+    if (unresolvedOrphans.length > 0) {
+      toast.error(
+        `${unresolvedOrphans.length} variante(s) ${meta.name} non tranchée(s)`,
+        `Pour chaque variante en trop chez ${meta.name}, choisis « Créer chez nous » ou « Supprimer chez ${meta.name} » à l'étape 4.`,
+      );
+      return;
+    }
+
+    // Garde-fou : si on supprime toutes les variantes marketplace ET qu'on ne
+    // crée rien à leur place, la fiche marketplace se retrouverait vide.
+    const remainingVariantsAfterDelete = preview.candidates.filter(
+      (c) => !orphansToDelete.has(c.id) || linkedVariantIds.has(c.id),
+    ).length;
+    if (remainingVariantsAfterDelete === 0 && colorsToCreate.size === 0) {
+      toast.error(
+        "Fiche marketplace vide",
+        `Impossible : toutes les variantes ${meta.name} seraient supprimées sans rien créer en remplacement.`,
+      );
       return;
     }
 
@@ -210,6 +295,11 @@ export default function LinkMarketplaceModal({
     setIsEnqueuing(true);
     const previewSnapshot = preview;
     const mappingSnapshot = { ...mapping };
+    const intentsSnapshot: LinkIntents = {
+      colorsToCreate: Array.from(colorsToCreate),
+      orphansToDelete: Array.from(orphansToDelete),
+      orphansToImport: Array.from(orphansToImport),
+    };
     const productImage = preview.marketplaceProductImage;
 
     enqueueLinkJob(
@@ -220,7 +310,7 @@ export default function LinkMarketplaceModal({
         reference,
         productImage,
       },
-      () => executeLink(previewSnapshot, mappingSnapshot),
+      () => executeLink(previewSnapshot, mappingSnapshot, intentsSnapshot),
     );
 
     // Petit délai UX pour que l'admin voie que sa demande est bien partie
@@ -238,21 +328,41 @@ export default function LinkMarketplaceModal({
   }
 
   const linkedCount = Object.keys(mapping).length;
+  const createCount = colorsToCreate.size;
+  const importCount = orphansToImport.size;
   const totalLocal = preview?.localColors.length ?? 0;
+  const totalCovered = linkedCount + createCount + importCount;
   const alreadyLinking = hasActiveJobForProduct(productId, marketplace);
-  const canLink = linkedCount > 0 && !!preview?.marketplaceProductId && !alreadyLinking;
+  // Orphelines marketplace non tranchées (ni supprimer ni importer) — bloque la validation
+  // finale car chaque variante marketplace doit avoir un sort.
+  const linkedVariantIdsSet = new Set(Object.values(mapping).filter(Boolean));
+  const unresolvedOrphanCount =
+    preview?.candidates.filter(
+      (c) =>
+        !linkedVariantIdsSet.has(c.id) &&
+        !orphansToDelete.has(c.id) &&
+        !orphansToImport.has(c.id),
+    ).length ?? 0;
+  const canLink =
+    totalCovered > 0 &&
+    !!preview?.marketplaceProductId &&
+    !alreadyLinking &&
+    unresolvedOrphanCount === 0;
   const canGoNext =
     (step === 1 && !!preview?.marketplaceProductId) ||
     (step === 2) ||
-    (step === 3 && linkedCount > 0) ||
+    (step === 3 && totalCovered > 0) ||
     step === 4;
 
   function goNext() {
     if (step === 1) setStep(2);
     else if (step === 2) setStep(3);
     else if (step === 3) {
-      if (linkedCount === 0) {
-        toast.warning("Aucune couleur liée", "Sélectionnez au moins une variante PFS.");
+      if (totalCovered === 0) {
+        toast.warning(
+          "Aucune couleur traitée",
+          `Lie au moins une variante ${meta.name} ou marque une couleur à créer.`,
+        );
         return;
       }
       setStep(4);
@@ -343,7 +453,9 @@ export default function LinkMarketplaceModal({
               mapping={mapping}
               markup={markup}
               shopName={shopName}
+              colorsToCreate={colorsToCreate}
               onToggleMapping={setColorMapping}
+              onToggleCreate={toggleCreateColor}
               onAutoMap={autoMap}
             />
           )}
@@ -355,6 +467,11 @@ export default function LinkMarketplaceModal({
                 preview={preview}
                 mapping={mapping}
                 markup={markup}
+                shopName={shopName}
+                colorsToCreate={colorsToCreate}
+                orphansToDelete={orphansToDelete}
+                orphansToImport={orphansToImport}
+                onSetOrphanChoice={setOrphanChoice}
               />
               {alreadyLinking && (
                 <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/60 p-4 flex items-start gap-3">
@@ -379,9 +496,14 @@ export default function LinkMarketplaceModal({
             <div className="text-xs text-text-muted flex-1 min-w-[200px]">
               {step === 3 && (
                 <>
-                  <span className="font-semibold text-text-secondary">{linkedCount}</span>
+                  <span className="font-semibold text-text-secondary">{totalCovered}</span>
                   {" / "}
-                  <span className="text-text-secondary">{totalLocal}</span> couleur(s) liée(s)
+                  <span className="text-text-secondary">{totalLocal}</span> couleur(s) traitée(s)
+                  {createCount > 0 && (
+                    <span className="ml-2 text-emerald-700 font-semibold">
+                      · {createCount} à créer
+                    </span>
+                  )}
                 </>
               )}
               {step !== 3 && <>Étape <b>{step}</b> sur 4</>}
@@ -417,7 +539,9 @@ export default function LinkMarketplaceModal({
               {step === 4
                 ? isEnqueuing
                   ? "Liaison en cours…"
-                  : `✓ Lier ${linkedCount} couleur${linkedCount > 1 ? "s" : ""}`
+                  : unresolvedOrphanCount > 0
+                    ? `${unresolvedOrphanCount} variante(s) ${meta.name} à trancher`
+                    : `✓ Valider (${totalCovered} couleur${totalCovered > 1 ? "s" : ""})`
                 : step === 3
                   ? "Voir le récap →"
                   : "Suivant →"}
@@ -897,7 +1021,9 @@ function Step3Colors({
   mapping,
   markup,
   shopName,
+  colorsToCreate,
   onToggleMapping,
+  onToggleCreate,
   onAutoMap,
 }: {
   meta: MarketplaceMeta;
@@ -905,12 +1031,15 @@ function Step3Colors({
   mapping: Record<string, string>;
   markup: MarkupConfig | null;
   shopName: string;
+  colorsToCreate: Set<string>;
   onToggleMapping: (productColorId: string, variantId: string) => void;
+  onToggleCreate: (productColorId: string) => void;
   onAutoMap: () => void;
 }) {
   const linkedCount = Object.keys(mapping).length;
+  const createCount = colorsToCreate.size;
   const totalLocal = preview.localColors.length;
-  const todo = totalLocal - linkedCount;
+  const todo = Math.max(0, totalLocal - linkedCount - createCount);
   const usedVids = useMemo(() => new Set(Object.values(mapping)), [mapping]);
   const orphanCount = preview.candidates.filter((c) => !usedVids.has(c.id)).length;
 
@@ -937,9 +1066,14 @@ function Step3Colors({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <KpiTile label="Couleurs BJ" value={totalLocal} />
         <KpiTile label="Liées" value={linkedCount} tone={linkedCount > 0 ? "success" : undefined} />
+        <KpiTile
+          label={`À créer chez ${meta.name}`}
+          value={createCount}
+          tone={createCount > 0 ? "success" : undefined}
+        />
         <KpiTile label="Restantes" value={todo} tone={todo > 0 ? "warning" : undefined} />
         <KpiTile label="Variantes non utilisées" value={orphanCount} />
       </div>
@@ -948,7 +1082,7 @@ function Step3Colors({
         <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 text-[11px] uppercase tracking-[0.16em] text-text-muted font-semibold flex items-center gap-2 flex-wrap">
           <span>Couleur Beli & Jolie</span>
           <span className="text-text-muted">→</span>
-          <span>Variante marketplace à lier</span>
+          <span>Variante {meta.name} à lier, ou création</span>
         </div>
         {preview.localColors.map((local) => (
           <MappingRow
@@ -959,7 +1093,9 @@ function Step3Colors({
             mapping={mapping}
             markup={markup}
             shopName={shopName}
+            isToCreate={colorsToCreate.has(local.productColorId)}
             onToggle={onToggleMapping}
+            onToggleCreate={onToggleCreate}
           />
         ))}
       </div>
@@ -1256,7 +1392,9 @@ function MappingRow({
   mapping,
   markup,
   shopName,
+  isToCreate,
   onToggle,
+  onToggleCreate,
 }: {
   meta: MarketplaceMeta;
   local: LinkLocalColor;
@@ -1264,7 +1402,9 @@ function MappingRow({
   mapping: Record<string, string>;
   markup: MarkupConfig | null;
   shopName: string;
+  isToCreate: boolean;
   onToggle: (productColorId: string, variantId: string) => void;
+  onToggleCreate: (productColorId: string) => void;
 }) {
   const linkedVid = mapping[local.productColorId] ?? "";
   const linkedCand = linkedVid
@@ -1351,48 +1491,110 @@ function MappingRow({
       <div className="flex md:flex-col items-center justify-center gap-2 py-2 md:py-0 md:min-w-[80px]">
         <div
           className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl font-bold shadow-sm transition-colors ${
-            linkedCand
-              ? "bg-emerald-500 text-white"
-              : "bg-slate-100 text-text-muted"
+            isToCreate
+              ? "bg-sky-500 text-white"
+              : linkedCand
+                ? "bg-emerald-500 text-white"
+                : "bg-slate-100 text-text-muted"
           }`}
           aria-hidden
         >
-          ↔
+          {isToCreate ? "＋" : "↔"}
         </div>
         <div className={`text-[11px] uppercase tracking-[0.18em] font-semibold text-center ${
-          linkedCand ? "text-emerald-700" : "text-text-muted"
+          isToCreate
+            ? "text-sky-700"
+            : linkedCand
+              ? "text-emerald-700"
+              : "text-text-muted"
         }`}>
-          {linkedCand ? "Liée à" : "Lier à"}
+          {isToCreate ? "À créer" : linkedCand ? "Liée à" : "Lier à"}
         </div>
       </div>
 
       {/* ─── Colonne marketplace ─── */}
       <div
         className={`rounded-xl border p-4 ${
-          linkedCand ? "border-emerald-300 bg-emerald-50/40" : "border-slate-200 bg-white"
+          isToCreate
+            ? "border-sky-300 bg-sky-50/40"
+            : linkedCand
+              ? "border-emerald-300 bg-emerald-50/40"
+              : "border-slate-200 bg-white"
         }`}
       >
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span
             className="px-2 py-0.5 rounded-full text-white text-[9px] font-semibold uppercase tracking-wider"
             style={{ background: pillMktBg }}
           >
             {meta.name}
           </span>
+          {isToCreate && (
+            <span className="badge badge-info text-[9px]">Nouvelle couleur</span>
+          )}
         </div>
 
-        <div className="mb-3">
-          <VariantPicker
-            candidates={candidates}
-            selectedId={linkedVid}
-            onSelect={(v) => onToggle(local.productColorId, v)}
-            mapping={mapping}
-            currentColorId={local.productColorId}
-            showType={showType}
-          />
-        </div>
+        {isToCreate ? (
+          <div className="space-y-3">
+            <div className="flex items-start gap-3">
+              <ZoomableImage
+                src={local.productImage}
+                alt={local.name}
+                className="w-16 h-16 rounded-lg object-cover border border-sky-200"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-sm text-text-primary flex items-center gap-2 truncate">
+                  <ColorDot hex={local.hex} patternImage={local.patternImage} size={14} />
+                  <span className="truncate">{local.name}</span>
+                </div>
+                <div className="mt-1 text-xs text-sky-800 leading-snug">
+                  Cette couleur va être <b>créée chez {meta.name}</b> avec la photo boutique
+                  {local.productImage ? "" : " (aucune photo boutique — la variante sera créée sans image)"}.
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onToggleCreate(local.productColorId)}
+              className="text-xs text-text-secondary hover:text-text-primary underline"
+            >
+              ← Annuler la création
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="mb-3">
+              <VariantPicker
+                candidates={candidates}
+                selectedId={linkedVid}
+                onSelect={(v) => onToggle(local.productColorId, v)}
+                mapping={mapping}
+                currentColorId={local.productColorId}
+                showType={showType}
+              />
+            </div>
+            {!linkedCand && (
+              <button
+                type="button"
+                onClick={() => onToggleCreate(local.productColorId)}
+                className="w-full mb-3 px-3 py-2.5 rounded-xl border-2 border-dashed border-sky-300 bg-sky-50/40 text-sm text-sky-800 hover:border-sky-500 hover:bg-sky-50 font-medium flex items-center justify-center gap-2"
+                disabled={!local.productImage}
+                title={
+                  !local.productImage
+                    ? "Ajoute d'abord une photo à cette couleur côté boutique pour pouvoir la créer chez le marketplace."
+                    : undefined
+                }
+              >
+                ➕ Créer cette couleur chez {meta.name}
+                {!local.productImage && (
+                  <span className="text-[10px] text-amber-700">(photo manquante)</span>
+                )}
+              </button>
+            )}
+          </>
+        )}
 
-        {linkedCand ? (
+        {!isToCreate && linkedCand ? (
           <div className="flex items-start gap-3">
             {linkedCand.imageUrl ? (
               <ZoomableImage
@@ -1498,11 +1700,11 @@ function MappingRow({
               )}
             </div>
           </div>
-        ) : (
-          <div className="text-center py-6 text-xs text-text-muted italic">
-            Aucune variante sélectionnée pour l'instant
+        ) : !isToCreate ? (
+          <div className="text-center py-4 text-xs text-text-muted italic">
+            Lie à une variante ci-dessus, ou crée la couleur chez {meta.name}.
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -1541,15 +1743,49 @@ function Step4Recap({
   preview,
   mapping,
   markup,
+  shopName,
+  colorsToCreate,
+  orphansToDelete,
+  orphansToImport,
+  onSetOrphanChoice,
 }: {
   meta: MarketplaceMeta;
   preview: LinkPreview;
   mapping: Record<string, string>;
   markup: MarkupConfig | null;
+  shopName: string;
+  colorsToCreate: Set<string>;
+  orphansToDelete: Set<string>;
+  orphansToImport: Set<string>;
+  onSetOrphanChoice: (candidateId: string, choice: "delete" | "import") => void;
 }) {
   const linked = preview.localColors.filter((c) => c.productColorId in mapping);
+  const toCreate = preview.localColors.filter((c) => colorsToCreate.has(c.productColorId));
   const usedVids = new Set(Object.values(mapping));
   const orphanCands = preview.candidates.filter((c) => !usedVids.has(c.id));
+  const orphansMarkedDelete = orphanCands.filter((c) => orphansToDelete.has(c.id));
+  const orphansMarkedImport = orphanCands.filter((c) => orphansToImport.has(c.id));
+  const orphansUnresolved = orphanCands.filter(
+    (c) => !orphansToDelete.has(c.id) && !orphansToImport.has(c.id),
+  );
+
+  // Alerte anti-doublon : pour chaque orpheline marketplace, on vérifie si une
+  // couleur BJ non-mappée (ni linked, ni to-create) porte le même nom normalisé.
+  // Dans ce cas, l'admin devrait revenir à l'étape 3 pour lier au lieu de créer
+  // un doublon local. Le serveur re-lie l'existante quand même (safety net),
+  // mais on prévient dans l'UI pour clarté.
+  function norm(s: string): string {
+    return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  }
+  const unmappedBjColors = preview.localColors.filter(
+    (c) => !(c.productColorId in mapping) && !colorsToCreate.has(c.productColorId),
+  );
+  const orphanBjMatchByCandId = new Map<string, { name: string }>();
+  for (const cand of orphanCands) {
+    const candNorm = norm(cand.colorName);
+    const match = unmappedBjColors.find((bj) => norm(bj.name) === candNorm);
+    if (match) orphanBjMatchByCandId.set(cand.id, { name: match.name });
+  }
   const pillBg = {
     pfs: "linear-gradient(135deg,#4f46e5,#6366f1)",
     ank: "linear-gradient(135deg,#0ea5e9,#38bdf8)",
@@ -1600,14 +1836,51 @@ function Step4Recap({
               </span>
             </div>
           </li>
-          {orphanCands.length > 0 && (
+          {toCreate.length > 0 && (
             <li className="px-5 py-3 flex items-center gap-3">
-              <div className="w-7 h-7 rounded-full bg-slate-100 text-text-muted flex items-center justify-center text-sm">
+              <div className="w-7 h-7 rounded-full bg-sky-100 text-sky-700 flex items-center justify-center text-sm">
+                ＋
+              </div>
+              <div className="text-sm text-text-primary">
+                <b>
+                  {toCreate.length} couleur{toCreate.length > 1 ? "s" : ""}
+                </b>{" "}
+                sera créée chez {meta.name} avec sa photo {shopName} :{" "}
+                <span className="text-sky-800">
+                  {toCreate.map((c) => c.name).join(", ")}
+                </span>
+              </div>
+            </li>
+          )}
+          {orphansMarkedImport.length > 0 && (
+            <li className="px-5 py-3 flex items-center gap-3">
+              <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-sm">
+                ⇩
+              </div>
+              <div className="text-sm text-text-primary">
+                <b>
+                  {orphansMarkedImport.length} variante{orphansMarkedImport.length > 1 ? "s" : ""}
+                </b>{" "}
+                sera importée dans {shopName} et liée :{" "}
+                <span className="text-emerald-800">
+                  {orphansMarkedImport.map((c) => c.colorName).join(", ")}
+                </span>
+              </div>
+            </li>
+          )}
+          {orphansMarkedDelete.length > 0 && (
+            <li className="px-5 py-3 flex items-center gap-3">
+              <div className="w-7 h-7 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center text-sm">
                 −
               </div>
               <div className="text-sm text-text-primary">
-                <b>{orphanCands.length}</b> variante(s) marketplace ignorée(s) — sans équivalent
-                dans le catalogue
+                <b>
+                  {orphansMarkedDelete.length} variante{orphansMarkedDelete.length > 1 ? "s" : ""}
+                </b>{" "}
+                sera supprimée chez {meta.name} :{" "}
+                <span className="text-rose-800">
+                  {orphansMarkedDelete.map((c) => c.colorName).join(", ")}
+                </span>
               </div>
             </li>
           )}
@@ -1634,6 +1907,135 @@ function Step4Recap({
           </li>
         </ul>
       </div>
+
+      {/* Bloc orphelines : la fiche marketplace a des variantes sans équivalent chez nous.
+          L'admin DOIT choisir par ligne : « Créer chez nous » (import + lien) OU
+          « Supprimer chez le marketplace ». Aucune orpheline ne peut être laissée sans choix
+          (validation bloquante à la validation finale — cf. handleLink). */}
+      {orphanCands.length > 0 && (
+        <div
+          className={`rounded-2xl border overflow-hidden ${
+            orphansUnresolved.length > 0
+              ? "border-amber-400 bg-amber-50/60"
+              : "border-slate-200 bg-white"
+          }`}
+        >
+          <div
+            className={`px-5 py-3 border-b flex items-center gap-2 ${
+              orphansUnresolved.length > 0
+                ? "bg-amber-100 border-amber-300"
+                : "bg-slate-50 border-slate-200"
+            }`}
+          >
+            <span className="text-lg">{orphansUnresolved.length > 0 ? "⚠" : "✓"}</span>
+            <div>
+              <div className="text-sm font-semibold text-amber-900">
+                {orphanCands.length} variante{orphanCands.length > 1 ? "s" : ""} chez {meta.name} sans équivalent chez {shopName}
+              </div>
+              <div className="text-xs text-amber-800 mt-0.5">
+                {orphansUnresolved.length > 0 ? (
+                  <>
+                    Choisis obligatoirement <b>Créer chez nous</b> ou <b>Supprimer chez {meta.name}</b> pour chaque ligne — tu ne peux pas laisser une variante marketplace sans lien.
+                  </>
+                ) : (
+                  <>Toutes les orphelines ont un choix — tu peux valider.</>
+                )}
+              </div>
+            </div>
+          </div>
+          <ul className="divide-y divide-amber-200">
+            {orphanCands.map((cand) => {
+              const willDelete = orphansToDelete.has(cand.id);
+              const willImport = orphansToImport.has(cand.id);
+              const unresolved = !willDelete && !willImport;
+              const bjMatch = orphanBjMatchByCandId.get(cand.id);
+              return (
+                <li
+                  key={cand.id}
+                  className={`px-5 py-3 flex items-start gap-3 flex-wrap ${
+                    unresolved ? "bg-amber-50/40" : ""
+                  }`}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-[220px]">
+                    {cand.imageUrl ? (
+                      <ZoomableImage
+                        src={cand.imageUrl}
+                        alt={cand.colorName}
+                        className="w-12 h-12 rounded-lg object-cover border border-amber-200"
+                        raw
+                      />
+                    ) : (
+                      <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-white border border-amber-200 shrink-0">
+                        <ColorDot hex={cand.colorHex} patternImage={cand.colorImage} size={28} />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-text-primary truncate flex items-center gap-2">
+                        {cand.colorName}
+                        {unresolved && (
+                          <span className="badge badge-warning text-[9px]">À trancher</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-text-muted">
+                        {cand.type === "PACK" && cand.packSizes.length > 0
+                          ? cand.packSizes.join(", ")
+                          : cand.sizeLabel}
+                        {" · "}
+                        {EUR.format(cand.priceUnit)}
+                        {" · stock "}
+                        {cand.stockQty}
+                      </div>
+                      {bjMatch && (
+                        <div className="mt-1 text-[11px] text-sky-800 bg-sky-50 border border-sky-200 rounded px-2 py-1 leading-snug">
+                          💡 La couleur <b>{bjMatch.name}</b> existe déjà chez {shopName} mais n'est pas mappée — reviens à l'étape 3 pour la <b>lier</b> plutôt que d'en créer un doublon.
+                          <br />
+                          <span className="text-text-muted">(Si tu choisis quand même « Créer chez nous », la variante existante sera reliée automatiquement — pas de doublon créé.)</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 cursor-pointer text-xs font-medium transition-all ${
+                        willImport
+                          ? "bg-emerald-600 border-emerald-600 text-white"
+                          : "bg-white/60 border-emerald-200 text-emerald-700 hover:border-emerald-400"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name={`orphan-${cand.id}`}
+                        checked={willImport}
+                        onChange={() => onSetOrphanChoice(cand.id, "import")}
+                        className="sr-only"
+                      />
+                      <span aria-hidden>{willImport ? "●" : "○"}</span>
+                      Créer chez nous
+                    </label>
+                    <label
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 cursor-pointer text-xs font-medium transition-all ${
+                        willDelete
+                          ? "bg-rose-600 border-rose-600 text-white"
+                          : "bg-white/60 border-rose-200 text-rose-700 hover:border-rose-400"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name={`orphan-${cand.id}`}
+                        checked={willDelete}
+                        onChange={() => onSetOrphanChoice(cand.id, "delete")}
+                        className="sr-only"
+                      />
+                      <span aria-hidden>{willDelete ? "●" : "○"}</span>
+                      Supprimer chez {meta.name}
+                    </label>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

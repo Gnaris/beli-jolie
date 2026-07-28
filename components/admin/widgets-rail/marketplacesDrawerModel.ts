@@ -296,6 +296,145 @@ export const MARKETPLACE_LABEL: Record<MarketplaceTarget, string> = {
   faire: "Faire",
 };
 
+// ────────────────────────────────────────────────────────────────
+// Regroupement en colonnes par type d'action (refonte 2026-07-28).
+// Le tiroir affiche désormais 4 colonnes côte à côte : Modifications,
+// Rafraîchissements, Synchronisations, Liaisons. La colonne « Liaisons »
+// ne vient PAS des MarketplaceRefreshItem — elle vient des LinkJob du
+// contexte MarketplaceLinkContext. On modélise ça avec une clef commune.
+// ────────────────────────────────────────────────────────────────
+
+export type ColumnKey = "publish" | "refresh" | "resync" | "link";
+
+export const COLUMN_ORDER: ColumnKey[] = ["publish", "refresh", "resync", "link"];
+
+export const COLUMN_LABEL: Record<ColumnKey, { title: string; subtitle: string; short: string }> = {
+  publish: {
+    title: "Modifications",
+    subtitle: "Fiche modifiée → renvoi",
+    short: "modification",
+  },
+  refresh: {
+    title: "Rafraîchissements",
+    subtitle: "Bouton ↻ · lot étalé possible",
+    short: "rafraîchissement",
+  },
+  resync: {
+    title: "Synchronisations",
+    subtitle: "Resync forcé (écrase l'état)",
+    short: "synchronisation",
+  },
+  link: {
+    title: "Liaisons",
+    subtitle: "Modale manuelle · variantes",
+    short: "liaison",
+  },
+};
+
+/**
+ * Résumé d'un LinkJob présenté comme une carte de colonne « Liaisons ».
+ * On garde une forme structurellement compatible avec ce que le drawer sait
+ * afficher (image / titre / réf) + les champs spécifiques liaison.
+ */
+export interface LinkJobLike {
+  id: string;
+  marketplace: MarketplaceTarget;
+  productId: string;
+  productName: string;
+  reference: string;
+  productImage: string | null;
+  status: "in_progress" | "done" | "error";
+  error?: string;
+  linkedCount?: number;
+  createdCount?: number;
+  deletedCount?: number;
+  importedCount?: number;
+  startedAt: number;
+  doneAt?: number;
+}
+
+export interface ColumnKpi {
+  errors: number;
+  active: number;
+  queued: number;
+  done: number;
+}
+
+export interface ColumnBucket {
+  key: ColumnKey;
+  groups: ProductGroup[];
+  linkJobs: LinkJobLike[];
+  kpi: ColumnKpi;
+  /** Compte d'items queued arrêtables (colonnes refresh/publish/resync). Toujours 0 pour link. */
+  queuedItemCount: number;
+  /** Vrai s'il y a au moins un scheduledFor futur — utilisé pour afficher le
+   *  bandeau « Prochain départ » (uniquement pertinent pour la colonne refresh). */
+  hasScheduled: boolean;
+}
+
+/**
+ * Range items (refresh/publish/resync) + linkJobs dans 4 colonnes.
+ * Chaque colonne calcule ses KPI (err/active/queued/done) sur son propre contenu.
+ * Retourne exactement 4 buckets, dans `COLUMN_ORDER`.
+ */
+export function bucketColumns(
+  groups: ProductGroup[],
+  linkJobs: ReadonlyArray<LinkJobLike>,
+): ColumnBucket[] {
+  const byMode = new Map<QueueItemMode, ProductGroup[]>();
+  for (const g of groups) {
+    const arr = byMode.get(g.dominantMode);
+    if (arr) arr.push(g);
+    else byMode.set(g.dominantMode, [g]);
+  }
+
+  return COLUMN_ORDER.map<ColumnBucket>((key) => {
+    if (key === "link") {
+      const linkArr = [...linkJobs];
+      let errors = 0;
+      let active = 0;
+      let done = 0;
+      for (const j of linkArr) {
+        if (j.status === "error") errors += 1;
+        else if (j.status === "in_progress") active += 1;
+        else if (j.status === "done") done += 1;
+      }
+      return {
+        key,
+        groups: [],
+        linkJobs: linkArr,
+        kpi: { errors, active, queued: 0, done },
+        queuedItemCount: 0,
+        hasScheduled: false,
+      };
+    }
+
+    const modeGroups = byMode.get(key) ?? [];
+    let errors = 0;
+    let active = 0;
+    let queued = 0;
+    let done = 0;
+    let queuedItemCount = 0;
+    let hasScheduled = false;
+    for (const g of modeGroups) {
+      if (g.section === "errors") errors += 1;
+      else if (g.section === "active") active += 1;
+      else if (g.section === "scheduled" || g.section === "queued") queued += 1;
+      else if (g.section === "done") done += 1;
+      if (g.earliestScheduledFor) hasScheduled = true;
+      for (const it of g.items) if (it.status === "queued") queuedItemCount += 1;
+    }
+    return {
+      key,
+      groups: modeGroups,
+      linkJobs: [],
+      kpi: { errors, active, queued, done },
+      queuedItemCount,
+      hasScheduled,
+    };
+  });
+}
+
 export const MARKETPLACE_FULL_NAME: Record<MarketplaceTarget, string> = {
   pfs: "PFS",
   ankorstore: "Ankorstore",

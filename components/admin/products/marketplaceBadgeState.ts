@@ -51,20 +51,41 @@ export function findLatestOpForProduct(
 // reflète l'état réel.
 const RECENT_SYNC_WINDOW_MS = 30_000;
 
+// Fenêtre pendant laquelle on garde le badge vert quand la sticky success
+// vient du CLIENT (pas de l'op serveur). Plus longue que
+// RECENT_SYNC_WINDOW_MS car son unique rôle est de masquer un flash orange
+// tardif : ni justPublishedOk ni online ne s'appuient dessus.
+const RECENT_CLIENT_SUCCESS_WINDOW_MS = 5 * 60 * 1000;
+
 export function computeMarketplaceBadgeState(
   serverProductId: string | null,
   op: MarketplaceRefreshItem | undefined,
   target: MarketplaceTarget,
   syncRequired: boolean = false,
   now: number = Date.now(),
+  // Timestamp CLIENT (ms) de la dernière fois où on a vu (productId, target)
+  // passer à done+ok. Sert de source de vérité alternative pour masquer le
+  // orange même si l'op serveur a disparu du poll ou si l'horloge serveur est
+  // décalée. Fourni par `MarketplaceRefreshContext.getRecentClientSuccessAt`.
+  clientRecentSuccessAt: number | null = null,
 ): MarketplaceBadgeState {
+  // Sticky green client-side : indépendant de la présence de l'op.
+  // Élimine le flash orange dans les cas où :
+  //   - le poll perd temporairement l'item ;
+  //   - `completedAt` serveur est décalé (dérive NTP) ;
+  //   - le RSC met plusieurs secondes à rapatrier syncRequired=false.
+  const clientRecent =
+    clientRecentSuccessAt !== null &&
+    now - clientRecentSuccessAt < RECENT_CLIENT_SUCCESS_WINDOW_MS;
+
   if (!op) {
     const online = !!serverProductId;
     return {
       loading: false,
       online,
-      // syncRequired n'a de sens que si on est effectivement lié au marketplace
-      syncRequired: online && syncRequired,
+      // syncRequired n'a de sens que si on est effectivement lié au marketplace ;
+      // et on le masque si le client a vu une sync réussie récemment.
+      syncRequired: online && syncRequired && !clientRecent,
       justPublishedOk: false,
     };
   }
@@ -102,7 +123,12 @@ export function computeMarketplaceBadgeState(
     loading,
     online,
     syncRequired:
-      online && syncRequired && !loading && !justPublishedOk && !completedRecentlyOk,
+      online &&
+      syncRequired &&
+      !loading &&
+      !justPublishedOk &&
+      !completedRecentlyOk &&
+      !clientRecent,
     justPublishedOk,
   };
 }

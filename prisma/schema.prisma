@@ -3328,7 +3328,36 @@ model Tenant {
   emailUnsubscribes EmailUnsubscribe[]
   restockEvents     RestockEvent[]
 
+  pfsAuditResults PfsAuditResult[]
+
   @@index([isActive])
+}
+
+// ─────────────────────────────────────────────
+// Résultats détaillés d'un audit PFS.
+// Une ligne = un écart ou une erreur trouvé pendant l'audit.
+// Le state agrégé (compteurs) vit dans SiteConfig[pfs_audit_state] ;
+// les écarts détaillés vivent ici pour scaler à des dizaines de milliers
+// de produits sans faire exploser la case JSON de SiteConfig (TEXT = 64 Ko max).
+// À chaque nouveau démarrage d'audit, les lignes du run précédent sont supprimées.
+// ─────────────────────────────────────────────
+model PfsAuditResult {
+  id          String   @id @default(cuid())
+  tenantId    String
+  auditRunId  String
+  productId   String
+  reference   String
+  name        String   @db.Text
+  firstImage  String?  @db.Text
+  ok          Boolean
+  issues      Json?
+  errorMessage String? @db.Text
+  errorKind    String?
+  createdAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, auditRunId])
 }
 
 model TenantDomain {

@@ -42,9 +42,11 @@ describe("AdminProductsTable — pas de flash rouge entre op done et RSC refresh
   });
 
   it("le onActionClick des 3 badges corrigés teste !xxxBadgeState.online (pas !product.xxx)", () => {
-    expect(SRC).toMatch(/hasPfsConfig && !pfsBadgeState\.online && !isPfsPublishing/);
-    expect(SRC).toMatch(/showAnkorstore && !ankorstoreBadgeState\.online && !isAnkorstorePublishing/);
-    expect(SRC).toMatch(/showEfashion && !efashionBadgeState\.online && !isEfashionPublishing/);
+    // La garde amont peut être hasXxxConfig ou xxxOperational (kill switch tenant +
+    // maintenance plateforme) — on vérifie juste la partie état badge.
+    expect(SRC).toMatch(/!pfsBadgeState\.online && !isPfsPublishing/);
+    expect(SRC).toMatch(/!ankorstoreBadgeState\.online && !isAnkorstorePublishing/);
+    expect(SRC).toMatch(/!efashionBadgeState\.online && !isEfashionPublishing/);
   });
 
   it("les MpDot mobiles (< lg) utilisent aussi xxxBadgeState.online", () => {
@@ -71,9 +73,21 @@ describe("AdminProductsTable — pas de flash rouge entre op done et RSC refresh
 
   it("computeMarketplaceBadgeState reçoit bien product.xxxSyncRequired en 4e arg pour activer la fenêtre de grâce", () => {
     // Sans ce 4e arg, xxxBadgeState.syncRequired vaut toujours false (defaut).
-    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.pfsProductId,\s*pfsOp,\s*"pfs",\s*product\.pfsSyncRequired,?\s*\)/);
-    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.ankorsProductId,\s*ankorstoreOp,\s*"ankorstore",\s*product\.ankorsSyncRequired,?\s*\)/);
-    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*efashionLinked \? "linked" : null,\s*efashionOp,\s*"efashion",\s*product\.efashionSyncRequired,?\s*\)/);
-    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.faireProductId,\s*faireOp,\s*"faire",\s*product\.faireSyncRequired,?\s*\)/);
+    // Les args suivants (undefined = now par défaut, sticky client) sont optionnels.
+    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.pfsProductId,\s*pfsOp,\s*"pfs",\s*product\.pfsSyncRequired,/);
+    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.ankorsProductId,\s*ankorstoreOp,\s*"ankorstore",\s*product\.ankorsSyncRequired,/);
+    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*efashionLinked \? "linked" : null,\s*efashionOp,\s*"efashion",\s*product\.efashionSyncRequired,/);
+    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.faireProductId,\s*faireOp,\s*"faire",\s*product\.faireSyncRequired,/);
+  });
+
+  it("computeMarketplaceBadgeState reçoit aussi le sticky client-side pour éliminer le flash orange post-sync", () => {
+    // Sticky green client-side : mémoire tenue par MarketplaceRefreshContext,
+    // rend le masquage du orange robuste face aux races (poll perdu, décalage
+    // d'horloge serveur, RSC en retard). Passé en 6ᵉ arg de
+    // computeMarketplaceBadgeState (le 5ᵉ = `now`, laissé à undefined).
+    expect(SRC).toMatch(/getRecentClientSuccessAt\(product\.id,\s*"pfs"\)/);
+    expect(SRC).toMatch(/getRecentClientSuccessAt\(product\.id,\s*"ankorstore"\)/);
+    expect(SRC).toMatch(/getRecentClientSuccessAt\(product\.id,\s*"efashion"\)/);
+    expect(SRC).toMatch(/getRecentClientSuccessAt\(product\.id,\s*"faire"\)/);
   });
 });

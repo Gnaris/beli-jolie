@@ -668,6 +668,17 @@ export default function MarketplaceConfig({
   const toast = useToast();
   const { showLoading, hideLoading } = useLoadingOverlay();
 
+  // Bookmarklet Microstore : quand l'URL contient #mc_import=…, on doit ouvrir
+  // le tiroir Microstore pour que <MicrostoreConnectCard> se monte et consomme
+  // le fragment (sinon le token reste dans l'URL et la vignette reste "Non
+  // connecté").
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.hash.startsWith("#mc_import=")) {
+      setDrawerKey("microstore");
+    }
+  }, []);
+
   // ── Calculs aperçu prix ─────────────────────────────────────────────────────
   const previews = useMemo(() => {
     const pfsP = applyMarketplaceMarkup(previewHT, pfsMarkup);

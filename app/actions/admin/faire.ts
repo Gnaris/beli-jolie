@@ -746,10 +746,24 @@ export async function linkFaireProductManually(
   productId: string,
   faireProductId: string,
   links: Array<{ productColorId: string; faireVariantId: string }>,
+  intents?: {
+    /** productColorId des couleurs BJ à créer côté Faire (informatif — la sync post-liaison les crée). */
+    colorsToCreate: string[];
+    /** faireVariantId des variantes orphelines à supprimer. */
+    orphansToDelete: string[];
+    /** faireVariantId des variantes orphelines à importer en tant que ProductColor BJ + lier. */
+    orphansToImport: string[];
+  },
 ): Promise<{
   success: boolean;
   error?: string;
   linked?: number;
+  /** Nombre de couleurs BJ orphelines créées côté Faire par la sync post-liaison. */
+  autoCreatedOnMarketplace?: number;
+  /** Variantes Faire orphelines supprimées avant la sync. */
+  deletedOnMarketplace?: number;
+  /** Variantes Faire orphelines importées en tant que ProductColor BJ liée. */
+  importedFromMarketplace?: number;
   /** Warning non bloquant : la liaison est posée mais la sync post-liaison a
    *  échoué. L'admin peut relancer « Resync » depuis la fiche. */
   syncWarning?: string;
@@ -760,7 +774,7 @@ export async function linkFaireProductManually(
     if (!faireProductId.trim()) {
       return { success: false, error: "ID Faire du produit vide." };
     }
-    if (links.length === 0) {
+    if (links.length === 0 && (!intents || intents.colorsToCreate.length === 0)) {
       return { success: false, error: "Aucune couleur sélectionnée." };
     }
 
@@ -833,14 +847,70 @@ export async function linkFaireProductManually(
       linkedColors: links.length,
     });
 
+    // Suppression des variantes Faire orphelines marquées par l'admin.
+    // Fait avant la sync pour éviter que faireUpdateProduct ne les considère
+    // comme variants modifiés à repousser.
+    let deletedOnMarketplace = 0;
+    if (intents && intents.orphansToDelete.length > 0) {
+      const { faireFetch } = await import("@/lib/faire-api");
+      for (const faireVariantId of intents.orphansToDelete) {
+        try {
+          const res = await faireFetch(
+            `/products/${encodeURIComponent(faireProductId.trim())}/variants/${encodeURIComponent(faireVariantId)}`,
+            { method: "DELETE" },
+          );
+          if (res.ok || res.status === 404) {
+            deletedOnMarketplace += 1;
+          } else {
+            logger.warn("[Faire Link] Suppression orpheline refusée", {
+              faireVariantId,
+              status: res.status,
+            });
+          }
+        } catch (err) {
+          logger.warn("[Faire Link] Suppression orpheline en erreur", {
+            faireVariantId,
+            error: String(err),
+          });
+        }
+      }
+    }
+
+    // Import des orphelines Faire marquées « Créer chez nous ». Fait APRÈS le
+    // link (qui a posé faireProductId) et AVANT la sync post-liaison.
+    let importedFromMarketplace = 0;
+    if (intents && intents.orphansToImport.length > 0) {
+      for (const faireVariantId of intents.orphansToImport) {
+        try {
+          const imp = await createLocalVariantFromFaireVariant(productId, faireVariantId);
+          if (imp.success) {
+            importedFromMarketplace += 1;
+          } else {
+            logger.warn("[Faire Link] Import orpheline échoué", {
+              faireVariantId,
+              error: imp.error,
+            });
+          }
+        } catch (err) {
+          logger.warn("[Faire Link] Import orpheline en erreur", {
+            faireVariantId,
+            error: String(err),
+          });
+        }
+      }
+    }
+
     // Sync best-effort post-liaison : on pousse stock/prix/visibilité pour
     // aligner les 2 côtés sans étape manuelle. Si la sync échoue, on garde la
-    // liaison et on remonte un warning.
+    // liaison et on remonte un warning. La sync s'occupe aussi de créer côté
+    // Faire les couleurs BJ non-mappées (variantsAdded dans le diff).
     let syncWarning: string | undefined;
+    let autoCreatedOnMarketplace = 0;
     try {
       const { faireUpdateProduct } = await import("@/lib/faire-update");
       const res = await faireUpdateProduct(productId);
       if (!res.success) syncWarning = res.error;
+      autoCreatedOnMarketplace = intents?.colorsToCreate.length ?? 0;
     } catch (err) {
       syncWarning = err instanceof Error ? err.message : String(err);
       logger.warn("[Faire Link] Post-link sync failed", {
@@ -849,7 +919,14 @@ export async function linkFaireProductManually(
       });
     }
 
-    return { success: true, linked: links.length, syncWarning };
+    return {
+      success: true,
+      linked: links.length,
+      autoCreatedOnMarketplace,
+      deletedOnMarketplace,
+      importedFromMarketplace,
+      syncWarning,
+    };
   } catch (err) {
     logger.warn("[Faire Link] linkFaireProductManually failed", {
       error: String(err),
@@ -899,5 +976,201 @@ export async function removeFaireMatch(
     const message = err instanceof Error ? err.message : String(err);
     logger.error("[Faire] removeFaireMatch failed", { productId, error: message });
     return { success: false, error: message };
+  }
+}
+
+/**
+ * Crée une ProductColor UNIT locale à partir d'une variante Faire existante,
+ * et la lie automatiquement (faireVariantId déjà posé). Utilisé depuis la
+ * modale de liaison quand Faire a une variante en plus : « Créer chez nous ».
+ * Prérequis : `product.faireProductId` posé.
+ */
+export async function createLocalVariantFromFaireVariant(
+  productId: string,
+  faireVariantId: string,
+): Promise<{
+  success: boolean;
+  error?: string;
+  productColorId?: string;
+  createdColor?: boolean;
+}> {
+  try {
+    await requireAdmin();
+
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        reference: true,
+        faireProductId: true,
+        colors: {
+          where: { saleType: "UNIT" },
+          select: { weight: true },
+        },
+      },
+    });
+    if (!product) return { success: false, error: "Produit introuvable." };
+    if (!product.faireProductId) {
+      return {
+        success: false,
+        error: "Produit non lié à Faire — finissez d'abord la liaison de base.",
+      };
+    }
+
+    const { faireGetProduct } = await import("@/lib/faire-api");
+    const { generateSku } = await import("@/lib/sku");
+    const faireProduct = await faireGetProduct(product.faireProductId);
+    if (!faireProduct) {
+      return { success: false, error: "Produit Faire introuvable." };
+    }
+    const variant = (faireProduct.variants ?? []).find((v) => v.id === faireVariantId);
+    if (!variant) {
+      return { success: false, error: `Variante Faire ${faireVariantId} introuvable.` };
+    }
+
+    // Extrait le nom de couleur depuis les options Faire (option `color` ou 1ʳᵉ trouvée).
+    const colorOpt =
+      variant.options?.find((o) => o.name.toLowerCase() === "color") ??
+      variant.options?.[0];
+    const colorName = colorOpt?.value?.trim() || variant.name?.trim() || variant.sku.trim() || "Couleur";
+
+    let bjColor = await (async () => {
+      const normalized = colorName.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+      const all = await prisma.color.findMany({ select: { id: true, name: true } });
+      return all.find(
+        (c) =>
+          c.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim() === normalized,
+      ) ?? null;
+    })();
+    let createdColor = false;
+    if (!bjColor) {
+      const created = await prisma.color.create({
+        data: { name: colorName, hex: "#CCCCCC" },
+        select: { id: true, name: true },
+      });
+      bjColor = created;
+      createdColor = true;
+      logger.info("[Faire Link] Color BJ créée à la volée depuis variante Faire", {
+        colorId: bjColor.id,
+        name: bjColor.name,
+      });
+    }
+
+    let size = await prisma.size.findFirst({
+      where: { name: { in: ["TU", "Taille unique"] } },
+      select: { id: true },
+    });
+    if (!size) {
+      size = await prisma.size.findFirst({
+        orderBy: { position: "asc" },
+        select: { id: true },
+      });
+    }
+    if (!size) {
+      return {
+        success: false,
+        error: "Aucune taille définie dans la bibliothèque BJ — crée d'abord une taille.",
+      };
+    }
+
+    // Anti-doublon : si le produit a déjà une ProductColor UNIT sur cette Color,
+    // on RELIE l'existante au lieu d'en créer une nouvelle. Erreur si l'existante
+    // est déjà liée à une AUTRE variante Faire.
+    const existingPc = await prisma.productColor.findFirst({
+      where: { productId, colorId: bjColor.id, saleType: "UNIT" },
+      select: { id: true, faireVariantId: true },
+    });
+    if (existingPc) {
+      if (existingPc.faireVariantId && existingPc.faireVariantId !== faireVariantId) {
+        return {
+          success: false,
+          error: `La couleur ${bjColor.name} est déjà liée à une autre variante Faire (${existingPc.faireVariantId}). Délie-la d'abord si tu veux la relier à ${faireVariantId}.`,
+        };
+      }
+      await prisma.$transaction(async (tx) => {
+        await tx.productColor.update({
+          where: { id: existingPc.id },
+          data: { faireVariantId },
+        });
+        await tx.product.update({
+          where: { id: productId },
+          data: { faireLastSyncSnapshot: Prisma.DbNull },
+        });
+      });
+      revalidatePath(`/admin/produits/${productId}/modifier`);
+      revalidatePath(`/admin/produits`);
+      revalidateTag("products", "default");
+      logger.info("[Faire Link] ProductColor existante reliée à la variante Faire", {
+        productId,
+        productColorId: existingPc.id,
+        faireVariantId,
+      });
+      return { success: true, productColorId: existingPc.id, createdColor: false };
+    }
+
+    // Prix en centimes → euros. Priorité wholesale sur retail.
+    const priceCents =
+      variant.wholesale_price_cents ?? variant.retail_price_cents ?? 0;
+    const unitPrice = priceCents / 100;
+
+    // Poids : bloc measurements (grammes ou kg) ou moyenne existants ou 0.01
+    let weight: number | null = null;
+    const m = variant.measurements;
+    if (m?.weight && m.weight > 0) {
+      weight = m.mass_unit === "GRAMS" ? m.weight / 1000 : m.weight;
+    }
+    if (!weight) {
+      weight =
+        product.colors.length > 0
+          ? product.colors.reduce((sum, c) => sum + (c.weight || 0), 0) / product.colors.length
+          : 0.01;
+    }
+
+    const totalVariants = await prisma.productColor.count({ where: { productId } });
+    const sku = generateSku(product.reference, [bjColor.name], "UNIT", totalVariants + 1);
+
+    const newPc = await prisma.$transaction(async (tx) => {
+      const pc = await tx.productColor.create({
+        data: {
+          productId,
+          colorId: bjColor!.id,
+          saleType: "UNIT",
+          unitPrice,
+          stock: 0,
+          weight: Number.isFinite(weight) && weight! > 0 ? weight! : 0.01,
+          isPrimary: false,
+          disabled: false,
+          sku,
+          faireVariantId,
+          variantSizes: {
+            create: [{ sizeId: size!.id, quantity: 1 }],
+          },
+        },
+        select: { id: true },
+      });
+      await tx.product.update({
+        where: { id: productId },
+        data: { faireLastSyncSnapshot: Prisma.DbNull },
+      });
+      return pc;
+    });
+
+    revalidatePath(`/admin/produits/${productId}/modifier`);
+    revalidatePath(`/admin/produits`);
+    revalidateTag("products", "default");
+
+    logger.info("[Faire Link] ProductColor créée depuis variante Faire", {
+      productId,
+      productColorId: newPc.id,
+      faireVariantId,
+      createdColor,
+    });
+
+    return { success: true, productColorId: newPc.id, createdColor };
+  } catch (err) {
+    logger.warn("[Faire Link] createLocalVariantFromFaireVariant failed", {
+      error: String(err),
+    });
+    return { success: false, error: err instanceof Error ? err.message : "Erreur" };
   }
 }

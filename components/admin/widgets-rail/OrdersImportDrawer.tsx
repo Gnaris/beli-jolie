@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Widget flottant unifié « Import commandes marketplaces ».
+ * Widget flottant unifié « Import commandes / clients marketplaces ».
  *
  * Fusionne les 2 anciens tiroirs séparés (`pfs-import` + `efashion-import`) en
  * un seul panneau qui gère les 2 imports **en parallèle**. Chaque source a son
@@ -58,13 +58,28 @@ import {
   type MicrostoreImportState,
   type MicrostoreImportRecentEvent,
 } from "@/app/actions/admin/microstore-orders";
-import { useRightRail, type RailWidgetId } from "./RightRailContext";
+import {
+  useRightRail,
+  type ManualSyncEvent,
+  type ManualSyncSource,
+  type RailWidgetId,
+} from "./RightRailContext";
 import { DrawerShell } from "./DrawerShell";
+import {
+  countMarketplaceClientCards,
+  getRecentMarketplaceClientCards,
+  type MarketplaceClientSource,
+  type RecentClientCard,
+} from "@/app/actions/admin/marketplace-clients";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 const POLL_ACTIVE_MS = 1500;
 const POLL_IDLE_MS = 6000;
 const EVENT_DRIP_MS = 250;
-const DISPLAYED_EVENTS_MAX = 20;
+// Bas volume par colonne : le widget doit tenir dans la fenêtre sans scroll
+// (5 colonnes côte à côte). On plafonne à 3 events + 2 commandes en cours.
+const DISPLAYED_EVENTS_MAX = 3;
+const CURRENT_ORDERS_MAX = 2;
 
 const LEGACY_ALIASES: RailWidgetId[] = ["pfs-import", "efashion-import", "ankorstore-import"];
 
@@ -100,7 +115,9 @@ function formatRelative(at: number, now: number): string {
 }
 
 export function OrdersImportDrawer() {
-  const { openWidget, open, close, setBadge } = useRightRail();
+  const { openWidget, open, close, setBadge, manualSyncs, clearManualSync } = useRightRail();
+  const { confirm } = useConfirm();
+  const [clearing, setClearing] = useState(false);
   const isOpen =
     openWidget === "orders-import" ||
     openWidget === "pfs-import" ||
@@ -339,8 +356,45 @@ export function OrdersImportDrawer() {
         </span>
       );
     }
-    return "Import commandes marketplaces";
+    return "Import commandes / clients marketplaces";
   }, [anyRunning, pfsState, efState, ankorState, faireState, microstoreState]);
+
+  const handleClearAllHistory = useCallback(async () => {
+    if (anyRunning) return;
+    const ok = await confirm({
+      type: "danger",
+      title: "Vider tout l'historique d'import ?",
+      message:
+        "Les journaux, compteurs et récaps des 5 marketplaces (PFS, eFashion, Ankorstore, Faire, Microstore) seront remis à zéro. Les commandes et clients déjà importés en base ne sont pas supprimés.",
+      confirmLabel: "Vider l'historique",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+    setClearing(true);
+    try {
+      await Promise.all([
+        acknowledgePfsHistoricalImport(),
+        acknowledgeEfashionHistoricalImport(),
+        acknowledgeAnkorstoreHistoricalImport(),
+        acknowledgeFaireHistoricalImport(),
+        acknowledgeMicrostoreHistoricalImport(),
+      ]);
+      const [pfs, ef, ankor, faire, micro] = await Promise.all([
+        getPfsImportStateAction(),
+        getEfashionImportStateAction(),
+        getAnkorstoreImportStateAction(),
+        getFaireImportStateAction(),
+        getMicrostoreImportStateAction(),
+      ]);
+      setPfsState(pfs);
+      setEfState(ef);
+      setAnkorState(ankor);
+      setFaireState(faire);
+      setMicrostoreState(micro);
+    } finally {
+      setClearing(false);
+    }
+  }, [anyRunning, confirm]);
 
   if (!isOpen) return null;
 
@@ -352,19 +406,133 @@ export function OrdersImportDrawer() {
       eyebrow="Marketplaces"
       title={title}
       icon={ICON}
+      size="wide"
+      footer={
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] text-slate-500">
+            Vider l'historique ne supprime aucune commande ni fiche client déjà importée — seul l'affichage (journal, compteurs, récaps) est remis à zéro.
+          </p>
+          <button
+            type="button"
+            onClick={handleClearAllHistory}
+            disabled={clearing || anyRunning}
+            title={
+              anyRunning
+                ? "Impossible pendant qu'un import tourne"
+                : "Réinitialise l'affichage des 5 marketplaces"
+            }
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+            </svg>
+            {clearing ? "Nettoyage…" : "Vider tout l'historique"}
+          </button>
+        </div>
+      }
     >
-      <div className="divide-y divide-slate-100">
-        <PfsSection state={pfsState} onStateChange={setPfsState} now={now} />
-        <EfashionSection state={efState} onStateChange={setEfState} now={now} />
-        <AnkorstoreSection state={ankorState} onStateChange={setAnkorState} now={now} />
-        <FaireSection state={faireState} onStateChange={setFaireState} now={now} />
-        <MicrostoreSection
-          state={microstoreState}
-          onStateChange={setMicrostoreState}
-          now={now}
-        />
+      {/* Grille responsive — hauteur du body du DrawerShell entière (pas de
+       *  scroll), chaque colonne prend la même hauteur et cape ses propres
+       *  enfants pour ne pas déborder. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 p-3 h-full min-h-0">
+        <MarketplaceColumn accentBar="bg-indigo-500">
+          <PfsSection
+            state={pfsState}
+            onStateChange={setPfsState}
+            now={now}
+            manualSync={manualSyncs.PFS}
+            onDismissManualSync={() => clearManualSync("PFS", "orders")}
+          />
+          <ClientsRow
+            source="PFS"
+            refreshTick={pfsState?.processedOrders ?? 0}
+            isImporting={pfsState?.status === "RUNNING"}
+          />
+        </MarketplaceColumn>
+
+        <MarketplaceColumn accentBar="bg-rose-500">
+          <EfashionSection
+            state={efState}
+            onStateChange={setEfState}
+            now={now}
+            manualSync={manualSyncs.EFASHION}
+            onDismissManualSync={() => clearManualSync("EFASHION", "orders")}
+          />
+          <ClientsRow
+            source="EFASHION"
+            refreshTick={efState?.processedOrders ?? 0}
+            isImporting={efState?.status === "RUNNING"}
+          />
+        </MarketplaceColumn>
+
+        <MarketplaceColumn accentBar="bg-sky-500">
+          <AnkorstoreSection
+            state={ankorState}
+            onStateChange={setAnkorState}
+            now={now}
+            manualSync={manualSyncs.ANKORSTORE}
+            onDismissManualSync={() => clearManualSync("ANKORSTORE", "orders")}
+          />
+          <ClientsRow
+            source="ANKORSTORE"
+            refreshTick={ankorState?.processedOrders ?? 0}
+            isImporting={ankorState?.status === "RUNNING"}
+          />
+        </MarketplaceColumn>
+
+        <MarketplaceColumn accentBar="bg-amber-500">
+          <FaireSection
+            state={faireState}
+            onStateChange={setFaireState}
+            now={now}
+            manualSync={manualSyncs.FAIRE}
+            onDismissManualSync={() => clearManualSync("FAIRE", "orders")}
+          />
+          <ClientsRow
+            source="FAIRE"
+            refreshTick={faireState?.processedOrders ?? 0}
+            isImporting={faireState?.status === "RUNNING"}
+          />
+        </MarketplaceColumn>
+
+        <MarketplaceColumn accentBar="bg-cyan-500">
+          <MicrostoreSection
+            state={microstoreState}
+            onStateChange={setMicrostoreState}
+            now={now}
+            manualSync={manualSyncs.MICROSTORE}
+            onDismissManualSync={() => clearManualSync("MICROSTORE", "orders")}
+          />
+          <ClientsRow
+            source="MICROSTORE"
+            refreshTick={microstoreState?.processedOrders ?? 0}
+            isImporting={microstoreState?.status === "RUNNING"}
+          />
+        </MarketplaceColumn>
       </div>
     </DrawerShell>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Enveloppe d'une colonne marketplace : bord + fond, deux enfants
+// empilés verticalement (Commandes en haut, Clients en bas).
+// ─────────────────────────────────────────────
+function MarketplaceColumn({
+  accentBar,
+  children,
+}: {
+  accentBar: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col shadow-sm min-h-0 h-full">
+      {/* Fine barre colorée en haut pour identifier le marketplace au coup d'œil */}
+      <div className={`h-1 ${accentBar} flex-shrink-0`} />
+      <div className="flex flex-col divide-y divide-slate-100 flex-1 min-h-0 overflow-hidden">
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -389,10 +557,14 @@ function PfsSection({
   state,
   onStateChange,
   now,
+  manualSync,
+  onDismissManualSync,
 }: {
   state: PfsImportState | null;
   onStateChange: (s: PfsImportState) => void;
   now: number;
+  manualSync: ManualSyncEvent | null;
+  onDismissManualSync: () => void;
 }) {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -486,6 +658,8 @@ function PfsSection({
         })) ?? []
       }
       now={now}
+      manualSync={manualSync}
+      onDismissManualSync={onDismissManualSync}
     />
   );
 }
@@ -511,10 +685,14 @@ function EfashionSection({
   state,
   onStateChange,
   now,
+  manualSync,
+  onDismissManualSync,
 }: {
   state: EfashionImportState | null;
   onStateChange: (s: EfashionImportState) => void;
   now: number;
+  manualSync: ManualSyncEvent | null;
+  onDismissManualSync: () => void;
 }) {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -607,6 +785,8 @@ function EfashionSection({
         })) ?? []
       }
       now={now}
+      manualSync={manualSync}
+      onDismissManualSync={onDismissManualSync}
     />
   );
 }
@@ -632,10 +812,14 @@ function AnkorstoreSection({
   state,
   onStateChange,
   now,
+  manualSync,
+  onDismissManualSync,
 }: {
   state: AnkorstoreImportState | null;
   onStateChange: (s: AnkorstoreImportState) => void;
   now: number;
+  manualSync: ManualSyncEvent | null;
+  onDismissManualSync: () => void;
 }) {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -728,6 +912,8 @@ function AnkorstoreSection({
         })) ?? []
       }
       now={now}
+      manualSync={manualSync}
+      onDismissManualSync={onDismissManualSync}
     />
   );
 }
@@ -753,10 +939,14 @@ function FaireSection({
   state,
   onStateChange,
   now,
+  manualSync,
+  onDismissManualSync,
 }: {
   state: FaireImportState | null;
   onStateChange: (s: FaireImportState) => void;
   now: number;
+  manualSync: ManualSyncEvent | null;
+  onDismissManualSync: () => void;
 }) {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -849,6 +1039,8 @@ function FaireSection({
         })) ?? []
       }
       now={now}
+      manualSync={manualSync}
+      onDismissManualSync={onDismissManualSync}
     />
   );
 }
@@ -874,10 +1066,14 @@ function MicrostoreSection({
   state,
   onStateChange,
   now,
+  manualSync,
+  onDismissManualSync,
 }: {
   state: MicrostoreImportState | null;
   onStateChange: (s: MicrostoreImportState) => void;
   now: number;
+  manualSync: ManualSyncEvent | null;
+  onDismissManualSync: () => void;
 }) {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -970,6 +1166,8 @@ function MicrostoreSection({
         })) ?? []
       }
       now={now}
+      manualSync={manualSync}
+      onDismissManualSync={onDismissManualSync}
     />
   );
 }
@@ -1028,6 +1226,8 @@ function SourceSection({
   events,
   currentOrders,
   now,
+  manualSync,
+  onDismissManualSync,
 }: {
   state: CommonState | null;
   meta: SectionMeta;
@@ -1040,6 +1240,8 @@ function SourceSection({
   events: EventItem[];
   currentOrders: CurrentOrder[];
   now: number;
+  manualSync: ManualSyncEvent | null;
+  onDismissManualSync: () => void;
 }) {
   const isRunning = state?.status === "RUNNING";
   const isDone = state?.status === "DONE";
@@ -1056,9 +1258,12 @@ function SourceSection({
     state && "totalPages" in state && typeof (state as { totalPages?: number }).totalPages === "number";
 
   return (
-    <div>
+    // Répartition ~60/40 avec la carte Clients en dessous : la partie
+    // « Commandes » a besoin d'un peu plus de place (progression + commandes
+    // en cours + récap + journal).
+    <div className="flex-[3] basis-0 min-h-0 flex flex-col overflow-hidden">
       {/* Header source */}
-      <div className="px-4 py-3 flex items-center gap-3 border-b border-slate-100">
+      <div className="px-4 py-3 flex items-center gap-3 border-b border-slate-100 flex-shrink-0">
         <span
           className="w-8 h-8 rounded-lg text-white font-heading font-bold text-sm flex items-center justify-center shadow-sm shrink-0"
           style={{ background: meta.gradient }}
@@ -1101,7 +1306,22 @@ function SourceSection({
         ) : null}
       </div>
 
-      {/* Contenu selon état */}
+      {/* Bannière synchro manuelle — n'apparaît que si la cliente vient de
+          cliquer sur « Synchro » dans la page Commandes → onglet marketplace.
+          Les synchros auto (workers, cron) n'affichent rien ici. */}
+      {manualSync && (
+        <ManualSyncBanner
+          event={manualSync}
+          meta={meta}
+          now={now}
+          onDismiss={onDismissManualSync}
+        />
+      )}
+
+      {/* Contenu selon état — scrollable pour que rien ne soit tronqué quand
+          progression + commandes en cours + récap + journal s'empilent dans la
+          moitié haute (partagée 50/50 avec la carte Clients). */}
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
       {!state ? (
         <div className="px-4 py-6 text-center text-sm text-slate-500">Chargement…</div>
       ) : state.status === "IDLE" ? (
@@ -1162,7 +1382,7 @@ function SourceSection({
                 </span>
               </div>
               <div className="mt-2 space-y-1.5">
-                {currentOrders.map((c) => (
+                {currentOrders.slice(0, CURRENT_ORDERS_MAX).map((c) => (
                   <div
                     key={c.key}
                     className={`rounded-lg border bg-white px-2.5 py-1.5 flex items-center gap-2 ${meta.chipRing}`}
@@ -1239,15 +1459,17 @@ function SourceSection({
             </div>
           )}
 
-          {/* Journal */}
-          <div className="px-4 py-3">
-            <div className="flex items-center justify-between">
+          {/* Journal — capé à DISPLAYED_EVENTS_MAX pour rester compact.
+              Pas de min-h-0/overflow ici : le parent gère déjà le scroll de
+              tout le contenu de la moitié haute. */}
+          <div className="px-4 py-3 flex flex-col flex-shrink-0">
+            <div className="flex items-center justify-between flex-shrink-0">
               <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-semibold">
                 Journal
               </p>
               {pending > 0 && (
                 <span className="text-[10px] text-slate-400">
-                  {pending} en attente d'affichage
+                  {pending} en attente
                 </span>
               )}
             </div>
@@ -1257,7 +1479,7 @@ function SourceSection({
               </p>
             ) : (
               <ul className="mt-2 space-y-1.5">
-                {events.map((ev) => (
+                {events.slice(0, DISPLAYED_EVENTS_MAX).map((ev) => (
                   <EventRow key={ev.key} event={ev} now={now} />
                 ))}
               </ul>
@@ -1265,6 +1487,7 @@ function SourceSection({
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -1292,7 +1515,7 @@ function IdleView({
       </div>
       <p className="mt-3 text-sm font-semibold text-slate-900">Aucun import en cours</p>
       <p className="mt-1 text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
-        Lancez le rattrapage historique pour importer toutes les commandes {meta.name} dans votre boutique. Vous pouvez continuer à travailler pendant l'import.
+        Rattrapage historique complet {meta.name} — commandes et fiches clients importées ensemble. Vous pouvez continuer à travailler pendant l'import.
       </p>
       <button
         type="button"
@@ -1300,7 +1523,7 @@ function IdleView({
         disabled={starting}
         className={`mt-4 inline-flex items-center gap-1.5 px-4 py-2 text-white text-sm font-semibold rounded-lg disabled:opacity-50 ${meta.actionBtn}`}
       >
-        {starting ? "Démarrage…" : `Importer l'historique ${meta.name}`}
+        {starting ? "Démarrage…" : `Importer commandes + clients ${meta.name}`}
       </button>
     </div>
   );
@@ -1389,5 +1612,260 @@ function EventRow({ event, now }: { event: EventItem; now: number }) {
         }
       `}</style>
     </li>
+  );
+}
+
+/**
+ * Petite bannière au-dessus d'une section, affichée après un clic manuel sur
+ * « Synchro » depuis la page Commandes → onglet marketplace. Trois états :
+ *  - starting : spinner + « Synchronisation en cours… »
+ *  - success  : compteur créées / mises à jour + relatif « il y a Xs »
+ *  - error    : message d'erreur (ou « session expirée » pour Microstore)
+ */
+// ─────────────────────────────────────────────
+// ClientsRow — sous-carte "Clients" en bas de chaque colonne marketplace.
+// ─────────────────────────────────────────────
+//
+// Rôle : afficher le nombre de fiches clients liées à ce marketplace et
+// permettre à la cliente de lancer un import clients dédié. Techniquement
+// c'est la même synchro que "Commandes" (les fiches sont créées par les
+// upserts d'orders), mais présentée avec des stats client-centric.
+
+const CLIENTS_META: Record<
+  MarketplaceClientSource,
+  { name: string; gradient: string; letter: string; accent: string }
+> = {
+  PFS: {
+    name: "PFS",
+    letter: "P",
+    gradient: "linear-gradient(135deg,#4f46e5,#6366f1)",
+    accent: "text-indigo-700",
+  },
+  EFASHION: {
+    name: "eFashion",
+    letter: "E",
+    gradient: "linear-gradient(135deg,#db2777,#ec4899)",
+    accent: "text-rose-700",
+  },
+  ANKORSTORE: {
+    name: "Ankorstore",
+    letter: "A",
+    gradient: "linear-gradient(135deg,#0ea5e9,#38bdf8)",
+    accent: "text-sky-700",
+  },
+  FAIRE: {
+    name: "Faire",
+    letter: "F",
+    gradient: "linear-gradient(135deg,#f59e0b,#fbbf24)",
+    accent: "text-amber-700",
+  },
+  MICROSTORE: {
+    name: "Microstore",
+    letter: "M",
+    gradient: "linear-gradient(135deg,#0891b2,#22d3ee)",
+    accent: "text-cyan-700",
+  },
+};
+
+function ClientsRow({
+  source,
+  refreshTick = 0,
+  isImporting = false,
+}: {
+  source: MarketplaceClientSource;
+  /** Compteur qui grimpe pendant un import historique — ClientsRow se
+   *  rafraîchit automatiquement à chaque tick pour montrer les fiches
+   *  créées en live. */
+  refreshTick?: number;
+  /** true quand un import historique tourne (spinner + label "en cours"). */
+  isImporting?: boolean;
+}) {
+  const { manualSyncs } = useRightRail();
+  const [count, setCount] = useState<number | null>(null);
+  const [recent, setRecent] = useState<RecentClientCard[]>([]);
+  const meta = CLIENTS_META[source];
+  const manualSync = manualSyncs[source as ManualSyncSource];
+  // Recharge sur : (a) fin d'une synchro manuelle "orders"
+  //                (b) progression de l'import historique (refreshTick)
+  const ordersEndedAt =
+    manualSync?.target === "orders" && manualSync.phase !== "starting"
+      ? manualSync.endedAt
+      : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [c, r] = await Promise.all([
+        countMarketplaceClientCards(source),
+        getRecentMarketplaceClientCards(source, 3),
+      ]);
+      if (!cancelled) {
+        setCount(c);
+        setRecent(r);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [source, ordersEndedAt, refreshTick]);
+
+  const isSyncing =
+    isImporting ||
+    (manualSync?.target === "orders" && manualSync.phase === "starting");
+
+  return (
+    <div className="px-3 py-2.5 bg-slate-50/70 flex-[2] basis-0 min-h-0 border-t border-slate-100 flex flex-col overflow-hidden">
+      {/* Header carte : eyebrow + compteur — sticky en haut de la moitié
+          basse pour que « Clients » soit toujours affiché juste sous la ligne
+          du milieu, même si peu / pas de fiches à afficher. */}
+      <div className="flex items-center justify-between mb-2 flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            className="w-5 h-5 rounded-md text-white font-bold text-[10px] flex items-center justify-center shrink-0"
+            style={{ background: meta.gradient }}
+          >
+            {meta.letter}
+          </span>
+          <p className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${meta.accent}`}>
+            Clients
+          </p>
+          {isSyncing && (
+            <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-slate-400 border-t-transparent animate-spin" />
+          )}
+        </div>
+        <span className="text-[11px] font-bold text-slate-800 tabular-nums">
+          {count !== null ? `${count} fiche${count > 1 ? "s" : ""}` : "…"}
+        </span>
+      </div>
+
+      {/* 3 dernières fiches touchées — preuve visible que la synchro passe.
+          La zone est scrollable pour tenir dans la moitié basse fixe. */}
+      {recent.length === 0 ? (
+        <p className="text-[10.5px] text-slate-500 leading-snug italic flex-1 min-h-0">
+          Aucune fiche pour l'instant — se remplit à la 1ʳᵉ synchro.
+        </p>
+      ) : (
+        <ul className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-0.5">
+          {recent.map((c) => {
+            const name = [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || c.company || "—";
+            const line2 = [c.email, [c.city, c.countryCode].filter(Boolean).join(", ")]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <li
+                key={c.id}
+                className="rounded-md bg-white border border-slate-100 px-2 py-1.5"
+              >
+                <p className="text-[11px] font-semibold text-slate-900 truncate">{name}</p>
+                {line2 && (
+                  <p className="text-[10px] text-slate-500 truncate">{line2}</p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// ManualSyncBanner — bandeau haut de carte commande (bloc 1)
+// ─────────────────────────────────────────────
+
+function ManualSyncBanner({
+  event,
+  meta,
+  now,
+  onDismiss,
+}: {
+  event: ManualSyncEvent;
+  meta: SectionMeta;
+  now: number;
+  onDismiss: () => void;
+}) {
+  const isStarting = event.phase === "starting";
+  const isSuccess = event.phase === "success";
+  const isError = event.phase === "error";
+  const targetLabel = event.target === "clients" ? "clients" : "commandes";
+  const tone = isStarting
+    ? `${meta.chipBg} border-b ${meta.chipRing} ${meta.chipText}`
+    : isSuccess
+    ? "bg-emerald-50/60 border-b border-emerald-100 text-emerald-800"
+    : "bg-rose-50/60 border-b border-rose-100 text-rose-800";
+
+  const total = (event.created ?? 0) + (event.updated ?? 0);
+  const summary = isSuccess
+    ? total === 0
+      ? `Aucune nouvelle ${targetLabel}.`
+      : `${event.created ?? 0} nouvelle${(event.created ?? 0) > 1 ? "s" : ""}, ${event.updated ?? 0} mise${(event.updated ?? 0) > 1 ? "s" : ""} à jour.`
+    : null;
+
+  const relative = event.endedAt ? formatRelative(event.endedAt, now) : null;
+
+  return (
+    <div className={`px-4 py-2.5 ${tone} flex items-start gap-2.5`}>
+      <span className="shrink-0 mt-0.5">
+        {isStarting ? (
+          <span
+            className={`inline-block w-3.5 h-3.5 rounded-full border-2 ${meta.chipDot.replace("bg-", "border-")} border-t-transparent animate-spin`}
+          />
+        ) : isSuccess ? (
+          <svg
+            className="w-4 h-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
+        ) : (
+          <svg
+            className="w-4 h-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 8v4M12 16h.01" />
+          </svg>
+        )}
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em]">
+          {isStarting
+            ? `Synchro ${targetLabel}…`
+            : isSuccess
+            ? `Synchro ${targetLabel} terminée`
+            : event.sessionExpired
+            ? "Session expirée"
+            : `Synchro ${targetLabel} échouée`}
+        </p>
+        {summary && (
+          <p className="text-xs mt-0.5">
+            {summary}
+            {relative && <span className="text-slate-500"> · {relative}</span>}
+          </p>
+        )}
+        {isError && event.errorMessage && (
+          <p className="text-xs mt-0.5 break-words">{event.errorMessage}</p>
+        )}
+      </div>
+      {!isStarting && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 text-[11px] font-semibold underline underline-offset-2 opacity-70 hover:opacity-100"
+        >
+          Fermer
+        </button>
+      )}
+    </div>
   );
 }

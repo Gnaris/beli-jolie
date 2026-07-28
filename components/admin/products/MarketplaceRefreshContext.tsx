@@ -86,6 +86,17 @@ interface MarketplaceRefreshContextValue {
   queuedCount: number;
   /** productIds avec au moins un item actif (queued, in_progress, awaiting_callback). */
   inFlightProductIds: Set<string>;
+  /**
+   * Timestamp CLIENT (ms epoch) de la dernière fois où ce couple
+   * (productId, marketplace) a été vu passer à `done` avec succès. `null` si
+   * aucun succès jamais vu ou si l'entrée a expiré. Utilisé par le badge pour
+   * masquer le orange « Synchro nécessaire » indépendamment de ce que renvoie
+   * ensuite le serveur (poll perdu, décalage d'horloge, RSC en retard…).
+   */
+  getRecentClientSuccessAt: (
+    productId: string,
+    marketplace: MarketplaceTarget,
+  ) => number | null;
 }
 
 export function isItemActive(item: MarketplaceRefreshItem): boolean {
@@ -122,6 +133,27 @@ export function useMarketplaceRefreshQueue(): MarketplaceRefreshContextValue {
 const POLL_ACTIVE_MS = 2_000;
 const POLL_IDLE_MS = 10_000;
 
+// Durée pendant laquelle on garde en mémoire côté client qu'un couple
+// (productId, marketplace) vient de terminer une sync avec succès. Sert à
+// masquer le badge orange « Synchro nécessaire » même si :
+//   - le poll perd temporairement l'item (renvoi vide, purge…) ;
+//   - l'horloge serveur est décalée par rapport au client ;
+//   - le RSC met du temps à rapatrier `syncRequired=false` après router.refresh.
+// 5 minutes couvre largement le pire cas (tableau produits lourd + tenants
+// nombreux). Au-delà, la source de vérité redevient la prop RSC.
+const CLIENT_SUCCESS_WINDOW_MS = 5 * 60 * 1000;
+
+// Renvoie l'outcome typé du marketplace ciblé — null si non défini.
+function outcomeForMarketplace(
+  item: MarketplaceRefreshItem,
+  target: MarketplaceTarget,
+): TargetOutcome | undefined {
+  if (target === "ankorstore") return item.ankorsOutcome;
+  if (target === "efashion") return item.efashionOutcome;
+  if (target === "faire") return item.faireOutcome;
+  return item.pfsOutcome;
+}
+
 export function MarketplaceRefreshProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<MarketplaceRefreshItem[]>([]);
   const [isVisible, setIsVisible] = useState(true);
@@ -131,6 +163,16 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
   const lastDoneCountRef = useRef<number>(0);
   const inFlightFetchRef = useRef<boolean>(false);
 
+  // Mémoire client-side des dernières sync réussies. Clé = `${productId}:${marketplace}`,
+  // valeur = timestamp CLIENT (Date.now) au moment où on a détecté la transition
+  // vers done+ok. Immuable au niveau id de la Map — on remplace l'instance à
+  // chaque update pour forcer le re-render.
+  const [clientSuccessMap, setClientSuccessMap] = useState<Map<string, number>>(
+    () => new Map(),
+  );
+  const clientSuccessKey = (productId: string, marketplace: MarketplaceTarget) =>
+    `${productId}:${marketplace}`;
+
   // ── Poll de la file côté serveur ──────────────────────────────────
   const pollOnce = useCallback(async () => {
     if (inFlightFetchRef.current) return;
@@ -139,13 +181,42 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
       const res = await fetch("/api/admin/marketplace-queue", { cache: "no-store" });
       if (!res.ok) return;
       const data = (await res.json()) as { items: MarketplaceRefreshItem[] };
-      setItems(Array.isArray(data.items) ? data.items : []);
+      const nextItems = Array.isArray(data.items) ? data.items : [];
+      setItems(nextItems);
+
+      // Enrichit la mémoire client : pour chaque item done avec outcome ok sur
+      // son marketplace, on note le timestamp client si pas déjà présent.
+      // C'est cette mémoire qui rend le sticky green robuste (indépendante du
+      // completedAt serveur et de la présence continue de l'item dans le poll).
+      const now = Date.now();
+      let mutated = false;
+      const nextMap = new Map(clientSuccessMap);
+      for (const item of nextItems) {
+        if (item.status !== "done") continue;
+        const outcome = outcomeForMarketplace(item, item.marketplace);
+        if (!outcome || outcome.ok !== true) continue;
+        const key = clientSuccessKey(item.productId, item.marketplace);
+        if (!nextMap.has(key)) {
+          nextMap.set(key, now);
+          mutated = true;
+        }
+      }
+      // Purge les entrées trop vieilles pour éviter que la Map ne grossisse
+      // indéfiniment sur une session admin longue.
+      const cutoff = now - CLIENT_SUCCESS_WINDOW_MS;
+      for (const [key, ts] of nextMap) {
+        if (ts < cutoff) {
+          nextMap.delete(key);
+          mutated = true;
+        }
+      }
+      if (mutated) setClientSuccessMap(nextMap);
     } catch {
       // Réseau coupé / serveur indisponible : prochain tick retentera
     } finally {
       inFlightFetchRef.current = false;
     }
-  }, []);
+  }, [clientSuccessMap]);
 
   useEffect(() => {
     // Premier poll immédiat au montage
@@ -310,6 +381,16 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     return set;
   }, [items]);
 
+  const getRecentClientSuccessAt = useCallback(
+    (productId: string, marketplace: MarketplaceTarget): number | null => {
+      const ts = clientSuccessMap.get(clientSuccessKey(productId, marketplace));
+      if (ts === undefined) return null;
+      if (Date.now() - ts > CLIENT_SUCCESS_WINDOW_MS) return null;
+      return ts;
+    },
+    [clientSuccessMap],
+  );
+
   const value: MarketplaceRefreshContextValue = {
     items,
     enqueue,
@@ -319,6 +400,7 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     runningCount,
     queuedCount,
     inFlightProductIds,
+    getRecentClientSuccessAt,
   };
 
   return (

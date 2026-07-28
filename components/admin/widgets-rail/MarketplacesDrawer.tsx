@@ -1,24 +1,27 @@
 "use client";
 
 /**
- * Tiroir « Synchro marketplaces » — refonte 2026-07-15.
+ * Tiroir « Synchro marketplaces » — refonte 2026-07-28.
  *
- * Une carte par produit dans chaque section, avec :
- *  - image cliquable (ouvre la fiche produit dans un nouvel onglet),
- *  - référence + bouton copier (feedback via useToast),
- *  - 4 badges d'état P / A / E / F (PFS, Ankor, eFashion, Faire) — chaque
- *    badge est tooltipé (portail dans document.body, hoverable, auto-recadré),
- *  - un bouton « Réessayer » en pied de carte quand au moins une marketplace
- *    du produit est en erreur.
+ * 4 colonnes côte à côte par TYPE D'ACTION (drawer size="wide") :
+ *   - Modifications       (emerald) — mode publish
+ *   - Rafraîchissements   (sky)     — mode refresh, seul à afficher le bandeau
+ *                                     "Prochain départ" quand un lot est étalé
+ *   - Synchronisations    (violet)  — mode resync
+ *   - Liaisons            (fuchsia) — jobs MarketplaceLinkContext
  *
- * Sections (priorité du plus urgent au plus calme) :
- *   Erreurs (rouge, ouvert)   → produits avec au moins une erreur
- *   En cours (bleu, ouvert)   → produits avec au moins une marketplace active
- *   En attente (gris, replié) → produits queued
- *   Terminés (vert, replié)   → produits totalement ok
+ * Chaque colonne a :
+ *   - un en-tête (icône + libellé + compteur total)
+ *   - un bandeau KPI 4 tuiles (Err. · Cours · Att. · OK)
+ *   - une liste défilante de cartes produit
  *
- * Le modèle (regroupement + calcul d'état) vit dans marketplacesDrawerModel.ts
- * et est couvert par des tests Vitest.
+ * Chaque carte produit (colonnes publish/refresh/resync) garde ses 4 badges
+ * P/A/E/F pour voir l'état par marketplace. Les cartes de la colonne
+ * « Liaisons » n'ont qu'un badge « → Vers <marketplace> » puisqu'une liaison
+ * ne concerne qu'une seule marketplace à la fois.
+ *
+ * Le regroupement (produit + mode) reste dans marketplacesDrawerModel.ts et
+ * est couvert par des tests Vitest.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -44,17 +47,18 @@ import {
 } from "@/components/admin/products/MarketplaceLinkContext";
 import { getImageSrc } from "@/lib/image-utils";
 import {
-  bucketGroupsByMode,
+  bucketColumns,
   cellCopyable,
   cellTooltipBody,
   cellTooltipTitle,
+  COLUMN_LABEL,
+  COLUMN_ORDER,
   groupItemsByProductAndMode,
   MARKETPLACE_LABEL,
   MARKETPLACE_ORDER,
-  MODE_LABEL,
-  type GroupSection,
+  type ColumnBucket,
+  type ColumnKey,
   type MarketplaceCell,
-  type ModeBucket,
   type ProductGroup,
 } from "./marketplacesDrawerModel";
 
@@ -84,71 +88,37 @@ export function MarketplacesDrawer() {
   const toast = useToast();
   const { confirm } = useConfirm();
 
-  // Tick chaque seconde tant qu'il y a un lot étalé : rafraîchit les
-  // « dans X min » et le compte à rebours du prochain départ. Sinon la valeur
-  // resterait figée à l'ouverture du tiroir.
   const nowMs = useNowTick(items.some((i) => Boolean(i.scheduledFor)) ? 1_000 : null);
 
   const groups = useMemo(
     () => groupItemsByProductAndMode(items, nowMs),
     [items, nowMs],
   );
-  const bySection: Record<GroupSection, ProductGroup[]> = {
-    errors: [],
-    active: [],
-    scheduled: [],
-    queued: [],
-    done: [],
-  };
-  for (const g of groups) bySection[g.section].push(g);
 
-  // Trier les planifiés par ordre chronologique de départ (le prochain en tête).
-  bySection.scheduled.sort((a, b) => {
-    const ta = a.earliestScheduledFor ? Date.parse(a.earliestScheduledFor) : 0;
-    const tb = b.earliestScheduledFor ? Date.parse(b.earliestScheduledFor) : 0;
-    return ta - tb;
-  });
+  const columns = useMemo(
+    () => bucketColumns(groups, linkJobs),
+    [groups, linkJobs],
+  );
 
-  const activeCount =
-    bySection.active.length + bySection.queued.length + bySection.scheduled.length;
-  const errorCount = bySection.errors.length;
-
-  // Détection d'un lot étalé : au moins un produit planifié.
-  const hasScheduled = bySection.scheduled.length > 0;
-  const nextScheduled = hasScheduled ? bySection.scheduled[0] : null;
-
-  // Intervalle du lot : diff entre les 2 premiers scheduledFor futurs, sinon
-  // fallback sur diff entre le 1er planifié et maintenant.
-  const intervalMs = useMemo(() => {
-    if (bySection.scheduled.length < 2) return null;
-    const t0 = Date.parse(bySection.scheduled[0].earliestScheduledFor!);
-    const t1 = Date.parse(bySection.scheduled[1].earliestScheduledFor!);
-    if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return null;
-    return t1 - t0;
-  }, [bySection.scheduled]);
-
-  // Fin estimée = départ du dernier planifié + ~2 min pour le traitement.
-  const endsAtMs = useMemo(() => {
-    if (bySection.scheduled.length === 0) return null;
-    const last = bySection.scheduled[bySection.scheduled.length - 1];
-    const t = Date.parse(last.earliestScheduledFor ?? "");
-    return Number.isFinite(t) ? t + 2 * 60_000 : null;
-  }, [bySection.scheduled]);
+  const errorCount = columns.reduce((n, c) => n + c.kpi.errors, 0);
+  const activeCount = columns.reduce(
+    (n, c) => n + c.kpi.active + c.kpi.queued,
+    0,
+  );
+  const totalProcessed = columns.reduce((n, c) => n + c.kpi.done, 0);
+  const totalPlanned =
+    totalProcessed + activeCount + errorCount;
+  const pct = totalPlanned === 0 ? 0 : Math.round((totalProcessed / totalPlanned) * 100);
 
   const linkErrorCount = linkJobs.filter((j) => j.status === "error").length;
 
   useEffect(() => {
-    const totalActive = activeCount + linkActiveCount;
     const totalErr = errorCount + linkErrorCount;
     setBadge("marketplaces", {
-      count: totalActive || totalErr,
-      pulse: totalActive > 0 || totalErr > 0,
+      count: activeCount || totalErr,
+      pulse: activeCount > 0 || totalErr > 0,
     });
   }, [activeCount, errorCount, linkActiveCount, linkErrorCount, setBadge]);
-
-  const totalProcessed = bySection.done.length;
-  const totalPlanned = groups.length;
-  const pct = totalPlanned === 0 ? 0 : Math.round((totalProcessed / totalPlanned) * 100);
 
   const title =
     activeCount > 0
@@ -157,7 +127,7 @@ export function MarketplacesDrawer() {
       ? `${errorCount} erreur${errorCount > 1 ? "s" : ""}`
       : totalProcessed > 0
       ? `${totalProcessed} terminé${totalProcessed > 1 ? "s" : ""}`
-      : "Aucun lot";
+      : "Aucune activité";
 
   const tooltipHandle = useRef<TooltipHandle | null>(null);
 
@@ -180,12 +150,12 @@ export function MarketplacesDrawer() {
 
   const onStopMode = async (mode: QueueItemMode, queuedCountForMode: number) => {
     if (queuedCountForMode === 0) return;
-    const noun = MODE_LABEL[mode].short;
+    const noun = COLUMN_LABEL[mode].short;
     const label = `${queuedCountForMode} ${noun}${queuedCountForMode > 1 ? "s" : ""} en attente`;
     const ok = await confirm({
       type: "warning",
       title: `Arrêter les ${noun}s suivants ?`,
-      message: `${label} ${queuedCountForMode > 1 ? "seront retirés" : "sera retiré"} de la file. Les envois déjà démarrés se terminent normalement. Les autres catégories ne sont pas touchées.`,
+      message: `${label} ${queuedCountForMode > 1 ? "seront retirés" : "sera retiré"} de la file. Les envois déjà démarrés se terminent normalement.`,
       confirmLabel: "Arrêter cette catégorie",
     });
     if (!ok) return;
@@ -221,26 +191,34 @@ export function MarketplacesDrawer() {
     if (inputs.length > 0) enqueue(inputs);
   };
 
+  const isEmpty = groups.length === 0 && linkJobs.length === 0;
+
   return (
     <DrawerShell
       open={openWidget === "marketplaces"}
       onClose={close}
       accent="sky"
       eyebrow="Marketplaces"
+      size="wide"
       title={
         <span className="flex items-center gap-1.5">
           {activeCount > 0 && (
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
           )}
           {title}
+          {totalPlanned > 0 && (
+            <span className="ml-2 text-xs font-normal text-sky-100/85 tabular-nums">
+              · {totalProcessed} / {totalPlanned} ({pct}%)
+            </span>
+          )}
         </span>
       }
       icon={MARKETPLACES_ICON}
       footer={
-        groups.length > 0 ? (
+        !isEmpty ? (
           <div className="flex items-center justify-between gap-3 text-[11px]">
             <span className="text-slate-500 tabular-nums">
-              {totalProcessed} / {totalPlanned}
+              {totalProcessed} / {totalPlanned} traités
             </span>
             <div className="flex items-center gap-3">
               {queuedCount > 0 && (
@@ -278,49 +256,34 @@ export function MarketplacesDrawer() {
         ) : undefined
       }
     >
-      {linkJobs.length > 0 && (
-        <LinkJobsSection jobs={linkJobs} onDismiss={dismissLinkJob} />
-      )}
-      {groups.length === 0 && linkJobs.length === 0 ? (
-        <div className="p-6 text-center">
-          <p className="text-sm text-slate-500">Aucune synchro en cours.</p>
-          <p className="text-[11px] text-slate-400 mt-1">
-            Les rafraîchissements et liaisons marketplaces déclenchés depuis la page Produits
-            apparaîtront ici.
-          </p>
+      {isEmpty ? (
+        <div className="p-6 h-full flex items-center justify-center text-center">
+          <div>
+            <p className="text-sm text-slate-500">Aucune synchro en cours.</p>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Les rafraîchissements et liaisons marketplaces déclenchés depuis la page Produits
+              apparaîtront ici, rangés par type d'action.
+            </p>
+          </div>
         </div>
-      ) : groups.length === 0 ? null : (
-        <>
-          {nextScheduled && (
-            <NextDepartureBanner
-              group={nextScheduled}
-              nowMs={nowMs}
-              intervalMs={intervalMs}
-              endsAtMs={endsAtMs}
-              remainingCount={bySection.scheduled.length}
-            />
-          )}
-          {totalPlanned > 0 && (
-            <div className="px-4 py-2 border-b border-slate-100 bg-white">
-              <div className="relative h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-sky-500 to-sky-400 rounded-full transition-all duration-500"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </div>
-          )}
-          {bucketGroupsByMode(groups).map((bucket) => (
-            <ModeSection
-              key={bucket.mode}
-              bucket={bucket}
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 p-3 h-full min-h-0">
+          {columns.map((col) => (
+            <ColumnCard
+              key={col.key}
+              bucket={col}
               tooltipHandle={tooltipHandle}
-              onRetry={retryErrorsOf}
               nowMs={nowMs}
-              onStopMode={() => void onStopMode(bucket.mode, bucket.queuedItemCount)}
+              onRetry={retryErrorsOf}
+              onStopColumn={
+                col.key !== "link"
+                  ? () => void onStopMode(col.key as QueueItemMode, col.queuedItemCount)
+                  : undefined
+              }
+              onDismissLinkJob={dismissLinkJob}
             />
           ))}
-        </>
+        </div>
       )}
       <MarketplaceTooltipHost handleRef={tooltipHandle} />
     </DrawerShell>
@@ -328,259 +291,287 @@ export function MarketplacesDrawer() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Section de haut niveau : regroupement par mode (Modifications /
-// Rafraîchissements / Synchronisations). Contient les mêmes sous-blocs
-// Erreurs / En cours / Planifiés / En attente / Terminés, filtrés sur les
-// produits de ce mode uniquement.
+// Colonne
 // ────────────────────────────────────────────────────────────────
 
-const MODE_ACCENT: Record<QueueItemMode, { grad: string; text: string; badge: string; ring: string }> = {
+const COLUMN_ACCENT: Record<
+  ColumnKey,
+  {
+    bar: string;
+    header: string;
+    iconBg: string;
+    iconText: string;
+    title: string;
+    countBg: string;
+    icon: React.ReactNode;
+  }
+> = {
   publish: {
-    grad: "from-emerald-50/60 to-white",
-    text: "text-emerald-800",
-    badge: "bg-emerald-100 text-emerald-700",
-    ring: "ring-emerald-200",
+    bar: "bg-gradient-to-r from-emerald-600 to-emerald-400",
+    header: "from-emerald-50/40 to-white",
+    iconBg: "bg-emerald-100 ring-emerald-200",
+    iconText: "text-emerald-700",
+    title: "text-emerald-800",
+    countBg: "bg-emerald-100 text-emerald-700",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
+        />
+      </svg>
+    ),
   },
   refresh: {
-    grad: "from-sky-50/60 to-white",
-    text: "text-sky-800",
-    badge: "bg-sky-100 text-sky-700",
-    ring: "ring-sky-200",
+    bar: "bg-gradient-to-r from-sky-600 to-sky-400",
+    header: "from-sky-50/40 to-white",
+    iconBg: "bg-sky-100 ring-sky-200",
+    iconText: "text-sky-700",
+    title: "text-sky-800",
+    countBg: "bg-sky-100 text-sky-700",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+        />
+      </svg>
+    ),
   },
   resync: {
-    grad: "from-violet-50/60 to-white",
-    text: "text-violet-800",
-    badge: "bg-violet-100 text-violet-700",
-    ring: "ring-violet-200",
+    bar: "bg-gradient-to-r from-violet-600 to-violet-400",
+    header: "from-violet-50/40 to-white",
+    iconBg: "bg-violet-100 ring-violet-200",
+    iconText: "text-violet-700",
+    title: "text-violet-800",
+    countBg: "bg-violet-100 text-violet-700",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z"
+        />
+      </svg>
+    ),
+  },
+  link: {
+    bar: "bg-gradient-to-r from-fuchsia-600 to-pink-400",
+    header: "from-fuchsia-50/40 to-white",
+    iconBg: "bg-fuchsia-100 ring-fuchsia-200",
+    iconText: "text-fuchsia-700",
+    title: "text-fuchsia-800",
+    countBg: "bg-fuchsia-100 text-fuchsia-700",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"
+        />
+      </svg>
+    ),
   },
 };
 
-function ModeSection({
+function ColumnCard({
   bucket,
   tooltipHandle,
-  onRetry,
   nowMs,
-  onStopMode,
+  onRetry,
+  onStopColumn,
+  onDismissLinkJob,
 }: {
-  bucket: ModeBucket;
+  bucket: ColumnBucket;
   tooltipHandle: React.MutableRefObject<TooltipHandle | null>;
-  onRetry: (group: ProductGroup) => void;
   nowMs: number;
-  onStopMode: () => void;
+  onRetry: (group: ProductGroup) => void;
+  onStopColumn?: () => void;
+  onDismissLinkJob: (id: string) => void;
 }) {
-  const meta = MODE_LABEL[bucket.mode];
-  const accent = MODE_ACCENT[bucket.mode];
+  const acc = COLUMN_ACCENT[bucket.key];
+  const meta = COLUMN_LABEL[bucket.key];
+  const total = bucket.groups.length + bucket.linkJobs.length;
 
-  const bySection: Record<GroupSection, ProductGroup[]> = {
-    errors: [],
-    active: [],
-    scheduled: [],
-    queued: [],
-    done: [],
-  };
-  for (const g of bucket.groups) bySection[g.section].push(g);
-  bySection.scheduled.sort((a, b) => {
-    const ta = a.earliestScheduledFor ? Date.parse(a.earliestScheduledFor) : 0;
-    const tb = b.earliestScheduledFor ? Date.parse(b.earliestScheduledFor) : 0;
-    return ta - tb;
-  });
+  // Ordre d'affichage : erreurs > actifs > planifiés/queued > terminés.
+  const orderedGroups = useMemo(() => {
+    const sections: Record<string, ProductGroup[]> = {
+      errors: [],
+      active: [],
+      scheduled: [],
+      queued: [],
+      done: [],
+    };
+    for (const g of bucket.groups) sections[g.section].push(g);
+    sections.scheduled.sort((a, b) => {
+      const ta = a.earliestScheduledFor ? Date.parse(a.earliestScheduledFor) : 0;
+      const tb = b.earliestScheduledFor ? Date.parse(b.earliestScheduledFor) : 0;
+      return ta - tb;
+    });
+    return [
+      ...sections.errors,
+      ...sections.active,
+      ...sections.scheduled,
+      ...sections.queued,
+      ...sections.done,
+    ];
+  }, [bucket.groups]);
 
-  // Section ouverte par défaut si urgence (erreur / en cours), sinon repliée.
-  const defaultOpen = bucket.errorGroupCount > 0 || bucket.activeGroupCount > 0;
+  const orderedLinks = useMemo(() => {
+    const inProgress = bucket.linkJobs.filter((j) => j.status === "in_progress");
+    const errors = bucket.linkJobs.filter((j) => j.status === "error");
+    const done = bucket.linkJobs.filter((j) => j.status === "done");
+    return [...errors, ...inProgress, ...done];
+  }, [bucket.linkJobs]);
+
+  const nextScheduled =
+    bucket.key === "refresh" && bucket.hasScheduled
+      ? orderedGroups.find((g) => g.section === "scheduled") ?? null
+      : null;
+
+  const intervalMs = useMemo(() => {
+    if (bucket.key !== "refresh") return null;
+    const scheduled = orderedGroups.filter((g) => g.earliestScheduledFor);
+    if (scheduled.length < 2) return null;
+    const t0 = Date.parse(scheduled[0].earliestScheduledFor!);
+    const t1 = Date.parse(scheduled[1].earliestScheduledFor!);
+    if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return null;
+    return t1 - t0;
+  }, [bucket.key, orderedGroups]);
 
   return (
-    <details
-      open={defaultOpen}
-      className="border-b border-slate-200 group/mode"
-    >
-      <summary
-        className={`px-4 py-3 flex items-center gap-2.5 cursor-pointer hover:brightness-95 bg-gradient-to-r ${accent.grad} list-none`}
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col shadow-sm min-h-0 h-full">
+      <div className={`h-1 flex-shrink-0 ${acc.bar}`} />
+
+      {/* En-tête colonne */}
+      <div
+        className={`px-3 py-2.5 border-b border-slate-100 flex items-center gap-2.5 bg-gradient-to-b ${acc.header}`}
       >
-        <svg
-          className="w-3.5 h-3.5 text-slate-500 transition-transform group-open/mode:rotate-90 flex-shrink-0"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          strokeWidth={2.5}
+        <span
+          className={`w-8 h-8 rounded-lg ring-1 flex items-center justify-center flex-shrink-0 ${acc.iconBg} ${acc.iconText}`}
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-        <span className={`text-[13px] font-heading font-bold flex-1 ${accent.text}`}>
-          {meta.title}
+          {acc.icon}
         </span>
-        {bucket.errorGroupCount > 0 && (
-          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">
-            {bucket.errorGroupCount} err.
-          </span>
-        )}
-        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${accent.badge}`}>
-          {bucket.groups.length}
+        <div className="flex-1 min-w-0">
+          <div className={`text-[13px] font-heading font-bold leading-tight ${acc.title}`}>
+            {meta.title}
+          </div>
+          <div className="text-[10px] text-slate-500 truncate">{meta.subtitle}</div>
+        </div>
+        <span
+          className={`text-xs font-semibold px-2 py-0.5 rounded-full tabular-nums ${acc.countBg}`}
+        >
+          {total}
         </span>
-        {bucket.queuedItemCount > 0 && (
+        {onStopColumn && bucket.queuedItemCount > 0 && (
           <button
             type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onStopMode();
-            }}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/80 text-rose-700 text-[10px] font-semibold hover:bg-rose-50 ring-1 ring-rose-200 transition-colors"
+            onClick={onStopColumn}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white text-rose-700 text-[10px] font-semibold hover:bg-rose-50 ring-1 ring-rose-200 transition-colors flex-shrink-0"
             title={`Retire les ${bucket.queuedItemCount} envoi(s) de cette catégorie encore en attente`}
           >
-            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z"
-              />
-            </svg>
             Arrêter ({bucket.queuedItemCount})
           </button>
         )}
-      </summary>
-      <div>
-        <SectionBlock
-          title="Erreurs"
-          tone="rose"
-          groups={bySection.errors}
-          defaultOpen
-          tooltipHandle={tooltipHandle}
-          onRetry={onRetry}
-        />
-        <SectionBlock
-          title="En cours"
-          tone="sky"
-          groups={bySection.active}
-          defaultOpen
-          tooltipHandle={tooltipHandle}
-        />
-        <SectionBlock
-          title="Planifiés"
-          tone="indigo"
-          groups={bySection.scheduled}
-          defaultOpen
-          tooltipHandle={tooltipHandle}
-          nowMs={nowMs}
-        />
-        <SectionBlock
-          title="En attente"
-          tone="slate"
-          groups={bySection.queued}
-          tooltipHandle={tooltipHandle}
-        />
-        <SectionBlock
-          title="Terminés"
-          tone="emerald"
-          groups={bySection.done}
-          tooltipHandle={tooltipHandle}
-        />
       </div>
-    </details>
+
+      {/* Bandeau KPI 4 tuiles */}
+      <KpiStrip kpi={bucket.kpi} />
+
+      {/* Bandeau "Prochain départ" pour la colonne Refresh uniquement */}
+      {nextScheduled && (
+        <NextDepartureBanner
+          group={nextScheduled}
+          nowMs={nowMs}
+          intervalMs={intervalMs}
+        />
+      )}
+
+      {/* Liste défilante */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1.5">
+        {total === 0 ? (
+          <div className="text-center text-[11px] text-slate-400 py-4">
+            Rien pour l'instant.
+          </div>
+        ) : bucket.key === "link" ? (
+          orderedLinks.map((j) => (
+            <LinkJobCard key={j.id} job={j} onDismiss={() => onDismissLinkJob(j.id)} />
+          ))
+        ) : (
+          orderedGroups.map((g, idx) => (
+            <ProductCard
+              key={`${g.productId}-${g.dominantMode}`}
+              group={g}
+              tooltipHandle={tooltipHandle}
+              onRetry={g.section === "errors" ? () => onRetry(g) : undefined}
+              scheduledInfo={
+                g.earliestScheduledFor ? { nowMs, isNext: idx === 0 } : undefined
+              }
+            />
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 
 // ────────────────────────────────────────────────────────────────
-// Section pliable
+// Bandeau KPI 4 tuiles (Err. / Cours / Att. / OK)
 // ────────────────────────────────────────────────────────────────
 
-type Tone = "rose" | "sky" | "indigo" | "slate" | "emerald";
+function KpiStrip({
+  kpi,
+}: {
+  kpi: { errors: number; active: number; queued: number; done: number };
+}) {
+  return (
+    <div className="grid grid-cols-4 gap-1 px-2 py-2 border-b border-slate-100 bg-slate-50/50">
+      <KpiTile label="Err." value={kpi.errors} tone={kpi.errors > 0 ? "rose" : "slate"} />
+      <KpiTile label="Cours" value={kpi.active} tone={kpi.active > 0 ? "sky" : "slate"} />
+      <KpiTile label="Att." value={kpi.queued} tone={kpi.queued > 0 ? "indigo" : "slate"} />
+      <KpiTile label="OK" value={kpi.done} tone={kpi.done > 0 ? "emerald" : "slate"} />
+    </div>
+  );
+}
 
-const TONE_CLASSES: Record<
-  Tone,
-  { bg: string; text: string; badge: string; empty: boolean }
-> = {
-  rose: {
-    bg: "bg-rose-50/40",
-    text: "text-rose-700",
-    badge: "bg-rose-100 text-rose-700",
-    empty: false,
-  },
-  sky: {
-    bg: "bg-sky-50/20",
-    text: "text-slate-800",
-    badge: "bg-sky-100 text-sky-700",
-    empty: false,
-  },
+const KPI_TONES = {
+  rose: { bg: "bg-rose-50 ring-rose-100", label: "text-rose-700", value: "text-rose-800" },
+  sky: { bg: "bg-sky-50 ring-sky-100", label: "text-sky-700", value: "text-sky-800" },
   indigo: {
-    bg: "bg-indigo-50/30",
-    text: "text-indigo-800",
-    badge: "bg-indigo-100 text-indigo-700",
-    empty: false,
-  },
-  slate: {
-    bg: "",
-    text: "text-slate-800",
-    badge: "bg-slate-100 text-slate-600",
-    empty: false,
+    bg: "bg-indigo-50 ring-indigo-100",
+    label: "text-indigo-700",
+    value: "text-indigo-800",
   },
   emerald: {
-    bg: "bg-emerald-50/30",
-    text: "text-emerald-700",
-    badge: "bg-emerald-100 text-emerald-700",
-    empty: false,
+    bg: "bg-emerald-50 ring-emerald-100",
+    label: "text-emerald-700",
+    value: "text-emerald-800",
   },
-};
+  slate: { bg: "bg-slate-50 ring-slate-100", label: "text-slate-400", value: "text-slate-400" },
+} as const;
 
-function SectionBlock({
-  title,
+function KpiTile({
+  label,
+  value,
   tone,
-  groups,
-  defaultOpen = false,
-  tooltipHandle,
-  onRetry,
-  nowMs,
 }: {
-  title: string;
-  tone: Tone;
-  groups: ProductGroup[];
-  defaultOpen?: boolean;
-  tooltipHandle: React.MutableRefObject<TooltipHandle | null>;
-  onRetry?: (group: ProductGroup) => void;
-  /** Fourni pour la section Planifiés → active l'affichage « dans X min ». */
-  nowMs?: number;
+  label: string;
+  value: number;
+  tone: keyof typeof KPI_TONES;
 }) {
-  if (groups.length === 0) return null;
-  const t = TONE_CLASSES[tone];
+  const t = KPI_TONES[tone];
   return (
-    <details open={defaultOpen} className="border-b border-slate-100 group/section">
-      <summary
-        className={`px-4 py-2.5 flex items-center gap-2 cursor-pointer hover:bg-slate-50/60 ${t.bg} list-none`}
-      >
-        <svg
-          className="w-3.5 h-3.5 text-slate-500 transition-transform group-open/section:rotate-90"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          strokeWidth={2.5}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-        <span className={`text-sm font-semibold flex-1 ${t.text}`}>{title}</span>
-        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${t.badge}`}>
-          {groups.length}
-        </span>
-      </summary>
-      <div className="p-3 space-y-2.5">
-        {groups.map((g, idx) => (
-          <ProductCard
-            key={g.productId}
-            group={g}
-            tooltipHandle={tooltipHandle}
-            onRetry={onRetry ? () => onRetry(g) : undefined}
-            scheduledInfo={
-              nowMs !== undefined && g.earliestScheduledFor
-                ? { nowMs, isNext: idx === 0 }
-                : undefined
-            }
-          />
-        ))}
-      </div>
-    </details>
+    <div className={`text-center rounded-md py-1 ring-1 ${t.bg}`}>
+      <div className={`text-[9px] uppercase tracking-wider font-bold ${t.label}`}>{label}</div>
+      <div className={`text-sm font-bold tabular-nums ${t.value}`}>{value}</div>
+    </div>
   );
 }
 
 // ────────────────────────────────────────────────────────────────
-// Carte produit
+// Carte produit — colonnes publish/refresh/resync (garde les 4 badges P/A/E/F)
 // ────────────────────────────────────────────────────────────────
 
 function ProductCard({
@@ -592,7 +583,6 @@ function ProductCard({
   group: ProductGroup;
   tooltipHandle: React.MutableRefObject<TooltipHandle | null>;
   onRetry?: () => void;
-  /** Rendu spécifique lot étalé : pastille « Prochain » + « dans X min ». */
   scheduledInfo?: { nowMs: number; isNext: boolean };
 }) {
   const toast = useToast();
@@ -608,6 +598,17 @@ function ProductCard({
       ? Math.max(0, scheduledAtMs - scheduledInfo.nowMs)
       : null;
 
+  // Premier message d'erreur détaillé (marketplace + texte) pour affichage direct sous la carte
+  const firstErrorText = useMemo(() => {
+    for (const target of MARKETPLACE_ORDER) {
+      const cell = group.cells[target];
+      if (cell.kind === "error" && cell.outcome && cell.outcome.ok === false) {
+        return `${MARKETPLACE_LABEL[target]} : « ${cell.outcome.message} »`;
+      }
+    }
+    return null;
+  }, [group.cells]);
+
   const copyReference = () => {
     void navigator.clipboard.writeText(group.reference).then(
       () => toast.success("Copié", `Référence ${group.reference} copiée.`),
@@ -617,40 +618,29 @@ function ProductCard({
 
   return (
     <div
-      className={`bg-white rounded-xl overflow-hidden shadow-sm border ${
+      className={`rounded-lg overflow-hidden shadow-sm border p-2.5 ${
         isError
-          ? "border-rose-200"
+          ? "border-rose-200 bg-gradient-to-br from-rose-50/60 to-white"
           : isNext
-          ? "border-indigo-300 ring-2 ring-indigo-100"
-          : "border-slate-200"
+          ? "border-2 border-indigo-300 ring-2 ring-indigo-100 bg-gradient-to-br from-indigo-50/70 to-white"
+          : group.section === "active"
+          ? "border-sky-200 bg-gradient-to-br from-sky-50/60 to-white"
+          : group.section === "done"
+          ? "border-emerald-200 bg-white"
+          : "border-slate-200 bg-white"
       }`}
     >
-      <div
-        className={`px-3 py-2.5 flex items-center gap-2.5 border-b ${
-          isError
-            ? "bg-gradient-to-r from-rose-50 to-white border-rose-100"
-            : isNext
-            ? "bg-gradient-to-r from-indigo-50 to-white border-indigo-100"
-            : "border-slate-100"
-        }`}
-      >
+      <div className="flex items-center gap-2">
         <ProductThumb group={group} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            {isNext && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[9px] font-bold uppercase tracking-wider flex-shrink-0">
-                Prochain
-              </span>
-            )}
-            <p
-              className="text-[13px] font-semibold truncate text-slate-800"
-              title={group.productName}
-            >
-              {group.productName}
-            </p>
-          </div>
+          <p
+            className="text-[12px] font-semibold truncate text-slate-800 leading-tight"
+            title={group.productName}
+          >
+            {group.productName}
+          </p>
           <div className="flex items-center gap-1 mt-0.5">
-            <span className="text-[11px] font-mono text-slate-500 truncate">
+            <span className="text-[10px] font-mono text-slate-500 truncate">
               {group.reference}
             </span>
             <button
@@ -661,7 +651,7 @@ function ProductCard({
               aria-label={`Copier la référence ${group.reference}`}
             >
               <svg
-                className="w-3.5 h-3.5"
+                className="w-3 h-3"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -674,27 +664,17 @@ function ProductCard({
                 />
               </svg>
             </button>
-            {isScheduled && remainingMs !== null && (
-              <>
-                <span className="text-slate-300">·</span>
-                <span
-                  className={`text-[11px] font-semibold tabular-nums flex-shrink-0 ${
-                    isNext ? "text-indigo-700" : "text-slate-600"
-                  }`}
-                >
-                  dans {formatRemainingShort(remainingMs)}
-                </span>
-              </>
-            )}
           </div>
         </div>
         {isScheduled && scheduledAtMs !== null ? (
           <div className="text-right flex-shrink-0">
-            <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">
+            <div className="text-[9px] uppercase tracking-wider text-indigo-600 font-bold">
               Départ
             </div>
-            <div className="text-[12px] font-bold text-slate-700 tabular-nums leading-tight">
-              {formatClockTime(scheduledAtMs)}
+            <div className="text-[13px] font-bold text-indigo-800 tabular-nums leading-tight">
+              {remainingMs !== null
+                ? formatCountdownMMSS(remainingMs)
+                : formatClockTime(scheduledAtMs)}
             </div>
           </div>
         ) : (
@@ -702,7 +682,16 @@ function ProductCard({
         )}
       </div>
 
-      <div className="px-3 py-2.5 flex items-center gap-1.5 flex-wrap">
+      {isNext && (
+        <div className="mt-1.5">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[9px] font-bold uppercase tracking-wider">
+            Prochain
+          </span>
+        </div>
+      )}
+
+      {/* Les 4 badges P/A/E/F */}
+      <div className="mt-2 flex items-center gap-1 flex-wrap">
         {MARKETPLACE_ORDER.map((target) => (
           <BadgeForCell
             key={target}
@@ -713,12 +702,14 @@ function ProductCard({
         ))}
       </div>
 
+      {firstErrorText && (
+        <div className="mt-1.5 text-[10px] text-rose-700 leading-snug italic">
+          {firstErrorText}
+        </div>
+      )}
+
       {(isError && onRetry) || group.latestActivityAt ? (
-        <div
-          className={`px-3 py-2 flex items-center justify-between ${
-            isError ? "border-t border-rose-100" : "border-t border-slate-100"
-          }`}
-        >
+        <div className="mt-1.5 flex items-center justify-between">
           <span className="text-[10px] text-slate-500">
             {group.latestActivityAt ? relativeTime(group.latestActivityAt) : ""}
           </span>
@@ -726,14 +717,14 @@ function ProductCard({
             <button
               type="button"
               onClick={onRetry}
-              className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full bg-rose-600 text-white font-semibold hover:bg-rose-700 transition-colors"
+              className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-600 text-white hover:bg-rose-700 transition-colors"
             >
               <svg
-                className="w-3 h-3"
+                className="w-2.5 h-2.5"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
-                strokeWidth={2.5}
+                strokeWidth={3}
               >
                 <path
                   strokeLinecap="round"
@@ -753,13 +744,14 @@ function ProductCard({
 function ProductThumb({ group }: { group: ProductGroup }) {
   const href = `/admin/produits/${group.productId}/modifier`;
   const content = group.firstImage ? (
+    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={group.firstImage}
       alt=""
-      className="w-11 h-11 rounded-lg object-cover bg-slate-100 ring-1 ring-slate-200 group-hover:ring-sky-400 transition-shadow"
+      className="w-11 h-11 rounded-md object-cover bg-slate-100 ring-1 ring-slate-200 group-hover:ring-sky-400 transition-shadow"
     />
   ) : (
-    <div className="w-11 h-11 rounded-lg bg-slate-100 ring-1 ring-slate-200 flex items-center justify-center">
+    <div className="w-11 h-11 rounded-md bg-slate-100 ring-1 ring-slate-200 flex items-center justify-center">
       <svg
         className="w-5 h-5 text-slate-400"
         fill="none"
@@ -784,21 +776,6 @@ function ProductThumb({ group }: { group: ProductGroup }) {
       className="relative group flex-shrink-0 block"
     >
       {content}
-      <span className="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/30 flex items-center justify-center transition-colors">
-        <svg
-          className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          strokeWidth={2.2}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
-          />
-        </svg>
-      </span>
     </a>
   );
 }
@@ -845,15 +822,9 @@ function StatusIcon({ group }: { group: ProductGroup }) {
     );
   }
   return (
-    <svg
-      className="w-4 h-4 text-emerald-600 flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-      strokeWidth={3}
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-    </svg>
+    <span className="w-5 h-5 rounded-full bg-emerald-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+      ✓
+    </span>
   );
 }
 
@@ -936,21 +907,17 @@ function BadgeForCell({
 }
 
 // ────────────────────────────────────────────────────────────────
-// Bandeau "Prochain départ" — visible dès qu'il y a un lot étalé
+// Bandeau "Prochain départ" — inséré dans la colonne Refresh
 // ────────────────────────────────────────────────────────────────
 
 function NextDepartureBanner({
   group,
   nowMs,
   intervalMs,
-  endsAtMs,
-  remainingCount,
 }: {
   group: ProductGroup;
   nowMs: number;
   intervalMs: number | null;
-  endsAtMs: number | null;
-  remainingCount: number;
 }) {
   const scheduledAtMs = group.earliestScheduledFor
     ? Date.parse(group.earliestScheduledFor)
@@ -959,46 +926,184 @@ function NextDepartureBanner({
   const remainingMs = Math.max(0, scheduledAtMs - nowMs);
 
   return (
-    <div className="relative overflow-hidden bg-gradient-to-br from-sky-600 via-blue-600 to-indigo-700 text-white px-4 py-3 border-b border-indigo-500/50">
-      <div className="absolute -top-16 -right-10 w-40 h-40 rounded-full bg-white/10 blur-3xl pointer-events-none" />
-      <div className="relative">
-        <div className="flex items-center justify-between gap-3 mb-1.5">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-sky-100/90 font-bold">
-              Prochain départ
-            </span>
-            <span className="w-1 h-1 rounded-full bg-sky-200/60" />
-            <span className="text-[11px] text-white/90 truncate" title={group.productName}>
-              « {group.productName} »
-            </span>
+    <div
+      className="relative overflow-hidden mx-2 mt-2 rounded-lg text-white px-3 py-2 flex-shrink-0"
+      style={{ background: "linear-gradient(135deg, #0284c7 0%, #4f46e5 100%)" }}
+    >
+      <div className="absolute -top-8 -right-6 w-24 h-24 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+      <div className="relative flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-[9px] uppercase tracking-[0.18em] font-bold text-sky-100/90">
+            Prochain départ
           </div>
-          <div className="font-heading font-bold text-lg tabular-nums text-white flex-shrink-0">
-            {formatCountdownMMSS(remainingMs)}
+          <div className="text-[11px] truncate mt-0.5" title={group.productName}>
+            « {group.productName} »
           </div>
-        </div>
-        <div className="mt-1.5 flex items-center justify-between text-[10px] text-sky-100/85 gap-2">
-          <span className="truncate">
-            {intervalMs !== null ? (
-              <>
-                1 produit toutes les{" "}
-                <b className="text-white">{formatDurationHuman(intervalMs)}</b>
-              </>
-            ) : (
-              <>
-                <b className="text-white">
-                  {remainingCount} produit{remainingCount > 1 ? "s" : ""}
-                </b>{" "}
-                planifié{remainingCount > 1 ? "s" : ""}
-              </>
-            )}
-          </span>
-          {endsAtMs !== null && (
-            <span className="flex-shrink-0">
-              Fin estimée <b className="text-white">{formatClockTime(endsAtMs)}</b>
-            </span>
+          {intervalMs !== null && (
+            <div className="text-[10px] text-sky-100/85 mt-0.5">
+              1 produit toutes les <b className="text-white">{formatDurationHuman(intervalMs)}</b>
+            </div>
           )}
         </div>
+        <div className="font-heading font-bold text-xl tabular-nums flex-shrink-0">
+          {formatCountdownMMSS(remainingMs)}
+        </div>
       </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────
+// Carte Liaison (colonne « Liaisons »)
+// ────────────────────────────────────────────────────────────────
+
+const LINK_MKT_META: Record<
+  LinkJob["marketplace"],
+  { name: string; grad: string }
+> = {
+  pfs: { name: "PFS", grad: "linear-gradient(135deg,#4f46e5,#6366f1)" },
+  ankorstore: { name: "Ankorstore", grad: "linear-gradient(135deg,#0ea5e9,#38bdf8)" },
+  efashion: { name: "eFashion", grad: "linear-gradient(135deg,#db2777,#ec4899)" },
+  faire: { name: "Faire", grad: "linear-gradient(135deg,#f59e0b,#fbbf24)" },
+};
+
+function LinkJobCard({ job, onDismiss }: { job: LinkJob; onDismiss: () => void }) {
+  const meta = LINK_MKT_META[job.marketplace];
+  const borderCls =
+    job.status === "in_progress"
+      ? "border-fuchsia-200 bg-gradient-to-br from-fuchsia-50/40 to-white"
+      : job.status === "done"
+      ? "border-emerald-200 bg-white"
+      : "border-rose-200 bg-gradient-to-br from-rose-50/60 to-white";
+
+  return (
+    <div className={`rounded-lg overflow-hidden shadow-sm border p-2.5 ${borderCls}`}>
+      <div className="flex items-center gap-2">
+        {job.productImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={getImageSrc(job.productImage, "thumb")}
+            alt=""
+            className="w-11 h-11 rounded-md object-cover bg-slate-100 ring-1 ring-slate-200 flex-shrink-0"
+          />
+        ) : (
+          <div className="w-11 h-11 rounded-md bg-slate-100 ring-1 ring-slate-200 flex items-center justify-center text-[10px] text-slate-400 font-semibold flex-shrink-0">
+            IMG
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <p
+            className="text-[12px] font-semibold truncate text-slate-800 leading-tight"
+            title={job.productName}
+          >
+            {job.productName}
+          </p>
+          <div className="text-[10px] font-mono text-slate-500 truncate mt-0.5">
+            {job.reference}
+          </div>
+        </div>
+        {job.status === "in_progress" && (
+          <svg
+            className="w-4 h-4 text-fuchsia-600 animate-spin flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth={4}
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
+          </svg>
+        )}
+        {job.status === "done" && (
+          <span className="w-5 h-5 rounded-full bg-emerald-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+            ✓
+          </span>
+        )}
+        {job.status === "error" && (
+          <svg
+            className="w-4 h-4 text-rose-600 flex-shrink-0"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        )}
+      </div>
+
+      <div className="mt-2 flex items-center gap-1.5">
+        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">
+          → Vers
+        </span>
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold text-white"
+          style={{ background: meta.grad }}
+        >
+          {meta.name}
+        </span>
+      </div>
+
+      {job.status === "in_progress" && (
+        <div className="mt-1.5 text-[10px] text-fuchsia-700">
+          Liaison en cours…
+        </div>
+      )}
+      {job.status === "done" && (
+        <div className="mt-1.5 space-y-0.5 text-[10px] leading-snug">
+          {job.linkedCount !== undefined && job.linkedCount > 0 && (
+            <div className="text-emerald-700">
+              ✓ {job.linkedCount} variante{job.linkedCount > 1 ? "s" : ""} liée
+              {job.linkedCount > 1 ? "s" : ""}
+            </div>
+          )}
+          {job.createdCount !== undefined && job.createdCount > 0 && (
+            <div className="text-sky-700">
+              ＋ {job.createdCount} couleur{job.createdCount > 1 ? "s" : ""} créée
+              {job.createdCount > 1 ? "s" : ""} chez le marketplace
+            </div>
+          )}
+          {job.deletedCount !== undefined && job.deletedCount > 0 && (
+            <div className="text-rose-700">
+              − {job.deletedCount} variante{job.deletedCount > 1 ? "s" : ""} supprimée
+              {job.deletedCount > 1 ? "s" : ""} chez le marketplace
+            </div>
+          )}
+          {job.importedCount !== undefined && job.importedCount > 0 && (
+            <div className="text-emerald-700">
+              ⇩ {job.importedCount} variante{job.importedCount > 1 ? "s" : ""} importée
+              {job.importedCount > 1 ? "s" : ""} depuis le marketplace
+            </div>
+          )}
+        </div>
+      )}
+      {job.status === "error" && job.error && (
+        <div className="mt-1.5 text-[10px] text-rose-700 leading-snug italic">
+          {job.error}
+        </div>
+      )}
+
+      {job.status !== "in_progress" && (
+        <div className="mt-1.5 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="text-slate-400 hover:text-slate-700 text-[10px] px-1"
+            aria-label="Retirer"
+          >
+            ✕ Retirer
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1007,8 +1112,6 @@ function NextDepartureBanner({
 // Hook & formatters temps
 // ────────────────────────────────────────────────────────────────
 
-/** Force un re-render toutes les `intervalMs` ms tant que non `null`. Sert au
- *  rafraîchissement des compteurs « dans X min » sans polling supplémentaire. */
 function useNowTick(intervalMs: number | null): number {
   const [now, setNow] = useState<number>(() => Date.now());
   useEffect(() => {
@@ -1026,17 +1129,6 @@ function formatCountdownMMSS(ms: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-function formatRemainingShort(ms: number): string {
-  const sec = Math.max(0, Math.floor(ms / 1000));
-  if (sec < 60) return `${sec} s`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min} min`;
-  const h = Math.floor(min / 60);
-  const remainMin = min - h * 60;
-  if (remainMin === 0) return `${h} h`;
-  return `${h} h ${String(remainMin).padStart(2, "0")}`;
-}
-
 function formatDurationHuman(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)} s`;
   if (ms < 60 * 60_000) return `${Math.round(ms / 60_000)} min`;
@@ -1049,6 +1141,19 @@ function formatDurationHuman(ms: number): string {
 function formatClockTime(atMs: number): string {
   const d = new Date(atMs);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function relativeTime(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "";
+  const diffMs = Date.now() - then;
+  if (diffMs < 60_000) return "à l'instant";
+  const min = Math.floor(diffMs / 60_000);
+  if (min < 60) return `il y a ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `il y a ${h} h`;
+  const d = Math.floor(h / 24);
+  return `il y a ${d} j`;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1093,170 +1198,4 @@ export function groupErrorsByProduct(
     }
   }
   return order.map((pid) => map.get(pid)!).filter(Boolean);
-}
-
-// ────────────────────────────────────────────────────────────────
-// Utilitaires
-// ────────────────────────────────────────────────────────────────
-
-// ────────────────────────────────────────────────────────────────
-// Section « Liaisons manuelles » — jobs de LinkMarketplaceModal
-// ────────────────────────────────────────────────────────────────
-
-const LINK_MKT_LABEL: Record<LinkJob["marketplace"], { name: string; grad: string }> = {
-  pfs: { name: "PFS", grad: "linear-gradient(135deg,#4f46e5,#6366f1)" },
-  ankorstore: { name: "Ankorstore", grad: "linear-gradient(135deg,#0ea5e9,#38bdf8)" },
-  efashion: { name: "eFashion", grad: "linear-gradient(135deg,#db2777,#ec4899)" },
-  faire: { name: "Faire", grad: "linear-gradient(135deg,#f59e0b,#fbbf24)" },
-};
-
-function LinkJobsSection({
-  jobs,
-  onDismiss,
-}: {
-  jobs: LinkJob[];
-  onDismiss: (id: string) => void;
-}) {
-  const inProgress = jobs.filter((j) => j.status === "in_progress");
-  const errors = jobs.filter((j) => j.status === "error");
-  const done = jobs.filter((j) => j.status === "done");
-  return (
-    <details open className="border-b border-slate-100 group/section">
-      <summary className="px-4 py-2.5 flex items-center gap-2 cursor-pointer hover:bg-slate-50/60 bg-indigo-50/40 list-none">
-        <svg
-          className="w-3.5 h-3.5 text-slate-500 transition-transform group-open/section:rotate-90"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          strokeWidth={2.5}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-        <span className="text-sm font-semibold flex-1 text-indigo-800">Liaisons manuelles</span>
-        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-          {jobs.length}
-        </span>
-      </summary>
-      <div className="p-3 space-y-2.5">
-        {[...inProgress, ...errors, ...done].map((j) => (
-          <LinkJobCard key={j.id} job={j} onDismiss={() => onDismiss(j.id)} />
-        ))}
-      </div>
-    </details>
-  );
-}
-
-function LinkJobCard({ job, onDismiss }: { job: LinkJob; onDismiss: () => void }) {
-  const meta = LINK_MKT_LABEL[job.marketplace];
-  const borderCls =
-    job.status === "in_progress"
-      ? "border-slate-200"
-      : job.status === "done"
-        ? "border-emerald-200"
-        : "border-rose-200";
-  return (
-    <div className={`bg-white rounded-xl overflow-hidden shadow-sm border ${borderCls}`}>
-      <div className="px-3 py-2.5 flex items-center gap-2.5">
-        {job.productImage ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={getImageSrc(job.productImage, "thumb")}
-            alt=""
-            className="w-11 h-11 rounded-lg object-cover bg-slate-100 ring-1 ring-slate-200"
-          />
-        ) : (
-          <div className="w-11 h-11 rounded-lg bg-slate-100 ring-1 ring-slate-200 flex items-center justify-center text-[10px] text-slate-400 font-semibold">
-            IMG
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span
-              className="px-1.5 py-0.5 rounded-full text-white text-[9px] font-semibold uppercase tracking-wider"
-              style={{ background: meta.grad }}
-            >
-              {meta.name}
-            </span>
-            <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500 font-semibold">
-              {job.status === "in_progress"
-                ? "Liaison en cours"
-                : job.status === "done"
-                  ? "Terminée"
-                  : "Échec"}
-            </span>
-          </div>
-          <p className="text-[13px] font-semibold truncate text-slate-800 mt-0.5" title={job.productName}>
-            {job.productName}
-          </p>
-          <div className="text-[11px] font-mono text-slate-500 truncate">Réf. {job.reference}</div>
-          {job.status === "done" && job.linkedCount !== undefined && (
-            <div className="text-[11px] text-emerald-700 mt-0.5">
-              ✓ {job.linkedCount} variante{job.linkedCount > 1 ? "s" : ""} liée
-              {job.linkedCount > 1 ? "s" : ""}
-            </div>
-          )}
-          {job.status === "error" && job.error && (
-            <div className="text-[11px] text-rose-700 mt-0.5">{job.error}</div>
-          )}
-        </div>
-        <div className="shrink-0 flex flex-col items-end gap-1">
-          {job.status === "in_progress" && (
-            <svg
-              className="w-4 h-4 text-sky-600 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
-              aria-label="En cours"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth={4}
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              />
-            </svg>
-          )}
-          {job.status === "done" && (
-            <span className="w-5 h-5 rounded-full bg-emerald-500 text-white text-xs font-bold flex items-center justify-center">
-              ✓
-            </span>
-          )}
-          {job.status === "error" && (
-            <span className="w-5 h-5 rounded-full bg-rose-500 text-white text-xs font-bold flex items-center justify-center">
-              !
-            </span>
-          )}
-          {job.status !== "in_progress" && (
-            <button
-              type="button"
-              onClick={onDismiss}
-              className="text-slate-400 hover:text-slate-700 text-xs px-1"
-              aria-label="Retirer"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function relativeTime(iso: string): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "";
-  const diffMs = Date.now() - then;
-  if (diffMs < 60_000) return "à l'instant";
-  const min = Math.floor(diffMs / 60_000);
-  if (min < 60) return `il y a ${min} min`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `il y a ${h} h`;
-  const d = Math.floor(h / 24);
-  return `il y a ${d} j`;
 }

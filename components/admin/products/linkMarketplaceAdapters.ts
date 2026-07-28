@@ -89,8 +89,32 @@ export interface LinkResult {
   error?: string;
   linked?: number;
   syncWarning?: string;
+  /** Couleurs BJ orphelines créées côté marketplace (avec upload photo). */
   autoCreatedOnMarketplace?: number;
+  /** Variantes marketplace orphelines supprimées à la liaison. */
+  deletedOnMarketplace?: number;
+  /** Variantes marketplace orphelines importées en tant que ProductColor BJ liée. */
+  importedFromMarketplace?: number;
 }
+
+/** Intentions explicites de l'admin pour les couleurs non-mappées (résolues à l'étape 3/4).
+ *  - `colorsToCreate` : productColorId des couleurs BJ à créer côté marketplace (photo envoyée).
+ *  - `orphansToDelete` : candidate.id des variantes marketplace à supprimer.
+ *  - `orphansToImport` : candidate.id des variantes marketplace à créer en tant que ProductColor BJ + lier.
+ *  Chaque orpheline marketplace DOIT être soit dans orphansToDelete soit dans orphansToImport
+ *  (validation UI bloquante à l'étape 4). Les 2 tableaux sont disjoints.
+ */
+export interface LinkIntents {
+  colorsToCreate: string[];
+  orphansToDelete: string[];
+  orphansToImport: string[];
+}
+
+export const EMPTY_LINK_INTENTS: LinkIntents = {
+  colorsToCreate: [],
+  orphansToDelete: [],
+  orphansToImport: [],
+};
 
 // ─── Métadonnées UI par marketplace ─────────────────────────────────────────
 
@@ -198,16 +222,22 @@ export async function fetchLinkPreview(
 
 // ─── Dispatch : link ────────────────────────────────────────────────────────
 
-/** `mapping` : { productColorId → candidate.id } */
+/** `mapping` : { productColorId → candidate.id }
+ *  `intents` : couleurs BJ à créer côté marketplace + variantes marketplace à supprimer.
+ *  Si `intents.colorsToCreate` est vide **et** l'admin n'a mappé aucune orpheline BJ, la sync
+ *  post-liaison ne créera rien côté marketplace (comportement opt-in). Si des ids sont fournis,
+ *  le worker déclenche `updateProductInPlace({ forceFullSync: true })` pour matérialiser.
+ */
 export async function executeLink(
   preview: LinkPreview,
   mapping: Record<string, string>,
+  intents: LinkIntents = EMPTY_LINK_INTENTS,
 ): Promise<LinkResult> {
   if (!preview.marketplaceProductId) {
     return { success: false, error: "Aucun produit marketplace sélectionné." };
   }
   const entries = Object.entries(mapping).filter(([, cid]) => Boolean(cid));
-  if (entries.length === 0) {
+  if (entries.length === 0 && intents.colorsToCreate.length === 0) {
     return { success: false, error: "Aucune couleur liée." };
   }
 
@@ -230,6 +260,11 @@ export async function executeLink(
       preview.marketplaceProductId,
       brand,
       links,
+      {
+        colorsToCreate: intents.colorsToCreate,
+        orphansToDelete: intents.orphansToDelete,
+        orphansToImport: intents.orphansToImport,
+      },
     );
   }
 
@@ -242,6 +277,11 @@ export async function executeLink(
       preview.productId,
       preview.marketplaceProductId,
       links,
+      {
+        colorsToCreate: intents.colorsToCreate,
+        orphansToDelete: intents.orphansToDelete,
+        orphansToImport: intents.orphansToImport,
+      },
     );
   }
 
@@ -253,10 +293,34 @@ export async function executeLink(
       return { localColorId, efashionProductId, efashionColorId };
     });
     const referenceBase = (preview.extras?.referenceBase as string | undefined) ?? preview.searchQuery;
-    const res = await linkEfashionProductManually(preview.productId, referenceBase, links);
+    // Traduction candidate.id "efProductId:efColorId" → efashionProductId numérique
+    const orphansEfashionDelete = intents.orphansToDelete
+      .map((cid) => {
+        const cand = preview.candidates.find((c) => c.id === cid);
+        return cand?.extra?.efashionProductId as number | undefined;
+      })
+      .filter((n): n is number => typeof n === "number" && n > 0);
+    const orphansEfashionImport = intents.orphansToImport
+      .map((cid) => {
+        const cand = preview.candidates.find((c) => c.id === cid);
+        return cand?.extra?.efashionProductId as number | undefined;
+      })
+      .filter((n): n is number => typeof n === "number" && n > 0);
+    const res = await linkEfashionProductManually(
+      preview.productId,
+      referenceBase,
+      links,
+      {
+        colorsToCreate: intents.colorsToCreate,
+        orphansToDelete: orphansEfashionDelete,
+        orphansToImport: orphansEfashionImport,
+      },
+    );
     return {
       ...res,
       autoCreatedOnMarketplace: res.autoCreatedOnEfashion,
+      deletedOnMarketplace: res.deletedOnMarketplace,
+      importedFromMarketplace: res.importedFromMarketplace,
     };
   }
 
@@ -265,11 +329,17 @@ export async function executeLink(
     productColorId,
     faireVariantId,
   }));
-  return linkFaireProductManually(
+  const faireRes = await linkFaireProductManually(
     preview.productId,
     preview.marketplaceProductId,
     links,
+    {
+      colorsToCreate: intents.colorsToCreate,
+      orphansToDelete: intents.orphansToDelete,
+      orphansToImport: intents.orphansToImport,
+    },
   );
+  return faireRes;
 }
 
 // ─── Normalisation par marketplace ──────────────────────────────────────────

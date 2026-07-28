@@ -88,6 +88,9 @@ export function PfsAuditDrawer() {
   // Null = pas de bulk en cours. On remplace le body de la liste par un écran
   // dédié pour que la cliente sache ce qui se passe.
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  // Visionneuse plein écran d'une image produit (déclenchée par le clic sur
+  // l'icône loupe d'une tuile). Null = aucune image affichée.
+  const [lightbox, setLightbox] = useState<{ url: string; alt: string } | null>(null);
   const isMounted = useRef(true);
   const previousStatusRef = useRef<string | null>(null);
   const doneToastFiredRef = useRef(false);
@@ -659,6 +662,7 @@ export function PfsAuditDrawer() {
       onClose={close}
       accent="emerald"
       eyebrow="Audit PFS"
+      size="wide"
       title={
         <span className="flex items-center gap-1.5">
           {isRunning && <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
@@ -681,7 +685,7 @@ export function PfsAuditDrawer() {
               type="button"
               onClick={handleFixAll}
               disabled={fixableResults.length === 0 || bulkProgress !== null}
-              className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-[12.5px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition disabled:bg-slate-300 disabled:cursor-not-allowed"
+              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition disabled:bg-slate-300 disabled:cursor-not-allowed"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
@@ -692,94 +696,122 @@ export function PfsAuditDrawer() {
             </button>
           </div>
         ) : isRunning ? (
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-slate-500">Vous pouvez continuer à travailler</span>
+          <div className="flex items-center justify-between text-[12px]">
+            <span className="text-slate-500">Vous pouvez continuer à travailler pendant l'audit.</span>
             <button
               type="button"
               onClick={handleCancel}
-              className="text-rose-600 hover:text-rose-700 underline"
+              className="text-rose-600 hover:text-rose-700 underline font-semibold"
             >
               Arrêter l'audit
             </button>
           </div>
         ) : (
-          <div className="text-[11px] text-slate-500 text-center">
+          <div className="text-[12px] text-slate-500 text-center">
             Aucun audit en cours. Lancez-en un depuis la page Produits.
           </div>
         )
       }
     >
-      {/* Body */}
-      {bulkProgress ? (
-        <BulkApplyingScreen total={bulkProgress.total} />
-      ) : !state || status === "IDLE" ? (
-        <div className="p-6 text-center">
-          <p className="text-sm text-slate-500">Aucun audit lancé pour le moment.</p>
-          <p className="text-[11px] text-slate-400 mt-1">
-            Cliquez sur « Auditer PFS » en haut de la page Produits pour vérifier tous les produits liés à PFS.
-          </p>
-        </div>
-      ) : (
-        <>
-          {/* En-tête sticky : progression (si RUNNING) + tabs filtres */}
-          <div className="px-3 pt-3 pb-2 sticky top-0 bg-slate-50/95 backdrop-blur z-10 border-b border-slate-100 space-y-2">
-            {isRunning && (
-              <div>
-                <div className="flex items-center justify-between text-[11px] text-slate-600 mb-1">
-                  <span>
-                    <b className="text-slate-900 tabular-nums">{state.processed.toLocaleString("fr-FR")}</b>
-                    <span className="text-slate-400"> / {state.total.toLocaleString("fr-FR")}</span>
-                  </span>
-                  <span className="tabular-nums text-slate-500">{pct}%</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all"
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
+      {/* Body — size="wide" désactive le scroll de DrawerShell, on le
+          gère nous-mêmes sur la zone grille pour que le header (progression +
+          filtres) reste sticky en haut. */}
+      <div className="h-full flex flex-col min-h-0">
+        {bulkProgress ? (
+          <BulkApplyingScreen total={bulkProgress.total} />
+        ) : !state || status === "IDLE" ? (
+          <div className="flex-1 flex items-center justify-center p-10">
+            <div className="text-center max-w-md">
+              <div className="mx-auto w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 mb-4">
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
               </div>
-            )}
-            <div className="flex items-center flex-wrap gap-1 p-1 rounded-xl bg-white ring-1 ring-slate-200">
-              <FilterTab active={filter === "all"} onClick={() => setFilter("all")}>Tous ({counts.all})</FilterTab>
-              <FilterTab active={filter === "fixable"} onClick={() => setFilter("fixable")}>Corrigeables ({counts.fixable})</FilterTab>
-              <FilterTab active={filter === "manual"} onClick={() => setFilter("manual")}>À la main ({counts.manual})</FilterTab>
-              {counts.error > 0 && (
-                <FilterTab active={filter === "error"} onClick={() => setFilter("error")}>Erreurs ({counts.error})</FilterTab>
-              )}
+              <p className="text-base font-semibold text-slate-900">Aucun audit lancé pour le moment</p>
+              <p className="text-[13px] text-slate-500 mt-2 leading-relaxed">
+                Cliquez sur « Auditer PFS » en haut de la page Produits pour vérifier tous vos produits liés à PFS.
+              </p>
             </div>
           </div>
-
-          <div className="px-3 py-3 space-y-2">
-            {filtered.length === 0 ? (
-              <div className="text-center text-[12px] text-slate-500 py-8">
-                {isRunning
-                  ? "Aucun écart pour l'instant — les produits s'afficheront ici au fur et à mesure."
-                  : "Aucun résultat dans cette catégorie."}
+        ) : (
+          <>
+            {/* En-tête sticky : progression (si RUNNING) + tabs filtres */}
+            <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-200 flex-shrink-0 space-y-3">
+              {isRunning && (
+                <div>
+                  <div className="flex items-center justify-between text-[12px] text-slate-600 mb-1.5">
+                    <span>
+                      <b className="text-slate-900 tabular-nums">{state.processed.toLocaleString("fr-FR")}</b>
+                      <span className="text-slate-400"> / {state.total.toLocaleString("fr-FR")} produits vérifiés</span>
+                    </span>
+                    <span className="tabular-nums text-slate-500 font-semibold">{pct}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center flex-wrap gap-1 p-1 rounded-xl bg-slate-50 ring-1 ring-slate-200 w-fit">
+                <FilterTab active={filter === "all"} onClick={() => setFilter("all")}>Tous ({counts.all})</FilterTab>
+                <FilterTab active={filter === "fixable"} onClick={() => setFilter("fixable")}>Corrigeables ({counts.fixable})</FilterTab>
+                <FilterTab active={filter === "manual"} onClick={() => setFilter("manual")}>À la main ({counts.manual})</FilterTab>
+                {counts.error > 0 && (
+                  <FilterTab active={filter === "error"} onClick={() => setFilter("error")}>Erreurs ({counts.error})</FilterTab>
+                )}
               </div>
-            ) : (
-              filtered.map((r) => (
-                <ProductCard
-                  key={r.productId}
-                  result={r}
-                  expanded={expandedIds.has(r.productId)}
-                  justRevealed={justRevealedIdRef.current === r.productId}
-                  fixing={fixingProductId === r.productId}
-                  onToggleExpand={() =>
-                    setExpandedIds((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(r.productId)) next.delete(r.productId);
-                      else next.add(r.productId);
-                      return next;
-                    })
-                  }
-                  onIgnore={() => setDismissedIds((prev) => new Set(prev).add(r.productId))}
-                  onFix={() => handleFixOne(r)}
-                />
-              ))
-            )}
-          </div>
-        </>
+            </div>
+
+            {/* Zone scrollable — la grille remplit de gauche à droite puis
+                passe à la ligne suivante. Chaque carte s'anime à son tour
+                (animate-pfs-appear) car les IDs sont révélés un par un
+                toutes les 150 ms par tickReveal(). */}
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+              {filtered.length === 0 ? (
+                <div className="text-center text-[13px] text-slate-500 py-16">
+                  {isRunning
+                    ? "Aucun écart pour l'instant — les produits s'afficheront ici au fur et à mesure."
+                    : "Aucun résultat dans cette catégorie."}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 p-4">
+                  {filtered.map((r) => (
+                    <ProductCard
+                      key={r.productId}
+                      result={r}
+                      expanded={expandedIds.has(r.productId)}
+                      justRevealed={justRevealedIdRef.current === r.productId}
+                      fixing={fixingProductId === r.productId}
+                      onToggleExpand={() =>
+                        setExpandedIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(r.productId)) next.delete(r.productId);
+                          else next.add(r.productId);
+                          return next;
+                        })
+                      }
+                      onIgnore={() => setDismissedIds((prev) => new Set(prev).add(r.productId))}
+                      onFix={() => handleFixOne(r)}
+                      onZoomImage={() => {
+                        if (r.firstImage) setLightbox({ url: r.firstImage, alt: r.name });
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+      {lightbox && (
+        <ImageLightbox
+          url={lightbox.url}
+          alt={lightbox.alt}
+          onClose={() => setLightbox(null)}
+        />
       )}
     </DrawerShell>
   );
@@ -831,6 +863,7 @@ function ProductCard({
   onToggleExpand,
   onIgnore,
   onFix,
+  onZoomImage,
 }: {
   result: PfsAuditProductResult;
   expanded: boolean;
@@ -839,7 +872,10 @@ function ProductCard({
   onToggleExpand: () => void;
   onIgnore: () => void;
   onFix: () => void;
+  onZoomImage: () => void;
 }) {
+  const image = result.firstImage;
+  const showImage = !!image;
   const fixableCount = result.ok ? countPullableIssues(result.issues) : 0;
   const manualCount = result.ok ? result.issues.length - fixableCount : 0;
   const badgeClass = !result.ok
@@ -856,10 +892,10 @@ function ProductCard({
 
   return (
     <div
-      className={`relative rounded-xl bg-white ring-1 shadow-sm overflow-hidden ${!result.ok ? "ring-rose-200" : "ring-slate-200"} ${justRevealed ? "animate-pfs-appear" : ""}`}
+      className={`relative rounded-xl bg-white ring-1 shadow-sm overflow-hidden flex flex-col ${!result.ok ? "ring-rose-200" : "ring-slate-200"} ${justRevealed ? "animate-pfs-appear" : ""}`}
     >
       {fixing && (
-        <div className="absolute inset-0 z-10 bg-white/85 backdrop-blur-[2px] flex items-center justify-center gap-2 rounded-xl">
+        <div className="absolute inset-0 z-20 bg-white/85 backdrop-blur-[2px] flex items-center justify-center gap-2 rounded-xl">
           <div className="relative w-5 h-5">
             <div className="absolute inset-0 rounded-full border-2 border-slate-200" />
             <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-emerald-500 border-r-emerald-500 animate-spin" />
@@ -869,59 +905,98 @@ function ProductCard({
           </span>
         </div>
       )}
-      <div className="flex items-start gap-2.5 p-2.5">
-        <div className="w-11 h-11 rounded-lg bg-slate-100 overflow-hidden shrink-0">
-          {result.firstImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={result.firstImage} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-slate-100 to-slate-200" />
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 mb-0.5">
-            <span className="text-[9.5px] uppercase tracking-wider font-bold text-slate-400 truncate">{result.reference}</span>
-            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9.5px] font-bold ring-1 whitespace-nowrap ${badgeClass}`}>
-              {badgeLabel}
-            </span>
-          </div>
-          <div className="text-[12.5px] font-semibold text-slate-900 leading-tight line-clamp-2">{result.name}</div>
-          <div className={`text-[11px] mt-1 line-clamp-2 ${!result.ok ? "text-rose-700" : "text-slate-500"}`}>{subtitle}</div>
 
-          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+      {/* Image en gros sur le dessus (aspect carré). Clic ou clic sur la loupe
+          → ouverture de la visionneuse plein écran. La loupe est toujours
+          visible (coin haut-droite) mais s'agrandit au survol. */}
+      <button
+        type="button"
+        onClick={onZoomImage}
+        disabled={!showImage}
+        aria-label={showImage ? "Agrandir l'image" : "Pas d'image disponible"}
+        className="group relative w-full aspect-square bg-slate-100 overflow-hidden disabled:cursor-default"
+      >
+        {showImage ? (
+          // Double affichage volontaire : (1) background-image en CSS pour
+          // garantir que la vignette apparaisse même si <img> a un souci de
+          // rendu, (2) <img> par-dessus pour l'effet zoom au survol.
+          <div
+            className="w-full h-full transition-transform duration-300 group-hover:scale-105 bg-center bg-cover"
+            style={{ backgroundImage: `url("${image}")` }}
+            role="img"
+            aria-label={result.name}
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
+            <svg className="w-10 h-10 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+            </svg>
+          </div>
+        )}
+        {showImage && (
+          <>
+            {/* Voile sombre au survol pour faire ressortir la loupe */}
+            <span className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/20 transition-colors" />
+            {/* Icône loupe — toujours visible en petit, s'agrandit au survol */}
+            <span className="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 backdrop-blur ring-1 ring-slate-200 shadow-md flex items-center justify-center text-slate-700 group-hover:bg-white group-hover:scale-110 transition">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 7.5v6m-3-3h6" />
+              </svg>
+            </span>
+          </>
+        )}
+        {/* Badge écart en overlay bas-gauche pour rester lisible sur photo */}
+        <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ring-1 whitespace-nowrap ${badgeClass} shadow-sm`}>
+          {badgeLabel}
+        </span>
+      </button>
+
+      {/* Bloc infos + actions sous l'image */}
+      <div className="p-2.5 flex flex-col gap-1.5 flex-1">
+        <div className="text-[9.5px] uppercase tracking-wider font-bold text-slate-400 truncate">
+          {result.reference}
+        </div>
+        <div className="text-[12.5px] font-semibold text-slate-900 leading-tight line-clamp-2">
+          {result.name}
+        </div>
+        <div className={`text-[11px] line-clamp-2 ${!result.ok ? "text-rose-700" : "text-slate-500"}`}>
+          {subtitle}
+        </div>
+
+        <div className="flex items-center gap-1.5 mt-auto pt-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={onIgnore}
+            className="px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition"
+          >
+            Ignorer
+          </button>
+          {result.ok && fixableCount > 0 && (
             <button
               type="button"
-              onClick={onIgnore}
-              className="px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition"
+              onClick={onFix}
+              disabled={fixing}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-white bg-slate-900 hover:bg-black shadow-sm disabled:bg-slate-400 disabled:cursor-not-allowed"
             >
-              Ignorer
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M6 5l7 7-7 7" />
+              </svg>
+              Modifier
             </button>
-            {result.ok && fixableCount > 0 && (
-              <button
-                type="button"
-                onClick={onFix}
-                disabled={fixing}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-white bg-slate-900 hover:bg-black shadow-sm disabled:bg-slate-400 disabled:cursor-not-allowed"
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M6 5l7 7-7 7" />
-                </svg>
-                Modifier
-              </button>
-            )}
-            {result.ok && result.issues.length > 0 && (
-              <button
-                type="button"
-                onClick={onToggleExpand}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-50"
-              >
-                <svg className={`w-3 h-3 transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-                Détail
-              </button>
-            )}
-          </div>
+          )}
+          {result.ok && result.issues.length > 0 && (
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-50 ml-auto"
+            >
+              <svg className={`w-3 h-3 transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+              Détail
+            </button>
+          )}
         </div>
       </div>
 
@@ -930,6 +1005,67 @@ function ProductCard({
           {result.issues.map((iss, i) => (
             <IssueLine key={i} issue={iss} />
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Visionneuse plein écran (lightbox) pour agrandir la photo produit.
+ * ESC ou clic sur le fond noir ferment. Bouton croix en haut à droite.
+ */
+function ImageLightbox({
+  url,
+  alt,
+  onClose,
+}: {
+  url: string;
+  alt: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    // Bloque le scroll de la page pendant que la lightbox est ouverte
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt}
+      onClick={onClose}
+      className="fixed inset-0 z-[10000] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-6 animate-fadeIn"
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Fermer"
+        className="absolute top-4 right-4 w-11 h-11 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur ring-1 ring-white/30 flex items-center justify-center text-white transition"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt={alt}
+        onClick={(e) => e.stopPropagation()}
+        className="max-w-[92vw] max-h-[88vh] object-contain rounded-xl shadow-2xl"
+      />
+      {alt && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-white/10 backdrop-blur text-white text-sm font-medium max-w-[80vw] truncate ring-1 ring-white/20">
+          {alt}
         </div>
       )}
     </div>

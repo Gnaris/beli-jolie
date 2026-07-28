@@ -25,6 +25,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { findClientCardByEmailForDedup } from "@/lib/marketplace-client-dedup";
 import {
   ankorstoreCentsToEuros,
   ankorstoreListOrders,
@@ -141,6 +142,22 @@ export async function upsertClientCardFromAnkorstoreRetailer(
       });
       return existingBySiret.id;
     }
+  }
+
+  // Étape 2 bis : fallback email cross-marketplace (rejette les emails
+  // synthétiques `orders+xxx@ankorstore.com` qui sont uniques par commande).
+  const existingByEmail = await findClientCardByEmailForDedup(tenantId, retailer.email);
+  if (existingByEmail) {
+    await prisma.adminClientCard.update({
+      where: { id: existingByEmail.id },
+      data: {
+        ankorstoreRetailerId: retailerId,
+        hasAnkorstore: true,
+        lastOrderAt: maxDate(existingByEmail.lastOrderAt, effectiveOrderDate),
+        ...buildOptionalCardFields(retailer),
+      },
+    });
+    return existingByEmail.id;
   }
 
   // Étape 3 : création d'une nouvelle fiche

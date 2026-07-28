@@ -138,11 +138,13 @@ function IconBtn({
   title: string;
   ariaLabel: string;
 }) {
+  // Boutons placés à l'intérieur du badge, sous le nom : fond blanc pour se
+  // détacher de la teinte d'état de la carte (verte, orange, grise…).
   const toneClasses = {
-    success: "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] hover:bg-[#DCFCE7]",
-    warning: "bg-[#FFFBEB] text-[#92400E] border-[#FDE68A] hover:bg-[#FEF3C7]",
-    danger: "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2]",
-    neutral: "bg-bg-secondary text-text-secondary border-border hover:bg-bg-tertiary",
+    success: "bg-white text-[#15803D] border-[#BBF7D0] hover:bg-[#F0FDF4]",
+    warning: "bg-white text-[#92400E] border-[#FDE68A] hover:bg-[#FFFBEB]",
+    danger: "bg-white text-[#DC2626] border-[#FECACA] hover:bg-[#FEF2F2]",
+    neutral: "bg-white text-text-secondary border-border hover:bg-bg-secondary",
   }[tone];
 
   return (
@@ -150,7 +152,7 @@ function IconBtn({
       type="button"
       onClick={onClick}
       disabled={disabled || busy}
-      className={`inline-flex items-center justify-center w-7 h-7 rounded-full border transition-colors ${toneClasses} ${
+      className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors ${toneClasses} ${
         disabled || busy ? "opacity-50 cursor-wait" : ""
       }`}
       title={title}
@@ -187,7 +189,69 @@ const MARKETPLACE_META: Record<
   },
 };
 
-function StatusBadge({
+// Classes de la carte selon l'état (priorité : disabled > loading > awaiting
+// shooting > syncRequired > online > offline). Retourne :
+//  - cardClasses  : fond + bordure du wrapper `rounded-2xl`
+//  - textClasses  : couleur de texte du label
+//  - dividerClass : couleur du filet séparant nom / boutons d'action
+function getCardStateClasses({
+  state,
+  disabledForProduct,
+  awaitingShooting,
+}: {
+  state: MarketplaceBadgeState;
+  disabledForProduct: boolean;
+  awaitingShooting: boolean;
+}) {
+  if (disabledForProduct) {
+    return {
+      cardClasses: "border-border-dark",
+      textClasses: "text-text-muted",
+      dividerClass: "border-border-dark/60",
+    };
+  }
+  if (state.loading) {
+    return {
+      cardClasses: "bg-[#EEF2FF] border-[#C7D2FE] cursor-wait",
+      textClasses: "text-[#4F46E5]",
+      dividerClass: "border-[#C7D2FE]",
+    };
+  }
+  if (awaitingShooting) {
+    return {
+      cardClasses: "bg-[#FEF08A] border-[#EAB308]",
+      textClasses: "text-[#713F12]",
+      dividerClass: "border-[#EAB308]/70",
+    };
+  }
+  if (state.syncRequired) {
+    return {
+      cardClasses: "bg-[#FEF3C7] border-[#FDE68A]",
+      textClasses: "text-[#B45309]",
+      dividerClass: "border-[#FDE68A]",
+    };
+  }
+  if (state.online) {
+    return {
+      cardClasses: "bg-[#DCFCE7] border-[#BBF7D0]",
+      textClasses: "text-[#15803D]",
+      dividerClass: "border-[#BBF7D0]/70",
+    };
+  }
+  return {
+    cardClasses: "bg-bg-tertiary border-border",
+    textClasses: "text-text-muted",
+    dividerClass: "border-border",
+  };
+}
+
+/**
+ * Badge marketplace au format carte : nom cliquable en 1ère rangée, boutons
+ * d'action (Synchroniser / Lier / Délier) en 2ème rangée séparés par un filet.
+ * Le fond suit la couleur d'état (vert = en ligne, orange = synchro nécessaire,
+ * gris = hors ligne, jaune = shooting, indigo = en cours, hachures = désactivé).
+ */
+function MarketplaceCard({
   state,
   marketplace,
   label,
@@ -200,43 +264,28 @@ function StatusBadge({
   disabledReason = "product",
   awaitingShooting = false,
   awaitingShootingLabel,
+  actions,
 }: {
   state: MarketplaceBadgeState;
-  /** Sert à choisir le logo rond coloré (P / A / E / F). */
   marketplace: MarketplaceKey;
   label: string;
-  /** Texte secondaire affiché à droite du nom (ex: "· Belicia"). */
   sublabel?: string | null;
   onClick: () => void;
   onCancelSyncRequired?: () => void;
   title: string;
   loadingLabel: string;
-  /** Marketplace désactivée (soit pour ce produit, soit globalement). */
   disabledForProduct?: boolean;
-  /** Raison de la désactivation :
-   *   - "product" : Product.*Enabled=false (activable par la cliente)
-   *   - "global"  : kill switch tenant (Paramètres > Marketplaces)
-   *   - "maintenance" : maintenance plateforme (contrôle Beli & Jolie) */
   disabledReason?: "product" | "global" | "maintenance";
-  /** Produit en attente de validation shooting (lot eFashion non commité). */
   awaitingShooting?: boolean;
-  /** Texte du sublabel jaune (ex: "en attente shooting"). */
   awaitingShootingLabel?: string;
+  actions?: React.ReactNode;
 }) {
   const mp = MARKETPLACE_META[marketplace];
-
-  // Priorité d'affichage : disabled > loading > awaitingShooting > syncRequired > online > offline.
-  const chipClasses = disabledForProduct
-    ? "text-text-muted border-border-dark cursor-not-allowed"
-    : state.loading
-    ? "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE] cursor-wait"
-    : awaitingShooting
-      ? "bg-[#FEF08A] text-[#713F12] border-[#EAB308] hover:bg-[#FDE047] cursor-default"
-      : state.syncRequired
-        ? "bg-[#FEF3C7] text-[#B45309] border-[#FDE68A] hover:bg-[#FDE68A] cursor-pointer"
-        : state.online
-          ? "bg-[#DCFCE7] text-[#15803D] border-[#BBF7D0] cursor-default"
-          : "bg-bg-tertiary text-text-muted border-border hover:bg-bg-secondary cursor-pointer";
+  const { cardClasses, textClasses, dividerClass } = getCardStateClasses({
+    state,
+    disabledForProduct,
+    awaitingShooting,
+  });
 
   const disabledStyle: React.CSSProperties | undefined = disabledForProduct
     ? {
@@ -245,15 +294,38 @@ function StatusBadge({
       }
     : undefined;
 
-  const buttonEl = (
+  const headerCursor = disabledForProduct
+    ? "cursor-not-allowed"
+    : state.loading
+      ? "cursor-wait"
+      : awaitingShooting || state.online
+        ? "cursor-default"
+        : "cursor-pointer";
+
+  // Sous-libellé (2ᵉ ligne) — affiché seulement quand pertinent, en gras.
+  // Priorité identique au header : loading > awaiting shooting > syncRequired
+  // > online+sublabel (marque PFS…). Un état simple « en ligne » sans marque
+  // ou « hors ligne » n'affiche rien pour garder la carte compacte.
+  let secondaryLabel: string | null = null;
+  if (!disabledForProduct && !state.loading) {
+    if (awaitingShooting) {
+      secondaryLabel = awaitingShootingLabel ?? "en attente shooting";
+    } else if (state.syncRequired) {
+      secondaryLabel = "synchro nécessaire";
+    } else if (state.online && sublabel) {
+      secondaryLabel = sublabel;
+    }
+  }
+
+  const headerEl = (
     <button
       type="button"
       onClick={onClick}
       disabled={state.loading || disabledForProduct}
-      className={`inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold font-body border transition-all ${chipClasses}`}
-      style={disabledStyle}
+      className={`flex flex-col items-center justify-center gap-0.5 py-0.5 text-[11px] font-semibold font-body bg-transparent border-0 w-full ${textClasses} ${headerCursor}`}
       title={disabledForProduct ? undefined : title}
     >
+      <span className="inline-flex items-center justify-center gap-1.5">
         {/* Logo rond avec initiale du marketplace */}
         <span
           className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[8.5px] font-extrabold flex-shrink-0"
@@ -268,7 +340,7 @@ function StatusBadge({
           {mp.letter}
         </span>
 
-        {/* Label */}
+        {/* Label principal (1ère ligne) */}
         {disabledForProduct ? (
           <span className="line-through decoration-[1.5px] decoration-text-muted">
             {label}
@@ -278,32 +350,11 @@ function StatusBadge({
             {Icon.Spinner}
             {loadingLabel}
           </span>
-        ) : awaitingShooting ? (
-          <span>
-            {label} <span className="opacity-60">·</span>{" "}
-            <span className="font-bold">
-              {awaitingShootingLabel ?? "en attente shooting"}
-            </span>
-          </span>
-        ) : state.syncRequired ? (
-          <span>
-            {label} <span className="opacity-60">·</span>{" "}
-            <span className="font-bold">synchro nécessaire</span>
-          </span>
-        ) : state.online ? (
-          sublabel ? (
-            <span>
-              {label} <span className="opacity-60">·</span>{" "}
-              <span className="font-bold">{sublabel}</span>
-            </span>
-          ) : (
-            <span>{label}</span>
-          )
         ) : (
           <span>{label}</span>
         )}
 
-        {/* Dot d'état à droite */}
+        {/* Dot d'état */}
         {!state.loading && !disabledForProduct && (
           awaitingShooting ? (
             <span className="relative inline-flex">
@@ -326,6 +377,14 @@ function StatusBadge({
         {disabledForProduct && (
           <span className="w-1.5 h-1.5 rounded-full bg-text-muted" />
         )}
+      </span>
+
+      {/* Sous-libellé (2ᵉ ligne) — « synchro nécessaire », marque PFS, etc. */}
+      {secondaryLabel && (
+        <span className="text-[10px] font-bold leading-tight">
+          {secondaryLabel}
+        </span>
+      )}
     </button>
   );
 
@@ -336,14 +395,28 @@ function StatusBadge({
       ? `${label} · marketplace désactivée dans Paramètres`
       : `${label} · marketplace désactivée pour ce produit`;
 
+  const cardEl = (
+    <div
+      className={`inline-flex flex-col items-stretch rounded-2xl border pt-1 pb-1.5 px-2.5 w-44 transition-colors ${cardClasses}`}
+      style={disabledStyle}
+    >
+      {headerEl}
+      {actions && (
+        <div className={`flex items-center justify-center gap-1 pt-1 mt-0.5 border-t ${dividerClass}`}>
+          {actions}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <span className="group relative inline-flex">
       {disabledForProduct ? (
         <Tooltip content={disabledTooltip}>
-          {buttonEl}
+          {cardEl}
         </Tooltip>
       ) : (
-        buttonEl
+        cardEl
       )}
       {state.syncRequired && !awaitingShooting && onCancelSyncRequired && (
         <button
@@ -360,23 +433,6 @@ function StatusBadge({
         </button>
       )}
     </span>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// Marketplace block : badge + actions inline groupés
-// Chaque bloc reste compact, avec un séparateur visuel discret entre blocs.
-// ──────────────────────────────────────────────────────────────────────────
-
-function MarketplaceBlock({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="inline-flex items-center gap-1">
-      {children}
-    </div>
   );
 }
 
@@ -423,7 +479,7 @@ export function MarketplaceStatusButtons({
   const ankorstoreMaintenance = ankorstoreMaintenanceProp ?? maintenanceCtx.ankorstore;
   const efashionMaintenance = efashionMaintenanceProp ?? maintenanceCtx.efashion;
   const faireMaintenance = faireMaintenanceProp ?? maintenanceCtx.faire;
-  const { enqueue, items } = useMarketplaceRefreshQueue();
+  const { enqueue, items, getRecentClientSuccessAt } = useMarketplaceRefreshQueue();
   const {
     addProduct: addToEfashionShootingBatch,
     items: efashionShootingItems,
@@ -472,6 +528,11 @@ export function MarketplaceStatusButtons({
     [items, productId],
   );
 
+  const pfsClientRecent = getRecentClientSuccessAt(productId, "pfs");
+  const ankorstoreClientRecent = getRecentClientSuccessAt(productId, "ankorstore");
+  const efashionClientRecent = getRecentClientSuccessAt(productId, "efashion");
+  const faireClientRecent = getRecentClientSuccessAt(productId, "faire");
+
   const efashionState = useMemo(
     () =>
       computeMarketplaceBadgeState(
@@ -479,20 +540,46 @@ export function MarketplaceStatusButtons({
         efashionOp,
         "efashion",
         efashionSyncRequired,
+        undefined,
+        efashionClientRecent,
       ),
-    [efashionLinked, efashionOp, efashionSyncRequired],
+    [efashionLinked, efashionOp, efashionSyncRequired, efashionClientRecent],
   );
   const pfsState = useMemo(
-    () => computeMarketplaceBadgeState(pfsProductId, pfsOp, "pfs", pfsSyncRequired),
-    [pfsProductId, pfsOp, pfsSyncRequired],
+    () =>
+      computeMarketplaceBadgeState(
+        pfsProductId,
+        pfsOp,
+        "pfs",
+        pfsSyncRequired,
+        undefined,
+        pfsClientRecent,
+      ),
+    [pfsProductId, pfsOp, pfsSyncRequired, pfsClientRecent],
   );
   const ankorstoreState = useMemo(
-    () => computeMarketplaceBadgeState(ankorsProductId, ankorstoreOp, "ankorstore", ankorsSyncRequired),
-    [ankorsProductId, ankorstoreOp, ankorsSyncRequired],
+    () =>
+      computeMarketplaceBadgeState(
+        ankorsProductId,
+        ankorstoreOp,
+        "ankorstore",
+        ankorsSyncRequired,
+        undefined,
+        ankorstoreClientRecent,
+      ),
+    [ankorsProductId, ankorstoreOp, ankorsSyncRequired, ankorstoreClientRecent],
   );
   const faireState = useMemo(
-    () => computeMarketplaceBadgeState(faireProductId, faireOp, "faire", faireSyncRequired),
-    [faireProductId, faireOp, faireSyncRequired],
+    () =>
+      computeMarketplaceBadgeState(
+        faireProductId,
+        faireOp,
+        "faire",
+        faireSyncRequired,
+        undefined,
+        faireClientRecent,
+      ),
+    [faireProductId, faireOp, faireSyncRequired, faireClientRecent],
   );
 
   // ── Refresh routeur après publication réussie ──
@@ -790,355 +877,359 @@ export function MarketplaceStatusButtons({
 
   return (
     <>
-      <div className="inline-flex items-center gap-2 flex-wrap">
+      <div className="inline-flex items-start gap-2 flex-wrap">
         {/* ─── Paris Fashion Shop ──────────────────────────────────────── */}
         {hasPfsConfig && (
-          <MarketplaceBlock>
-            <StatusBadge
-              state={pfsState}
-              marketplace="pfs"
-              label="PFS"
-              sublabel={pfsProductId ? pfsBrandName : null}
-              disabledForProduct={pfsDisabledOverall}
-              disabledReason={pfsDisabledReason}
-              onClick={() => {
-                if (pfsDisabledOverall) return;
-                if (pfsState.loading) return;
-                if (pfsState.syncRequired) {
-                  handleResyncPfs();
-                  return;
-                }
-                if (pfsState.online) return;
-                setConfirmPfsOpen(true);
-              }}
-              onCancelSyncRequired={() =>
-                handleCancelSyncRequired("pfs", "Paris Fashion Shop")
+          <MarketplaceCard
+            state={pfsState}
+            marketplace="pfs"
+            label="PFS"
+            sublabel={pfsProductId ? pfsBrandName : null}
+            disabledForProduct={pfsDisabledOverall}
+            disabledReason={pfsDisabledReason}
+            onClick={() => {
+              if (pfsDisabledOverall) return;
+              if (pfsState.loading) return;
+              if (pfsState.syncRequired) {
+                handleResyncPfs();
+                return;
               }
-              title={
-                pfsState.loading
-                  ? "Publication en cours sur Paris Fashion Shop…"
-                  : pfsState.syncRequired
-                    ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à Paris Fashion Shop"
-                    : pfsState.online
-                      ? "Disponible sur Paris Fashion Shop"
-                      : "Non disponible — cliquez pour publier sur Paris Fashion Shop"
-              }
-              loadingLabel="Publication PFS en cours…"
-            />
+              if (pfsState.online) return;
+              setConfirmPfsOpen(true);
+            }}
+            onCancelSyncRequired={() =>
+              handleCancelSyncRequired("pfs", "Paris Fashion Shop")
+            }
+            title={
+              pfsState.loading
+                ? "Publication en cours sur Paris Fashion Shop…"
+                : pfsState.syncRequired
+                  ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à Paris Fashion Shop"
+                  : pfsState.online
+                    ? "Disponible sur Paris Fashion Shop"
+                    : "Non disponible — cliquez pour publier sur Paris Fashion Shop"
+            }
+            loadingLabel="Publication PFS en cours…"
+            actions={
+              <>
+                {pfsProductId && (
+                  <IconBtn
+                    tone="success"
+                    icon={Icon.Refresh}
+                    onClick={() => {
+                      if (pfsState.loading) return;
+                      setResyncPfsOpen(true);
+                    }}
+                    disabled={pfsState.loading || pfsDisabledOverall}
+                    title={
+                      pfsState.loading
+                        ? "Une opération PFS est déjà en cours…"
+                        : "Resynchroniser toutes les données sur Paris Fashion Shop"
+                    }
+                    ariaLabel="Resynchroniser sur Paris Fashion Shop"
+                  />
+                )}
 
-            {pfsProductId && (
-              <IconBtn
-                tone="success"
-                icon={Icon.Refresh}
-                onClick={() => {
-                  if (pfsState.loading) return;
-                  setResyncPfsOpen(true);
-                }}
-                disabled={pfsState.loading || pfsDisabledOverall}
-                title={
-                  pfsState.loading
-                    ? "Une opération PFS est déjà en cours…"
-                    : "Resynchroniser toutes les données sur Paris Fashion Shop"
-                }
-                ariaLabel="Resynchroniser sur Paris Fashion Shop"
-              />
-            )}
+                {pfsProductId && !pfsBrandName && (
+                  <IconBtn
+                    tone="warning"
+                    icon={Icon.Tag}
+                    onClick={() => setBrandPickerOpen(true)}
+                    disabled={pfsDisabledOverall}
+                    title="Renseigner la marque PFS de ce produit"
+                    ariaLabel="Renseigner la marque PFS"
+                  />
+                )}
 
-            {pfsProductId && !pfsBrandName && (
-              <IconBtn
-                tone="warning"
-                icon={Icon.Tag}
-                onClick={() => setBrandPickerOpen(true)}
-                disabled={pfsDisabledOverall}
-                title="Renseigner la marque PFS de ce produit"
-                ariaLabel="Renseigner la marque PFS"
-              />
-            )}
+                <IconBtn
+                  tone="neutral"
+                  icon={Icon.Link}
+                  onClick={() => setLinkPfsOpen(true)}
+                  disabled={pfsDisabledOverall}
+                  title={
+                    pfsProductId
+                      ? "Re-lier vers une autre fiche Paris Fashion Shop"
+                      : "Lier à une fiche Paris Fashion Shop existante"
+                  }
+                  ariaLabel={
+                    pfsProductId
+                      ? "Re-lier à une autre fiche PFS"
+                      : "Lier à une fiche PFS existante"
+                  }
+                />
 
-            <IconBtn
-              tone="neutral"
-              icon={Icon.Link}
-              onClick={() => setLinkPfsOpen(true)}
-              disabled={pfsDisabledOverall}
-              title={
-                pfsProductId
-                  ? "Re-lier vers une autre fiche Paris Fashion Shop"
-                  : "Lier à une fiche Paris Fashion Shop existante"
-              }
-              ariaLabel={
-                pfsProductId
-                  ? "Re-lier à une autre fiche PFS"
-                  : "Lier à une fiche PFS existante"
-              }
-            />
-
-            {pfsProductId && (
-              <IconBtn
-                tone="danger"
-                icon={Icon.Unlink}
-                onClick={handleUnlinkPfs}
-                busy={unlinkPfsBusy}
-                disabled={pfsDisabledOverall}
-                title="Délier ce produit de sa fiche PFS (efface la liaison côté site sans toucher à PFS)"
-                ariaLabel="Délier ce produit de Paris Fashion Shop"
-              />
-            )}
-          </MarketplaceBlock>
+                {pfsProductId && (
+                  <IconBtn
+                    tone="danger"
+                    icon={Icon.Unlink}
+                    onClick={handleUnlinkPfs}
+                    busy={unlinkPfsBusy}
+                    disabled={pfsDisabledOverall}
+                    title="Délier ce produit de sa fiche PFS (efface la liaison côté site sans toucher à PFS)"
+                    ariaLabel="Délier ce produit de Paris Fashion Shop"
+                  />
+                )}
+              </>
+            }
+          />
         )}
 
         {/* ─── Ankorstore ──────────────────────────────────────────────── */}
         {showAnkorstore && (
-          <MarketplaceBlock>
-            <StatusBadge
-              state={ankorstoreState}
-              marketplace="ankorstore"
-              label="Ankorstore"
-              sublabel={null}
-              disabledForProduct={ankorsDisabledOverall}
-              disabledReason={ankorsDisabledReason}
-              onClick={() => {
-                if (ankorsDisabledOverall) return;
-                if (ankorstoreState.loading) return;
-                if (ankorstoreState.syncRequired) {
-                  handleResyncAnkorstore();
-                  return;
-                }
-                if (ankorstoreState.online) return;
-                setConfirmAkOpen(true);
-              }}
-              onCancelSyncRequired={() =>
-                handleCancelSyncRequired("ankorstore", "Ankorstore")
+          <MarketplaceCard
+            state={ankorstoreState}
+            marketplace="ankorstore"
+            label="Ankorstore"
+            sublabel={null}
+            disabledForProduct={ankorsDisabledOverall}
+            disabledReason={ankorsDisabledReason}
+            onClick={() => {
+              if (ankorsDisabledOverall) return;
+              if (ankorstoreState.loading) return;
+              if (ankorstoreState.syncRequired) {
+                handleResyncAnkorstore();
+                return;
               }
-              title={
-                ankorstoreState.loading
-                  ? ankorstoreOp?.status === "awaiting_callback"
-                    ? "Ankorstore traite votre demande (1 à 5 min)…"
-                    : "Publication en cours sur Ankorstore…"
-                  : ankorstoreState.syncRequired
-                    ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à Ankorstore"
-                    : ankorstoreState.online
-                      ? "Disponible sur Ankorstore"
-                      : "Non disponible — cliquez pour publier sur Ankorstore"
-              }
-              loadingLabel="Publication Ankorstore en cours…"
-            />
+              if (ankorstoreState.online) return;
+              setConfirmAkOpen(true);
+            }}
+            onCancelSyncRequired={() =>
+              handleCancelSyncRequired("ankorstore", "Ankorstore")
+            }
+            title={
+              ankorstoreState.loading
+                ? ankorstoreOp?.status === "awaiting_callback"
+                  ? "Ankorstore traite votre demande (1 à 5 min)…"
+                  : "Publication en cours sur Ankorstore…"
+                : ankorstoreState.syncRequired
+                  ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à Ankorstore"
+                  : ankorstoreState.online
+                    ? "Disponible sur Ankorstore"
+                    : "Non disponible — cliquez pour publier sur Ankorstore"
+            }
+            loadingLabel="Publication Ankorstore en cours…"
+            actions={
+              <>
+                {ankorsProductId && (
+                  <IconBtn
+                    tone="success"
+                    icon={Icon.Refresh}
+                    onClick={() => {
+                      if (ankorstoreState.loading) return;
+                      setResyncAkOpen(true);
+                    }}
+                    disabled={ankorstoreState.loading || ankorsDisabledOverall}
+                    title={
+                      ankorstoreState.loading
+                        ? "Une opération Ankorstore est déjà en cours…"
+                        : "Resynchroniser toutes les données sur Ankorstore"
+                    }
+                    ariaLabel="Resynchroniser sur Ankorstore"
+                  />
+                )}
 
-            {ankorsProductId && (
-              <IconBtn
-                tone="success"
-                icon={Icon.Refresh}
-                onClick={() => {
-                  if (ankorstoreState.loading) return;
-                  setResyncAkOpen(true);
-                }}
-                disabled={ankorstoreState.loading || ankorsDisabledOverall}
-                title={
-                  ankorstoreState.loading
-                    ? "Une opération Ankorstore est déjà en cours…"
-                    : "Resynchroniser toutes les données sur Ankorstore"
-                }
-                ariaLabel="Resynchroniser sur Ankorstore"
-              />
-            )}
+                <IconBtn
+                  tone="neutral"
+                  icon={Icon.Link}
+                  onClick={() => setLinkAkOpen(true)}
+                  disabled={ankorsDisabledOverall}
+                  title={
+                    ankorsProductId
+                      ? "Re-lier vers un autre produit Ankorstore"
+                      : "Lier à un produit Ankorstore existant"
+                  }
+                  ariaLabel={
+                    ankorsProductId
+                      ? "Re-lier à un autre produit Ankorstore"
+                      : "Lier à un produit Ankorstore existant"
+                  }
+                />
 
-            <IconBtn
-              tone="neutral"
-              icon={Icon.Link}
-              onClick={() => setLinkAkOpen(true)}
-              disabled={ankorsDisabledOverall}
-              title={
-                ankorsProductId
-                  ? "Re-lier vers un autre produit Ankorstore"
-                  : "Lier à un produit Ankorstore existant"
-              }
-              ariaLabel={
-                ankorsProductId
-                  ? "Re-lier à un autre produit Ankorstore"
-                  : "Lier à un produit Ankorstore existant"
-              }
-            />
-
-            {ankorsProductId && (
-              <IconBtn
-                tone="danger"
-                icon={Icon.Unlink}
-                onClick={handleUnlinkAnkorstore}
-                busy={unlinkAkBusy}
-                disabled={ankorsDisabledOverall}
-                title="Délier ce produit de sa fiche Ankorstore (efface la liaison côté site sans toucher à Ankorstore)"
-                ariaLabel="Délier ce produit de Ankorstore"
-              />
-            )}
-          </MarketplaceBlock>
+                {ankorsProductId && (
+                  <IconBtn
+                    tone="danger"
+                    icon={Icon.Unlink}
+                    onClick={handleUnlinkAnkorstore}
+                    busy={unlinkAkBusy}
+                    disabled={ankorsDisabledOverall}
+                    title="Délier ce produit de sa fiche Ankorstore (efface la liaison côté site sans toucher à Ankorstore)"
+                    ariaLabel="Délier ce produit de Ankorstore"
+                  />
+                )}
+              </>
+            }
+          />
         )}
 
         {/* ─── eFashion Paris ──────────────────────────────────────────── */}
         {showEfashion && (
-          <MarketplaceBlock>
-            <StatusBadge
-              state={efashionState}
-              marketplace="efashion"
-              label="eFashion"
-              sublabel={null}
-              disabledForProduct={efashionDisabledOverall}
-              disabledReason={efashionDisabledReason}
-              awaitingShooting={efashionAwaitingShooting}
-              awaitingShootingLabel={efashionShootingBadgeLabel}
-              onClick={() => {
-                if (efashionDisabledOverall) return;
-                if (efashionState.loading) return;
-                if (efashionAwaitingShooting) return;
-                if (efashionState.syncRequired) {
-                  handleResyncEfashion();
-                  return;
-                }
-                if (efashionLinked) return;
-                setConfirmEfOpen(true);
-              }}
-              onCancelSyncRequired={() =>
-                handleCancelSyncRequired("efashion", "eFashion Paris")
+          <MarketplaceCard
+            state={efashionState}
+            marketplace="efashion"
+            label="eFashion"
+            sublabel={null}
+            disabledForProduct={efashionDisabledOverall}
+            disabledReason={efashionDisabledReason}
+            awaitingShooting={efashionAwaitingShooting}
+            awaitingShootingLabel={efashionShootingBadgeLabel}
+            onClick={() => {
+              if (efashionDisabledOverall) return;
+              if (efashionState.loading) return;
+              if (efashionAwaitingShooting) return;
+              if (efashionState.syncRequired) {
+                handleResyncEfashion();
+                return;
               }
-              title={
-                efashionState.loading
-                  ? "Synchronisation eFashion en cours…"
-                  : efashionAwaitingShooting
-                    ? "Dans le lot shooting eFashion — en attente de validation avant envoi"
-                    : efashionState.syncRequired
-                      ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à eFashion Paris"
-                      : efashionLinked
-                        ? "Produit lié à eFashion Paris"
-                        : "Non disponible — cliquez pour publier sur eFashion Paris"
-              }
-              loadingLabel="Sync eFashion…"
-            />
+              if (efashionLinked) return;
+              setConfirmEfOpen(true);
+            }}
+            onCancelSyncRequired={() =>
+              handleCancelSyncRequired("efashion", "eFashion Paris")
+            }
+            title={
+              efashionState.loading
+                ? "Synchronisation eFashion en cours…"
+                : efashionAwaitingShooting
+                  ? "Dans le lot shooting eFashion — en attente de validation avant envoi"
+                  : efashionState.syncRequired
+                    ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à eFashion Paris"
+                    : efashionLinked
+                      ? "Produit lié à eFashion Paris"
+                      : "Non disponible — cliquez pour publier sur eFashion Paris"
+            }
+            loadingLabel="Sync eFashion…"
+            actions={
+              <>
+                {efashionLinked && (
+                  <IconBtn
+                    tone="success"
+                    icon={Icon.Refresh}
+                    onClick={() => {
+                      if (efashionState.loading) return;
+                      setResyncEfOpen(true);
+                    }}
+                    disabled={efashionState.loading || efashionDisabledOverall}
+                    title="Resynchroniser stock + visibilité + prix sur eFashion"
+                    ariaLabel="Resynchroniser sur eFashion"
+                  />
+                )}
 
-            {efashionLinked && (
-              <IconBtn
-                tone="success"
-                icon={Icon.Refresh}
-                onClick={() => {
-                  if (efashionState.loading) return;
-                  setResyncEfOpen(true);
-                }}
-                disabled={efashionState.loading || efashionDisabledOverall}
-                title="Resynchroniser stock + visibilité + prix sur eFashion"
-                ariaLabel="Resynchroniser sur eFashion"
-              />
-            )}
+                <IconBtn
+                  tone="neutral"
+                  icon={Icon.Link}
+                  onClick={() => setLinkEfOpen(true)}
+                  disabled={efashionDisabledOverall}
+                  title={
+                    efashionLinked
+                      ? "Re-lier vers une autre référence eFashion"
+                      : "Lier à un produit eFashion existant"
+                  }
+                  ariaLabel={
+                    efashionLinked
+                      ? "Re-lier à un autre produit eFashion"
+                      : "Lier à un produit eFashion existant"
+                  }
+                />
 
-            <IconBtn
-              tone="neutral"
-              icon={Icon.Link}
-              onClick={() => setLinkEfOpen(true)}
-              disabled={efashionDisabledOverall}
-              title={
-                efashionLinked
-                  ? "Re-lier vers une autre référence eFashion"
-                  : "Lier à un produit eFashion existant"
-              }
-              ariaLabel={
-                efashionLinked
-                  ? "Re-lier à un autre produit eFashion"
-                  : "Lier à un produit eFashion existant"
-              }
-            />
-
-            {efashionLinked && (
-              <IconBtn
-                tone="danger"
-                icon={Icon.Unlink}
-                onClick={handleUnlinkEfashion}
-                busy={unlinkEfBusy}
-                disabled={efashionDisabledOverall}
-                title="Délier ce produit de ses fiches eFashion (efface la liaison côté site sans toucher à eFashion)"
-                ariaLabel="Délier ce produit de eFashion Paris"
-              />
-            )}
-          </MarketplaceBlock>
+                {efashionLinked && (
+                  <IconBtn
+                    tone="danger"
+                    icon={Icon.Unlink}
+                    onClick={handleUnlinkEfashion}
+                    busy={unlinkEfBusy}
+                    disabled={efashionDisabledOverall}
+                    title="Délier ce produit de ses fiches eFashion (efface la liaison côté site sans toucher à eFashion)"
+                    ariaLabel="Délier ce produit de eFashion Paris"
+                  />
+                )}
+              </>
+            }
+          />
         )}
 
         {/* ─── Faire ──────────────────────────────────────────────────── */}
         {showFaire && (
-          <MarketplaceBlock>
-            <StatusBadge
-              state={faireState}
-              marketplace="faire"
-              label="Faire"
-              sublabel={null}
-              disabledForProduct={faireDisabledOverall}
-              disabledReason={faireDisabledReason}
-              onClick={() => {
-                if (faireDisabledOverall) return;
-                if (faireState.loading) return;
-                if (faireState.syncRequired) {
-                  handleResyncFaire();
-                  return;
-                }
-                if (faireState.online) return;
-                setConfirmFaireOpen(true);
-              }}
-              onCancelSyncRequired={() =>
-                handleCancelSyncRequired("faire", "Faire")
+          <MarketplaceCard
+            state={faireState}
+            marketplace="faire"
+            label="Faire"
+            sublabel={null}
+            disabledForProduct={faireDisabledOverall}
+            disabledReason={faireDisabledReason}
+            onClick={() => {
+              if (faireDisabledOverall) return;
+              if (faireState.loading) return;
+              if (faireState.syncRequired) {
+                handleResyncFaire();
+                return;
               }
-              title={
-                faireState.loading
-                  ? "Synchronisation Faire en cours…"
-                  : faireState.syncRequired
-                    ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à Faire"
-                    : faireProductId
-                      ? "Disponible sur Faire"
-                      : "Non disponible — cliquez pour publier sur Faire"
-              }
-              loadingLabel="Publication Faire en cours…"
-            />
+              if (faireState.online) return;
+              setConfirmFaireOpen(true);
+            }}
+            onCancelSyncRequired={() =>
+              handleCancelSyncRequired("faire", "Faire")
+            }
+            title={
+              faireState.loading
+                ? "Synchronisation Faire en cours…"
+                : faireState.syncRequired
+                  ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à Faire"
+                  : faireProductId
+                    ? "Disponible sur Faire"
+                    : "Non disponible — cliquez pour publier sur Faire"
+            }
+            loadingLabel="Publication Faire en cours…"
+            actions={
+              <>
+                {faireProductId && (
+                  <IconBtn
+                    tone="success"
+                    icon={Icon.Refresh}
+                    onClick={() => {
+                      if (faireState.loading) return;
+                      setResyncFaireOpen(true);
+                    }}
+                    disabled={faireState.loading || faireDisabledOverall}
+                    title={
+                      faireState.loading
+                        ? "Une opération Faire est déjà en cours…"
+                        : "Resynchroniser toutes les données sur Faire"
+                    }
+                    ariaLabel="Resynchroniser sur Faire"
+                  />
+                )}
 
-            {faireProductId && (
-              <IconBtn
-                tone="success"
-                icon={Icon.Refresh}
-                onClick={() => {
-                  if (faireState.loading) return;
-                  setResyncFaireOpen(true);
-                }}
-                disabled={faireState.loading || faireDisabledOverall}
-                title={
-                  faireState.loading
-                    ? "Une opération Faire est déjà en cours…"
-                    : "Resynchroniser toutes les données sur Faire"
-                }
-                ariaLabel="Resynchroniser sur Faire"
-              />
-            )}
+                <IconBtn
+                  tone="neutral"
+                  icon={Icon.Link}
+                  onClick={() => setLinkFaireOpen(true)}
+                  disabled={faireDisabledOverall}
+                  title={
+                    faireProductId
+                      ? "Re-lier vers une autre fiche Faire"
+                      : "Lier à une fiche Faire existante (recherche par SKU)"
+                  }
+                  ariaLabel={
+                    faireProductId
+                      ? "Re-lier à une autre fiche Faire"
+                      : "Lier à une fiche Faire existante"
+                  }
+                />
 
-            <IconBtn
-              tone="neutral"
-              icon={Icon.Link}
-              onClick={() => setLinkFaireOpen(true)}
-              disabled={faireDisabledOverall}
-              title={
-                faireProductId
-                  ? "Re-lier vers une autre fiche Faire"
-                  : "Lier à une fiche Faire existante (recherche par SKU)"
-              }
-              ariaLabel={
-                faireProductId
-                  ? "Re-lier à une autre fiche Faire"
-                  : "Lier à une fiche Faire existante"
-              }
-            />
-
-            {faireProductId && (
-              <IconBtn
-                tone="danger"
-                icon={Icon.Unlink}
-                onClick={handleUnlinkFaire}
-                busy={unlinkFaireBusy}
-                disabled={faireDisabledOverall}
-                title="Délier ce produit de sa fiche Faire (efface la liaison côté site sans toucher à Faire)"
-                ariaLabel="Délier ce produit de Faire"
-              />
-            )}
-          </MarketplaceBlock>
+                {faireProductId && (
+                  <IconBtn
+                    tone="danger"
+                    icon={Icon.Unlink}
+                    onClick={handleUnlinkFaire}
+                    busy={unlinkFaireBusy}
+                    disabled={faireDisabledOverall}
+                    title="Délier ce produit de sa fiche Faire (efface la liaison côté site sans toucher à Faire)"
+                    ariaLabel="Délier ce produit de Faire"
+                  />
+                )}
+              </>
+            }
+          />
         )}
       </div>
 

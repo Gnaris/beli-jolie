@@ -418,6 +418,14 @@ export async function linkEfashionProductManually(
   productId: string,
   referenceBase: string,
   links: Array<{ localColorId: string; efashionProductId: number; efashionColorId?: number }>,
+  intents?: {
+    /** productColorId des couleurs BJ à créer côté eFashion (informatif — le sync post-liaison les crée quand même toutes). */
+    colorsToCreate: string[];
+    /** efashionProductId des lignes eFashion orphelines à supprimer avant la liaison. */
+    orphansToDelete: number[];
+    /** efashionProductId des lignes eFashion orphelines à importer en tant que ProductColor BJ + lier. */
+    orphansToImport: number[];
+  },
 ): Promise<{
   success: boolean;
   error?: string;
@@ -428,6 +436,10 @@ export async function linkEfashionProductManually(
    * duplicateWithNewColor + publishBrouillon). 0 = liaison « plate ».
    */
   autoCreatedOnEfashion?: number;
+  /** Variantes eFashion orphelines supprimées avant la liaison. */
+  deletedOnMarketplace?: number;
+  /** Variantes eFashion orphelines importées en tant que ProductColor BJ liée. */
+  importedFromMarketplace?: number;
   /** Warning non bloquant : la liaison est posée mais la sync stock/prix
    * post-liaison a échoué. L'admin peut relancer "Resync" depuis la fiche. */
   syncWarning?: string;
@@ -484,13 +496,14 @@ export async function linkEfashionProductManually(
     //     post-liaison (cf. lib/efashion-update.ts > auto-création via
     //     duplicateWithNewColor + publishBrouillon).
     //   - eFashion orphans (lignes chez eux sans correspondance chez nous) :
-    //     BLOQUANTES. L'admin doit d'abord les assigner à une couleur locale,
-    //     les créer chez nous (bouton « Créer chez nous »), ou les supprimer
-    //     côté eFashion. Sans ça, eFashion garderait des couleurs "fantômes"
-    //     non synchronisées par BJ.
+    //     • Legacy (intents=undefined) : BLOQUANTES.
+    //     • Nouveau flow modale (intents fourni) : le tableau `orphansToDelete`
+    //       porte les ids que l'admin a explicitement marqués « supprimer ».
+    //       Les autres orphelines sont acceptées telles quelles (elles
+    //       resteront chez eFashion sans lien BJ).
     const linkedEf = new Set(links.map((l) => l.efashionProductId));
     const orphanEf = preview.candidates.filter((c) => !linkedEf.has(c.efashionProductId));
-    if (orphanEf.length > 0) {
+    if (orphanEf.length > 0 && !intents) {
       return {
         success: false,
         error:
@@ -499,6 +512,31 @@ export async function linkEfashionProductManually(
           "\nDans la modale : pour chaque ligne, choisissez « Créer chez nous » " +
           "ou « Supprimer chez eFashion » avant de lier.",
       };
+    }
+
+    // Suppression des orphelines marquées par l'admin. On le fait AVANT la
+    // liaison + sync post-liaison, pour éviter que la sync ne re-crée les
+    // couleurs qu'on vient de supprimer.
+    let deletedOnMarketplace = 0;
+    if (intents && intents.orphansToDelete.length > 0) {
+      const validOrphanIds = new Set(orphanEf.map((c) => c.efashionProductId));
+      for (const efProductId of intents.orphansToDelete) {
+        if (!validOrphanIds.has(efProductId)) continue;
+        try {
+          const { efashionDeleteShootingProduct } = await import("@/lib/efashion-shootings");
+          const del = await efashionDeleteShootingProduct(efProductId);
+          if (del.success) {
+            deletedOnMarketplace += 1;
+          } else {
+            logger.warn("[eFashion] Suppression orpheline refusée", {
+              efProductId,
+              message: del.message,
+            });
+          }
+        } catch (err) {
+          logger.warn("[eFashion] Suppression orpheline en erreur", { efProductId, error: err });
+        }
+      }
     }
 
     const product = await prisma.product.findUnique({
@@ -595,6 +633,29 @@ export async function linkEfashionProductManually(
       linkedColors: links.length,
     });
 
+    // Import des orphelines eFashion marquées « Créer chez nous ». Fait APRÈS
+    // la transaction (createLocalVariantFromEfashionLine exige que
+    // efashionReferenceBase soit posé) et AVANT la sync post-liaison (pour
+    // que la sync trouve les nouvelles ProductColor déjà liées).
+    let importedFromMarketplace = 0;
+    if (intents && intents.orphansToImport.length > 0) {
+      for (const efProductId of intents.orphansToImport) {
+        try {
+          const imp = await createLocalVariantFromEfashionLine(productId, efProductId);
+          if (imp.success) {
+            importedFromMarketplace += 1;
+          } else {
+            logger.warn("[eFashion] Import orpheline échoué", {
+              efProductId,
+              error: imp.error,
+            });
+          }
+        } catch (err) {
+          logger.warn("[eFashion] Import orpheline en erreur", { efProductId, error: err });
+        }
+      }
+    }
+
     // Sync auto post-liaison : on pousse immédiatement stock + prix + visibilité
     // vers eFashion pour aligner les 2 côtés sans étape manuelle. C'est aussi
     // cette sync qui crée automatiquement côté eFashion les couleurs locales
@@ -618,6 +679,8 @@ export async function linkEfashionProductManually(
       success: true,
       linked: links.length,
       autoCreatedOnEfashion,
+      deletedOnMarketplace,
+      importedFromMarketplace,
       syncWarning,
     };
   } catch (err) {
@@ -848,6 +911,46 @@ export async function createLocalVariantFromEfashionLine(
     //    retrouver le prix BJ d'origine (approximation, l'arrondi est perdu).
     const markup = await loadEfashionMarkup();
     const bjPriceFromEfashion = unapplyMarkup(efLine.prix, markup);
+
+    // Anti-doublon : si le produit a déjà une ProductColor UNIT sur cette Color,
+    // on RELIE l'existante au lieu d'en créer une nouvelle. Sinon un « Créer
+    // chez nous » sur une couleur qui existait déjà (mais qu'on avait oublié de
+    // lier) créerait un doublon Rose (linked) + Rose (nouvelle). Erreur si
+    // l'existante est déjà liée à une autre ligne eFashion.
+    const existingPc = await prisma.productColor.findFirst({
+      where: { productId, colorId: bjColor.id, saleType: "UNIT" },
+      select: { id: true, efashionProductId: true },
+    });
+    if (existingPc) {
+      if (
+        existingPc.efashionProductId &&
+        existingPc.efashionProductId !== efLine.id_produit
+      ) {
+        return {
+          success: false,
+          error: `La couleur ${bjColor.name} est déjà liée à une autre ligne eFashion (${existingPc.efashionProductId}). Délie-la d'abord si tu veux la relier à ${efLine.id_produit}.`,
+        };
+      }
+      await prisma.$transaction(async (tx) => {
+        await tx.productColor.update({
+          where: { id: existingPc.id },
+          data: { efashionProductId: efLine.id_produit },
+        });
+        await tx.product.update({
+          where: { id: productId },
+          data: { efashionLastSyncSnapshot: Prisma.DbNull },
+        });
+      });
+      revalidatePath(`/admin/produits/${productId}/modifier`);
+      revalidatePath(`/admin/produits`);
+      revalidateTag("products", "default");
+      logger.info("[eFashion] ProductColor existante reliée à la ligne eFashion", {
+        productId,
+        productColorId: existingPc.id,
+        efashionProductId: efLine.id_produit,
+      });
+      return { success: true, productColorId: existingPc.id, createdColor: false };
+    }
 
     // 5. Poids : moyenne des autres UNIT, sinon 0.01
     const weight =

@@ -54,6 +54,7 @@ import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
 import { buildMarketplaceImageUrl } from "@/lib/marketplace-image";
+import { buildBrandedMarketplaceUrl } from "@/lib/branded-image-display";
 import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
 import { getCachedAnkorstoreEnabled } from "@/lib/cached-data";
 import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
@@ -604,12 +605,22 @@ export async function ankorstoreKickoffUpdate(
           ? "active"
           : "inactive";
 
+    // Toggle badge « Réf en haut à droite » : lu ici pour être posé dans le
+    // snapshot (sinon basculer le toggle ne déclencherait aucun diff) ET
+    // réutilisé plus bas pour construire les URLs images.
+    const brandedBadgeRow = await prisma.siteConfig.findFirst({
+      where: { key: "branded_reference_badge_enabled" },
+      select: { value: true },
+    });
+    const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
+
     const nextSnapshot: AnkorstoreSyncSnapshot = {
       schemaVersion: ANKORSTORE_SNAPSHOT_VERSION,
       product: nextProductSnap,
       variants: nextVariantsSnap,
       images: nextImagesSnap,
       status: targetStatus,
+      brandedBadgeApplied: brandedBadgeEnabled,
     };
 
     const realPrevSnapshot = readPreviousSnapshot(product.ankorsLastSyncSnapshot);
@@ -741,6 +752,7 @@ export async function ankorstoreKickoffUpdate(
       diff.imagesToUpload.length > 0 ||
       diff.imagesToDelete.length > 0 ||
       diff.statusChanged ||
+      diff.brandedBadgeChanged ||
       hasNewVariants;
 
     if (!needsAsyncOp) {
@@ -819,6 +831,34 @@ export async function ankorstoreKickoffUpdate(
     const tenantId = await getCurrentTenantIdSafe();
     const imageBaseUrl = tenantId ? (await getTenantBaseUrl(tenantId)) ?? undefined : undefined;
 
+    // Toggle badge « Réf en haut à droite » : sur la couleur principale, la 1ère
+    // image est remplacée par une URL /api/branded-image (badge composé), et
+    // l'image brute reste juste après. Sans ce miroir de la logique publish,
+    // toute UPDATE réécrit l'image sans badge chez Ankorstore.
+    // (brandedBadgeEnabled est déjà lu plus haut pour le snapshot.)
+    const brandedBaseUrl =
+      imageBaseUrl ??
+      process.env.MARKETPLACE_IMAGE_BASE_URL ??
+      process.env.NEXTAUTH_URL ??
+      "https://beliandjolie.com";
+    const ankorUrlFor = (
+      path: string,
+      context: { colorId: string | null; index: number },
+    ): string => {
+      if (
+        brandedBadgeEnabled &&
+        product.primaryColorId &&
+        context.colorId === product.primaryColorId &&
+        context.index === 0
+      ) {
+        return buildBrandedMarketplaceUrl(path, product.reference, {
+          baseUrl: brandedBaseUrl,
+          size: "large",
+        });
+      }
+      return buildPublicImageUrl(path, imageBaseUrl);
+    };
+
     // Images niveau produit : UNIQUEMENT celles de la couleur principale.
     // Les autres couleurs ont leurs images attachées à leur variante.
     // Spec Ankorstore : `main_image` porte l'order 1 implicite, donc `images`
@@ -828,13 +868,28 @@ export async function ankorstoreKickoffUpdate(
     const primaryColorPaths = primaryColorId
       ? (imagesByColorId.get(primaryColorId) ?? [])
       : [];
+    // mainImage = badge composé si toggle actif, sinon la 1ère photo brute.
     const mainImage = primaryColorPaths[0]
-      ? buildPublicImageUrl(primaryColorPaths[0], imageBaseUrl)
+      ? ankorUrlFor(primaryColorPaths[0], { colorId: primaryColorId, index: 0 })
       : undefined;
-    const productImages = primaryColorPaths.slice(1).map((path, idx) => ({
-      order: idx + 2,
-      url: buildPublicImageUrl(path, imageBaseUrl),
-    }));
+    // Détecte si le badge a bien été inséré (mainImage ≠ URL brute de la même
+    // source). Si oui, la photo brute reste comme 1ère image additionnelle.
+    const mainRaw = primaryColorPaths[0]
+      ? ankorUrlFor(primaryColorPaths[0], { colorId: primaryColorId, index: 999 })
+      : undefined;
+    const brandedInsertedAtMain = !!mainImage && !!mainRaw && mainImage !== mainRaw;
+    const productImages = brandedInsertedAtMain
+      ? [
+          { order: 2, url: mainRaw! },
+          ...primaryColorPaths.slice(1, 4).map((path, idx) => ({
+            order: idx + 3,
+            url: ankorUrlFor(path, { colorId: primaryColorId, index: 999 }),
+          })),
+        ]
+      : primaryColorPaths.slice(1).map((path, idx) => ({
+          order: idx + 2,
+          url: ankorUrlFor(path, { colorId: primaryColorId, index: idx + 1 }),
+        }));
     // Poids en kg sans unit_code (cf. lib/ankorstore-shape.ts pour les détails).
     const weightKg = firstVariant?.weight && firstVariant.weight > 0
       ? Math.round(firstVariant.weight * 1000) / 1000
@@ -904,10 +959,28 @@ export async function ankorstoreKickoffUpdate(
         }
         const variantColorId = variant.colorId ?? "";
         const paths = imagesByColorId.get(variantColorId) ?? [];
-        const variantImages = paths.map((p, idx) => ({
-          order: idx + 1,
-          url: buildPublicImageUrl(p, imageBaseUrl),
-        }));
+        // Sur la couleur principale : insère l'URL brandée en tête ET conserve
+        // la photo brute juste après → 2 photos au lieu d'1 (badge + brute).
+        // Sur les autres couleurs : passthrough (URL brute uniquement).
+        const branded = paths[0]
+          ? ankorUrlFor(paths[0], { colorId: variantColorId || null, index: 0 })
+          : null;
+        const rawFirst = paths[0]
+          ? ankorUrlFor(paths[0], { colorId: variantColorId || null, index: 999 })
+          : null;
+        const isBrandedInserted = branded !== null && rawFirst !== null && branded !== rawFirst;
+        const variantImages = isBrandedInserted
+          ? [
+              { order: 1, url: branded! },
+              ...paths.slice(0, 4).map((p, idx) => ({
+                order: idx + 2,
+                url: ankorUrlFor(p, { colorId: variantColorId || null, index: 999 }),
+              })),
+            ]
+          : paths.map((p, idx) => ({
+              order: idx + 1,
+              url: ankorUrlFor(p, { colorId: variantColorId || null, index: idx }),
+            }));
         return {
           sku,
           ian: null,
@@ -950,6 +1023,7 @@ export async function ankorstoreKickoffUpdate(
       product: nextProductSnap,
       images: nextImagesSnap,
       status: targetStatus,
+      brandedBadgeApplied: brandedBadgeEnabled,
     };
 
     // Choix du type d'opération AS :

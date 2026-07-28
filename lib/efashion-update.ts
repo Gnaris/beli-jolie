@@ -305,6 +305,8 @@ export async function efashionUpdateProductInPlace(
     /** id_couleur eFashion de cette variante (= mapping de la couleur BJ). */
     id_couleur: number | null;
     main: boolean;
+    /** État `visible` actuel côté eFashion — sert à détecter les dérives silencieuses. */
+    visible: boolean;
     /**
      * Statut catalogue acheteurs eFashion :
      *   - `"0"` = en ligne
@@ -352,6 +354,7 @@ export async function efashionUpdateProductInPlace(
           id_vendeur_marque: it.id_vendeur_marque ?? null,
           id_couleur: it.id_couleur ?? null,
           main: it.main === true,
+          visible: it.visible === true,
           premel: it.premel ?? null,
         });
       }
@@ -579,6 +582,10 @@ export async function efashionUpdateProductInPlace(
               id_vendeur_marque: srcLive?.id_vendeur_marque ?? null,
               id_couleur: couleurId,
               main: dup.main === true,
+              // Nouvelle couleur fraîchement dupliquée : eFashion la crée
+              // toujours en `visible=false` (attendu — sera basculée par le
+              // updateProduit final si target.visible=true).
+              visible: false,
               // publishBrouillon a soit réussi (=> "0"), soit throw et été
               // catché en warn — dans le doute on laisse null. Le heal step
               // en aval ignore les null pour ne pas re-publier à tort.
@@ -902,15 +909,48 @@ export async function efashionUpdateProductInPlace(
   ];
 
   // Fetch live (déjà fait au plus tôt si on a auto-créé des couleurs ; sinon
-  // déclenché ici si le diff a besoin du contexte serveur).
+  // déclenché ici si le diff a besoin du contexte serveur). On force aussi
+  // le fetch quand `linkedColors` est non vide pour pouvoir détecter les
+  // dérives silencieuses `visible=false` (cf. bloc « détection dérive » ci-après).
   if (
     variantsToUpdate.length > 0 ||
     diff.primaryChanged ||
     diff.removed.length > 0 ||
     diff.declinaisonChanged ||
-    diff.categoryChanged
+    diff.categoryChanged ||
+    linkedColors.length > 0
   ) {
     await ensureLiveById();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Détection dérive `visible` chez eFashion (bug PS3, 2026-07-28)
+  // ─────────────────────────────────────────────────────────────────────
+  // Même quand le diff local ne signale « aucun changement » (snapshot et
+  // cible identiques), l'état réel côté eFashion peut avoir dérivé —
+  // notamment `visible=false` forcé par un side-effect d'un push précédent,
+  // ou modifié manuellement par l'admin puis re-forcé par la propagation
+  // main lors du sync suivant.
+  //
+  // Si on constate que `live.visible !== target.visible` sur une variante
+  // liée, on l'enqueue dans variantsToUpdate pour re-pousser la valeur
+  // voulue. Idempotent : si la variante y est déjà, on n'ajoute rien.
+  if (liveById.size > 0) {
+    const alreadyQueued = new Set(variantsToUpdate.map((v) => v.variant.efashionProductId));
+    for (const tv of targetVariants) {
+      if (alreadyQueued.has(tv.efashionProductId)) continue;
+      const live = liveById.get(tv.efashionProductId);
+      if (live && live.visible !== tv.visible) {
+        variantsToUpdate.push({ variant: tv, fields: ["visible"] as const });
+        alreadyQueued.add(tv.efashionProductId);
+        logger.info("[eFashion update] Dérive visible détectée — push forcé", {
+          productId,
+          efashionProductId: tv.efashionProductId,
+          liveVisible: live.visible,
+          targetVisible: tv.visible,
+        });
+      }
+    }
   }
 
   // Changement de catégorie eFashion : la nouvelle catégorie doit être poussée
@@ -1205,9 +1245,9 @@ export async function efashionUpdateProductInPlace(
   if (skippedAddedEfIds.size > 0) {
     colorsSkippedCount = skippedAddedEfIds.size;
     errors.push(
-      `${skippedAddedEfIds.size} couleur(s) ajoutée(s) localement mais inconnue(s) d'eFashion ` +
+      `Erreur de liaison : ${skippedAddedEfIds.size} produit(s) introuvable(s) côté eFashion ` +
         `(id_produit: ${[...skippedAddedEfIds].join(", ")}). ` +
-        "Lancez un « Rafraîchir » complet du produit pour les publier proprement.",
+        "Veuillez rafraîchir le produit ou le relier à eFashion.",
     );
     variantsToUpdate = variantsToUpdate.filter(
       (v) => !skippedAddedEfIds.has(v.variant.efashionProductId),
@@ -1668,8 +1708,18 @@ export async function efashionUpdateProductInPlace(
         input.id_couleur_liee = targetGroupLeaderEfId;
         input.main = variant.efashionProductId === targetGroupLeaderEfId;
       }
-      // Champs qu'on veut effectivement modifier.
-      if (fields.includes("visible")) input.visible = variant.visible;
+      // ⚠️ `visible` est TOUJOURS envoyé (pas seulement quand `fields` le
+      // contient). Raison : le payload contient déjà `main` + `id_couleur_liee`
+      // (rattachement systématique au groupe, ligne 1667). eFashion, quand il
+      // reçoit `main=true` sans `visible` explicite, propage la valeur `visible`
+      // MÉMORISÉE côté eFashion de la main aux autres couleurs du groupe. Si
+      // cette valeur mémorisée est stale (ex: false alors que BJ dit true), on
+      // se retrouve avec toutes les couleurs cachées après chaque sync — même
+      // si l'admin a corrigé manuellement dans l'UI eFashion.
+      // Bug reproduit sur PS3 le 2026-07-28 : visible=true manuel côté eFashion
+      // → sync BJ → propagation main → visible=false partout. Fix : asserter la
+      // valeur voulue par BJ à chaque updateProduit, sans dépendre du diff.
+      input.visible = variant.visible;
       if (fields.includes("prix")) input.prix = variant.prix;
       if (fields.includes("poids")) input.poids = variant.poids;
 

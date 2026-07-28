@@ -98,6 +98,9 @@ vi.mock("@/lib/prisma", () => ({
       updateMany: (...args: unknown[]) => mockAnkorstoreOperationUpdateMany(...args),
       findFirst: vi.fn().mockResolvedValue(null),
     },
+    siteConfig: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
     $transaction: vi.fn().mockResolvedValue([]),
   },
 }));

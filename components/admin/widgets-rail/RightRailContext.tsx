@@ -35,6 +35,34 @@ interface RailBadge {
   pulse?: boolean;
 }
 
+/**
+ * Sources marketplace pour lesquelles on suit une synchro manuelle. Utilisées
+ * uniquement par le widget « Import commandes / clients marketplaces » pour
+ * afficher un feedback immédiat quand la cliente clique sur « Synchro » depuis
+ * la page Commandes → onglet marketplace. Les synchros auto (workers, cron)
+ * n'apparaissent pas ici.
+ */
+export type ManualSyncSource =
+  | "PFS"
+  | "EFASHION"
+  | "ANKORSTORE"
+  | "FAIRE"
+  | "MICROSTORE";
+
+export interface ManualSyncEvent {
+  source: ManualSyncSource;
+  /** Cible de la synchro — pour l'instant seulement « orders ». Prépare le
+   * terrain pour le Bloc 3 (import clients). */
+  target: "orders" | "clients";
+  phase: "starting" | "success" | "error";
+  startedAt: number;
+  endedAt?: number;
+  created?: number;
+  updated?: number;
+  errorMessage?: string;
+  sessionExpired?: boolean;
+}
+
 interface RightRailContextValue {
   openWidget: RailWidgetId | null;
   open: (id: RailWidgetId) => void;
@@ -42,13 +70,30 @@ interface RightRailContextValue {
   toggle: (id: RailWidgetId) => void;
   setBadge: (id: RailWidgetId, badge: RailBadge) => void;
   getBadge: (id: RailWidgetId) => RailBadge;
+  /** État courant des synchros manuelles par source. `null` = pas de synchro
+   * récente à afficher. */
+  manualSyncs: Record<ManualSyncSource, ManualSyncEvent | null>;
+  /** Enregistre une synchro manuelle en cours ou terminée. */
+  pushManualSync: (event: ManualSyncEvent) => void;
+  /** Nettoie la carte "résultat" d'une source (fermer le récap). */
+  clearManualSync: (source: ManualSyncSource, target: "orders" | "clients") => void;
 }
 
 const RightRailContext = createContext<RightRailContextValue | null>(null);
 
+const EMPTY_MANUAL_SYNCS: Record<ManualSyncSource, ManualSyncEvent | null> = {
+  PFS: null,
+  EFASHION: null,
+  ANKORSTORE: null,
+  FAIRE: null,
+  MICROSTORE: null,
+};
+
 export function RightRailProvider({ children }: { children: React.ReactNode }) {
   const [openWidget, setOpenWidget] = useState<RailWidgetId | null>(null);
   const [badges, setBadges] = useState<Record<string, RailBadge>>({});
+  const [manualSyncs, setManualSyncs] =
+    useState<Record<ManualSyncSource, ManualSyncEvent | null>>(EMPTY_MANUAL_SYNCS);
 
   const open = useCallback((id: RailWidgetId) => setOpenWidget(id), []);
   const close = useCallback(() => setOpenWidget(null), []);
@@ -67,10 +112,43 @@ export function RightRailProvider({ children }: { children: React.ReactNode }) {
     (id: RailWidgetId): RailBadge => badges[id] ?? { count: 0 },
     [badges],
   );
+  const pushManualSync = useCallback((event: ManualSyncEvent) => {
+    setManualSyncs((prev) => ({ ...prev, [event.source]: event }));
+  }, []);
+  const clearManualSync = useCallback(
+    (source: ManualSyncSource, target: "orders" | "clients") => {
+      setManualSyncs((prev) => {
+        const cur = prev[source];
+        if (!cur || cur.target !== target) return prev;
+        return { ...prev, [source]: null };
+      });
+    },
+    [],
+  );
 
   const value = useMemo<RightRailContextValue>(
-    () => ({ openWidget, open, close, toggle, setBadge, getBadge }),
-    [openWidget, open, close, toggle, setBadge, getBadge],
+    () => ({
+      openWidget,
+      open,
+      close,
+      toggle,
+      setBadge,
+      getBadge,
+      manualSyncs,
+      pushManualSync,
+      clearManualSync,
+    }),
+    [
+      openWidget,
+      open,
+      close,
+      toggle,
+      setBadge,
+      getBadge,
+      manualSyncs,
+      pushManualSync,
+      clearManualSync,
+    ],
   );
 
   return <RightRailContext.Provider value={value}>{children}</RightRailContext.Provider>;

@@ -242,4 +242,52 @@ describe("diffAnkorstoreSnapshots", () => {
     const diff = diffAnkorstoreSnapshots(prev, next);
     expect(diffIsEmpty(diff)).toBe(true);
   });
+
+  it("activer le badge Référence → brandedBadgeChanged=true et diff non vide", () => {
+    const prev: AnkorstoreSyncSnapshot = { ...baseSnap, brandedBadgeApplied: false };
+    const next: AnkorstoreSyncSnapshot = { ...baseSnap, brandedBadgeApplied: true };
+    const diff = diffAnkorstoreSnapshots(prev, next);
+    expect(diff.brandedBadgeChanged).toBe(true);
+    expect(diffIsEmpty(diff)).toBe(false);
+  });
+
+  it("désactiver le badge Référence → brandedBadgeChanged=true", () => {
+    const prev: AnkorstoreSyncSnapshot = { ...baseSnap, brandedBadgeApplied: true };
+    const next: AnkorstoreSyncSnapshot = { ...baseSnap, brandedBadgeApplied: false };
+    const diff = diffAnkorstoreSnapshots(prev, next);
+    expect(diff.brandedBadgeChanged).toBe(true);
+    expect(diffIsEmpty(diff)).toBe(false);
+  });
+
+  it("badge inchangé (true → true) → brandedBadgeChanged=false, diff vide", () => {
+    const prev: AnkorstoreSyncSnapshot = { ...baseSnap, brandedBadgeApplied: true };
+    const next: AnkorstoreSyncSnapshot = { ...baseSnap, brandedBadgeApplied: true };
+    const diff = diffAnkorstoreSnapshots(prev, next);
+    expect(diff.brandedBadgeChanged).toBe(false);
+    expect(diffIsEmpty(diff)).toBe(true);
+  });
+
+  it("snapshot antérieur sans flag + toggle OFF → brandedBadgeChanged=false (undefined ≡ false)", () => {
+    // Cas rétrocompat : snapshots v3 créés avant l'ajout du champ.
+    const prev: AnkorstoreSyncSnapshot = { ...baseSnap };
+    delete (prev as { brandedBadgeApplied?: boolean }).brandedBadgeApplied;
+    const next: AnkorstoreSyncSnapshot = { ...baseSnap, brandedBadgeApplied: false };
+    const diff = diffAnkorstoreSnapshots(prev, next);
+    expect(diff.brandedBadgeChanged).toBe(false);
+  });
+
+  it("snapshot antérieur sans flag + toggle ON → brandedBadgeChanged=true", () => {
+    const prev: AnkorstoreSyncSnapshot = { ...baseSnap };
+    delete (prev as { brandedBadgeApplied?: boolean }).brandedBadgeApplied;
+    const next: AnkorstoreSyncSnapshot = { ...baseSnap, brandedBadgeApplied: true };
+    const diff = diffAnkorstoreSnapshots(prev, next);
+    expect(diff.brandedBadgeChanged).toBe(true);
+  });
+
+  it("snapshot null → brandedBadgeChanged=false (les autres flags portent déjà le signal)", () => {
+    const diff = diffAnkorstoreSnapshots(null, { ...baseSnap, brandedBadgeApplied: true });
+    expect(diff.brandedBadgeChanged).toBe(false);
+    // Mais diff non vide grâce à productChanged / statusChanged / variantsChanged.
+    expect(diffIsEmpty(diff)).toBe(false);
+  });
 });

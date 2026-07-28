@@ -26,6 +26,9 @@ export interface DrawerShellProps {
   icon: React.ReactNode;
   footer?: React.ReactNode;
   children: React.ReactNode;
+  /** "wide" élargit le panneau desktop pour héberger plusieurs colonnes
+   *  côte à côte (widget import commandes / clients). Défaut = "default". */
+  size?: "default" | "wide";
 }
 
 // Dégradés aurora du header (foncé, texte blanc).
@@ -76,6 +79,7 @@ export function DrawerShell({
   icon,
   footer,
   children,
+  size = "default",
 }: DrawerShellProps) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -92,12 +96,20 @@ export function DrawerShell({
 
   const acc = ACCENT_CLASSES[accent];
   const visible = open && mounted;
+  // "wide" : jusqu'à 1500 px (5 colonnes marketplace) — la hauteur suit la
+  // fenêtre pour ne jamais forcer de scroll (cliente : « pas de scroll »).
+  // Ancré juste au-dessus du FAB (étoile) + décalé vers la gauche pour que
+  // le bouton étoile reste visible/cliquable dans son coin en bas à droite.
+  const wideClasses =
+    size === "wide"
+      ? "md:bottom-24 md:right-24 md:w-[min(1500px,calc(100vw-8rem))] md:h-[calc(100vh-8rem)]"
+      : "md:bottom-24 md:right-6 md:w-[440px] md:h-[760px] md:max-h-[calc(100vh-8rem)]";
 
   return (
     <div
       className={`fixed z-[9000] transition-all duration-300 ease-out
-        /* Desktop + tablette ≥ md : panneau flottant 440 × 760 px ancré au-dessus du FAB */
-        md:bottom-24 md:right-6 md:w-[440px] md:h-[760px] md:max-h-[calc(100vh-8rem)]
+        /* Desktop + tablette ≥ md : panneau flottant ancré au-dessus du FAB */
+        ${wideClasses}
         ${visible ? "md:translate-y-0 md:opacity-100" : "md:translate-y-4 md:opacity-0"}
         /* Mobile < md : plein écran, glisse depuis le bas */
         max-md:inset-x-0 max-md:top-0 max-md:bottom-0
@@ -154,8 +166,14 @@ export function DrawerShell({
           </div>
         </div>
 
-        {/* Body scrollable */}
-        <div className="flex-1 overflow-y-auto overscroll-contain bg-slate-50/60">{children}</div>
+        {/* Body — pour size="wide" on empêche tout scroll interne, les
+            enfants doivent se caper eux-mêmes (widget import commandes/clients).
+            Pour "default", scroll auto comme avant. */}
+        <div
+          className={`flex-1 bg-slate-50/60 ${size === "wide" ? "overflow-hidden" : "overflow-y-auto overscroll-contain"}`}
+        >
+          {children}
+        </div>
 
         {/* Footer sticky */}
         {footer && (

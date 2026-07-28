@@ -100,6 +100,17 @@ Protection : `middleware.ts` (edge) + `layout.tsx`. Maintenance cache 60s **on s
 - **Annexes PFS** : LIVE `lib/pfs-annexes.ts` (cache 60min, tag `pfs-annexes`).
 - **Proxy images marketplace** : `/api/marketplace-image?path=…` upscale à 500px si source < 500px (Ankorstore ≥ 500). Fichiers d'origine intacts. Pas pour PFS.
 - **Delete** : PFS = local-only. Ankorstore = auto callback via `ankorstoreKickoffStandaloneDelete()`.
+- **Modale de liaison — intents « créer / supprimer / importer »** (2026-07-28) : `LinkMarketplaceModal` (composant unifié PFS/Ankor/eFa/Faire) accepte 3 intentions transmises via `LinkIntents` :
+  - `colorsToCreate` : couleurs BJ orphelines (pas de variante marketplace équivalente) que l'admin choisit explicitement de **créer chez le marketplace avec upload de la photo**. Bouton « ➕ Créer cette couleur » à côté du `VariantPicker` de l'étape 3 (grisé si pas de photo côté boutique).
+  - `orphansToDelete` : variantes marketplace orphelines à **supprimer chez le marketplace**.
+  - `orphansToImport` : variantes marketplace orphelines à **importer en tant que ProductColor BJ + lier**. Passe par `createLocalVariantFrom{Mkt}Variant()` (une par marketplace, cf. `app/actions/admin/{efashion,ankorstore,pfs,faire}.ts`) — trouve/crée la Color, choisit la Size TU, calcule le prix/poids, crée la ProductColor UNIT avec `{mkt}VariantId` posé.
+  - **Anti-doublon** : chaque `createLocalVariantFrom{Mkt}Variant()` vérifie d'abord si le produit BJ a déjà une ProductColor UNIT sur cette Color. Si oui et qu'elle est non-liée → on la RELIE (update `{mkt}VariantId`), pas de doublon. Si oui mais déjà liée à une AUTRE variante marketplace → erreur retournée. Sinon on crée la ProductColor. L'UI étape 4 ajoute une hint 💡 quand elle détecte le cas pour inviter l'admin à revenir à l'étape 3 lier au lieu d'importer.
+  - **Validation dure UI** : chaque variante marketplace non-mappée DOIT être soit dans `orphansToDelete` soit dans `orphansToImport`. Le bouton « Valider » est bloqué tant qu'il reste une orpheline « à trancher » (compteur affiché dans le CTA).
+  - Serveur : chaque `link{Mkt}ProductManually` accepte `intents?` en dernier arg. Ordre d'exécution : (1) delete des orphelines marquées, (2) transaction link, (3) import des orphelines marquées (a besoin du `{mkt}ProductId` posé par le link), (4) sync post-liaison `updateProductInPlace({forceFullSync:true})`.
+  - Suppression variante isolée par marketplace : **PFS** `pfsDeleteVariant()`, **eFashion** `efashionDeleteShootingProduct()` (hard delete), **Faire** `DELETE /products/{id}/variants/{vid}`, **Ankorstore** = pas d'endpoint direct → géré par le kickoff overwrite qui écrase l'état.
+  - Auto-création côté marketplace : réutilise la logique existante de forceFullSync (PFS `variantsToCreate`, eFashion `duplicateWithNewColor`, Faire `variantsAdded diff`, Ankorstore = write our state override).
+  - Garde-fou UI supplémentaire : refus si `orphansToDelete` couvre TOUTES les variantes marketplace ET aucune couleur BJ n'est mappée/à-créer (fiche marketplace se retrouverait vide).
+  - Retour `LinkResult` étendu : `autoCreatedOnMarketplace` + `deletedOnMarketplace` + `importedFromMarketplace`, affichés dans le widget flottant Marketplaces après la job.
 
 ### Ankorstore callback-only
 Toutes ops (publish/update/refresh/delete) **async** : kickoff → `operationId` → webhook `/api/webhooks/ankorstore`. **Aucun polling.**

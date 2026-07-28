@@ -10,10 +10,12 @@
  *      symbolique et on retombe sur (2).
  *   2. Product.reference == item_ref → puis on cherche la variante par nom de couleur
  *
- * User synthétique :
- *   Si `client_info.email` correspond à un User existant du tenant → on rattache.
- *   Sinon, on crée un User CLIENT/APPROVED sans mot de passe pour que la
- *   commande apparaisse dans l'espace client si elle se connecte un jour.
+ * Rattachement User :
+ *   Si `client_info.email` correspond à un User déjà inscrit sur le site → on
+ *   rattache pour que la commande apparaisse dans son espace client. Sinon
+ *   `userId` reste `null` — les clients Microstore ne sont **jamais** créés
+ *   comme utilisateurs inscrits (ils vivent uniquement dans les fiches
+ *   clients admin, comme pour Ankor / PFS / eFashion / Faire).
  *
  * Paiement : toujours "paid" (choix cliente : Microstore = déjà encaissé).
  */
@@ -21,6 +23,7 @@
 import { Prisma, type MicrostoreOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { findClientCardByEmailForDedup } from "@/lib/marketplace-client-dedup";
 import {
   microstoreGetOrderDetail,
   microstoreListAllOrders,
@@ -63,90 +66,25 @@ function firstNonEmpty(...vals: (string | undefined | null)[]): string {
 }
 
 // ─────────────────────────────────────────────
-// User synthétique — création si email inconnu
+// Rattachement User existant (lookup only, jamais de création)
 // ─────────────────────────────────────────────
 
 /**
- * Résout ou crée un User CLIENT pour un client Microstore.
- * - Match par email (case-insensitive) si présent
- * - Sinon création silencieuse avec un email marqueur "microstore-{clientId}@no-email.local"
+ * Rattache la commande à un User déjà inscrit sur le site s'il partage l'email.
+ * Ne crée jamais de User — les clients Microstore vivent dans les fiches
+ * clients admin uniquement (comme les autres marketplaces).
  */
-async function resolveOrCreateUserForMicrostoreClient(
+async function resolveUserForMicrostoreClient(
   tenantId: string,
   detail: MicrostoreOrderDetail,
 ): Promise<string | null> {
   const email = normalizeEmail(detail.client_info?.email);
-  const clientMcId = detail.client_info?.client_id ?? null;
-
-  // Cherche par email existant
-  if (email) {
-    const found = await prisma.user.findFirst({
-      where: { tenantId, email },
-      select: { id: true },
-    });
-    if (found) return found.id;
-  }
-
-  // Cherche par email synthétique déjà créé lors d'un import précédent
-  if (clientMcId) {
-    const synthEmail = `microstore-${clientMcId}@no-email.local`;
-    const found = await prisma.user.findFirst({
-      where: { tenantId, email: email ?? synthEmail },
-      select: { id: true },
-    });
-    if (found) return found.id;
-  }
-
-  // Création
-  const firstName = firstNonEmpty(detail.client_info?.first_name);
-  const lastName = firstNonEmpty(
-    detail.client_info?.last_name,
-    detail.client_info?.company_name,
-    detail.client_info?.address_name,
-    "(client Microstore)",
-  );
-  const company = firstNonEmpty(
-    detail.client_info?.company_name,
-    detail.client_info?.invoice_title,
-    "Client Microstore",
-  );
-  const phone = firstNonEmpty(
-    detail.client_info?.address_phone,
-    detail.client_info?.phone,
-  );
-
-  const finalEmail = email ?? `microstore-${clientMcId ?? Date.now()}@no-email.local`;
-
-  try {
-    const created = await prisma.user.create({
-      data: {
-        tenantId,
-        email: finalEmail,
-        password: "", // pas de connexion possible sans reset
-        firstName,
-        lastName,
-        company,
-        phone,
-        siret: `MICROSTORE_${clientMcId ?? "unknown"}`,
-        role: "CLIENT",
-        status: "APPROVED",
-      },
-      select: { id: true },
-    });
-    return created.id;
-  } catch (err) {
-    // Collision d'email/siret possible si import parallèle — retenter le lookup
-    logger.warn("[Microstore Sync] user create failed, retry lookup", {
-      tenantId,
-      email: finalEmail,
-      error: err,
-    });
-    const retry = await prisma.user.findFirst({
-      where: { tenantId, email: finalEmail },
-      select: { id: true },
-    });
-    return retry?.id ?? null;
-  }
+  if (!email) return null;
+  const found = await prisma.user.findFirst({
+    where: { tenantId, email },
+    select: { id: true },
+  });
+  return found?.id ?? null;
 }
 
 // ─────────────────────────────────────────────
@@ -191,6 +129,21 @@ async function upsertClientCardFromMicrostoreDetail(
       data: commonFields,
     });
     return existing.id;
+  }
+
+  // Étape 1 bis : fallback email cross-marketplace — un même humain peut
+  // avoir commandé sur eFashion ou Ankor avec le même email. On rattache et
+  // on ajoute hasMicrostore=true au lieu de dupliquer la fiche.
+  const existingByEmail = await findClientCardByEmailForDedup(
+    tenantId,
+    detail.client_info?.email,
+  );
+  if (existingByEmail) {
+    await prisma.adminClientCard.update({
+      where: { id: existingByEmail.id },
+      data: { ...commonFields, microstoreClientId: clientMcId },
+    });
+    return existingByEmail.id;
   }
 
   // Étape 2 : création
@@ -337,7 +290,7 @@ export async function upsertMicrostoreOrderFromDetail(
     detail,
     createdAt,
   );
-  const userId = await resolveOrCreateUserForMicrostoreClient(tenantId, detail);
+  const userId = await resolveUserForMicrostoreClient(tenantId, detail);
 
   const email = normalizeEmail(detail.client_info?.email);
   const phoneCode = firstNonEmpty(detail.client_info?.phone_code);

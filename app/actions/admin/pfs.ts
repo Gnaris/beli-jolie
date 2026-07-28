@@ -391,10 +391,24 @@ export async function linkPfsProductManually(
   pfsProductId: string,
   brand: { id: string | null; name: string | null } | null,
   links: Array<{ productColorId: string; pfsVariantId: string; pfsColorRef?: string }>,
+  intents?: {
+    /** productColorId des couleurs BJ à créer côté PFS (informatif — pfsUpdateProductInPlace forceFullSync les crée déjà). */
+    colorsToCreate: string[];
+    /** pfsVariantId des variantes PFS orphelines à supprimer avant la sync. */
+    orphansToDelete: string[];
+    /** pfsVariantId des variantes PFS orphelines à importer en tant que ProductColor BJ + lier. */
+    orphansToImport: string[];
+  },
 ): Promise<{
   success: boolean;
   error?: string;
   linked?: number;
+  /** Nombre de couleurs BJ orphelines créées côté PFS par la sync post-liaison. */
+  autoCreatedOnMarketplace?: number;
+  /** Variantes PFS orphelines supprimées avant la sync. */
+  deletedOnMarketplace?: number;
+  /** Variantes PFS orphelines importées en tant que ProductColor BJ liée. */
+  importedFromMarketplace?: number;
   /** Warning non bloquant : la liaison est posée mais la sync post-liaison a
    *  échoué. L'admin peut relancer « Resync » depuis la fiche. */
   syncWarning?: string;
@@ -405,7 +419,7 @@ export async function linkPfsProductManually(
     if (!pfsProductId.trim()) {
       return { success: false, error: "ID PFS du produit vide." };
     }
-    if (links.length === 0) {
+    if (links.length === 0 && (!intents || intents.colorsToCreate.length === 0)) {
       return { success: false, error: "Aucune couleur sélectionnée." };
     }
 
@@ -494,22 +508,75 @@ export async function linkPfsProductManually(
       linkedColors: links.length,
     });
 
+    // Suppression des variantes PFS orphelines marquées par l'admin. Fait avant
+    // la sync pour éviter que forceFullSync ne les recrée par snapshot delta.
+    let deletedOnMarketplace = 0;
+    if (intents && intents.orphansToDelete.length > 0) {
+      const { pfsDeleteVariant } = await import("@/lib/pfs-api-write");
+      for (const pfsVariantId of intents.orphansToDelete) {
+        try {
+          await pfsDeleteVariant(pfsVariantId);
+          deletedOnMarketplace += 1;
+        } catch (err) {
+          logger.warn("[PFS Link] Suppression orpheline en erreur", {
+            pfsVariantId,
+            error: err,
+          });
+        }
+      }
+    }
+
+    // Import des orphelines PFS marquées « Créer chez nous ». Fait APRÈS le
+    // link (qui a posé pfsProductId) et AVANT la sync post-liaison, pour que
+    // la sync trouve les ProductColor déjà en place.
+    let importedFromMarketplace = 0;
+    if (intents && intents.orphansToImport.length > 0) {
+      for (const pfsVariantId of intents.orphansToImport) {
+        try {
+          const imp = await createLocalVariantFromPfsVariant(productId, pfsVariantId);
+          if (imp.success) {
+            importedFromMarketplace += 1;
+          } else {
+            logger.warn("[PFS Link] Import orpheline échoué", {
+              pfsVariantId,
+              error: imp.error,
+            });
+          }
+        } catch (err) {
+          logger.warn("[PFS Link] Import orpheline en erreur", { pfsVariantId, error: err });
+        }
+      }
+    }
+
     // Sync best-effort post-liaison : on pousse stock/prix/visibilité pour
     // aligner les 2 côtés sans étape manuelle. Si la sync échoue, on garde la
-    // liaison et on remonte un warning.
+    // liaison et on remonte un warning. Cette sync s'occupe aussi de créer
+    // côté PFS les couleurs BJ non-mappées (voir lib/pfs-update.ts §variantsToCreate).
     let syncWarning: string | undefined;
+    let autoCreatedOnMarketplace = 0;
     try {
       const { pfsUpdateProductInPlace } = await import("@/lib/pfs-update");
       const res = await pfsUpdateProductInPlace(productId, undefined, {
         forceFullSync: true,
       });
       if (!res.success) syncWarning = res.error;
+      // pfsUpdateProductInPlace n'expose pas encore de compteur explicite — on
+      // dérive à partir du nombre de couleurs à créer que l'admin avait
+      // marquées (le sync les couvre toutes en forceFullSync).
+      autoCreatedOnMarketplace = intents?.colorsToCreate.length ?? 0;
     } catch (err) {
       syncWarning = err instanceof Error ? err.message : String(err);
       logger.warn("[PFS Link] Post-link sync failed", { productId, error: err });
     }
 
-    return { success: true, linked: links.length, syncWarning };
+    return {
+      success: true,
+      linked: links.length,
+      autoCreatedOnMarketplace,
+      deletedOnMarketplace,
+      importedFromMarketplace,
+      syncWarning,
+    };
   } catch (err) {
     logger.warn("[PFS Link] linkPfsProductManually failed", { error: err });
     return { success: false, error: err instanceof Error ? err.message : "Erreur" };
@@ -550,6 +617,218 @@ export async function removePfsMatch(
     return { success: true };
   } catch (err) {
     logger.warn("[PFS Link] removePfsMatch failed", { error: err });
+    return { success: false, error: err instanceof Error ? err.message : "Erreur" };
+  }
+}
+
+/**
+ * Crée une ProductColor UNIT locale à partir d'une variante PFS existante,
+ * et la lie automatiquement (pfsVariantId déjà posé). Utilisé depuis la
+ * modale de liaison quand PFS a une variante en plus : « Créer chez nous »
+ * → la couleur arrive directement liée.
+ *
+ * Prérequis : `product.pfsProductId` doit être posé (via linkPfsProductManually).
+ * Ne supporte pour l'instant que les variantes ITEM (UNIT). Pour PACK, l'admin
+ * doit créer la variante manuellement dans l'admin.
+ */
+export async function createLocalVariantFromPfsVariant(
+  productId: string,
+  pfsVariantId: string,
+): Promise<{
+  success: boolean;
+  error?: string;
+  productColorId?: string;
+  createdColor?: boolean;
+}> {
+  try {
+    await requireAdmin();
+
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        reference: true,
+        pfsProductId: true,
+        colors: {
+          where: { saleType: "UNIT" },
+          select: { weight: true },
+        },
+      },
+    });
+    if (!product) return { success: false, error: "Produit introuvable." };
+    if (!product.pfsProductId) {
+      return {
+        success: false,
+        error: "Produit non lié à PFS — finissez d'abord la liaison de base.",
+      };
+    }
+
+    const { generateSku } = await import("@/lib/sku");
+    const variantsResp = await pfsGetVariants(product.pfsProductId);
+    const pfsVariant = variantsResp.data.find((v) => v.id === pfsVariantId);
+    if (!pfsVariant) {
+      return {
+        success: false,
+        error: `La variante PFS ${pfsVariantId} n'est plus visible.`,
+      };
+    }
+    if (pfsVariant.type !== "ITEM") {
+      return {
+        success: false,
+        error:
+          "Cette variante PFS est un PACK — les imports automatiques ne gèrent que les variantes UNIT. Crée le pack manuellement dans l'admin puis relie.",
+      };
+    }
+    const pfsColor = pfsVariant.item?.color;
+    if (!pfsColor) {
+      return { success: false, error: "Variante PFS sans info couleur." };
+    }
+
+    // Trouve ou crée la Color BJ : match par pfsColorRef si présent, sinon par nom.
+    const colorName = pfsColor.labels?.fr ?? pfsColor.reference ?? "Couleur";
+    let bjColor = await prisma.color.findFirst({
+      where: { pfsColorRef: pfsColor.reference },
+      select: { id: true, name: true },
+    });
+    let createdColor = false;
+    if (!bjColor) {
+      const normalized = colorName.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+      const allColors = await prisma.color.findMany({
+        select: { id: true, name: true, pfsColorRef: true },
+      });
+      const byName = allColors.find(
+        (c) =>
+          c.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim() === normalized,
+      );
+      if (byName) {
+        bjColor = { id: byName.id, name: byName.name };
+        if (!byName.pfsColorRef && pfsColor.reference) {
+          await prisma.color.update({
+            where: { id: byName.id },
+            data: { pfsColorRef: pfsColor.reference },
+          });
+        }
+      } else {
+        const created = await prisma.color.create({
+          data: {
+            name: colorName,
+            hex: "#CCCCCC",
+            pfsColorRef: pfsColor.reference,
+          },
+          select: { id: true, name: true },
+        });
+        bjColor = created;
+        createdColor = true;
+        logger.info("[PFS Link] Color BJ créée à la volée depuis variante PFS", {
+          colorId: bjColor.id,
+          name: bjColor.name,
+          pfsColorRef: pfsColor.reference,
+        });
+      }
+    }
+
+    // Size par défaut : TU si existe, sinon la 1ʳᵉ.
+    let size = await prisma.size.findFirst({
+      where: { name: { in: ["TU", "Taille unique"] } },
+      select: { id: true },
+    });
+    if (!size) {
+      size = await prisma.size.findFirst({
+        orderBy: { position: "asc" },
+        select: { id: true },
+      });
+    }
+    if (!size) {
+      return {
+        success: false,
+        error: "Aucune taille définie dans la bibliothèque BJ — crée d'abord une taille.",
+      };
+    }
+
+    // Anti-doublon : si le produit a déjà une ProductColor UNIT sur cette Color,
+    // on RELIE l'existante au lieu d'en créer une nouvelle. Erreur si l'existante
+    // est déjà liée à une AUTRE variante PFS.
+    const existingPc = await prisma.productColor.findFirst({
+      where: { productId, colorId: bjColor.id, saleType: "UNIT" },
+      select: { id: true, pfsVariantId: true },
+    });
+    if (existingPc) {
+      if (existingPc.pfsVariantId && existingPc.pfsVariantId !== pfsVariant.id) {
+        return {
+          success: false,
+          error: `La couleur ${bjColor.name} est déjà liée à une autre variante PFS (${existingPc.pfsVariantId}). Délie-la d'abord si tu veux la relier à ${pfsVariant.id}.`,
+        };
+      }
+      await prisma.$transaction(async (tx) => {
+        await tx.productColor.update({
+          where: { id: existingPc.id },
+          data: { pfsVariantId: pfsVariant.id },
+        });
+        await tx.product.update({
+          where: { id: productId },
+          data: { pfsLastSyncSnapshot: Prisma.DbNull },
+        });
+      });
+      revalidatePath(`/admin/produits/${productId}/modifier`);
+      revalidatePath(`/admin/produits`);
+      revalidateTag("products", "default");
+      logger.info("[PFS Link] ProductColor existante reliée à la variante PFS", {
+        productId,
+        productColorId: existingPc.id,
+        pfsVariantId: pfsVariant.id,
+      });
+      return { success: true, productColorId: existingPc.id, createdColor: false };
+    }
+
+    const pfsPrice = pfsVariant.price_sale?.unit?.value ?? 0;
+    const weight =
+      product.colors.length > 0
+        ? product.colors.reduce((sum, c) => sum + (c.weight || 0), 0) / product.colors.length
+        : (pfsVariant.weight || 0.01);
+
+    const totalVariants = await prisma.productColor.count({ where: { productId } });
+    const sku = generateSku(product.reference, [bjColor.name], "UNIT", totalVariants + 1);
+
+    const newPc = await prisma.$transaction(async (tx) => {
+      const pc = await tx.productColor.create({
+        data: {
+          productId,
+          colorId: bjColor!.id,
+          saleType: "UNIT",
+          unitPrice: pfsPrice,
+          stock: 0,
+          weight: Number.isFinite(weight) && weight > 0 ? weight : 0.01,
+          isPrimary: false,
+          disabled: false,
+          sku,
+          pfsVariantId: pfsVariant.id,
+          variantSizes: {
+            create: [{ sizeId: size!.id, quantity: 1 }],
+          },
+        },
+        select: { id: true },
+      });
+      await tx.product.update({
+        where: { id: productId },
+        data: { pfsLastSyncSnapshot: Prisma.DbNull },
+      });
+      return pc;
+    });
+
+    revalidatePath(`/admin/produits/${productId}/modifier`);
+    revalidatePath(`/admin/produits`);
+    revalidateTag("products", "default");
+
+    logger.info("[PFS Link] ProductColor créée depuis variante PFS", {
+      productId,
+      productColorId: newPc.id,
+      pfsVariantId,
+      createdColor,
+    });
+
+    return { success: true, productColorId: newPc.id, createdColor };
+  } catch (err) {
+    logger.warn("[PFS Link] createLocalVariantFromPfsVariant failed", { error: err });
     return { success: false, error: err instanceof Error ? err.message : "Erreur" };
   }
 }

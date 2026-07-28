@@ -2004,7 +2004,7 @@ function ProductRow({
   const { confirm } = useConfirm();
   const toast = useToast();
   const [refCopied, setRefCopied] = useState(false);
-  const { enqueue, items: queueItems } = useMarketplaceRefreshQueue();
+  const { enqueue, items: queueItems, getRecentClientSuccessAt } = useMarketplaceRefreshQueue();
   const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
   // Distinction visuelle vs métier :
   //  - showXxx : rendre le badge (même barré si le kill switch global est OFF)
@@ -2041,6 +2041,8 @@ function ProductRow({
     pfsOp,
     "pfs",
     product.pfsSyncRequired,
+    undefined,
+    getRecentClientSuccessAt(product.id, "pfs"),
   );
   const [pendingPfsEnqueue, setPendingPfsEnqueue] = useState(false);
   const isPfsPublishing = pfsBadgeState.loading || pendingPfsEnqueue;
@@ -2051,6 +2053,8 @@ function ProductRow({
     ankorstoreOp,
     "ankorstore",
     product.ankorsSyncRequired,
+    undefined,
+    getRecentClientSuccessAt(product.id, "ankorstore"),
   );
   const [pendingAnkorstoreEnqueue, setPendingAnkorstoreEnqueue] = useState(false);
   const isAnkorstorePublishing = ankorstoreBadgeState.loading || pendingAnkorstoreEnqueue;
@@ -2061,6 +2065,8 @@ function ProductRow({
     efashionOp,
     "efashion",
     product.efashionSyncRequired,
+    undefined,
+    getRecentClientSuccessAt(product.id, "efashion"),
   );
   const [pendingEfashionEnqueue, setPendingEfashionEnqueue] = useState(false);
   const isEfashionPublishing = efashionBadgeState.loading || pendingEfashionEnqueue;
@@ -2071,6 +2077,8 @@ function ProductRow({
     faireOp,
     "faire",
     product.faireSyncRequired,
+    undefined,
+    getRecentClientSuccessAt(product.id, "faire"),
   );
   const [pendingFaireEnqueue, setPendingFaireEnqueue] = useState(false);
   const isFairePublishing = faireBadgeState.loading || pendingFaireEnqueue;

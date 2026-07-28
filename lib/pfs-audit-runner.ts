@@ -2,15 +2,13 @@
  * PFS Audit — Vérification en masse de tous les produits liés à PFS.
  *
  * Lance en tâche de fond (fire-and-forget) `verifyPfsProduct` sur tous les
- * produits ayant un `pfsProductId`. La progression et la liste des écarts
- * sont persistées en SiteConfig (par tenant) pour survivre à un redémarrage
- * PM2 et être queryable par le widget flottant.
- *
- * Seuls les produits avec écart (`status: "diff"`) ou en erreur sont conservés
- * dans `results` — les conformes ne polluent pas le payload.
+ * produits ayant un `pfsProductId`. La progression (compteurs) est persistée
+ * en SiteConfig ; les écarts détaillés sont stockés dans la table
+ * `PfsAuditResult` (une ligne par écart) pour scaler à des dizaines de
+ * milliers de produits sans faire exploser la case JSON de SiteConfig.
  *
  * Clés SiteConfig :
- *   - pfs_audit_state : JSON stringifié (voir PfsAuditState)
+ *   - pfs_audit_state : JSON des compteurs (voir PfsAuditPersistedState)
  *   - pfs_audit_stop  : "1" quand la cliente annule
  */
 
@@ -23,6 +21,7 @@ import {
   type PfsVerifyIssue,
 } from "@/lib/pfs-verify";
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 
 export type PfsAuditStatus = "IDLE" | "RUNNING" | "DONE" | "ERROR" | "STOPPED";
 
@@ -61,12 +60,31 @@ export interface PfsAuditState {
   results: PfsAuditProductResult[];
 }
 
+/**
+ * Payload compact stocké en SiteConfig. Ne contient QUE les compteurs et
+ * l'identifiant du run — les écarts détaillés sont dans `PfsAuditResult`.
+ * Taille constante, quel que soit le nombre d'écarts.
+ */
+interface PfsAuditPersistedState {
+  status: PfsAuditStatus;
+  auditRunId: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  total: number;
+  processed: number;
+  okCount: number;
+  diffCount: number;
+  errorCount: number;
+  errorMessage?: string;
+}
+
 const KEY_STATE = "pfs_audit_state";
 const KEY_STOP = "pfs_audit_stop";
 const CONCURRENCY = 10;
 
-const EMPTY_STATE: PfsAuditState = {
+const EMPTY_PERSISTED: PfsAuditPersistedState = {
   status: "IDLE",
+  auditRunId: null,
   startedAt: null,
   finishedAt: null,
   total: 0,
@@ -74,30 +92,83 @@ const EMPTY_STATE: PfsAuditState = {
   okCount: 0,
   diffCount: 0,
   errorCount: 0,
-  results: [],
 };
 
-export async function getPfsAuditState(tenantId: string): Promise<PfsAuditState> {
+async function readPersistedState(tenantId: string): Promise<PfsAuditPersistedState> {
   const row = await prisma.siteConfig.findFirst({
     where: { tenantId, key: KEY_STATE },
     select: { value: true },
   });
-  if (!row?.value) return { ...EMPTY_STATE };
+  if (!row?.value) return { ...EMPTY_PERSISTED };
   try {
-    const parsed = JSON.parse(row.value) as Partial<PfsAuditState>;
-    return { ...EMPTY_STATE, ...parsed };
+    const parsed = JSON.parse(row.value) as Partial<PfsAuditPersistedState>;
+    // Compat : les anciens payloads contenaient un tableau `results`.
+    // On l'ignore silencieusement — les nouveaux runs alimenteront la table.
+    return { ...EMPTY_PERSISTED, ...parsed };
   } catch {
-    return { ...EMPTY_STATE };
+    return { ...EMPTY_PERSISTED };
   }
 }
 
-async function setPfsAuditState(tenantId: string, state: PfsAuditState): Promise<void> {
+async function writePersistedState(
+  tenantId: string,
+  state: PfsAuditPersistedState,
+): Promise<void> {
   const value = JSON.stringify(state);
   await prisma.siteConfig.upsert({
     where: { tenantId_key: { tenantId, key: KEY_STATE } },
     update: { value },
     create: { tenantId, key: KEY_STATE, value },
   });
+}
+
+async function fetchAuditResults(
+  tenantId: string,
+  auditRunId: string | null,
+): Promise<PfsAuditProductResult[]> {
+  if (!auditRunId) return [];
+  const rows = await prisma.pfsAuditResult.findMany({
+    where: { tenantId, auditRunId },
+    orderBy: { createdAt: "asc" },
+  });
+  return rows.map((r): PfsAuditProductResult => {
+    if (r.ok) {
+      return {
+        ok: true,
+        productId: r.productId,
+        reference: r.reference,
+        name: r.name,
+        firstImage: r.firstImage,
+        issues: (r.issues as unknown as PfsVerifyIssue[]) ?? [],
+      };
+    }
+    return {
+      ok: false,
+      productId: r.productId,
+      reference: r.reference,
+      name: r.name,
+      firstImage: r.firstImage,
+      error: r.errorMessage ?? "",
+      errorKind: r.errorKind ?? "unknown",
+    };
+  });
+}
+
+export async function getPfsAuditState(tenantId: string): Promise<PfsAuditState> {
+  const persisted = await readPersistedState(tenantId);
+  const results = await fetchAuditResults(tenantId, persisted.auditRunId);
+  return {
+    status: persisted.status,
+    startedAt: persisted.startedAt,
+    finishedAt: persisted.finishedAt,
+    total: persisted.total,
+    processed: persisted.processed,
+    okCount: persisted.okCount,
+    diffCount: persisted.diffCount,
+    errorCount: persisted.errorCount,
+    errorMessage: persisted.errorMessage,
+    results,
+  };
 }
 
 async function setStopSignal(tenantId: string, value: boolean): Promise<void> {
@@ -129,8 +200,8 @@ async function checkStopSignal(tenantId: string): Promise<boolean> {
 export async function startPfsAuditInBackground(
   tenantId: string,
 ): Promise<PfsAuditState> {
-  const current = await getPfsAuditState(tenantId);
-  if (current.status === "RUNNING") return current;
+  const current = await readPersistedState(tenantId);
+  if (current.status === "RUNNING") return getPfsAuditState(tenantId);
 
   // Charge les produits liés à PFS. Pas de filtre statut : on audite tout ce
   // qui a un pfsProductId, y compris OFFLINE/ARCHIVED (utile pour repérer
@@ -174,13 +245,22 @@ export async function startPfsAuditInBackground(
     }
   }
 
-  const initial: PfsAuditState = {
-    ...EMPTY_STATE,
+  // Nouveau run — purge les écarts des runs précédents pour ce tenant.
+  await prisma.pfsAuditResult.deleteMany({ where: { tenantId } });
+
+  const auditRunId = randomUUID();
+  const initial: PfsAuditPersistedState = {
     status: "RUNNING",
+    auditRunId,
     startedAt: Date.now(),
+    finishedAt: null,
     total: products.length,
+    processed: 0,
+    okCount: 0,
+    diffCount: 0,
+    errorCount: 0,
   };
-  await setPfsAuditState(tenantId, initial);
+  await writePersistedState(tenantId, initial);
   await setStopSignal(tenantId, false);
 
   void tenantALS.run(tenantId, async () => {
@@ -190,18 +270,18 @@ export async function startPfsAuditInBackground(
       const verifyContext = await loadPfsVerifyContext();
 
       const queue = [...products];
-      const results: PfsAuditProductResult[] = [];
       let processed = 0;
       let okCount = 0;
       let diffCount = 0;
       let errorCount = 0;
 
-      // Flush périodique de l'état pour ne pas écrire à chaque produit
-      // (économise la BDD). Toutes les 500ms ou tous les 20 produits.
+      // Flush périodique des compteurs (payload constant, ne dépend plus des
+      // écarts). Toutes les 500ms ou tous les 5 produits.
       let lastFlush = Date.now();
       const flush = async () => {
-        await setPfsAuditState(tenantId, {
+        await writePersistedState(tenantId, {
           status: "RUNNING",
+          auditRunId,
           startedAt: initial.startedAt,
           finishedAt: null,
           total: products.length,
@@ -209,7 +289,6 @@ export async function startPfsAuditInBackground(
           okCount,
           diffCount,
           errorCount,
-          results,
         });
         lastFlush = Date.now();
       };
@@ -244,25 +323,33 @@ export async function startPfsAuditInBackground(
                     okCount++;
                   } else {
                     diffCount++;
-                    results.push({
-                      ok: true,
-                      productId: p.id,
-                      reference: p.reference,
-                      name: p.name,
-                      firstImage: firstImageByProduct.get(p.id) ?? null,
-                      issues: res.result.issues,
+                    await prisma.pfsAuditResult.create({
+                      data: {
+                        tenantId,
+                        auditRunId,
+                        productId: p.id,
+                        reference: p.reference,
+                        name: p.name,
+                        firstImage: firstImageByProduct.get(p.id) ?? null,
+                        ok: true,
+                        issues: res.result.issues as unknown as Prisma.InputJsonValue,
+                      },
                     });
                   }
                 } else {
                   errorCount++;
-                  results.push({
-                    ok: false,
-                    productId: p.id,
-                    reference: p.reference,
-                    name: p.name,
-                    firstImage: firstImageByProduct.get(p.id) ?? null,
-                    error: res.error.message,
-                    errorKind: res.error.kind,
+                  await prisma.pfsAuditResult.create({
+                    data: {
+                      tenantId,
+                      auditRunId,
+                      productId: p.id,
+                      reference: p.reference,
+                      name: p.name,
+                      firstImage: firstImageByProduct.get(p.id) ?? null,
+                      ok: false,
+                      errorMessage: res.error.message,
+                      errorKind: res.error.kind,
+                    },
                   });
                 }
               } catch (err) {
@@ -270,19 +357,29 @@ export async function startPfsAuditInBackground(
                 errorCount++;
                 const msg = err instanceof Error ? err.message : String(err);
                 logger.error("[PFS Audit] Worker crash", { productId: p.id, error: msg });
-                results.push({
-                  ok: false,
-                  productId: p.id,
-                  reference: p.reference,
-                  name: p.name,
-                  firstImage: firstImageByProduct.get(p.id) ?? null,
-                  error: msg,
-                  errorKind: "pfs_unreachable",
-                });
+                await prisma.pfsAuditResult
+                  .create({
+                    data: {
+                      tenantId,
+                      auditRunId,
+                      productId: p.id,
+                      reference: p.reference,
+                      name: p.name,
+                      firstImage: firstImageByProduct.get(p.id) ?? null,
+                      ok: false,
+                      errorMessage: msg,
+                      errorKind: "pfs_unreachable",
+                    },
+                  })
+                  .catch((e) => {
+                    logger.error("[PFS Audit] Insert result failed", {
+                      productId: p.id,
+                      error: e as Error,
+                    });
+                  });
               }
-              // Flush plus fréquent qu'avant (5/500ms au lieu de 20/500ms) pour
-              // que le widget en temps réel voie les nouveaux écarts apparaître
-              // rapidement — le poll client est à 1.5s.
+              // Flush fréquent pour que le widget voie la progression en
+              // temps réel — le poll client est à 1.5s.
               if (processed % 5 === 0 || Date.now() - lastFlush > 500) {
                 await flush();
               }
@@ -293,8 +390,9 @@ export async function startPfsAuditInBackground(
       await Promise.all(workers);
 
       const stopped = await checkStopSignal(tenantId);
-      const finalState: PfsAuditState = {
+      const finalState: PfsAuditPersistedState = {
         status: stopped ? "STOPPED" : "DONE",
+        auditRunId,
         startedAt: initial.startedAt,
         finishedAt: Date.now(),
         total: products.length,
@@ -302,23 +400,23 @@ export async function startPfsAuditInBackground(
         okCount,
         diffCount,
         errorCount,
-        results,
       };
-      await setPfsAuditState(tenantId, finalState);
+      await writePersistedState(tenantId, finalState);
       await setStopSignal(tenantId, false);
     } catch (err) {
       logger.error("[PFS Audit] Audit échoué", { tenantId, error: err as Error });
-      const errorState: PfsAuditState = {
-        ...(await getPfsAuditState(tenantId)),
+      const previous = await readPersistedState(tenantId);
+      const errorState: PfsAuditPersistedState = {
+        ...previous,
         status: "ERROR",
         finishedAt: Date.now(),
         errorMessage: err instanceof Error ? err.message : String(err),
       };
-      await setPfsAuditState(tenantId, errorState);
+      await writePersistedState(tenantId, errorState);
     }
   });
 
-  return initial;
+  return getPfsAuditState(tenantId);
 }
 
 export async function requestStopPfsAudit(tenantId: string): Promise<void> {
@@ -326,6 +424,7 @@ export async function requestStopPfsAudit(tenantId: string): Promise<void> {
 }
 
 export async function resetPfsAuditState(tenantId: string): Promise<void> {
-  await setPfsAuditState(tenantId, { ...EMPTY_STATE });
+  await writePersistedState(tenantId, { ...EMPTY_PERSISTED });
   await setStopSignal(tenantId, false);
+  await prisma.pfsAuditResult.deleteMany({ where: { tenantId } });
 }

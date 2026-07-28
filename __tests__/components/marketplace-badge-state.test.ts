@@ -335,3 +335,91 @@ describe("computeMarketplaceBadgeState — syncRequired", () => {
     expect(state.syncRequired).toBe(true);
   });
 });
+
+describe("computeMarketplaceBadgeState — sticky client-side", () => {
+  // Le sticky client-side (6ᵉ arg = timestamp client de la dernière sync réussie
+  // vue par MarketplaceRefreshContext) sert de filet de sécurité contre le
+  // flash orange dans les cas où la logique basée sur op.completedAt échoue :
+  //   - le poll perd temporairement l'item (renvoi vide, purge)
+  //   - décalage d'horloge serveur/client (dérive NTP)
+  //   - le RSC met plusieurs secondes à rapatrier syncRequired=false
+
+  it("masque syncRequired quand un succès client-side récent est fourni, même sans op", () => {
+    // Cas réel : le poll a temporairement perdu l'item (op undefined) mais on
+    // se souvient côté client d'avoir vu la sync réussir 2 s plus tôt.
+    const now = 1_700_000_000_000;
+    const state = computeMarketplaceBadgeState(
+      "ankors-123",
+      undefined,
+      "ankorstore",
+      true, // syncRequired stale côté RSC
+      now,
+      now - 2_000, // sticky client-side : 2 s
+    );
+    expect(state.online).toBe(true);
+    expect(state.syncRequired).toBe(false);
+  });
+
+  it("masque syncRequired quand un succès client-side récent est fourni, avec op ancienne", () => {
+    // Cas réel : op.completedAt est ancien (par ex. horloge serveur en retard
+    // ou fenêtre 30 s dépassée) mais le client a vu la sync réussir récemment.
+    const now = 1_700_000_000_000;
+    const op = baseItem({
+      mode: "resync",
+      status: "done",
+      ankorsOutcome: { ok: true, archived: false },
+      completedAt: new Date(now - 90_000).toISOString(), // hors fenêtre 30 s
+    });
+    const state = computeMarketplaceBadgeState(
+      "ankors-123",
+      op,
+      "ankorstore",
+      true,
+      now,
+      now - 3_000, // sticky client-side : 3 s
+    );
+    expect(state.syncRequired).toBe(false);
+  });
+
+  it("ignore le sticky client-side quand il est trop ancien (fenêtre 5 min dépassée)", () => {
+    const now = 1_700_000_000_000;
+    const state = computeMarketplaceBadgeState(
+      "ankors-123",
+      undefined,
+      "ankorstore",
+      true,
+      now,
+      now - 6 * 60 * 1000, // sticky client-side : 6 min → hors fenêtre
+    );
+    expect(state.syncRequired).toBe(true);
+  });
+
+  it("sticky client-side null → comportement historique (dépend de op.completedAt uniquement)", () => {
+    const now = 1_700_000_000_000;
+    const state = computeMarketplaceBadgeState(
+      "ankors-123",
+      undefined,
+      "ankorstore",
+      true,
+      now,
+      null,
+    );
+    expect(state.syncRequired).toBe(true);
+  });
+
+  it("sticky client-side ne rend PAS le produit online s'il ne l'est pas déjà (pas de faux vert)", () => {
+    // Le sticky masque juste le orange, pas plus. Un produit pas encore lié
+    // reste "non lié" tant que serverProductId est null et que justPublishedOk
+    // ne s'active pas via op.
+    const now = 1_700_000_000_000;
+    const state = computeMarketplaceBadgeState(
+      null,
+      undefined,
+      "ankorstore",
+      false,
+      now,
+      now - 1_000,
+    );
+    expect(state.online).toBe(false);
+  });
+});

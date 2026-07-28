@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { disconnectMicrostore, toggleMicrostoreEnabled } from "@/app/actions/admin/site-config";
@@ -50,6 +51,7 @@ export default function MicrostoreConnectCard({
 }: Props) {
   const toast = useToast();
   const { confirm } = useConfirm();
+  const router = useRouter();
   const [connected, setConnected] = useState(initiallyConnected);
   const [enabled, setEnabled] = useState(initiallyEnabled);
   const [expiresAtIso, setExpiresAtIso] = useState<string | null>(initialExpiresAtIso);
@@ -105,6 +107,10 @@ export default function MicrostoreConnectCard({
             "Session Microstore récupérée",
             "Votre session web.mc.app reste active — les deux coexistent.",
           );
+          // Rafraîchit le rendu serveur (vignette « Non connecté » du parent
+          // MarketplaceConfig / SettingCard qui prend son état des props
+          // initiales, sinon reste "Non connecté" après import réussi).
+          router.refresh();
         } else {
           const err = "error" in data ? data.error : "Erreur inconnue.";
           toast.error("Impossible d'importer la session", err);
@@ -130,10 +136,11 @@ export default function MicrostoreConnectCard({
       setEnabled(false);
       setExpiresAtIso(null);
       toast.success("Microstore déconnecté.");
+      router.refresh();
     } else {
       toast.error("Erreur", res.error);
     }
-  }, [confirm, toast]);
+  }, [confirm, toast, router]);
 
   const handleTestConnection = useCallback(async () => {
     setPinging(true);

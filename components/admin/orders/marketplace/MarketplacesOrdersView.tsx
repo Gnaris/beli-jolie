@@ -135,7 +135,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
   const [bulkRunning, setBulkRunning] = useState(false);
   const [, startTransition] = useTransition();
   const { confirm } = useConfirm();
-  const { open: openWidget } = useRightRail();
+  const { open: openWidget, pushManualSync } = useRightRail();
   const toast = useToast();
 
   useEffect(() => {
@@ -290,17 +290,39 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     });
     if (!ok) return;
     setSyncingPfs(true);
+    openWidget("orders-import");
+    const startedAt = Date.now();
+    pushManualSync({ source: "PFS", target: "orders", phase: "starting", startedAt });
     try {
       const res = await syncPfsOrdersNow();
       if (!res.success) {
+        pushManualSync({
+          source: "PFS",
+          target: "orders",
+          phase: "error",
+          startedAt,
+          endedAt: Date.now(),
+          errorMessage: res.error,
+        });
         toast.error("Synchro PFS échouée", res.error);
-      } else if (res.created + res.updated === 0) {
-        toast.success("Synchro PFS OK", "Aucune nouvelle commande.");
       } else {
-        toast.success(
-          "Synchro PFS OK",
-          `${res.created} nouvelles, ${res.updated} mises à jour.`,
-        );
+        pushManualSync({
+          source: "PFS",
+          target: "orders",
+          phase: "success",
+          startedAt,
+          endedAt: Date.now(),
+          created: res.created,
+          updated: res.updated,
+        });
+        if (res.created + res.updated === 0) {
+          toast.success("Synchro PFS OK", "Aucune nouvelle commande.");
+        } else {
+          toast.success(
+            "Synchro PFS OK",
+            `${res.created} nouvelles, ${res.updated} mises à jour.`,
+          );
+        }
       }
       const meta = await getMarketplaceSyncMeta();
       setSyncMeta(meta);
@@ -308,7 +330,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     } finally {
       setSyncingPfs(false);
     }
-  }, [refresh, confirm, toast]);
+  }, [refresh, confirm, toast, openWidget, pushManualSync]);
 
   const onSyncEfashion = useCallback(async () => {
     const ok = await confirm({
@@ -320,17 +342,39 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     });
     if (!ok) return;
     setSyncingEfashion(true);
+    openWidget("orders-import");
+    const startedAt = Date.now();
+    pushManualSync({ source: "EFASHION", target: "orders", phase: "starting", startedAt });
     try {
       const res = await syncEfashionOrdersNow();
       if (!res.success) {
+        pushManualSync({
+          source: "EFASHION",
+          target: "orders",
+          phase: "error",
+          startedAt,
+          endedAt: Date.now(),
+          errorMessage: res.error,
+        });
         toast.error("Synchro eFashion échouée", res.error);
-      } else if (res.created + res.updated === 0) {
-        toast.success("Synchro eFashion OK", "Aucune nouvelle commande.");
       } else {
-        toast.success(
-          "Synchro eFashion OK",
-          `${res.created} nouvelles, ${res.updated} mises à jour.`,
-        );
+        pushManualSync({
+          source: "EFASHION",
+          target: "orders",
+          phase: "success",
+          startedAt,
+          endedAt: Date.now(),
+          created: res.created,
+          updated: res.updated,
+        });
+        if (res.created + res.updated === 0) {
+          toast.success("Synchro eFashion OK", "Aucune nouvelle commande.");
+        } else {
+          toast.success(
+            "Synchro eFashion OK",
+            `${res.created} nouvelles, ${res.updated} mises à jour.`,
+          );
+        }
       }
       const meta = await getMarketplaceSyncMeta();
       setSyncMeta(meta);
@@ -338,7 +382,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     } finally {
       setSyncingEfashion(false);
     }
-  }, [refresh, confirm, toast]);
+  }, [refresh, confirm, toast, openWidget, pushManualSync]);
 
   const onSyncAnkorstore = useCallback(async () => {
     const ok = await confirm({
@@ -350,17 +394,39 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     });
     if (!ok) return;
     setSyncingAnkorstore(true);
+    openWidget("orders-import");
+    const startedAt = Date.now();
+    pushManualSync({ source: "ANKORSTORE", target: "orders", phase: "starting", startedAt });
     try {
       const res = await syncAnkorstoreOrdersNow();
       if (!res.success) {
+        pushManualSync({
+          source: "ANKORSTORE",
+          target: "orders",
+          phase: "error",
+          startedAt,
+          endedAt: Date.now(),
+          errorMessage: res.error,
+        });
         toast.error("Synchro Ankorstore échouée", res.error);
-      } else if (res.created + res.updated === 0) {
-        toast.success("Synchro Ankorstore OK", "Aucune nouvelle commande.");
       } else {
-        toast.success(
-          "Synchro Ankorstore OK",
-          `${res.created} nouvelles, ${res.updated} mises à jour.`,
-        );
+        pushManualSync({
+          source: "ANKORSTORE",
+          target: "orders",
+          phase: "success",
+          startedAt,
+          endedAt: Date.now(),
+          created: res.created,
+          updated: res.updated,
+        });
+        if (res.created + res.updated === 0) {
+          toast.success("Synchro Ankorstore OK", "Aucune nouvelle commande.");
+        } else {
+          toast.success(
+            "Synchro Ankorstore OK",
+            `${res.created} nouvelles, ${res.updated} mises à jour.`,
+          );
+        }
       }
       const meta = await getMarketplaceSyncMeta();
       setSyncMeta(meta);
@@ -368,7 +434,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     } finally {
       setSyncingAnkorstore(false);
     }
-  }, [refresh, confirm, toast]);
+  }, [refresh, confirm, toast, openWidget, pushManualSync]);
 
   const onStartImportPfs = useCallback(async () => {
     const ok = await confirm({
@@ -428,17 +494,39 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     });
     if (!ok) return;
     setSyncingFaire(true);
+    openWidget("orders-import");
+    const startedAt = Date.now();
+    pushManualSync({ source: "FAIRE", target: "orders", phase: "starting", startedAt });
     try {
       const res = await syncFaireOrdersNow();
       if (!res.success) {
+        pushManualSync({
+          source: "FAIRE",
+          target: "orders",
+          phase: "error",
+          startedAt,
+          endedAt: Date.now(),
+          errorMessage: res.error,
+        });
         toast.error("Synchro Faire échouée", res.error);
-      } else if (res.created + res.updated === 0) {
-        toast.success("Synchro Faire OK", "Aucune nouvelle commande.");
       } else {
-        toast.success(
-          "Synchro Faire OK",
-          `${res.created} nouvelles, ${res.updated} mises à jour.`,
-        );
+        pushManualSync({
+          source: "FAIRE",
+          target: "orders",
+          phase: "success",
+          startedAt,
+          endedAt: Date.now(),
+          created: res.created,
+          updated: res.updated,
+        });
+        if (res.created + res.updated === 0) {
+          toast.success("Synchro Faire OK", "Aucune nouvelle commande.");
+        } else {
+          toast.success(
+            "Synchro Faire OK",
+            `${res.created} nouvelles, ${res.updated} mises à jour.`,
+          );
+        }
       }
       const meta = await getMarketplaceSyncMeta();
       setSyncMeta(meta);
@@ -446,7 +534,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     } finally {
       setSyncingFaire(false);
     }
-  }, [refresh, confirm, toast]);
+  }, [refresh, confirm, toast, openWidget, pushManualSync]);
 
   const onSyncMicrostore = useCallback(async () => {
     const ok = await confirm({
@@ -458,22 +546,53 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     });
     if (!ok) return;
     setSyncingMicrostore(true);
+    openWidget("orders-import");
+    const startedAt = Date.now();
+    pushManualSync({ source: "MICROSTORE", target: "orders", phase: "starting", startedAt });
     try {
       const res = await syncMicrostoreOrdersNow();
       if (res.sessionExpired) {
+        pushManualSync({
+          source: "MICROSTORE",
+          target: "orders",
+          phase: "error",
+          startedAt,
+          endedAt: Date.now(),
+          sessionExpired: true,
+          errorMessage: "Reconnectez-vous depuis Paramètres → Microstore.",
+        });
         toast.error(
           "Session Microstore expirée",
           "Reconnectez-vous depuis Paramètres → Microstore.",
         );
       } else if (!res.success) {
+        pushManualSync({
+          source: "MICROSTORE",
+          target: "orders",
+          phase: "error",
+          startedAt,
+          endedAt: Date.now(),
+          errorMessage: res.error,
+        });
         toast.error("Synchro Microstore échouée", res.error);
-      } else if ((res.created ?? 0) + (res.updated ?? 0) === 0) {
-        toast.success("Synchro Microstore OK", "Aucune nouvelle commande.");
       } else {
-        toast.success(
-          "Synchro Microstore OK",
-          `${res.created ?? 0} nouvelles, ${res.updated ?? 0} mises à jour.`,
-        );
+        pushManualSync({
+          source: "MICROSTORE",
+          target: "orders",
+          phase: "success",
+          startedAt,
+          endedAt: Date.now(),
+          created: res.created ?? 0,
+          updated: res.updated ?? 0,
+        });
+        if ((res.created ?? 0) + (res.updated ?? 0) === 0) {
+          toast.success("Synchro Microstore OK", "Aucune nouvelle commande.");
+        } else {
+          toast.success(
+            "Synchro Microstore OK",
+            `${res.created ?? 0} nouvelles, ${res.updated ?? 0} mises à jour.`,
+          );
+        }
       }
       const meta = await getMarketplaceSyncMeta();
       setSyncMeta(meta);
@@ -481,7 +600,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     } finally {
       setSyncingMicrostore(false);
     }
-  }, [refresh, confirm, toast]);
+  }, [refresh, confirm, toast, openWidget, pushManualSync]);
 
   const onStartImportMicrostore = useCallback(async () => {
     const ok = await confirm({

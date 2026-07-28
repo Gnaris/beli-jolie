@@ -65,6 +65,15 @@ export interface AnkorstoreSyncSnapshot {
   variants: { [ankorsVariantId: string]: AnkorstoreVariantSnapshot };
   images: AnkorstoreImagesSnapshot;
   status: AnkorstoreStatus;
+  /**
+   * true quand le toggle « Badge Référence en haut à droite » était actif au
+   * moment du push. Sert uniquement au diff : basculer le toggle change les
+   * URL d'images envoyées à Ankorstore (badge composé vs image brute) mais
+   * pas les paths locaux → sans ce flag, `diffAnkorstoreSnapshots` ne
+   * détecterait aucun changement. Snapshot v3 antérieur = `undefined`, traité
+   * comme false.
+   */
+  brandedBadgeApplied?: boolean;
 }
 
 export interface AnkorstoreSyncDiff {
@@ -79,6 +88,13 @@ export interface AnkorstoreSyncDiff {
   imagesToUpload: { colorKey: string; slot: number; path: string }[];
   imagesToDelete: { colorKey: string; slot: number }[];
   statusChanged: boolean;
+  /**
+   * true quand le toggle « Badge Référence » a été activé ou désactivé depuis
+   * le dernier push. Force une resync du payload complet côté Ankorstore
+   * (le catalog operation renvoie mainImage + images + variant images avec
+   * ou sans URL brandée).
+   */
+  brandedBadgeChanged: boolean;
 }
 
 export function productFieldsEqual(
@@ -141,6 +157,7 @@ export function diffAnkorstoreSnapshots(
       imagesToUpload,
       imagesToDelete: [],
       statusChanged: true,
+      brandedBadgeChanged: false,
     };
   }
 
@@ -189,6 +206,9 @@ export function diffAnkorstoreSnapshots(
     }
   }
 
+  const brandedBadgeChanged =
+    (prev.brandedBadgeApplied ?? false) !== (next.brandedBadgeApplied ?? false);
+
   return {
     productChanged,
     variantsChanged,
@@ -196,6 +216,7 @@ export function diffAnkorstoreSnapshots(
     imagesToUpload,
     imagesToDelete,
     statusChanged,
+    brandedBadgeChanged,
   };
 }
 
@@ -207,6 +228,7 @@ export function diffIsEmpty(diff: AnkorstoreSyncDiff): boolean {
   return (
     !diff.productChanged &&
     !diff.statusChanged &&
+    !diff.brandedBadgeChanged &&
     diff.variantsChanged.length === 0 &&
     diff.variantsRemoved.length === 0 &&
     diff.imagesToUpload.length === 0 &&

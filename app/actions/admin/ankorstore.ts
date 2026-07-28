@@ -394,10 +394,26 @@ export async function linkAnkorstoreProductWithMapping(
   productId: string,
   ankorstoreProductId: string,
   mapping: { ankorstoreVariantId: string; localColorId: string }[],
-): Promise<{ success: boolean; error?: string }> {
+  intents?: {
+    /** productColorId des couleurs BJ à créer côté Ankorstore. La sync post-liaison callback les crée. */
+    colorsToCreate: string[];
+    /** ankorstoreVariantId des variantes à supprimer. Ankorstore supprime naturellement les orphelines à la sync. */
+    orphansToDelete: string[];
+    /** ankorstoreVariantId des variantes à importer en tant que ProductColor BJ + lier. */
+    orphansToImport: string[];
+  },
+): Promise<{
+  success: boolean;
+  error?: string;
+  linked?: number;
+  autoCreatedOnMarketplace?: number;
+  deletedOnMarketplace?: number;
+  importedFromMarketplace?: number;
+  syncWarning?: string;
+}> {
   await requireAdmin();
 
-  if (mapping.length === 0) {
+  if (mapping.length === 0 && (!intents || intents.colorsToCreate.length === 0)) {
     return {
       success: false,
       error: "Aucun mapping fourni — chaque variante Ankorstore doit être liée à une couleur locale.",
@@ -416,7 +432,7 @@ export async function linkAnkorstoreProductWithMapping(
     seenAk.add(m.ankorstoreVariantId);
   }
 
-  return confirmAnkorstoreMatch(
+  const res = await confirmAnkorstoreMatch(
     productId,
     ankorstoreProductId,
     mapping.map((m) => ({
@@ -424,6 +440,42 @@ export async function linkAnkorstoreProductWithMapping(
       ankorstoreVariantId: m.ankorstoreVariantId,
     })),
   );
+  if (!res.success) return res;
+
+  // Import des orphelines Ankorstore marquées « Créer chez nous ». Fait APRÈS
+  // confirmAnkorstoreMatch (createLocalVariantFromAnkorstoreVariant exige
+  // ankorsProductId posé). Best-effort : si une import échoue on log et on continue.
+  let importedFromMarketplace = 0;
+  if (intents && intents.orphansToImport.length > 0) {
+    for (const akVariantId of intents.orphansToImport) {
+      try {
+        const imp = await createLocalVariantFromAnkorstoreVariant(productId, akVariantId);
+        if (imp.success) {
+          importedFromMarketplace += 1;
+        } else {
+          logger.warn("[Ankorstore] Import orpheline échoué", {
+            akVariantId,
+            error: imp.error,
+          });
+        }
+      } catch (err) {
+        logger.warn("[Ankorstore] Import orpheline en erreur", { akVariantId, error: err });
+      }
+    }
+  }
+
+  // Ankorstore = callback-only : la sync post-liaison (`kickoffOverwriteFromLink`
+  // dans confirmAnkorstoreMatch) écrase l'état AS avec le nôtre. Toutes les
+  // variantes non mappées sont naturellement retirées, toutes les couleurs BJ
+  // sans ankorsVariantId sont créées. Les compteurs remontés ici sont donc
+  // basés sur les intentions déclarées par l'admin dans la modale.
+  return {
+    ...res,
+    linked: mapping.length,
+    autoCreatedOnMarketplace: intents?.colorsToCreate.length ?? 0,
+    deletedOnMarketplace: intents?.orphansToDelete.length ?? 0,
+    importedFromMarketplace,
+  };
 }
 
 /**
@@ -772,6 +824,41 @@ export async function createLocalVariantFromAnkorstoreVariant(
         data: { name: colorName, hex: "#9CA3AF" },
         select: { id: true, name: true },
       });
+    }
+
+    // Anti-doublon : si le produit a déjà une ProductColor UNIT sur cette Color,
+    // on RELIE l'existante au lieu d'en créer une nouvelle. Erreur si l'existante
+    // est déjà liée à une AUTRE variante Ankorstore.
+    const existingPc = await prisma.productColor.findFirst({
+      where: { productId, colorId: color.id, saleType: "UNIT" },
+      select: { id: true, ankorsVariantId: true },
+    });
+    if (existingPc) {
+      if (existingPc.ankorsVariantId && existingPc.ankorsVariantId !== ankorstoreVariantId) {
+        return {
+          success: false,
+          error: `La couleur ${colorName} est déjà liée à une autre variante Ankorstore (${existingPc.ankorsVariantId}). Délie-la d'abord si tu veux la relier à ${ankorstoreVariantId}.`,
+        };
+      }
+      await prisma.$transaction(async (tx) => {
+        await tx.productColor.update({
+          where: { id: existingPc.id },
+          data: { ankorsVariantId: ankorstoreVariantId },
+        });
+        await tx.product.update({
+          where: { id: productId },
+          data: { ankorsLastSyncSnapshot: Prisma.DbNull },
+        });
+      });
+      revalidatePath(`/admin/produits/${productId}/modifier`);
+      revalidatePath(`/admin/produits`);
+      revalidateTag("products", "default");
+      logger.info("[Ankorstore Create Variant] ProductColor existante reliée", {
+        productId,
+        productColorId: existingPc.id,
+        ankorstoreVariantId,
+      });
+      return { success: true, createdColorId: existingPc.id, imageCount: 0 };
     }
 
     // 2) Find or create Size by name (case-insensitive)
