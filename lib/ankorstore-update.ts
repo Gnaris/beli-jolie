@@ -854,6 +854,7 @@ export async function ankorstoreKickoffUpdate(
         return buildBrandedMarketplaceUrl(path, product.reference, {
           baseUrl: brandedBaseUrl,
           size: "large",
+          minWidth: 500,
         });
       }
       return buildPublicImageUrl(path, imageBaseUrl);

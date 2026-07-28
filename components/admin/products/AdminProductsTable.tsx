@@ -4168,6 +4168,8 @@ export default function AdminProductsTable({
         "Toutes les informations actuelles (prix, stock, images, statut, etc.) seront renvoyées aux marketplaces cochées. Le produit garde le même identifiant en ligne.",
       eyebrow: "Synchronisation",
       confirmLabel: "Synchroniser",
+      actionLabel: "synchroniser",
+      actionMode: "update",
     });
     if (!options) return;
     const inputs = buildMarketplaceInputs(candidates, options, "resync");

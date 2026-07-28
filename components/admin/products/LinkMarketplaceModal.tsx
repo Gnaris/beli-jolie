@@ -980,17 +980,6 @@ function Step2Result({
         </div>
       </div>
 
-      {/* Galerie côté boutique : les vignettes zoomables de chaque couleur BJ.
-          La galerie marketplace a été retirée — les colorName marketplace sont
-          souvent des SKUs bruts (Ankor/Faire), et les cartes de mapping en
-          étape 3 exposent déjà toutes les images côté marketplace. */}
-      <VariantsGallery
-        label={`Images des couleurs ${shopName}`}
-        entries={preview.localColors
-          .filter((c) => c.productImage)
-          .map((c) => ({ key: c.productColorId, name: c.name, image: c.productImage, raw: false }))}
-      />
-
       <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
         <div className="flex items-start gap-3">
           <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
@@ -2037,40 +2026,6 @@ function Step4Recap({
         </div>
       )}
     </section>
-  );
-}
-
-// ─── Galerie horizontale des vignettes de couleurs (zoomables) ─────────────
-
-function VariantsGallery({
-  label,
-  entries,
-}: {
-  label: string;
-  entries: { key: string; name: string; image: string | null; raw: boolean }[];
-}) {
-  if (entries.length === 0) return null;
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3">
-      <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted font-semibold mb-2">
-        {label}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {entries.map((e) => (
-          <div key={e.key} className="flex flex-col items-center gap-1 w-16">
-            <ZoomableImage
-              src={e.image}
-              alt={e.name}
-              className="w-14 h-14 rounded-lg object-cover border border-slate-200"
-              raw={e.raw}
-            />
-            <span className="text-[10px] text-text-muted text-center leading-tight w-full truncate">
-              {e.name}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }
 

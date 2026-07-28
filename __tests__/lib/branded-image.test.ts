@@ -1,29 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { computeBrandedHash, __TEST_ONLY } from "@/lib/branded-image";
+import sharp from "sharp";
+import {
+  composeBrandedBuffer,
+  computeBrandedHash,
+  __TEST_ONLY,
+} from "@/lib/branded-image";
 
 const { buildBadgeSvg } = __TEST_ONLY;
 
 describe("computeBrandedHash", () => {
   it("est déterministe pour les mêmes entrées", () => {
-    const a = computeBrandedHash("/uploads/x/produits/e310b/img.webp", "E310B");
-    const b = computeBrandedHash("/uploads/x/produits/e310b/img.webp", "E310B");
+    const a = computeBrandedHash("/uploads/x/produits/e310b/img.webp", "E310B", "large");
+    const b = computeBrandedHash("/uploads/x/produits/e310b/img.webp", "E310B", "large");
     expect(a).toBe(b);
   });
 
   it("change quand la référence change", () => {
-    const a = computeBrandedHash("/uploads/x/produits/e310b/img.webp", "E310B");
-    const b = computeBrandedHash("/uploads/x/produits/e310b/img.webp", "E310C");
+    const a = computeBrandedHash("/uploads/x/produits/e310b/img.webp", "E310B", "large");
+    const b = computeBrandedHash("/uploads/x/produits/e310b/img.webp", "E310C", "large");
     expect(a).not.toBe(b);
   });
 
   it("change quand la source change", () => {
-    const a = computeBrandedHash("/uploads/x/produits/e310b/img-1.webp", "E310B");
-    const b = computeBrandedHash("/uploads/x/produits/e310b/img-2.webp", "E310B");
+    const a = computeBrandedHash("/uploads/x/produits/e310b/img-1.webp", "E310B", "large");
+    const b = computeBrandedHash("/uploads/x/produits/e310b/img-2.webp", "E310B", "large");
+    expect(a).not.toBe(b);
+  });
+
+  it("change quand minWidth change (isolation cache marketplace)", () => {
+    const a = computeBrandedHash("/uploads/x/produits/e310b/img.webp", "E310B", "large", 500);
+    const b = computeBrandedHash("/uploads/x/produits/e310b/img.webp", "E310B", "large", 1000);
     expect(a).not.toBe(b);
   });
 
   it("retourne un hash tronqué à 16 caractères hex", () => {
-    const h = computeBrandedHash("/foo", "REF");
+    const h = computeBrandedHash("/foo", "REF", "large");
     expect(h).toMatch(/^[0-9a-f]{16}$/);
   });
 });
@@ -73,5 +84,69 @@ describe("buildBadgeSvg", () => {
     expect(svg).toContain('xmlns="http://www.w3.org/2000/svg"');
     expect(svg).toContain('id="headerGrad"');
     expect(svg).toContain('id="codeGrad"');
+  });
+});
+
+describe("composeBrandedBuffer (minWidth)", () => {
+  async function makeSource(width: number, height: number): Promise<Buffer> {
+    return sharp({
+      create: {
+        width,
+        height,
+        channels: 3,
+        background: { r: 200, g: 200, b: 200 },
+      },
+    })
+      .webp()
+      .toBuffer();
+  }
+
+  it("upscale une source 700px à minWidth 1000 (contrainte Faire)", async () => {
+    const src = await makeSource(700, 700);
+    const out = await composeBrandedBuffer({
+      sourceBuffer: src,
+      reference: "REF",
+      size: "large",
+      minWidth: 1000,
+    });
+    const meta = await sharp(out).metadata();
+    expect(meta.width ?? 0).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("upscale une source 300px à minWidth 500 (contrainte Ankorstore)", async () => {
+    const src = await makeSource(300, 300);
+    const out = await composeBrandedBuffer({
+      sourceBuffer: src,
+      reference: "REF",
+      size: "large",
+      minWidth: 500,
+    });
+    const meta = await sharp(out).metadata();
+    expect(meta.width ?? 0).toBeGreaterThanOrEqual(500);
+  });
+
+  it("ne rétrécit pas une source déjà plus grande que minWidth", async () => {
+    const src = await makeSource(1400, 1400);
+    const out = await composeBrandedBuffer({
+      sourceBuffer: src,
+      reference: "REF",
+      size: "large",
+      minWidth: 1000,
+    });
+    const meta = await sharp(out).metadata();
+    // SIZE_TARGETS.large = 1200 → l'image est cappée à 1200 (fit:inside)
+    expect(meta.width ?? 0).toBeLessThanOrEqual(1200);
+    expect(meta.width ?? 0).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("sans minWidth : comportement historique préservé (petite source → 600 min)", async () => {
+    const src = await makeSource(400, 400);
+    const out = await composeBrandedBuffer({
+      sourceBuffer: src,
+      reference: "REF",
+      size: "large",
+    });
+    const meta = await sharp(out).metadata();
+    expect(meta.width ?? 0).toBeGreaterThanOrEqual(600);
   });
 });

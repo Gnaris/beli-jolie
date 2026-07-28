@@ -48,6 +48,12 @@ export function buildBrandedMarketplaceUrl(
     baseUrl: string;
     size?: BrandedSize;
     format?: "webp" | "jpeg";
+    /**
+     * Largeur minimale exigée par le marketplace de destination.
+     * Faire = 1000, Ankorstore = 500. Si la source est plus petite, le
+     * endpoint upscale à cette largeur avant d'apposer le badge.
+     */
+    minWidth?: number;
   },
 ): string {
   const params = new URLSearchParams({
@@ -57,6 +63,9 @@ export function buildBrandedMarketplaceUrl(
     v: BADGE_TEMPLATE_VERSION,
   });
   if (opts.format) params.set("format", opts.format);
+  if (opts.minWidth && opts.minWidth > 0) {
+    params.set("minWidth", String(Math.round(opts.minWidth)));
+  }
   const base = opts.baseUrl.replace(/\/$/, "");
   return `${base}/api/branded-image?${params.toString()}`;
 }

@@ -84,6 +84,7 @@ export function MarketplacesDrawer() {
     jobs: linkJobs,
     activeCount: linkActiveCount,
     dismissJob: dismissLinkJob,
+    clearFinished: clearFinishedLinkJobs,
   } = useMarketplaceLinkJobs();
   const toast = useToast();
   const { confirm } = useConfirm();
@@ -246,7 +247,10 @@ export function MarketplacesDrawer() {
               )}
               <button
                 type="button"
-                onClick={clear}
+                onClick={() => {
+                  clear();
+                  clearFinishedLinkJobs();
+                }}
                 className="text-slate-500 hover:text-slate-700 underline"
               >
                 Vider la liste

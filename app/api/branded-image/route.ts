@@ -35,6 +35,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const ref = url.searchParams.get("ref");
   const sizeParam = (url.searchParams.get("size") ?? "large") as BrandedSize;
   const formatParam = (url.searchParams.get("format") ?? "webp").toLowerCase();
+  const minWidthParam = url.searchParams.get("minWidth");
 
   if (!src || !ref) {
     return NextResponse.json({ error: "Paramètres src et ref requis." }, { status: 400 });
@@ -52,13 +53,25 @@ export async function GET(req: NextRequest): Promise<Response> {
     return NextResponse.json({ error: "Référence trop longue." }, { status: 400 });
   }
 
+  let minWidth = 0;
+  if (minWidthParam !== null) {
+    const parsed = Number(minWidthParam);
+    if (!Number.isFinite(parsed) || parsed < 100 || parsed > 4000) {
+      return NextResponse.json(
+        { error: "minWidth invalide (100-4000)." },
+        { status: 400 },
+      );
+    }
+    minWidth = Math.round(parsed);
+  }
+
   const key = keyFromDbPath(src);
   const stat = await statFile(key);
   if (!stat) {
     return NextResponse.json({ error: "Image source introuvable." }, { status: 404 });
   }
 
-  const etag = `"${computeBrandedHash(src, ref, sizeParam)}-${formatParam}-${stat.mtime.getTime().toString(36)}"`;
+  const etag = `"${computeBrandedHash(src, ref, sizeParam, minWidth)}-${formatParam}-${stat.mtime.getTime().toString(36)}"`;
   const ifNoneMatch = req.headers.get("if-none-match");
   if (ifNoneMatch === etag) {
     return new Response(null, {
@@ -76,6 +89,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       sourceBuffer,
       reference: ref,
       size: sizeParam,
+      minWidth: minWidth || undefined,
     });
     let output = composed;
     let contentType = "image/webp";

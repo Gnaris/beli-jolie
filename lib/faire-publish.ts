@@ -432,6 +432,7 @@ export function buildFaireProductPayload(
         baseUrl: brandedBaseUrl,
         size: "large",
         format: "jpeg",
+        minWidth: 1000,
       });
     }
     return buildFaireImageUrl(path, imageBaseUrl);

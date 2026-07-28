@@ -664,11 +664,18 @@ export async function faireUpdateProduct(
   if (hasProductPatchPayload && diff.productImagesChanged) {
     const state = await getFaireProductState();
     if (state) {
-      const heroImages = state.rootImages.filter((img) => (img.tags ?? []).includes("Hero"));
+      // En resync forcé, on supprime TOUTES les images racine (Faire déduplique
+      // par hash — renvoyer la même URL sur une image déjà « main » déclenche
+      // « Tentative de mise à jour de l'image […] avec 2 images principales »).
+      // Hors forceFullSync, on cible seulement les images taguées « Hero »
+      // pour éviter la reposition du drapeau vedette.
+      const imagesToDelete = forceFullSync
+        ? state.rootImages
+        : state.rootImages.filter((img) => (img.tags ?? []).includes("Hero"));
       // Faire interdit de supprimer la DERNIÈRE image d'un produit publié
       // (HTTP 400). On garde donc au moins 1 image en stock à chaque DELETE.
       let remaining = state.rootImages.length;
-      for (const img of heroImages) {
+      for (const img of imagesToDelete) {
         if (remaining <= 1) break;
         try {
           const delRes = await faireFetch(
@@ -678,14 +685,14 @@ export async function faireUpdateProduct(
           if (delRes.ok || delRes.status === 404) {
             remaining -= 1;
           } else {
-            logger.warn("[Faire Update] DELETE image Hero : status non-OK", {
+            logger.warn("[Faire Update] DELETE image racine : status non-OK", {
               productId,
               imgId: img.id,
               status: delRes.status,
             });
           }
         } catch (err) {
-          logger.warn("[Faire Update] DELETE image Hero : exception", {
+          logger.warn("[Faire Update] DELETE image racine : exception", {
             productId,
             imgId: img.id,
             error: String(err),
@@ -734,6 +741,15 @@ export async function faireUpdateProduct(
           if (j.field) humanMsg = `${humanMsg} (champ : ${j.field})`;
         } catch {
           if (text) humanMsg = text.slice(0, 200);
+        }
+        // Faire renvoie 404 avec `message: "p_xxx"` quand le produit a été
+        // supprimé côté portail Faire (id orphelin en BDD). On surface un
+        // message clair invitant la cliente à re-lier la fiche.
+        if (res.status === 404 && humanMsg.trim() === meta.faireProductId) {
+          return {
+            success: false,
+            error: "Produit non existant sur Faire — veuillez le relier depuis la modale Faire.",
+          };
         }
         return {
           success: false,

@@ -92,6 +92,13 @@ interface ComposeInput {
   sourceBuffer: Buffer;
   reference: string;
   size: BrandedSize;
+  /**
+   * Largeur minimale (px) que doit atteindre le rendu final. Utilisé pour
+   * respecter les contraintes de chaque marketplace (Faire ≥ 1000, Ankorstore
+   * ≥ 500). Si la source est plus petite, elle est upscalée à cette largeur
+   * (`withoutEnlargement: false`). Sans effet si la source est déjà ≥ minWidth.
+   */
+  minWidth?: number;
 }
 
 /**
@@ -108,10 +115,24 @@ export async function composeBrandedBuffer(
   const smallSource =
     srcW > 0 && srcH > 0 && Math.min(srcW, srcH) < MIN_LARGE_WIDTH;
 
-  const target = SIZE_TARGETS[input.size];
+  const baseTarget = SIZE_TARGETS[input.size];
+  const requestedMinWidth = input.minWidth && input.minWidth > 0 ? input.minWidth : 0;
+  // Cible = max(taille demandée, largeur minimale marketplace).
+  const target = Math.max(baseTarget, requestedMinWidth);
+
+  // Petite source & size=large : ancien comportement (upscale à MIN_LARGE_WIDTH).
   const effectiveTarget =
-    input.size === "large" && smallSource ? MIN_LARGE_WIDTH : target;
-  const withoutEnlargement = !(input.size === "large" && smallSource);
+    input.size === "large" && smallSource && requestedMinWidth < MIN_LARGE_WIDTH
+      ? MIN_LARGE_WIDTH
+      : target;
+
+  // On désactive l'anti-enlargement dès qu'une contrainte minWidth est active
+  // (petite source ou minWidth explicite) — sinon Sharp respecte la source et
+  // le marketplace refuse.
+  const needsUpscale =
+    (input.size === "large" && smallSource) ||
+    (requestedMinWidth > 0 && srcW > 0 && srcW < requestedMinWidth);
+  const withoutEnlargement = !needsUpscale;
 
   const resized = await oriented
     .resize(effectiveTarget, effectiveTarget, {
@@ -140,25 +161,29 @@ export async function composeBrandedBuffer(
  * Historique :
  *   v1 → « RÉF » (initial, retiré)
  *   v2 → « RÉFÉRENCE » en toutes lettres (2026-07-27)
+ *   v3 → param minWidth (respect dimensions marketplace Faire/Ankorstore, 2026-07-28)
  *
  * Exposée pour que `buildBrandedUrl` inclue le suffixe `&v=…` dans l'URL —
  * les navigateurs revoient alors une URL différente au bump et refetch
  * immédiatement sans attendre l'expiration du Cache-Control.
  */
-export const BADGE_TEMPLATE_VERSION = "v2";
+export const BADGE_TEMPLATE_VERSION = "v3";
 
 /**
- * Hash tronqué qui identifie une combinaison (source, référence, size).
+ * Hash tronqué qui identifie une combinaison (source, référence, size, minWidth).
  * Sert de cache key HTTP + validation ETag pour le endpoint dynamique.
  */
 export function computeBrandedHash(
   sourceDbPath: string,
   reference: string,
   size: BrandedSize,
+  minWidth: number = 0,
 ): string {
   return crypto
     .createHash("sha256")
-    .update(`${BADGE_TEMPLATE_VERSION}\n${sourceDbPath}\n${reference}\n${size}`)
+    .update(
+      `${BADGE_TEMPLATE_VERSION}\n${sourceDbPath}\n${reference}\n${size}\n${minWidth}`,
+    )
     .digest("hex")
     .slice(0, 16);
 }

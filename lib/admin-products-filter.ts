@@ -420,14 +420,18 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
   }
 
   if (params.syncRequired === "1") {
+    // Le badge orange « Synchro nécessaire » ne s'affiche que si le produit
+    // est effectivement lié à la marketplace (badge vert + orange).
+    // On exclut donc les drapeaux orphelins (flag=true sans ID marketplace) —
+    // sinon le filtre remonte des produits sans aucun badge orange visible.
     where.AND = [
       ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
       {
         OR: [
-          { pfsSyncRequired: true },
-          { ankorsSyncRequired: true },
-          { efashionSyncRequired: true },
-          { faireSyncRequired: true },
+          { pfsSyncRequired: true,      pfsProductId:          { not: null } },
+          { ankorsSyncRequired: true,   ankorsProductId:       { not: null } },
+          { efashionSyncRequired: true, efashionReferenceBase: { not: null } },
+          { faireSyncRequired: true,    faireProductId:        { not: null } },
         ],
       },
     ];

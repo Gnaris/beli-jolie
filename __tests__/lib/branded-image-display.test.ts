@@ -42,6 +42,29 @@ describe("buildBrandedMarketplaceUrl", () => {
     });
     expect(url).toContain("https://issyma.fr/api/branded-image?");
   });
+
+  it("injecte minWidth=1000 quand fourni (contrainte Faire)", () => {
+    const url = buildBrandedMarketplaceUrl("/uploads/x.webp", "REF", {
+      baseUrl: "https://beliandjolie.com",
+      minWidth: 1000,
+    });
+    expect(url).toContain("minWidth=1000");
+  });
+
+  it("injecte minWidth=500 quand fourni (contrainte Ankorstore)", () => {
+    const url = buildBrandedMarketplaceUrl("/uploads/x.webp", "REF", {
+      baseUrl: "https://beliandjolie.com",
+      minWidth: 500,
+    });
+    expect(url).toContain("minWidth=500");
+  });
+
+  it("n'inclut pas minWidth quand absent", () => {
+    const url = buildBrandedMarketplaceUrl("/uploads/x.webp", "REF", {
+      baseUrl: "https://beliandjolie.com",
+    });
+    expect(url).not.toContain("minWidth");
+  });
 });
 
 describe("maybeBrandifyPath", () => {

@@ -409,15 +409,15 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ faireLink: "nope" }).faireProductId).toBeUndefined();
   });
 
-  it("syncRequired='1' ajoute un OR sur les quatre drapeaux *SyncRequired (AND avec les autres filtres)", () => {
+  it("syncRequired='1' ajoute un OR sur les quatre drapeaux *SyncRequired ET impose que la marketplace correspondante soit liée (évite les drapeaux orphelins qui ne peuvent pas afficher de badge orange)", () => {
     const where = buildAdminProductsWhere({ syncRequired: "1" });
     expect(where.AND).toEqual([
       {
         OR: [
-          { pfsSyncRequired: true },
-          { ankorsSyncRequired: true },
-          { efashionSyncRequired: true },
-          { faireSyncRequired: true },
+          { pfsSyncRequired: true,      pfsProductId:          { not: null } },
+          { ankorsSyncRequired: true,   ankorsProductId:       { not: null } },
+          { efashionSyncRequired: true, efashionReferenceBase: { not: null } },
+          { faireSyncRequired: true,    faireProductId:        { not: null } },
         ],
       },
     ]);
@@ -436,10 +436,10 @@ describe("buildAdminProductsWhere", () => {
       { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
       {
         OR: [
-          { pfsSyncRequired: true },
-          { ankorsSyncRequired: true },
-          { efashionSyncRequired: true },
-          { faireSyncRequired: true },
+          { pfsSyncRequired: true,      pfsProductId:          { not: null } },
+          { ankorsSyncRequired: true,   ankorsProductId:       { not: null } },
+          { efashionSyncRequired: true, efashionReferenceBase: { not: null } },
+          { faireSyncRequired: true,    faireProductId:        { not: null } },
         ],
       },
     ]);
@@ -475,10 +475,10 @@ describe("buildAdminProductsWhere", () => {
       expect(where.AND).toEqual([
         {
           OR: [
-            { pfsSyncRequired: true },
-            { ankorsSyncRequired: true },
-            { efashionSyncRequired: true },
-            { faireSyncRequired: true },
+            { pfsSyncRequired: true,      pfsProductId:          { not: null } },
+            { ankorsSyncRequired: true,   ankorsProductId:       { not: null } },
+            { efashionSyncRequired: true, efashionReferenceBase: { not: null } },
+            { faireSyncRequired: true,    faireProductId:        { not: null } },
           ],
         },
         {
@@ -614,10 +614,10 @@ describe("buildAdminProductsWhere", () => {
         { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
         {
           OR: [
-            { pfsSyncRequired: true },
-            { ankorsSyncRequired: true },
-            { efashionSyncRequired: true },
-            { faireSyncRequired: true },
+            { pfsSyncRequired: true,      pfsProductId:          { not: null } },
+            { ankorsSyncRequired: true,   ankorsProductId:       { not: null } },
+            { efashionSyncRequired: true, efashionReferenceBase: { not: null } },
+            { faireSyncRequired: true,    faireProductId:        { not: null } },
           ],
         },
         { pfsLastExportedAt: null },

@@ -285,6 +285,8 @@ export default function PfsVerifyBadge(props: Props) {
                 confirmLabel: "Synchroniser",
                 showBoutique: false,
                 defaultAllChecked: true,
+                actionLabel: "synchroniser",
+                actionMode: "update",
               });
               if (!options) return;
 
