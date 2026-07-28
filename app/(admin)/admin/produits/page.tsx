@@ -16,7 +16,7 @@ import PfsAuditButton from "@/components/admin/products/PfsAuditButton";
 import { countPendingPfsStockDeductions } from "@/lib/pfs-stock-deduction";
 import { requireCurrentTenant } from "@/lib/tenant";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedSizes } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedHasMicrostoreConfig, getCachedSizes } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import { maybeBrandifyPath } from "@/lib/branded-image-display";
@@ -417,6 +417,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     efashionEnabled,
     hasFaireConfig,
     faireEnabled,
+    hasMicrostoreConfig,
     pfsStockPendingCount,
     allSizes,
   ] = await Promise.all([
@@ -514,6 +515,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     getCachedEfashionEnabled(),
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
+    getCachedHasMicrostoreConfig(),
     (async () => {
       const t = await requireCurrentTenant();
       return countPendingPfsStockDeductions(t.id);
@@ -584,14 +586,17 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     ankorsProductId:       p.ankorsProductId,
     efashionReferenceBase: p.efashionReferenceBase,
     faireProductId:        p.faireProductId,
-    pfsSyncRequired:      p.pfsSyncRequired,
-    ankorsSyncRequired:   p.ankorsSyncRequired,
-    efashionSyncRequired: p.efashionSyncRequired,
-    faireSyncRequired:    p.faireSyncRequired,
-    pfsEnabled:           p.pfsEnabled,
-    ankorsEnabled:        p.ankorsEnabled,
-    efashionEnabled:      p.efashionEnabled,
-    faireEnabled:         p.faireEnabled,
+    pfsSyncRequired:        p.pfsSyncRequired,
+    ankorsSyncRequired:     p.ankorsSyncRequired,
+    efashionSyncRequired:   p.efashionSyncRequired,
+    faireSyncRequired:      p.faireSyncRequired,
+    microstoreSyncRequired: p.microstoreSyncRequired,
+    microstoreLastPushedAt: p.microstoreLastPushedAt ? p.microstoreLastPushedAt.toISOString() : null,
+    pfsEnabled:             p.pfsEnabled,
+    ankorsEnabled:          p.ankorsEnabled,
+    efashionEnabled:        p.efashionEnabled,
+    faireEnabled:           p.faireEnabled,
+    microstoreEnabled:      p.microstoreEnabled,
     // Résultat de la dernière vérification PFS — alimente la pastille dans la
     // cellule Produit (lib/pfs-verify.ts + app/actions/admin/pfs-verify.ts).
     pfsCheckedAt:   p.pfsCheckedAt   ? p.pfsCheckedAt.toISOString() : null,
@@ -705,6 +710,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         efashionEnabled={efashionEnabled}
         hasFaireConfig={hasFaireConfig}
         faireEnabled={faireEnabled}
+        hasMicrostoreConfig={hasMicrostoreConfig}
         bulkEditOptions={{
           categories: categories.map((c) => ({
             id: c.id,

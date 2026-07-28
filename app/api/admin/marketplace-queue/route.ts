@@ -75,6 +75,7 @@ export async function POST(req: NextRequest) {
     ankorstore: 0,
     efashion: 0,
     faire: 0,
+    microstore: 0,
   };
   const kept = validation.items.filter((input) => {
     const mp = (input.marketplace ?? "pfs") as MarketplaceKey;

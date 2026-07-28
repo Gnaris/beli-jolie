@@ -104,6 +104,7 @@ export interface RowActionContext {
   efashionEnabled?: boolean;
   hasFaireConfig?: boolean;
   faireEnabled?: boolean;
+  hasMicrostoreConfig?: boolean;
 }
 
 export interface RowActionEligibility {
@@ -739,17 +740,37 @@ export function isColorOutOfStock(colors: Pick<ColorVariant, "colorId" | "stock"
   return sameColor.every((c) => c.stock === 0);
 }
 
+// Une couleur est « toutes désactivées » quand TOUTES les variantes qui
+// partagent son colorId ont `disabled = true`. Même règle que la rupture stock
+// pour rester cohérent : la palette ne devient rouge que si AUCUNE variante de
+// cette couleur n'est encore utilisable côté client.
+export function isColorAllDisabled(colors: Pick<ColorVariant, "colorId" | "disabled">[], colorId: string | null): boolean {
+  if (!colorId) return false;
+  const sameColor = colors.filter((c) => c.colorId === colorId);
+  if (sameColor.length === 0) return false;
+  return sameColor.every((c) => c.disabled === true);
+}
+
 // Pastille de couleur avec légende flottante instantanée au survol.
 // La légende est portée dans `document.body` pour éviter les clipping de
 // `overflow-hidden` sur la table (cf. conteneur rounded-2xl overflow-hidden).
 export function ColorSwatch({
   color,
   outOfStock = false,
+  allDisabled = false,
 }: {
   color: { name: string; hex: string | null; patternImage?: string | null };
   /** Encadre la pastille en rouge quand toutes les variantes de cette couleur sont à 0. */
   outOfStock?: boolean;
+  /** Même encadré rouge quand toutes les variantes de cette couleur sont désactivées. */
+  allDisabled?: boolean;
 }) {
+  const red = outOfStock || allDisabled;
+  const ariaSuffix = allDisabled
+    ? " — variantes désactivées"
+    : outOfStock
+    ? " — rupture de stock"
+    : "";
   const [hovered, setHovered] = useState(false);
   const anchorRef = useRef<HTMLSpanElement | null>(null);
   const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
@@ -780,10 +801,11 @@ export function ColorSwatch({
         onFocus={showTip}
         onBlur={hideTip}
         tabIndex={0}
-        aria-label={outOfStock ? `${color.name} — rupture de stock` : color.name}
+        aria-label={`${color.name}${ariaSuffix}`}
         data-out-of-stock={outOfStock ? "true" : undefined}
+        data-all-disabled={allDisabled ? "true" : undefined}
         className={
-          outOfStock
+          red
             ? "inline-block w-[18px] h-[18px] rounded-full border-[1.5px] border-white shadow-[0_0_0_2px_#DC2626] cursor-default outline-none focus:ring-2 focus:ring-red-500/60"
             : "inline-block w-[18px] h-[18px] rounded-full border-[1.5px] border-white shadow-[0_0_0_1px_rgba(0,0,0,0.14)] cursor-default outline-none focus:ring-2 focus:ring-emerald-400/60"
         }
@@ -837,12 +859,18 @@ interface AdminProduct {
   ankorsSyncRequired: boolean;
   efashionSyncRequired: boolean;
   faireSyncRequired: boolean;
+  microstoreSyncRequired: boolean;
+  /** Microstore n'a pas d'ID marketplace : `microstoreLastPushedAt != null` sert
+   *  d'équivalent « déjà publié ». Null = jamais poussé (la modale bulk peut
+   *  quand même proposer un premier push si Microstore est configuré). */
+  microstoreLastPushedAt: string | null;
   /** Drapeaux « Marketplace activée pour ce produit » — quand false, aucune
    *  action ne partira vers ce marketplace et le badge s'affiche barré. */
   pfsEnabled: boolean;
   ankorsEnabled: boolean;
   efashionEnabled: boolean;
   faireEnabled: boolean;
+  microstoreEnabled: boolean;
   /** Dates du dernier export Excel/ZIP réussi par marketplace (null = jamais
    *  exporté). Affichées dans la colonne « Dates » avec une puce d'initiales
    *  par marketplace — visibles aussi pour les brouillons. */
@@ -873,6 +901,7 @@ interface Props {
   efashionEnabled: boolean;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  hasMicrostoreConfig: boolean;
   /** Listes pour la modale d'édition en masse (catégorie, code SH, etc.) */
   bulkEditOptions: BulkEditOptions;
   /** Tags disponibles pour la modale « Ajouter / retirer des tags » du menu Plus. */
@@ -888,8 +917,9 @@ interface Props {
 // valeurs vivent uniquement en mémoire dans dirtyEdits (Record<variantId,
 // { field: newValue }>). Exportés pour les tests unitaires.
 
-export type VariantField = "price" | "stock" | "weight" | "packQty";
-export type VariantDirtyEdits = Record<string, Partial<Record<VariantField, number>>>;
+export type VariantField = "price" | "stock" | "weight" | "packQty" | "disabled";
+export type VariantEditValue = number | boolean;
+export type VariantDirtyEdits = Record<string, Partial<Record<VariantField, VariantEditValue>>>;
 
 export function isVariantCellDirty(
   edits: VariantDirtyEdits,
@@ -903,8 +933,8 @@ export function commitVariantCell(
   edits: VariantDirtyEdits,
   variantId: string,
   field: VariantField,
-  newValue: number,
-  originalValue: number,
+  newValue: VariantEditValue,
+  originalValue: VariantEditValue,
 ): VariantDirtyEdits {
   const next: VariantDirtyEdits = { ...edits };
   if (newValue === originalValue) {
@@ -981,10 +1011,11 @@ export function computeBulkPriceEdits(
 }
 
 // Classe CSS de la ligne variante dans le tiroir : fond rouge pastel quand le
-// stock est à 0 (y compris en édition en attente), sinon hover neutre.
-export function computeVariantRowClass(stock: number): string {
+// stock est à 0 OU quand la variante est désactivée (y compris en édition en
+// attente). Sinon hover neutre.
+export function computeVariantRowClass(stock: number, disabled = false): string {
   const base = "border-t border-border-light transition-colors";
-  return stock === 0
+  return stock === 0 || disabled
     ? `${base} bg-red-100/70 hover:bg-red-200/60`
     : `${base} hover:bg-bg-primary/60`;
 }
@@ -1013,7 +1044,7 @@ function VariantEditableCell({
   isInt: boolean;
   dirty: boolean;
   ariaLabel: string;
-  onCommit: (field: VariantField, newValue: number, originalValue: number) => void;
+  onCommit: (field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => void;
   children: React.ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
@@ -1083,6 +1114,49 @@ function VariantEditableCell({
   );
 }
 
+// ─── Bulk toggle Activer/Désactiver toutes les variantes du produit ────────
+// Bouton à segments (Activer / Désactiver) posé dans la 1ʳᵉ cellule du bulk-row.
+// Un clic pose un dirty edit `disabled = true|false` sur chaque variante ; le
+// bandeau global Appliquer/Annuler en bas s'occupe de persister.
+function BulkDisabledEditor({
+  allCurrentlyDisabled,
+  onApplyAll,
+}: {
+  allCurrentlyDisabled: boolean;
+  onApplyAll: (disabled: boolean) => void;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-bg-primary p-0.5" role="group" aria-label="Activer ou désactiver toutes les variantes">
+      <button
+        type="button"
+        onClick={() => onApplyAll(false)}
+        title="Activer toutes les variantes du produit"
+        aria-label="Activer toutes les variantes du produit"
+        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide transition-colors ${
+          !allCurrentlyDisabled
+            ? "bg-emerald-600 text-white"
+            : "text-emerald-700 hover:bg-emerald-50"
+        }`}
+      >
+        Tout activer
+      </button>
+      <button
+        type="button"
+        onClick={() => onApplyAll(true)}
+        title="Désactiver toutes les variantes du produit"
+        aria-label="Désactiver toutes les variantes du produit"
+        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide transition-colors ${
+          allCurrentlyDisabled
+            ? "bg-red-600 text-white"
+            : "text-red-700 hover:bg-red-50"
+        }`}
+      >
+        Tout désactiver
+      </button>
+    </span>
+  );
+}
+
 // ─── Modif rapide « toute la colonne » (bulk column edit) ─────────────────
 // Petit champ posé dans l'en-tête du tiroir, sous chaque colonne éditable.
 // L'admin tape une valeur → Entrée / blur → applique à toutes les variantes
@@ -1142,26 +1216,29 @@ function VariantRow({
   onCommitCell,
 }: {
   variant: ColorVariant;
-  editsForVariant: Partial<Record<VariantField, number>>;
-  onCommitCell: (variantId: string, field: VariantField, newValue: number, originalValue: number) => void;
+  editsForVariant: Partial<Record<VariantField, VariantEditValue>>;
+  onCommitCell: (variantId: string, field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => void;
 }) {
   const priceOrig = variant.unitPrice;
   const stockOrig = variant.stock;
   const weightOrig = variant.weight;
   const packOrig = variant.packQuantity ?? 0;
+  const disabledOrig = variant.disabled;
 
-  const priceCurrent = editsForVariant.price ?? priceOrig;
-  const stockCurrent = editsForVariant.stock ?? stockOrig;
-  const weightCurrent = editsForVariant.weight ?? weightOrig;
-  const packCurrent = editsForVariant.packQty ?? packOrig;
+  const priceCurrent = (editsForVariant.price as number | undefined) ?? priceOrig;
+  const stockCurrent = (editsForVariant.stock as number | undefined) ?? stockOrig;
+  const weightCurrent = (editsForVariant.weight as number | undefined) ?? weightOrig;
+  const packCurrent = (editsForVariant.packQty as number | undefined) ?? packOrig;
+  const disabledCurrent = (editsForVariant.disabled as boolean | undefined) ?? disabledOrig;
 
   const dirtyPrice = editsForVariant.price !== undefined;
   const dirtyStock = editsForVariant.stock !== undefined;
   const dirtyWeight = editsForVariant.weight !== undefined;
   const dirtyPack = editsForVariant.packQty !== undefined;
+  const dirtyDisabled = editsForVariant.disabled !== undefined;
 
   const commit = useCallback(
-    (field: VariantField, newValue: number, originalValue: number) => {
+    (field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => {
       onCommitCell(variant.id, field, newValue, originalValue);
     },
     [onCommitCell, variant.id],
@@ -1180,14 +1257,14 @@ function VariantRow({
     : priceCurrent;
   // L'admin édite l'unitaire ; on retransforme en total avant persistance.
   const commitUnitPrice = useCallback(
-    (field: VariantField, newUnitValue: number, _origUnitValue: number) => {
+    (field: VariantField, newUnitValue: VariantEditValue, _origUnitValue: VariantEditValue) => {
       if (field !== "price") {
         commit(field, newUnitValue, _origUnitValue);
         return;
       }
       const newTotal = isPackVariant
-        ? Math.round(newUnitValue * packTotalQty * 100) / 100
-        : newUnitValue;
+        ? Math.round((newUnitValue as number) * packTotalQty * 100) / 100
+        : (newUnitValue as number);
       commit("price", newTotal, priceOrig);
     },
     [commit, isPackVariant, packTotalQty, priceOrig],
@@ -1208,7 +1285,7 @@ function VariantRow({
     : { backgroundColor: variant.color.hex ?? "#9CA3AF" };
 
   return (
-    <tr className={computeVariantRowClass(stockCurrent)}>
+    <tr className={computeVariantRowClass(stockCurrent, disabledCurrent)}>
       {/* Couleur + état activée/désactivée (chip vert/rouge à droite du nom). */}
       <td className="px-4 py-3">
         <div className="flex items-center gap-2.5">
@@ -1224,15 +1301,21 @@ function VariantRow({
           <span className="text-xs font-semibold font-body text-text-primary">
             {variant.color.name}
           </span>
-          <span
-            role="status"
-            aria-label={variant.disabled ? "Variante désactivée" : "Variante activée"}
-            className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide text-white ${
-              variant.disabled ? "bg-red-600" : "bg-emerald-600"
-            }`}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!disabledCurrent}
+            aria-label={disabledCurrent ? "Variante désactivée — cliquez pour activer" : "Variante activée — cliquez pour désactiver"}
+            title={disabledCurrent ? "Cliquez pour activer la variante" : "Cliquez pour désactiver la variante"}
+            onClick={() => commit("disabled", !disabledCurrent, disabledOrig)}
+            className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide text-white cursor-pointer transition-shadow ${
+              disabledCurrent ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+            } ${dirtyDisabled ? "ring-2 ring-amber-400 ring-offset-1" : ""}`}
+            data-variant-id={variant.id}
+            data-variant-field="disabled"
           >
-            {variant.disabled ? "Désactivée" : "Activée"}
-          </span>
+            {disabledCurrent ? "Désactivée" : "Activée"}
+          </button>
         </div>
       </td>
 
@@ -1977,12 +2060,13 @@ function ProductRow({
   efashionEnabled: boolean;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  hasMicrostoreConfig: boolean;
   selected: boolean;
   onToggle: () => void;
   expanded: boolean;
   onExpandToggle: () => void;
   dirtyEdits: VariantDirtyEdits;
-  onCommitCell: (variantId: string, field: VariantField, newValue: number, originalValue: number) => void;
+  onCommitCell: (variantId: string, field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => void;
   isDeleting?: boolean;
   onRowStatus: (productId: string, status: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
   onRowDelete: (productId: string) => void;
@@ -2446,6 +2530,7 @@ function ProductRow({
                       key={v.colorId!}
                       color={v.color}
                       outOfStock={isColorOutOfStock(product.colors, v.colorId)}
+                      allDisabled={isColorAllDisabled(product.colors, v.colorId)}
                     />
                   ))}
                 </div>
@@ -2792,7 +2877,20 @@ function ProductRow({
                         variantes en attente ; le bandeau Appliquer/Annuler en
                         bas du tiroir prend ensuite le relais. */}
                     <tr className="drawer-variant-bulk-row">
-                      <th colSpan={3} className="px-4 py-2 text-left">
+                      <th className="px-4 py-2 text-left">
+                        <BulkDisabledEditor
+                          allCurrentlyDisabled={product.colors.every((v) => {
+                            const dirty = dirtyEdits[v.id]?.disabled;
+                            return (dirty as boolean | undefined) ?? v.disabled;
+                          })}
+                          onApplyAll={(disabled) => {
+                            for (const v of product.colors) {
+                              onCommitCell(v.id, "disabled", disabled, v.disabled);
+                            }
+                          }}
+                        />
+                      </th>
+                      <th colSpan={2} className="px-4 py-2 text-left">
                         <span className="bulk-col-label">Modifier toute la colonne ↓</span>
                       </th>
                       <th className="px-4 py-2 text-right">
@@ -2803,7 +2901,7 @@ function ProductRow({
                           onApplyAll={(unitValue) => {
                             const packQtyEdits: Record<string, number | undefined> = {};
                             for (const v of product.colors) {
-                              packQtyEdits[v.id] = dirtyEdits[v.id]?.packQty;
+                              packQtyEdits[v.id] = dirtyEdits[v.id]?.packQty as number | undefined;
                             }
                             const edits = computeBulkPriceEdits(product.colors, unitValue, packQtyEdits);
                             for (const e of edits) {
@@ -3054,7 +3152,7 @@ function ProductRow({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, startIndex, hasPfsConfig, pfsGloballyEnabled, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, onRowDelete, onRowSync,
+  products, startIndex, hasPfsConfig, pfsGloballyEnabled, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasMicrostoreConfig, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, onRowDelete, onRowSync,
 }: {
   products: AdminProduct[];
   startIndex: number;
@@ -3066,6 +3164,7 @@ function TableWithTopScroll({
   efashionEnabled: boolean;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  hasMicrostoreConfig: boolean;
   selectedIds: Set<string>;
   allSelected: boolean;
   toggleSelectAll: () => void;
@@ -3073,7 +3172,7 @@ function TableWithTopScroll({
   expandedIds: Set<string>;
   toggleExpand: (id: string) => void;
   dirtyEdits: VariantDirtyEdits;
-  onCommitCell: (variantId: string, field: VariantField, newValue: number, originalValue: number) => void;
+  onCommitCell: (variantId: string, field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => void;
   deletingIds: Set<string>;
   onRowStatus: (productId: string, status: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
   onRowDelete: (productId: string) => void;
@@ -3117,6 +3216,7 @@ function TableWithTopScroll({
                 efashionEnabled={efashionEnabled}
                 hasFaireConfig={hasFaireConfig}
                 faireEnabled={faireEnabled}
+                hasMicrostoreConfig={hasMicrostoreConfig}
                 selected={selectedIds.has(product.id)}
                 onToggle={() => toggleSelect(product.id)}
                 expanded={expandedIds.has(product.id)}
@@ -3150,6 +3250,7 @@ export default function AdminProductsTable({
   efashionEnabled,
   hasFaireConfig,
   faireEnabled,
+  hasMicrostoreConfig,
   bulkEditOptions,
   availableTags,
   availableCollections,
@@ -3233,7 +3334,7 @@ export default function AdminProductsTable({
 
   // ─── Handlers édition inline (global) ─────────────────────────────────
   const handleCommitCell = useCallback(
-    (variantId: string, field: VariantField, newValue: number, originalValue: number) => {
+    (variantId: string, field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => {
       setDirtyEdits((prev) => commitVariantCell(prev, variantId, field, newValue, originalValue));
     },
     [],
@@ -3264,12 +3365,13 @@ export default function AdminProductsTable({
             .find((c) => c.id === variantId);
           if (!variant) return;
           const data: Parameters<typeof updateVariantQuick>[1] = {};
-          if (changes.price !== undefined) data.unitPrice = changes.price;
-          if (changes.stock !== undefined) data.stock = changes.stock;
-          if (changes.weight !== undefined) data.weight = changes.weight;
+          if (changes.price !== undefined) data.unitPrice = changes.price as number;
+          if (changes.stock !== undefined) data.stock = changes.stock as number;
+          if (changes.weight !== undefined) data.weight = changes.weight as number;
           if (changes.packQty !== undefined) {
-            data.packQuantity = variant.saleType === "PACK" ? changes.packQty : null;
+            data.packQuantity = variant.saleType === "PACK" ? (changes.packQty as number) : null;
           }
+          if (changes.disabled !== undefined) data.disabled = changes.disabled as boolean;
           if (Object.keys(data).length > 0) {
             await updateVariantQuick(variantId, data);
           }
@@ -3291,11 +3393,26 @@ export default function AdminProductsTable({
           showFaire,
         });
 
+      // Microstore : produits impactés Microstore-activés (config globale +
+      // toggle par produit). Contrat cliente : « push stock ou créer produit
+      // c'est pareil » — l'API `/goods/import_v1` upsert par `item_ref`, donc
+      // un premier push crée automatiquement la fiche côté Microstore, un
+      // push suivant la met à jour. Pas de restriction sur
+      // `microstoreLastPushedAt` — sinon la case n'apparaîtrait jamais avant
+      // le tout premier envoi manuel.
+      const microstoreProducts = hasMicrostoreConfig
+        ? affectedProducts.filter((p) => {
+            const full = allProducts.find((ap) => ap.id === p.id);
+            return !!full?.microstoreEnabled;
+          })
+        : [];
+
       if (
         pfsProducts.length === 0 &&
         ankorsProducts.length === 0 &&
         efashionProducts.length === 0 &&
-        faireProducts.length === 0
+        faireProducts.length === 0 &&
+        microstoreProducts.length === 0
       ) {
         return;
       }
@@ -3308,6 +3425,7 @@ export default function AdminProductsTable({
           ...ankorsProducts.map((p) => p.id),
           ...efashionProducts.map((p) => p.id),
           ...faireProducts.map((p) => p.id),
+          ...microstoreProducts.map((p) => p.id),
         ]),
       );
       const firstName = affectedProducts[0]?.name;
@@ -3324,6 +3442,7 @@ export default function AdminProductsTable({
           showAnkorstore: ankorsProducts.length > 0,
           showEfashion: efashionProducts.length > 0,
           showFaire: faireProducts.length > 0,
+          showMicrostore: microstoreProducts.length > 0,
           // Propagation stock/prix/poids : pas de section "Boutique/Nouveauté"
           // (elle ne concerne que le parcours Rafraîchir), et on pré-coche
           // toutes les marketplaces liées — c'est ce que la cliente attend.
@@ -3414,6 +3533,47 @@ export default function AdminProductsTable({
         }
       }
       if (inputs.length > 0) enqueuePfs(inputs);
+
+      // Microstore : hors queue (POST /goods/import_v1 synchrone). Fire-and-
+      // forget avec toast récapitulatif à la fin.
+      if (options.microstore && microstoreProducts.length > 0) {
+        const { bulkPushProductsToMicrostore } = await import(
+          "@/app/actions/admin/microstore-products"
+        );
+        void bulkPushProductsToMicrostore(
+          microstoreProducts.map((p) => p.id),
+        ).then((res) => {
+          if (res.success) {
+            const n = res.totals?.pushed ?? 0;
+            const skipped = (res.results ?? []).filter((r) => !r.success);
+            if (n === 0 && skipped.length > 0) {
+              toast.error(
+                "Microstore : rien envoyé",
+                skipped
+                  .slice(0, 3)
+                  .map((s) => `${s.reference} : ${s.error}`)
+                  .join(" · "),
+              );
+            } else if (skipped.length > 0) {
+              const refs = skipped.map((s) => s.reference).slice(0, 5).join(", ");
+              toast.info(
+                `Microstore : ${n} envoyé${n > 1 ? "s" : ""}, ${skipped.length} sauté${skipped.length > 1 ? "s" : ""}`,
+                `À corriger : ${refs}${skipped.length > 5 ? "…" : ""}. Ex : ${skipped[0]!.error}`,
+              );
+            } else {
+              toast.success(
+                `Microstore mis à jour`,
+                `${n} produit${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""}.`,
+              );
+            }
+          } else {
+            toast.error(
+              "Microstore : envoi bulk échoué",
+              res.error ?? "Erreur inconnue.",
+            );
+          }
+        });
+      }
     } catch (e) {
       toast.error(
         "Enregistrement impossible",
@@ -3428,6 +3588,7 @@ export default function AdminProductsTable({
     dirtyEdits,
     allProducts,
     hasPfsConfig,
+    hasMicrostoreConfig,
     showAnkorstore,
     showEfashion,
     showFaire,
@@ -3679,6 +3840,11 @@ export default function AdminProductsTable({
       const faireCandidates = showFaire
         ? allProducts.filter((p) => successIds.includes(p.id) && p.faireProductId)
         : [];
+      const microstoreCandidates = hasMicrostoreConfig
+        ? allProducts.filter(
+            (p) => successIds.includes(p.id) && p.microstoreEnabled,
+          )
+        : [];
 
       const candidates: MarketplaceCandidates = {
         pfs: pfsCandidates,
@@ -3686,16 +3852,20 @@ export default function AdminProductsTable({
         efashion: efashionCandidates,
         faire: faireCandidates,
       };
-      if (hasAnyCandidate(candidates)) {
+      if (hasAnyCandidate(candidates) || microstoreCandidates.length > 0) {
         const firstName = allProducts.find((p) => p.id === successIds[0])?.name;
         const options = await askMarketplaceOptions({
           count: successIds.length,
           firstProductName: firstName,
-          productIds: allCandidateIds(candidates),
+          productIds: [
+            ...allCandidateIds(candidates),
+            ...microstoreCandidates.map((p) => p.id),
+          ],
           showPfs: pfsCandidates.length > 0,
           showAnkorstore: ankorsCandidates.length > 0,
           showEfashion: efashionCandidates.length > 0,
           showFaire: faireCandidates.length > 0,
+          showMicrostore: microstoreCandidates.length > 0,
           showBoutique: false,
           defaultAllChecked: true,
           title:
@@ -3710,10 +3880,31 @@ export default function AdminProductsTable({
         if (options) {
           const inputs = buildMarketplaceInputs(candidates, options);
           if (inputs.length > 0) enqueuePfs(inputs);
+          if (options.microstore && microstoreCandidates.length > 0) {
+            const { bulkPushProductsToMicrostore } = await import(
+              "@/app/actions/admin/microstore-products"
+            );
+            void bulkPushProductsToMicrostore(
+              microstoreCandidates.map((p) => p.id),
+            ).then((res) => {
+              if (res.success) {
+                const n = res.totals?.pushed ?? 0;
+                toast.success(
+                  `Microstore mis à jour`,
+                  `${n} produit${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""}.`,
+                );
+              } else {
+                toast.error(
+                  "Microstore : envoi bulk échoué",
+                  res.error ?? "Erreur inconnue.",
+                );
+              }
+            });
+          }
         }
       }
     }
-  }, [selectedIds, startTransition, askMarketplaceOptions, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, router]);
+  }, [selectedIds, startTransition, askMarketplaceOptions, allProducts, enqueuePfs, hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasMicrostoreConfig, toast, router]);
 
   // ─── Bulk modif d'attributs produit (catégorie, code SH, composition, pays,
   // saison, best-seller) ──
@@ -3778,6 +3969,11 @@ export default function AdminProductsTable({
     const faireCandidates = showFaire
       ? allProducts.filter((p) => successIds.includes(p.id) && p.faireProductId)
       : [];
+    const microstoreCandidates = hasMicrostoreConfig
+      ? allProducts.filter(
+          (p) => successIds.includes(p.id) && p.microstoreEnabled,
+        )
+      : [];
 
     const candidates: MarketplaceCandidates = {
       pfs: pfsCandidates,
@@ -3785,7 +3981,7 @@ export default function AdminProductsTable({
       efashion: efashionCandidates,
       faire: faireCandidates,
     };
-    if (!hasAnyCandidate(candidates)) return;
+    if (!hasAnyCandidate(candidates) && microstoreCandidates.length === 0) return;
 
     const firstName = allProducts.find((p) => p.id === successIds[0])?.name;
     // Boucle avec confirmation à l'annulation — les flags sont déjà posés côté
@@ -3796,11 +3992,15 @@ export default function AdminProductsTable({
       options = await askMarketplaceOptions({
         count: successIds.length,
         firstProductName: firstName,
-        productIds: allCandidateIds(candidates),
+        productIds: [
+          ...allCandidateIds(candidates),
+          ...microstoreCandidates.map((p) => p.id),
+        ],
         showPfs: pfsCandidates.length > 0,
         showAnkorstore: ankorsCandidates.length > 0,
         showEfashion: efashionCandidates.length > 0,
         showFaire: faireCandidates.length > 0,
+        showMicrostore: microstoreCandidates.length > 0,
         showBoutique: false,
         defaultAllChecked: true,
         title:
@@ -3827,7 +4027,30 @@ export default function AdminProductsTable({
     }
     const inputs = buildMarketplaceInputs(candidates, options);
     if (inputs.length > 0) enqueuePfs(inputs);
-  }, [selectedIds, startTransition, askMarketplaceOptions, allProducts, enqueuePfs, hasPfsConfig, showAnkorstore, showEfashion, showFaire, confirm]);
+
+    // Microstore : hors queue, appel synchrone bulk avec toast récap.
+    if (options.microstore && microstoreCandidates.length > 0) {
+      const { bulkPushProductsToMicrostore } = await import(
+        "@/app/actions/admin/microstore-products"
+      );
+      void bulkPushProductsToMicrostore(
+        microstoreCandidates.map((p) => p.id),
+      ).then((res) => {
+        if (res.success) {
+          const n = res.totals?.pushed ?? 0;
+          toast.success(
+            `Microstore mis à jour`,
+            `${n} produit${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""}.`,
+          );
+        } else {
+          toast.error(
+            "Microstore : envoi bulk échoué",
+            res.error ?? "Erreur inconnue.",
+          );
+        }
+      });
+    }
+  }, [selectedIds, startTransition, askMarketplaceOptions, allProducts, enqueuePfs, hasPfsConfig, hasMicrostoreConfig, showAnkorstore, showEfashion, showFaire, confirm, toast]);
 
   const handleBulkDelete = useCallback(async (idsOverride?: string[]) => {
     const ids = idsOverride ?? [...selectedIds];
@@ -4132,12 +4355,16 @@ export default function AdminProductsTable({
       ? targets.filter((p) => (p.colors ?? []).some((c) => c.efashionProductId != null))
       : [];
     const faireTargets = showFaireLocal ? targets.filter((p) => p.faireProductId) : [];
+    const microstoreTargets = hasMicrostoreConfig
+      ? targets.filter((p) => p.microstoreEnabled)
+      : [];
 
     if (
       pfsTargets.length === 0 &&
       ankorsTargets.length === 0 &&
       efashionTargets.length === 0 &&
-      faireTargets.length === 0
+      faireTargets.length === 0 &&
+      microstoreTargets.length === 0
     ) {
       toast.error("Rien à synchroniser", "Ce produit n'est publié sur aucune marketplace.");
       return;
@@ -4153,11 +4380,15 @@ export default function AdminProductsTable({
     const options = await askMarketplaceOptions({
       count: ids.length,
       firstProductName: firstName,
-      productIds: allCandidateIds(candidates),
+      productIds: [
+        ...allCandidateIds(candidates),
+        ...microstoreTargets.map((p) => p.id),
+      ],
       showPfs: pfsTargets.length > 0,
       showAnkorstore: ankorsTargets.length > 0,
       showEfashion: efashionTargets.length > 0,
       showFaire: faireTargets.length > 0,
+      showMicrostore: microstoreTargets.length > 0,
       showBoutique: false,
       defaultAllChecked: true,
       title:
@@ -4174,7 +4405,47 @@ export default function AdminProductsTable({
     if (!options) return;
     const inputs = buildMarketplaceInputs(candidates, options, "resync");
     if (inputs.length > 0) enqueuePfs(inputs);
-  }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, askMarketplaceOptions, enqueuePfs, toast]);
+
+    // Microstore : hors queue, appel synchrone bulk.
+    if (options.microstore && microstoreTargets.length > 0) {
+      const { bulkPushProductsToMicrostore } = await import(
+        "@/app/actions/admin/microstore-products"
+      );
+      void bulkPushProductsToMicrostore(
+        microstoreTargets.map((p) => p.id),
+      ).then((res) => {
+        if (res.success) {
+          const n = res.totals?.pushed ?? 0;
+          const skipped = (res.results ?? []).filter((r) => !r.success);
+          if (n === 0 && skipped.length > 0) {
+            toast.error(
+              "Microstore : rien synchronisé",
+              skipped
+                .slice(0, 3)
+                .map((s) => `${s.reference} : ${s.error}`)
+                .join(" · "),
+            );
+          } else if (skipped.length > 0) {
+            const refs = skipped.map((s) => s.reference).slice(0, 5).join(", ");
+            toast.info(
+              `Microstore : ${n} synchronisé${n > 1 ? "s" : ""}, ${skipped.length} sauté${skipped.length > 1 ? "s" : ""}`,
+              `À corriger : ${refs}${skipped.length > 5 ? "…" : ""}. Ex : ${skipped[0]!.error}`,
+            );
+          } else {
+            toast.success(
+              `Microstore synchronisé`,
+              `${n} produit${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""}.`,
+            );
+          }
+        } else {
+          toast.error(
+            "Microstore : synchro bulk échouée",
+            res.error ?? "Erreur inconnue.",
+          );
+        }
+      });
+    }
+  }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasMicrostoreConfig, askMarketplaceOptions, enqueuePfs, toast]);
 
   // ─── Nouveaux handlers pour BulkActionBar ─────────────────────────────
   // Ces handlers alimentent le panneau « Marketplaces » qui liste, pour chaque
@@ -4598,7 +4869,7 @@ export default function AdminProductsTable({
 
       {/* Tableau avec double scrollbar (haut + bas) */}
       <div className="relative">
-        <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
+        <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} hasMicrostoreConfig={hasMicrostoreConfig} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
         <FilterLoadingOverlay visible={isFiltering} />
         <BulkActionOverlay label={bulkActionLabel} />
       </div>

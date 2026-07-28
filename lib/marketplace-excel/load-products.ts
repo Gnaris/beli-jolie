@@ -265,6 +265,7 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
       compositions: p.compositions.map((cc) => ({
         name: cc.composition.pfsCompositionRef || cc.composition.name,
         percentage: cc.percentage,
+        localName: cc.composition.name,
         pfsRef: cc.composition.pfsCompositionRef ?? null,
         efashionId: cc.composition.efashionId ?? null,
         efashionLabel: cc.composition.efashionId

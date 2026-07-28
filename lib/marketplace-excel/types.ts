@@ -57,6 +57,10 @@ export interface ExportVariant {
 export interface ExportCompositionEntry {
   name: string;
   percentage: number;
+  /** Nom local (Composition.name côté site — ex : "Laiton"). Sert exclusivement à
+   *  l'export Microstore Excel, qui doit afficher le libellé du site même si la
+   *  référence PFS a été saisie en anglais. */
+  localName?: string | null;
   /** Référence PFS (libellé FR utilisé tel quel, ex : "Acier Inoxydable"). */
   pfsRef?: string | null;
   /** ID eFashion (entier) pour la composition — requis pour Efashion. */

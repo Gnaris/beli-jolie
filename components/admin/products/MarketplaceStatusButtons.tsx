@@ -12,6 +12,7 @@ import {
   type MarketplaceBadgeState,
 } from "./marketplaceBadgeState";
 import SetPfsBrandModal from "./SetPfsBrandModal";
+import { MicrostoreStatusCard } from "./MicrostoreStatusCard";
 
 // Modales lourdes — chargées à l'ouverture pour alléger le bundle initial.
 const LinkPfsProductModal = dynamic(() => import("./LinkMarketplaceModal"));
@@ -47,15 +48,22 @@ interface MarketplaceStatusButtonsProps {
   faireProductId: string | null;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  /** Microstore n'a pas d'ID marketplace : on utilise `microstoreLastPushedAt`
+   *  comme équivalent de "produit lié" (null = jamais poussé). */
+  microstoreLastPushedAt: Date | string | null;
+  hasMicrostoreConfig: boolean;
+  microstoreEnabled: boolean;
   pfsSyncRequired?: boolean;
   ankorsSyncRequired?: boolean;
   efashionSyncRequired?: boolean;
   faireSyncRequired?: boolean;
+  microstoreSyncRequired?: boolean;
   /** Marketplace activée pour ce produit (Product.*Enabled). Défaut true. */
   pfsEnabledForProduct?: boolean;
   ankorsEnabledForProduct?: boolean;
   efashionEnabledForProduct?: boolean;
   faireEnabledForProduct?: boolean;
+  microstoreEnabledForProduct?: boolean;
   /** Maintenance plateforme (contrôle Beliandjolie, affecte toutes les boutiques). Défaut false. */
   pfsMaintenance?: boolean;
   ankorstoreMaintenance?: boolean;
@@ -458,14 +466,19 @@ export function MarketplaceStatusButtons({
   faireProductId,
   hasFaireConfig,
   faireEnabled,
+  microstoreLastPushedAt,
+  hasMicrostoreConfig,
+  microstoreEnabled,
   pfsSyncRequired = false,
   ankorsSyncRequired = false,
   efashionSyncRequired = false,
   faireSyncRequired = false,
+  microstoreSyncRequired = false,
   pfsEnabledForProduct = true,
   ankorsEnabledForProduct = true,
   efashionEnabledForProduct = true,
   faireEnabledForProduct = true,
+  microstoreEnabledForProduct = true,
   pfsMaintenance: pfsMaintenanceProp,
   ankorstoreMaintenance: ankorstoreMaintenanceProp,
   efashionMaintenance: efashionMaintenanceProp,
@@ -1231,6 +1244,18 @@ export function MarketplaceStatusButtons({
             }
           />
         )}
+
+        {/* ─── Microstore (sync directe, sans queue) ──────────────────── */}
+        <MicrostoreStatusCard
+          productId={productId}
+          reference={reference}
+          productName={productName}
+          hasMicrostoreConfig={hasMicrostoreConfig}
+          microstoreEnabled={microstoreEnabled}
+          microstoreLastPushedAt={microstoreLastPushedAt}
+          microstoreSyncRequired={microstoreSyncRequired}
+          microstoreEnabledForProduct={microstoreEnabledForProduct}
+        />
       </div>
 
       {/* ─────────────────────────────────────────────────────────────── */}

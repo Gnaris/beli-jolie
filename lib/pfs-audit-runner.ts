@@ -127,8 +127,11 @@ async function fetchAuditResults(
   auditRunId: string | null,
 ): Promise<PfsAuditProductResult[]> {
   if (!auditRunId) return [];
+  // dismissedAt filter : les cartes que la cliente a « Ignorées » ou
+  // corrigées via « Modifier depuis PFS » ne doivent plus ressusciter au
+  // refresh. Elles restent en BDD (traçabilité) mais sont invisibles.
   const rows = await prisma.pfsAuditResult.findMany({
-    where: { tenantId, auditRunId },
+    where: { tenantId, auditRunId, dismissedAt: null },
     orderBy: { createdAt: "asc" },
   });
   return rows.map((r): PfsAuditProductResult => {
@@ -427,4 +430,48 @@ export async function resetPfsAuditState(tenantId: string): Promise<void> {
   await writePersistedState(tenantId, { ...EMPTY_PERSISTED });
   await setStopSignal(tenantId, false);
   await prisma.pfsAuditResult.deleteMany({ where: { tenantId } });
+}
+
+/**
+ * Marque les résultats d'audit passés en paramètre comme « dismissed » — la
+ * cliente les a soit ignorés, soit corrigés depuis PFS. Ils resteront invisibles
+ * du drawer, même après un refresh navigateur ou depuis un autre PC.
+ *
+ * Retourne :
+ *  - `remaining` : nombre de résultats encore visibles pour l'audit courant.
+ *  - `autoReset` : true si tout est dismissed et qu'on a purgé l'état d'audit
+ *    (évite au drawer de rester bloqué en mode « Aucun écart » vide).
+ */
+export async function dismissAuditResults(
+  tenantId: string,
+  productIds: string[],
+): Promise<{ remaining: number; autoReset: boolean }> {
+  if (productIds.length === 0) {
+    return { remaining: 0, autoReset: false };
+  }
+  const persisted = await readPersistedState(tenantId);
+  if (!persisted.auditRunId) {
+    return { remaining: 0, autoReset: false };
+  }
+  await prisma.pfsAuditResult.updateMany({
+    where: {
+      tenantId,
+      auditRunId: persisted.auditRunId,
+      productId: { in: productIds },
+      dismissedAt: null,
+    },
+    data: { dismissedAt: new Date() },
+  });
+  const remaining = await prisma.pfsAuditResult.count({
+    where: { tenantId, auditRunId: persisted.auditRunId, dismissedAt: null },
+  });
+  // Si l'audit est terminé (DONE/STOPPED) et qu'il ne reste rien à traiter,
+  // on ferme automatiquement le run — le drawer retombe en état IDLE et
+  // n'apparaît plus au prochain refresh.
+  const isFinal = persisted.status === "DONE" || persisted.status === "STOPPED";
+  if (remaining === 0 && isFinal) {
+    await resetPfsAuditState(tenantId);
+    return { remaining: 0, autoReset: true };
+  }
+  return { remaining, autoReset: false };
 }

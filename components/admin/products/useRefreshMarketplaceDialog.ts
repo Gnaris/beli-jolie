@@ -186,6 +186,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         showAnkorstore,
         showEfashion,
         showFaire,
+        showMicrostore: false, // TODO bulk Microstore : requiert liste microstoreProducts côté caller
         productIds,
       });
       if (!options) return null;
@@ -194,7 +195,8 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         !options.pfs &&
         !options.ankorstore &&
         !options.efashion &&
-        !options.faire
+        !options.faire &&
+        !options.microstore
       ) {
         toast.error("Aucune option sélectionnée.");
         return null;

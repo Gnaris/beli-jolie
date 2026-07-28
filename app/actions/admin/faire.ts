@@ -344,11 +344,18 @@ async function searchFaireByMultipleSkus(
  * été publiée avec un suffixe d'ID variante différent de l'ID actuel — fréquent
  * après re-création du produit local).
  *
- * Limite : 4 pages × 250 = 1000 produits max scannés pour éviter de bloquer
+ * Limite : 10 pages × 250 = 2500 produits max scannés pour éviter de bloquer
  * l'UI sur des catalogues énormes. Faire ne renvoie que les PUBLISHED par
- * défaut, donc on couvre largement le cas "fiche en ligne".
+ * défaut, donc on couvre largement le cas "fiche en ligne". La limite était
+ * à 4 pages ; passée à 10 le 2026-07-28 (Issyma 746MED : fiche existante non
+ * retrouvée parce qu'elle traînait au-delà de la page 4).
+ *
+ * On matche AUSSI sur le NOM du produit contenant la référence — couvre le
+ * cas où l'admin Issyma a créé la fiche à la main avec des SKUs custom qui
+ * ne suivent pas notre convention `{ref}_{couleur}_UNIT_{suffix}`, mais dont
+ * le nom du produit intègre la référence (« Bague 746MED », « 746MED - Or »…).
  */
-const PREFIX_SCAN_MAX_PAGES = 4;
+const PREFIX_SCAN_MAX_PAGES = 10;
 const PREFIX_SCAN_PAGE_SIZE = 250;
 
 async function scanFaireByPrefix(reference: string): Promise<{
@@ -359,6 +366,7 @@ async function scanFaireByPrefix(reference: string): Promise<{
   const ref = reference.toLowerCase();
   const needle = `${ref}_`;
   const matches: FaireApiProduct[] = [];
+  const seen = new Set<string>();
   let pagesScanned = 0;
   let truncated = false;
 
@@ -382,19 +390,24 @@ async function scanFaireByPrefix(reference: string): Promise<{
     const products = data.products ?? [];
 
     for (const p of products) {
+      if (seen.has(p.id)) continue;
       const variants = p.variants ?? [];
+      const productName = typeof p.name === "string" ? p.name.toLowerCase() : "";
       // Match si au moins une variante :
       //   - a un SKU commençant par « <ref>_ » (format long généré chez nous)
       //   - OU a un SKU strictement égal à la référence (fiche Faire créée à
       //     la main où le SKU = simplement la référence produit, cas vu sur
       //     Issyma 93126 le 2026-07-24).
-      if (
-        variants.some((v) => {
-          const sku = typeof v.sku === "string" ? v.sku.toLowerCase() : "";
-          return sku.startsWith(needle) || sku === ref;
-        })
-      ) {
+      // Match aussi si le NOM du produit contient la référence (fiche créée
+      // manuellement chez Issyma avec des SKUs custom, cas 746MED 2026-07-28).
+      const skuHit = variants.some((v) => {
+        const sku = typeof v.sku === "string" ? v.sku.toLowerCase() : "";
+        return sku.startsWith(needle) || sku === ref;
+      });
+      const nameHit = productName.includes(ref);
+      if (skuHit || nameHit) {
         matches.push(p);
+        seen.add(p.id);
       }
     }
 

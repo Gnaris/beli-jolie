@@ -11,15 +11,25 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const findFirstSiteConfig = vi.fn();
+const upsertSiteConfig = vi.fn();
+const deleteSiteConfig = vi.fn();
 const findManyResults = vi.fn();
+const updateManyResults = vi.fn();
+const countResults = vi.fn();
+const deleteManyResults = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     siteConfig: {
       findFirst: (...args: unknown[]) => findFirstSiteConfig(...args),
+      upsert: (...args: unknown[]) => upsertSiteConfig(...args),
+      delete: (...args: unknown[]) => deleteSiteConfig(...args),
     },
     pfsAuditResult: {
       findMany: (...args: unknown[]) => findManyResults(...args),
+      updateMany: (...args: unknown[]) => updateManyResults(...args),
+      count: (...args: unknown[]) => countResults(...args),
+      deleteMany: (...args: unknown[]) => deleteManyResults(...args),
     },
   },
 }));
@@ -37,11 +47,16 @@ vi.mock("@/lib/pfs-verify", () => ({
   loadPfsVerifyContext: vi.fn(),
 }));
 
-import { getPfsAuditState } from "@/lib/pfs-audit-runner";
+import { getPfsAuditState, dismissAuditResults } from "@/lib/pfs-audit-runner";
 
 beforeEach(() => {
   findFirstSiteConfig.mockReset();
+  upsertSiteConfig.mockReset();
+  deleteSiteConfig.mockReset();
   findManyResults.mockReset();
+  updateManyResults.mockReset();
+  countResults.mockReset();
+  deleteManyResults.mockReset();
 });
 
 describe("getPfsAuditState", () => {
@@ -117,9 +132,9 @@ describe("getPfsAuditState", () => {
       expect(err.errorKind).toBe("pfs_unreachable");
     }
 
-    // Scope multi-tenant + par run.
+    // Scope multi-tenant + par run + exclusion des cartes dismissed.
     expect(findManyResults).toHaveBeenCalledWith({
-      where: { tenantId: "t1", auditRunId: "run-abc" },
+      where: { tenantId: "t1", auditRunId: "run-abc", dismissedAt: null },
       orderBy: { createdAt: "asc" },
     });
   });
@@ -184,5 +199,144 @@ describe("getPfsAuditState", () => {
       expect(err.error).toBe("");
       expect(err.errorKind).toBe("unknown");
     }
+  });
+
+  it("filtre les résultats dismissedAt lors du fetch (ne ressuscite pas les cartes ignorées au refresh)", async () => {
+    findFirstSiteConfig.mockResolvedValue({
+      value: JSON.stringify({
+        status: "DONE",
+        auditRunId: "run-y",
+        startedAt: 1,
+        finishedAt: 2,
+        total: 3,
+        processed: 3,
+        okCount: 0,
+        diffCount: 3,
+        errorCount: 0,
+      }),
+    });
+    findManyResults.mockResolvedValue([]);
+
+    await getPfsAuditState("t1");
+
+    expect(findManyResults).toHaveBeenCalledWith({
+      where: { tenantId: "t1", auditRunId: "run-y", dismissedAt: null },
+      orderBy: { createdAt: "asc" },
+    });
+  });
+});
+
+describe("dismissAuditResults", () => {
+  it("marque dismissedAt sur les productIds passés et renvoie le reste", async () => {
+    findFirstSiteConfig.mockResolvedValue({
+      value: JSON.stringify({
+        status: "DONE",
+        auditRunId: "run-z",
+        startedAt: 1,
+        finishedAt: 2,
+        total: 5,
+        processed: 5,
+        okCount: 0,
+        diffCount: 5,
+        errorCount: 0,
+      }),
+    });
+    updateManyResults.mockResolvedValue({ count: 2 });
+    // 3 cartes encore visibles après le dismiss.
+    countResults.mockResolvedValue(3);
+
+    const result = await dismissAuditResults("t1", ["p1", "p2"]);
+
+    expect(result).toEqual({ remaining: 3, autoReset: false });
+    expect(updateManyResults).toHaveBeenCalledWith({
+      where: {
+        tenantId: "t1",
+        auditRunId: "run-z",
+        productId: { in: ["p1", "p2"] },
+        dismissedAt: null,
+      },
+      data: { dismissedAt: expect.any(Date) },
+    });
+    // Pas de reset : il reste des cartes.
+    expect(deleteManyResults).not.toHaveBeenCalled();
+    expect(upsertSiteConfig).not.toHaveBeenCalled();
+  });
+
+  it("auto-reset l'audit quand toutes les cartes sont dismissed et l'audit est terminé", async () => {
+    findFirstSiteConfig.mockResolvedValue({
+      value: JSON.stringify({
+        status: "DONE",
+        auditRunId: "run-w",
+        startedAt: 1,
+        finishedAt: 2,
+        total: 2,
+        processed: 2,
+        okCount: 0,
+        diffCount: 2,
+        errorCount: 0,
+      }),
+    });
+    updateManyResults.mockResolvedValue({ count: 2 });
+    countResults.mockResolvedValue(0);
+    upsertSiteConfig.mockResolvedValue({});
+    deleteSiteConfig.mockResolvedValue({});
+    deleteManyResults.mockResolvedValue({ count: 0 });
+
+    const result = await dismissAuditResults("t1", ["p1", "p2"]);
+
+    expect(result).toEqual({ remaining: 0, autoReset: true });
+    // resetPfsAuditState → writePersistedState (EMPTY) + deleteMany résultats.
+    expect(upsertSiteConfig).toHaveBeenCalled();
+    expect(deleteManyResults).toHaveBeenCalledWith({ where: { tenantId: "t1" } });
+  });
+
+  it("ne reset PAS l'audit si le statut est RUNNING même à 0 restant (l'audit va en repousser)", async () => {
+    findFirstSiteConfig.mockResolvedValue({
+      value: JSON.stringify({
+        status: "RUNNING",
+        auditRunId: "run-r",
+        startedAt: 1,
+        finishedAt: null,
+        total: 100,
+        processed: 3,
+        okCount: 1,
+        diffCount: 2,
+        errorCount: 0,
+      }),
+    });
+    updateManyResults.mockResolvedValue({ count: 2 });
+    countResults.mockResolvedValue(0);
+
+    const result = await dismissAuditResults("t1", ["p1", "p2"]);
+
+    expect(result).toEqual({ remaining: 0, autoReset: false });
+    expect(deleteManyResults).not.toHaveBeenCalled();
+  });
+
+  it("no-op si productIds est vide", async () => {
+    const result = await dismissAuditResults("t1", []);
+    expect(result).toEqual({ remaining: 0, autoReset: false });
+    expect(updateManyResults).not.toHaveBeenCalled();
+    expect(findFirstSiteConfig).not.toHaveBeenCalled();
+  });
+
+  it("no-op si l'audit n'a pas d'auditRunId (rien à dismisser)", async () => {
+    findFirstSiteConfig.mockResolvedValue({
+      value: JSON.stringify({
+        status: "IDLE",
+        auditRunId: null,
+        startedAt: null,
+        finishedAt: null,
+        total: 0,
+        processed: 0,
+        okCount: 0,
+        diffCount: 0,
+        errorCount: 0,
+      }),
+    });
+
+    const result = await dismissAuditResults("t1", ["p1"]);
+    expect(result).toEqual({ remaining: 0, autoReset: false });
+    expect(updateManyResults).not.toHaveBeenCalled();
   });
 });

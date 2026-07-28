@@ -780,3 +780,71 @@ describe("groupIssuesByBlock", () => {
     expect(jaune.extras).toHaveLength(0);
   });
 });
+
+describe("comparePfsProduct — mapping BJ manquant (blockingMappingIssue)", () => {
+  it("pose blockingMappingIssue quand la catégorie BJ n'a pas de pfsCategoryId", () => {
+    const local = makeLocalProduct({
+      category: {
+        name: "Bracelet",
+        pfsCategoryId: null,
+        pfsCategoryName: null,
+        pfsGender: "WOMAN",
+        pfsFamilyId: null,
+        pfsFamilyName: null,
+      },
+    });
+    const pfsProduct = makePfsProduct();
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    const catIssue = issues.find((i) => i.field === "category");
+    expect(catIssue).toBeDefined();
+    expect(catIssue?.blockingMappingIssue).toContain("Bracelet");
+    expect(catIssue?.blockingMappingIssue).toContain("relancez l'audit");
+    expect(catIssue?.pullBlocked).toBeDefined();
+  });
+
+  it("pose blockingMappingIssue quand une composition BJ n'a pas de pfsCompositionRef", () => {
+    const local = makeLocalProduct({
+      compositions: [
+        { percentage: 100, composition: { pfsCompositionRef: null, name: "Fibre spéciale" } },
+      ],
+    });
+    const pfsProduct = makePfsProduct();
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    const compoIssue = issues.find((i) => i.field === "composition");
+    expect(compoIssue).toBeDefined();
+    expect(compoIssue?.blockingMappingIssue).toContain("Fibre spéciale");
+    expect(compoIssue?.blockingMappingIssue).toContain("relancez l'audit");
+  });
+
+  it("ne pose PAS blockingMappingIssue quand tous les mappings existent (écart de valeur normal)", () => {
+    const local = makeLocalProduct({
+      category: {
+        name: "Bracelet",
+        pfsCategoryId: "cat_bracelet",
+        pfsCategoryName: "Bracelets",
+        pfsGender: "WOMAN",
+        pfsFamilyId: "fam_jewel",
+        pfsFamilyName: "Bijoux fantaisie",
+      },
+    });
+    const pfsProduct = makePfsProduct({
+      // PFS a une autre catégorie que BJ (les 2 sont mappés mais divergent)
+      category: { id: "cat_collier", reference: "COLLIER" },
+    });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    const catIssue = issues.find((i) => i.field === "category");
+    expect(catIssue).toBeDefined();
+    expect(catIssue?.blockingMappingIssue).toBeUndefined();
+    // pullBlocked reste posé (Lot C) mais pas de mapping missing.
+    expect(catIssue?.pullBlocked).toBeDefined();
+  });
+});

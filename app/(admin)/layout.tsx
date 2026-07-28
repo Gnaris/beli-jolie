@@ -104,7 +104,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <DeeplConfigProvider enabled={translationEnabled} autoTranslateEnabled={autoTranslateEnabled}>
-    <MarketplaceMaintenanceProvider value={maintenance}>
+    <MarketplaceMaintenanceProvider value={{ ...maintenance, microstore: false }}>
     <MarketplaceLinkProvider>
     <MarketplaceRefreshProvider>
     <EfashionShootingBatchProvider>

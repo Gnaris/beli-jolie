@@ -79,9 +79,16 @@ export async function searchAndPreviewAnkorstoreByQuery(
 
     // ── Étape 2 : recherche rapide via filter[skuOrName] ──────────────
     // ankorstoreSearchProducts fait 1 appel `/product-variants?filter[skuOrName]=…`
-    // (rapide), avec fallbacks internes vers `/products?filter[skuOrName]` puis
-    // scan borné si le filtre principal ne matche rien.
-    const candidates = await ankorstoreSearchProducts(query, 5);
+    // (rapide), avec fallback interne vers `/products?filter[skuOrName]` si
+    // le filtre variantes ne matche rien.
+    //
+    // On DÉSACTIVE le scan large (`skipWideScan: true`) : dans la modale de
+    // liaison, si les 2 filtres API renvoient 0, la fiche n'existe presque
+    // jamais côté marketplace (cas Issyma). Scanner 4 000 fiches à sec = 30-60 s
+    // dans le vide. Mieux vaut afficher « pas trouvé » tout de suite.
+    const candidates = await ankorstoreSearchProducts(query, 5, {
+      skipWideScan: true,
+    });
     if (candidates.length > 0) {
       // Le tableau est déjà trié par pertinence côté ankorstoreSearchProducts.
       const previewRes = await previewAnkorstoreProductForLinking(

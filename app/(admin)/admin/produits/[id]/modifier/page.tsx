@@ -24,6 +24,7 @@ import {
   getCachedEfashionEnabled,
   getCachedHasFaireConfig,
   getCachedFaireEnabled,
+  getCachedHasMicrostoreConfig,
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
 import { getEfashionAnnexes } from "@/lib/efashion-annexes";
@@ -54,6 +55,7 @@ export default async function ModifierProduitPage({
     efashionEnabled,
     hasFaireConfig,
     faireEnabled,
+    hasMicrostoreConfig,
     maintenance,
     brandedBadgeRow,
   ] = await Promise.all([
@@ -144,6 +146,7 @@ export default async function ModifierProduitPage({
     getCachedEfashionEnabled(),
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
+    getCachedHasMicrostoreConfig(),
     getMarketplaceMaintenance(),
     prisma.siteConfig.findFirst({ where: { key: "branded_reference_badge_enabled" }, select: { value: true } }),
   ]);
@@ -554,6 +557,11 @@ export default async function ModifierProduitPage({
               ankorsEnabledForProduct={product.ankorsEnabled}
               efashionEnabledForProduct={product.efashionEnabled}
               faireEnabledForProduct={product.faireEnabled}
+              microstoreLastPushedAt={product.microstoreLastPushedAt}
+              hasMicrostoreConfig={hasMicrostoreConfig}
+              microstoreEnabled={hasMicrostoreConfig}
+              microstoreSyncRequired={product.microstoreSyncRequired}
+              microstoreEnabledForProduct={product.microstoreEnabled}
               pfsMaintenance={maintenance.pfs}
               ankorstoreMaintenance={maintenance.ankorstore}
               efashionMaintenance={maintenance.efashion}
@@ -573,6 +581,7 @@ export default async function ModifierProduitPage({
         efashionEnabled={efashionEnabled}
         hasFaireConfig={hasFaireConfig}
         faireEnabled={faireEnabled}
+        hasMicrostoreConfig={hasMicrostoreConfig}
         brandedBadgeEnabled={brandedBadgeEnabled}
         pfsColorOptions={pfsColorOptions}
         initialData={{
@@ -631,10 +640,12 @@ export default async function ModifierProduitPage({
           ankorsProductId: product.ankorsProductId,
           efashionReferenceBase: product.efashionReferenceBase,
           faireProductId: product.faireProductId,
+          microstoreLastPushedAt: product.microstoreLastPushedAt,
           pfsEnabledForProduct: product.pfsEnabled,
           ankorsEnabledForProduct: product.ankorsEnabled,
           efashionEnabledForProduct: product.efashionEnabled,
           faireEnabledForProduct: product.faireEnabled,
+          microstoreEnabledForProduct: product.microstoreEnabled,
           primaryColorId: product.primaryColorId ?? null,
           microstoreSubCategoryId: product.microstoreSubCategoryId ?? null,
         }}

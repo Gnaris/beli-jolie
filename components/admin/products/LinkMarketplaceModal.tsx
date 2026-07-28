@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { getMarketplaceMarkupConfig } from "@/app/actions/admin/marketplace-pricing";
 import {
@@ -10,7 +11,6 @@ import {
 import { useToast } from "@/components/ui/Toast";
 import { getImageSrc } from "@/lib/image-utils";
 import { useMarketplaceLinkJobs } from "./MarketplaceLinkContext";
-import { useRightRail } from "@/components/admin/widgets-rail";
 import { ZoomableImage } from "./ZoomableImage";
 import {
   fetchLinkPreview,
@@ -33,8 +33,6 @@ interface Props {
   reference: string;
   onClose: () => void;
 }
-
-type Step = 1 | 2 | 3 | 4 | "done";
 
 const EUR = new Intl.NumberFormat("fr-FR", {
   style: "currency",
@@ -61,10 +59,8 @@ export default function LinkMarketplaceModal({
   const router = useRouter();
   const toast = useToast();
   const { enqueueLinkJob, hasActiveJobForProduct } = useMarketplaceLinkJobs();
-  const { open: openRail } = useRightRail();
   const meta = MARKETPLACE_META[marketplace];
 
-  const [step, setStep] = useState<Step>(1);
   const [isEnqueuing, setIsEnqueuing] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchInput, setSearchInput] = useState(reference);
@@ -132,7 +128,6 @@ export default function LinkMarketplaceModal({
           setColorsToCreate(new Set());
           setOrphansToDelete(new Set());
           setOrphansToImport(new Set());
-          if (res.data.marketplaceProductId) setStep(2);
         } else {
           setSearchError(res.error);
           setPreview(null);
@@ -323,8 +318,6 @@ export default function LinkMarketplaceModal({
     );
     setIsEnqueuing(false);
     onClose();
-    // Ouvre le tiroir Marketplaces du rail droit pour montrer la liaison en cours
-    openRail("marketplaces");
   }
 
   const linkedCount = Object.keys(mapping).length;
@@ -348,33 +341,14 @@ export default function LinkMarketplaceModal({
     !!preview?.marketplaceProductId &&
     !alreadyLinking &&
     unresolvedOrphanCount === 0;
-  const canGoNext =
-    (step === 1 && !!preview?.marketplaceProductId) ||
-    (step === 2) ||
-    (step === 3 && totalCovered > 0) ||
-    step === 4;
+  const hasResult = !!preview?.marketplaceProductId;
 
-  function goNext() {
-    if (step === 1) setStep(2);
-    else if (step === 2) setStep(3);
-    else if (step === 3) {
-      if (totalCovered === 0) {
-        toast.warning(
-          "Aucune couleur traitée",
-          `Lie au moins une variante ${meta.name} ou marque une couleur à créer.`,
-        );
-        return;
-      }
-      setStep(4);
-    } else if (step === 4) {
-      handleLink();
-    }
-  }
-
-  function goPrev() {
-    if (step === 4) setStep(3);
-    else if (step === 3) setStep(2);
-    else if (step === 2) setStep(1);
+  function clearResult() {
+    setPreview(null);
+    setMapping({});
+    setColorsToCreate(new Set());
+    setOrphansToDelete(new Set());
+    setOrphansToImport(new Set());
   }
 
   return (
@@ -415,53 +389,42 @@ export default function LinkMarketplaceModal({
           reference={reference}
           onClose={onClose}
           disabledClose={isEnqueuing}
-          step={step}
           shopName={shopName}
         />
 
-        <div className="px-6 md:px-8 py-7 min-h-[420px]">
-          {step === 1 && (
-            <Step1Search
-              meta={meta}
-              searchInput={searchInput}
-              onSearchInputChange={setSearchInput}
-              onSearch={doSearch}
-              isSearching={isSearching}
-              searchError={searchError}
-              preview={preview}
-            />
-          )}
+        <div className="px-6 md:px-8 py-7 space-y-8">
+          <Step1Search
+            meta={meta}
+            searchInput={searchInput}
+            onSearchInputChange={setSearchInput}
+            onSearch={doSearch}
+            isSearching={isSearching}
+            searchError={searchError}
+            preview={preview}
+          />
 
-          {step === 2 && preview && (
-            <Step2Result
-              meta={meta}
-              preview={preview}
-              markup={markup}
-              shopName={shopName}
-              onChangeSelection={() => {
-                setStep(1);
-                setPreview(null);
-                setMapping({});
-              }}
-            />
-          )}
-
-          {step === 3 && preview && (
-            <Step3Colors
-              meta={meta}
-              preview={preview}
-              mapping={mapping}
-              markup={markup}
-              shopName={shopName}
-              colorsToCreate={colorsToCreate}
-              onToggleMapping={setColorMapping}
-              onToggleCreate={toggleCreateColor}
-              onAutoMap={autoMap}
-            />
-          )}
-
-          {step === 4 && preview && (
+          {hasResult && preview && (
             <>
+              <Step2Result
+                meta={meta}
+                preview={preview}
+                markup={markup}
+                shopName={shopName}
+                onChangeSelection={clearResult}
+              />
+
+              <Step3Colors
+                meta={meta}
+                preview={preview}
+                mapping={mapping}
+                markup={markup}
+                shopName={shopName}
+                colorsToCreate={colorsToCreate}
+                onToggleMapping={setColorMapping}
+                onToggleCreate={toggleCreateColor}
+                onAutoMap={autoMap}
+              />
+
               <Step4Recap
                 meta={meta}
                 preview={preview}
@@ -473,8 +436,9 @@ export default function LinkMarketplaceModal({
                 orphansToImport={orphansToImport}
                 onSetOrphanChoice={setOrphanChoice}
               />
+
               {alreadyLinking && (
-                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/60 p-4 flex items-start gap-3">
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 flex items-start gap-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
                     ⏳
                   </div>
@@ -487,67 +451,58 @@ export default function LinkMarketplaceModal({
               )}
             </>
           )}
-
-          {step === "done" && <StepDone meta={meta} onClose={onClose} />}
         </div>
 
-        {step !== "done" && (
-          <div className="px-6 md:px-8 py-5 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center gap-3">
-            <div className="text-xs text-text-muted flex-1 min-w-[200px]">
-              {step === 3 && (
-                <>
-                  <span className="font-semibold text-text-secondary">{totalCovered}</span>
-                  {" / "}
-                  <span className="text-text-secondary">{totalLocal}</span> couleur(s) traitée(s)
-                  {createCount > 0 && (
-                    <span className="ml-2 text-emerald-700 font-semibold">
-                      · {createCount} à créer
-                    </span>
-                  )}
-                </>
-              )}
-              {step !== 3 && <>Étape <b>{step}</b> sur 4</>}
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isEnqueuing}
-              className="px-4 py-2.5 rounded-xl text-sm text-text-secondary hover:text-text-primary hover:bg-white border border-transparent hover:border-slate-200 disabled:opacity-40"
-            >
-              Annuler
-            </button>
-            {step > 1 && (
-              <button
-                type="button"
-                onClick={goPrev}
-                disabled={isEnqueuing}
-                className="px-4 py-2.5 rounded-xl text-sm font-medium border border-slate-300 bg-white text-text-secondary hover:border-slate-900 hover:text-text-primary disabled:opacity-40"
-              >
-                ← Précédent
-              </button>
+        <div className="sticky bottom-0 px-6 md:px-8 py-5 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center gap-3">
+          <div className="text-xs text-text-muted flex-1 min-w-[200px]">
+            {hasResult ? (
+              <>
+                <span className="font-semibold text-text-secondary">{totalCovered}</span>
+                {" / "}
+                <span className="text-text-secondary">{totalLocal}</span> couleur(s) traitée(s)
+                {createCount > 0 && (
+                  <span className="ml-2 text-emerald-700 font-semibold">
+                    · {createCount} à créer
+                  </span>
+                )}
+                {importCount > 0 && (
+                  <span className="ml-2 text-emerald-700 font-semibold">
+                    · {importCount} à importer
+                  </span>
+                )}
+                {unresolvedOrphanCount > 0 && (
+                  <span className="ml-2 text-amber-700 font-semibold">
+                    · {unresolvedOrphanCount} variante(s) {meta.name} à trancher
+                  </span>
+                )}
+              </>
+            ) : (
+              <>Cherche la fiche <b>{meta.name}</b> correspondante ci-dessus.</>
             )}
-            <button
-              type="button"
-              onClick={goNext}
-              disabled={!canGoNext || isEnqueuing || (step === 4 && !canLink)}
-              className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed ${
-                step === 4
-                  ? "bg-emerald-600 hover:bg-emerald-500"
-                  : "bg-slate-900 hover:bg-slate-700"
-              }`}
-            >
-              {step === 4
-                ? isEnqueuing
-                  ? "Liaison en cours…"
-                  : unresolvedOrphanCount > 0
-                    ? `${unresolvedOrphanCount} variante(s) ${meta.name} à trancher`
-                    : `✓ Valider (${totalCovered} couleur${totalCovered > 1 ? "s" : ""})`
-                : step === 3
-                  ? "Voir le récap →"
-                  : "Suivant →"}
-            </button>
           </div>
-        )}
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isEnqueuing}
+            className="px-4 py-2.5 rounded-xl text-sm text-text-secondary hover:text-text-primary hover:bg-white border border-transparent hover:border-slate-200 disabled:opacity-40"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={handleLink}
+            disabled={!canLink || isEnqueuing}
+            className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {isEnqueuing
+              ? "Liaison en cours…"
+              : !hasResult
+                ? "Valider la liaison"
+                : unresolvedOrphanCount > 0
+                  ? `${unresolvedOrphanCount} variante(s) ${meta.name} à trancher`
+                  : `✓ Valider (${totalCovered} couleur${totalCovered > 1 ? "s" : ""})`}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -561,7 +516,6 @@ function Hero({
   reference,
   onClose,
   disabledClose,
-  step,
   shopName,
 }: {
   meta: MarketplaceMeta;
@@ -569,7 +523,6 @@ function Hero({
   reference: string;
   onClose: () => void;
   disabledClose: boolean;
-  step: Step;
   shopName: string;
 }) {
   const auroraBg = {
@@ -665,59 +618,6 @@ function Hero({
         </div>
       </div>
 
-      {/* Stepper */}
-      <div className="relative mt-6">
-        <Stepper step={step} />
-      </div>
-    </div>
-  );
-}
-
-function Stepper({ step }: { step: Step }) {
-  const currentNum = step === "done" ? 4 : step;
-  const labels = ["Recherche", "Résultat", "Couleurs", "Récap"];
-  return (
-    <div className="flex items-center gap-2 md:gap-4">
-      {labels.map((label, i) => {
-        const n = i + 1;
-        const done = currentNum > n || step === "done";
-        const active = currentNum === n && step !== "done";
-        return (
-          <div key={label} className="flex items-center gap-2 md:gap-4 flex-1 last:flex-none">
-            <div className="flex items-center gap-2">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shadow-sm transition-all ${
-                  done
-                    ? "bg-emerald-500 text-white"
-                    : active
-                      ? "bg-slate-900 text-white scale-110"
-                      : "bg-white text-text-muted border border-slate-300"
-                }`}
-              >
-                {done ? "✓" : n}
-              </div>
-              <span
-                className={`hidden md:inline text-xs uppercase tracking-[0.14em] ${
-                  active
-                    ? "text-text-primary font-semibold"
-                    : done
-                      ? "text-emerald-700"
-                      : "text-text-muted"
-                }`}
-              >
-                {label}
-              </span>
-            </div>
-            {n < labels.length && (
-              <div
-                className={`flex-1 h-0.5 rounded-full ${
-                  done ? "bg-emerald-500" : "bg-slate-200"
-                }`}
-              />
-            )}
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -1251,24 +1151,62 @@ function VariantPicker({
   showType: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; openUp: boolean } | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const selected = candidates.find((c) => c.id === selectedId) ?? null;
 
   useEffect(() => {
     function onOutside(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      const inWrapper = wrapperRef.current?.contains(target);
+      const inDropdown = dropdownRef.current?.contains(target);
+      if (!inWrapper && !inDropdown) setOpen(false);
     }
     if (open) document.addEventListener("mousedown", onOutside);
     return () => document.removeEventListener("mousedown", onOutside);
   }, [open]);
 
+  // Recalcule la position en coordonnées viewport (position: fixed) à partir du trigger.
+  // Ouvre vers le haut si pas assez de place en bas.
+  const computePosition = useCallback(() => {
+    if (!triggerRef.current) return null;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const openUp = spaceBelow < 380 && spaceAbove > spaceBelow;
+    return {
+      top: openUp ? rect.top - 4 : rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+      openUp,
+    };
+  }, []);
+
+  const handleToggle = () => {
+    if (!open) setPos(computePosition());
+    setOpen((v) => !v);
+  };
+
+  // Repositionne pendant scroll/resize pour rester collé au trigger.
+  useEffect(() => {
+    if (!open) return;
+    const update = () => setPos(computePosition());
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [open, computePosition]);
+
   return (
     <div ref={wrapperRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={handleToggle}
         className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 bg-white text-left text-sm transition-all ${
           open
             ? "border-slate-900 shadow-md"
@@ -1296,8 +1234,19 @@ function VariantPicker({
         <span className={`text-text-muted transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
       </button>
 
-      {open && (
-        <div className="absolute z-20 mt-1 w-full bg-white border-2 border-slate-900 rounded-xl shadow-xl overflow-hidden max-h-[360px] overflow-y-auto">
+      {open && pos && typeof document !== "undefined" && createPortal(
+        <div
+          ref={dropdownRef}
+          style={{
+            position: "fixed",
+            top: pos.openUp ? undefined : pos.top,
+            bottom: pos.openUp ? window.innerHeight - pos.top : undefined,
+            left: pos.left,
+            width: pos.width,
+            zIndex: 100,
+          }}
+          className="bg-white border-2 border-slate-900 rounded-xl shadow-xl overflow-hidden max-h-[360px] overflow-y-auto"
+        >
           {selected && (
             <button
               type="button"
@@ -1305,9 +1254,17 @@ function VariantPicker({
                 onSelect("");
                 setOpen(false);
               }}
-              className="w-full px-3 py-2 text-left text-xs text-rose-700 hover:bg-rose-50 border-b border-slate-200"
+              className="w-full flex items-start gap-3 px-3 py-2.5 text-left border-b border-slate-200 text-rose-700 hover:bg-rose-50 transition-colors"
             >
-              ✕ Ne pas lier
+              <span className="w-7 h-7 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center text-sm shrink-0">
+                ✕
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold">Ne pas lier</div>
+                <div className="mt-0.5 text-[11px] text-rose-600/80">
+                  Retirer la variante actuellement mappée
+                </div>
+              </div>
             </button>
           )}
           {candidates.map((cand) => {
@@ -1368,7 +1325,8 @@ function VariantPicker({
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -2029,33 +1987,3 @@ function Step4Recap({
   );
 }
 
-// ─── Écran de succès ────────────────────────────────────────────────────────
-
-function StepDone({
-  meta,
-  onClose,
-}: {
-  meta: MarketplaceMeta;
-  onClose: () => void;
-}) {
-  return (
-    <section className="py-8 text-center space-y-4">
-      <div className="w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-4xl mx-auto shadow-md">
-        ✓
-      </div>
-      <h3 className="font-heading text-2xl font-bold text-text-primary">
-        Produit lié à {meta.name} !
-      </h3>
-      <p className="text-sm text-text-muted max-w-md mx-auto">
-        La liaison est active. Le badge vert apparaît maintenant sur la fiche produit.
-      </p>
-      <button
-        type="button"
-        onClick={onClose}
-        className="mt-4 px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-700"
-      >
-        Fermer
-      </button>
-    </section>
-  );
-}

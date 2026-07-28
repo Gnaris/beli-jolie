@@ -267,4 +267,23 @@ describe("ankorstoreSearchProducts — fallback scan complet", () => {
     const results = await ankorstoreSearchProducts("A405", 20);
     expect(results).toEqual([]);
   });
+
+  it("skipWideScan: NE lance PAS le scan complet même si les 2 filter[skuOrName] renvoient vide", async () => {
+    // Utilisé par la modale de liaison marketplace : sur Issyma la majorité
+    // des produits ne sont pas encore sur Ankorstore. Scanner 4 000 fiches
+    // dans le vide à chaque ouverture = 30-60 s d'attente pour la même
+    // réponse (« pas trouvé »). Avec skipWideScan: true on rend la main
+    // tout de suite après les 2 filter[skuOrName].
+    mockFetch.mockResolvedValueOnce(jsonResponse({ data: [], included: [] }));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ data: [], included: [] }));
+
+    const { ankorstoreSearchProducts } = await import("@/lib/ankorstore-api");
+    const results = await ankorstoreSearchProducts("746MED", 5, {
+      skipWideScan: true,
+    });
+
+    // Exactement 2 appels : /product-variants puis /products. Le scan est skippé.
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(results).toEqual([]);
+  });
 });

@@ -278,6 +278,7 @@ export default function PfsVerifyBadge(props: Props) {
                 showAnkorstore: eligibleSet.has("ankorstore"),
                 showEfashion: eligibleSet.has("efashion"),
                 showFaire: eligibleSet.has("faire"),
+                showMicrostore: false,
                 productIds: [props.productId],
                 title: "Propager vers vos marketplaces ?",
                 subtitle: `« ${props.productName} » — les valeurs récupérées depuis PFS peuvent être envoyées.`,

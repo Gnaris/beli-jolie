@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
     ankorstore: { enabled: 0, disabled: 0 },
     efashion: { enabled: 0, disabled: 0 },
     faire: { enabled: 0, disabled: 0 },
+    microstore: { enabled: 0, disabled: 0 },
   };
 
   if (ids.length === 0) {
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
   for (const id of ids) {
     const flags = map.get(id);
     if (!flags) continue; // ID inconnu — ignoré
-    (["pfs", "ankorstore", "efashion", "faire"] as const).forEach((k) => {
+    (["pfs", "ankorstore", "efashion", "faire", "microstore"] as const).forEach((k) => {
       if (flags[k]) counts[k].enabled += 1;
       else counts[k].disabled += 1;
     });

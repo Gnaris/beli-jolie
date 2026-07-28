@@ -56,6 +56,17 @@ export function formatCompositionPfs(product: ExportProduct): string {
 }
 
 /**
+ * Composition pour l'export Excel Microstore : toujours le nom local du site
+ * (jamais le pfsCompositionRef qui peut avoir été saisi en anglais type
+ * "Brass"). Fallback sur `c.name` pour compat tests / anciens exports.
+ */
+export function formatCompositionMicrostore(product: ExportProduct): string {
+  return product.compositions
+    .map((c) => `${c.percentage}% ${c.localName || c.name}`)
+    .join(" - ");
+}
+
+/**
  * Composition string for Efashion : `Acier*100` or `Coton*65,Polyester*35`.
  *
  * Utilise le **libellé eFashion** (mapping local → annexes) en priorité ; sinon

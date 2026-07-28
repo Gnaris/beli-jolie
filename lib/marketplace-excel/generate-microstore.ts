@@ -27,7 +27,7 @@
 import ExcelJS from "exceljs";
 import type { ExportProduct, ExportContext, ExportVariant } from "./types";
 import {
-  formatCompositionPfs,
+  formatCompositionMicrostore,
   pickTranslation,
   variantUnitPriceWithMarkup,
 } from "./format-helpers";
@@ -85,7 +85,7 @@ export function productToMicrostoreRows(
   year: number = new Date().getFullYear(),
 ): Row[] {
   const markup = ctx.markups.microstore;
-  const composition = formatCompositionPfs(p);
+  const composition = formatCompositionMicrostore(p);
   const remarque = pickTranslation(p, "fr", "description");
 
   return bucketByColor(p).map((b): Row => {

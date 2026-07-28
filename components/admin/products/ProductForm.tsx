@@ -104,6 +104,7 @@ interface ProductFormProps {
   efashionEnabled?: boolean;
   hasFaireConfig?: boolean;
   faireEnabled?: boolean;
+  hasMicrostoreConfig?: boolean;
   /** Toggle SiteConfig « branded_reference_badge_enabled ». Active la vignette
    *  « photo marquée » (aperçu du badge « Réf ») avec un cadenas sur la 1ère
    *  position de la couleur principale dans l'onglet Photos. */
@@ -150,11 +151,14 @@ interface ProductFormProps {
     efashionReferenceBase?: string | null;
     /** Faire : id `p_xxx` du produit créé chez Faire (null = jamais publié) */
     faireProductId?: string | null;
+    /** Microstore : date du dernier push réussi (null = jamais publié). */
+    microstoreLastPushedAt?: Date | string | null;
     /** Marketplace activée pour ce produit (Product.*Enabled). Défaut true. */
     pfsEnabledForProduct?: boolean;
     ankorsEnabledForProduct?: boolean;
     efashionEnabledForProduct?: boolean;
     faireEnabledForProduct?: boolean;
+    microstoreEnabledForProduct?: boolean;
     /** Couleur principale du produit (refonte : ne dépend plus de la variante isPrimary) */
     primaryColorId?: string | null;
     /** Sous-catégorie choisie comme étiquette d'export Microstore (null = catégorie principale). */
@@ -403,6 +407,7 @@ export default function ProductForm({
   ankorstoreEnabled = false,
   hasFaireConfig = false,
   faireEnabled = false,
+  hasMicrostoreConfig = false,
   brandedBadgeEnabled = false,
   pfsColorOptions,
   efashionColorOptions,
@@ -687,8 +692,10 @@ export default function ProductForm({
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference,
     hasPfsConfig, hasAnkorstoreConfig, ankorstoreEnabled,
     hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled,
+    hasMicrostoreConfig,
     initialData?.pfsProductId, initialData?.ankorsProductId,
     initialData?.efashionReferenceBase, initialData?.faireProductId,
+    initialData?.microstoreLastPushedAt,
   ]);
   useEffect(() => {
     updateHeader({ kpi: headerKpi });
@@ -2029,9 +2036,11 @@ export default function ProductForm({
       const alreadyOnAnkorstore = !!initialData?.ankorsProductId;
       const alreadyOnEfashion = !!initialData?.efashionReferenceBase;
       const alreadyOnFaire = !!initialData?.faireProductId;
+      const alreadyOnMicrostore = !!initialData?.microstoreLastPushedAt;
       const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
       const showEfashion = hasEfashionConfig && efashionEnabled;
       const showFaire = hasFaireConfig && faireEnabled;
+      const showMicrostore = hasMicrostoreConfig;
 
       // La popup marketplace s'affiche aussi pour le passage en ARCHIVED
       // (Ankorstore : on envoie stock 0 → produit non commandable, équivalent
@@ -2041,11 +2050,15 @@ export default function ProductForm({
       // marketplace n'est liée. La 1ʳᵉ publication doit être déclenchée
       // explicitement depuis le badge marketplace de la fiche, pas au save.
       const anyMarketplaceLinked =
-        alreadyOnPfs || alreadyOnAnkorstore || alreadyOnEfashion || alreadyOnFaire;
+        alreadyOnPfs ||
+        alreadyOnAnkorstore ||
+        alreadyOnEfashion ||
+        alreadyOnFaire ||
+        alreadyOnMicrostore;
       const canPublish =
         savedProductId &&
         !isIncomplete &&
-        (hasPfsConfig || showAnkorstore || showEfashion || showFaire) &&
+        (hasPfsConfig || showAnkorstore || showEfashion || showFaire || showMicrostore) &&
         anyMarketplaceLinked &&
         // Garde-fou ergonomique : si seuls des champs locaux ont changé (mots-
         // clés, sous-catégories, produits similaires, contenu de l'ensemble),
@@ -2139,12 +2152,14 @@ export default function ProductForm({
         const showEfashionCase =
           showEfashion && !hasEfashionConflict && alreadyOnEfashion;
         const showFaireCase = showFaire && alreadyOnFaire;
+        const showMicrostoreCase = showMicrostore && alreadyOnMicrostore;
 
         if (
           showPfsCase ||
           showAnkorstoreCase ||
           showEfashionCase ||
-          showFaireCase
+          showFaireCase ||
+          showMicrostoreCase
         ) {
           // Boucle : les flags syncRequired sont déjà posés par updateProduct.
           // Si la cliente annule, on lui confirme que le badge orange va
@@ -2159,6 +2174,7 @@ export default function ProductForm({
               showAnkorstore: showAnkorstoreCase,
               showEfashion: showEfashionCase,
               showFaire: showFaireCase,
+              showMicrostore: showMicrostoreCase,
               showBoutique: false,
               defaultAllChecked: true,
               title: isArchivingNow
@@ -2241,6 +2257,25 @@ export default function ProductForm({
               });
             }
             if (inputs.length > 0) enqueuePublish(inputs);
+
+            // Microstore : hors queue (sync direct sur l'API upsert). Fire
+            // and forget avec toast — l'API prend ~500 ms et la modale reste
+            // fermée pendant ce temps.
+            if (options.microstore) {
+              const { pushProductToMicrostore } = await import(
+                "@/app/actions/admin/microstore-products"
+              );
+              void pushProductToMicrostore(savedProductId).then((res) => {
+                if (res.success) {
+                  toast.success("Fiche mise à jour sur Microstore");
+                } else {
+                  toast.error(
+                    "Envoi Microstore échoué",
+                    res.error ?? "Erreur inconnue.",
+                  );
+                }
+              });
+            }
           }
         }
       }

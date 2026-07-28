@@ -156,8 +156,8 @@ export const MARKETPLACE_META: Record<Marketplace, MarketplaceMeta> = {
     cls: "ank",
     searchLabel: "Recherche dans le catalogue Ankorstore",
     searchHelp:
-      "Cherche par nom, référence ou identifiant Ankorstore. Le catalogue complet est déjà en cache.",
-    searchPlaceholder: "Nom, référence ou ID…",
+      "Cherche par nom, référence ou SKU. Si rien ne remonte, c'est que la fiche n'existe pas encore côté Ankorstore.",
+    searchPlaceholder: "Nom, référence ou SKU…",
     syncsAtLink: true,
     supportsPackType: false,
     markupKey: "ankorstoreRetail",
@@ -465,10 +465,24 @@ type EfPreview = Awaited<
   : never;
 
 function normalizeEfashion(p: EfPreview): LinkPreview {
-  // Sur eFashion la clé de candidate = `${efashionProductId}:${efashionColorId}` pour rester unique
+  // Sur eFashion la clé de candidate = `${efashionProductId}:${efashionColorId}` pour rester unique.
+  // Le serveur renvoie existingLinks avec juste l'efashionProductId (Color.id → number).
+  // On doit reconstruire la clé composite en retrouvant le candidat matching, sinon
+  // le mapping stocke un id qui ne matche aucun candidate.id → pré-sélection cassée
+  // + suggestion auto bloquée à la réouverture.
+  const candidateByEfProductId = new Map<number, string>();
+  for (const c of p.candidates) {
+    if (!candidateByEfProductId.has(c.efashionProductId)) {
+      candidateByEfProductId.set(
+        c.efashionProductId,
+        `${c.efashionProductId}:${c.efashionColorId}`,
+      );
+    }
+  }
   const existingLinks: Record<string, string> = {};
   for (const [localColorId, efashionProductId] of Object.entries(p.existingLinks)) {
-    existingLinks[localColorId] = String(efashionProductId);
+    const compositeId = candidateByEfProductId.get(efashionProductId);
+    if (compositeId) existingLinks[localColorId] = compositeId;
   }
   return {
     marketplace: "efashion",

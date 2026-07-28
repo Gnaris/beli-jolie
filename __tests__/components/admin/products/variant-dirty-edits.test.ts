@@ -87,6 +87,30 @@ describe("variant dirty edits", () => {
     });
   });
 
+  describe("champ disabled (booléen)", () => {
+    it("stocke true quand la variante était activée", () => {
+      const next = commitVariantCell(EMPTY, "v1", "disabled", true, false);
+      expect(next).toEqual({ v1: { disabled: true } });
+    });
+
+    it("efface la marque dirty quand on retoggle vers l'état d'origine", () => {
+      const withEdit: VariantDirtyEdits = { v1: { disabled: true } };
+      const next = commitVariantCell(withEdit, "v1", "disabled", false, false);
+      expect(next).toEqual({});
+    });
+
+    it("cohabite avec un autre champ dirty sur la même variante", () => {
+      const withEdit: VariantDirtyEdits = { v1: { price: 5.2 } };
+      const next = commitVariantCell(withEdit, "v1", "disabled", true, false);
+      expect(next).toEqual({ v1: { price: 5.2, disabled: true } });
+    });
+
+    it("est compté par countVariantDirtyEdits comme n'importe quel champ", () => {
+      const state: VariantDirtyEdits = { v1: { price: 5.2, disabled: true } };
+      expect(countVariantDirtyEdits(state)).toBe(2);
+    });
+  });
+
   describe("flux réaliste : édit, revert, ré-édit", () => {
     it("simule une session édition + annulation d'une seule cellule", () => {
       let state: VariantDirtyEdits = {};

@@ -100,6 +100,14 @@ export interface PfsVerifyIssue {
    * Non défini = récupération autorisée. Le tooltip grise le bouton.
    */
   pullBlocked?: string;
+  /**
+   * Marque un blocage FICHE COMPLÈTE : le mapping BJ vers PFS n'existe pas
+   * (ex : la catégorie BJ « Bagues » n'a pas de pfsCategoryId renseigné). Tant
+   * que ce flag est posé sur au moins un écart du produit, le drawer d'audit
+   * désactive le bouton « Modifier » de la carte et l'entoure en rouge — la
+   * cliente doit corriger le mapping côté site puis relancer l'audit.
+   */
+  blockingMappingIssue?: string;
 }
 
 export interface PfsVerifyResult {
@@ -597,16 +605,34 @@ export function comparePfsProduct(
 
   const labels = opts.labels;
 
-  if (expectedP.composition !== actualP.composition) {
-    const iss: PfsVerifyIssue = {
+  // Composition : détecte séparément 2 cas
+  //  - Mapping BJ manquant : au moins une composition BJ sans pfsCompositionRef
+  //    alors que PFS en renvoie une → on ne peut pas comparer proprement,
+  //    on bloque la fiche entière.
+  //  - Écart de valeur classique : mappings OK des deux côtés mais valeurs différentes.
+  const unmappedCompositions = local.compositions
+    .filter((c) => !c.composition.pfsCompositionRef)
+    .map((c) => c.composition.name);
+  if (unmappedCompositions.length > 0 && actualP.composition.length > 0) {
+    const list = unmappedCompositions.join(" · ");
+    issues.push({
+      scope: "product",
+      field: "composition",
+      fieldLabel: "Composition",
+      pfsValue: formatCompositionForDisplayHuman(actualP.composition, labels?.compositionLabelByRef),
+      expectedValue: `${list} — non liée à PFS`,
+      pullBlocked: `Composition « ${list} » non liée à PFS.`,
+      blockingMappingIssue: `Composition « ${list} » non liée à PFS. Ouvrez Paramètres > Compositions et renseignez la référence PFS, puis relancez l'audit.`,
+    });
+  } else if (expectedP.composition !== actualP.composition) {
+    issues.push({
       scope: "product",
       field: "composition",
       fieldLabel: "Composition",
       pfsValue: formatCompositionForDisplayHuman(actualP.composition, labels?.compositionLabelByRef),
       expectedValue: formatCompositionForDisplayHuman(expectedP.composition, labels?.compositionLabelByRef, local.compositions),
       pullBlocked: PULL_LOT_C_REASON,
-    };
-    issues.push(iss);
+    });
   }
 
   if (expectedP.country !== actualP.country) {
@@ -633,7 +659,19 @@ export function comparePfsProduct(
     });
   }
 
-  if (expectedP.gender && actualP.gender && expectedP.gender !== actualP.gender) {
+  // Genre : mapping manquant si PFS retourne un genre mais notre catégorie
+  // BJ n'a pas de pfsGender renseigné. La cliente doit compléter côté site.
+  if (actualP.gender && !expectedP.gender) {
+    issues.push({
+      scope: "product",
+      field: "gender",
+      fieldLabel: "Genre",
+      pfsValue: GENDER_FR[actualP.gender] ?? actualP.gender,
+      expectedValue: `${local.category.name} — non lié à un genre PFS`,
+      pullBlocked: `Genre de la catégorie « ${local.category.name} » non renseigné.`,
+      blockingMappingIssue: `La catégorie « ${local.category.name} » n'a pas de genre PFS. Ouvrez Paramètres > Catégories, définissez le genre, puis relancez l'audit.`,
+    });
+  } else if (expectedP.gender && actualP.gender && expectedP.gender !== actualP.gender) {
     issues.push({
       scope: "product",
       field: "gender",
@@ -646,14 +684,27 @@ export function comparePfsProduct(
 
   // Catégorie et famille : on merge en un seul écart « Catégorie » car
   // dans notre modèle, la famille est déduite de la catégorie (elles
-  // changent ensemble). On affiche des libellés humains : côté site on
-  // prend `pfsCategoryName` (mapping saisi par la cliente) sinon `name` ;
-  // côté PFS on cherche le libellé via le lookup id → nom.
+  // changent ensemble). Deux cas distincts :
+  //  - Mapping manquant (BJ n'a pas de pfsCategoryId) → bloque la fiche.
+  //  - Écart de valeur classique → à corriger à la main (Lot C).
+  const missingCategoryMapping =
+    actualP.category && !local.category.pfsCategoryId;
   const categoryDiffers =
     expectedP.category && actualP.category && expectedP.category !== actualP.category;
   const familyDiffers =
     expectedP.family && actualP.family && expectedP.family !== actualP.family;
-  if (categoryDiffers || familyDiffers) {
+  if (missingCategoryMapping) {
+    const pfsCatLabel = labels?.categoryLabelById?.get(pfsProduct.category?.id ?? "") ?? "(inconnue)";
+    issues.push({
+      scope: "product",
+      field: "category",
+      fieldLabel: "Catégorie",
+      pfsValue: pfsCatLabel,
+      expectedValue: `${local.category.name} — non liée à PFS`,
+      pullBlocked: `Catégorie « ${local.category.name} » non liée à PFS.`,
+      blockingMappingIssue: `La catégorie « ${local.category.name} » de votre site n'est pas liée à une catégorie PFS. Ouvrez Paramètres > Catégories, renseignez l'ID de catégorie PFS, puis relancez l'audit.`,
+    });
+  } else if (categoryDiffers || familyDiffers) {
     const pfsCatLabel = labels?.categoryLabelById?.get(pfsProduct.category?.id ?? "") ?? "(inconnue)";
     const localCatLabel = local.category.pfsCategoryName || local.category.name;
     issues.push({

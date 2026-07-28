@@ -167,11 +167,12 @@ next-intl 4.x, préfixe (`/fr/…`, `/en/…`). Locales **fr (défaut) + en**. A
 #### Style espace pro / public (obligatoire hors `/admin`)
 Réf : `app/[locale]/(client)/commandes/page.tsx` + `components/client/orders/OrdersTableClient.tsx` (2026-07-17, validé par la cliente).
 - **Palette ardoise** uniquement — variables `bg-*`, `text-*`, `border-*` de `globals.css` @theme. **Interdit** : warm/or/beige/aurora doré, tons chauds décoratifs. Les couleurs sémantiques (`success/warning/error/info`) restent réservées aux statuts, alertes et compteurs KPI — jamais en décoration principale.
-- **Couleurs des initiales marketplaces** (rond avec la lettre P/A/E/F/Fai) — figées, réutiliser à l'identique partout où on affiche une initiale marketplace :
+- **Couleurs des initiales marketplaces** (rond avec la lettre P/A/E/F/Fai/M) — figées, réutiliser à l'identique partout où on affiche une initiale marketplace :
   - **PFS** (P) : `linear-gradient(135deg,#4f46e5,#6366f1)` (indigo/violet)
   - **Ankorstore** (A) : `linear-gradient(135deg,#0ea5e9,#38bdf8)` (sky)
   - **eFashion Paris** (E) : `linear-gradient(135deg,#db2777,#ec4899)` (rose/pink)
   - **Faire** (F) : `linear-gradient(135deg,#f59e0b,#fbbf24)` (amber)
+  - **Microstore** (M) : `linear-gradient(135deg,#0891b2,#22d3ee)` (cyan)
   - **Boutique** (B&J) : `linear-gradient(135deg,#64748b,#334155)` (slate)
   Ces gradients servent **exclusivement** à colorer le rond d'initiale. Interdit en halo, aurora, bandeau, bordure de carte ou CTA — le reste de l'UI reste ardoise.
 - **Police sans-serif** partout : body `var(--font-roboto)`, titres `var(--font-poppins)` via `font-heading`. **Interdit** : police à empattements (Cormorant Garamond, Playfair, serif, etc.).

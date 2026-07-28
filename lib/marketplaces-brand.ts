@@ -66,11 +66,11 @@ export const MARKETPLACES_BRAND: Record<MarketplaceKey, MarketplaceBrand> = {
   microstore: {
     key: "microstore",
     name: "Microstore",
-    tagline: "Export Excel manuel · pas de sync auto",
-    primary: "#4B5563",
-    secondary: "#6B7280",
+    tagline: "Synchro directe · stock temps réel",
+    primary: "#0891b2",
+    secondary: "#22d3ee",
     onPrimary: "#FFFFFF",
-    tint: "rgba(75, 85, 99, 0.04)",
+    tint: "rgba(8, 145, 178, 0.05)",
     monogram: "M",
   },
 };

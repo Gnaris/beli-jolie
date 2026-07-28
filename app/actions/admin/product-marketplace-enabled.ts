@@ -20,12 +20,17 @@ async function requireAdmin() {
 
 const FIELD_BY_MARKETPLACE: Record<
   MarketplaceKey,
-  "pfsEnabled" | "ankorsEnabled" | "efashionEnabled" | "faireEnabled"
+  | "pfsEnabled"
+  | "ankorsEnabled"
+  | "efashionEnabled"
+  | "faireEnabled"
+  | "microstoreEnabled"
 > = {
   pfs: "pfsEnabled",
   ankorstore: "ankorsEnabled",
   efashion: "efashionEnabled",
   faire: "faireEnabled",
+  microstore: "microstoreEnabled",
 };
 
 /**

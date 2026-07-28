@@ -36,6 +36,11 @@ const MP_META: Record<
     letter: "F",
     gradient: "linear-gradient(135deg,#f59e0b,#fbbf24)",
   },
+  microstore: {
+    label: "Microstore",
+    letter: "M",
+    gradient: "linear-gradient(135deg,#0891b2,#22d3ee)",
+  },
 };
 
 interface Props {

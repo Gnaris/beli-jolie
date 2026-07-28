@@ -22,6 +22,7 @@ import {
   getPfsAuditState,
   requestStopPfsAudit,
   resetPfsAuditState,
+  dismissAuditResults,
   type PfsAuditState,
 } from "@/lib/pfs-audit-runner";
 import {
@@ -94,6 +95,27 @@ export async function dismissPfsAuditAction(): Promise<
     const tenant = await requireCurrentTenant();
     await resetPfsAuditState(tenant.id);
     return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Marque un ou plusieurs résultats d'audit comme « dismissed » (Ignorer / après
+ * correction PFS). Persiste en BDD pour que les cartes ne reviennent pas au
+ * refresh. Si tous les résultats sont dismissed, l'audit est reset auto.
+ */
+export async function dismissPfsAuditResultsAction(
+  productIds: string[],
+): Promise<
+  | { success: true; remaining: number; autoReset: boolean }
+  | { success: false; error: string }
+> {
+  await requireAdmin();
+  try {
+    const tenant = await requireCurrentTenant();
+    const result = await dismissAuditResults(tenant.id, productIds);
+    return { success: true, ...result };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }

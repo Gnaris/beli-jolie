@@ -226,7 +226,8 @@ function parseProductList(
  */
 export async function ankorstoreSearchProducts(
   query: string,
-  limit = 20
+  limit = 20,
+  options?: { skipWideScan?: boolean }
 ): Promise<AnkorstoreProduct[]> {
   // On élargit volontairement la fenêtre (jusqu'à 100 candidats) parce que
   // `filter[skuOrName]` renvoie les résultats dans un ordre opaque côté
@@ -313,7 +314,13 @@ export async function ankorstoreSearchProducts(
   // collé à un tiret comme dans "Boucles … - A405" n'est pas reconnu comme
   // un mot séparé). On scanne alors les produits page par page et on filtre
   // côté code par référence extraite ou par nom contenant la query.
-  if (candidates.length === 0) {
+  //
+  // Opt-in via `skipWideScan: false`. La modale de liaison marketplace passe
+  // `skipWideScan: true` : sur Issyma la majorité des produits ne sont pas
+  // encore sur Ankorstore → le scan tournait 30-60 s dans le vide à chaque
+  // ouverture. Mieux vaut renvoyer « pas trouvé » tout de suite (l'admin sait
+  // qu'elle doit publier, pas chercher plus loin).
+  if (candidates.length === 0 && !options?.skipWideScan) {
     const seen = new Set<string>();
     try {
       for (const p of await scanProductsForQuery(query)) {

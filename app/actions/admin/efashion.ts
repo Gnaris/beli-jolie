@@ -28,6 +28,7 @@ import {
 } from "@/lib/efashion-api";
 import { logger } from "@/lib/logger";
 import { getCountryByIso } from "@/lib/countries";
+import { canonicalColorKey } from "@/lib/ankorstore-color-synonyms";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -110,14 +111,6 @@ export interface EfashionLinkPreview {
  */
 function buildEfashionPhotoUrl(idProduit: number): string {
   return `/api/admin/efashion-image?id=${idProduit}`;
-}
-
-function normalizeColorName(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .trim();
 }
 
 /**
@@ -264,7 +257,6 @@ export async function previewEfashionMatchByReference(
         name: string;
         hex: string | null;
         patternImage: string | null;
-        norm: string;
         unitImage: string | null;
         unitPrice: number | null;
         unitStock: number;
@@ -294,7 +286,6 @@ export async function previewEfashionMatchByReference(
         name: pc.color.name,
         hex: pc.color.hex,
         patternImage: pc.color.patternImage,
-        norm: normalizeColorName(pc.color.name),
         unitImage: null,
         unitPrice: null,
         unitStock: 0,
@@ -335,10 +326,33 @@ export async function previewEfashionMatchByReference(
         patternImage: b.patternImage,
       }));
 
+    // Suggestion auto en 3 passes (aligne le pré-remplissage sur Faire/Ankorstore
+     // qui étaient plus tolérants que le simple exact-match de eFashion) :
+     //  1) match exact sur la clé canonique (uppercase + accents strip + non-alphanum
+     //     retirés + synonymes connus — ex Brun↔Marron)
+     //  2) fuzzy prefix : la clé BJ commence par la clé eFashion ou l'inverse
+     //     (couvre "Rose poudré" ↔ "Rose", "Bleu marine" ↔ "Marine")
+     //  3) fuzzy contains : l'une contient l'autre
+    const linkableWithCanon = linkableColors.map((c) => ({
+      ...c,
+      canon: canonicalColorKey(c.name),
+    }));
     const candidates: EfashionLinkCandidate[] = filteredItems.map(
       (it: EfashionProductListItem) => {
-        const norm = normalizeColorName(it.couleur);
-        const suggested = linkableColors.find((c) => c.norm === norm);
+        const canon = canonicalColorKey(it.couleur);
+        let suggested = linkableWithCanon.find((c) => c.canon === canon) ?? null;
+        if (!suggested && canon) {
+          suggested =
+            linkableWithCanon.find(
+              (c) => c.canon.startsWith(canon) || canon.startsWith(c.canon),
+            ) ?? null;
+        }
+        if (!suggested && canon) {
+          suggested =
+            linkableWithCanon.find(
+              (c) => c.canon.includes(canon) || canon.includes(c.canon),
+            ) ?? null;
+        }
         return {
           efashionProductId: it.id_produit,
           reference: it.reference,
@@ -358,6 +372,7 @@ export async function previewEfashionMatchByReference(
         };
       },
     );
+
 
     return {
       success: true,

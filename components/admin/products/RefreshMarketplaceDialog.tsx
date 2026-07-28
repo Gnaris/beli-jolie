@@ -18,6 +18,7 @@ interface AskInput {
   showAnkorstore: boolean;
   showEfashion: boolean;
   showFaire: boolean;
+  showMicrostore: boolean;
   /** Optionnel : IDs des produits sélectionnés. Sert à afficher combien de
    *  produits ont chaque marketplace activée / désactivée. */
   productIds?: string[];
@@ -57,6 +58,7 @@ interface MarketplaceEnabledCounts {
   ankorstore: { enabled: number; disabled: number };
   efashion: { enabled: number; disabled: number };
   faire: { enabled: number; disabled: number };
+  microstore: { enabled: number; disabled: number };
 }
 
 interface ContextValue {
@@ -77,7 +79,7 @@ export function useRefreshMarketplacePrompt(): ContextValue {
 // Marketplace metadata
 // ─────────────────────────────────────────────
 
-type MarketplaceKey = "local" | "pfs" | "ankorstore" | "efashion" | "faire";
+type MarketplaceKey = "local" | "pfs" | "ankorstore" | "efashion" | "faire" | "microstore";
 
 interface MarketplaceMeta {
   key: MarketplaceKey;
@@ -191,6 +193,24 @@ const MARKETPLACES: Record<Exclude<MarketplaceKey, "local">, MarketplaceMeta> = 
         "Met la fiche Faire hors ligne.",
     },
   },
+  microstore: {
+    key: "microstore",
+    label: "Microstore",
+    chipInitials: "M",
+    chipClass: "",
+    barClass: "",
+    activeClass: "",
+    switchOnClass: "bg-bg-dark",
+    hoverBorderClass: "hover:border-border-dark",
+    descriptions: {
+      refresh:
+        "Envoie les nouvelles valeurs à la fiche Microstore (créée si absente).",
+      update:
+        "Envoie les nouvelles valeurs à la fiche Microstore existante.",
+      archive:
+        "Microstore ne supporte pas l'archivage via API : à faire manuellement.",
+    },
+  },
 };
 
 // Style inline pour les ronds d'initiale (gradients CLAUDE.md).
@@ -200,6 +220,7 @@ const CHIP_GRADIENT: Record<MarketplaceKey, string> = {
   ankorstore: "linear-gradient(135deg,#0ea5e9,#38bdf8)",
   efashion:   "linear-gradient(135deg,#db2777,#ec4899)",
   faire:      "linear-gradient(135deg,#f59e0b,#fbbf24)",
+  microstore: "linear-gradient(135deg,#0891b2,#22d3ee)",
 };
 
 // ─────────────────────────────────────────────
@@ -463,6 +484,8 @@ function Modal({ input, onResult }: ModalProps) {
     ankorstore: defaultAllChecked && input.showAnkorstore && !maintenance.ankorstore,
     efashion: defaultAllChecked && input.showEfashion && !maintenance.efashion,
     faire: defaultAllChecked && input.showFaire && !maintenance.faire,
+    // Microstore n'a pas de maintenance plateforme (pas d'API async, pas de callbacks).
+    microstore: defaultAllChecked && input.showMicrostore,
   });
   // Cadence — visible seulement pour count > 1. Défaut : Immédiat.
   const [cadenceMode, setCadenceMode] = useState<"immediate" | "spread">("immediate");
@@ -519,6 +542,7 @@ function Modal({ input, onResult }: ModalProps) {
         counts.ankorstore.disabled,
         counts.efashion.disabled,
         counts.faire.disabled,
+        counts.microstore.disabled,
       )
     : 0;
 
@@ -543,13 +567,15 @@ function Modal({ input, onResult }: ModalProps) {
   if (input.showAnkorstore) activeMarketplaces.push("ankorstore");
   if (input.showEfashion) activeMarketplaces.push("efashion");
   if (input.showFaire) activeMarketplaces.push("faire");
+  if (input.showMicrostore) activeMarketplaces.push("microstore");
 
   const selectedCount =
     Number(state.local) +
     Number(state.pfs) +
     Number(state.ankorstore) +
     Number(state.efashion) +
-    Number(state.faire);
+    Number(state.faire) +
+    Number(state.microstore);
 
   const confirmDisabled = selectedCount === 0;
 
@@ -575,6 +601,7 @@ function Modal({ input, onResult }: ModalProps) {
       ankorstore: state.ankorstore,
       efashion: state.efashion,
       faire: state.faire,
+      microstore: state.microstore,
       intervalMs: intervalMs > 0 ? intervalMs : undefined,
     });
   }
@@ -730,7 +757,7 @@ function Modal({ input, onResult }: ModalProps) {
                     disabledCount={counts ? counts[k].disabled : undefined}
                     totalSelected={totalIds}
                     isRefreshFlow={showBoutique}
-                    inMaintenance={maintenance[k]}
+                    inMaintenance={k === "microstore" ? false : maintenance[k]}
                     actionLabel={actionLabel}
                     actionMode={actionMode}
                   />

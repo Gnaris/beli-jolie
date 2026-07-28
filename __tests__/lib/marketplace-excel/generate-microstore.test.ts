@@ -120,3 +120,43 @@ describe("productToMicrostoreRows — colonne Catégorie", () => {
     expect(rows[0]![COL_CATEGORIE]).toBe("Bracelet");
   });
 });
+
+describe("productToMicrostoreRows — colonne Composition matérielle", () => {
+  // Index 4 = 5ᵉ colonne (« Composition matérielle »).
+  const COL_COMPOSITION = 4;
+
+  it("affiche le nom local du site (localName) même si la référence PFS est en anglais", () => {
+    const rows = productToMicrostoreRows(
+      makeProduct({
+        compositions: [
+          { name: "Brass", localName: "Laiton", percentage: 100, pfsRef: "Brass" },
+        ],
+      }),
+      makeCtx(),
+    );
+    expect(rows[0]![COL_COMPOSITION]).toBe("100% Laiton");
+  });
+
+  it("gère plusieurs matières avec localName distinct du name PFS", () => {
+    const rows = productToMicrostoreRows(
+      makeProduct({
+        compositions: [
+          { name: "Stainless Steel", localName: "Acier inoxydable", percentage: 60, pfsRef: "Stainless Steel" },
+          { name: "Zinc Alloy", localName: "Alliage de zinc", percentage: 40, pfsRef: "Zinc Alloy" },
+        ],
+      }),
+      makeCtx(),
+    );
+    expect(rows[0]![COL_COMPOSITION]).toBe("60% Acier inoxydable - 40% Alliage de zinc");
+  });
+
+  it("retombe sur name si localName absent (compat compositions sans mapping local)", () => {
+    const rows = productToMicrostoreRows(
+      makeProduct({
+        compositions: [{ name: "Acier Inoxydable", percentage: 100 }],
+      }),
+      makeCtx(),
+    );
+    expect(rows[0]![COL_COMPOSITION]).toBe("100% Acier Inoxydable");
+  });
+});

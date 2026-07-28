@@ -56,12 +56,40 @@ export function primeMicrostoreSessionKey(tenantId: string, key: string): void {
 /**
  * Retourne la clé de session déchiffrée du tenant courant, ou null si non
  * configurée.
+ *
+ * Ordre de résolution :
+ *  1. Cache primed en mémoire (usage CLI via `primeMicrostoreSessionKey`).
+ *  2. Cache `unstable_cache` (5 min).
+ *  3. **Fallback lecture directe** BDD si le cache renvoie null — évite
+ *     le faux « session expirée » quand la connexion QR vient d'être faite
+ *     mais que le cache n'a pas encore été invalidé sur ce chemin de code
+ *     (ex : navigation client sur `/admin/produits` qui a rempli le cache
+ *     avec `null` avant la reconnexion).
  */
 export async function getMicrostoreSessionKey(): Promise<string | null> {
   const tid = await resolveCurrentTenantId();
   const primed = primedSessionKeyByTenant.get(tid);
   if (primed) return primed;
-  return getCachedMicrostoreSessionKey();
+
+  const cached = await getCachedMicrostoreSessionKey();
+  if (cached) return cached;
+
+  // Fallback direct BDD — évite d'être bloqué par un cache périmé.
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const { decryptIfSensitive } = await import("@/lib/encryption");
+    const row = await prisma.siteConfig.findFirst({
+      where:
+        !tid || tid === "global"
+          ? { key: "microstore_session_key" }
+          : { tenantId: tid, key: "microstore_session_key" },
+      select: { value: true },
+    });
+    if (!row?.value) return null;
+    return decryptIfSensitive("microstore_session_key", row.value)?.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 /**

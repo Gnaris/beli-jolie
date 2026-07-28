@@ -115,6 +115,8 @@ export async function reinstateStockForOrder(orderId: string) {
 
   if (!order) throw new Error("Order not found");
 
+  const impactedColorIds: string[] = [];
+
   for (const item of order.items) {
     let variantId: string | null = null;
 
@@ -137,8 +139,33 @@ export async function reinstateStockForOrder(orderId: string) {
       type: "CANCEL",
       orderId: order.id,
     });
+
+    impactedColorIds.push(variantId);
   }
 
   logger.info(`[Stock] Reinstated stock for cancelled order ${order.orderNumber}`);
+
+  // Push stock silencieux vers Microstore (fire-and-forget). Le stock est
+  // remonté suite à une annulation → on répercute le nouvel état côté
+  // Microstore automatiquement. Voir CLAUDE.md > Microstore.
+  if (order.tenantId && impactedColorIds.length > 0) {
+    const impactedProducts = await prisma.productColor.findMany({
+      where: { id: { in: impactedColorIds } },
+      select: { productId: true },
+    });
+    const impactedProductIds = Array.from(
+      new Set(impactedProducts.map((c) => c.productId)),
+    );
+    if (impactedProductIds.length > 0) {
+      const tenantId = order.tenantId;
+      import("@/lib/microstore-products").then(({ pushMicrostoreStockSilent }) =>
+        pushMicrostoreStockSilent(impactedProductIds, tenantId).catch((err) =>
+          logger.error("[Stock] Microstore silent push after reinstate failed", {
+            error: err,
+          }),
+        ),
+      );
+    }
+  }
 }
 

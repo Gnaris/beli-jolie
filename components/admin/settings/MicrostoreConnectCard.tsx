@@ -71,13 +71,23 @@ export default function MicrostoreConnectCard({
     setBookmarkletUrl(buildMicrostoreBookmarklet(window.location.origin));
   }, []);
 
-  // React 19 refuse silencieusement les URL javascript: dans les attributs
-  // `href` par sécurité. Sans setAttribute impératif, l'ancre n'a AUCUN href
-  // et le drag-and-drop vers les favoris crée un bookmark inutilisable.
-  useEffect(() => {
-    if (!bookmarkletUrl || !bookmarkletAnchorRef.current) return;
-    bookmarkletAnchorRef.current.setAttribute("href", bookmarkletUrl);
-  }, [bookmarkletUrl]);
+  // React 19 refuse silencieusement les URL `javascript:` dans les attributs
+  // `href` par sécurité. On pose donc l'attribut impérativement.
+  //
+  // Callback ref (au lieu d'un useEffect) : le noeud <a> n'existe dans le DOM
+  // que dans la branche « non connecté » du rendu. Avec un useEffect(deps=[url])
+  // classique, le href n'était plus posé si on passait de "connecté" à
+  // "déconnecté" à chaud (le useEffect ne redéclenche pas puisque url ne
+  // change pas). Résultat : un bouton draggable sans href, favori inutilisable.
+  const setBookmarkletAnchor = useCallback(
+    (node: HTMLAnchorElement | null) => {
+      bookmarkletAnchorRef.current = node;
+      if (node && bookmarkletUrl) {
+        node.setAttribute("href", bookmarkletUrl);
+      }
+    },
+    [bookmarkletUrl],
+  );
 
   // Import automatique du token si le fragment d'URL en contient un (bookmarklet)
   useEffect(() => {
@@ -318,11 +328,13 @@ export default function MicrostoreConnectCard({
           </ol>
 
           <div className="pt-3">
-            {/* href posé impérativement dans useEffect via setAttribute — React 19
-                bloque les URL javascript: sur le JSX. Cf. bookmarkletAnchorRef. */}
+            {/* href posé impérativement via callback ref — React 19 bloque les
+                URL javascript: dans le JSX. La callback ref garantit que le
+                href est reposé si le bouton (re)monte dans le DOM après un
+                cycle connecté → déconnecté. */}
             {/* eslint-disable-next-line jsx-a11y/anchor-is-valid -- href posé via ref pour contourner React 19 */}
             <a
-              ref={bookmarkletAnchorRef}
+              ref={setBookmarkletAnchor}
               onClick={(e) => {
                 e.preventDefault();
                 toast.info(

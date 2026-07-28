@@ -377,6 +377,56 @@ describe("previewFaireMatchBySku", () => {
     expect(res.data.candidates[0].suggestedLocalColorId).toBe("pc-arg");
   });
 
+  it("trouve la fiche Faire via le nom du produit quand aucun SKU ne matche (cas Issyma 746MED)", async () => {
+    // Cas réel Issyma 746MED (2026-07-28) : la fiche existe sur Faire mais a
+    // été créée manuellement avec des SKUs custom qui ne suivent aucune de
+    // nos conventions (`{ref}_{couleur}_UNIT_{suffix}` ni `{ref}` seul). En
+    // revanche le nom du produit sur Faire contient la référence (« 746MED
+    // - Bague acier »). Le scan préfixe doit tomber dessus via le nom.
+    const bj = buildBjProduct({
+      reference: "746MED",
+      colors: [
+        {
+          id: "pc-or",
+          saleType: "UNIT",
+          unitPrice: { toString: () => "12.50" },
+          stock: 3,
+          faireVariantId: null,
+          color: { id: "c-or", name: "Doré", hex: "#C9A961", patternImage: null },
+          images: [],
+        },
+      ],
+    });
+    prismaMock.product.findUnique.mockResolvedValueOnce(bj);
+    // 2 candidats essayés en parallèle (ref exacte + 1 SKU long) → vides.
+    mockFaireSearchOk([]);
+    mockFaireSearchOk([]);
+    // Scan préfixe page 1 : le SKU ne matche PAS mais le nom du produit oui.
+    mockFaireSearchOk([
+      {
+        id: "p_manuel_issyma",
+        name: "746MED - Bague acier chirurgical",
+        lifecycle_state: "PUBLISHED",
+        variants: [
+          {
+            id: "po_v1",
+            // SKU custom qui ne suit AUCUNE convention BJ.
+            sku: "ISSYMA-BAGUE-OR-42",
+            lifecycle_state: "PUBLISHED",
+            options: [{ name: "Color", value: "Doré" }],
+          },
+        ],
+      },
+    ]);
+
+    const res = await previewFaireMatchBySku("p1", "746MED");
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+    // ✅ La fiche est trouvée via le nom, pas le SKU
+    expect(res.data.faireProductId).toBe("p_manuel_issyma");
+    expect(res.data.candidates).toHaveLength(1);
+  });
+
   it("réécrit les URLs cdn.faire.com vers notre proxy local (bypass bloqueurs)", async () => {
     prismaMock.product.findUnique.mockResolvedValueOnce(buildBjProduct());
     mockFaireSearchOk([

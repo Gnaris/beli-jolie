@@ -708,7 +708,7 @@ model FaireOrder {
   status      FaireOrderStatus
   statusRaw   String // "NEW"|"PROCESSING"|"BACKORDERED"|"SHIPPED"|"DELIVERED"|"CANCELLED"
   faireSource String? // "FAIRE" ou "FAIRE_DIRECT" (channel de vente)
-  currency    String  @default("EUR")
+  currency    String           @default("EUR")
 
   createdAtFaire DateTime
   updatedAtFaire DateTime?
@@ -845,12 +845,12 @@ model MicrostoreOrder {
   canceledAt          DateTime?
 
   // Montants
-  totalHT        Decimal @db.Decimal(12, 2) // doc_info.total_price
-  paidPrice      Decimal @default(0) @db.Decimal(12, 2)
-  shippingPrice  Decimal @default(0) @db.Decimal(12, 2)
-  shippingLabel  String? // doc_info.shipping_name (ex "Regrouper mes commandes / Group my orders")
-  remark         String? @db.Text // Note laissée par le client sur Microstore
-  invoiceTitle   String? // doc_info.invoice_title
+  totalHT       Decimal @db.Decimal(12, 2) // doc_info.total_price
+  paidPrice     Decimal @default(0) @db.Decimal(12, 2)
+  shippingPrice Decimal @default(0) @db.Decimal(12, 2)
+  shippingLabel String? // doc_info.shipping_name (ex "Regrouper mes commandes / Group my orders")
+  remark        String? @db.Text // Note laissée par le client sur Microstore
+  invoiceTitle  String? // doc_info.invoice_title
 
   // Adresse livraison (aplatie depuis client_info)
   shippingName        String? // address_name (ex "Robin Rossignol")
@@ -905,14 +905,14 @@ model MicrostoreOrderItem {
   microstoreOrder           MicrostoreOrder @relation(fields: [microstoreOrderInternalId], references: [id], onDelete: Cascade)
 
   // Identifiants Microstore
-  microstoreItemId   String // goods_info.id
-  microstoreGoodsId  String? // goods_info.goods_id
-  microstoreSkuId    String? // goods_info.sku_id
-  itemRef            String // notre référence produit (ex "V346", "ZC22E") — matching principal
-  goodsSn            String? // EAN 13 (ex "2039760012845")
-  microstoreColorId  String? // goods_info.color_id
-  colorNameSnapshot  String? // goods_info.color_name (ex "Doré", "Bleu")
-  sizeNameSnapshot   String? // goods_info.size_name (souvent vide)
+  microstoreItemId    String // goods_info.id
+  microstoreGoodsId   String? // goods_info.goods_id
+  microstoreSkuId     String? // goods_info.sku_id
+  itemRef             String // notre référence produit (ex "V346", "ZC22E") — matching principal
+  goodsSn             String? // EAN 13 (ex "2039760012845")
+  microstoreColorId   String? // goods_info.color_id
+  colorNameSnapshot   String? // goods_info.color_name (ex "Doré", "Bleu")
+  sizeNameSnapshot    String? // goods_info.size_name (souvent vide)
   productSnapshotName String? @db.Text // goods_info.name
 
   // Rattachement BJ (matching EAN puis fallback itemRef+color)
@@ -1326,30 +1326,41 @@ model Product {
   faireLastSyncSnapshot Json?
   faireLastRefreshedAt  DateTime?
 
+  // Microstore (Dokkr) — pas d'ID produit côté API : l'upsert se fait sur
+  // `item_ref` = Product.reference. On ne stocke donc qu'un snapshot pour le
+  // diff incrémental + la date du dernier push réussi (pas de refresh possible
+  // — Microstore ne supporte pas la suppression via API, l'export reste manuel
+  // pour ce cas).
+  microstoreLastSyncSnapshot Json?
+  microstoreLastPushedAt     DateTime?
+
   // Drapeaux "Synchronisation nécessaire" — passés à true quand un changement
   // local n'a pas été propagé au marketplace correspondant (save sans cocher
   // la case marketplace dans la modale de save, ou ajout d'image en arrière-plan).
   // Remis à false par les actions de refresh/update marketplace, ou par le X
   // d'annulation dans le badge. Toujours false si le produit n'est pas lié au
   // marketplace en question.
-  pfsSyncRequired      Boolean @default(false)
-  ankorsSyncRequired   Boolean @default(false)
-  efashionSyncRequired Boolean @default(false)
-  faireSyncRequired    Boolean @default(false)
+  pfsSyncRequired        Boolean @default(false)
+  ankorsSyncRequired     Boolean @default(false)
+  efashionSyncRequired   Boolean @default(false)
+  faireSyncRequired      Boolean @default(false)
+  microstoreSyncRequired Boolean @default(false)
 
   // Drapeaux "Marketplace activée pour ce produit" — la cliente peut décocher un
   // marketplace dans la fiche produit pour l'exclure de toutes les actions
   // automatiques (publish/refresh/resync/stock). Défaut true = toujours actif.
   // Quand false, le badge apparaît barré + tooltip "Marketplace désactivée" et
   // toutes les modales de push filtrent ce marketplace.
-  pfsEnabled      Boolean @default(true)
-  ankorsEnabled   Boolean @default(true)
-  efashionEnabled Boolean @default(true)
-  faireEnabled    Boolean @default(true)
+  pfsEnabled        Boolean @default(true)
+  ankorsEnabled     Boolean @default(true)
+  efashionEnabled   Boolean @default(true)
+  faireEnabled      Boolean @default(true)
+  microstoreEnabled Boolean @default(true)
 
   // Dernier export Excel/ZIP réussi depuis /admin/produits → bouton « Exporter ».
   // Mis à jour automatiquement quand la cliente télécharge l'export ; null = jamais
-  // exporté. Microstore n'a pas d'identifiant produit, ce champ est la seule trace.
+  // exporté. Pour Microstore, cet export Excel manuel reste disponible en
+  // parallèle du push API (microstoreLastPushedAt) — les deux usages coexistent.
   pfsLastExportedAt        DateTime?
   efashionLastExportedAt   DateTime?
   microstoreLastExportedAt DateTime?
@@ -3342,22 +3353,27 @@ model Tenant {
 // À chaque nouveau démarrage d'audit, les lignes du run précédent sont supprimées.
 // ─────────────────────────────────────────────
 model PfsAuditResult {
-  id          String   @id @default(cuid())
-  tenantId    String
-  auditRunId  String
-  productId   String
-  reference   String
-  name        String   @db.Text
-  firstImage  String?  @db.Text
-  ok          Boolean
-  issues      Json?
-  errorMessage String? @db.Text
+  id           String    @id @default(cuid())
+  tenantId     String
+  auditRunId   String
+  productId    String
+  reference    String
+  name         String    @db.Text
+  firstImage   String?   @db.Text
+  ok           Boolean
+  issues       Json?
+  errorMessage String?   @db.Text
   errorKind    String?
-  createdAt   DateTime @default(now())
+  createdAt    DateTime  @default(now())
+  // Posé quand la cliente clique « Ignorer » ou après une correction réussie —
+  // le drawer filtre sur dismissedAt=null pour ne pas ressusciter les cartes
+  // au refresh. Quand tout est dismissed, l'audit est reset côté serveur.
+  dismissedAt  DateTime?
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, auditRunId])
+  @@index([tenantId, auditRunId, dismissedAt])
 }
 
 model TenantDomain {

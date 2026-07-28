@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, afterEach } from "vitest";
-import { ColorSwatch, isColorOutOfStock } from "@/components/admin/products/AdminProductsTable";
+import { ColorSwatch, isColorOutOfStock, isColorAllDisabled } from "@/components/admin/products/AdminProductsTable";
 
 describe("ColorSwatch", () => {
   afterEach(() => cleanup());
@@ -79,6 +79,30 @@ describe("ColorSwatch", () => {
     const el = screen.getByLabelText("Cuivre");
     expect(el.hasAttribute("data-out-of-stock")).toBe(false);
   });
+
+  it("entoure la pastille en rouge et enrichit l'aria-label quand allDisabled=true", () => {
+    render(
+      <ColorSwatch
+        color={{ name: "Bronze", hex: "#CD7F32", patternImage: null }}
+        allDisabled
+      />,
+    );
+    const el = screen.getByLabelText("Bronze — variantes désactivées");
+    expect(el).toBeInTheDocument();
+    expect(el.getAttribute("data-all-disabled")).toBe("true");
+    expect(el.className).toContain("shadow-[0_0_0_2px_#DC2626]");
+  });
+
+  it("privilégie le libellé « désactivées » quand outOfStock et allDisabled sont simultanément vrais", () => {
+    render(
+      <ColorSwatch
+        color={{ name: "Nickel", hex: "#727472", patternImage: null }}
+        outOfStock
+        allDisabled
+      />,
+    );
+    expect(screen.getByLabelText("Nickel — variantes désactivées")).toBeInTheDocument();
+  });
 });
 
 describe("isColorOutOfStock", () => {
@@ -106,5 +130,33 @@ describe("isColorOutOfStock", () => {
 
   it("renvoie false pour un colorId null (variante legacy sans couleur)", () => {
     expect(isColorOutOfStock([{ colorId: null, stock: 0 }], null)).toBe(false);
+  });
+});
+
+describe("isColorAllDisabled", () => {
+  it("renvoie true quand toutes les variantes partageant le colorId sont désactivées", () => {
+    const colors = [
+      { colorId: "c1", disabled: true },
+      { colorId: "c1", disabled: true },
+      { colorId: "c2", disabled: false },
+    ];
+    expect(isColorAllDisabled(colors, "c1")).toBe(true);
+  });
+
+  it("renvoie false dès qu'au moins une variante de la couleur est activée", () => {
+    const colors = [
+      { colorId: "c1", disabled: true },
+      { colorId: "c1", disabled: false },
+    ];
+    expect(isColorAllDisabled(colors, "c1")).toBe(false);
+  });
+
+  it("renvoie false quand aucune variante ne matche le colorId", () => {
+    const colors = [{ colorId: "c1", disabled: true }];
+    expect(isColorAllDisabled(colors, "c2")).toBe(false);
+  });
+
+  it("renvoie false pour un colorId null", () => {
+    expect(isColorAllDisabled([{ colorId: null, disabled: true }], null)).toBe(false);
   });
 });

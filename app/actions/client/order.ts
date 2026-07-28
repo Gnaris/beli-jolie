@@ -626,6 +626,28 @@ export async function placeOrder(
     logger.error("[placeOrder] Confirmation client error", { error: err })
   );
 
+  // ── Push stock Microstore (fire-and-forget, silencieux) ─────────────────
+  // La cliente veut que le stock côté Microstore reflète en temps réel les
+  // ventes BJ, sans avoir à cliquer. Contrat : uniquement les produits déjà
+  // poussés au moins une fois (microstoreLastPushedAt != null) — sinon on
+  // laisserait Microstore créer un produit "à moitié" (sans photo).
+  // Le tenantId doit être capturé ici (contexte requête) et passé
+  // explicitement dans l'IIFE via tenantALS.run — cf. CLAUDE.md multi-tenant.
+  {
+    const { getCurrentTenantIdSync } = await import("@/lib/tenant-als");
+    const tenantId = getCurrentTenantIdSync();
+    if (tenantId) {
+      const impactedProductIds = Array.from(
+        new Set(cart.items.map((i) => i.variant.productId)),
+      );
+      import("@/lib/microstore-products").then(({ pushMicrostoreStockSilent }) =>
+        pushMicrostoreStockSilent(impactedProductIds, tenantId).catch((err) =>
+          logger.error("[placeOrder] Microstore stock push error", { error: err }),
+        ),
+      );
+    }
+  }
+
   // ── 7. Auto-suppression remises NEXT_ORDER ──────────────────────────────
 
   if (clientDiscountMode === "NEXT_ORDER" && discountApplies) {

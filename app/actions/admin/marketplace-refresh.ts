@@ -54,6 +54,7 @@ export interface MarketplaceRefreshOptions {
   ankorstore?: boolean; // Re-push to Ankorstore (Phase 4)
   efashion?: boolean; // Re-push to eFashion Paris (Lot 3 = update / Lot 5 = refresh complet)
   faire?: boolean; // Re-push to Faire (3.B)
+  microstore?: boolean; // Push produit à Microstore (upsert, hors queue asynchrone)
   /**
    * Étalement du lot : délai en millisecondes entre le départ de chaque
    * produit. 0 ou absent = tous les produits partent en même temps
