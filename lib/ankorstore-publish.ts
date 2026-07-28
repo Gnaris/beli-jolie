@@ -68,10 +68,12 @@ interface FullVariant {
   variantSizes: { size: { name: string }; quantity: number }[];
   colorId: string | null;
   color: { id: string; name: string } | null;
+  ankorsColorNameOverride: string | null;
   packLines: {
     colorId: string;
     color: { id: string; name: string };
     position: number;
+    ankorsColorNameOverride: string | null;
     sizes: { size: { name: string }; quantity: number }[];
   }[];
   images: { path: string; order: number; colorId: string }[];
@@ -154,11 +156,13 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
           colorId: true,
           color: { select: { id: true, name: true } },
+          ankorsColorNameOverride: true,
           packLines: {
             select: {
               colorId: true,
               color: { select: { id: true, name: true } },
               position: true,
+              ankorsColorNameOverride: true,
               sizes: {
                 select: { size: { select: { name: true } }, quantity: true },
                 orderBy: { size: { position: "asc" as const } },
@@ -251,11 +255,22 @@ function getAnkorstoreRetailPrice(
   );
 }
 
+/** Retourne le nom envoyé à Ankorstore pour cette couleur : override si présent, sinon Color.name. */
+function ankorsColorNameOf(
+  colorName: string | undefined,
+  override: string | null | undefined,
+): string {
+  const trimmed = override?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : (colorName ?? "?");
+}
+
 function getPackColorLabel(variant: FullVariant): string {
   if (variant.packLines.length > 0) {
-    return variant.packLines.map((pl) => pl.color?.name ?? "?").join("/");
+    return variant.packLines
+      .map((pl) => ankorsColorNameOf(pl.color?.name, pl.ankorsColorNameOverride))
+      .join("/");
   }
-  return variant.color?.name ?? "?";
+  return ankorsColorNameOf(variant.color?.name, variant.ankorsColorNameOverride);
 }
 
 /**
@@ -331,7 +346,7 @@ function buildAnkorstoreVariants(
         }));
 
     if (variant.saleType === "UNIT") {
-      const colorLabel = variant.color?.name ?? "Couleur";
+      const colorLabel = ankorsColorNameOf(variant.color?.name ?? "Couleur", variant.ankorsColorNameOverride);
       const sizeLabel =
         variant.variantSizes.length > 0 ? variant.variantSizes[0].size.name : "TU";
       result.push({

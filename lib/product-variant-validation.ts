@@ -25,6 +25,10 @@ export interface PackLineInput {
   pfsColorRefOverride?: string | null;
   /** Mapping eFashion secondaire propre à cette ligne dans ce pack. */
   efashionColorIdOverride?: number | null;
+  /** Override du nom envoyé à Ankorstore pour cette ligne. null/vide = Color.name. */
+  ankorsColorNameOverride?: string | null;
+  /** Override du nom envoyé à Faire pour cette ligne. null/vide = Color.name. */
+  faireColorNameOverride?: string | null;
 }
 
 export interface ColorInput {
@@ -44,6 +48,10 @@ export interface ColorInput {
   pfsColorRefOverride?: string | null;
   /** Mapping eFashion secondaire propre à cette variante. */
   efashionColorIdOverride?: number | null;
+  /** Override du nom envoyé à Ankorstore pour cette variante. null/vide = Color.name. */
+  ankorsColorNameOverride?: string | null;
+  /** Override du nom envoyé à Faire pour cette variante. null/vide = Color.name. */
+  faireColorNameOverride?: string | null;
 }
 
 export function isMultiColorPackInput(c: ColorInput): boolean {

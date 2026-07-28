@@ -92,13 +92,24 @@ interface FullVariant {
   variantSizes: { size: { name: string }; quantity: number }[];
   colorId: string | null;
   color: { id: string; name: string } | null;
+  ankorsColorNameOverride: string | null;
   packLines: {
     colorId: string;
     color: { id: string; name: string };
     position: number;
+    ankorsColorNameOverride: string | null;
     sizes: { size: { name: string }; quantity: number }[];
   }[];
   images: { path: string; order: number; colorId: string }[];
+}
+
+/** Retourne le nom envoyé à Ankorstore : override trim si présent, sinon Color.name. */
+function ankorsColorNameOf(
+  colorName: string | undefined,
+  override: string | null | undefined,
+): string {
+  const trimmed = override?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : (colorName ?? "Couleur");
 }
 
 interface FullProduct {
@@ -183,11 +194,13 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
           colorId: true,
           color: { select: { id: true, name: true } },
+          ankorsColorNameOverride: true,
           packLines: {
             select: {
               colorId: true,
               color: { select: { id: true, name: true } },
               position: true,
+              ankorsColorNameOverride: true,
               sizes: {
                 select: { size: { select: { name: true } }, quantity: true },
                 orderBy: { size: { position: "asc" as const } },
@@ -249,9 +262,11 @@ function buildPublicImageUrl(dbPath: string, baseUrl?: string): string {
 
 function getPackColorLabel(variant: FullVariant): string {
   if (variant.packLines.length > 0) {
-    return variant.packLines.map((pl) => pl.color?.name ?? "?").join("/");
+    return variant.packLines
+      .map((pl) => ankorsColorNameOf(pl.color?.name, pl.ankorsColorNameOverride))
+      .join("/");
   }
-  return variant.color?.name ?? "?";
+  return ankorsColorNameOf(variant.color?.name, variant.ankorsColorNameOverride);
 }
 
 function getWholesalePrice(variant: FullVariant, config: AnkorstorePricingConfig): number {
@@ -328,7 +343,7 @@ function buildVariantSnapshot(
   const colorLabel =
     variant.saleType === "PACK"
       ? getPackColorLabel(variant)
-      : (variant.color?.name ?? "Couleur");
+      : ankorsColorNameOf(variant.color?.name, variant.ankorsColorNameOverride);
   let sizeLabel = "TU";
   if (variant.saleType === "PACK") {
     if (variant.packLines.length > 0 && variant.packLines[0].sizes.length > 0) {
@@ -947,7 +962,7 @@ export async function ankorstoreKickoffUpdate(
         const colorLabel =
           variant.saleType === "PACK"
             ? getPackColorLabel(variant)
-            : (variant.color?.name ?? "Couleur");
+            : ankorsColorNameOf(variant.color?.name, variant.ankorsColorNameOverride);
         let sizeLabel = "TU";
         if (variant.saleType === "PACK") {
           if (variant.packLines.length > 0 && variant.packLines[0].sizes.length > 0) {

@@ -35,6 +35,10 @@ export interface PackLineState {
   pfsColorRefOverride?: string | null;
   /** Mapping eFashion secondaire propre à cette ligne. null/undefined = utilise le principal. */
   efashionColorIdOverride?: number | null;
+  /** Override du nom de couleur envoyé à Ankorstore pour cette ligne. null/vide = Color.name. */
+  ankorsColorNameOverride?: string | null;
+  /** Override du nom de couleur envoyé à Faire pour cette ligne. null/vide = Color.name. */
+  faireColorNameOverride?: string | null;
 }
 
 export interface VariantState {
@@ -60,6 +64,18 @@ export interface VariantState {
   pfsColorRefOverride?: string | null;
   /** Mapping eFashion secondaire propre à cette variante. null/undefined = utilise le principal. */
   efashionColorIdOverride?: number | null;
+  /** Override du nom de couleur envoyé à Ankorstore pour cette variante. null/vide = Color.name. */
+  ankorsColorNameOverride?: string | null;
+  /** Override du nom de couleur envoyé à Faire pour cette variante. null/vide = Color.name. */
+  faireColorNameOverride?: string | null;
+  /** ID variante côté PFS — présent si la variante a été publiée sur PFS. Lecture seule, affichage badge. */
+  pfsVariantId?: string | null;
+  /** ID variante côté Ankorstore — présent si publiée. Lecture seule. */
+  ankorsVariantId?: string | null;
+  /** ID produit-couleur côté eFashion — présent si publiée. Lecture seule. */
+  efashionProductId?: number | null;
+  /** ID variante côté Faire ("po_xxx") — présent si publiée. Lecture seule. */
+  faireVariantId?: string | null;
 }
 
 export interface ColorImageState {

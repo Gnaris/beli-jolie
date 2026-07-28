@@ -27,15 +27,20 @@ export interface BulkBarProduct {
   ankorsSyncRequired: boolean;
   efashionSyncRequired: boolean;
   faireSyncRequired: boolean;
+  /** Microstore : marketplace activée pour ce produit + date du dernier push
+   *  (null = jamais poussé). Pas d'ID marketplace : upsert par référence. */
+  microstoreEnabled?: boolean;
+  microstoreLastPushedAt?: string | null;
 }
 
-export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire";
+export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "microstore";
 
 interface MarketplacesConfig {
   pfs: { available: boolean };
   ankorstore: { configured: boolean; enabled: boolean };
   efashion: { configured: boolean; enabled: boolean };
   faire: { configured: boolean; enabled: boolean };
+  microstore: { configured: boolean };
 }
 
 interface Props {
@@ -122,12 +127,26 @@ function computeMarketplaceCounts(
   const faireToPublish = products.filter((p) => !p.faireProductId && eligibleForPublish(p) && notInFlight("faire")(p));
   const faireToSync = products.filter((p) => p.faireSyncRequired && notInFlight("faire")(p));
   const faireAlreadyOn = products.filter((p) => !!p.faireProductId && notInFlight("faire")(p));
+  // Microstore : upsert par référence + pas de photo → un seul bouton
+  // « Synchroniser » couvre à la fois la création et la mise à jour. Éligible
+  // = produit ONLINE + non-incomplet + Microstore activé pour le produit.
+  const microstoreEligible = products.filter(
+    (p) =>
+      (p.microstoreEnabled ?? true) &&
+      eligibleForPublish(p) &&
+      notInFlight("microstore")(p),
+  );
 
   return {
     pfs: { publish: pfsToPublish, sync: pfsToSync, alreadyOn: pfsAlreadyOn },
     ankorstore: { publish: ankorsToPublish, sync: ankorsToSync, alreadyOn: ankorsAlreadyOn },
     efashion: { publish: efashionToPublish, sync: efashionToSync, alreadyOn: efashionAlreadyOn },
     faire: { publish: faireToPublish, sync: faireToSync, alreadyOn: faireAlreadyOn },
+    microstore: {
+      publish: [] as BulkBarProduct[], // Microstore n'a pas de « Publier » séparé
+      sync: microstoreEligible,
+      alreadyOn: microstoreEligible,
+    },
   };
 }
 
@@ -169,6 +188,13 @@ const MARKETPLACE_META: Record<MarketplaceKey, {
     accentText: "text-rose-700",
     gradient: "from-rose-400 to-rose-600",
     publishHover: "hover:border-rose-300 hover:bg-rose-50/50",
+  },
+  microstore: {
+    label: "Microstore", subtitle: "Caisse en boutique", initial: "M",
+    accentBg: "bg-cyan-50 text-cyan-700",
+    accentText: "text-cyan-700",
+    gradient: "from-cyan-400 to-cyan-600",
+    publishHover: "hover:border-cyan-300 hover:bg-cyan-50/50",
   },
 };
 
@@ -276,6 +302,9 @@ export default function BulkActionBar({
       ankorstore: new Set(),
       efashion: new Set(),
       faire: new Set(),
+      // Microstore n'a pas de queue asynchrone — l'appel est synchrone. Ce set
+      // reste vide, il n'est là que pour satisfaire le type MarketplaceKey.
+      microstore: new Set(),
     };
     for (const item of queueItems) {
       if (isItemActive(item)) map[item.marketplace].add(item.productId);
@@ -772,6 +801,7 @@ export function isMarketplaceAvailable(k: MarketplaceKey, cfg: MarketplacesConfi
   if (k === "pfs") return cfg.pfs.available;
   if (k === "ankorstore") return cfg.ankorstore.configured && cfg.ankorstore.enabled;
   if (k === "efashion") return cfg.efashion.configured && cfg.efashion.enabled;
+  if (k === "microstore") return cfg.microstore.configured;
   return cfg.faire.configured && cfg.faire.enabled;
 }
 
@@ -791,7 +821,7 @@ function MarketplacePanel({
   onClose: () => void;
 }) {
   const maintenance = useMarketplaceMaintenance();
-  const order: MarketplaceKey[] = ["pfs", "ankorstore", "efashion", "faire"];
+  const order: MarketplaceKey[] = ["pfs", "ankorstore", "efashion", "faire", "microstore"];
 
   const totalActions = order.reduce((acc, k) => {
     if (!isMarketplaceAvailable(k, marketplaces)) return acc;
@@ -844,7 +874,10 @@ function MarketplacePanel({
           // présents, sinon tous ceux déjà sur la marketplace (resynchro forcée).
           const syncTargets = hasFlagged ? sync : alreadyOn;
           const canSync = syncTargets.length > 0;
-          const actionCount = (publish.length > 0 ? 1 : 0) + (canSync ? 1 : 0);
+          // Microstore : pas de bouton « Publier » séparé (upsert par référence).
+          // On affiche un seul bouton « Synchroniser » sur toute la largeur.
+          const isMicrostore = k === "microstore";
+          const actionCount = isMicrostore ? (canSync ? 1 : 0) : ((publish.length > 0 ? 1 : 0) + (canSync ? 1 : 0));
           const inMaintenance = maintenance[k];
           return (
             <div
@@ -877,8 +910,8 @@ function MarketplacePanel({
                   </span>
                 )}
               </div>
-              <div className="grid gap-2 grid-cols-2">
-                {publish.length > 0 ? (
+              <div className={`grid gap-2 ${isMicrostore ? "grid-cols-1" : "grid-cols-2"}`}>
+                {isMicrostore ? null : publish.length > 0 ? (
                   <button
                     type="button"
                     onClick={() => !inMaintenance && onPublish(k, publish)}
@@ -935,7 +968,11 @@ function MarketplacePanel({
                     <div className="flex-1 min-w-0">
                       <div className="text-[13px] font-semibold text-text-primary">Synchroniser</div>
                       <div className="text-[11px] text-text-muted">
-                        {hasFlagged ? (
+                        {isMicrostore ? (
+                          <>
+                            <b className="text-cyan-700">{syncTargets.length} produit{syncTargets.length > 1 ? "s" : ""}</b> à envoyer sur Microstore
+                          </>
+                        ) : hasFlagged ? (
                           <>
                             <b className="text-amber-700">{sync.length} produit{sync.length > 1 ? "s" : ""}</b> avec changement à envoyer
                           </>

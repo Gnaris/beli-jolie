@@ -211,6 +211,8 @@ export default async function ModifierProduitPage({
           colorHex:  line.color?.hex ?? "#9CA3AF",
           pfsColorRefOverride: line.pfsColorRefOverride ?? null,
           efashionColorIdOverride: line.efashionColorIdOverride ?? null,
+          ankorsColorNameOverride: line.ankorsColorNameOverride ?? null,
+          faireColorNameOverride: line.faireColorNameOverride ?? null,
           sizeEntries: line.sizes.map((ls) => ({
             tempId:   uid(),
             sizeId:   ls.sizeId,
@@ -251,6 +253,12 @@ export default async function ModifierProduitPage({
       disabled:      pc.disabled ?? false,
       pfsColorRefOverride: pc.pfsColorRefOverride ?? null,
       efashionColorIdOverride: pc.efashionColorIdOverride ?? null,
+      ankorsColorNameOverride: pc.ankorsColorNameOverride ?? null,
+      faireColorNameOverride: pc.faireColorNameOverride ?? null,
+      pfsVariantId: pc.pfsVariantId ?? null,
+      ankorsVariantId: pc.ankorsVariantId ?? null,
+      efashionProductId: pc.efashionProductId ?? null,
+      faireVariantId: pc.faireVariantId ?? null,
     };
   });
 
@@ -584,6 +592,7 @@ export default async function ModifierProduitPage({
         hasMicrostoreConfig={hasMicrostoreConfig}
         brandedBadgeEnabled={brandedBadgeEnabled}
         pfsColorOptions={pfsColorOptions}
+        efashionColorOptions={efashionColorOptions}
         initialData={{
           reference:         product.reference,
           name:              product.name,

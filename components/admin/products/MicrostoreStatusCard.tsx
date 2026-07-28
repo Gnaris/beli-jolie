@@ -23,15 +23,15 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import {
   pushProductToMicrostore,
   clearMicrostoreSyncRequired,
-  setProductMicrostoreEnabled,
 } from "@/app/actions/admin/microstore-products";
 
 const GRADIENT = "linear-gradient(135deg,#0891b2,#22d3ee)";
 
 const Icon = {
-  Send: (
-    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+  // Icône Refresh identique à celle des autres MarketplaceCard (rotation).
+  Refresh: (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
     </svg>
   ),
   Spinner: (
@@ -42,11 +42,6 @@ const Icon = {
   Close: (
     <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-    </svg>
-  ),
-  Toggle: (
-    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
     </svg>
   ),
 };
@@ -165,33 +160,6 @@ export function MicrostoreStatusCard({
     }
   }
 
-  async function handleToggleEnabled() {
-    const nextEnabled = !microstoreEnabledForProduct;
-    const label = nextEnabled ? "Réactiver Microstore pour ce produit ?" : "Désactiver Microstore pour ce produit ?";
-    const message = nextEnabled
-      ? "Le produit pourra à nouveau être envoyé à Microstore (individuellement ou en bulk) et son stock sera à nouveau poussé automatiquement lors des ventes."
-      : "Le produit ne sera plus envoyé à Microstore (ni manuellement ni lors des ventes). Sa fiche existante sur Microstore n'est pas supprimée.";
-    const ok = await confirm({
-      type: nextEnabled ? "info" : "warning",
-      title: label,
-      message,
-      confirmLabel: nextEnabled ? "Réactiver" : "Désactiver",
-    });
-    if (!ok) return;
-    setBusy(true);
-    try {
-      const res = await setProductMicrostoreEnabled(productId, nextEnabled);
-      if (res.success) {
-        toast.success(nextEnabled ? "Microstore réactivé pour ce produit" : "Microstore désactivé pour ce produit");
-        router.refresh();
-      } else {
-        toast.error("Impossible de changer l'état", res.error ?? "Erreur inconnue.");
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function handleCancelSyncRequired() {
     const ok = await confirm({
       type: "warning",
@@ -210,16 +178,13 @@ export function MicrostoreStatusCard({
     }
   }
 
+  // Header non cliquable — l'action « Synchroniser » se fait uniquement via le
+  // bouton rond ↻ sous le divider, à l'identique des cartes PFS/Ankor/eFa/Faire.
   const headerEl = (
-    <button
-      type="button"
-      onClick={handlePush}
-      disabled={disabled || busy}
-      className={`flex flex-col items-center justify-center gap-0.5 py-0.5 text-[11px] font-semibold font-body bg-transparent border-0 w-full ${textColor} ${
-        disabled ? "cursor-not-allowed" : busy ? "cursor-wait" : "cursor-pointer"
-      }`}
+    <div
+      className={`flex flex-col items-center justify-center gap-0.5 py-0.5 text-[11px] font-semibold font-body w-full ${textColor}`}
       title={disabled ? undefined : title}
-      aria-label={`Envoyer ${productName} vers Microstore`}
+      aria-label={`Statut Microstore de ${productName}`}
     >
       <span className="inline-flex items-center justify-center gap-1.5">
         <span
@@ -261,7 +226,7 @@ export function MicrostoreStatusCard({
       {secondaryLabel && (
         <span className="text-[10px] font-bold leading-tight">{secondaryLabel}</span>
       )}
-    </button>
+    </div>
   );
 
   const cardEl = (
@@ -271,25 +236,28 @@ export function MicrostoreStatusCard({
     >
       {headerEl}
       <div className={`flex items-center justify-center gap-1 pt-1 mt-0.5 border-t ${dividerClass}`}>
+        {/* Un seul bouton rond « Synchroniser » — même style que les cartes
+            PFS/Ankor/eFa/Faire. Cliquer envoie / met à jour la fiche côté
+            Microstore. */}
         <button
           type="button"
-          onClick={handleToggleEnabled}
-          disabled={busy || !hasMicrostoreConfig}
-          className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors bg-white text-text-secondary border-border hover:bg-bg-secondary ${
-            busy || !hasMicrostoreConfig ? "opacity-50 cursor-wait" : ""
-          }`}
+          onClick={handlePush}
+          disabled={disabled || busy}
+          className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors bg-white ${
+            online
+              ? "text-[#15803D] border-[#BBF7D0] hover:bg-[#F0FDF4]"
+              : "text-[#0e7490] border-[#a5f3fc] hover:bg-[#ecfeff]"
+          } ${disabled || busy ? "opacity-50 cursor-wait" : ""}`}
           title={
-            microstoreEnabledForProduct
-              ? "Désactiver Microstore pour ce produit"
-              : "Réactiver Microstore pour ce produit"
+            busy
+              ? "Envoi Microstore en cours…"
+              : online
+                ? "Synchroniser vers Microstore"
+                : "Envoyer vers Microstore (première publication)"
           }
-          aria-label={
-            microstoreEnabledForProduct
-              ? "Désactiver Microstore pour ce produit"
-              : "Réactiver Microstore pour ce produit"
-          }
+          aria-label="Synchroniser vers Microstore"
         >
-          {Icon.Toggle}
+          {busy ? Icon.Spinner : Icon.Refresh}
         </button>
       </div>
     </div>

@@ -4,8 +4,7 @@ import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from
 import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, PackLineState, PfsColorOption, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack, packLinesColorList, buildVariantDuplicateKey } from "./ColorVariantManager";
 import PhotosPanel from "./PhotosPanel";
-import PfsMappingSection from "./PfsMappingSection";
-import EfashionMappingSection, { type EfashionColorOption } from "./EfashionMappingSection";
+import MarketplacesMappingSection, { type EfashionColorOption } from "./MarketplacesMappingSection";
 import { ProductMarketplaceToggles } from "./ProductMarketplaceToggles";
 import { detectPfsColorConflicts, formatConflictsMessage } from "@/lib/pfs-color-conflicts";
 import { detectEfashionColorConflicts, formatEfashionConflictsMessage } from "@/lib/efashion-color-conflicts";
@@ -36,7 +35,7 @@ import { useProductFormHeader } from "./ProductFormHeaderContext";
 import { getImageSrc } from "@/lib/image-utils";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { getAnkorstoreReferenceSuffixLength } from "@/lib/ankorstore-description";
-import { buildProductMarketplaceSnapshot } from "@/lib/product-marketplace-snapshot";
+import { buildProductMarketplaceSnapshot, buildProductMarketplaceSnapshotExcludingMicrostore } from "@/lib/product-marketplace-snapshot";
 import { resolvePrimaryColorId } from "@/lib/product-primary-color";
 
 const DESCRIPTION_MIN_CHARS = 30;
@@ -73,6 +72,43 @@ interface CompositionItem {
  * paquet, chacune avec ses tailles) — on considère la variante valide si
  * chaque ligne a au moins 1 taille.
  */
+/**
+ * Applique un override marketplace en cascade sur toutes les variantes/lignes
+ * de pack ciblées, en UN SEUL setVariants (évite les problèmes de batching
+ * React quand plusieurs variantes partagent la même couleur).
+ */
+function applyOverrideToTargets(
+  setVariants: React.Dispatch<React.SetStateAction<VariantState[]>>,
+  targets: { variantTempId: string; packLineTempId?: string }[],
+  mutateVariant: (v: VariantState) => VariantState,
+  mutatePackLine: (pl: VariantState["packLines"][number]) => VariantState["packLines"][number],
+) {
+  const variantTempIds = new Set<string>();
+  const packLineTempIds = new Set<string>();
+  for (const t of targets) {
+    if (t.packLineTempId) packLineTempIds.add(t.packLineTempId);
+    else variantTempIds.add(t.variantTempId);
+  }
+  setVariants((prev) =>
+    prev.map((v) => {
+      let next: VariantState = v;
+      if (variantTempIds.has(v.tempId)) next = mutateVariant(next);
+      if (next.packLines.length > 0) {
+        let packChanged = false;
+        const newPackLines = next.packLines.map((pl) => {
+          if (packLineTempIds.has(pl.tempId)) {
+            packChanged = true;
+            return mutatePackLine(pl);
+          }
+          return pl;
+        });
+        if (packChanged) next = { ...next, packLines: newPackLines };
+      }
+      return next;
+    }),
+  );
+}
+
 function variantHasNoSizes(v: VariantState): boolean {
   if (isMultiColorPack(v)) {
     return (
@@ -754,6 +790,11 @@ export default function ProductForm({
   // s'afficher au save : si seuls des champs locaux ont changé, la modale est
   // bypassée silencieusement.
   const initialMarketplaceSnapshot = useRef<string | null>(null);
+  // Snapshot marketplace initial SANS microstoreSubCategoryId — permet de
+  // détecter si seul ce champ a bougé au save et de proposer uniquement
+  // Microstore dans la modale de propagation (les autres marketplaces
+  // ignorent la sous-catégorie Microstore).
+  const initialMarketplaceSnapshotExcludingMicrostore = useRef<string | null>(null);
   const isDirty = useRef(false);
   const snapshotReady = useRef(false);
   // ⚠️ Reset post-save : on ne peut pas appeler `initialSnapshot.current =
@@ -781,11 +822,15 @@ export default function ProductForm({
       disabled: v.disabled ?? false,
       pfsColorRefOverride: v.pfsColorRefOverride ?? null,
       efashionColorIdOverride: v.efashionColorIdOverride ?? null,
+      ankorsColorNameOverride: (v.ankorsColorNameOverride ?? "").trim() || null,
+      faireColorNameOverride: (v.faireColorNameOverride ?? "").trim() || null,
       packLines: v.packLines.map((pl) => ({
         colorId: pl.colorId,
         sizeEntries: pl.sizeEntries,
         pfsColorRefOverride: pl.pfsColorRefOverride ?? null,
         efashionColorIdOverride: pl.efashionColorIdOverride ?? null,
+        ankorsColorNameOverride: (pl.ankorsColorNameOverride ?? "").trim() || null,
+        faireColorNameOverride: (pl.faireColorNameOverride ?? "").trim() || null,
       })),
     })),
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
@@ -804,8 +849,18 @@ export default function ProductForm({
     reference, name, description, categoryId,
     variants, colorImages, compositions, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus,
-    countryIsoCode, seasonId, sizeDetailsTu, primaryColorId,
-  }), [reference, name, description, categoryId, variants, colorImages, compositions, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, countryIsoCode, seasonId, sizeDetailsTu, primaryColorId]);
+    countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId,
+  }), [reference, name, description, categoryId, variants, colorImages, compositions, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId]);
+
+  // Snapshot sans microstoreSubCategoryId — sert à détecter si SEULE la
+  // sous-catégorie Microstore a changé (dans ce cas la modale ne proposera
+  // que Microstore, pas les autres marketplaces qui ignorent ce champ).
+  const buildMarketplaceSnapshotExcludingMicrostore = useCallback(() => buildProductMarketplaceSnapshotExcludingMicrostore({
+    reference, name, description, categoryId,
+    variants, colorImages, compositions, isBestSeller, discountPercent,
+    dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus,
+    countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId,
+  }), [reference, name, description, categoryId, variants, colorImages, compositions, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId]);
 
   // Détecte si au moins une variante utilise "Taille Unique" / "TU"
   const hasTailleUnique = useMemo(() => {
@@ -829,6 +884,7 @@ export default function ProductForm({
       const timer = setTimeout(() => {
         initialSnapshot.current = buildSnapshot();
         initialMarketplaceSnapshot.current = buildMarketplaceSnapshot();
+        initialMarketplaceSnapshotExcludingMicrostore.current = buildMarketplaceSnapshotExcludingMicrostore();
         snapshotReady.current = true;
         setHasUnsavedChanges(false);
       }, 500);
@@ -842,6 +898,7 @@ export default function ProductForm({
       pendingSnapshotResetRef.current = false;
       initialSnapshot.current = buildSnapshot();
       initialMarketplaceSnapshot.current = buildMarketplaceSnapshot();
+      initialMarketplaceSnapshotExcludingMicrostore.current = buildMarketplaceSnapshotExcludingMicrostore();
       isDirty.current = false;
       setHasUnsavedChanges(false);
       return;
@@ -849,7 +906,7 @@ export default function ProductForm({
     const dirty = buildSnapshot() !== initialSnapshot.current;
     isDirty.current = dirty;
     setHasUnsavedChanges(dirty);
-  }, [buildSnapshot, buildMarketplaceSnapshot]);
+  }, [buildSnapshot, buildMarketplaceSnapshot, buildMarketplaceSnapshotExcludingMicrostore]);
 
   // Browser close / refresh / hard navigation
   useEffect(() => {
@@ -1875,6 +1932,8 @@ export default function ProductForm({
                 colorId: line.colorId,
                 pfsColorRefOverride: line.pfsColorRefOverride ?? null,
                 efashionColorIdOverride: line.efashionColorIdOverride ?? null,
+                ankorsColorNameOverride: line.ankorsColorNameOverride ?? null,
+                faireColorNameOverride: line.faireColorNameOverride ?? null,
                 sizeEntries: line.sizeEntries
                   .filter((se) => se.sizeId)
                   .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
@@ -1904,6 +1963,8 @@ export default function ProductForm({
           disabled:      v.disabled ?? false,
           pfsColorRefOverride: v.pfsColorRefOverride ?? null,
           efashionColorIdOverride: v.efashionColorIdOverride ?? null,
+          ankorsColorNameOverride: v.ankorsColorNameOverride ?? null,
+          faireColorNameOverride: v.faireColorNameOverride ?? null,
         };
       }),
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
@@ -1952,6 +2013,18 @@ export default function ProductForm({
     const marketplaceFieldsChanged =
       initialMarketplaceSnapshot.current === null
       || buildMarketplaceSnapshot() !== initialMarketplaceSnapshot.current;
+
+    // Détection « seule la sous-catégorie Microstore a changé » :
+    // - le snapshot marketplace complet a bougé (marketplaceFieldsChanged),
+    // - mais le snapshot marketplace SANS microstoreSubCategoryId est resté
+    //   identique → aucun autre champ marketplace n'a bougé, donc PFS/Ankor/
+    //   eFa/Faire n'ont rien à recevoir. On ne proposera que Microstore.
+    const nonMicrostoreFieldsChanged =
+      initialMarketplaceSnapshotExcludingMicrostore.current === null
+      || buildMarketplaceSnapshotExcludingMicrostore()
+        !== initialMarketplaceSnapshotExcludingMicrostore.current;
+    const onlyMicrostoreFieldChanged =
+      marketplaceFieldsChanged && !nonMicrostoreFieldsChanged;
 
     showLoading();
     startTransition(async () => {
@@ -2036,25 +2109,31 @@ export default function ProductForm({
       const alreadyOnAnkorstore = !!initialData?.ankorsProductId;
       const alreadyOnEfashion = !!initialData?.efashionReferenceBase;
       const alreadyOnFaire = !!initialData?.faireProductId;
-      const alreadyOnMicrostore = !!initialData?.microstoreLastPushedAt;
       const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
       const showEfashion = hasEfashionConfig && efashionEnabled;
       const showFaire = hasFaireConfig && faireEnabled;
-      const showMicrostore = hasMicrostoreConfig;
+      // Microstore : contrairement aux 4 autres marketplaces, il n'y a pas de
+      // notion « déjà lié » (upsert par référence + pas d'upload photo). La
+      // case doit apparaître dès qu'on modifie une info clé si Microstore est
+      // configuré et activé pour le produit, même sur un tout premier push.
+      const showMicrostore =
+        hasMicrostoreConfig && (initialData?.microstoreEnabledForProduct ?? true);
 
       // La popup marketplace s'affiche aussi pour le passage en ARCHIVED
       // (Ankorstore : on envoie stock 0 → produit non commandable, équivalent
       //  "hors ligne" — leur API n'a pas de vraie archive côté produit).
       //
       // ⚠️ Demande cliente : ne PAS proposer la modale tant qu'aucune
-      // marketplace n'est liée. La 1ʳᵉ publication doit être déclenchée
-      // explicitement depuis le badge marketplace de la fiche, pas au save.
+      // marketplace n'est liée. La 1ʳᵉ publication PFS/Ankor/eFa/Faire doit
+      // être déclenchée explicitement depuis le badge marketplace de la fiche.
+      // Exception Microstore : upsert direct, on ouvre la modale même sur un
+      // premier push tant que Microstore est configuré.
       const anyMarketplaceLinked =
         alreadyOnPfs ||
         alreadyOnAnkorstore ||
         alreadyOnEfashion ||
         alreadyOnFaire ||
-        alreadyOnMicrostore;
+        showMicrostore;
       const canPublish =
         savedProductId &&
         !isIncomplete &&
@@ -2147,12 +2226,16 @@ export default function ProductForm({
 
         // On ne propose que les marketplaces déjà liées — la 1ʳᵉ publication
         // passe par le badge de la fiche, jamais par la modale de save.
-        const showPfsCase = hasPfsConfig && !hasPfsConflict && alreadyOnPfs;
-        const showAnkorstoreCase = showAnkorstore && alreadyOnAnkorstore;
+        // Cas particulier : si SEULE la sous-catégorie Microstore a changé
+        // (onlyMicrostoreFieldChanged), on masque PFS/Ankor/eFa/Faire — ces
+        // marketplaces ignorent ce champ, aucune raison de les proposer.
+        const showPfsCase = !onlyMicrostoreFieldChanged && hasPfsConfig && !hasPfsConflict && alreadyOnPfs;
+        const showAnkorstoreCase = !onlyMicrostoreFieldChanged && showAnkorstore && alreadyOnAnkorstore;
         const showEfashionCase =
-          showEfashion && !hasEfashionConflict && alreadyOnEfashion;
-        const showFaireCase = showFaire && alreadyOnFaire;
-        const showMicrostoreCase = showMicrostore && alreadyOnMicrostore;
+          !onlyMicrostoreFieldChanged && showEfashion && !hasEfashionConflict && alreadyOnEfashion;
+        const showFaireCase = !onlyMicrostoreFieldChanged && showFaire && alreadyOnFaire;
+        // Microstore : pas de contrainte « déjà lié », voir showMicrostore.
+        const showMicrostoreCase = showMicrostore;
 
         if (
           showPfsCase ||
@@ -2562,24 +2645,31 @@ export default function ProductForm({
                       emptyMessage="Aucune catégorie n'est créée"
                       searchable
                     />
-                    {/* Rond radio « étiquette Microstore = catégorie principale ».
-                        Visible dès qu'il existe au moins une sous-catégorie dans
-                        la catégorie (sinon il n'y a rien à choisir). */}
+                    {/* Badge M cyan indiquant que la catégorie principale sert
+                        d'étiquette Microstore. Visible dès qu'il existe au moins
+                        une sous-catégorie (sinon il n'y a rien à choisir).
+                        - Actif (microstoreSubCategoryId === null) → badge cyan plein.
+                        - Inactif → badge cyan grisé cliquable pour reset. */}
                     {selectedCategory && subCategories.length > 0 && (
                       <button
                         type="button"
                         onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => { e.stopPropagation(); setMicrostoreSubCategoryId(null); }}
-                        title="Utiliser la catégorie dans la colonne Microstore"
+                        title={
+                          microstoreSubCategoryId === null
+                            ? "Étiquette Microstore : catégorie principale"
+                            : "Cliquer pour utiliser la catégorie principale comme étiquette Microstore"
+                        }
                         aria-label="Utiliser la catégorie dans la colonne Microstore"
                         aria-pressed={microstoreSubCategoryId === null}
-                        className={`absolute top-1/2 -translate-y-1/2 right-9 z-10 flex items-center justify-center w-5 h-5 rounded-full border-2 bg-bg-primary transition-colors ${
-                          microstoreSubCategoryId === null ? "border-bg-dark" : "border-border hover:border-bg-dark"
+                        className={`absolute top-1/2 -translate-y-1/2 right-9 z-10 inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[9px] font-extrabold transition-opacity ${
+                          microstoreSubCategoryId === null ? "opacity-100" : "opacity-40 hover:opacity-100"
                         }`}
+                        style={{
+                          background: "linear-gradient(135deg,#0891b2,#22d3ee)",
+                        }}
                       >
-                        {microstoreSubCategoryId === null && (
-                          <span className="w-2.5 h-2.5 rounded-full bg-bg-dark" />
-                        )}
+                        M
                       </button>
                     )}
                   </div>
@@ -2610,63 +2700,61 @@ export default function ProductForm({
                       {subCategories.map((sub) => {
                         const selected = subCategoryIds.includes(sub.id);
                         const isMicrostoreChoice = microstoreSubCategoryId === sub.id;
+                        // Clic simple sur la sous-catégorie :
+                        //  - non sélectionnée → l'ajoute + la définit comme
+                        //    étiquette Microstore.
+                        //  - sélectionnée mais pas Microstore → la promeut en
+                        //    étiquette Microstore (sans désélectionner).
+                        //  - déjà sélectionnée + étiquette Microstore → la
+                        //    désélectionne (le choix Microstore retombe sur
+                        //    la catégorie principale).
+                        const handleClick = () => {
+                          if (!selected) {
+                            setSubCategoryIds((prev) =>
+                              prev.includes(sub.id) ? prev : [...prev, sub.id],
+                            );
+                            setMicrostoreSubCategoryId(sub.id);
+                          } else if (!isMicrostoreChoice) {
+                            setMicrostoreSubCategoryId(sub.id);
+                          } else {
+                            toggleSubCategory(sub.id);
+                            setMicrostoreSubCategoryId(null);
+                          }
+                        };
                         return (
-                          <button key={sub.id} type="button" onClick={() => toggleSubCategory(sub.id)}
+                          <button
+                            key={sub.id}
+                            type="button"
+                            onClick={handleClick}
+                            title={
+                              !selected
+                                ? "Ajouter cette sous-catégorie (elle deviendra l'étiquette Microstore)"
+                                : isMicrostoreChoice
+                                  ? "Sous-catégorie envoyée à Microstore — recliquer pour désélectionner"
+                                  : "Cliquer pour utiliser cette sous-catégorie comme étiquette Microstore"
+                            }
+                            aria-pressed={isMicrostoreChoice}
                             className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm border rounded-lg transition-colors font-body ${
-                              selected ? "bg-bg-dark text-text-inverse border-[#1A1A1A]" : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
+                              selected
+                                ? isMicrostoreChoice
+                                  ? "bg-bg-dark text-text-inverse border-[#1A1A1A] ring-2 ring-[#22d3ee] ring-offset-1"
+                                  : "bg-bg-dark text-text-inverse border-[#1A1A1A]"
+                                : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
                             }`}
                           >
                             <span>{sub.name}</span>
-                            {/* Rond radio « étiquette Microstore = cette sous-catégorie ».
-                                Toujours visible sur chaque chip. Si la sous-catégorie
-                                n'est pas encore attribuée, cliquer le rond l'attribue
-                                automatiquement (sinon l'étiquette Microstore serait
-                                un id orphelin reset au prochain save). */}
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!selected) {
-                                  setSubCategoryIds((prev) =>
-                                    prev.includes(sub.id) ? prev : [...prev, sub.id],
-                                  );
-                                }
-                                setMicrostoreSubCategoryId(sub.id);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  if (!selected) {
-                                    setSubCategoryIds((prev) =>
-                                      prev.includes(sub.id) ? prev : [...prev, sub.id],
-                                    );
-                                  }
-                                  setMicrostoreSubCategoryId(sub.id);
-                                }
-                              }}
-                              title="Utiliser cette sous-catégorie dans la colonne Microstore"
-                              aria-label="Utiliser cette sous-catégorie dans la colonne Microstore"
-                              aria-pressed={isMicrostoreChoice}
-                              className={`inline-flex items-center justify-center w-4 h-4 rounded-full border-2 transition-colors cursor-pointer ${
-                                selected
-                                  ? isMicrostoreChoice
-                                    ? "border-text-inverse"
-                                    : "border-text-inverse/40 hover:border-text-inverse"
-                                  : isMicrostoreChoice
-                                    ? "border-bg-dark"
-                                    : "border-border hover:border-bg-dark"
-                              }`}
-                            >
-                              {isMicrostoreChoice && (
-                                <span
-                                  className={`w-2 h-2 rounded-full ${
-                                    selected ? "bg-text-inverse" : "bg-bg-dark"
-                                  }`}
-                                />
-                              )}
-                            </span>
+                            {isMicrostoreChoice && (
+                              <span
+                                className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8.5px] font-extrabold flex-shrink-0"
+                                style={{
+                                  background: "linear-gradient(135deg,#0891b2,#22d3ee)",
+                                }}
+                                aria-hidden
+                                title="Étiquette Microstore"
+                              >
+                                M
+                              </span>
+                            )}
                           </button>
                         );
                       })}
@@ -2674,7 +2762,7 @@ export default function ProductForm({
                   )}
                   {subCategoryIds.length > 0 && (
                     <p className="text-[11px] text-text-muted font-body mt-2 leading-snug">
-                      Cliquez sur le rond <span className="inline-block align-middle w-2.5 h-2.5 rounded-full border-2 border-text-muted" /> pour choisir l&apos;étiquette envoyée dans la colonne « Catégorie » de l&apos;export Microstore.
+                      Cliquez sur une sous-catégorie pour la choisir comme étiquette envoyée dans la colonne « Catégorie » de Microstore. Le badge <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-white text-[7px] font-extrabold align-middle" style={{ background: "linear-gradient(135deg,#0891b2,#22d3ee)" }}>M</span> indique la sous-catégorie active.
                     </p>
                   )}
                 </div>
@@ -2932,7 +3020,7 @@ export default function ProductForm({
         </div>
 
         {/* ── Variantes couleur ── */}
-        <section id="section-variants" hidden={!(["var","img","map","map-efashion"] as const).some((k) => k === activeSection)} className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-2xl p-8 space-y-5 shadow-card`}>
+        <section id="section-variants" hidden={!(["var","img","map"] as const).some((k) => k === activeSection)} className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-2xl p-8 space-y-5 shadow-card`}>
           <div className="flex items-center justify-between gap-4 border-b border-border pb-4 flex-wrap">
             <div className="flex items-center gap-3">
               <h2 className="font-heading text-xl font-bold text-text-primary">
@@ -3126,85 +3214,28 @@ export default function ProductForm({
           />
           </div>
 
-          {/* ── Mapping Paris Fashion Shop par variante ── */}
-          {hasPfsConfig && variants.length > 0 && activeSection === "map" && (
-            <PfsMappingSection
+          {/* ── Mapping Marketplaces (bloc unifié : PFS / Ankor / eFa / Faire) ── */}
+          {variants.length > 0 && activeSection === "map" && (
+            <MarketplacesMappingSection
               variants={variants}
               availableColors={localColors}
+              hasPfsConfig={!!hasPfsConfig}
+              hasAnkorstoreConfig={!!hasAnkorstoreConfig && !!ankorstoreEnabled}
+              hasEfashionConfig={!!hasEfashionConfig && !!efashionEnabled}
+              hasFaireConfig={!!hasFaireConfig && !!faireEnabled}
               pfsColorOptions={pfsColorOptions ?? []}
-              onChangeOverrideForTargets={(targets, override) => {
-                // Construit deux index pour appliquer le nouvel override en
-                // UN SEUL setVariants (au lieu de boucler des appels qui
-                // peuvent échapper au batching React selon le contexte).
-                const variantTempIds = new Set<string>();
-                const packLineTempIds = new Set<string>();
-                for (const t of targets) {
-                  if (t.packLineTempId) {
-                    packLineTempIds.add(t.packLineTempId);
-                  } else {
-                    variantTempIds.add(t.variantTempId);
-                  }
-                }
-                setVariants((prev) =>
-                  prev.map((v) => {
-                    let next: VariantState = v;
-                    if (variantTempIds.has(v.tempId)) {
-                      next = { ...next, pfsColorRefOverride: override };
-                    }
-                    if (next.packLines.length > 0) {
-                      let packChanged = false;
-                      const newPackLines = next.packLines.map((pl) => {
-                        if (packLineTempIds.has(pl.tempId)) {
-                          packChanged = true;
-                          return { ...pl, pfsColorRefOverride: override };
-                        }
-                        return pl;
-                      });
-                      if (packChanged) next = { ...next, packLines: newPackLines };
-                    }
-                    return next;
-                  }),
-                );
-              }}
-            />
-          )}
-
-          {/* ── Mapping eFashion par variante (miroir du PFS) ── */}
-          {hasEfashionConfig && variants.length > 0 && activeSection === "map-efashion" && (
-            <EfashionMappingSection
-              variants={variants}
-              availableColors={localColors}
               efashionColorOptions={efashionColorOptions ?? []}
-              onChangeOverrideForTargets={(targets, override) => {
-                const variantTempIds = new Set<string>();
-                const packLineTempIds = new Set<string>();
-                for (const t of targets) {
-                  if (t.packLineTempId) {
-                    packLineTempIds.add(t.packLineTempId);
-                  } else {
-                    variantTempIds.add(t.variantTempId);
-                  }
-                }
-                setVariants((prev) =>
-                  prev.map((v) => {
-                    let next: VariantState = v;
-                    if (variantTempIds.has(v.tempId)) {
-                      next = { ...next, efashionColorIdOverride: override };
-                    }
-                    if (next.packLines.length > 0) {
-                      let packChanged = false;
-                      const newPackLines = next.packLines.map((pl) => {
-                        if (packLineTempIds.has(pl.tempId)) {
-                          packChanged = true;
-                          return { ...pl, efashionColorIdOverride: override };
-                        }
-                        return pl;
-                      });
-                      if (packChanged) next = { ...next, packLines: newPackLines };
-                    }
-                    return next;
-                  }),
-                );
+              onChangePfsOverride={(targets, override) => {
+                applyOverrideToTargets(setVariants, targets, (v) => ({ ...v, pfsColorRefOverride: override }), (pl) => ({ ...pl, pfsColorRefOverride: override }));
+              }}
+              onChangeEfashionOverride={(targets, override) => {
+                applyOverrideToTargets(setVariants, targets, (v) => ({ ...v, efashionColorIdOverride: override }), (pl) => ({ ...pl, efashionColorIdOverride: override }));
+              }}
+              onChangeAnkorsOverride={(targets, override) => {
+                applyOverrideToTargets(setVariants, targets, (v) => ({ ...v, ankorsColorNameOverride: override }), (pl) => ({ ...pl, ankorsColorNameOverride: override }));
+              }}
+              onChangeFaireOverride={(targets, override) => {
+                applyOverrideToTargets(setVariants, targets, (v) => ({ ...v, faireColorNameOverride: override }), (pl) => ({ ...pl, faireColorNameOverride: override }));
               }}
             />
           )}

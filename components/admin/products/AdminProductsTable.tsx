@@ -54,6 +54,7 @@ const MARKETPLACE_LABEL: Record<MarketplaceKey, string> = {
   ankorstore: "Ankorstore",
   efashion: "eFashion Paris",
   faire: "Faire",
+  microstore: "Microstore",
 };
 
 // Modales lourdes — chargées à l'ouverture seulement pour alléger le bundle
@@ -383,12 +384,27 @@ function MarketplaceBadge({
   }
   if (published) {
     return (
-      <span
-        className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
-        title={lastExportedAt ? `Publié sur Paris Fashion Shop — dernier export ${formatRelativeDate(lastExportedAt)}` : "Publié sur Paris Fashion Shop"}
+      <button
+        type="button"
+        onClick={(e) => {
+          if (!onSyncClick) return;
+          e.stopPropagation();
+          onSyncClick();
+        }}
+        disabled={!onSyncClick}
+        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
+          onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
+        }`}
+        title={
+          onSyncClick
+            ? `Cliquer pour synchroniser sur Paris Fashion Shop${lastExportedAt ? ` — dernier export ${formatRelativeDate(lastExportedAt)}` : ""}`
+            : lastExportedAt
+              ? `Publié sur Paris Fashion Shop — dernier export ${formatRelativeDate(lastExportedAt)}`
+              : "Publié sur Paris Fashion Shop"
+        }
       >
         PFS
-      </span>
+      </button>
     );
   }
   // Non publié : badge entièrement cliquable qui ouvre la modale (Publier/Lier)
@@ -481,12 +497,27 @@ function AnkorstoreBadge({
   }
   if (published) {
     return (
-      <span
-        className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
-        title={lastExportedAt ? `Publié sur Ankorstore — dernier export ${formatRelativeDate(lastExportedAt)}` : "Publié sur Ankorstore"}
+      <button
+        type="button"
+        onClick={(e) => {
+          if (!onSyncClick) return;
+          e.stopPropagation();
+          onSyncClick();
+        }}
+        disabled={!onSyncClick}
+        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
+          onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
+        }`}
+        title={
+          onSyncClick
+            ? `Cliquer pour synchroniser sur Ankorstore${lastExportedAt ? ` — dernier export ${formatRelativeDate(lastExportedAt)}` : ""}`
+            : lastExportedAt
+              ? `Publié sur Ankorstore — dernier export ${formatRelativeDate(lastExportedAt)}`
+              : "Publié sur Ankorstore"
+        }
       >
         ANKOR
-      </span>
+      </button>
     );
   }
   // Non publié : badge cliquable qui ouvre la modale (Publier/Lier)
@@ -579,12 +610,27 @@ function EfashionBadge({
   }
   if (linked) {
     return (
-      <span
-        className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
-        title={lastExportedAt ? `Lié à eFashion Paris — dernier export ${formatRelativeDate(lastExportedAt)}` : "Lié à eFashion Paris"}
+      <button
+        type="button"
+        onClick={(e) => {
+          if (!onSyncClick) return;
+          e.stopPropagation();
+          onSyncClick();
+        }}
+        disabled={!onSyncClick}
+        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
+          onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
+        }`}
+        title={
+          onSyncClick
+            ? `Cliquer pour synchroniser sur eFashion Paris${lastExportedAt ? ` — dernier export ${formatRelativeDate(lastExportedAt)}` : ""}`
+            : lastExportedAt
+              ? `Lié à eFashion Paris — dernier export ${formatRelativeDate(lastExportedAt)}`
+              : "Lié à eFashion Paris"
+        }
       >
         EF
-      </span>
+      </button>
     );
   }
   // Non lié : badge cliquable qui ouvre la modale (Publier/Lier)
@@ -677,12 +723,27 @@ function FaireBadge({
   }
   if (published) {
     return (
-      <span
-        className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
-        title={lastExportedAt ? `Publié sur Faire — dernier export ${formatRelativeDate(lastExportedAt)}` : "Publié sur Faire"}
+      <button
+        type="button"
+        onClick={(e) => {
+          if (!onSyncClick) return;
+          e.stopPropagation();
+          onSyncClick();
+        }}
+        disabled={!onSyncClick}
+        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
+          onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
+        }`}
+        title={
+          onSyncClick
+            ? `Cliquer pour synchroniser sur Faire${lastExportedAt ? ` — dernier export ${formatRelativeDate(lastExportedAt)}` : ""}`
+            : lastExportedAt
+              ? `Publié sur Faire — dernier export ${formatRelativeDate(lastExportedAt)}`
+              : "Publié sur Faire"
+        }
       >
         Faire
-      </span>
+      </button>
     );
   }
   // Non publié : badge cliquable qui ouvre la modale (Publier/Lier)
@@ -703,6 +764,74 @@ function FaireBadge({
       title={onActionClick ? "Cliquer pour publier ou lier ce produit sur Faire" : "Non publié sur Faire"}
     >
       Faire
+    </button>
+  );
+}
+
+function MicrostoreBadge({
+  configured,
+  syncRequired = false,
+  onSyncClick,
+  onCancelSyncRequired,
+  disabledForProduct = false,
+}: {
+  /** Microstore n'a pas d'ID marketplace côté produit — on considère qu'il est
+   *  actif dès qu'il est configuré globalement ET pas décoché pour le produit. */
+  configured: boolean;
+  syncRequired?: boolean;
+  onSyncClick?: () => void;
+  onCancelSyncRequired?: () => void;
+  disabledForProduct?: boolean;
+}) {
+  if (!configured) {
+    return (
+      <Tooltip content="Microstore n'est pas connecté — configurez-le dans Paramètres › Marketplaces">
+        <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold text-text-muted border border-border cursor-not-allowed bg-bg-secondary">
+          MC
+        </span>
+      </Tooltip>
+    );
+  }
+  if (disabledForProduct) return <DisabledMarketplaceBadge label="MC" reason="product" />;
+  if (syncRequired) {
+    return (
+      <span className="relative inline-flex">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSyncClick?.();
+          }}
+          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+          title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Microstore"
+        >
+          <span className="relative inline-flex">
+            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
+            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+          </span>
+          MC
+        </button>
+        {onCancelSyncRequired && (
+          <SyncCancelCross onClick={onCancelSyncRequired} marketplaceLabel="Microstore" />
+        )}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        if (!onSyncClick) return;
+        e.stopPropagation();
+        onSyncClick();
+      }}
+      disabled={!onSyncClick}
+      className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
+        onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
+      }`}
+      title={onSyncClick ? "Cliquer pour synchroniser sur Microstore" : "Microstore configuré"}
+    >
+      MC
     </button>
   );
 }
@@ -2039,6 +2168,7 @@ function ProductRow({
   efashionEnabled,
   hasFaireConfig,
   faireEnabled,
+  hasMicrostoreConfig,
   selected,
   onToggle,
   expanded,
@@ -2221,8 +2351,27 @@ function ProductRow({
 
   // Clic 1-clic depuis un badge orange « Synchro nécessaire ». Pas de
   // confirmation : la cliente a déjà vu le badge et choisi délibérément.
-  const handleSyncPfs = useCallback(() => {
+  // Utilitaire de confirmation partagé par les 4 marketplaces asynchrones.
+  // Le clic sur un badge marketplace passe par cette confirmation avant
+  // d'enqueue la resynchro — évite les envois accidentels.
+  const confirmMarketplaceSync = useCallback(
+    async (label: string, asyncNote = "") => {
+      return await confirm({
+        type: "info",
+        title: `Synchroniser « ${product.name} » sur ${label} ?`,
+        message:
+          `Les dernières modifications locales seront envoyées à ${label} pour mettre à jour la fiche existante.` +
+          asyncNote,
+        confirmLabel: "Oui, synchroniser",
+        cancelLabel: "Annuler",
+      });
+    },
+    [confirm, product.name],
+  );
+
+  const handleSyncPfs = useCallback(async () => {
     if (isPfsPublishing) return;
+    if (!(await confirmMarketplaceSync("Paris Fashion Shop"))) return;
     setPendingPfsEnqueue(true);
     enqueue([{
       productId: product.id,
@@ -2233,10 +2382,14 @@ function ProductRow({
       mode: "resync",
       marketplace: "pfs",
     }]);
-  }, [enqueue, product, isPfsPublishing]);
+  }, [enqueue, product, isPfsPublishing, confirmMarketplaceSync]);
 
-  const handleSyncAnkorstore = useCallback(() => {
+  const handleSyncAnkorstore = useCallback(async () => {
     if (isAnkorstorePublishing) return;
+    if (!(await confirmMarketplaceSync(
+      "Ankorstore",
+      " La synchro Ankorstore est asynchrone : le résultat arrivera dans les minutes qui suivent.",
+    ))) return;
     setPendingAnkorstoreEnqueue(true);
     enqueue([{
       productId: product.id,
@@ -2247,10 +2400,11 @@ function ProductRow({
       mode: "resync",
       marketplace: "ankorstore",
     }]);
-  }, [enqueue, product, isAnkorstorePublishing]);
+  }, [enqueue, product, isAnkorstorePublishing, confirmMarketplaceSync]);
 
-  const handleSyncEfashion = useCallback(() => {
+  const handleSyncEfashion = useCallback(async () => {
     if (isEfashionPublishing) return;
+    if (!(await confirmMarketplaceSync("eFashion Paris"))) return;
     setPendingEfashionEnqueue(true);
     enqueue([{
       productId: product.id,
@@ -2261,7 +2415,7 @@ function ProductRow({
       mode: "resync",
       marketplace: "efashion",
     }]);
-  }, [enqueue, product, isEfashionPublishing]);
+  }, [enqueue, product, isEfashionPublishing, confirmMarketplaceSync]);
 
   // Demande la création d'une nouvelle fiche sur eFashion Paris — appelé depuis
   // le badge "+ eFashion". Même logique qu'Ankorstore (confirmation + enqueue +
@@ -2323,8 +2477,9 @@ function ProductRow({
     ]);
   }, [enqueue, product]);
 
-  const handleSyncFaire = useCallback(() => {
+  const handleSyncFaire = useCallback(async () => {
     if (isFairePublishing) return;
+    if (!(await confirmMarketplaceSync("Faire"))) return;
     setPendingFaireEnqueue(true);
     enqueue([{
       productId: product.id,
@@ -2335,7 +2490,62 @@ function ProductRow({
       mode: "resync",
       marketplace: "faire",
     }]);
-  }, [enqueue, product, isFairePublishing]);
+  }, [enqueue, product, isFairePublishing, confirmMarketplaceSync]);
+
+  const [microstoreBusy, setMicrostoreBusy] = useState(false);
+  const handleSyncMicrostore = useCallback(async () => {
+    if (microstoreBusy) return;
+    const ok = await confirm({
+      type: "info",
+      title: `Synchroniser « ${product.name} » sur Microstore ?`,
+      message:
+        "La fiche Microstore sera créée si absente ou mise à jour (nom, prix, stock, couleurs, catégorie, description). " +
+        "Les photos ne sont pas envoyées — à ajouter manuellement côté Microstore si besoin.",
+      confirmLabel: "Oui, synchroniser",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+    setMicrostoreBusy(true);
+    try {
+      const { pushProductToMicrostore } = await import(
+        "@/app/actions/admin/microstore-products"
+      );
+      const res = await pushProductToMicrostore(product.id);
+      if (res.success) {
+        toast.success("Fiche Microstore synchronisée");
+        router.refresh();
+      } else {
+        toast.error(
+          "Envoi Microstore échoué",
+          res.error ?? "Erreur inconnue.",
+        );
+      }
+    } finally {
+      setMicrostoreBusy(false);
+    }
+  }, [microstoreBusy, product.id, product.name, confirm, toast, router]);
+
+  const handleCancelMicrostoreSync = useCallback(async () => {
+    const ok = await confirm({
+      type: "warning",
+      title: "Ignorer cette synchronisation Microstore ?",
+      message:
+        "Le badge orange disparaîtra et vos dernières modifications NE seront pas envoyées à Microstore. " +
+        "Vous pourrez toujours re-synchroniser plus tard en cliquant sur le badge vert.",
+      confirmLabel: "Oui, ignorer",
+    });
+    if (!ok) return;
+    const { clearMicrostoreSyncRequired } = await import(
+      "@/app/actions/admin/microstore-products"
+    );
+    const res = await clearMicrostoreSyncRequired(product.id);
+    if (res.success) {
+      toast.success("Synchronisation ignorée");
+      router.refresh();
+    } else {
+      toast.error("Impossible d'ignorer", res.error ?? "Erreur inconnue.");
+    }
+  }, [confirm, product.id, toast, router]);
 
   // Croix « annuler la synchro » sur le badge orange. Confirmation modale puis
   // reset du drapeau syncRequired : le produit repasse en vert « en ligne »
@@ -2671,13 +2881,13 @@ function ProductRow({
                   Faire
                 </span>
               )}
-              {/* Microstore : pas d'API → badge neutre, pas de date ni d'action */}
-              <span
-                className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-tertiary text-text-secondary border border-border-strong"
-                title="Microstore — pas d'API, géré manuellement"
-              >
-                MC
-              </span>
+              <MicrostoreBadge
+                configured={hasMicrostoreConfig}
+                syncRequired={product.microstoreSyncRequired}
+                onSyncClick={microstoreBusy ? undefined : handleSyncMicrostore}
+                onCancelSyncRequired={handleCancelMicrostoreSync}
+                disabledForProduct={!product.microstoreEnabled}
+              />
             </div>
           )}
         </td>
@@ -4486,6 +4696,11 @@ export default function AdminProductsTable({
       return;
     }
 
+    // Microstore n'a pas de bouton « Publier » séparé côté UI (le panneau
+    // marketplaces ne montre qu'un bouton « Synchroniser »). Guard défensif
+    // au cas où quelque chose déclencherait ce chemin par erreur.
+    if (marketplace === "microstore") return;
+
     const products = allProducts.filter((p) => ids.includes(p.id));
     const options = { local: false, pfs: false, ankorstore: false, efashion: false, faire: false };
     if (marketplace === "pfs") options.pfs = true;
@@ -4512,7 +4727,55 @@ export default function AdminProductsTable({
     if (ids.length === 0) return;
     const count = ids.length;
     const plural = count > 1 ? "s" : "";
-    const label = MARKETPLACE_LABEL[marketplace];
+    const label = MARKETPLACE_LABEL[marketplace] ?? marketplace;
+
+    // Microstore : upsert synchrone via /goods/import_v1, pas de queue.
+    if (marketplace === "microstore") {
+      const ok = await confirm({
+        type: "info",
+        title: `Synchroniser ${count} produit${plural} sur Microstore ?`,
+        message:
+          `Les fiches Microstore seront créées si absentes ou mises à jour (nom, prix, stock, couleurs, catégorie, description). ` +
+          `Les photos ne sont pas envoyées — à ajouter manuellement côté Microstore si besoin.`,
+        confirmLabel: "Oui, synchroniser",
+        cancelLabel: "Annuler",
+      });
+      if (ok !== true) return;
+      const { bulkPushProductsToMicrostore } = await import(
+        "@/app/actions/admin/microstore-products"
+      );
+      const res = await bulkPushProductsToMicrostore(ids);
+      if (res.success) {
+        const n = res.totals?.pushed ?? 0;
+        const skipped = (res.results ?? []).filter((r) => !r.success);
+        if (n === 0 && skipped.length > 0) {
+          toast.error(
+            "Microstore : rien synchronisé",
+            skipped
+              .slice(0, 3)
+              .map((s) => `${s.reference} : ${s.error}`)
+              .join(" · "),
+          );
+        } else if (skipped.length > 0) {
+          const refs = skipped.map((s) => s.reference).slice(0, 5).join(", ");
+          toast.info(
+            `Microstore : ${n} synchronisé${n > 1 ? "s" : ""}, ${skipped.length} sauté${skipped.length > 1 ? "s" : ""}`,
+            `À corriger : ${refs}${skipped.length > 5 ? "…" : ""}. Ex : ${skipped[0]!.error}`,
+          );
+        } else {
+          toast.success(
+            `Microstore synchronisé`,
+            `${n} produit${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""}.`,
+          );
+        }
+      } else {
+        toast.error(
+          "Microstore : synchro bulk échouée",
+          res.error ?? "Erreur inconnue.",
+        );
+      }
+      return;
+    }
 
     const asyncNote = marketplace === "ankorstore"
       ? " La synchro Ankorstore est asynchrone : le résultat arrivera dans les minutes qui suivent."
@@ -4824,6 +5087,8 @@ export default function AdminProductsTable({
           ankorsSyncRequired: p.ankorsSyncRequired,
           efashionSyncRequired: p.efashionSyncRequired,
           faireSyncRequired: p.faireSyncRequired,
+          microstoreEnabled: p.microstoreEnabled,
+          microstoreLastPushedAt: p.microstoreLastPushedAt,
         }))}
         isPending={isPending}
         pendingLabel={bulkActionLabel}
@@ -4832,6 +5097,7 @@ export default function AdminProductsTable({
           ankorstore: { configured: hasAnkorstoreConfig, enabled: ankorstoreEnabled },
           efashion: { configured: hasEfashionConfig, enabled: efashionEnabled },
           faire: { configured: hasFaireConfig, enabled: faireEnabled },
+          microstore: { configured: hasMicrostoreConfig },
         }}
         draftCount={selectedDraftIds.length}
         onStatus={(status) => handleBulkStatus(status)}
@@ -5020,6 +5286,11 @@ export default function AdminProductsTable({
             />
           );
         }
+
+        // Microstore : pas de modale bulk-publish spécifique — le panneau
+        // Marketplaces ne propose qu'un bouton « Synchroniser » qui appelle
+        // handleBulkMarketplaceSync directement.
+        if (marketplace === "microstore") return null;
 
         const asyncNote = marketplace === "ankorstore"
           ? " La publication Ankorstore est asynchrone : le résultat arrive dans les minutes qui suivent."

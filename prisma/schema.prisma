@@ -1776,6 +1776,13 @@ model ProductColor {
   // Mapping eFashion secondaire propre à cette variante (override de Color.efashionColorId).
   // Même logique que pfsColorRefOverride, mais avec l'ID entier de la biblio eFashion.
   efashionColorIdOverride Int?
+  // Override du nom de couleur envoyé à Ankorstore pour cette variante précise.
+  // null/vide = on envoie Color.name. Rempli = on envoie ce texte tel quel (Ankor n'a pas
+  // de bibliothèque de couleurs formelle, le match se fait par nom).
+  ankorsColorNameOverride String?
+  // Override du nom de couleur envoyé à Faire pour cette variante précise.
+  // null/vide = on envoie Color.name. Rempli = on envoie ce texte tel quel.
+  faireColorNameOverride  String?
   createdAt               DateTime                         @default(now())
   updatedAt               DateTime                         @updatedAt
 
@@ -1856,6 +1863,11 @@ model PackColorLine {
   pfsColorRefOverride     String?
   // Override eFashion propre à cette ligne du pack (pendant de pfsColorRefOverride).
   efashionColorIdOverride Int?
+  // Override du nom de couleur envoyé à Ankorstore pour cette ligne du pack.
+  // null/vide = on envoie Color.name (pendant de ankorsColorNameOverride sur ProductColor).
+  ankorsColorNameOverride String?
+  // Override du nom de couleur envoyé à Faire pour cette ligne du pack.
+  faireColorNameOverride  String?
   createdAt               DateTime            @default(now())
 
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.

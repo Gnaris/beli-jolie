@@ -72,13 +72,24 @@ interface FullVariant {
   packQuantity: number | null;
   colorId: string | null;
   color: { id: string; name: string } | null;
+  faireColorNameOverride: string | null;
   variantSizes: { size: { name: string }; quantity: number }[];
   packLines: {
     colorId: string;
     color: { id: string; name: string };
     position: number;
+    faireColorNameOverride: string | null;
     sizes: { size: { name: string }; quantity: number }[];
   }[];
+}
+
+/** Retourne le nom envoyé à Faire : override trim si présent, sinon Color.name. */
+export function faireColorNameOf(
+  colorName: string | undefined,
+  override: string | null | undefined,
+): string {
+  const trimmed = override?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : (colorName ?? "Couleur");
 }
 
 interface FullProduct {
@@ -143,12 +154,14 @@ export async function loadFaireProductFull(productId: string): Promise<FullProdu
           packQuantity: true,
           colorId: true,
           color: { select: { id: true, name: true } },
+          faireColorNameOverride: true,
           variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
           packLines: {
             select: {
               colorId: true,
               color: { select: { id: true, name: true } },
               position: true,
+              faireColorNameOverride: true,
               sizes: {
                 select: { size: { select: { name: true } }, quantity: true },
                 orderBy: { size: { position: "asc" as const } },
@@ -234,9 +247,11 @@ function buildImagesByColorId(
 
 function packColorLabel(v: FullVariant): string {
   if (v.packLines.length > 0) {
-    return v.packLines.map((pl) => pl.color?.name ?? "?").join("/");
+    return v.packLines
+      .map((pl) => faireColorNameOf(pl.color?.name, pl.faireColorNameOverride))
+      .join("/");
   }
-  return v.color?.name ?? "?";
+  return faireColorNameOf(v.color?.name, v.faireColorNameOverride);
 }
 
 function effectiveStock(v: FullVariant, productStatus: string): number {
@@ -464,7 +479,7 @@ export function buildFaireProductPayload(
     const sku = skuByLine.get(lineKey) ?? v.id;
     const prices = getFaireVariantPrices(v, wholesaleConfig, retailConfig);
     const stock = line.stockEffective;
-    const colorLabel = v.saleType === "PACK" ? packColorLabel(v) : v.color?.name ?? "Couleur";
+    const colorLabel = v.saleType === "PACK" ? packColorLabel(v) : faireColorNameOf(v.color?.name, v.faireColorNameOverride);
     colorValuesSet.add(colorLabel);
     if (sizeAxis && line.sizeName) sizeValuesSet.add(line.sizeName);
 

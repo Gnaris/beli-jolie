@@ -35,11 +35,15 @@ export interface ProductMarketplaceSnapshotInput {
     disabled?: boolean;
     pfsColorRefOverride?: string | null;
     efashionColorIdOverride?: number | null;
+    ankorsColorNameOverride?: string | null;
+    faireColorNameOverride?: string | null;
     packLines: Array<{
       colorId: string | null;
       sizeEntries: unknown;
       pfsColorRefOverride?: string | null;
       efashionColorIdOverride?: number | null;
+      ankorsColorNameOverride?: string | null;
+      faireColorNameOverride?: string | null;
     }>;
   }>;
   colorImages: Array<{
@@ -61,6 +65,10 @@ export interface ProductMarketplaceSnapshotInput {
   seasonId: string | null;
   sizeDetailsTu: unknown;
   primaryColorId: string | null;
+  /** Sous-catégorie choisie comme étiquette Microstore (null = catégorie
+   *  principale). N'impacte QUE Microstore — les autres marketplaces
+   *  ignorent complètement ce champ. */
+  microstoreSubCategoryId: string | null;
 }
 
 /**
@@ -93,11 +101,15 @@ export function buildProductMarketplaceSnapshot(
       disabled: v.disabled ?? false,
       pfsColorRefOverride: v.pfsColorRefOverride ?? null,
       efashionColorIdOverride: v.efashionColorIdOverride ?? null,
+      ankorsColorNameOverride: (v.ankorsColorNameOverride ?? "").trim() || null,
+      faireColorNameOverride: (v.faireColorNameOverride ?? "").trim() || null,
       packLines: v.packLines.map((pl) => ({
         colorId: pl.colorId,
         sizeEntries: pl.sizeEntries,
         pfsColorRefOverride: pl.pfsColorRefOverride ?? null,
         efashionColorIdOverride: pl.efashionColorIdOverride ?? null,
+        ankorsColorNameOverride: (pl.ankorsColorNameOverride ?? "").trim() || null,
+        faireColorNameOverride: (pl.faireColorNameOverride ?? "").trim() || null,
       })),
     })),
     colorImages: input.colorImages.map((ci) => ({
@@ -119,5 +131,22 @@ export function buildProductMarketplaceSnapshot(
     seasonId: input.seasonId,
     sizeDetailsTu: input.sizeDetailsTu,
     primaryColorId: input.primaryColorId,
+    microstoreSubCategoryId: input.microstoreSubCategoryId,
+  });
+}
+
+/**
+ * Snapshot marketplace SANS les champs qui ne concernent QUE Microstore.
+ * Permet à `ProductForm` de détecter le cas « seule la sous-catégorie Microstore
+ * a changé » : si ce snapshot est inchangé mais que le snapshot complet a
+ * changé, alors on peut proposer uniquement Microstore dans la modale de
+ * propagation post-save (pas PFS/Ankor/eFa/Faire — ils n'ont rien à recevoir).
+ */
+export function buildProductMarketplaceSnapshotExcludingMicrostore(
+  input: ProductMarketplaceSnapshotInput,
+): string {
+  return buildProductMarketplaceSnapshot({
+    ...input,
+    microstoreSubCategoryId: null,
   });
 }

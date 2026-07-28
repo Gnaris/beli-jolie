@@ -536,6 +536,8 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         disabled:                color.disabled ?? false,
         pfsColorRefOverride:     normalizeOverride(color.pfsColorRefOverride),
         efashionColorIdOverride: normalizeEfashionOverride(color.efashionColorIdOverride),
+        ankorsColorNameOverride: normalizeOverride(color.ankorsColorNameOverride),
+        faireColorNameOverride:  normalizeOverride(color.faireColorNameOverride),
       },
       select: { id: true, colorId: true },
     });
@@ -552,6 +554,8 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
             position:                li,
             pfsColorRefOverride:     normalizeOverride(line.pfsColorRefOverride),
             efashionColorIdOverride: normalizeEfashionOverride(line.efashionColorIdOverride),
+            ankorsColorNameOverride: normalizeOverride(line.ankorsColorNameOverride),
+            faireColorNameOverride:  normalizeOverride(line.faireColorNameOverride),
             sizes: {
               create: line.sizeEntries.map((se) => ({ sizeId: se.sizeId, quantity: se.quantity })),
             },
@@ -835,6 +839,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       totalPackQty: number;
       pfsColorRefOverride: string | null;
       efashionColorIdOverride: number | null;
+      ankorsColorNameOverride: string | null;
+      faireColorNameOverride: string | null;
       disabled: boolean;
     }>;
     variantIdMap: { colorInput: ColorInput; variantId: string; isNew: boolean }[];
@@ -919,7 +925,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     const existingVariants = await tx.productColor.findMany({
       where: { productId: id },
       select: { id: true, colorId: true, stock: true, unitPrice: true, saleType: true, packQuantity: true,
-        pfsColorRefOverride: true, efashionColorIdOverride: true, disabled: true,
+        pfsColorRefOverride: true, efashionColorIdOverride: true,
+        ankorsColorNameOverride: true, faireColorNameOverride: true, disabled: true,
         variantSizes: { select: { quantity: true } },
         packLines: { select: { colorId: true } } },
     });
@@ -933,6 +940,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       totalPackQty: v.variantSizes?.reduce((s: number, vs: { quantity: number }) => s + vs.quantity, 0) || (v.packQuantity ?? 12),
       pfsColorRefOverride: v.pfsColorRefOverride ?? null,
       efashionColorIdOverride: v.efashionColorIdOverride ?? null,
+      ankorsColorNameOverride: v.ankorsColorNameOverride ?? null,
+      faireColorNameOverride: v.faireColorNameOverride ?? null,
       disabled: v.disabled ?? false,
     }]));
     // Verrouillage post-création : on garde colorId / saleType / packQuantity
@@ -1045,6 +1054,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
             disabled:                colorInput.disabled ?? false,
             pfsColorRefOverride:     normalizeOverride(colorInput.pfsColorRefOverride),
             efashionColorIdOverride: normalizeEfashionOverride(colorInput.efashionColorIdOverride),
+            ankorsColorNameOverride: normalizeOverride(colorInput.ankorsColorNameOverride),
+            faireColorNameOverride:  normalizeOverride(colorInput.faireColorNameOverride),
           },
         });
         variantIdMap.push({ colorInput, variantId: colorInput.dbId, isNew: false });
@@ -1067,6 +1078,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
             disabled:                colorInput.disabled ?? false,
             pfsColorRefOverride:     normalizeOverride(colorInput.pfsColorRefOverride),
             efashionColorIdOverride: normalizeEfashionOverride(colorInput.efashionColorIdOverride),
+            ankorsColorNameOverride: normalizeOverride(colorInput.ankorsColorNameOverride),
+            faireColorNameOverride:  normalizeOverride(colorInput.faireColorNameOverride),
           },
         });
         variantIdMap.push({ colorInput, variantId: created.id, isNew: true });
@@ -1120,6 +1133,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
             position:                li,
             pfsColorRefOverride:     normalizeOverride(line.pfsColorRefOverride),
             efashionColorIdOverride: normalizeEfashionOverride(line.efashionColorIdOverride),
+            ankorsColorNameOverride: normalizeOverride(line.ankorsColorNameOverride),
+            faireColorNameOverride:  normalizeOverride(line.faireColorNameOverride),
             sizes: {
               create: line.sizeEntries.map((se) => ({ sizeId: se.sizeId, quantity: se.quantity })),
             },
@@ -1147,6 +1162,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
           data: {
             pfsColorRefOverride:     normalizeOverride(line.pfsColorRefOverride),
             efashionColorIdOverride: normalizeEfashionOverride(line.efashionColorIdOverride),
+            ankorsColorNameOverride: normalizeOverride(line.ankorsColorNameOverride),
+            faireColorNameOverride:  normalizeOverride(line.faireColorNameOverride),
           },
         });
       }
@@ -1407,11 +1424,15 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
         const prev = oldVariantMap.get(c.dbId)!;
         const newPfsOverride = normalizeOverride(c.pfsColorRefOverride);
         const newEfashionOverride = normalizeEfashionOverride(c.efashionColorIdOverride);
+        const newAnkorsOverride = normalizeOverride(c.ankorsColorNameOverride);
+        const newFaireOverride = normalizeOverride(c.faireColorNameOverride);
         if (
           Number(prev.unitPrice) !== Number(c.unitPrice) ||
           prev.stock !== c.stock ||
           prev.pfsColorRefOverride !== newPfsOverride ||
           prev.efashionColorIdOverride !== newEfashionOverride ||
+          prev.ankorsColorNameOverride !== newAnkorsOverride ||
+          prev.faireColorNameOverride !== newFaireOverride ||
           prev.disabled !== (c.disabled ?? false)
         ) {
           variantsChanged = true;
