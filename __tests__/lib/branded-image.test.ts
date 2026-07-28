@@ -139,6 +139,38 @@ describe("composeBrandedBuffer (minWidth)", () => {
     expect(meta.width ?? 0).toBeGreaterThanOrEqual(1000);
   });
 
+  // Régression 2026-07-28 : les photos produit Beli & Jolie sont portrait
+  // 800×1200. `resize(1200, 1200, {fit:"inside"})` les laissait à 800 de large
+  // (elles tenaient déjà dans la boîte carrée), Faire refusait alors avec
+  // « image < 1000px ». Le fix : quand `minWidth > srcW`, forcer la largeur
+  // explicitement via `resize(minWidth, null)`.
+  it("upscale une source portrait 800×1200 à minWidth 1000 (bug v3, fix v4)", async () => {
+    const src = await makeSource(800, 1200);
+    const out = await composeBrandedBuffer({
+      sourceBuffer: src,
+      reference: "G208A",
+      size: "large",
+      minWidth: 1000,
+    });
+    const meta = await sharp(out).metadata();
+    expect(meta.width ?? 0).toBeGreaterThanOrEqual(1000);
+    // Hauteur préservée en ratio : 1200 * (1000/800) = 1500
+    expect(meta.height ?? 0).toBeGreaterThanOrEqual(1400);
+  });
+
+  it("upscale une source portrait 600×900 à minWidth 500 (Ankorstore, portrait)", async () => {
+    const src = await makeSource(600, 900);
+    const out = await composeBrandedBuffer({
+      sourceBuffer: src,
+      reference: "REF",
+      size: "large",
+      minWidth: 500,
+    });
+    const meta = await sharp(out).metadata();
+    // 600 ≥ 500 → pas d'upscale, largeur reste 600 (déjà conforme).
+    expect(meta.width ?? 0).toBeGreaterThanOrEqual(500);
+  });
+
   it("sans minWidth : comportement historique préservé (petite source → 600 min)", async () => {
     const src = await makeSource(400, 400);
     const out = await composeBrandedBuffer({

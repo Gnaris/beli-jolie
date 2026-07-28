@@ -117,6 +117,27 @@ export async function composeBrandedBuffer(
 
   const baseTarget = SIZE_TARGETS[input.size];
   const requestedMinWidth = input.minWidth && input.minWidth > 0 ? input.minWidth : 0;
+
+  // Contrainte marketplace explicite : la LARGEUR finale doit être ≥ minWidth.
+  // On passe alors resize(minWidth, null) — Sharp ajuste la hauteur pour
+  // préserver le ratio. `fit:"inside"` sur (1200,1200) ne suffit pas :
+  // une image portrait 800×1200 « tient déjà » dans la boîte et Sharp la
+  // laisse à 800 de large même avec `withoutEnlargement:false`. C'était le
+  // bug 2026-07-28 (Faire refusait les images 800px alors qu'on pensait
+  // envoyer 1000px+).
+  if (requestedMinWidth > 0 && srcW > 0 && srcW < requestedMinWidth) {
+    const upscaled = await oriented
+      .resize(requestedMinWidth, null, { withoutEnlargement: false })
+      .webp(WEBP_OPTS)
+      .toBuffer();
+    const uMeta = await sharp(upscaled).metadata();
+    const badgeU = buildBadgeSvg(input.reference, uMeta.width ?? requestedMinWidth);
+    return sharp(upscaled)
+      .composite([{ input: badgeU.svg, top: badgeU.y, left: badgeU.x }])
+      .webp(WEBP_OPTS)
+      .toBuffer();
+  }
+
   // Cible = max(taille demandée, largeur minimale marketplace).
   const target = Math.max(baseTarget, requestedMinWidth);
 
@@ -162,12 +183,15 @@ export async function composeBrandedBuffer(
  *   v1 → « RÉF » (initial, retiré)
  *   v2 → « RÉFÉRENCE » en toutes lettres (2026-07-27)
  *   v3 → param minWidth (respect dimensions marketplace Faire/Ankorstore, 2026-07-28)
+ *   v4 → minWidth force réellement la LARGEUR via resize(minWidth,null) — v3
+ *        gardait la largeur source si l'image portrait tenait dans la boîte
+ *        carrée (bug Faire refusant 800px). (2026-07-28)
  *
  * Exposée pour que `buildBrandedUrl` inclue le suffixe `&v=…` dans l'URL —
  * les navigateurs revoient alors une URL différente au bump et refetch
  * immédiatement sans attendre l'expiration du Cache-Control.
  */
-export const BADGE_TEMPLATE_VERSION = "v3";
+export const BADGE_TEMPLATE_VERSION = "v4";
 
 /**
  * Hash tronqué qui identifie une combinaison (source, référence, size, minWidth).
