@@ -29,7 +29,7 @@ import type {
   ExportVariant,
 } from "@/lib/marketplace-excel/types";
 import {
-  formatCompositionPfs,
+  formatCompositionMicrostore,
   pickTranslation,
   variantUnitPriceWithMarkup,
 } from "@/lib/marketplace-excel/format-helpers";
@@ -95,7 +95,11 @@ export function productToMicrostoreApiRows(
   year: number = new Date().getFullYear(),
 ): MicrostoreApiRow[] {
   const markup = ctx.markups.microstore;
-  const composition = formatCompositionPfs(p);
+  // Composition Microstore = nom LOCAL BJ (Composition.name), jamais la
+  // référence PFS. La cliente saisit ses compositions au format lisible
+  // ("Acier Inoxydable", "Métal", "Laiton") et ce format doit se retrouver
+  // tel quel côté Microstore, pas la ref PFS ALLCAPS/anglais.
+  const composition = formatCompositionMicrostore(p);
   const remarque = pickTranslation(p, "fr", "description");
   const categoryLabel = p.microstoreCategoryOverride || p.categoryName || "";
   const nameFr = pickTranslation(p, "fr", "name");
