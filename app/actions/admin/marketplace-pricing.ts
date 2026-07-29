@@ -11,7 +11,13 @@ async function requireAdmin() {
   if (!session || session.user.role !== "ADMIN") throw new Error("Non autorisé");
 }
 
-export type MarketplaceMarkupKey = "pfs" | "efashion" | "ankorstoreRetail" | "faireWholesale";
+export type MarketplaceMarkupKey =
+  | "pfs"
+  | "efashion"
+  | "ankorstoreWholesale"
+  | "ankorstoreRetail"
+  | "faireWholesale"
+  | "faireRetail";
 
 export async function getMarketplaceMarkupConfig(
   key: MarketplaceMarkupKey,

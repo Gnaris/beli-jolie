@@ -56,6 +56,12 @@ export interface LinkCandidate {
   packQuantity: number | null;
   priceUnit: number;
   priceTotal: number;
+  /**
+   * Ankorstore expose un second prix par variante : le prix de vente conseillé
+   * (retailPrice). Renseigné uniquement pour ce marketplace, sert à l'affichage
+   * de la ligne « Prix de vente/u » dans le modal de liaison. `null` sinon.
+   */
+  retailPriceUnit?: number | null;
   stockQty: number;
   weightKg: number | null;
   isActive: boolean;
@@ -82,6 +88,14 @@ export interface LinkPreview {
   missingAttributes: string[];
   /** Données propres à un marketplace utilisées au link() (ex: brand PFS, referenceBase eFashion). */
   extras: Record<string, unknown>;
+  /**
+   * Ankorstore stocke le poids au niveau produit (shape_properties.weight),
+   * pas par variante. Toutes les candidates d'un même produit portent le
+   * même poids. Ce flag sert à afficher un libellé « poids produit (commun
+   * à toutes les variantes) » côté modale au lieu d'une comparaison par
+   * variante qui serait trompeuse.
+   */
+  weightIsProductLevel: boolean;
 }
 
 export interface LinkResult {
@@ -130,7 +144,29 @@ export interface MarketplaceMeta {
   syncsAtLink: boolean;
   /** PFS uniquement — les 3 autres ne connaissent que UNIT. */
   supportsPackType: boolean;
-  markupKey: "pfs" | "efashion" | "ankorstoreRetail" | "faireWholesale";
+  markupKey:
+    | "pfs"
+    | "efashion"
+    | "ankorstoreWholesale"
+    | "ankorstoreRetail"
+    | "faireWholesale"
+    | "faireRetail";
+  /**
+   * Marketplaces qui exposent 2 prix par variante (prix de gros + prix de
+   * vente conseillé) : Ankorstore et Faire. Quand ce champ est renseigné, le
+   * modal affiche une seconde ligne « Prix de vente/u » avec cette majoration.
+   * `undefined` pour les autres marketplaces (PFS/eFashion — une seule notion
+   * de prix).
+   */
+  secondaryMarkupKey?:
+    | "ankorstoreRetail"
+    | "faireRetail";
+  /** Libellé humain affiché sur la ligne principale de prix. Ex: « Prix de gros/u » pour Ankorstore. */
+  primaryPriceLabel?: string;
+  /** Libellé humain affiché sur la 2ᵉ ligne de prix (retail Ankorstore). */
+  secondaryPriceLabel?: string;
+  /** Ankorstore : le poids est stocké au niveau produit, pas variante — on masque la ligne dans le modal (info non pertinente par variante). */
+  hideWeightRow?: boolean;
 }
 
 export const MARKETPLACE_META: Record<Marketplace, MarketplaceMeta> = {
@@ -160,7 +196,17 @@ export const MARKETPLACE_META: Record<Marketplace, MarketplaceMeta> = {
     searchPlaceholder: "Nom, référence ou SKU…",
     syncsAtLink: true,
     supportsPackType: false,
-    markupKey: "ankorstoreRetail",
+    // Ankorstore : la variante côté marketplace expose `wholesalePrice` (prix
+    // de gros, ce que paye l'acheteur B2B). La comparaison boutique↔Ankorstore
+    // doit donc utiliser la majoration WHOLESALE, pas la majoration RETAIL
+    // (qui, elle, sert à calculer le `retailPrice` = prix conseillé public).
+    // Historique : avant 2026-07-29 on utilisait "ankorstoreRetail" par erreur,
+    // ce qui affichait un target multiplié par la majoration de vente publique.
+    markupKey: "ankorstoreWholesale",
+    secondaryMarkupKey: "ankorstoreRetail",
+    primaryPriceLabel: "Prix de gros/u",
+    secondaryPriceLabel: "Prix de vente/u",
+    hideWeightRow: true,
   },
   efashion: {
     key: "efashion",
@@ -188,7 +234,12 @@ export const MARKETPLACE_META: Record<Marketplace, MarketplaceMeta> = {
     searchPlaceholder: "Ex : F137",
     syncsAtLink: true,
     supportsPackType: false,
+    // Faire expose lui aussi 2 prix par variante (wholesalePriceCents + retailPriceCents).
+    // Même traitement qu'Ankorstore : 2 lignes « Prix de gros/u » + « Prix de vente/u ».
     markupKey: "faireWholesale",
+    secondaryMarkupKey: "faireRetail",
+    primaryPriceLabel: "Prix de gros/u",
+    secondaryPriceLabel: "Prix de vente/u",
   },
 };
 
@@ -390,10 +441,11 @@ function normalizePfs(p: PfsLinkPreview): LinkPreview {
     alreadyLinked: p.alreadyLinked,
     missingAttributes: [],
     extras: { brand: { id: p.pfsBrandId, name: p.pfsBrandName } },
+    weightIsProductLevel: false,
   };
 }
 
-/** Ankorstore ne renvoie pas les tailles BJ ni le weight variante — on complète avec des valeurs neutres. */
+/** Ankorstore ne renvoie pas de « type » (UNIT/PACK) : tout est traité comme UNIT côté modale. */
 type AkPreview = Awaited<
   ReturnType<typeof searchAndPreviewAnkorstoreByQuery>
 > extends infer T
@@ -402,7 +454,7 @@ type AkPreview = Awaited<
     : never
   : never;
 
-function normalizeAnkorstore(productId: string, query: string, p: AkPreview): LinkPreview {
+export function normalizeAnkorstore(productId: string, query: string, p: AkPreview): LinkPreview {
   const existingLinks: Record<string, string> = {};
   for (const c of p.localColors) {
     if (c.existingAnkorstoreVariantId) {
@@ -427,32 +479,44 @@ function normalizeAnkorstore(productId: string, query: string, p: AkPreview): Li
       productImage: c.productImage,
       saleType: "UNIT",
       sizes: c.sizeName ? [c.sizeName] : [],
-      unitPrice: 0,
+      unitPrice: c.unitPrice,
       packQuantity: null,
-      stock: 0,
+      stock: c.stock,
       weightKg: c.weightKg,
     })),
-    candidates: p.variants.map((v) => ({
-      id: v.ankorstoreVariantId,
-      type: "UNIT",
-      colorName: v.colorOption ?? v.sku ?? "—",
-      colorHex: null,
-      colorImage: null,
-      sizeLabel: v.sizeOption ?? "TU",
-      packSizes: [],
-      packQuantity: null,
-      priceUnit: v.wholesalePrice,
-      priceTotal: v.wholesalePrice,
-      stockQty: v.stockQuantity,
-      weightKg: v.weightKg > 0 ? v.weightKg : null,
-      isActive: true,
-      imageUrl: v.imageUrl,
-      suggestedLocalColorId: v.suggestedLocalColorId,
-    })),
+    candidates: p.variants.map((v) => {
+      // ⚠️ L'API GET Ankorstore renvoie les prix en CENTIMES (integer), pas
+      // en euros — cf. spec OpenAPI (docs/ankorstore-spec-2026-05.yaml ligne
+      // 3690 : `wholesalePrice: integer` = "wholesale price AFTER discount").
+      // Un produit à 4,80 € revient donc en `wholesalePrice: 480`. On divise
+      // par 100 pour retomber en euros et éviter d'afficher « 480,00 € »
+      // au lieu de « 4,80 € » dans la modale.
+      const wholesalePriceEur = (v.wholesalePrice ?? 0) / 100;
+      const retailPriceEur = (v.retailPrice ?? 0) / 100;
+      return {
+        id: v.ankorstoreVariantId,
+        type: "UNIT" as const,
+        colorName: v.colorOption ?? v.sku ?? "—",
+        colorHex: null,
+        colorImage: null,
+        sizeLabel: v.sizeOption ?? "TU",
+        packSizes: [],
+        packQuantity: null,
+        priceUnit: wholesalePriceEur,
+        priceTotal: wholesalePriceEur,
+        retailPriceUnit: retailPriceEur > 0 ? retailPriceEur : null,
+        stockQty: v.stockQuantity,
+        weightKg: v.weightKg > 0 ? v.weightKg : null,
+        isActive: true,
+        imageUrl: v.imageUrl,
+        suggestedLocalColorId: v.suggestedLocalColorId,
+      };
+    }),
     existingLinks,
     alreadyLinked: p.localColors.some((c) => c.isAlreadyLinked),
     missingAttributes: [],
     extras: {},
+    weightIsProductLevel: true,
   };
 }
 
@@ -537,6 +601,7 @@ function normalizeEfashion(p: EfPreview): LinkPreview {
       referenceBase: p.referenceBase,
       packOnlyColors: p.packOnlyColors,
     },
+    weightIsProductLevel: false,
   };
 }
 
@@ -574,9 +639,13 @@ function normalizeFaire(p: FaPreview): LinkPreview {
     })),
     candidates: p.candidates.map((c) => {
       // Faire retourne wholesalePriceCents ET/OU retailPriceCents selon le produit.
-      // On préfère wholesale (prix marchand), fallback retail, sinon 0.
-      const priceCents = c.wholesalePriceCents ?? c.retailPriceCents ?? 0;
-      const priceEur = priceCents ? priceCents / 100 : 0;
+      // On expose les 2 : `priceUnit` = wholesale (prix marchand, comparé à
+      // faireWholesale markup), `retailPriceUnit` = retail (prix conseillé
+      // public, comparé à faireRetail markup).
+      const wholesaleCents = c.wholesalePriceCents ?? 0;
+      const retailCents = c.retailPriceCents ?? 0;
+      const wholesaleEur = wholesaleCents / 100;
+      const retailEur = retailCents / 100;
       return {
       id: c.faireVariantId,
       type: "UNIT" as const,
@@ -588,8 +657,9 @@ function normalizeFaire(p: FaPreview): LinkPreview {
       sizeLabel: "TU",
       packSizes: [],
       packQuantity: null,
-      priceUnit: priceEur,
-      priceTotal: priceEur,
+      priceUnit: wholesaleEur,
+      priceTotal: wholesaleEur,
+      retailPriceUnit: retailEur > 0 ? retailEur : null,
       stockQty: c.availableQuantity,
       weightKg: c.weightGrams > 0 ? c.weightGrams / 1000 : null,
       isActive: c.lifecycleState === "PUBLISHED",
@@ -601,5 +671,6 @@ function normalizeFaire(p: FaPreview): LinkPreview {
     alreadyLinked: p.alreadyLinked,
     missingAttributes: [],
     extras: { lifecycleState: p.faireLifecycleState },
+    weightIsProductLevel: false,
   };
 }

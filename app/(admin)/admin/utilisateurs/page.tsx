@@ -9,8 +9,22 @@ import { initialsOf, avatarGradientFor } from "@/lib/user-avatar";
 import AutoRefresh from "@/components/admin/users/AutoRefresh";
 import UsersTabs from "@/components/admin/users/UsersTabs";
 import AdminCardsPane from "@/components/admin/users/AdminCardsPane";
+import UsersSortControl from "@/components/admin/users/UsersSortControl";
 import Pagination from "@/components/ui/Pagination";
 import PerPageSelect from "@/components/ui/PerPageSelect";
+import {
+  parseClientSort,
+  parseSortDir,
+  isStatsSort,
+  buildUserOrderBy,
+  sortClientIdsByStats,
+  defaultDirFor,
+  formatSpent,
+  EMPTY_CLIENT_STATS,
+  type ClientSortKey,
+  type SortDir,
+  type ClientOrderStats,
+} from "@/lib/admin-client-sort";
 import type { UserStatus, Prisma } from "@prisma/client";
 
 // Bypass cache : on veut le lastSeenAt frais à chaque rafraîchissement
@@ -145,6 +159,8 @@ export default async function UtilisateursPage({
     per?: string;
     mp?: string;
     q?: string;
+    sort?: string;
+    dir?: string;
   }>;
 }) {
   const session = await getServerSession(authOptions);
@@ -155,6 +171,8 @@ export default async function UtilisateursPage({
   const filterStatus = params.status || "ALL";
   const perPage = parsePerPage(params.per);
   const page = parsePage(params.page);
+  const sort = parseClientSort(params.sort);
+  const dir = parseSortDir(params.dir, sort);
 
   const onlineThreshold = getOnlineThreshold();
 
@@ -191,28 +209,10 @@ export default async function UtilisateursPage({
   };
 
   // Data loading depends on active tab
-  const [clients, cardsData] = await Promise.all([
+  const [registeredData, cardsData] = await Promise.all([
     currentTab === "inscrits"
-      ? prisma.user.findMany({
-          where: registeredWhere,
-          orderBy: { createdAt: "desc" },
-          skip: (page - 1) * perPage,
-          take: perPage,
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            company: true,
-            email: true,
-            phone: true,
-            siret: true,
-            status: true,
-            lastLoginAt: true,
-            lastSeenAt: true,
-            createdAt: true,
-          },
-        })
-      : Promise.resolve([]),
+      ? loadRegisteredClients(registeredWhere, sort, dir, page, perPage)
+      : Promise.resolve({ clients: [], stats: new Map<string, ClientOrderStats>() }),
     currentTab === "fiches" ? loadAdminCards(params, page, perPage) : Promise.resolve(null),
   ]);
 
@@ -295,12 +295,15 @@ export default async function UtilisateursPage({
 
       {currentTab === "inscrits" ? (
         <RegisteredPane
-          clients={clients}
+          clients={registeredData.clients}
+          stats={registeredData.stats}
           filterStatus={filterStatus}
           counts={counts}
           totalFiltered={filteredRegisteredCount}
           page={page}
           perPage={perPage}
+          sort={sort}
+          dir={dir}
         />
       ) : (
         cardsData && (
@@ -339,25 +342,215 @@ type RegisteredClient = {
   createdAt: Date;
 };
 
+const REGISTERED_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  company: true,
+  email: true,
+  phone: true,
+  siret: true,
+  status: true,
+  lastLoginAt: true,
+  lastSeenAt: true,
+  createdAt: true,
+} as const;
+
+type GroupedOrderStats = {
+  userId: string;
+  _count: { _all: number };
+  _sum: { totalTTC: Prisma.Decimal | null };
+}[];
+
+function toStatsMap(grouped: GroupedOrderStats): Map<string, ClientOrderStats> {
+  const map = new Map<string, ClientOrderStats>();
+  for (const row of grouped) {
+    map.set(row.userId, {
+      count: row._count._all,
+      spent: row._sum.totalTTC ? Number(row._sum.totalTTC) : 0,
+    });
+  }
+  return map;
+}
+
+/** Commandes annulées exclues : elles ne représentent ni un volume ni un CA réel. */
+const COUNTED_ORDERS: Prisma.OrderWhereInput = { status: { not: "CANCELLED" } };
+
+async function loadOrderStatsFor(userIds: string[]): Promise<Map<string, ClientOrderStats>> {
+  if (userIds.length === 0) return new Map();
+  const grouped = await prisma.order.groupBy({
+    by: ["userId"],
+    where: { ...COUNTED_ORDERS, userId: { in: userIds } },
+    _count: { _all: true },
+    _sum: { totalTTC: true },
+  });
+  return toStatsMap(grouped);
+}
+
+/**
+ * Charge la page courante de clients inscrits + leurs stats de commandes.
+ *
+ * Tri « colonne » → MySQL trie et pagine. Tri « statistiques » (nb de commandes
+ * ou montant dépensé) → la donnée vit dans Order, on agrège puis on ordonne les
+ * ids en mémoire avant de ne charger que les clients de la page.
+ */
+async function loadRegisteredClients(
+  where: Prisma.UserWhereInput,
+  sort: ClientSortKey,
+  dir: SortDir,
+  page: number,
+  perPage: number,
+): Promise<{ clients: RegisteredClient[]; stats: Map<string, ClientOrderStats> }> {
+  if (!isStatsSort(sort)) {
+    const clients = await prisma.user.findMany({
+      where,
+      orderBy: buildUserOrderBy(sort, dir),
+      skip: (page - 1) * perPage,
+      take: perPage,
+      select: REGISTERED_SELECT,
+    });
+    const stats = await loadOrderStatsFor(clients.map((c) => c.id));
+    return { clients, stats };
+  }
+
+  const [allIds, grouped] = await Promise.all([
+    // Ordre secondaire (inscription récente) conservé pour les ex æquo : le tri
+    // JS de sortClientIdsByStats est stable.
+    prisma.user.findMany({ where, orderBy: { createdAt: "desc" }, select: { id: true } }),
+    prisma.order.groupBy({
+      by: ["userId"],
+      where: COUNTED_ORDERS,
+      _count: { _all: true },
+      _sum: { totalTTC: true },
+    }),
+  ]);
+
+  const stats = toStatsMap(grouped);
+  const orderedIds = sortClientIdsByStats(allIds.map((u) => u.id), stats, sort, dir);
+  const pageIds = orderedIds.slice((page - 1) * perPage, page * perPage);
+
+  const rows = await prisma.user.findMany({
+    where: { id: { in: pageIds } },
+    select: REGISTERED_SELECT,
+  });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const clients = pageIds
+    .map((id) => byId.get(id))
+    .filter((c): c is RegisteredClient => Boolean(c));
+
+  return { clients, stats };
+}
+
+/** Construit une URL de la liste en conservant les autres réglages en cours. */
+function buildListHref(opts: {
+  status: string;
+  perPage: number;
+  sort: ClientSortKey;
+  dir: SortDir;
+}): string {
+  const params = new URLSearchParams();
+  if (opts.status !== "ALL") params.set("status", opts.status);
+  if (opts.perPage !== DEFAULT_PER_PAGE) params.set("per", String(opts.perPage));
+  if (opts.sort !== "created" || opts.dir !== defaultDirFor(opts.sort)) {
+    params.set("sort", opts.sort);
+    params.set("dir", opts.dir);
+  }
+  const qs = params.toString();
+  return qs ? `/admin/utilisateurs?${qs}` : "/admin/utilisateurs";
+}
+
+/** En-tête de colonne cliquable : re-trie sur ce critère, ou inverse le sens. */
+function SortableHeader({
+  label,
+  sortKey,
+  currentSort,
+  currentDir,
+  filterStatus,
+  perPage,
+  align = "left",
+  alsoActiveFor,
+}: {
+  label: string;
+  sortKey: ClientSortKey;
+  currentSort: ClientSortKey;
+  currentDir: SortDir;
+  filterStatus: string;
+  perPage: number;
+  align?: "left" | "right";
+  /** Autres critères qui portent sur cette colonne (ex. montant dépensé ↔ Commandes) */
+  alsoActiveFor?: ClientSortKey[];
+}) {
+  const isCurrent = currentSort === sortKey;
+  const isActive = isCurrent || (alsoActiveFor?.includes(currentSort) ?? false);
+  // Un clic sur une colonne non triée applique le sens naturel de son critère.
+  const nextDir: SortDir = isCurrent
+    ? currentDir === "desc"
+      ? "asc"
+      : "desc"
+    : defaultDirFor(sortKey);
+
+  return (
+    <Link
+      href={buildListHref({ status: filterStatus, perPage, sort: sortKey, dir: nextDir })}
+      prefetch={false}
+      scroll={false}
+      title={`Trier par ${label.toLowerCase()}`}
+      className={`inline-flex items-center gap-1.5 transition-colors ${
+        align === "right" ? "justify-end" : ""
+      } ${isActive ? "text-text-primary" : "hover:text-text-secondary"}`}
+    >
+      {label}
+      <svg
+        width="11"
+        height="11"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={3}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={isActive ? "" : "opacity-30"}
+        aria-hidden="true"
+      >
+        {!isActive ? (
+          <path d="M8 9l4-4 4 4M8 15l4 4 4-4" />
+        ) : currentDir === "desc" ? (
+          <path d="M6 10l6 6 6-6" />
+        ) : (
+          <path d="M6 14l6-6 6 6" />
+        )}
+      </svg>
+    </Link>
+  );
+}
+
 function RegisteredPane({
   clients,
+  stats,
   filterStatus,
   counts,
   totalFiltered,
   page,
   perPage,
+  sort,
+  dir,
 }: {
   clients: RegisteredClient[];
+  stats: Map<string, ClientOrderStats>;
   filterStatus: string;
   counts: Record<string, number>;
   totalFiltered: number;
   page: number;
   perPage: number;
+  sort: ClientSortKey;
+  dir: SortDir;
 }) {
+  const ordersColumnActive = sort === "orders" || sort === "spent";
+
   return (
     <>
-      {/* Filtres + par page */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      {/* Filtres + tri + par page */}
+      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           {FILTERS.map((filter) => {
             const isActive = filterStatus === filter.value;
@@ -387,7 +580,7 @@ function RegisteredPane({
             return (
               <Link
                 key={filter.value}
-                href={filter.value === "ALL" ? "/admin/utilisateurs" : `/admin/utilisateurs?status=${filter.value}`}
+                href={buildListHref({ status: filter.value, perPage, sort, dir })}
                 prefetch={false}
                 className={`inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-body font-medium rounded-xl border transition-all ${chipClass}`}
               >
@@ -400,7 +593,10 @@ function RegisteredPane({
           })}
         </div>
 
-        <PerPageSelect value={perPage} />
+        <div className="flex flex-wrap items-center gap-2">
+          <UsersSortControl sort={sort} dir={dir} />
+          <PerPageSelect value={perPage} />
+        </div>
       </div>
 
       {/* Liste */}
@@ -432,11 +628,20 @@ function RegisteredPane({
                 <thead className="bg-bg-secondary">
                   <tr className="border-b border-border">
                     <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em]">Client</th>
-                    <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em]">Société · Email</th>
+                    <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em]">
+                      <SortableHeader label="Société · Email" sortKey="company" currentSort={sort} currentDir={dir} filterStatus={filterStatus} perPage={perPage} />
+                    </th>
                     <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">SIRET</th>
+                    <th className={`px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap ${ordersColumnActive ? "bg-slate-900/[0.04]" : ""}`}>
+                      <SortableHeader label="Commandes" sortKey="orders" currentSort={sort} currentDir={dir} filterStatus={filterStatus} perPage={perPage} alsoActiveFor={["spent"]} />
+                    </th>
                     <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em]">Statut</th>
-                    <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">Présence</th>
-                    <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">Inscription</th>
+                    <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">
+                      <SortableHeader label="Présence" sortKey="login" currentSort={sort} currentDir={dir} filterStatus={filterStatus} perPage={perPage} />
+                    </th>
+                    <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">
+                      <SortableHeader label="Inscription" sortKey="created" currentSort={sort} currentDir={dir} filterStatus={filterStatus} perPage={perPage} />
+                    </th>
                     <th className="px-5 py-3 text-right text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
@@ -447,6 +652,7 @@ function RegisteredPane({
                     const isRejected = c.status === "REJECTED";
                     const inscription = formatShortDate(c.createdAt);
                     const gradient = avatarGradientFor(c.id);
+                    const orderStats = stats.get(c.id) ?? EMPTY_CLIENT_STATS;
                     return (
                       <tr
                         key={c.id}
@@ -487,6 +693,20 @@ function RegisteredPane({
                         </td>
                         <td className="px-5 py-3.5 whitespace-nowrap">
                           <p className="font-mono text-[12.5px] text-text-secondary tabular-nums">{c.siret || "—"}</p>
+                        </td>
+                        <td className={`px-5 py-3.5 whitespace-nowrap ${ordersColumnActive ? "bg-slate-900/[0.02]" : ""}`}>
+                          {orderStats.count === 0 ? (
+                            <p className="text-[13px] font-body text-text-muted/50">—</p>
+                          ) : (
+                            <>
+                              <p className="text-[15px] font-heading font-bold text-text-primary tabular-nums leading-none">
+                                {orderStats.count}
+                              </p>
+                              <p className="text-[11px] font-body text-text-muted mt-1 tabular-nums">
+                                {formatSpent(orderStats.spent)}
+                              </p>
+                            </>
+                          )}
                         </td>
                         <td className="px-5 py-3.5">
                           <span className={`badge ${
@@ -558,6 +778,7 @@ function RegisteredPane({
               const isPending = c.status === "PENDING";
               const isRejected = c.status === "REJECTED";
               const gradient = avatarGradientFor(c.id);
+              const orderStats = stats.get(c.id) ?? EMPTY_CLIENT_STATS;
               return (
                 <Link
                   key={c.id}
@@ -596,6 +817,14 @@ function RegisteredPane({
                            "Rejeté"}
                         </span>
                       </div>
+                      {orderStats.count > 0 && (
+                        <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-bg-secondary border border-border text-[11.5px] font-body font-semibold text-text-secondary">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0"/>
+                          </svg>
+                          {orderStats.count} commande{orderStats.count > 1 ? "s" : ""} · {formatSpent(orderStats.spent)}
+                        </div>
+                      )}
                       <div className="mt-2 flex items-center justify-between text-[11.5px] font-body">
                         {online ? (
                           <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">

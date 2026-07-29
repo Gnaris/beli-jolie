@@ -6,6 +6,7 @@ import {
   updateAnkorstoreCredentials, validateAnkorstoreCredentials, toggleAnkorstoreEnabled,
   updateEfashionCredentials, validateEfashionCredentials, toggleEfashionEnabled,
   updateFaireCredentials, validateFaireCredentials, toggleFaireEnabled,
+  updateFaireMadeInExcluded,
   toggleMicrostoreEnabled,
   updateMarketplaceMarkup,
   loadPfsBrands, updatePfsBrand,
@@ -17,6 +18,7 @@ import { MARKETPLACES_BRAND, brandGradient, type MarketplaceKey } from "@/lib/ma
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import MicrostoreConnectCard from "@/components/admin/settings/MicrostoreConnectCard";
+import CountryMultiPicker from "@/components/ui/CountryMultiPicker";
 
 interface MarketplaceStats {
   published: number;
@@ -42,6 +44,8 @@ interface Props {
   efashionEnabled: boolean;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  /** Codes ISO alpha-2 dont on n'écrit PAS « Made in » dans la description Faire. */
+  faireMadeInExcluded: string[];
   hasMicrostoreConfig: boolean;
   microstoreEnabled: boolean;
   microstoreExpiresAtIso: string | null;
@@ -123,6 +127,9 @@ const Icons = {
   ),
   Sparkles: ({ className }: { className?: string }) => (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2zM5 14l.75 2.25L8 17l-2.25.75L5 20l-.75-2.25L2 17l2.25-.75L5 14zM19 14l.75 2.25L22 17l-2.25.75L19 20l-.75-2.25L16 17l2.25-.75L19 14z" /></svg>
+  ),
+  Globe: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" /></svg>
   ),
 };
 
@@ -590,6 +597,7 @@ export default function MarketplaceConfig({
   efashionEnabled: initialEfashionEnabled,
   hasFaireConfig,
   faireEnabled: initialFaireEnabled,
+  faireMadeInExcluded: initialFaireMadeInExcluded,
   hasMicrostoreConfig,
   microstoreEnabled: initialMicrostoreEnabled,
   microstoreExpiresAtIso,
@@ -655,6 +663,8 @@ export default function MarketplaceConfig({
   const [faiEnabled, setFaiEnabled] = useState(initialFaireEnabled);
   const [faiWholesale, setFaiWholesale] = useState<MarkupState>(markupSettings.faireWholesale);
   const [faiRetail, setFaiRetail] = useState<MarkupState>(markupSettings.faireRetail);
+  const [faiMadeInExcluded, setFaiMadeInExcluded] = useState<string[]>(initialFaireMadeInExcluded);
+  const [isSavingFaiMadeIn, startSavingFaiMadeIn] = useTransition();
 
   // ── Microstore ──────────────────────────────────────────────────────────────
   const [microMarkup, setMicroMarkup] = useState<MarkupState>(markupSettings.microstore);
@@ -899,6 +909,25 @@ export default function MarketplaceConfig({
       const r = await toggleFaireEnabled(v);
       if (r.success) { setFaiEnabled(v); toast.success(v ? "Faire activé" : "Faire en pause", v ? "La sync est de nouveau active." : "Plus de propagation vers Faire."); }
       else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
+    });
+  }
+  function handleFaiMadeInSave() {
+    showLoading();
+    startSavingFaiMadeIn(async () => {
+      try {
+        const r = await updateFaireMadeInExcluded(faiMadeInExcluded);
+        if (r.success) {
+          const base = faiMadeInExcluded.length === 0
+            ? "« Made in » affiché pour tous les pays."
+            : `« Made in » masqué pour ${faiMadeInExcluded.length} pays.`;
+          const suffix = r.markedForSync && r.markedForSync > 0
+            ? ` ${r.markedForSync} produit${r.markedForSync > 1 ? "s" : ""} à re-synchroniser sur Faire.`
+            : "";
+          toast.success("Enregistré", base + suffix);
+        } else {
+          toast.error("Erreur", r.error ?? "Une erreur est survenue.");
+        }
+      } finally { hideLoading(); }
     });
   }
 
@@ -1530,6 +1559,24 @@ export default function MarketplaceConfig({
             <MarkupRow label="Prix public conseillé" state={faiRetail} onChange={setFaiRetail} />
           </div>
           <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
+        </DrawerSection>
+
+        <DrawerSection
+          icon={<Icons.Globe className="w-4 h-4" />}
+          title="Masquer « Made in » pour certains pays"
+          subtitle="Par défaut, la description Faire finit par « Made in {pays} ». Cochez les pays pour lesquels vous ne voulez PAS afficher cette mention."
+        >
+          <CountryMultiPicker value={faiMadeInExcluded} onChange={setFaiMadeInExcluded} />
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={handleFaiMadeInSave}
+              disabled={isSavingFaiMadeIn}
+              className="inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+            >
+              {isSavingFaiMadeIn ? <><Icons.Loader className="w-3.5 h-3.5" /> Enregistrement…</> : "Enregistrer la liste"}
+            </button>
+          </div>
         </DrawerSection>
       </Drawer>
 

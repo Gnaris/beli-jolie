@@ -81,7 +81,8 @@ export default function ThemedProductFilters({
   const [openTheme, setOpenTheme] = useState<ThemeKey | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
-  // Ferme au clic extérieur
+  // Ferme au clic extérieur (desktop : n'importe où hors du bouton/popover ;
+  // mobile : le backdrop plein écran gère lui-même la fermeture via onMouseDown).
   useEffect(() => {
     if (!openTheme) return;
     const handler = (e: MouseEvent) => {
@@ -89,6 +90,24 @@ export default function ThemedProductFilters({
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
+  }, [openTheme]);
+
+  // Ferme via touche Échap.
+  useEffect(() => {
+    if (!openTheme) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpenTheme(null); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [openTheme]);
+
+  // Verrouille le scroll de la page derrière le sheet sur mobile.
+  useEffect(() => {
+    if (!openTheme) return;
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
   }, [openTheme]);
 
   const setParam = useCallback((updates: Record<string, string | null>) => {
@@ -472,6 +491,24 @@ export default function ThemedProductFilters({
     { key: "more", emoji: "📅", label: "Dates" },
   ];
 
+  // Clés URL à effacer quand la cliente tape « Effacer » dans le sheet mobile
+  // — miroir de countForTheme() pour garder les deux en phase.
+  const CLEAR_KEYS: Record<ThemeKey, string[]> = {
+    catalogue:    ["cat", "subCat", "tag", "composition", "hsCodeId"],
+    price:        ["minPrice", "maxPrice", "stockBelow"],
+    status:       ["important", "bestSeller", "syncRequired", "missingImages", "locked", "refresh", "translationStatus"],
+    marketplaces: ["pfsLink", "ankorsLink", "efashionLink", "faireLink", "pfsVerify",
+                   "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt"],
+    sort:         ["sort"],
+    more:         ["dateFrom", "dateTo", "updatedFrom", "updatedTo"],
+  };
+
+  function clearTheme(theme: ThemeKey) {
+    const updates: Record<string, string | null> = {};
+    CLEAR_KEYS[theme].forEach((k) => { updates[k] = null; });
+    setParam(updates);
+  }
+
   // ─── Recherche multi-références : Entrée ajoute un badge ─────────────────
   const q = searchParams.get("q") ?? "";
   const initialTerms = q ? q.split(",").map((t) => t.trim()).filter(Boolean) : [];
@@ -568,7 +605,7 @@ export default function ThemedProductFilters({
       {/* Recherche + Réf. exacte + perPage + Effacer */}
       <div className="flex items-center gap-2 flex-wrap">
         <div
-          className="relative flex-1 min-w-[240px] flex flex-wrap items-center gap-1.5 pl-9 pr-2 py-1.5 bg-bg-primary border border-border-strong rounded-lg shadow-[var(--shadow-card)] focus-within:border-ink focus-within:ring-2 focus-within:ring-ink/10 cursor-text"
+          className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[240px] flex flex-wrap items-center gap-1.5 pl-9 pr-2 py-1.5 bg-bg-primary border border-border-strong rounded-lg shadow-[var(--shadow-card)] focus-within:border-ink focus-within:ring-2 focus-within:ring-ink/10 cursor-text"
           onClick={() => inputRef.current?.focus()}
         >
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted opacity-50 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -629,7 +666,7 @@ export default function ThemedProductFilters({
           type="button"
           onClick={() => setParam({ exactRef: exactRef ? null : "1" })}
           title="Recherche exacte de la référence"
-          className={`inline-flex items-center gap-2 px-3 py-2.5 rounded-lg text-[12.5px] font-medium border transition-colors shrink-0 ${
+          className={`inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-[12.5px] font-medium border transition-colors flex-1 sm:flex-none sm:shrink-0 ${
             exactRef
               ? "bg-ink text-white border-ink"
               : "bg-white text-text-secondary border-border-strong hover:border-ink hover:text-text-primary"
@@ -643,7 +680,7 @@ export default function ThemedProductFilters({
           Réf. exacte
         </button>
         {/* Per page — saisie libre (min 1, max 500) */}
-        <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border-strong bg-white shrink-0">
+        <div className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border-strong bg-white flex-1 sm:flex-none sm:shrink-0">
           <span className="text-[11px] text-text-muted font-body whitespace-nowrap">Afficher</span>
           <input
             type="number"
@@ -672,7 +709,7 @@ export default function ThemedProductFilters({
             type="button"
             onClick={clearAll}
             title="Effacer tous les filtres"
-            className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-[12.5px] font-medium border border-[#FECACA] bg-[#FEF2F2] text-[#DC2626] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors shrink-0"
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-[12.5px] font-medium border border-[#FECACA] bg-[#FEF2F2] text-[#DC2626] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors shrink-0 w-full sm:w-auto"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -683,7 +720,7 @@ export default function ThemedProductFilters({
       </div>
 
       {/* 5 boutons-thèmes */}
-      <div ref={barRef} className="flex gap-2 flex-wrap items-start">
+      <div ref={barRef} className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-start">
         {THEMES.map((t, idx) => {
           const count = countForTheme(t.key);
           const active = count > 0;
@@ -694,7 +731,7 @@ export default function ThemedProductFilters({
               <button
                 type="button"
                 onClick={() => setOpenTheme(isOpen ? null : t.key)}
-                className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-[12.5px] font-medium border transition-colors shadow-[var(--shadow-card)] ${
+                className={`w-full sm:w-auto inline-flex items-center justify-center sm:justify-start gap-2 px-3 py-2 rounded-lg text-[12.5px] font-medium border transition-colors shadow-[var(--shadow-card)] ${
                   isOpen
                     ? "bg-ink text-white border-ink"
                     : active
@@ -714,25 +751,78 @@ export default function ThemedProductFilters({
                 </svg>
               </button>
               {isOpen && (
-                <div
-                  className={`absolute ${alignRight ? "right-0" : "left-0"} top-full mt-1.5 w-[320px] max-w-[calc(100vw-24px)] bg-bg-primary border border-border rounded-xl shadow-[var(--shadow-pop)] p-4 z-30`}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-[12px] font-bold uppercase tracking-[0.12em] text-text-muted">
-                      {t.emoji} {t.label}
-                    </h4>
-                    <button
-                      type="button"
-                      onClick={() => setOpenTheme(null)}
-                      className="text-text-muted hover:text-text-primary text-lg leading-none"
-                      aria-label="Fermer"
-                    >
-                      ×
-                    </button>
+                <>
+                  {/* Backdrop mobile seulement. Sur desktop le popover est
+                      compact et se ferme via clic extérieur (handler global). */}
+                  <div
+                    className="md:hidden fixed inset-0 bg-slate-900/50 z-40"
+                    onMouseDown={() => setOpenTheme(null)}
+                    aria-hidden
+                  />
+                  {/* Panel : plein écran sur mobile, popover flottant sur desktop */}
+                  <div
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`fixed inset-x-0 bottom-0 top-0 flex flex-col bg-bg-primary z-50
+                      md:absolute md:inset-auto md:top-full md:mt-1.5 md:h-auto md:w-[320px] md:max-w-[calc(100vw-24px)]
+                      md:border md:border-border md:rounded-xl md:shadow-[var(--shadow-pop)] md:z-30
+                      ${alignRight ? "md:right-0" : "md:left-0"}`}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={`Filtre ${t.label}`}
+                  >
+                    {/* Handle décoratif (mobile) */}
+                    <div className="md:hidden pt-2 pb-1 flex justify-center shrink-0">
+                      <div className="w-10 h-1 rounded-full bg-border-strong" />
+                    </div>
+
+                    {/* Header */}
+                    <div className="flex items-center gap-3 shrink-0 px-4 pt-2 pb-3 border-b border-border md:px-4 md:pt-4 md:pb-3 md:border-b-0">
+                      <div className="flex-1 min-w-0">
+                        <p className="md:hidden text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+                          Filtre
+                        </p>
+                        <h4 className="font-heading text-lg font-bold text-text-primary truncate md:font-body md:text-[12px] md:font-bold md:uppercase md:tracking-[0.12em] md:text-text-muted">
+                          {t.emoji} {t.label}
+                        </h4>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setOpenTheme(null)}
+                        aria-label="Fermer"
+                        className="shrink-0 w-10 h-10 rounded-full bg-bg-secondary hover:bg-bg-tertiary text-text-primary flex items-center justify-center md:w-auto md:h-auto md:rounded-none md:bg-transparent md:hover:bg-transparent md:text-text-muted md:hover:text-text-primary"
+                      >
+                        <svg className="w-5 h-5 md:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        <span className="hidden md:inline text-lg leading-none">×</span>
+                      </button>
+                    </div>
+
+                    {/* Body */}
+                    <div className="flex-1 overflow-y-auto px-4 py-4 md:flex-none md:overflow-visible md:px-4 md:pb-4 md:pt-0">
+                      <PopoverContent theme={t.key} />
+                    </div>
+
+                    {/* Footer d'actions (mobile seulement) */}
+                    <div className="md:hidden border-t border-border p-3 flex items-center gap-2 shrink-0 pb-[max(env(safe-area-inset-bottom),12px)]">
+                      <button
+                        type="button"
+                        onClick={() => clearTheme(t.key)}
+                        disabled={count === 0}
+                        className="flex-1 h-11 rounded-lg border border-border bg-bg-primary text-text-secondary font-medium text-[13px] hover:bg-bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Effacer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOpenTheme(null)}
+                        className="flex-[2] h-11 rounded-lg bg-ink text-white font-semibold text-[14px] hover:bg-primary-hover"
+                      >
+                        Voir les résultats
+                      </button>
+                    </div>
                   </div>
-                  <PopoverContent theme={t.key} />
-                </div>
+                </>
               )}
             </div>
           );

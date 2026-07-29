@@ -221,6 +221,10 @@ export default function BulkActionBar({
   const showPending = Boolean(pendingLabel);
   const [marketplacesOpen, setMarketplacesOpen] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
+  // Overlay plein écran mobile : un unique bouton « Actions » regroupe toutes
+  // les actions (statut, brouillons, marketplaces, plus, supprimer) car la
+  // barre en ligne n'a pas la place de tout afficher sur téléphone.
+  const [actionsOpen, setActionsOpen] = useState(false);
   // Sous-menu best-seller : true = on affiche les 2 choix (Marquer / Retirer)
   // dans le menu Plus. Se remet à false à chaque ouverture du menu.
   const [bestSellerSubOpen, setBestSellerSubOpen] = useState(false);
@@ -253,18 +257,19 @@ export default function BulkActionBar({
     if (!someSelected) {
       setMarketplacesOpen(false);
       setPlusOpen(false);
+      setActionsOpen(false);
       setBestSellerSubOpen(false);
       setImportantSubOpen(false);
     }
   }, [someSelected]);
 
-  // Reset les sous-menus quand on ferme le menu Plus.
+  // Reset les sous-menus quand on ferme le menu Plus ou l'overlay mobile.
   useEffect(() => {
-    if (!plusOpen) {
+    if (!plusOpen && !actionsOpen) {
       setBestSellerSubOpen(false);
       setImportantSubOpen(false);
     }
-  }, [plusOpen]);
+  }, [plusOpen, actionsOpen]);
 
   useEffect(() => {
     if (!marketplacesOpen && !plusOpen) return;
@@ -277,6 +282,30 @@ export default function BulkActionBar({
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [marketplacesOpen, plusOpen]);
+
+  // Verrouille le scroll de la page derrière l'overlay plein écran sur mobile.
+  useEffect(() => {
+    if (!marketplacesOpen && !plusOpen && !actionsOpen) return;
+    if (typeof window === "undefined") return;
+    if (!actionsOpen && !window.matchMedia("(max-width: 767px)").matches) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [marketplacesOpen, plusOpen, actionsOpen]);
+
+  // Fermeture via Échap (accessibilité clavier + confort).
+  useEffect(() => {
+    if (!marketplacesOpen && !plusOpen && !actionsOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMarketplacesOpen(false);
+        setPlusOpen(false);
+        setActionsOpen(false);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [marketplacesOpen, plusOpen, actionsOpen]);
 
   // ── Compteur détaillé ──
   const counts = useMemo(() => {
@@ -347,11 +376,10 @@ export default function BulkActionBar({
       <div ref={sentinelRef} aria-hidden className="h-px -mb-px" />
     <div
       aria-hidden={!someSelected}
-      // sticky top-4 : la barre est dans le flux au-dessus du tableau, puis
-      // se colle en haut de l'écran (16px d'offset) dès qu'on scrolle. Largeur
-      // pleine du conteneur parent (pas de max-width). z-40 la garde au-dessus
-      // du tableau mais sous les modales (z-50) et le widget flottant (z-9001).
-      className={`sticky top-4 z-40 grid transition-all duration-300 ease-out ${
+      // Mobile : barre fixée en bas de l'écran (fixed bottom-3) — plus confortable
+      // au pouce que le haut. Desktop : sticky top-4 comme avant. z-40 la garde
+      // au-dessus du tableau mais sous les modales (z-50) et le widget flottant (z-9001).
+      className={`fixed left-3 right-3 bottom-[max(12px,env(safe-area-inset-bottom))] md:sticky md:top-4 md:bottom-auto md:left-auto md:right-auto z-[9002] md:z-40 grid transition-all duration-300 ease-out ${
         someSelected
           ? "grid-rows-[1fr] opacity-100 mb-3"
           : "grid-rows-[0fr] opacity-0 mb-0 pointer-events-none"
@@ -367,7 +395,9 @@ export default function BulkActionBar({
               : "bg-white border-border-strong/80 shadow-[0_10px_25px_-8px_rgba(24,24,27,0.12),0_4px_10px_-2px_rgba(24,24,27,0.06)]"
           }`}
         >
-          <div className="flex items-center gap-2 lg:gap-3 px-3 lg:px-4 py-3 flex-wrap">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-2 lg:gap-3 md:flex-wrap px-3 lg:px-4 py-3">
+            {/* Mobile : entête (compteur + bouton fermer sur une même ligne). Sur desktop, md:contents fait disparaître ce wrapper pour retrouver le flex-wrap original. */}
+            <div className="flex items-center justify-between gap-2 md:contents">
             {/* Compteur intelligent */}
             <div className="flex items-center gap-3 pr-2">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-100 to-emerald-50 ring-1 ring-emerald-200 flex items-center justify-center flex-shrink-0">
@@ -389,13 +419,32 @@ export default function BulkActionBar({
               </div>
             </div>
 
+            {/* X fermer — placé ici pour être à droite du compteur sur mobile (dans le wrapper md:contents ci-dessus). Sur desktop, md:order-last le pousse à la toute fin de la barre. */}
+            <button
+              type="button"
+              onClick={onDeselectAll}
+              className={`shrink-0 md:order-last md:ml-1 w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                isStuck
+                  ? "text-slate-300 hover:bg-slate-800"
+                  : "text-text-muted hover:bg-slate-100"
+              }`}
+              title="Désélectionner"
+              aria-label="Désélectionner"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            </div>
+            {/* Fin entête mobile */}
+
             {/* Badge « action en cours » — s'affiche juste après le compteur
                 pendant une action bulk (traduction, suppression, changement de
                 statut, modification d'attributs). Reprend le voile blanc du
                 tableau côté visuel. */}
             {showPending && (
               <div
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200 text-[12px] font-medium"
+                className="flex md:inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200 text-[12px] font-medium w-full md:w-auto"
                 role="status"
                 aria-live="polite"
               >
@@ -407,10 +456,12 @@ export default function BulkActionBar({
               </div>
             )}
 
+            {/* Mobile : ce wrapper reste un flex-wrap vide (aucun enfant visible — chaque bouton est individuellement caché via hidden md:...) car les popovers Plus/Marketplaces sont rendus dedans et doivent pouvoir s'afficher si déclenchés. Un unique bouton « Actions » plus bas ouvre un overlay plein écran regroupant tout. Sur desktop, md:contents fait disparaître ce wrapper pour retrouver le flex-wrap original. */}
+            <div className="flex items-center flex-wrap gap-1 md:gap-1.5 md:contents">
             <Separator isStuck={isStuck} />
 
             {/* Groupe Statut */}
-            <div className="flex items-center gap-1">
+            <div className="hidden md:flex md:items-center md:gap-1 shrink-0">
               <SegButton onClick={() => onStatus("ONLINE")} disabled={isPending} tone="emerald">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
@@ -443,14 +494,13 @@ export default function BulkActionBar({
                   type="button"
                   onClick={onPublishDrafts}
                   disabled={isPending}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-all shadow-sm bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-600 hover:to-violet-600 disabled:opacity-50"
+                  className="shrink-0 hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-all shadow-sm bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-600 hover:to-violet-600 disabled:opacity-50"
                   title="Vérifier si les brouillons sélectionnés peuvent être mis en ligne et les publier"
                 >
                   <svg className="w-[15px] h-[15px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <span className="hidden md:inline">Publier brouillons</span>
-                  <span className="md:hidden">Brouillons</span>
                   <span className="ml-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-white text-violet-700 text-[11px] font-bold tabular-nums">
                     {draftCount}
                   </span>
@@ -461,7 +511,7 @@ export default function BulkActionBar({
             <Separator isStuck={isStuck} />
 
             {/* Marketplaces + actions */}
-            <div className="flex items-center gap-1 relative">
+            <div className="flex items-center gap-1 relative shrink-0">
               <button
                 type="button"
                 onClick={() => {
@@ -469,7 +519,7 @@ export default function BulkActionBar({
                   setPlusOpen(false);
                 }}
                 disabled={isPending}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-all shadow-sm disabled:opacity-50 ${
+                className={`shrink-0 hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-all shadow-sm disabled:opacity-50 ${
                   hasAnyMarketplaceAction
                     ? "bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white hover:from-fuchsia-600 hover:to-violet-600"
                     : "bg-slate-100 text-slate-500 cursor-not-allowed"
@@ -480,7 +530,6 @@ export default function BulkActionBar({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72" />
                 </svg>
                 <span className="hidden md:inline">Marketplaces</span>
-                <span className="md:hidden">MP</span>
                 {mpActionsTotal > 0 && (
                   <span className="ml-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-white text-fuchsia-700 text-[11px] font-bold tabular-nums">
                     {mpActionsTotal}
@@ -497,11 +546,14 @@ export default function BulkActionBar({
 
               {/* MarketplaceExportButton existant — bouton "Exporter" avec son
                   propre dropdown. On le reutilise tel quel : il gere deja le
-                  choix marketplace + preview + telechargement ZIP. */}
-              <MarketplaceExportButton
-                productIds={productIds}
-                disabled={isPending}
-              />
+                  choix marketplace + preview + telechargement ZIP. Wrappé pour
+                  cacher sur mobile (l'overlay Actions rend son propre bouton). */}
+              <div className="hidden md:contents">
+                <MarketplaceExportButton
+                  productIds={productIds}
+                  disabled={isPending}
+                />
+              </div>
 
               <button
                 type="button"
@@ -510,25 +562,40 @@ export default function BulkActionBar({
                   setMarketplacesOpen(false);
                 }}
                 disabled={isPending}
-                className={`inline-flex items-center gap-1 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-colors border ${
+                className={`shrink-0 hidden md:inline-flex items-center gap-1 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-colors border ${
                   plusOpen
                     ? "bg-slate-900 text-white border-slate-900"
                     : "bg-white text-slate-600 border-border-strong hover:bg-slate-50"
                 }`}
                 aria-expanded={plusOpen}
               >
-                Plus
+                <span className="hidden md:inline">Plus</span>
                 <svg className={`w-[15px] h-[15px] transition-transform ${plusOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                 </svg>
               </button>
 
-              {/* Menu Plus */}
+              {/* Menu Plus — overlay plein écran sur mobile, popover ancré sur desktop */}
               {plusOpen && (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full mt-2 w-[280px] bg-white rounded-2xl border border-border-strong shadow-2xl overflow-hidden z-50"
+                  className="fixed inset-0 z-50 flex flex-col bg-white md:absolute md:inset-auto md:right-0 md:top-full md:mt-2 md:w-[280px] md:max-w-[calc(100vw-1.5rem)] md:rounded-2xl md:border md:border-border-strong md:shadow-2xl md:overflow-hidden md:flex-none"
                 >
+                  {/* Header mobile uniquement : titre + bouton fermer */}
+                  <div className="md:hidden flex items-center justify-between gap-3 px-4 py-3 border-b border-border shrink-0 pt-[max(env(safe-area-inset-top),12px)]">
+                    <div className="font-heading text-lg font-bold text-text-primary">Plus d'actions</div>
+                    <button
+                      type="button"
+                      onClick={() => setPlusOpen(false)}
+                      className="w-10 h-10 rounded-full bg-bg-secondary hover:bg-bg-tertiary flex items-center justify-center shrink-0"
+                      aria-label="Fermer"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto md:flex-none md:overflow-visible pb-[max(env(safe-area-inset-bottom),12px)] md:pb-0">
                   <div className="px-4 pt-3 pb-2 text-[10px] uppercase tracking-wider font-semibold text-text-muted">
                     Actions rapides
                   </div>
@@ -672,6 +739,7 @@ export default function BulkActionBar({
                       onOpenCollectionModal();
                     }}
                   />
+                  </div>
                 </div>
               )}
 
@@ -702,26 +770,245 @@ export default function BulkActionBar({
               </svg>
               <span className="hidden md:inline">Supprimer</span>
             </SegButton>
+            </div>
+            {/* Fin ligne d'actions mobile — le bouton X fermer est déjà rendu plus haut, replacé à la fin via md:order-last sur desktop */}
 
+            {/* Bouton unique « Actions » sur mobile — ouvre l'overlay plein écran ci-dessous. Regroupe toutes les actions (statut, brouillons, marketplaces, plus, exporter, supprimer) car la largeur de l'écran ne permet pas de tout afficher en ligne. */}
             <button
               type="button"
-              onClick={onDeselectAll}
-              className={`ml-1 w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-                isStuck
-                  ? "text-slate-300 hover:bg-slate-800"
-                  : "text-text-muted hover:bg-slate-100"
-              }`}
-              title="Désélectionner"
-              aria-label="Désélectionner"
+              onClick={() => setActionsOpen(true)}
+              disabled={isPending}
+              className="md:hidden flex items-center justify-center gap-2 w-full h-11 rounded-xl bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white font-semibold text-[14px] shadow-md active:opacity-90 disabled:opacity-50"
+              aria-haspopup="dialog"
+              aria-expanded={actionsOpen}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
               </svg>
+              Actions
+              {mpActionsTotal > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-white text-fuchsia-700 text-[11px] font-bold tabular-nums">
+                  {mpActionsTotal}
+                </span>
+              )}
             </button>
           </div>
         </div>
       </div>
     </div>
+
+    {/* Overlay plein écran mobile — regroupe toutes les actions bulk (masqué sur desktop). */}
+    {actionsOpen && (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Actions sur la sélection"
+        className="md:hidden fixed inset-0 z-50 flex flex-col bg-white"
+      >
+        {/* Header sticky : sélection + fermer */}
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border shrink-0 pt-[max(env(safe-area-inset-top),12px)]">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] uppercase tracking-[0.12em] font-semibold text-text-muted">Sélection</div>
+            <div className="font-heading text-lg font-bold text-text-primary truncate">
+              {selectedProducts.length} produit{selectedProducts.length > 1 ? "s" : ""}
+            </div>
+            <div className="text-[11px] font-medium flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
+              {counts.online > 0 && <span className="tabular-nums text-emerald-600">{counts.online} en ligne</span>}
+              {counts.online > 0 && counts.draft > 0 && <span className="text-text-muted">·</span>}
+              {counts.draft > 0 && <span className="tabular-nums text-slate-500">{counts.draft} brouillon{counts.draft > 1 ? "s" : ""}</span>}
+              {(counts.online > 0 || counts.draft > 0) && counts.archived > 0 && <span className="text-text-muted">·</span>}
+              {counts.archived > 0 && <span className="tabular-nums text-amber-600">{counts.archived} archivé{counts.archived > 1 ? "s" : ""}</span>}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActionsOpen(false)}
+            className="w-10 h-10 rounded-full bg-bg-secondary hover:bg-bg-tertiary flex items-center justify-center shrink-0"
+            aria-label="Fermer"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Corps scrollable */}
+        <div className="flex-1 overflow-y-auto pb-[max(env(safe-area-inset-bottom),12px)]">
+          {/* Section Statut */}
+          <div className="px-4 pt-3 pb-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-text-muted">Statut</div>
+          <MenuItem
+            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
+            iconClass="bg-emerald-50 text-emerald-700"
+            title="Mettre en ligne"
+            hint="Publier sur la boutique"
+            onClick={() => { setActionsOpen(false); onStatus("ONLINE"); }}
+          />
+          <MenuItem
+            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>}
+            iconClass="bg-slate-100 text-slate-700"
+            title="Mettre hors ligne"
+            hint="Retirer de la boutique publique"
+            onClick={() => { setActionsOpen(false); onStatus("OFFLINE"); }}
+          />
+          <MenuItem
+            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5" /></svg>}
+            iconClass="bg-amber-50 text-amber-700"
+            title="Archiver"
+            hint="Sortir du catalogue actif"
+            onClick={() => { setActionsOpen(false); onStatus("ARCHIVED"); }}
+          />
+
+          {/* Section Brouillons (si présents) */}
+          {draftCount > 0 && onPublishDrafts && (
+            <>
+              <div className="px-4 pt-4 pb-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-text-muted">Brouillons</div>
+              <MenuItem
+                icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                iconClass="bg-indigo-50 text-indigo-700"
+                title={`Publier les brouillons (${draftCount})`}
+                hint="Vérification + mise en ligne"
+                highlight
+                onClick={() => { setActionsOpen(false); onPublishDrafts(); }}
+              />
+            </>
+          )}
+
+          {/* Section Marketplaces */}
+          <div className="px-4 pt-4 pb-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-text-muted">Marketplaces</div>
+          <MenuItem
+            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72" /></svg>}
+            iconClass="bg-fuchsia-50 text-fuchsia-700"
+            title="Publier / synchroniser"
+            hint={mpActionsTotal > 0 ? `${mpActionsTotal} action${mpActionsTotal > 1 ? "s" : ""} détectée${mpActionsTotal > 1 ? "s" : ""}` : (hasAnyMarketplaceAction ? "Voir les marketplaces" : "Rien à faire pour cette sélection")}
+            onClick={() => { setActionsOpen(false); setMarketplacesOpen(true); }}
+          />
+          <MenuItem
+            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" /></svg>}
+            iconClass="bg-indigo-50 text-indigo-700"
+            title="Rafraîchir"
+            hint="Recharger boutique + marketplaces"
+            onClick={() => { setActionsOpen(false); onRefresh(); }}
+          />
+          {/* Exporter — MarketplaceExportButton gère son propre dropdown via portal (z-9999), il apparaîtra au-dessus de l'overlay. */}
+          <div className="px-4 py-3 border-b border-border-light flex items-center gap-3">
+            <div className="w-7 h-7 rounded-lg bg-sky-50 text-sky-700 flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15M9 12l3 3m0 0l3-3m-3 3V2.25" /></svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-text-primary">Exporter</div>
+              <div className="text-xs text-text-muted">Excel par marketplace</div>
+            </div>
+            <MarketplaceExportButton productIds={productIds} disabled={isPending} />
+          </div>
+
+          {/* Section Organisation */}
+          <div className="px-4 pt-4 pb-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-text-muted">Organisation</div>
+          <MenuItem
+            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>}
+            iconClass="bg-violet-50 text-violet-700"
+            title="Modifier les attributs"
+            hint="Catégorie, code SH, composition, pays…"
+            onClick={() => { setActionsOpen(false); onEditAttributes(); }}
+          />
+          <MenuItem
+            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" /></svg>}
+            iconClass="bg-sky-50 text-sky-700"
+            title="Tout traduire"
+            hint="Nom + description en anglais"
+            onClick={() => { setActionsOpen(false); onTranslateAll(); }}
+          />
+
+          {/* Best-seller — sous-menu à 2 choix (Marquer / Retirer) */}
+          {bestSellerSubOpen ? (
+            <div className="bg-amber-50/40 border-y border-amber-100">
+              <button type="button" onClick={() => setBestSellerSubOpen(false)} className="w-full flex items-center gap-2 px-4 py-2 text-[11px] text-amber-800 hover:bg-amber-50 font-medium">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                Retour
+              </button>
+              <MenuItem
+                icon={<svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+                iconClass="bg-amber-100 text-amber-700"
+                title="Marquer best-seller"
+                hint="Ajoute l'étoile · resync PFS auto"
+                onClick={() => { setActionsOpen(false); onSetBestSeller(true); }}
+              />
+              <MenuItem
+                icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+                iconClass="bg-slate-100 text-slate-600"
+                title="Retirer best-seller"
+                hint="Enlève l'étoile · resync PFS auto"
+                onClick={() => { setActionsOpen(false); onSetBestSeller(false); }}
+              />
+            </div>
+          ) : (
+            <MenuItem
+              icon={<svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+              iconClass="bg-amber-50 text-amber-700"
+              title="Best-seller"
+              hint="Marquer ou retirer l'étoile"
+              onClick={() => setBestSellerSubOpen(true)}
+            />
+          )}
+
+          {/* Important — sous-menu à 2 choix (Marquer / Retirer) */}
+          {importantSubOpen ? (
+            <div className="bg-yellow-50/40 border-y border-yellow-100">
+              <button type="button" onClick={() => setImportantSubOpen(false)} className="w-full flex items-center gap-2 px-4 py-2 text-[11px] text-yellow-800 hover:bg-yellow-50 font-medium">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                Retour
+              </button>
+              <MenuItem
+                icon={<svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+                iconClass="bg-yellow-100 text-yellow-700"
+                title="Marquer important"
+                hint="Étoile admin · filtrage interne"
+                onClick={() => { setActionsOpen(false); onSetImportant(true); }}
+              />
+              <MenuItem
+                icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+                iconClass="bg-slate-100 text-slate-600"
+                title="Retirer important"
+                hint="Enlève l'étoile admin"
+                onClick={() => { setActionsOpen(false); onSetImportant(false); }}
+              />
+            </div>
+          ) : (
+            <MenuItem
+              icon={<svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z" /></svg>}
+              iconClass="bg-yellow-50 text-yellow-700"
+              title="Important"
+              hint="Marquer ou retirer l'étoile admin"
+              onClick={() => setImportantSubOpen(true)}
+            />
+          )}
+
+          <MenuItem
+            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" /><path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" /></svg>}
+            iconClass="bg-fuchsia-50 text-fuchsia-700"
+            title="Ajouter / retirer des tags"
+            hint="Modifier les mots-clés"
+            onClick={() => { setActionsOpen(false); onOpenTagsModal(); }}
+          />
+          <MenuItem
+            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" /></svg>}
+            iconClass="bg-emerald-50 text-emerald-700"
+            title="Ajouter à une collection"
+            hint="Choix parmi les collections existantes"
+            onClick={() => { setActionsOpen(false); onOpenCollectionModal(); }}
+          />
+
+          {/* Section Zone rouge */}
+          <div className="px-4 pt-4 pb-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-red-700">Zone rouge</div>
+          <MenuItem
+            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397" /></svg>}
+            iconClass="bg-red-50 text-red-600"
+            title="Supprimer la sélection"
+            hint="Suppression définitive"
+            onClick={() => { setActionsOpen(false); onDelete(); }}
+          />
+        </div>
+      </div>
+    )}
     </>
   );
 }
@@ -759,7 +1046,7 @@ function SegButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-colors disabled:opacity-50 ${TONE_CLASSES[tone]} [&_svg]:w-[15px] [&_svg]:h-[15px]`}
+      className={`shrink-0 hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-colors disabled:opacity-50 ${TONE_CLASSES[tone]} [&_svg]:w-[15px] [&_svg]:h-[15px]`}
     >
       {children}
     </button>
@@ -829,8 +1116,8 @@ function MarketplacePanel({
   }, 0);
 
   return (
-    <div className="absolute right-0 top-full mt-2 w-[720px] max-w-[92vw] bg-white/98 backdrop-blur-xl rounded-2xl border border-border-strong shadow-2xl overflow-hidden z-50">
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-border-light">
+    <div className="fixed inset-0 z-50 flex flex-col bg-white md:absolute md:inset-auto md:right-0 md:top-full md:mt-2 md:w-[720px] md:max-w-[calc(100vw-1.5rem)] md:bg-white/98 md:backdrop-blur-xl md:rounded-2xl md:border md:border-border-strong md:shadow-2xl md:overflow-hidden md:flex-none">
+      <div className="flex items-center justify-between gap-3 px-4 md:px-5 py-3.5 border-b border-border-light shrink-0 pt-[max(env(safe-area-inset-top),12px)] md:pt-3.5">
         <div>
           <div className="text-[10px] uppercase tracking-wider font-semibold text-fuchsia-700 mb-0.5">
             Actions marketplaces
@@ -853,6 +1140,7 @@ function MarketplacePanel({
         </button>
       </div>
 
+      <div className="flex-1 overflow-y-auto md:flex-none md:overflow-visible pb-[max(env(safe-area-inset-bottom),12px)] md:pb-0">
       {order.filter((k) => {
         if (!isMarketplaceAvailable(k, marketplaces)) return false;
         // Ligne visible si on peut publier OU si au moins un produit sélectionné
@@ -990,6 +1278,7 @@ function MarketplacePanel({
           );
         })
       )}
+      </div>
     </div>
   );
 }

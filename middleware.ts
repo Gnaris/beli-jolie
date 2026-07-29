@@ -44,6 +44,11 @@ type TenantMapping = { id: string; slug: string; name: string } | { unknown: tru
 const tenantCache = new Map<string, { value: TenantMapping; timestamp: number }>();
 const TENANT_CACHE_TTL_MS = 5 * 60_000;
 
+// En dev, si le host n'est pas mappé (ex: IP LAN 192.168.x.x depuis mobile),
+// on retombe sur le tenant enregistré pour "localhost" — déjà configuré dans
+// TenantDomain sur toute install de dev. Évite de coder un slug en dur.
+const DEV_FALLBACK_HOST = "localhost";
+
 async function resolveTenantForHost(host: string, requestUrl: string): Promise<TenantMapping> {
   const key = host.toLowerCase();
   const now = Date.now();
@@ -56,6 +61,16 @@ async function resolveTenantForHost(host: string, requestUrl: string): Promise<T
   try {
     const res = await fetch(fetchUrl, { cache: "no-store" });
     if (res.status === 404) {
+      // En dev, un domaine inconnu (ex: 192.168.x.x depuis mobile sur LAN)
+      // retombe sur le tenant mappé à "localhost" — sinon l'admin plante avec
+      // "Aucun tenant résolu". En prod, on garde `unknown` → 404.
+      if (process.env.NODE_ENV === "development" && key !== DEV_FALLBACK_HOST) {
+        const fallback = await resolveTenantForHost(DEV_FALLBACK_HOST, requestUrl);
+        if (!("unknown" in fallback)) {
+          tenantCache.set(key, { value: fallback, timestamp: now });
+          return fallback;
+        }
+      }
       const value: TenantMapping = { unknown: true };
       tenantCache.set(key, { value, timestamp: now });
       return value;
@@ -229,7 +244,9 @@ export async function middleware(request: NextRequest) {
       // → En prod, on renvoie 404 sauf pour les chemins bypass ci-dessus.
       // → En dev, on log et on laisse passer pour faciliter les tests locaux.
       if (process.env.NODE_ENV === "development") {
-        console.warn(`[middleware] Host inconnu ${host} — pas de tenant résolu`);
+        console.warn(
+          `[middleware] Host inconnu ${host} et fallback dev "${DEV_FALLBACK_HOST}" introuvable — pas de tenant résolu`
+        );
       } else if (!isTenantVerificationBypassed) {
         return new NextResponse("Boutique introuvable pour ce domaine.", {
           status: 404,

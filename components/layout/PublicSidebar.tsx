@@ -568,10 +568,10 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
       {mobileOpen && (
         <>
           <div
-            className="fixed inset-0 bg-black/30 backdrop-blur-md z-50 lg:hidden animate-fadeIn"
+            className="fixed inset-0 bg-black/30 backdrop-blur-md z-[70] lg:hidden animate-fadeIn"
             onClick={() => setMobileOpen(false)}
           />
-          <div className="fixed inset-y-0 left-0 w-[calc(100%-3rem)] max-w-72 bg-bg-primary/95 backdrop-blur-xl z-50 lg:hidden flex flex-col rounded-r-2xl shadow-sm">
+          <div className="fixed inset-y-0 left-0 w-[calc(100%-3rem)] max-w-72 bg-bg-primary/95 backdrop-blur-xl z-[70] lg:hidden flex flex-col shadow-sm">
 
             {/* Drawer header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">

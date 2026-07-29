@@ -99,7 +99,9 @@ export default function ProductStatusTabs({ counts }: { counts: SectionCounts })
   }
 
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
+    <div
+      className="flex items-center gap-1.5 overflow-x-auto sm:flex-wrap sm:overflow-visible pb-1 sm:pb-0 -mx-2 px-2 sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+    >
       {SECTIONS.map((s) => {
         const isActive = current === s.key;
         const count = counts[s.countKey];
@@ -108,7 +110,7 @@ export default function ProductStatusTabs({ counts }: { counts: SectionCounts })
             key={s.key}
             type="button"
             onClick={() => handleClick(s.key)}
-            className={`group flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-[12px] sm:text-[13px] font-body font-medium rounded-xl whitespace-nowrap transition-all duration-200 ${
+            className={`group shrink-0 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2.5 text-[12px] sm:text-[13px] font-body font-medium rounded-xl whitespace-nowrap transition-all duration-200 ${
               isActive
                 ? "bg-bg-dark text-text-inverse shadow-md"
                 : "bg-bg-primary text-text-secondary border border-border hover:border-border-dark hover:text-text-primary hover:shadow-sm"
@@ -119,7 +121,7 @@ export default function ProductStatusTabs({ counts }: { counts: SectionCounts })
             )}
             {s.label}
             <span
-              className={`text-[11px] px-1.5 py-0.5 rounded-md font-semibold min-w-[22px] text-center tabular-nums transition-colors ${
+              className={`text-[10px] sm:text-[11px] px-1 sm:px-1.5 py-0.5 rounded-md font-semibold min-w-[20px] sm:min-w-[22px] text-center tabular-nums transition-colors ${
                 isActive
                   ? "bg-white/20 text-text-inverse"
                   : "bg-bg-tertiary text-text-muted group-hover:bg-bg-secondary"
@@ -131,7 +133,7 @@ export default function ProductStatusTabs({ counts }: { counts: SectionCounts })
         );
       })}
 
-      <span className="w-px h-6 bg-border mx-1.5" aria-hidden="true" />
+      <span className="shrink-0 w-px h-6 bg-border mx-1 sm:mx-1.5" aria-hidden="true" />
 
       {SHORTCUTS.map((s) => {
         const isActive = searchParams.get(s.urlKey) === "1";
@@ -143,7 +145,7 @@ export default function ProductStatusTabs({ counts }: { counts: SectionCounts })
             onClick={() => toggleShortcut(s.urlKey)}
             aria-pressed={isActive}
             title={isActive ? s.activeTitle : s.inactiveTitle}
-            className={`group flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-[12px] sm:text-[13px] font-body font-medium rounded-xl whitespace-nowrap transition-all duration-200 ${
+            className={`group shrink-0 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2.5 text-[12px] sm:text-[13px] font-body font-medium rounded-xl whitespace-nowrap transition-all duration-200 ${
               isActive
                 ? "bg-bg-dark text-text-inverse shadow-md"
                 : "bg-bg-primary text-text-secondary border border-border hover:border-border-dark hover:text-text-primary hover:shadow-sm"
@@ -152,7 +154,7 @@ export default function ProductStatusTabs({ counts }: { counts: SectionCounts })
             {s.icon(isActive)}
             {s.label}
             <span
-              className={`text-[11px] px-1.5 py-0.5 rounded-md font-semibold min-w-[22px] text-center tabular-nums transition-colors ${
+              className={`text-[10px] sm:text-[11px] px-1 sm:px-1.5 py-0.5 rounded-md font-semibold min-w-[20px] sm:min-w-[22px] text-center tabular-nums transition-colors ${
                 isActive
                   ? "bg-white/20 text-text-inverse"
                   : "bg-bg-tertiary text-text-muted group-hover:bg-bg-secondary"

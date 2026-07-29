@@ -390,9 +390,30 @@ h1, h2, h3, h4, h5, h6 {
 .table-row {
   border-bottom: 1px solid var(--color-border-light);
   transition: background-color 0.1s;
+  /* Désactive le halo gris/bleu que iOS applique par défaut sur toute zone
+     tappable — évite l'effet visuel parasite quand la cliente effleure
+     une ligne sans réellement vouloir la sélectionner. */
+  -webkit-tap-highlight-color: transparent;
 }
-.table-row:hover {
-  background-color: var(--color-bg-secondary);
+/* Hover uniquement sur les devices qui ont un vrai pointeur (souris) — sinon
+   sur mobile le :hover reste sticky après un tap et masque la classe de
+   sélection appliquée par React. */
+@media (hover: hover) {
+  .table-row:hover {
+    background-color: var(--color-bg-secondary);
+  }
+}
+/* Ligne sélectionnée (clic mobile ou case à cocher desktop) — appliqué
+   directement sur les <td> car certains navigateurs mobiles ignorent le
+   background-color posé sur <tr>. !important pour battre le hover et tout
+   autre CSS custom (checkbox-custom, drawer-variant-*, etc.). */
+.product-row-selected > td {
+  background-color: #cbd5e1 !important; /* slate-300 */
+}
+@media (min-width: 768px) {
+  .product-row-selected > td {
+    background-color: #EEF2FF !important;
+  }
 }
 
 /* ─── Empty state ────────────────────────── */
@@ -580,6 +601,11 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.05);
   margin: 0 16px 20px;
 }
+
+/* La carte variante mobile utilise directement des utilities Tailwind
+   (grid-cols-2 + border-r / border-b sur chaque cellule) donc pas de CSS
+   dédié ici — voir components/admin/products/AdminProductsTable.tsx
+   (composant `VariantCardMobile`). */
 
 /* ─── Cellule éditable (double-clic) ─────── */
 .variant-cell-editable {

@@ -52,7 +52,7 @@ describe("AdminProductsTable — pas de flash rouge entre op done et RSC refresh
   it("les MpDot mobiles (< lg) utilisent aussi xxxBadgeState.online", () => {
     // Sur mobile/tablet on affichait un aperçu compact qui souffrait du même bug.
     expect(SRC).toMatch(/<MpDot label="PFS"[\s\S]{0,120}active=\{hasPfsConfig && pfsBadgeState\.online\}/);
-    expect(SRC).toMatch(/<MpDot label="EF"[\s\S]{0,120}active=\{efashionBadgeState\.online\}/);
+    expect(SRC).toMatch(/<MpDot[\s\S]{0,200}label="EF"[\s\S]{0,200}active=\{efashionBadgeState\.online\}/);
     expect(SRC).toMatch(/<MpDot label="AK"[\s\S]{0,120}active=\{ankorstoreBadgeState\.online\}/);
   });
 

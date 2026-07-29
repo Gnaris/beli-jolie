@@ -346,6 +346,8 @@ npm run test:pfs-smoke
 npx prisma db push && npx prisma generate
 npx prisma studio
 npx tsx scripts/create-admin.ts
+npx tsx scripts/seed-demo-clients.ts          # 14 faux clients + 78 commandes (aperçu local liste clients)
+npx tsx scripts/seed-demo-clients.ts --clean  # supprime le jeu de démo (emails @demo-local.test)
 ```
 
 Integration tests : `__tests__/integration/` (DB-backed, `fileParallelism: false`).

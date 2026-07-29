@@ -168,6 +168,10 @@ export async function removeAnkorstoreMatch(
 export interface AnkorstoreLinkPreviewLocalColor {
   productImage: string | null;
   weightKg: number;
+  /** Prix unitaire boutique (€, HT) — c'est la valeur qui sera envoyée à Ankorstore à la sync. */
+  unitPrice: number;
+  /** Stock boutique — envoyé à Ankorstore à la sync. */
+  stock: number;
   existingAnkorstoreVariantId: string | null;
   /** Id de la ProductColor (jointure produit/couleur). */
   productColorId: string;
@@ -242,6 +246,8 @@ export async function previewAnkorstoreProductForLinking(
               colorId: true,
               sku: true,
               weight: true,
+              unitPrice: true,
+              stock: true,
               ankorsVariantId: true,
               color: { select: { name: true, hex: true, patternImage: true } },
               variantSizes: { select: { size: { select: { name: true } } }, take: 1 },
@@ -343,6 +349,8 @@ export async function previewAnkorstoreProductForLinking(
           imageByColorId.get(pc.colorId as string) ??
           fallbackImage,
         weightKg: Number(pc.weight ?? 0),
+        unitPrice: Number(pc.unitPrice ?? 0),
+        stock: pc.stock ?? 0,
         // Une couleur BJ est « déjà liée » côté Ankor uniquement si sa variante
         // Ankor courante existe dans la liste des variantes du produit qu'on regarde.
         // Sinon c'est une liaison résiduelle vers un ancien produit Ankor — on ignore.
@@ -801,10 +809,13 @@ export async function createLocalVariantFromAnkorstoreVariant(
     const colorName = akVariant.options?.find((o) => o.name === "color")?.value?.trim() || "Couleur";
     const sizeName = akVariant.options?.find((o) => o.name === "size")?.value?.trim() || "TU";
     const stock = akVariant.stockQuantity ?? 0;
-    // AS renvoie le prix dans son unité (souvent en euros). Notre `unitPrice`
-    // local est en euros HT (cf. schema). On stocke tel quel — la prochaine
-    // synchro Ankorstore appliquera la majoration et écrasera la vraie valeur.
-    const unitPrice = Number(akVariant.wholesalePrice);
+    // Ankorstore GET renvoie les prix en CENTIMES (integer) — cf. spec OpenAPI
+    // docs/ankorstore-spec-2026-05.yaml ligne 3690. Notre `unitPrice` local est
+    // en euros HT (Decimal). On divise donc par 100 avant de stocker. La
+    // prochaine synchro Ankorstore appliquera la majoration et écrasera de
+    // toute façon, mais on veut stocker une valeur cohérente entre-temps
+    // (sinon la fiche produit BJ affiche 480 € au lieu de 4,80 €).
+    const unitPrice = Number(akVariant.wholesalePrice ?? 0) / 100;
     // Poids : on copie celui d'une variante existante du même produit, sinon 0.
     const inheritedWeight = product.colors[0]?.weight ?? 0;
 

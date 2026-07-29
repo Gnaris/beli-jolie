@@ -6,6 +6,7 @@ import {
   getCachedSiteConfig, getCachedPfsBrand, getCachedPfsEnabled,
   getCachedHasEfashionConfig, getCachedEfashionEnabled,
   getCachedHasFaireConfig, getCachedFaireEnabled,
+  getCachedFaireMadeInExcluded,
   getCachedHasMicrostoreConfig,
 } from "@/lib/cached-data";
 import { getStripeAccountInfo, getStripeConfigStatus } from "@/lib/stripe";
@@ -605,6 +606,7 @@ async function MarketplacesTab() {
     hasFaireConfig, faireEnabled,
     faireWholesaleType, faireWholesaleValue, faireWholesaleRounding,
     faireRetailType, faireRetailValue, faireRetailRounding,
+    faireMadeInExcluded,
     pfsPublished, pfsToSync, pfsLast,
     ankPublished, ankToSync, ankLast,
     efaPublished, efaToSync, efaLast,
@@ -646,6 +648,7 @@ async function MarketplacesTab() {
     getCachedSiteConfig("faire_retail_markup_type"),
     getCachedSiteConfig("faire_retail_markup_value"),
     getCachedSiteConfig("faire_retail_markup_rounding"),
+    getCachedFaireMadeInExcluded(),
     prisma.product.count({ where: { pfsProductId: { not: null } } }),
     prisma.product.count({ where: { pfsSyncRequired: true } }),
     prisma.product.findFirst({ where: { pfsProductId: { not: null } }, orderBy: { updatedAt: "desc" }, select: { updatedAt: true } }),
@@ -697,6 +700,7 @@ async function MarketplacesTab() {
       efashionEnabled={efashionEnabled}
       hasFaireConfig={hasFaireConfig}
       faireEnabled={faireEnabled}
+      faireMadeInExcluded={faireMadeInExcluded}
       hasMicrostoreConfig={hasMicrostoreConfig}
       microstoreEnabled={microstoreEnabled}
       microstoreExpiresAtIso={microstoreExpiresAtIso}

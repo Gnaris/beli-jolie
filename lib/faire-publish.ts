@@ -46,6 +46,7 @@ import {
 import { buildFaireImageUrl } from "@/lib/marketplace-image";
 import { buildBrandedMarketplaceUrl } from "@/lib/branded-image-display";
 import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
+import { getCachedFaireMadeInExcluded } from "@/lib/cached-data";
 
 // ─────────────────────────────────────────────
 // Types
@@ -808,6 +809,14 @@ export function buildPublishContext(
     | "colors"
     | "sizeDetailsTu"
   >,
+  options: {
+    /**
+     * Codes ISO alpha-2 dont la mention « Made in {pays} » ne doit PAS être
+     * ajoutée à la description Faire. Configurable dans
+     * Admin > Paramètres > Marketplaces > Faire.
+     */
+    excludedMadeInIsoCodes?: readonly string[];
+  } = {},
 ): {
   ok: boolean;
   ctx?: FairePublishContext;
@@ -840,8 +849,16 @@ export function buildPublishContext(
   // PAS le fallback CN : si la cliente n'a pas renseigné de pays de fabrication
   // sur le produit, on préfère ne rien afficher plutôt qu'un « Made in China »
   // erroné (autres tenants, produits FR, etc.).
+  //
+  // Exclusion : la cliente peut configurer une liste de pays pour lesquels on
+  // NE veut PAS afficher « Made in {pays} » (ex. pour un catalogue chinois
+  // vendu à des acheteuses US où l'origine peut refroidir). Réglage dans
+  // Admin > Paramètres > Marketplaces > Faire.
+  const excludedSet = new Set(
+    (options.excludedMadeInIsoCodes ?? []).map((c) => c.trim().toUpperCase()),
+  );
   let madeInCountryEn: string | null = null;
-  if (rawAlpha2) {
+  if (rawAlpha2 && !excludedSet.has(rawAlpha2)) {
     try {
       const displayNames = new Intl.DisplayNames(["en"], { type: "region" });
       madeInCountryEn = displayNames.of(rawAlpha2) ?? null;
@@ -947,7 +964,8 @@ export async function fairePublishProduct(
     };
   }
 
-  const ctxResult = buildPublishContext(product);
+  const excludedMadeInIsoCodes = await getCachedFaireMadeInExcluded();
+  const ctxResult = buildPublishContext(product, { excludedMadeInIsoCodes });
   if (!ctxResult.ok || !ctxResult.ctx) {
     return { success: false, error: ctxResult.reason ?? "Contexte Faire invalide." };
   }

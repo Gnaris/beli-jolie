@@ -180,12 +180,12 @@ export function RightRail() {
         />
       )}
 
-      {/* Container widget */}
-      <div className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-[9001] flex flex-col items-end gap-3">
+      {/* Container widget — plus compact sur mobile (FAB + mini-boutons réduits, gap serré) */}
+      <div className="fixed bottom-3 right-3 md:bottom-6 md:right-6 z-[9001] flex flex-col items-end gap-2 md:gap-3">
 
         {/* Mini-menu (visible uniquement quand menuOpen ET aucun tiroir ouvert) */}
         {menuOpen && !somethingOpen && (
-          <div className="flex flex-col items-end gap-3">
+          <div className="flex flex-col items-end gap-2 md:gap-3">
             {ITEMS.map((item, idx) => (
               <MiniButton
                 key={item.id}
@@ -217,18 +217,18 @@ export function RightRail() {
             <span className="absolute inset-0 rounded-full bg-indigo-500/60 animate-ping pointer-events-none" />
           )}
           <span
-            className={`relative w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-200 ring-4 ring-white ${
+            className={`relative w-11 h-11 md:w-14 md:h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-200 ring-2 md:ring-4 ring-white ${
               somethingOpen || menuOpen
                 ? "bg-white text-slate-900 scale-95"
                 : "bg-gradient-to-br from-slate-800 via-slate-900 to-black text-white group-hover:scale-105"
             }`}
           >
             {somethingOpen || menuOpen ? (
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4}>
+              <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             ) : (
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -241,7 +241,7 @@ export function RightRail() {
           {/* Badge cumul — visible uniquement FAB fermé sans tiroir */}
           {total > 0 && !menuOpen && !somethingOpen && (
             <span
-              className="absolute -top-1 -right-1 min-w-[22px] h-[22px] px-1.5 rounded-full bg-gradient-to-br from-rose-500 to-pink-600 text-white text-[11px] font-bold flex items-center justify-center ring-2 ring-white shadow-lg pointer-events-none"
+              className="absolute -top-1 -right-1 min-w-[18px] h-[18px] md:min-w-[22px] md:h-[22px] px-1 md:px-1.5 rounded-full bg-gradient-to-br from-rose-500 to-pink-600 text-white text-[10px] md:text-[11px] font-bold flex items-center justify-center ring-2 ring-white shadow-lg pointer-events-none"
               aria-label={`${total} tâche${total > 1 ? "s" : ""} en cours`}
             >
               {total > 99 ? "99+" : total}
@@ -302,13 +302,13 @@ function MiniButton({
           />
         )}
         <span
-          className={`relative w-12 h-12 rounded-full bg-gradient-to-br ${item.gradient} text-white shadow-xl flex items-center justify-center ring-2 ring-white group-hover:scale-110 transition-transform`}
+          className={`relative w-10 h-10 md:w-12 md:h-12 rounded-full bg-gradient-to-br ${item.gradient} text-white shadow-xl flex items-center justify-center ring-2 ring-white group-hover:scale-110 transition-transform [&>svg]:w-5 [&>svg]:h-5 md:[&>svg]:w-6 md:[&>svg]:h-6`}
         >
           {item.icon}
         </span>
         {badge.count > 0 && (
           <span
-            className={`absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-white ${item.badgeText} text-[10px] font-bold flex items-center justify-center ring-2 ${item.ring} shadow pointer-events-none`}
+            className={`absolute -top-1 -right-1 min-w-[18px] h-[18px] md:min-w-[20px] md:h-5 px-1 rounded-full bg-white ${item.badgeText} text-[10px] font-bold flex items-center justify-center ring-2 ${item.ring} shadow pointer-events-none`}
           >
             {badge.count > 99 ? "99+" : badge.count}
           </span>

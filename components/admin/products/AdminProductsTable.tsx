@@ -39,6 +39,7 @@ import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle
 import { ProductImportantToggle } from "@/components/admin/products/ProductImportantToggle";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
 import { useEfashionShootingBatch } from "@/components/admin/products/EfashionShootingBatchContext";
+import { useRightRail } from "@/components/admin/widgets-rail/RightRailContext";
 import { useFilterPending } from "@/components/admin/products/FilterPendingContext";
 import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
 import { useMarketplaceMaintenance } from "@/components/admin/products/MarketplaceMaintenanceContext";
@@ -552,6 +553,8 @@ function EfashionBadge({
   onCancelSyncRequired,
   disabledForProduct = false,
   disabledReason,
+  shootingPending = null,
+  onShootingClick,
 }: {
   linked: boolean;
   publishing?: boolean;
@@ -562,6 +565,8 @@ function EfashionBadge({
   onCancelSyncRequired?: () => void;
   disabledForProduct?: boolean;
   disabledReason?: "product" | "maintenance";
+  shootingPending?: "PUBLISH" | "REFRESH" | null;
+  onShootingClick?: () => void;
 }) {
   if (disabledForProduct) return <DisabledMarketplaceBadge label="EF" reason={disabledReason} />;
   if (publishing) {
@@ -582,6 +587,32 @@ function EfashionBadge({
         </svg>
         <span>EF</span>
       </span>
+    );
+  }
+  if (shootingPending) {
+    const tooltip =
+      shootingPending === "PUBLISH"
+        ? "Ajouté au shooting eFashion (Publication) — cliquez pour ouvrir la fenêtre Shooting"
+        : "Ajouté au shooting eFashion (Rafraîchissement) — cliquez pour ouvrir la fenêtre Shooting";
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          if (!onShootingClick) return;
+          e.stopPropagation();
+          onShootingClick();
+        }}
+        disabled={!onShootingClick}
+        className={`inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10.5px] font-semibold bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] leading-tight ${
+          onShootingClick ? "hover:bg-[#FDE68A] hover:border-[#FCD34D] cursor-pointer transition-colors" : "cursor-default"
+        }`}
+        title={tooltip}
+      >
+        <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.822 1.316zM16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+        </svg>
+        <span>EF</span>
+      </button>
     );
   }
   if (linked && syncRequired) {
@@ -1570,6 +1601,270 @@ function VariantRow({
 }
 
 
+// ─── VariantCardMobile — carte verticale utilisée dans la modale mobile ─────
+// Reprend les mêmes cellules éditables que VariantRow, mais dans un layout
+// carte (rond couleur + nom + badges + grille 2×2 métriques). Zéro scroll
+// horizontal, tout tient dans la largeur du téléphone.
+export function VariantCardMobile({
+  variant,
+  editsForVariant,
+  onCommitCell,
+}: {
+  variant: ColorVariant;
+  editsForVariant: Partial<Record<VariantField, VariantEditValue>>;
+  onCommitCell: (variantId: string, field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => void;
+}) {
+  const priceOrig = variant.unitPrice;
+  const stockOrig = variant.stock;
+  const weightOrig = variant.weight;
+  const packOrig = variant.packQuantity ?? 0;
+  const disabledOrig = variant.disabled;
+
+  const priceCurrent = (editsForVariant.price as number | undefined) ?? priceOrig;
+  const stockCurrent = (editsForVariant.stock as number | undefined) ?? stockOrig;
+  const weightCurrent = (editsForVariant.weight as number | undefined) ?? weightOrig;
+  const packCurrent = (editsForVariant.packQty as number | undefined) ?? packOrig;
+  const disabledCurrent = (editsForVariant.disabled as boolean | undefined) ?? disabledOrig;
+
+  const dirtyPrice = editsForVariant.price !== undefined;
+  const dirtyStock = editsForVariant.stock !== undefined;
+  const dirtyWeight = editsForVariant.weight !== undefined;
+  const dirtyPack = editsForVariant.packQty !== undefined;
+  const dirtyDisabled = editsForVariant.disabled !== undefined;
+
+  const commit = useCallback(
+    (field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => {
+      onCommitCell(variant.id, field, newValue, originalValue);
+    },
+    [onCommitCell, variant.id],
+  );
+
+  const isPackVariant = variant.saleType === "PACK";
+  const packTotalQty = computeVariantPackTotalQty(variant, packCurrent);
+  const unitPriceOrig = isPackVariant
+    ? Math.round((priceOrig / packTotalQty) * 100) / 100
+    : priceOrig;
+  const unitPriceCurrent = isPackVariant
+    ? Math.round((priceCurrent / packTotalQty) * 100) / 100
+    : priceCurrent;
+  const commitUnitPrice = useCallback(
+    (field: VariantField, newUnitValue: VariantEditValue, _origUnitValue: VariantEditValue) => {
+      if (field !== "price") {
+        commit(field, newUnitValue, _origUnitValue);
+        return;
+      }
+      const newTotal = isPackVariant
+        ? Math.round((newUnitValue as number) * packTotalQty * 100) / 100
+        : (newUnitValue as number);
+      commit("price", newTotal, priceOrig);
+    },
+    [commit, isPackVariant, packTotalQty, priceOrig],
+  );
+
+  const stockDotColor =
+    stockCurrent === 0 ? "#DC2626" : stockCurrent <= 5 ? "#D97706" : "#16A34A";
+  const stockLabelClass =
+    stockCurrent === 0
+      ? "text-[#DC2626] font-bold"
+      : stockCurrent <= 5
+      ? "text-[#D97706] font-semibold"
+      : "text-[#16A34A] font-medium";
+
+  const swatchStyle: React.CSSProperties = variant.color.patternImage
+    ? { backgroundImage: `url(${variant.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
+    : { backgroundColor: variant.color.hex ?? "#9CA3AF" };
+
+  const isOutOrDisabled = stockCurrent === 0 || disabledCurrent;
+
+  const sizesLabel = variant.variantSizes && variant.variantSizes.length > 0
+    ? variant.variantSizes
+        .map((vs) => (vs.quantity > 1 ? `${vs.size.name}×${vs.quantity}` : vs.size.name))
+        .join(", ")
+    : null;
+
+  return (
+    <div
+      className={`variant-card-mobile rounded-2xl border shadow-sm overflow-hidden ${
+        isOutOrDisabled
+          ? "bg-red-50/60 border-red-200"
+          : "bg-bg-primary border-border"
+      }`}
+      data-variant-id={variant.id}
+    >
+      {/* Row 1 — grand rond couleur + nom en gros + sous-titre + pilule Activée */}
+      <div className="flex items-center gap-3 px-4 pt-4 pb-2">
+        <span
+          className="w-11 h-11 rounded-full shrink-0"
+          style={{
+            ...swatchStyle,
+            border: "2px solid #fff",
+            boxShadow: "0 0 0 1px #D1D1D1, 0 2px 4px rgba(0,0,0,0.10)",
+          }}
+          title={variant.color.name}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="font-heading text-base font-bold text-text-primary truncate leading-tight">
+            {variant.color.name}
+          </div>
+          <div className="text-[11px] text-text-muted mt-0.5">
+            {isPackVariant
+              ? `Variante ×${packCurrent} par paquet`
+              : "Vendue à l'unité"}
+          </div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={!disabledCurrent}
+          aria-label={disabledCurrent ? "Variante désactivée — cliquez pour activer" : "Variante activée — cliquez pour désactiver"}
+          title={disabledCurrent ? "Cliquez pour activer la variante" : "Cliquez pour désactiver la variante"}
+          onClick={() => commit("disabled", !disabledCurrent, disabledOrig)}
+          className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide cursor-pointer transition-colors border ${
+            disabledCurrent
+              ? "bg-red-100 text-red-700 border-red-200 hover:bg-red-200"
+              : "bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200"
+          } ${dirtyDisabled ? "ring-2 ring-amber-400 ring-offset-1" : ""}`}
+          data-variant-id={variant.id}
+          data-variant-field="disabled"
+        >
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${disabledCurrent ? "bg-red-600" : "bg-emerald-600"}`}
+            aria-hidden
+          />
+          {disabledCurrent ? "Désactivée" : "Activée"}
+        </button>
+      </div>
+
+      {/* Row 2 — badges Unité/Pack + tailles sur leur propre ligne */}
+      <div className="px-4 pb-3 flex items-center gap-1.5 flex-wrap">
+        {variant.saleType === "UNIT" ? (
+          <span className="badge badge-info text-[10px]">Unité</span>
+        ) : (
+          <span className="badge badge-purple text-[10px] inline-flex items-center gap-1">
+            Pack ×
+            <VariantEditableCell
+              variantId={variant.id}
+              field="packQty"
+              currentValue={packCurrent}
+              originalValue={packOrig}
+              isInt
+              dirty={dirtyPack}
+              ariaLabel={`Quantité par pack — ${variant.color.name}`}
+              onCommit={commit}
+            >
+              {packCurrent}
+            </VariantEditableCell>
+          </span>
+        )}
+        {sizesLabel && (
+          <span className="badge badge-neutral text-[10px]">{sizesLabel}</span>
+        )}
+      </div>
+
+      {/* Divider fin entre header et grille */}
+      <div className="border-t border-border-light" />
+
+      {/* Row 3 — grille 2×2 avec chiffres plus gros. Les filets internes
+          sont posés en border-r / border-b sur les cellules (pas de wrapper
+          spécial) pour rester dans le flow du composant. */}
+      <div className="grid grid-cols-2">
+        <div className="px-4 py-3 border-r border-b border-border-light">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Prix HT</div>
+          <div className="mt-1">
+            <VariantEditableCell
+              variantId={variant.id}
+              field="price"
+              currentValue={unitPriceCurrent}
+              originalValue={unitPriceOrig}
+              isInt={false}
+              dirty={dirtyPrice}
+              ariaLabel={`Prix HT unitaire — ${variant.color.name}`}
+              onCommit={commitUnitPrice}
+            >
+              <span className="text-lg font-bold text-text-primary tabular-nums">
+                {unitPriceCurrent.toFixed(2).replace(".", ",")} €
+              </span>
+            </VariantEditableCell>
+          </div>
+        </div>
+
+        <div className="px-4 py-3 border-b border-border-light">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Stock</div>
+          <div className="mt-1">
+            <VariantEditableCell
+              variantId={variant.id}
+              field="stock"
+              currentValue={stockCurrent}
+              originalValue={stockOrig}
+              isInt
+              dirty={dirtyStock}
+              ariaLabel={`Stock — ${variant.color.name}`}
+              onCommit={commit}
+            >
+              {dirtyStock ? (
+                <span className="text-lg font-bold tabular-nums">{stockCurrent}</span>
+              ) : (
+                <span className={`inline-flex items-center gap-1.5 text-lg font-bold tabular-nums ${stockLabelClass}`}>
+                  <span
+                    className={stockCurrent === 0 ? "animate-pulse" : ""}
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: stockDotColor,
+                      display: "inline-block",
+                    }}
+                  />
+                  {stockCurrent}
+                </span>
+              )}
+            </VariantEditableCell>
+          </div>
+        </div>
+
+        <div className="px-4 py-3 border-r border-border-light">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Prix HT total</div>
+          <div className="mt-1">
+            {isPackVariant ? (
+              <span
+                className={`text-sm font-semibold tabular-nums ${
+                  dirtyPrice ? "text-emerald-700" : "text-text-secondary"
+                }`}
+                title="Prix HT total du paquet (calculé)"
+              >
+                {priceCurrent.toFixed(2).replace(".", ",")} €
+              </span>
+            ) : (
+              <span className="text-sm text-text-muted">—</span>
+            )}
+          </div>
+        </div>
+
+        <div className="px-4 py-3">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Poids</div>
+          <div className="mt-1">
+            <VariantEditableCell
+              variantId={variant.id}
+              field="weight"
+              currentValue={weightCurrent}
+              originalValue={weightOrig}
+              isInt={false}
+              dirty={dirtyWeight}
+              ariaLabel={`Poids — ${variant.color.name}`}
+              onCommit={commit}
+            >
+              <span className="text-sm font-semibold text-text-secondary tabular-nums">
+                {weightCurrent.toFixed(2).replace(".", ",")} kg
+              </span>
+            </VariantEditableCell>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ─── Status badge with inline dropdown ──────────────────────────────────────
 function StatusBadge({
   status,
@@ -1782,10 +2077,9 @@ function ActionsDropdown({
   onPublishFaire: () => void;
   onDelete: () => void;
 }) {
-  // `expanded` et `onExpandToggle` ne sont plus exposés dans le menu mais
-  // restent dans la signature pour compat amont — on évite l'avertissement.
+  // `expanded` sert seulement de flag informatif : le vrai toggle passe par
+  // onExpandToggle (bouton « Modifier les variantes » ci-dessous).
   void expanded;
-  void onExpandToggle;
   const maintenance = useMarketplaceMaintenance();
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -1844,6 +2138,12 @@ function ActionsDropdown({
     >
       {/* ─── Édition ─── */}
       <span className={groupLabel}>Édition</span>
+      {/* « Modifier les variantes » exposé uniquement sur mobile : sur desktop
+          le tiroir variantes s'ouvre au clic sur la ligne (comportement d'origine). */}
+      <button type="button" onClick={onExpandToggle} className={`md:hidden ${itemClass}`}>
+        <span className={iconWrap}>◫</span>
+        Modifier les variantes
+      </button>
       <Link
         href={`/admin/produits/${productId}/modifier`}
         className={itemClass}
@@ -2214,12 +2514,20 @@ function ProductRow({
   const [actionModalEf, setActionModalEf] = useState(false);
   const [actionModalFaire, setActionModalFaire] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
+  // Suivi du tap sur la ligne : distinguer un scroll (le doigt a bougé) d'un
+  // vrai tap pour éviter la sélection accidentelle sur mobile.
+  const rowTouchRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const router = useRouter();
   const { confirm } = useConfirm();
   const toast = useToast();
   const [refCopied, setRefCopied] = useState(false);
   const { enqueue, items: queueItems, getRecentClientSuccessAt } = useMarketplaceRefreshQueue();
-  const { addProduct: addToEfashionShootingBatch } = useEfashionShootingBatch();
+  const { addProduct: addToEfashionShootingBatch, items: efashionShootingItems } = useEfashionShootingBatch();
+  const { open: openRailWidget } = useRightRail();
+  const efashionShootingPending = React.useMemo(() => {
+    const item = efashionShootingItems.find((i) => i.productId === product.id);
+    return item ? item.mode : null;
+  }, [efashionShootingItems, product.id]);
   // Distinction visuelle vs métier :
   //  - showXxx : rendre le badge (même barré si le kill switch global est OFF)
   //  - xxxOperational : autoriser une action (publier, resync). Un kill switch
@@ -2457,6 +2765,22 @@ function ProductRow({
     }
   }, [pendingFaireEnqueue, faireBadgeState.loading]);
 
+  // Modale variantes MOBILE ouverte : lock body scroll + fermeture ESC.
+  // Sur desktop le contenu est un tiroir inline → pas de lock/ESC nécessaire.
+  useEffect(() => {
+    if (!expanded) return;
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onExpandToggle(); };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [expanded, onExpandToggle]);
+
   const handlePublishFaire = useCallback(() => {
     if (isFairePublishing) return;
     setPublishConfirmFor("faire");
@@ -2614,10 +2938,50 @@ function ProductRow({
   return (
     <>
       <tr
-        className={`group table-row transition-all duration-150 ${selected ? "bg-[#EEF2FF]" : ""} ${expanded ? "border-b-0" : ""} ${isDeleting ? "opacity-50 pointer-events-none" : ""}`}
+        onTouchStart={(e) => {
+          // Mémorise la position de départ du tap pour distinguer un vrai clic
+          // d'un scroll dans onClick ci-dessous.
+          const t = e.touches[0];
+          rowTouchRef.current = { x: t.clientX, y: t.clientY, moved: false };
+        }}
+        onTouchMove={(e) => {
+          if (!rowTouchRef.current) return;
+          const t = e.touches[0];
+          const dx = Math.abs(t.clientX - rowTouchRef.current.x);
+          const dy = Math.abs(t.clientY - rowTouchRef.current.y);
+          if (dx > 8 || dy > 8) rowTouchRef.current.moved = true;
+        }}
+        onClick={(e) => {
+          // Sur mobile (<md) : clic ligne = toggle sélection (fond gris).
+          // Sur desktop : clic ligne = ouvrir le tiroir variantes (historique).
+          //
+          // Skip 1 — la cible est un élément interactif (bouton, lien, input) :
+          // iOS Safari a un bug où stopPropagation ne bloque pas toujours le
+          // bubble des taps convertis en clicks. Check target est plus fiable.
+          const target = e.target as HTMLElement;
+          if (target.closest("button, a, input, label")) return;
+          // Skip 2 — le doigt a bougé pendant le tap → c'est un scroll, pas un
+          // clic délibéré. Évite la sélection accidentelle en effleurant/scrollant.
+          if (rowTouchRef.current?.moved) {
+            rowTouchRef.current = null;
+            return;
+          }
+          rowTouchRef.current = null;
+          if (typeof window === "undefined") return;
+          if (window.matchMedia("(max-width: 767px)").matches) {
+            onToggle();
+          } else {
+            onExpandToggle();
+          }
+        }}
+        aria-selected={selected}
+        style={{ touchAction: "manipulation" }}
+        className={`group table-row cursor-pointer md:transition-colors md:duration-150 ${
+          selected ? "product-row-selected" : ""
+        } ${expanded ? "border-b-0" : ""} ${isDeleting ? "opacity-50 pointer-events-none" : ""}`}
       >
-        {/* Checkbox */}
-        <td className="px-4 py-3.5 w-10" onClick={(e) => e.stopPropagation()}>
+        {/* Checkbox (desktop only) */}
+        <td className="hidden md:table-cell px-2 md:px-4 py-3.5 w-10" onClick={(e) => e.stopPropagation()}>
           <input
             type="checkbox"
             checked={selected}
@@ -2627,34 +2991,32 @@ function ProductRow({
         </td>
 
         {/* N° de ligne */}
-        <td className="hidden sm:table-cell px-2 py-3.5 w-10 text-center cursor-pointer" onClick={onExpandToggle}>
+        <td className="hidden sm:table-cell px-2 py-3.5 w-10 text-center">
           <span className="font-body text-[11px] text-text-muted tabular-nums">{rowNumber}</span>
         </td>
 
         {/* Produit — photo + nom + référence dans une seule colonne (fusion
             des anciennes cellules Photo + Réf. + Produit pour ressembler à
             la maquette Ardoise). */}
-        <td className="px-3 py-3 cursor-pointer min-w-[260px]" onClick={onExpandToggle}>
-          <div className="flex items-center gap-3">
-            {/* Miniature à gauche — click = page d'édition */}
+        <td className="px-4 md:px-6 py-7 md:py-8 md:min-w-[280px]">
+          <div className="flex items-center gap-4">
+            {/* Miniature à gauche — plus grande pour bien voir le produit
+                (72px mobile, 88px tablette, 64px desktop). Clic = édition. */}
             <Link
               href={`/admin/produits/${product.id}/modifier`}
               onClick={(e) => e.stopPropagation()}
               className="shrink-0"
               aria-label={`Modifier ${product.name}`}
             >
-              {/* Photo agrandie sur tablette (md → lg) — layout "Photo large"
-                  validé maquette 2026-07-13. Reste 44px sur mobile et desktop
-                  pour conserver la densité du tableau. */}
               {product.firstImage ? (
                 <img
                   src={product.firstImage}
                   alt={product.name}
-                  className="w-11 h-11 md:w-[68px] md:h-[68px] lg:w-11 lg:h-11 object-cover rounded-lg border border-border shadow-sm"
+                  className="w-[72px] h-[72px] md:w-[88px] md:h-[88px] lg:w-16 lg:h-16 object-cover rounded-xl border border-border shadow-sm"
                 />
               ) : (
-                <div className="w-11 h-11 md:w-[68px] md:h-[68px] lg:w-11 lg:h-11 bg-bg-tertiary rounded-lg border border-border flex items-center justify-center">
-                  <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-[72px] h-[72px] md:w-[88px] md:h-[88px] lg:w-16 lg:h-16 bg-bg-tertiary rounded-xl border border-border flex items-center justify-center">
+                  <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M13.5 12h.008v.008H13.5V12zm0 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 9V7.5a2.25 2.25 0 012.25-2.25h15A2.25 2.25 0 0121 7.5v9a2.25 2.25 0 01-2.25 2.25H4.5A2.25 2.25 0 012.25 21z" />
                   </svg>
                 </div>
@@ -2674,20 +3036,23 @@ function ProductRow({
                     ⓘ
                   </span>
                 )}
-                {/* Pastille de vérification PFS — visible uniquement si le
-                    produit est lié à PFS. Reste discrète (5px), clique = vérif. */}
-                <PfsVerifyBadge
-                  productId={product.id}
-                  productName={product.name}
-                  productReference={product.reference}
-                  productFirstImage={null}
-                  pfsProductId={product.pfsProductId}
-                  pfsCheckedAt={product.pfsCheckedAt}
-                  pfsCheckStatus={product.pfsCheckStatus}
-                  pfsCheckIssues={product.pfsCheckIssues as PfsVerifyIssue[] | null}
-                />
+                {/* Pastille de vérification PFS — cliquable (déclenche la vérif).
+                    Enveloppée dans un span stopPropagation pour ne pas toggle la
+                    sélection de la ligne. */}
+                <span onClick={(e) => e.stopPropagation()} className="inline-flex">
+                  <PfsVerifyBadge
+                    productId={product.id}
+                    productName={product.name}
+                    productReference={product.reference}
+                    productFirstImage={null}
+                    pfsProductId={product.pfsProductId}
+                    pfsCheckedAt={product.pfsCheckedAt}
+                    pfsCheckStatus={product.pfsCheckStatus}
+                    pfsCheckIssues={product.pfsCheckIssues as PfsVerifyIssue[] | null}
+                  />
+                </span>
               </div>
-              <div className="flex items-center gap-1 mt-0.5 min-w-0">
+              <div className="flex items-center gap-1 mt-1 min-w-0">
                 <p className="font-mono text-[11px] text-text-muted truncate">{product.reference}</p>
                 <button
                   type="button"
@@ -2717,8 +3082,10 @@ function ProductRow({
                 </button>
               </div>
               {/* Prix + icônes Important/Verrouiller sous la référence.
-                  Toujours visibles pour libérer la largeur du tableau. */}
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  Toujours visibles pour libérer la largeur du tableau.
+                  stopPropagation sur les toggles pour éviter de toggle la
+                  sélection de la ligne en cliquant sur ⭐ ou 🔒. */}
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 {!isNaN(minPrice) ? (
                   <span className="font-semibold text-text-primary text-[12.5px] tabular-nums">
                     {minPrice.toFixed(2)} EUR
@@ -2726,15 +3093,15 @@ function ProductRow({
                 ) : (
                   <span className="text-text-muted text-[11px]">—</span>
                 )}
-                <div className="flex items-center gap-0.5">
+                <span className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
                   <ProductImportantToggle productId={product.id} initialImportant={product.important} variant="icon" />
                   <ProductLockToggle productId={product.id} initialLocked={product.locked} variant="icon" />
-                </div>
+                </span>
               </div>
               {/* Couleurs attribuées au produit — une pastille par couleur
                   unique (UNIT + PACK confondus), légende flottante au survol. */}
               {uniqueColors.length > 0 && (
-                <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                <div className="flex items-center gap-1 mt-2 flex-wrap">
                   {uniqueColors.map((v) => (
                     <ColorSwatch
                       key={v.colorId!}
@@ -2745,51 +3112,92 @@ function ProductRow({
                   ))}
                 </div>
               )}
-              {/* État compact pour mobile (< md).
-                  Masqué dès qu'on a la colonne État dédiée. */}
-              <div className="md:hidden flex items-center gap-2 mt-1.5 flex-wrap">
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border ${
-                  product.status === "ONLINE" ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
-                    : product.status === "SYNCING" ? "bg-blue-50 text-blue-700 border-blue-200"
-                    : product.status === "ARCHIVED" ? "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA]"
-                    : "bg-bg-secondary text-text-secondary border-border"
-                }`}>
-                  <span className={`w-1 h-1 rounded-full ${
-                    product.status === "ONLINE" ? "bg-[#22C55E]"
-                      : product.status === "SYNCING" ? "bg-blue-500"
-                      : product.status === "ARCHIVED" ? "bg-[#F59E0B]"
-                      : "bg-[#9CA3AF]"
-                  }`} />
-                  {product.status === "ONLINE" ? "En ligne"
-                    : product.status === "SYNCING" ? "En sync"
-                    : product.status === "ARCHIVED" ? "Archivé"
-                    : "Hors ligne"}
-                </span>
-              </div>
               {/* Badges marketplaces compacts pour mobile + tablette (< lg).
-                  Format A validé maquette 2026-07-13 : les 4 badges (PFS/EF/AK/Faire)
-                  restent alignés horizontalement sur leur propre ligne (flex-nowrap),
-                  chaque badge en flex-1 pour se répartir équitablement la largeur
-                  disponible et garantir qu'aucun ne déborde. Non-interactifs :
-                  simple aperçu du statut. Les actions passent par le menu ⋮. */}
-              <div className="lg:hidden flex items-stretch gap-1 mt-1.5 w-full flex-nowrap">
-                <MpDot label="PFS" active={hasPfsConfig && pfsBadgeState.online} syncRequired={pfsBadgeState.syncRequired} disabled={pfsDisabledOverall} />
+                  Alignés horizontalement (flex-nowrap + flex-1 chacun) pour
+                  qu'aucun ne déborde quel que soit le nombre configurés.
+                  Non-interactifs : simple aperçu du statut. Les actions passent
+                  par le menu ⋮. Ajout Microstore le 2026-07-29. */}
+              {/* Les brouillons ne peuvent pas être publiés → on cache complètement
+                  la barre des badges marketplace pour éviter la confusion. */}
+              {!product.isIncomplete && (
+              <div className="lg:hidden flex items-stretch gap-1 mt-2.5 w-full flex-nowrap">
+                {/* Règle de clic sur badges compact :
+                    - vert (à jour) ou orange (sync nécessaire) → synchroniser
+                    - gris (non lié) → publier / créer la fiche marketplace
+                    - rayé (désactivé) → non cliquable */}
+                <MpDot
+                  label="PFS"
+                  active={hasPfsConfig && pfsBadgeState.online}
+                  syncRequired={pfsBadgeState.syncRequired}
+                  disabled={pfsDisabledOverall}
+                  busy={isPfsPublishing}
+                  onClick={pfsOperational ? (
+                    pfsBadgeState.online
+                      ? () => void handleSyncPfs()
+                      : () => handlePublishPfs()
+                  ) : undefined}
+                />
                 {showEfashion && (
-                  <MpDot label="EF" active={efashionBadgeState.online} syncRequired={efashionBadgeState.syncRequired} disabled={efashionDisabledOverall} />
+                  <MpDot
+                    label="EF"
+                    active={efashionBadgeState.online}
+                    syncRequired={efashionBadgeState.syncRequired}
+                    disabled={efashionDisabledOverall}
+                    shootingPending={!!efashionShootingPending}
+                    busy={isEfashionPublishing}
+                    onClick={efashionOperational && !efashionShootingPending ? (
+                      efashionBadgeState.online
+                        ? () => void handleSyncEfashion()
+                        : () => handlePublishEfashion()
+                    ) : undefined}
+                  />
                 )}
                 {showAnkorstore && (
-                  <MpDot label="AK" active={ankorstoreBadgeState.online} syncRequired={ankorstoreBadgeState.syncRequired} disabled={ankorsDisabledOverall} />
+                  <MpDot
+                    label="AK"
+                    active={ankorstoreBadgeState.online}
+                    syncRequired={ankorstoreBadgeState.syncRequired}
+                    disabled={ankorsDisabledOverall}
+                    busy={isAnkorstorePublishing}
+                    onClick={ankorstoreOperational ? (
+                      ankorstoreBadgeState.online
+                        ? () => void handleSyncAnkorstore()
+                        : () => handlePublishAnkorstore()
+                    ) : undefined}
+                  />
                 )}
                 {showFaire && (
-                  <MpDot label="Faire" active={faireBadgeState.online} syncRequired={faireBadgeState.syncRequired} disabled={faireDisabledOverall} />
+                  <MpDot
+                    label="FA"
+                    active={faireBadgeState.online}
+                    syncRequired={faireBadgeState.syncRequired}
+                    disabled={faireDisabledOverall}
+                    busy={isFairePublishing}
+                    onClick={faireOperational ? (
+                      faireBadgeState.online
+                        ? () => void handleSyncFaire()
+                        : () => handlePublishFaire()
+                    ) : undefined}
+                  />
+                )}
+                {hasMicrostoreConfig && (
+                  <MpDot
+                    label="MC"
+                    active={!!product.microstoreLastPushedAt}
+                    syncRequired={product.microstoreSyncRequired}
+                    disabled={!product.microstoreEnabled}
+                    busy={microstoreBusy}
+                    onClick={product.microstoreEnabled ? () => void handleSyncMicrostore() : undefined}
+                  />
                 )}
               </div>
+              )}
             </div>
           </div>
         </td>
 
         {/* Marketplaces */}
-        <td className="hidden lg:table-cell px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
+        <td className="hidden lg:table-cell px-3 py-3.5">
           {shouldShowDraftMarketplaceNotice({
             isIncomplete: product.isIncomplete,
             pfsProductId: product.pfsProductId,
@@ -2839,6 +3247,8 @@ function ProductRow({
                   onCancelSyncRequired={() => handleCancelSyncRequired("efashion", "eFashion Paris")}
                   disabledForProduct={efashionDisabledOverall}
                   disabledReason={maintenance.efashion ? "maintenance" : "product"}
+                  shootingPending={efashionShootingPending}
+                  onShootingClick={() => openRailWidget("shooting")}
                 />
               ) : (
                 <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-secondary text-text-muted border border-border">
@@ -2893,7 +3303,7 @@ function ProductRow({
         </td>
 
         {/* Statut */}
-        <td className="hidden md:table-cell px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
+        <td className="hidden md:table-cell px-3 py-3.5">
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5 flex-nowrap">
               {product.isIncomplete && product.status !== "ONLINE" && !product.pfsProductId ? (
@@ -2955,7 +3365,7 @@ function ProductRow({
 
         {/* Dates — Créé / Modifié / Rafraîchi sur 3 lignes (lignes masquées si
             vides ou égales à la création). */}
-        <td className="hidden xl:table-cell px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
+        <td className="hidden xl:table-cell px-3 py-3">
           <ProductDatesCell
             createdAt={product.createdAt}
             updatedAt={product.updatedAt}
@@ -2969,14 +3379,43 @@ function ProductRow({
         </td>
 
         {/* Actions */}
-        <td className="px-3 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
-          <div ref={actionsRef} className="relative inline-block">
+        <td className="relative p-0 md:px-3 md:py-3.5 text-right align-top md:align-middle" onClick={(e) => e.stopPropagation()}>
+          {/* Badge statut collé au coin haut-droit de la ligne (mobile only).
+              Positionné dans le td Actions car c'est la dernière colonne visible
+              → vraiment aligné sur le bord droit de la ligne, au niveau du ⋮. */}
+          <span
+            className="md:hidden absolute top-0 right-0 z-20 inline-flex items-center px-2.5 py-1 rounded-bl-md text-[11px] font-bold uppercase tracking-wide text-white shadow-md whitespace-nowrap"
+            style={{
+              backgroundColor: product.isIncomplete
+                ? "#7C3AED"
+                : product.status === "ONLINE"
+                  ? "#059669"
+                  : product.status === "SYNCING"
+                    ? "#2563EB"
+                    : product.status === "ARCHIVED"
+                      ? "#EA580C"
+                      : "#64748B",
+            }}
+          >
+            {product.isIncomplete
+              ? "Brouillon"
+              : product.status === "ONLINE"
+                ? "En ligne"
+                : product.status === "SYNCING"
+                  ? "En sync"
+                  : product.status === "ARCHIVED"
+                    ? "Archivé"
+                    : "Hors ligne"}
+          </span>
+          {/* Bouton ⋮ : sur mobile poussé en bas de la cellule pour laisser la
+              place au badge en haut. Sur desktop centré verticalement (align-middle). */}
+          <div ref={actionsRef} className="relative inline-block mt-10 mr-1.5 md:mt-0 md:mr-0">
             <button
               type="button"
               onClick={() => setActionsOpen((v) => !v)}
               aria-label="Actions du produit"
               title="Actions"
-              className={`inline-flex items-center justify-center w-9 h-9 rounded-lg transition-all ${
+              className={`inline-flex items-center justify-center w-8 h-8 md:w-9 md:h-9 rounded-lg transition-all ${
                 actionsOpen
                   ? "bg-bg-tertiary border border-border text-text-primary"
                   : "bg-transparent border border-transparent text-text-muted hover:bg-bg-tertiary hover:border-border hover:text-text-primary"
@@ -3036,12 +3475,12 @@ function ProductRow({
         </td>
       </tr>
 
-      {/* ── Tiroir variantes (refonte cockpit) ── */}
+      {/* ── Tiroir variantes DESKTOP (comportement d'origine) ──
+          S'ouvre inline sous la ligne quand l'admin clique sur la ligne. */}
       {expanded && (
-        <tr>
+        <tr className="hidden md:table-row">
           <td colSpan={7} className="p-0">
             <div className="drawer-variant-container">
-              {/* En-tête du tiroir */}
               <div className="drawer-variant-header relative flex items-center justify-between">
                 <div className="flex items-center gap-3.5">
                   <div className="w-1 h-9 rounded-full bg-gradient-to-b from-emerald-400 to-emerald-700" />
@@ -3067,8 +3506,6 @@ function ProductRow({
                   </svg>
                 </Link>
               </div>
-
-              {/* Table des variantes */}
               <div className="drawer-variant-table-wrap">
                 <table className="w-full text-sm">
                   <thead>
@@ -3081,11 +3518,6 @@ function ProductRow({
                       <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Stock</th>
                       <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Poids</th>
                     </tr>
-                    {/* Ligne « Modifier toute la colonne » : un champ par colonne
-                        éditable (Prix HT, Stock, Poids). Écrire une valeur puis
-                        Entrée / clic ailleurs applique la valeur à toutes les
-                        variantes en attente ; le bandeau Appliquer/Annuler en
-                        bas du tiroir prend ensuite le relais. */}
                     <tr className="drawer-variant-bulk-row">
                       <th className="px-4 py-2 text-left">
                         <BulkDisabledEditor
@@ -3158,10 +3590,164 @@ function ProductRow({
                   </tbody>
                 </table>
               </div>
-              {/* Bandeau apply/cancel : géré globalement au niveau AdminProductsTable */}
             </div>
           </td>
         </tr>
+      )}
+
+      {/* ── Modale variantes plein écran MOBILE only ──
+          Ouverte via le menu ⋮ → « Modifier les variantes ». Rendue dans
+          document.body pour éviter d'être coincée dans le <tbody> (invalide HTML). */}
+      {expanded && createPortal(
+        <div className="md:hidden fixed inset-0 z-[9998] flex flex-col">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-slate-900/60"
+            onClick={onExpandToggle}
+            aria-hidden
+          />
+          {/* Panel — plein écran sur mobile, carte centrée max sur desktop */}
+          <div
+            className="relative flex flex-col bg-bg-primary w-full h-full md:h-auto md:max-h-[90vh] md:w-full md:max-w-6xl md:rounded-2xl md:shadow-2xl overflow-hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Variantes de ${product.name}`}
+          >
+            {/* Header sticky */}
+            <div className="shrink-0 flex items-center gap-3 px-4 md:px-6 py-3 md:py-4 border-b border-border">
+              <div className="w-1 h-9 rounded-full bg-gradient-to-b from-emerald-400 to-emerald-700 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700 mb-0.5">
+                  Variantes
+                </div>
+                <div className="font-heading text-base md:text-xl font-bold text-text-primary leading-tight truncate">
+                  {product.name}
+                  <span className="ml-2 text-text-muted font-normal text-sm font-body">
+                    · {product.colors.length} variante{product.colors.length > 1 ? "s" : ""}
+                  </span>
+                </div>
+              </div>
+              <Link
+                href={`/admin/produits/${product.id}/modifier`}
+                className="hidden md:inline-flex items-center gap-1.5 text-xs font-semibold text-text-muted hover:text-text-primary transition-colors no-underline shrink-0"
+              >
+                Édition complète
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                </svg>
+              </Link>
+              <button
+                type="button"
+                onClick={onExpandToggle}
+                aria-label="Fermer"
+                className="shrink-0 w-10 h-10 rounded-full bg-bg-secondary hover:bg-bg-tertiary text-text-primary flex items-center justify-center"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Body scrollable — cartes variantes MOBILE only.
+                On garde le tableau pour ≥ md dans le tiroir inline plus haut ;
+                ici on est déjà en `md:hidden`, donc le layout carte est
+                l'unique affichage de la modale. Zéro scroll horizontal. */}
+            <div className="flex-1 overflow-auto bg-bg-secondary/30">
+              <div className="px-4 pt-3 pb-2 text-[12px] text-text-muted">
+                Cliquez sur un chiffre pour l'éditer.
+              </div>
+
+              {/* Accordion « Modifier toute la colonne » — replié par défaut */}
+              <details className="mx-4 mb-4 rounded-xl bg-bg-primary border border-border">
+                <summary className="px-4 py-3 cursor-pointer flex items-center justify-between list-none select-none">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">
+                    Modifier toute la colonne ↓
+                  </span>
+                  <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </summary>
+                <div className="px-4 pb-4 pt-1 border-t border-border-light space-y-3">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1.5">État global</div>
+                    <BulkDisabledEditor
+                      allCurrentlyDisabled={product.colors.every((v) => {
+                        const dirty = dirtyEdits[v.id]?.disabled;
+                        return (dirty as boolean | undefined) ?? v.disabled;
+                      })}
+                      onApplyAll={(disabled) => {
+                        for (const v of product.colors) {
+                          onCommitCell(v.id, "disabled", disabled, v.disabled);
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1.5">Prix HT unitaire</div>
+                      <BulkColumnEditor
+                        columnLabel="prix HT unitaire"
+                        isInt={false}
+                        suffix="€"
+                        onApplyAll={(unitValue) => {
+                          const packQtyEdits: Record<string, number | undefined> = {};
+                          for (const v of product.colors) {
+                            packQtyEdits[v.id] = dirtyEdits[v.id]?.packQty as number | undefined;
+                          }
+                          const edits = computeBulkPriceEdits(product.colors, unitValue, packQtyEdits);
+                          for (const e of edits) {
+                            onCommitCell(e.variantId, "price", e.newTotal, e.originalPrice);
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1.5">Stock</div>
+                      <BulkColumnEditor
+                        columnLabel="stock"
+                        isInt
+                        onApplyAll={(value) => {
+                          for (const v of product.colors) {
+                            onCommitCell(v.id, "stock", value, v.stock);
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1.5">Poids</div>
+                      <BulkColumnEditor
+                        columnLabel="poids"
+                        isInt={false}
+                        suffix="kg"
+                        onApplyAll={(value) => {
+                          for (const v of product.colors) {
+                            onCommitCell(v.id, "weight", value, v.weight);
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              {/* Cartes variantes empilées verticalement */}
+              <div className="px-4 pb-6 flex flex-col gap-3">
+                {product.colors.map((variant) => (
+                  <VariantCardMobile
+                    key={variant.id}
+                    variant={variant}
+                    editsForVariant={dirtyEdits[variant.id] ?? {}}
+                    onCommitCell={onCommitCell}
+                  />
+                ))}
+              </div>
+            </div>
+            {/* Le bandeau Appliquer/Annuler des modifications est global (bas
+                de page AdminProductsTable) et reste visible pendant que la
+                modale est ouverte. */}
+          </div>
+        </div>,
+        document.body,
       )}
 
       {/* ⚠️ Modales rendues via createPortal sur document.body : sinon elles
@@ -3390,12 +3976,15 @@ function TableWithTopScroll({
 }) {
   return (
     <div className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
-      {/* Table — pas de min-width, les colonnes secondaires disparaissent aux petits breakpoints */}
-      <div>
-        <table className="w-full text-sm font-body">
+      {/* Table — pas de min-width, les colonnes secondaires disparaissent aux petits breakpoints.
+          Sur mobile (< md) : padding cellules réduit, colonne actions étroite,
+          table-fixed pour que la colonne Produit prenne exactement la largeur restante
+          → aucun scroll horizontal quel que soit le contenu. */}
+      <div className="max-w-full overflow-x-hidden">
+        <table className="w-full text-sm font-body table-fixed md:table-auto">
           <thead>
             <tr className="table-header">
-              <th className="px-4 py-3.5 w-10">
+              <th className="hidden md:table-cell px-2 md:px-4 py-3.5 w-10">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -3405,11 +3994,11 @@ function TableWithTopScroll({
                 />
               </th>
               <th className="hidden sm:table-cell px-2 py-3.5 w-10 text-center text-[10px] font-bold text-text-muted uppercase tracking-widest">#</th>
-              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Produit</th>
+              <th className="px-3 md:px-5 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Produit</th>
               <th className="hidden lg:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Marketplaces</th>
               <th className="hidden md:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">État</th>
               <th className="hidden xl:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Dates</th>
-              <th className="px-3 py-3.5 text-right text-[10px] w-28"></th>
+              <th className="px-1.5 md:px-3 py-3.5 text-right text-[10px] w-10 md:w-28"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border-light">
@@ -5434,16 +6023,26 @@ function MpDot({
   active,
   syncRequired,
   disabled = false,
+  shootingPending = false,
+  onClick,
+  busy = false,
 }: {
   label: string;
   active: boolean;
   syncRequired: boolean;
   disabled?: boolean;
+  shootingPending?: boolean;
+  /** Si fourni, le badge devient cliquable (publier / synchroniser). Le
+      stopPropagation est géré ici pour ne pas déclencher la sélection de ligne. */
+  onClick?: () => void;
+  busy?: boolean;
 }) {
+  // Tailles bumpées (mobile) : h-7 + text-[11.5px] + px-2 (au lieu de h-6 + text-[10.5px] + px-1.5).
+  const sizeCls = "gap-1.5 flex-1 min-w-0 px-2 h-7 rounded-md text-[11.5px] font-semibold border leading-none";
   if (disabled) {
     return (
       <span
-        className="inline-flex items-center justify-center gap-1 flex-1 min-w-0 px-1.5 h-6 rounded-md text-[10.5px] font-semibold border leading-none text-text-muted border-border-dark"
+        className={`inline-flex items-center justify-center ${sizeCls} text-text-muted border-border-dark`}
         style={{
           background:
             "repeating-linear-gradient(45deg,#FAFAFA,#FAFAFA 6px,#F4F4F5 6px,#F4F4F5 12px)",
@@ -5451,7 +6050,18 @@ function MpDot({
         title={`${label} — marketplace désactivée`}
       >
         <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-text-muted" />
-        <span className="truncate line-through decoration-[1.5px]">{label}</span>
+        <span className="whitespace-nowrap line-through decoration-[1.5px]">{label}</span>
+      </span>
+    );
+  }
+  if (shootingPending) {
+    return (
+      <span
+        className={`inline-flex items-center justify-center ${sizeCls} bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]`}
+        title={`${label} — en attente de shooting eFashion`}
+      >
+        <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-[#F59E0B]" />
+        <span className="whitespace-nowrap">{label}</span>
       </span>
     );
   }
@@ -5462,13 +6072,43 @@ function MpDot({
       ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
       : "bg-bg-secondary text-text-muted border-border";
   const dotCls = isSync ? "bg-[#F97316]" : active ? "bg-[#22C55E]" : "bg-slate-300";
+  const title = isSync
+    ? `${label} — cliquer pour synchroniser`
+    : active
+      ? `${label} — en ligne`
+      : `${label} — cliquer pour publier`;
+  if (!onClick) {
+    return (
+      <span
+        className={`inline-flex items-center justify-center ${sizeCls} ${cls}`}
+        title={`${label} — ${isSync ? "synchronisation nécessaire" : active ? "en ligne" : "hors ligne"}`}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotCls}`} />
+        <span className="whitespace-nowrap">{label}</span>
+      </span>
+    );
+  }
   return (
-    <span
-      className={`inline-flex items-center justify-center gap-1 flex-1 min-w-0 px-1.5 h-6 rounded-md text-[10.5px] font-semibold border leading-none ${cls}`}
-      title={`${label} — ${isSync ? "synchronisation nécessaire" : active ? "en ligne" : "hors ligne"}`}
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (busy) return;
+        onClick();
+      }}
+      disabled={busy}
+      className={`inline-flex items-center justify-center ${sizeCls} ${cls} ${busy ? "opacity-60 cursor-wait" : "cursor-pointer active:scale-95"} transition-transform`}
+      title={busy ? `${label} — en cours…` : title}
     >
-      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotCls}`} />
-      <span className="truncate">{label}</span>
-    </span>
+      {busy ? (
+        <svg className="w-3 h-3 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+      ) : (
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotCls}`} />
+      )}
+      <span className="whitespace-nowrap">{label}</span>
+    </button>
   );
 }

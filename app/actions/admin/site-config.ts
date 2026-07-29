@@ -606,6 +606,78 @@ export async function validateFaireCredentials(config: {
   }
 }
 
+/**
+ * Liste des codes ISO alpha-2 dont on ne veut PAS afficher la mention
+ * « Made in {pays} » dans les descriptions envoyées à Faire.
+ * Stockée en JSON dans SiteConfig[faire_made_in_excluded_isocodes].
+ *
+ * Effet de bord : les produits déjà liés à Faire dont le pays de fabrication
+ * a changé de statut (nouvellement coché ou décoché) sont marqués
+ * `faireSyncRequired = true` pour que le badge « Synchro nécessaire » s'affiche
+ * — la cliente devra les rafraîchir pour pousser la nouvelle description.
+ */
+export async function updateFaireMadeInExcluded(
+  isoCodes: string[]
+): Promise<{ success: boolean; error?: string; markedForSync?: number }> {
+  try {
+    await requireAdmin();
+    const cleaned = Array.from(
+      new Set(
+        (isoCodes ?? [])
+          .map((c) => (typeof c === "string" ? c.trim().toUpperCase() : ""))
+          .filter((c) => /^[A-Z]{2}$/.test(c)),
+      ),
+    );
+
+    // Lire l'ancienne liste AVANT d'écrire pour calculer le diff symétrique
+    // (pays ajoutés ∪ pays retirés). Seuls ces pays méritent un re-sync :
+    // un produit Made in France n'est pas impacté quand on ajoute la Chine
+    // à la liste d'exclusion.
+    const oldRow = await prisma.siteConfig.findFirst({
+      where: { key: "faire_made_in_excluded_isocodes" },
+      select: { value: true },
+    });
+    let oldList: string[] = [];
+    if (oldRow?.value) {
+      try {
+        const parsed = JSON.parse(oldRow.value);
+        if (Array.isArray(parsed)) {
+          oldList = parsed
+            .filter((c): c is string => typeof c === "string")
+            .map((c) => c.trim().toUpperCase())
+            .filter((c) => /^[A-Z]{2}$/.test(c));
+        }
+      } catch { /* liste vide */ }
+    }
+    const oldSet = new Set(oldList);
+    const newSet = new Set(cleaned);
+    const changed: string[] = [];
+    for (const c of oldSet) if (!newSet.has(c)) changed.push(c);
+    for (const c of newSet) if (!oldSet.has(c)) changed.push(c);
+
+    await setSiteConfig("faire_made_in_excluded_isocodes", JSON.stringify(cleaned));
+
+    let markedForSync = 0;
+    if (changed.length > 0) {
+      const res = await prisma.product.updateMany({
+        where: {
+          faireProductId: { not: null },
+          countryIsoCode: { in: changed },
+        },
+        data: { faireSyncRequired: true },
+      });
+      markedForSync = res.count;
+    }
+
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    if (markedForSync > 0) revalidateTag("products", "default");
+    return { success: true, markedForSync };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
 // ─── Microstore (Dokkr) — session QR-code, expire ~1 an ────────────────────
 
 /**

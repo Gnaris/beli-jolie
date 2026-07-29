@@ -48,6 +48,7 @@ import {
 } from "@/lib/faire-prices";
 import { loadMarketplaceMarkupConfigs } from "@/lib/marketplace-pricing";
 import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
+import { getCachedFaireMadeInExcluded } from "@/lib/cached-data";
 
 export type FaireUpdateResult =
   | { success: true; diff: FaireSyncDiff; noop: boolean }
@@ -122,6 +123,16 @@ export function buildPatchBody(
   fullBody: Record<string, unknown>,
   pricesOnly: boolean,
   hasNewVariants: boolean = false,
+  /**
+   * Sur une resync forcée (link ou clic « Resynchroniser »), on inclut
+   * `variants[]` avec `id` + `prices[]` même quand aucune nouvelle variante
+   * n'est à créer. C'est le seul chemin fiable pour propager le prix de
+   * vente (retail_price) : la doc Faire indique que `PATCH /products/{id}`
+   * avec `variants[].prices[]` marche à 100 %, alors que le batch
+   * `/product-prices/by-skus` (utilisé sinon) est « INCONSTANT » et laisse
+   * parfois le retail inchangé (cf. docs/faire-api.md:63).
+   */
+  forceIncludeVariantsWithPrices: boolean = false,
 ): Record<string, unknown> {
   if (pricesOnly) {
     // Cas prix-only : on update via le batch /product-prices/by-skus à la fin
@@ -160,7 +171,11 @@ export function buildPatchBody(
   // Renvoyer le lifecycle « voulu » à chaque PATCH garantit que Faire
   // converge vers notre état BJ. C'est idempotent côté Faire (un PATCH avec
   // le même lifecycle ne fait rien).
-  const willPatch = diff.productChanged || diff.lifecycleChanged || hasNewVariants;
+  const willPatch =
+    diff.productChanged ||
+    diff.lifecycleChanged ||
+    hasNewVariants ||
+    forceIncludeVariantsWithPrices;
   if (willPatch) {
     out.lifecycle_state = fullBody.lifecycle_state;
   }
@@ -170,12 +185,23 @@ export function buildPatchBody(
   // les variantes manquantes en une opération atomique. Voir l'en-tête de
   // cette fonction pour le raisonnement complet.
   //
+  // Sur `forceIncludeVariantsWithPrices` (resync/link) sans nouvelle
+  // variante, on envoie quand même `variants[]` avec `id` + `prices[]` mais
+  // SANS `variant_option_sets` (pas de changement d'axes, Faire refuserait
+  // le rename d'options existantes). Ce format garantit l'application du
+  // retail_price — le batch by-skus qui suit sert de filet mais n'est plus
+  // notre seul canal.
+  //
   // ⚠️ Pour les variantes EXISTANTES (qui ont un `id` Faire), on retire
   // `images` du payload si leurs images n'ont pas changé. Sinon Faire les
   // re-traite et déclenche l'erreur « 2 images principales ». Les nouvelles
   // variantes (sans `id`) conservent leurs `images` (création).
-  if (hasNewVariants) {
-    if (Array.isArray(fullBody.variant_option_sets)) {
+  const shouldSendVariants = hasNewVariants || forceIncludeVariantsWithPrices;
+  if (shouldSendVariants) {
+    if (hasNewVariants && Array.isArray(fullBody.variant_option_sets)) {
+      // variant_option_sets seulement quand on crée : sinon Faire rejette
+      // « Product variant options cannot be changed » si les libellés d'axes
+      // ont bougé entre 2 syncs.
       out.variant_option_sets = fullBody.variant_option_sets;
     }
     if (Array.isArray(fullBody.variants)) {
@@ -342,7 +368,8 @@ export async function faireUpdateProduct(
     };
   }
 
-  const ctxResult = buildPublishContext(product);
+  const excludedMadeInIsoCodes = await getCachedFaireMadeInExcluded();
+  const ctxResult = buildPublishContext(product, { excludedMadeInIsoCodes });
   if (!ctxResult.ok || !ctxResult.ctx) {
     return { success: false, error: ctxResult.reason ?? "Contexte Faire invalide." };
   }
@@ -644,6 +671,10 @@ export async function faireUpdateProduct(
     body as Record<string, unknown>,
     pricesOnlyMode,
     hasNewVariants,
+    // Sur resync forcée : inclut variants[] avec prices[] via le chemin
+    // fiable PATCH /products/{id} (batch by-skus laisse parfois le retail
+    // inchangé — cf. docs/faire-api.md:63).
+    forceFullSync,
   );
 
   const hasProductPatchPayload = Object.keys(patchBody).length > 0;

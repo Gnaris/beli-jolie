@@ -102,6 +102,9 @@ docs/superpowers/
 # Dumps prod tirés en local (multi-tenant test)
 /dumps/
 
+# Dumps produits/images ponctuels (scripts/dev/dump-30-products.ts etc.)
+/tmp-dump/
+
 # Scripts de dev multi-tenant test (crawl agents + rapports)
 /scripts/dev/multi-tenant-test/
 

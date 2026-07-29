@@ -166,3 +166,52 @@ describe("buildPublishContext — description enrichie (taille + made in)", () =
     );
   });
 });
+
+describe("buildPublishContext — exclusion « Made in » configurable", () => {
+  it("omet « Made in {pays} » quand l'isoCode est dans la liste d'exclusion", () => {
+    const ctx = buildPublishContext(
+      makeProduct({ countryIsoCode: "CN", description: "Bracelet." }),
+      { excludedMadeInIsoCodes: ["CN"] },
+    );
+    expect(ctx.ok).toBe(true);
+    expect(ctx.ctx?.description).not.toContain("Made in");
+    // countryAlpha2 reste envoyé sur le POST Faire — seule la description est
+    // filtrée.
+    expect(ctx.ctx?.countryAlpha2).toBe("CN");
+  });
+
+  it("conserve « Made in » quand l'isoCode n'est PAS dans la liste", () => {
+    const ctx = buildPublishContext(
+      makeProduct({ countryIsoCode: "FR", description: "Bracelet." }),
+      { excludedMadeInIsoCodes: ["CN", "IT"] },
+    );
+    expect(ctx.ok).toBe(true);
+    expect(ctx.ctx?.description).toContain("Made in France");
+  });
+
+  it("normalise la casse : « cn » minuscule dans la liste exclut aussi", () => {
+    const ctx = buildPublishContext(
+      makeProduct({ countryIsoCode: "CN" }),
+      { excludedMadeInIsoCodes: ["cn"] },
+    );
+    expect(ctx.ok).toBe(true);
+    expect(ctx.ctx?.description).not.toContain("Made in");
+  });
+
+  it("liste vide : comportement identique à l'ancien (mention affichée)", () => {
+    const ctx = buildPublishContext(
+      makeProduct({ countryIsoCode: "CN" }),
+      { excludedMadeInIsoCodes: [] },
+    );
+    expect(ctx.ok).toBe(true);
+    expect(ctx.ctx?.description).toContain("Made in China");
+  });
+
+  it("option non passée : comportement identique à l'ancien (mention affichée)", () => {
+    const ctx = buildPublishContext(
+      makeProduct({ countryIsoCode: "IT" }),
+    );
+    expect(ctx.ok).toBe(true);
+    expect(ctx.ctx?.description).toContain("Made in Italy");
+  });
+});

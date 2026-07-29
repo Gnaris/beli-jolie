@@ -67,6 +67,7 @@ export default function LinkMarketplaceModal({
   const [preview, setPreview] = useState<LinkPreview | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [markup, setMarkup] = useState<MarkupConfig | null>(null);
+  const [secondaryMarkup, setSecondaryMarkup] = useState<MarkupConfig | null>(null);
   const [shopName, setShopName] = useState<string>("notre boutique");
   const [mapping, setMapping] = useState<Record<string, string>>({});
   // Intentions explicites de l'admin sur les couleurs non-mappées :
@@ -79,20 +80,31 @@ export default function LinkMarketplaceModal({
   const [orphansToDelete, setOrphansToDelete] = useState<Set<string>>(() => new Set());
   const [orphansToImport, setOrphansToImport] = useState<Set<string>>(() => new Set());
 
-  // Charge la config majoration + nom boutique du tenant courant une seule fois
+  // Charge la config majoration + nom boutique du tenant courant une seule fois.
+  // Pour Ankorstore, on charge en plus la 2ᵉ majoration (retail) pour afficher
+  // la ligne « Prix de vente/u ».
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await getMarketplaceMarkupConfig(meta.markupKey);
-      if (!cancelled && res.success) {
-        setMarkup(res.data.markup);
-        setShopName(res.data.shopName);
+      const primary = await getMarketplaceMarkupConfig(meta.markupKey);
+      if (cancelled) return;
+      if (primary.success) {
+        setMarkup(primary.data.markup);
+        setShopName(primary.data.shopName);
+      }
+      if (meta.secondaryMarkupKey) {
+        const secondary = await getMarketplaceMarkupConfig(meta.secondaryMarkupKey);
+        if (!cancelled && secondary.success) {
+          setSecondaryMarkup(secondary.data.markup);
+        }
+      } else if (!cancelled) {
+        setSecondaryMarkup(null);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [meta.markupKey]);
+  }, [meta.markupKey, meta.secondaryMarkupKey]);
 
   // Fabrique le mapping initial : liens existants + suggestion auto par nom
   const buildInitialMapping = useCallback(
@@ -418,6 +430,7 @@ export default function LinkMarketplaceModal({
                 preview={preview}
                 mapping={mapping}
                 markup={markup}
+                secondaryMarkup={secondaryMarkup}
                 shopName={shopName}
                 colorsToCreate={colorsToCreate}
                 onToggleMapping={setColorMapping}
@@ -909,6 +922,7 @@ function Step3Colors({
   preview,
   mapping,
   markup,
+  secondaryMarkup,
   shopName,
   colorsToCreate,
   onToggleMapping,
@@ -919,6 +933,7 @@ function Step3Colors({
   preview: LinkPreview;
   mapping: Record<string, string>;
   markup: MarkupConfig | null;
+  secondaryMarkup: MarkupConfig | null;
   shopName: string;
   colorsToCreate: Set<string>;
   onToggleMapping: (productColorId: string, variantId: string) => void;
@@ -981,8 +996,10 @@ function Step3Colors({
             candidates={preview.candidates}
             mapping={mapping}
             markup={markup}
+            secondaryMarkup={secondaryMarkup}
             shopName={shopName}
             isToCreate={colorsToCreate.has(local.productColorId)}
+            weightIsProductLevel={preview.weightIsProductLevel}
             onToggle={onToggleMapping}
             onToggleCreate={onToggleCreate}
           />
@@ -1048,6 +1065,14 @@ function markupOperatorLabel(m: MarkupConfig): string {
   return `× ${String(m.value).replace(".", ",")} de majoration`;
 }
 
+/** Format compact « (+30 % majoration) » affiché en parenthèses à côté du prix cible. */
+function markupParenLabel(m: MarkupConfig): string {
+  if (m.value === 0) return "sans majoration";
+  if (m.type === "percent") return `+${m.value} % majoration`;
+  if (m.type === "fixed") return `+${EUR.format(m.value)} majoration`;
+  return `× ${String(m.value).replace(".", ",")} majoration`;
+}
+
 /** Attribut symétrique : libellé aligné + valeur.
  *  - Côté BJ : affiche juste la valeur (ou "—" si vide).
  *  - Côté marketplace : si valeur MKT ≠ valeur cible, barre la MKT et affiche la cible en vert.
@@ -1059,15 +1084,17 @@ function AttrRow({
   label,
   value,
   targetValue,
-  same,
   side,
   priceBreakdown,
   mktUnknown,
 }: {
   label: string;
+  /** Côté BJ = valeur boutique brute. Côté MKT = valeur brute marketplace (utilisée comme fallback si `targetValue` absent). */
   value: string;
+  /** Côté MKT uniquement : valeur cible (ce qui sera envoyé au marketplace après majoration). Prioritaire sur `value`. */
   targetValue?: string;
-  same: boolean;
+  /** `same` est calculé par le caller mais n'a plus d'impact visuel : on n'affiche plus le diff barré. Conservé pour compat future. */
+  same?: boolean;
   side: "bj" | "mkt";
   priceBreakdown?: {
     bjRaw: number;
@@ -1076,58 +1103,51 @@ function AttrRow({
   };
   mktUnknown?: boolean;
 }) {
-  if (side === "mkt" && mktUnknown) {
-    return (
-      <div className="flex items-baseline gap-2 py-1">
-        <span className="text-[10px] uppercase tracking-[0.14em] text-text-muted font-semibold w-16 shrink-0">
-          {label}
-        </span>
-        <span
-          className="text-sm text-text-muted"
-          title="Le marketplace ne renvoie pas cette information dans son API — la valeur boutique est écrasée à la sync."
-        >
-          —
-        </span>
-      </div>
-    );
-  }
-  if (side === "bj" || same) {
-    return (
-      <div className="flex items-baseline gap-2 py-1">
-        <span className="text-[10px] uppercase tracking-[0.14em] text-text-muted font-semibold w-16 shrink-0">
-          {label}
-        </span>
-        <span className="text-sm font-semibold text-text-primary">{value}</span>
-      </div>
-    );
-  }
-
-  // Diff côté marketplace : PFS barré → cible en vert
-  if (priceBreakdown && priceBreakdown.markup.value !== 0) {
+  // Côté marketplace : on affiche UNIQUEMENT la valeur qui sera appliquée
+  // (post-majoration pour les prix, boutique brute pour stock/poids). Plus de
+  // valeur marketplace barrée — la cliente veut voir directement ce qui part.
+  // La majoration éventuelle apparaît entre parenthèses.
+  if (side === "mkt") {
+    if (mktUnknown && !targetValue && !priceBreakdown) {
+      return (
+        <div className="flex items-baseline gap-2 py-1">
+          <span className="text-[10px] uppercase tracking-[0.14em] text-text-muted font-semibold w-16 shrink-0">
+            {label}
+          </span>
+          <span
+            className="text-sm text-text-muted"
+            title="Le marketplace ne renvoie pas cette information — la valeur boutique est envoyée à la sync."
+          >
+            —
+          </span>
+        </div>
+      );
+    }
+    const displayValue = priceBreakdown
+      ? EUR.format(priceBreakdown.finalPrice)
+      : targetValue ?? value;
     return (
       <div className="flex items-baseline gap-2 py-1 flex-wrap">
         <span className="text-[10px] uppercase tracking-[0.14em] text-text-muted font-semibold w-16 shrink-0">
           {label}
         </span>
-        <span className="text-sm text-text-muted line-through">{value}</span>
-        <span className="text-sm text-text-primary">{EUR.format(priceBreakdown.bjRaw)}</span>
-        <span className="text-xs text-text-muted">{markupOperatorLabel(priceBreakdown.markup)}</span>
-        <span className="text-xs text-text-muted">=</span>
-        <span className="text-sm font-semibold text-emerald-700">
-          {EUR.format(priceBreakdown.finalPrice)}
-        </span>
+        <span className="text-sm font-semibold text-text-primary">{displayValue}</span>
+        {priceBreakdown && (
+          <span className="text-xs text-text-muted">
+            ({markupParenLabel(priceBreakdown.markup)})
+          </span>
+        )}
       </div>
     );
   }
 
+  // Côté boutique : valeur brute, sans habillage.
   return (
     <div className="flex items-baseline gap-2 py-1">
       <span className="text-[10px] uppercase tracking-[0.14em] text-text-muted font-semibold w-16 shrink-0">
         {label}
       </span>
-      <span className="text-sm text-text-muted line-through">{value}</span>
-      <span className="text-xs text-emerald-600">→</span>
-      <span className="text-sm font-semibold text-emerald-700">{targetValue}</span>
+      <span className="text-sm font-semibold text-text-primary">{value}</span>
     </div>
   );
 }
@@ -1338,8 +1358,10 @@ function MappingRow({
   candidates,
   mapping,
   markup,
+  secondaryMarkup,
   shopName,
   isToCreate,
+  weightIsProductLevel,
   onToggle,
   onToggleCreate,
 }: {
@@ -1348,8 +1370,10 @@ function MappingRow({
   candidates: LinkCandidate[];
   mapping: Record<string, string>;
   markup: MarkupConfig | null;
+  secondaryMarkup: MarkupConfig | null;
   shopName: string;
   isToCreate: boolean;
+  weightIsProductLevel: boolean;
   onToggle: (productColorId: string, variantId: string) => void;
   onToggleCreate: (productColorId: string) => void;
 }) {
@@ -1374,7 +1398,29 @@ function MappingRow({
   const totalSame = linkedCand
     ? Math.abs(linkedCand.priceTotal - bjTotalPriceMarked) < 0.005
     : true;
-  const weightSame = linkedCand ? weightsAlmostEqual(local.weightKg, linkedCand.weightKg) : true;
+
+  // Prix de vente conseillé (retail) — uniquement Ankorstore : on chaîne
+  // wholesaleMarkup PUIS retailMarkup pour retomber sur ce qui sera vraiment
+  // envoyé côté marketplace (cf. lib/ankorstore-pricing.ts). Sinon on affiche
+  // simplement BJ raw × retail markup.
+  const bjRetailPriceMarked =
+    secondaryMarkup && markup
+      ? applyMarketplaceMarkup(bjUnitPriceMarked, secondaryMarkup)
+      : secondaryMarkup
+        ? applyMarketplaceMarkup(local.unitPrice, secondaryMarkup)
+        : null;
+  const retailSame =
+    linkedCand && linkedCand.retailPriceUnit != null && bjRetailPriceMarked != null
+      ? Math.abs(linkedCand.retailPriceUnit - bjRetailPriceMarked) < 0.005
+      : true;
+  // Marketplaces qui stockent le poids au niveau produit (Ankorstore) : on
+  // masque le diff par variante puisque la donnée n'existe pas à ce grain
+  // côté marketplace — on affichera juste le poids boutique, en indiquant
+  // que côté marketplace le poids est global.
+  const weightSame =
+    weightIsProductLevel || !linkedCand
+      ? true
+      : weightsAlmostEqual(local.weightKg, linkedCand.weightKg);
   const stockSame = linkedCand ? local.stock === linkedCand.stockQty : true;
   const packQtySame = linkedCand
     ? (local.packQuantity ?? null) === (linkedCand.packQuantity ?? null)
@@ -1427,7 +1473,9 @@ function MappingRow({
               ) : (
                 <AttrRow label="Prix" value={EUR.format(local.unitPrice)} same side="bj" />
               )}
-              <AttrRow label="Poids" value={formatWeight(local.weightKg)} same side="bj" />
+              {!meta.hideWeightRow && (
+                <AttrRow label="Poids" value={formatWeight(local.weightKg)} same side="bj" />
+              )}
               <AttrRow label="Stock" value={String(local.stock)} same side="bj" />
             </div>
           </div>
@@ -1589,7 +1637,7 @@ function MappingRow({
                   />
                 )}
                 <AttrRow
-                  label="Prix/u"
+                  label={meta.primaryPriceLabel ?? "Prix/u"}
                   value={EUR.format(linkedCand.priceUnit)}
                   targetValue={EUR.format(bjUnitPriceMarked)}
                   same={priceSame}
@@ -1605,6 +1653,26 @@ function MappingRow({
                       : undefined
                   }
                 />
+                {/* Ankorstore : seconde ligne « Prix de vente/u » (retail price)
+                    avec sa propre majoration. Rendue uniquement quand le
+                    marketplace expose ce concept (meta.secondaryMarkupKey). */}
+                {secondaryMarkup &&
+                  linkedCand.retailPriceUnit != null &&
+                  bjRetailPriceMarked != null && (
+                    <AttrRow
+                      label={meta.secondaryPriceLabel ?? "Prix de vente/u"}
+                      value={EUR.format(linkedCand.retailPriceUnit)}
+                      targetValue={EUR.format(bjRetailPriceMarked)}
+                      same={retailSame}
+                      side="mkt"
+                      mktUnknown={linkedCand.retailPriceUnit <= 0}
+                      priceBreakdown={{
+                        bjRaw: bjUnitPriceMarked,
+                        markup: secondaryMarkup,
+                        finalPrice: bjRetailPriceMarked,
+                      }}
+                    />
+                  )}
                 {linkedCand.type === "PACK" && (
                   <AttrRow
                     label="Total"
@@ -1624,14 +1692,16 @@ function MappingRow({
                     }
                   />
                 )}
-                <AttrRow
-                  label="Poids"
-                  value={formatWeight(linkedCand.weightKg)}
-                  targetValue={formatWeight(local.weightKg)}
-                  same={weightSame}
-                  side="mkt"
-                  mktUnknown={linkedCand.weightKg === null}
-                />
+                {!meta.hideWeightRow && (
+                  <AttrRow
+                    label="Poids"
+                    value={formatWeight(linkedCand.weightKg)}
+                    targetValue={formatWeight(local.weightKg)}
+                    same={weightSame}
+                    side="mkt"
+                    mktUnknown={linkedCand.weightKg === null}
+                  />
+                )}
                 <AttrRow
                   label="Stock"
                   value={String(linkedCand.stockQty)}

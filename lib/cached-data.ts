@@ -714,6 +714,36 @@ export const getCachedFaireEnabled = tenantScopedCacheWithTid(
   { revalidate: 300, tags: ["site-config"] }
 );
 
+/**
+ * Codes ISO alpha-2 dont la mention « Made in {pays} » NE doit PAS être
+ * append aux descriptions Faire. Retourne un Set pour lookup O(1).
+ * Stocké en JSON dans SiteConfig[faire_made_in_excluded_isocodes].
+ */
+export const getCachedFaireMadeInExcluded = tenantScopedCacheWithTid(
+  "faire-made-in-excluded",
+  async (tid) => {
+    const row = await prisma.siteConfig.findFirst({
+      where: tid === "global"
+        ? { key: "faire_made_in_excluded_isocodes" }
+        : { tenantId: tid, key: "faire_made_in_excluded_isocodes" },
+      select: { value: true },
+    });
+    if (!row?.value) return [] as string[];
+    try {
+      const arr = JSON.parse(row.value);
+      if (!Array.isArray(arr)) return [] as string[];
+      return arr
+        .filter((c): c is string => typeof c === "string")
+        .map((c) => c.trim().toUpperCase())
+        .filter((c) => /^[A-Z]{2}$/.test(c));
+    } catch {
+      return [] as string[];
+    }
+  },
+  ["faire-made-in-excluded"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
 // ─── Microstore — session key, has-config (auth QR-code, expire ~1 an) ────────
 async function readMicrostoreSessionKeyDirect(tid?: string) {
   const row = await prisma.siteConfig.findFirst({
