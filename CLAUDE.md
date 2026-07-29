@@ -136,6 +136,8 @@ Filet de sécurité contre les bugs de propagation marketplace : toute suppressi
 
 ### Marketplace pricing
 SiteConfig : 3 types (`percent`/`fixed`/`multiplier`), 3 arrondis (`none`/`up`/`down`). Clés : `{marketplace}_price_markup_{type|value|rounding}`. **PACK** : markup sur prix unitaire (total÷qty), arrondi, ×qty. Jamais sur le total.
+- **Retail = markup appliqué sur le WHOLESALE déjà majoré et arrondi** (pas sur le basePrice BJ). Convention métier confirmée juillet 2026 (bug U02 Faire) — la cliente dit « ×3 sur le prix de gros » et ça doit donner ×3 sur le wholesale, pas ×3 sur son prix d'achat interne. Faire : `applyFaireMarkupWithClamp` (lib/marketplace-pricing-shared.ts). Ankorstore : `getAnkorstoreChainedRetailPrice` (lib/ankorstore-pricing.ts).
+- **Arrondi passe TOUJOURS par les centimes entiers** (`Math.round(price*100)`) AVANT le `Math.ceil/floor` au dixième, sinon `4.2 * 3 = 12.600000000000001` en IEEE-754 fait dériver le retail d'un cran (12,60 → 12,70). Fix dans `applyMarketplaceMarkup`, ne pas le retirer.
 
 ### Import PFS
 `/admin/produits/importer-pfs` — choix → import direct. Chaque attribut manquant (compo, pays, saison, taille, couleur, catégorie) **créé auto** dans `createOrLinkMapping`. Auto-traduction en fond via API PFS. Rattrapage : `npx tsx scripts/enrich-pfs-products.ts`.

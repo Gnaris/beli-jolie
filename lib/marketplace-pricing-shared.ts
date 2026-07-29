@@ -39,16 +39,20 @@ export function applyMarketplaceMarkup(
       break;
   }
 
+  // Normalise en centimes AVANT l'arrondi pour éliminer le bruit IEEE-754.
+  // Sans ça, `4.2 * 3 = 12.600000000000001` → `Math.ceil(126.0000…) = 127`
+  // → 12,70 au lieu de 12,60 (bug reproduit sur U02 Faire, juillet 2026).
+  const cents = Math.round(price * 100);
   switch (config.rounding) {
     case "down":
-      price = Math.floor(price * 10) / 10;
+      price = (Math.floor(cents / 10) * 10) / 100;
       break;
     case "up":
-      price = Math.ceil(price * 10) / 10;
+      price = (Math.ceil(cents / 10) * 10) / 100;
       break;
     case "none":
     default:
-      price = Math.round(price * 100) / 100;
+      price = cents / 100;
       break;
   }
 
@@ -57,8 +61,15 @@ export function applyMarketplaceMarkup(
 
 /**
  * Applique le markup wholesale + retail pour Faire et clamp le retail à
- * au moins 2x le wholesale (contrainte API Faire — rejet sinon).
+ * au moins 2× le wholesale (contrainte API Faire — rejet sinon).
  * Retourne les deux prix en euros (pas en centimes).
+ *
+ * ⚠️ Le markup retail s'applique sur le WHOLESALE majoré, pas sur le
+ * basePrice BJ. Convention métier confirmée par la cliente (juillet 2026,
+ * bug U02) et alignée sur ce que fait déjà Ankorstore
+ * (`lib/ankorstore-pricing.ts:71-77`). Exemple U02 :
+ *   - base BJ 4,20 € · wholesale +20 % arrondi haut = 5,10 €
+ *   - retail ×3 sur 5,10 € = 15,30 € (et non 4,20 × 3 = 12,60 €).
  */
 export function applyFaireMarkupWithClamp(
   basePrice: number,
@@ -66,10 +77,13 @@ export function applyFaireMarkupWithClamp(
   retailConfig: MarkupConfig
 ): { wholesale: number; retail: number } {
   const wholesale = applyMarketplaceMarkup(basePrice, wholesaleConfig);
-  let retail = applyMarketplaceMarkup(basePrice, retailConfig);
+  let retail = applyMarketplaceMarkup(wholesale, retailConfig);
   const minRetail = wholesale * 2;
   if (retail < minRetail) {
-    retail = Math.ceil(minRetail * 10) / 10;
+    // Arrondi haut au dixième via passage par les centimes (même parade
+    // IEEE-754 que dans applyMarketplaceMarkup).
+    const minRetailCents = Math.round(minRetail * 100);
+    retail = (Math.ceil(minRetailCents / 10) * 10) / 100;
   }
   return { wholesale, retail };
 }

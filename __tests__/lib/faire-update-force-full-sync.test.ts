@@ -51,8 +51,15 @@ vi.mock("@/lib/prisma", () => ({
     productColor: {
       update: (...a: unknown[]) => prismaProductColorUpdateSpy(...a),
     },
+    siteConfig: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
     $transaction: (...a: unknown[]) => prismaTransactionSpy(...a),
   },
+}));
+vi.mock("@/lib/tenant", () => ({
+  getCurrentTenantIdSafe: vi.fn().mockResolvedValue(null),
+  getTenantBaseUrl: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("@/lib/faire-api", () => ({
   faireFetch: faireFetchSpy,
@@ -75,7 +82,13 @@ vi.mock("@/lib/faire-publish", () => ({
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
+vi.mock("next/cache", () => ({
+  revalidateTag: vi.fn(),
+  unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
+}));
+vi.mock("@/lib/cached-data", () => ({
+  getCachedFaireMadeInExcluded: vi.fn().mockResolvedValue([]),
+}));
 
 import { faireUpdateProduct } from "@/lib/faire-update";
 import { FAIRE_SNAPSHOT_VERSION } from "@/lib/faire-sync-diff";
@@ -202,6 +215,89 @@ beforeEach(() => {
 });
 
 describe("faireUpdateProduct — forceFullSync", () => {
+  it("avec forceFullSync=true : le PATCH /products/{id} inclut variants[].prices[] avec retail_price ET wholesale_price (chemin fiable pour retail)", async () => {
+    // Régression liaison Faire (2026-07-29) : quand l'admin lie une fiche BJ à
+    // un produit Faire existant, `retail_price` restait celui du portail Faire
+    // (le batch /product-prices/by-skus est INCONSTANT pour le retail). La
+    // parade est de porter les prix aussi dans le PATCH consolidé
+    // /products/{id} via `variants[].prices[]` (chemin fiable 100 % —
+    // cf. docs/faire-api.md:63). Ce test garantit que le body PATCH inclut
+    // bien cette structure sur un forceFullSync.
+    buildFaireProductPayloadSpy.mockReturnValueOnce({
+      body: {
+        name: "Bracelet",
+        lifecycle_state: "PUBLISHED",
+        // Aligne le mock sur le vrai buildFaireProductPayload qui pose
+        // `body.variants = variants.map(v => v.payload)`.
+        variants: VARIANT_SKUS.map((sku) => ({
+          id: `po_${sku}`,
+          sku,
+          name: sku,
+          active: true,
+          options: [{ name: "Color", value: sku }],
+          prices: [
+            {
+              geo_constraint: { country_group: "EUROPEAN_UNION" },
+              wholesale_price: { amount_minor: 800, currency: "EUR" },
+              retail_price: { amount_minor: 2000, currency: "EUR" },
+            },
+          ],
+        })),
+      },
+      variants: VARIANT_SKUS.map((sku) => ({
+        bjVariantId: `v-${sku}`,
+        sku,
+        wholesalePriceCents: 800,
+        retailPriceCents: 2000,
+        payload: {
+          id: `po_${sku}`,
+          sku,
+          name: sku,
+          active: true,
+          options: [{ name: "Color", value: sku }],
+          prices: [
+            {
+              geo_constraint: { country_group: "EUROPEAN_UNION" },
+              wholesale_price: { amount_minor: 800, currency: "EUR" },
+              retail_price: { amount_minor: 2000, currency: "EUR" },
+            },
+          ],
+          idempotence_token: sku,
+          available_quantity: 5,
+        },
+      })),
+      optionValues: VARIANT_SKUS,
+      productImagesCount: 0,
+      productImageUrls: [],
+    });
+
+    const res = await faireUpdateProduct("p-1", { forceFullSync: true });
+    expect(res.success).toBe(true);
+
+    const calls = faireFetchSpy.mock.calls as [string, { method?: string; body?: string }?][];
+    const patchProduct = calls.find(
+      ([url, init]) => url.endsWith(`/products/${encodeURIComponent("fp-1")}`) && init?.method === "PATCH",
+    );
+    expect(patchProduct, "PATCH /products/{id} envoyé").toBeTruthy();
+
+    const body = JSON.parse(patchProduct![1]!.body!) as {
+      variants?: Array<{
+        id?: string;
+        prices?: Array<{
+          wholesale_price?: { amount_minor?: number };
+          retail_price?: { amount_minor?: number };
+        }>;
+      }>;
+    };
+    expect(Array.isArray(body.variants), "variants[] présent dans le PATCH").toBe(true);
+    expect(body.variants!.length).toBe(VARIANT_SKUS.length);
+    for (const v of body.variants!) {
+      expect(v.prices, `prices[] présent pour ${v.id}`).toBeDefined();
+      expect(v.prices![0].retail_price?.amount_minor, `retail_price posé pour ${v.id}`).toBe(2000);
+      expect(v.prices![0].wholesale_price?.amount_minor, `wholesale_price posé pour ${v.id}`).toBe(800);
+    }
+  });
+
   it("sans forceFullSync : si le snapshot DB matche l'état cible, ni les prix ni le stock ne partent vers Faire", async () => {
     const res = await faireUpdateProduct("p-1");
 
