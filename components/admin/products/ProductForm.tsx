@@ -4,7 +4,7 @@ import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from
 import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, PackLineState, PfsColorOption, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack, packLinesColorList, buildVariantDuplicateKey } from "./ColorVariantManager";
 import PhotosPanel from "./PhotosPanel";
-import MarketplacesMappingSection, { type EfashionColorOption } from "./MarketplacesMappingSection";
+import MarketplacesMappingSection, { type EfashionColorOption, type LiveMarketplaceColorLabels } from "./MarketplacesMappingSection";
 import { ProductMarketplaceToggles } from "./ProductMarketplaceToggles";
 import { detectPfsColorConflicts, formatConflictsMessage } from "@/lib/pfs-color-conflicts";
 import { detectEfashionColorConflicts, formatEfashionConflictsMessage } from "@/lib/efashion-color-conflicts";
@@ -149,6 +149,11 @@ interface ProductFormProps {
   pfsColorOptions?: PfsColorOption[];
   /** Liste des couleurs eFashion disponibles (pour le sélecteur de mapping secondaire). */
   efashionColorOptions?: EfashionColorOption[];
+  /** Libellés couleur "réels côté marketplace" par variante liée, extraits des
+   *  snapshots de sync. Alimente la colonne « Variante marketplace » du bloc
+   *  Mapping pour refléter la valeur actuellement en base marketplace plutôt
+   *  que le mapping local (utile quand un override a été changé sans resync). */
+  liveMarketplaceColorLabels?: LiveMarketplaceColorLabels;
   /** True when a marketplace sync is already in progress (from DB status on page load) */
   initialSyncing?: boolean;
   initialData?: {
@@ -447,6 +452,7 @@ export default function ProductForm({
   brandedBadgeEnabled = false,
   pfsColorOptions,
   efashionColorOptions,
+  liveMarketplaceColorLabels,
   initialSyncing = false,
   initialData,
 }: ProductFormProps) {
@@ -2235,7 +2241,9 @@ export default function ProductForm({
           !onlyMicrostoreFieldChanged && showEfashion && !hasEfashionConflict && alreadyOnEfashion;
         const showFaireCase = !onlyMicrostoreFieldChanged && showFaire && alreadyOnFaire;
         // Microstore : pas de contrainte « déjà lié », voir showMicrostore.
-        const showMicrostoreCase = showMicrostore;
+        // En brouillon (produit OFFLINE), on ne propose pas le push Microstore —
+        // un produit encore hors ligne n'a rien à faire sur le point de vente.
+        const showMicrostoreCase = showMicrostore && finalStatus !== "OFFLINE";
 
         if (
           showPfsCase ||
@@ -2696,73 +2704,93 @@ export default function ProductForm({
                   ) : subCategories.length === 0 ? (
                     <p className="text-xs text-text-muted font-body py-2">Aucune sous-catégorie — créez-en une.</p>
                   ) : (
-                    <div className="flex flex-wrap gap-2 min-h-[38px] items-start">
-                      {subCategories.map((sub) => {
-                        const selected = subCategoryIds.includes(sub.id);
-                        const isMicrostoreChoice = microstoreSubCategoryId === sub.id;
-                        // Clic simple sur la sous-catégorie :
-                        //  - non sélectionnée → l'ajoute + la définit comme
-                        //    étiquette Microstore.
-                        //  - sélectionnée mais pas Microstore → la promeut en
-                        //    étiquette Microstore (sans désélectionner).
-                        //  - déjà sélectionnée + étiquette Microstore → la
-                        //    désélectionne (le choix Microstore retombe sur
-                        //    la catégorie principale).
-                        const handleClick = () => {
-                          if (!selected) {
-                            setSubCategoryIds((prev) =>
-                              prev.includes(sub.id) ? prev : [...prev, sub.id],
-                            );
-                            setMicrostoreSubCategoryId(sub.id);
-                          } else if (!isMicrostoreChoice) {
-                            setMicrostoreSubCategoryId(sub.id);
-                          } else {
-                            toggleSubCategory(sub.id);
-                            setMicrostoreSubCategoryId(null);
-                          }
-                        };
-                        return (
-                          <button
-                            key={sub.id}
-                            type="button"
-                            onClick={handleClick}
-                            title={
-                              !selected
-                                ? "Ajouter cette sous-catégorie (elle deviendra l'étiquette Microstore)"
-                                : isMicrostoreChoice
-                                  ? "Sous-catégorie envoyée à Microstore — recliquer pour désélectionner"
-                                  : "Cliquer pour utiliser cette sous-catégorie comme étiquette Microstore"
-                            }
-                            aria-pressed={isMicrostoreChoice}
-                            className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm border rounded-lg transition-colors font-body ${
-                              selected
-                                ? isMicrostoreChoice
-                                  ? "bg-bg-dark text-text-inverse border-[#1A1A1A] ring-2 ring-[#22d3ee] ring-offset-1"
-                                  : "bg-bg-dark text-text-inverse border-[#1A1A1A]"
-                                : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
-                            }`}
-                          >
-                            <span>{sub.name}</span>
-                            {isMicrostoreChoice && (
-                              <span
-                                className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8.5px] font-extrabold flex-shrink-0"
-                                style={{
-                                  background: "linear-gradient(135deg,#0891b2,#22d3ee)",
-                                }}
-                                aria-hidden
-                                title="Étiquette Microstore"
-                              >
-                                M
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <>
+                      {/* Menu déroulant : liste UNIQUEMENT les sous-catégories
+                          non encore attribuées. Cliquer une option l'ajoute au
+                          produit. Aucune n'est attribuée par défaut. */}
+                      <CustomSelect
+                        value=""
+                        onChange={(v) => {
+                          if (!v) return;
+                          setSubCategoryIds((prev) => (prev.includes(v) ? prev : [...prev, v]));
+                        }}
+                        options={[
+                          { value: "", label: "— Ajouter une sous-catégorie —" },
+                          ...subCategories
+                            .filter((sub) => !subCategoryIds.includes(sub.id))
+                            .map((sub) => ({ value: sub.id, label: sub.name })),
+                        ]}
+                        placeholder="— Ajouter une sous-catégorie —"
+                        emptyMessage="Toutes les sous-catégories sont attribuées"
+                        searchable
+                      />
+
+                      {/* Sous-catégories attribuées au produit — chips cliquables
+                          pour choisir l'étiquette Microstore, avec × pour retirer.
+                          Cliquer une chip = définir comme étiquette Microstore
+                          (ou la retirer si elle l'était déjà). */}
+                      {subCategoryIds.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-3 items-start">
+                          {subCategories
+                            .filter((sub) => subCategoryIds.includes(sub.id))
+                            .map((sub) => {
+                              const isMicrostoreChoice = microstoreSubCategoryId === sub.id;
+                              return (
+                                <div key={sub.id} className="relative inline-flex">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setMicrostoreSubCategoryId(isMicrostoreChoice ? null : sub.id)
+                                    }
+                                    title={
+                                      isMicrostoreChoice
+                                        ? "Étiquette Microstore active — cliquer pour retomber sur la catégorie principale"
+                                        : "Cliquer pour utiliser cette sous-catégorie comme étiquette Microstore"
+                                    }
+                                    aria-pressed={isMicrostoreChoice}
+                                    className={`inline-flex items-center gap-2 pl-3 pr-8 py-1.5 text-sm border rounded-lg transition-colors font-body ${
+                                      isMicrostoreChoice
+                                        ? "bg-bg-dark text-text-inverse border-[#1A1A1A] ring-2 ring-[#22d3ee] ring-offset-1"
+                                        : "bg-bg-dark text-text-inverse border-[#1A1A1A]"
+                                    }`}
+                                  >
+                                    <span>{sub.name}</span>
+                                    {isMicrostoreChoice && (
+                                      <span
+                                        className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[10px] font-extrabold leading-none flex-shrink-0"
+                                        style={{
+                                          background: "linear-gradient(135deg,#0891b2,#22d3ee)",
+                                        }}
+                                        aria-hidden
+                                      >
+                                        M
+                                      </span>
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleSubCategory(sub.id);
+                                    }}
+                                    title="Retirer cette sous-catégorie du produit"
+                                    aria-label={`Retirer ${sub.name}`}
+                                    className="absolute top-1/2 -translate-y-1/2 right-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-white/15 hover:bg-white/30 text-white transition-colors"
+                                  >
+                                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.8}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </>
                   )}
                   {subCategoryIds.length > 0 && (
                     <p className="text-[11px] text-text-muted font-body mt-2 leading-snug">
-                      Cliquez sur une sous-catégorie pour la choisir comme étiquette envoyée dans la colonne « Catégorie » de Microstore. Le badge <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-white text-[7px] font-extrabold align-middle" style={{ background: "linear-gradient(135deg,#0891b2,#22d3ee)" }}>M</span> indique la sous-catégorie active.
+                      Cliquez sur une sous-catégorie attribuée pour la choisir comme étiquette envoyée dans la colonne « Catégorie » de Microstore. Le badge <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-white text-[7px] font-extrabold align-middle" style={{ background: "linear-gradient(135deg,#0891b2,#22d3ee)" }}>M</span> indique la sous-catégorie active. Sans choix, la catégorie principale est utilisée.
                     </p>
                   )}
                 </div>
@@ -3225,6 +3253,7 @@ export default function ProductForm({
               hasFaireConfig={!!hasFaireConfig && !!faireEnabled}
               pfsColorOptions={pfsColorOptions ?? []}
               efashionColorOptions={efashionColorOptions ?? []}
+              liveMarketplaceColorLabels={liveMarketplaceColorLabels}
               onChangePfsOverride={(targets, override) => {
                 applyOverrideToTargets(setVariants, targets, (v) => ({ ...v, pfsColorRefOverride: override }), (pl) => ({ ...pl, pfsColorRefOverride: override }));
               }}

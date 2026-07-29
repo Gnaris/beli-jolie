@@ -541,13 +541,29 @@ export default function ImportPreviewBoard({
               Fichiers mal nommés ou références qui n&apos;existent pas. <strong className="text-rose-700">Ignorés au lancement</strong> — renommez-les pour les inclure.
             </p>
             {(hasFormat || hasRef) && (
-              <button
-                type="button"
-                onClick={toggleAllNotFound}
-                className="shrink-0 text-[11px] px-2.5 py-1 rounded-full bg-bg-primary border border-rose-200 text-rose-800 font-body font-medium hover:border-rose-500 hover:bg-rose-50/60 transition-colors"
-              >
-                {allNotFoundClosed ? "Tout ouvrir" : "Tout fermer"}
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const names = [
+                      ...buckets.notFoundFormat.map((f) => f.name),
+                      ...buckets.notFoundRef.map(({ file }) => file.name),
+                    ];
+                    for (const n of names) onRemoveFile(n);
+                  }}
+                  className="text-[11px] px-2.5 py-1 rounded-full bg-rose-600 text-white font-body font-medium hover:bg-rose-700 transition-colors"
+                  title="Retirer tous les fichiers introuvables de la sélection"
+                >
+                  Tout vider
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleAllNotFound}
+                  className="text-[11px] px-2.5 py-1 rounded-full bg-bg-primary border border-rose-200 text-rose-800 font-body font-medium hover:border-rose-500 hover:bg-rose-50/60 transition-colors"
+                >
+                  {allNotFoundClosed ? "Tout ouvrir" : "Tout fermer"}
+                </button>
+              </div>
             )}
           </div>
         </div>

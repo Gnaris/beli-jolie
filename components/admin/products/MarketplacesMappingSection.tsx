@@ -44,6 +44,19 @@ export interface EfashionColorOption {
   label: string;
 }
 
+/**
+ * Libellés couleur "réels côté marketplace" par variante liée, extraits des
+ * snapshots de sync. Une entrée par marketplace, indexée par l'ID variante
+ * marketplace. Absent = pas de snapshot exploitable pour cette variante, on
+ * retombe sur le libellé effectif du mapping courant.
+ */
+export interface LiveMarketplaceColorLabels {
+  pfs: Record<string, string>;
+  ankor: Record<string, string>;
+  faire: Record<string, string>;
+  efashion: Record<number, string>;
+}
+
 interface Props {
   variants: VariantState[];
   availableColors: AvailableColor[];
@@ -57,6 +70,7 @@ interface Props {
   onChangeEfashionOverride: (targets: Target[], override: number | null) => void;
   onChangeAnkorsOverride: (targets: Target[], override: string | null) => void;
   onChangeFaireOverride: (targets: Target[], override: string | null) => void;
+  liveMarketplaceColorLabels?: LiveMarketplaceColorLabels;
 }
 
 // ─────────────────────────────────────────────
@@ -194,34 +208,39 @@ const MARKETPLACE_STYLE = {
 // ─────────────────────────────────────────────
 
 /**
- * Cellule « Variante marketplace » : badge coloré aux couleurs de marque du
- * marketplace, contenant l'ID de la variante (si liée) + le nom de la couleur
- * tel qu'envoyé à la marketplace (nom effectif principal ou secondaire).
+ * Cellule « Variante marketplace ».
  *
- * - Liée → dégradé plein, blanc, icône chaîne
- * - Non liée → même palette mais version soft (fond pastel, texte accent)
- *   avec icône chaîne cassée. On affiche quand même le nom marketplace prévu
- *   pour donner l'aperçu de ce qui sera envoyé au moment de la publication.
+ * - Liée → badge dégradé plein avec ID marketplace + nom de la couleur tel
+ *   qu'elle est actuellement enregistrée côté marketplace (libellé "live" issu
+ *   du dernier snapshot de sync). Si aucun snapshot exploitable, on retombe
+ *   sur le libellé du mapping courant pour ne pas laisser l'admin sans repère.
+ * - Non liée → badge soft avec icône chaîne cassée, sans nom de couleur
+ *   (on n'a rien de fiable à afficher tant qu'aucune publication n'a eu lieu).
  */
 function MarketplaceVariantCell({
   linked,
   variantId,
-  marketplaceColorLabel,
+  liveColorLabel,
+  fallbackColorLabel,
   marketplace,
 }: {
   linked: boolean;
   variantId: string | null;
-  marketplaceColorLabel: string | null;
+  /** Nom de la couleur tel qu'enregistré côté marketplace (issu du snapshot). */
+  liveColorLabel: string | null;
+  /** Libellé du mapping courant, utilisé si le snapshot n'est pas exploitable. */
+  fallbackColorLabel: string | null;
   marketplace: keyof typeof MARKETPLACE_STYLE;
 }) {
   const style = MARKETPLACE_STYLE[marketplace];
-  const hasColorLabel = !!(marketplaceColorLabel && marketplaceColorLabel.trim().length > 0);
   if (linked && variantId) {
+    const effectiveLabel = (liveColorLabel?.trim() || fallbackColorLabel?.trim() || "").trim();
+    const hasLabel = effectiveLabel.length > 0;
     return (
       <span
         className="inline-flex items-center gap-1.5 text-[12px] font-semibold rounded-md px-2.5 py-1 text-white font-body max-w-full"
         style={{ background: style.grad }}
-        title={`Variante liée à ${style.label} (id ${variantId})${hasColorLabel ? ` — couleur : ${marketplaceColorLabel}` : ""}`}
+        title={`Variante liée à ${style.label} (id ${variantId})${hasLabel ? ` — couleur côté ${style.label} : ${effectiveLabel}` : ""}`}
       >
         <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
           <path
@@ -232,7 +251,7 @@ function MarketplaceVariantCell({
         </svg>
         <span className="truncate">
           {variantId}
-          {hasColorLabel && <span className="opacity-90"> · {marketplaceColorLabel}</span>}
+          {hasLabel && <span className="opacity-90"> · {effectiveLabel}</span>}
         </span>
       </span>
     );
@@ -240,7 +259,7 @@ function MarketplaceVariantCell({
   return (
     <span
       className={`inline-flex items-center gap-1.5 text-[12px] font-medium rounded-md px-2.5 py-1 font-body max-w-full ${style.softCls}`}
-      title={`Variante pas encore publiée sur ${style.label}${hasColorLabel ? ` — sera envoyée sous le nom « ${marketplaceColorLabel} »` : ""}`}
+      title={`Variante pas encore publiée sur ${style.label}`}
     >
       <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
         <path
@@ -249,9 +268,7 @@ function MarketplaceVariantCell({
           d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"
         />
       </svg>
-      <span className="truncate">
-        Non lié{hasColorLabel && <span className="opacity-80"> · {marketplaceColorLabel}</span>}
-      </span>
+      <span className="truncate">Non lié</span>
     </span>
   );
 }
@@ -319,11 +336,13 @@ function PfsSubSection({
   variants,
   availableColors,
   pfsColorOptions,
+  liveColorLabels,
   onChangeOverride,
 }: {
   variants: VariantState[];
   availableColors: AvailableColor[];
   pfsColorOptions: PfsColorOption[];
+  liveColorLabels: Record<string, string>;
   onChangeOverride: (targets: Target[], override: string | null) => void;
 }) {
   const rows = useMemo<PfsRow[]>(
@@ -427,9 +446,10 @@ function PfsSubSection({
           const effectiveOpt = effectiveRefForLabel
             ? pfsColorOptions.find((o) => o.ref === effectiveRefForLabel)
             : null;
-          const marketplaceColorLabel = effectiveRefForLabel
+          const fallbackColorLabel = effectiveRefForLabel
             ? (effectiveOpt?.label ? `${effectiveOpt.label} (${effectiveRefForLabel})` : effectiveRefForLabel)
             : null;
+          const liveColorLabel = r.variantId ? liveColorLabels[r.variantId] ?? null : null;
           return (
             <div
               key={r.groupKey}
@@ -453,7 +473,8 @@ function PfsSubSection({
                 <MarketplaceVariantCell
                   linked={r.isLinked}
                   variantId={r.variantId}
-                  marketplaceColorLabel={marketplaceColorLabel}
+                  liveColorLabel={liveColorLabel}
+                  fallbackColorLabel={fallbackColorLabel}
                   marketplace="pfs"
                 />
               </div>
@@ -503,11 +524,13 @@ function EfashionSubSection({
   variants,
   availableColors,
   efashionColorOptions,
+  liveColorLabels,
   onChangeOverride,
 }: {
   variants: VariantState[];
   availableColors: AvailableColor[];
   efashionColorOptions: EfashionColorOption[];
+  liveColorLabels: Record<number, string>;
   onChangeOverride: (targets: Target[], override: number | null) => void;
 }) {
   const rows = useMemo<EfashionRow[]>(
@@ -603,8 +626,9 @@ function EfashionSubSection({
               .map((o) => ({ value: String(o.id), label: `${o.label} (id ${o.id})` })),
           ];
           const effectiveIdForLabel = effective ?? r.principalId;
-          const marketplaceColorLabel =
+          const fallbackColorLabel =
             effectiveIdForLabel != null ? labelOfEfaId(effectiveIdForLabel, efashionColorOptions) : null;
+          const liveColorLabel = r.variantId != null ? liveColorLabels[r.variantId] ?? null : null;
           return (
             <div
               key={r.groupKey}
@@ -628,7 +652,8 @@ function EfashionSubSection({
                 <MarketplaceVariantCell
                   linked={r.isLinked}
                   variantId={r.variantId != null ? `#${r.variantId}` : null}
-                  marketplaceColorLabel={marketplaceColorLabel}
+                  liveColorLabel={liveColorLabel}
+                  fallbackColorLabel={fallbackColorLabel}
                   marketplace="efashion"
                 />
               </div>
@@ -680,6 +705,7 @@ function FreeTextSubSection({
   hint,
   variants,
   availableColors,
+  liveColorLabels,
   onChangeOverride,
   extractVariantId,
   extractOverride,
@@ -691,6 +717,7 @@ function FreeTextSubSection({
   hint: string;
   variants: VariantState[];
   availableColors: AvailableColor[];
+  liveColorLabels: Record<string, string>;
   onChangeOverride: (targets: Target[], override: string | null) => void;
   extractVariantId: (v: VariantState) => string | null;
   extractOverride: (v: VariantState) => string | null | undefined;
@@ -742,7 +769,8 @@ function FreeTextSubSection({
       <TableHeader label3rdCol="Nom secondaire (facultatif)" />
       <div className="divide-y divide-border">
         {rows.map((r) => {
-          const effective = (r.overrideName?.trim() || r.colorName).trim();
+          const fallbackColorLabel = (r.overrideName?.trim() || r.colorName).trim();
+          const liveColorLabel = r.variantId ? liveColorLabels[r.variantId] ?? null : null;
           return (
             <div key={r.groupKey} className="grid grid-cols-12 gap-2 items-center px-4 sm:px-6 py-3">
               <div className="col-span-3 flex items-center gap-2 min-w-0 flex-wrap">
@@ -763,7 +791,8 @@ function FreeTextSubSection({
                 <MarketplaceVariantCell
                   linked={r.isLinked}
                   variantId={r.variantId}
-                  marketplaceColorLabel={effective}
+                  liveColorLabel={liveColorLabel}
+                  fallbackColorLabel={fallbackColorLabel}
                   marketplace={marketplace}
                 />
               </div>
@@ -808,7 +837,14 @@ export default function MarketplacesMappingSection({
   onChangeEfashionOverride,
   onChangeAnkorsOverride,
   onChangeFaireOverride,
+  liveMarketplaceColorLabels,
 }: Props) {
+  const live: LiveMarketplaceColorLabels = liveMarketplaceColorLabels ?? {
+    pfs: {},
+    ankor: {},
+    faire: {},
+    efashion: {},
+  };
   if (variants.length === 0) return null;
 
   const enabled = {
@@ -855,6 +891,7 @@ export default function MarketplacesMappingSection({
             variants={variants}
             availableColors={availableColors}
             pfsColorOptions={pfsColorOptions}
+            liveColorLabels={live.pfs}
             onChangeOverride={onChangePfsOverride}
           />
         </div>
@@ -867,6 +904,7 @@ export default function MarketplacesMappingSection({
           hint="Envoi par défaut = nom de la couleur BJ · Secondaire = nom libre pour cette variante"
           variants={variants}
           availableColors={availableColors}
+          liveColorLabels={live.ankor}
           onChangeOverride={onChangeAnkorsOverride}
           extractVariantId={(v) => v.ankorsVariantId ?? null}
           extractOverride={(v) => v.ankorsColorNameOverride}
@@ -883,6 +921,7 @@ export default function MarketplacesMappingSection({
             variants={variants}
             availableColors={availableColors}
             efashionColorOptions={efashionColorOptions}
+            liveColorLabels={live.efashion}
             onChangeOverride={onChangeEfashionOverride}
           />
         </div>
@@ -895,6 +934,7 @@ export default function MarketplacesMappingSection({
           hint="Envoi par défaut = nom de la couleur BJ · Secondaire = nom libre pour cette variante"
           variants={variants}
           availableColors={availableColors}
+          liveColorLabels={live.faire}
           onChangeOverride={onChangeFaireOverride}
           extractVariantId={(v) => v.faireVariantId ?? null}
           extractOverride={(v) => v.faireColorNameOverride}

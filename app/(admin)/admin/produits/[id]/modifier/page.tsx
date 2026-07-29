@@ -29,6 +29,7 @@ import {
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
 import { getEfashionAnnexes } from "@/lib/efashion-annexes";
 import { getMarketplaceMaintenance } from "@/lib/platform-config";
+import { extractLiveMarketplaceColorLabels } from "@/lib/marketplace-live-color-labels";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 export const dynamic = "force-dynamic";
@@ -169,6 +170,17 @@ export default async function ModifierProduitPage({
         .then((a) => a.colors.map((c) => ({ id: c.id, label: c.fr || c.en })))
         .catch(() => [] as { id: number; label: string }[])
     : [];
+
+  // Libellés couleur "réels côté marketplace" par variante liée, extraits du
+  // dernier snapshot de sync réussi. Permet à la section Mapping d'afficher
+  // ce que la marketplace a effectivement en base plutôt que le mapping local
+  // (utile si un override a été changé sans resync).
+  const liveMarketplaceColorLabels = extractLiveMarketplaceColorLabels({
+    pfsSnapshot: product.pfsLastSyncSnapshot,
+    ankorsSnapshot: product.ankorsLastSyncSnapshot,
+    faireSnapshot: product.faireLastSyncSnapshot,
+    pfsColorOptions,
+  });
 
   // A product is a draft only if it was explicitly created as one (isIncomplete=true)
   // AND was never imported from PFS. Imported products may have isIncomplete=true
@@ -593,6 +605,7 @@ export default async function ModifierProduitPage({
         brandedBadgeEnabled={brandedBadgeEnabled}
         pfsColorOptions={pfsColorOptions}
         efashionColorOptions={efashionColorOptions}
+        liveMarketplaceColorLabels={liveMarketplaceColorLabels}
         initialData={{
           reference:         product.reference,
           name:              product.name,

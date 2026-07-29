@@ -3822,7 +3822,9 @@ export default function AdminProductsTable({
       publishAnkorstore: boolean;
       publishEfashion: boolean;
       publishFaire: boolean;
+      publishMicrostore: boolean;
       efashionEligibleIds: string[];
+      microstoreEligibleIds: string[];
     }) => {
       setBulkPublishDraftsOpen(false);
       if (decision.eligibleIds.length === 0) return;
@@ -3922,6 +3924,53 @@ export default function AdminProductsTable({
         }
       }
 
+      // 4) Microstore : upsert synchrone via /goods/import_v1 (pas de queue).
+      //    On ne pousse que les produits effectivement mis en ligne + avec
+      //    toggle Microstore activé.
+      if (
+        decision.publishMicrostore &&
+        hasMicrostoreConfig &&
+        decision.microstoreEligibleIds.length > 0
+      ) {
+        const toPushIds = decision.microstoreEligibleIds.filter((id) => onlineIds.has(id));
+        if (toPushIds.length > 0) {
+          const { bulkPushProductsToMicrostore } = await import(
+            "@/app/actions/admin/microstore-products"
+          );
+          void bulkPushProductsToMicrostore(toPushIds).then((res) => {
+            if (res.success) {
+              const n = res.totals?.pushed ?? 0;
+              const skipped = (res.results ?? []).filter((r) => !r.success);
+              if (n === 0 && skipped.length > 0) {
+                toast.error(
+                  "Microstore : rien envoyé",
+                  skipped
+                    .slice(0, 3)
+                    .map((s) => `${s.reference} : ${s.error}`)
+                    .join(" · "),
+                );
+              } else if (skipped.length > 0) {
+                const refs = skipped.map((s) => s.reference).slice(0, 5).join(", ");
+                toast.info(
+                  `Microstore : ${n} envoyé${n > 1 ? "s" : ""}, ${skipped.length} sauté${skipped.length > 1 ? "s" : ""}`,
+                  `À corriger : ${refs}${skipped.length > 5 ? "…" : ""}. Ex : ${skipped[0]!.error}`,
+                );
+              } else {
+                toast.success(
+                  "Microstore mis à jour",
+                  `${n} produit${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""}.`,
+                );
+              }
+            } else {
+              toast.error(
+                "Microstore : envoi bulk échoué",
+                res.error ?? "Erreur inconnue.",
+              );
+            }
+          });
+        }
+      }
+
       setSelectedIds(new Set());
       router.refresh();
     },
@@ -3929,6 +3978,7 @@ export default function AdminProductsTable({
       allProducts,
       enqueuePfs,
       hasPfsConfig,
+      hasMicrostoreConfig,
       showAnkorstore,
       showEfashion,
       showFaire,
@@ -5237,6 +5287,7 @@ export default function AdminProductsTable({
           efashionEnabled={efashionEnabled}
           hasFaireConfig={hasFaireConfig}
           faireEnabled={faireEnabled}
+          hasMicrostoreConfig={hasMicrostoreConfig}
           onCancel={() => setBulkPublishDraftsOpen(false)}
           onConfirm={handleBulkPublishDraftsConfirm}
         />

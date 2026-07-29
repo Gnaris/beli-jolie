@@ -943,7 +943,7 @@ function Step3Colors({
             Fais correspondre les couleurs
           </h3>
           <p className="text-sm text-text-muted mt-0.5">
-            Pour chaque couleur Beli & Jolie, clique sur la variante marketplace équivalente.
+            Pour chaque couleur {shopName}, clique sur la variante marketplace équivalente.
           </p>
         </div>
         <button
@@ -969,7 +969,7 @@ function Step3Colors({
 
       <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
         <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 text-[11px] uppercase tracking-[0.16em] text-text-muted font-semibold flex items-center gap-2 flex-wrap">
-          <span>Couleur Beli & Jolie</span>
+          <span>Couleur {shopName}</span>
           <span className="text-text-muted">→</span>
           <span>Variante {meta.name} à lier, ou création</span>
         </div>

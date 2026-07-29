@@ -782,23 +782,42 @@ export default function ImportImagesTab() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [step, uploadedBatches, totalBatches]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = Array.from(e.target.files ?? []);
-    setFiles(selected);
-    setPreviews(selected.slice(0, 200).map((f) => URL.createObjectURL(f)));
+  // Ajoute les nouveaux fichiers à la sélection existante (drop/pick multiples).
+  // Déduplication par (nom + taille) pour éviter d'ajouter deux fois la même image.
+  const addFiles = (incoming: File[]) => {
+    if (incoming.length === 0) return;
+    setFiles((prev) => {
+      const seen = new Set(prev.map((f) => `${f.name}::${f.size}`));
+      const toAdd = incoming.filter((f) => {
+        const key = `${f.name}::${f.size}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      if (toAdd.length === 0) return prev;
+      const merged = [...prev, ...toAdd];
+      setPreviews((prevP) => {
+        const newPreviews = toAdd.slice(0, Math.max(0, 200 - prevP.length)).map((f) => URL.createObjectURL(f));
+        return [...prevP, ...newPreviews];
+      });
+      return merged;
+    });
     setStep("upload"); setError(null);
     setConflicts([]); setConflictChecked(false); setPerFileResolutions(new Map());
     setOverrides(new Map()); setEditingPosition(null); closeColorModal();
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files ?? []);
+    addFiles(selected);
+    // Reset l'input pour que re-sélectionner les mêmes fichiers déclenche l'événement.
+    if (e.target) e.target.value = "";
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const dropped = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
-    setFiles(dropped);
-    setPreviews(dropped.slice(0, 200).map((f) => URL.createObjectURL(f)));
-    setStep("upload"); setError(null);
-    setConflicts([]); setConflictChecked(false); setPerFileResolutions(new Map());
-    setOverrides(new Map()); setEditingPosition(null); closeColorModal();
+    addFiles(dropped);
   };
 
   const showPreview = async () => {
@@ -1093,6 +1112,7 @@ export default function ImportImagesTab() {
                 <p className="font-medium text-text-primary">{files.length} image(s) sélectionnée(s)</p>
                 <p className="text-sm text-[#666]">{(files.reduce((a, f) => a + f.size, 0) / 1024 / 1024).toFixed(1)} Mo</p>
                 {invalidCount > 0 && <p className="text-sm text-amber-600 mt-1">{invalidCount} nom(s) invalide(s)</p>}
+                <p className="text-xs text-[#999] mt-2">Glissez d&apos;autres images pour les ajouter à la sélection.</p>
               </div>
             ) : (
               <div>
@@ -1103,7 +1123,10 @@ export default function ImportImagesTab() {
             )}
           </div>
           {error && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex justify-between items-center gap-3">
+            {files.length > 0 ? (
+              <button onClick={reset} className="btn-secondary text-sm">Vider la sélection</button>
+            ) : <span />}
             <button onClick={showPreview} disabled={files.length === 0} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">Voir le résumé →</button>
           </div>
         </div>

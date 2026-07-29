@@ -1739,6 +1739,10 @@ export interface BulkPublishDraftPreviewItem {
   ankorsAlreadyPublished: boolean;
   /** true si au moins une couleur est déjà liée à eFashion (efashionProductId != null) */
   efashionAlreadyPublished: boolean;
+  /** Toggle Microstore par produit — sert à afficher le compteur Microstore
+   *  dans la modale (Microstore n'a pas d'ID marketplace, l'upsert est
+   *  idempotent). */
+  microstoreEnabled: boolean;
 }
 
 export async function previewBulkPublishDrafts(
@@ -1758,6 +1762,7 @@ export async function previewBulkPublishDrafts(
       status: true,
       pfsProductId: true,
       ankorsProductId: true,
+      microstoreEnabled: true,
       compositions: { select: { percentage: true } },
       colors: {
         select: {
@@ -1848,6 +1853,7 @@ export async function previewBulkPublishDrafts(
       pfsAlreadyPublished: !!p.pfsProductId,
       ankorsAlreadyPublished: !!p.ankorsProductId,
       efashionAlreadyPublished: p.colors.some((c) => c.efashionProductId != null),
+      microstoreEnabled: !!p.microstoreEnabled,
     };
   });
 }

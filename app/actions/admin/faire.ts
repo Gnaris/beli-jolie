@@ -921,7 +921,12 @@ export async function linkFaireProductManually(
     let autoCreatedOnMarketplace = 0;
     try {
       const { faireUpdateProduct } = await import("@/lib/faire-update");
-      const res = await faireUpdateProduct(productId);
+      // forceFullSync obligatoire : le lien vient de reset `faireLastSyncSnapshot`
+      // à null, or le chemin nominal de faireUpdateProduct saute l'envoi des
+      // prix (batch /product-prices/by-skus) tant qu'il n'a pas un prev snapshot
+      // pour calculer un delta. Sans ce flag, les prix restent ceux configurés
+      // côté portail Faire. Aligné sur PFS/Ankorstore/eFashion qui font pareil.
+      const res = await faireUpdateProduct(productId, { forceFullSync: true });
       if (!res.success) syncWarning = res.error;
       autoCreatedOnMarketplace = intents?.colorsToCreate.length ?? 0;
     } catch (err) {

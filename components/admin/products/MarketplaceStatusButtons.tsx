@@ -897,7 +897,7 @@ export function MarketplaceStatusButtons({
             state={pfsState}
             marketplace="pfs"
             label="PFS"
-            sublabel={pfsProductId ? pfsBrandName : null}
+            sublabel={null}
             disabledForProduct={pfsDisabledOverall}
             disabledReason={pfsDisabledReason}
             onClick={() => {

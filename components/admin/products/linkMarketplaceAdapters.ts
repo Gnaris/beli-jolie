@@ -184,7 +184,7 @@ export const MARKETPLACE_META: Record<Marketplace, MarketplaceMeta> = {
     cls: "fai",
     searchLabel: "SKU Faire du produit",
     searchHelp:
-      "Le SKU renseigné chez Faire (souvent le même que ta référence Beli & Jolie).",
+      "Le SKU renseigné chez Faire (souvent le même que ta référence en boutique).",
     searchPlaceholder: "Ex : F137",
     syncsAtLink: true,
     supportsPackType: false,

@@ -812,7 +812,9 @@ describe("linkFaireProductManually", () => {
         data: { faireVariantId: "po_or" },
       }),
     );
-    expect(faireUpdateMock.faireUpdateProduct).toHaveBeenCalledWith("p1");
+    expect(faireUpdateMock.faireUpdateProduct).toHaveBeenCalledWith("p1", {
+      forceFullSync: true,
+    });
   });
 
   it("remonte un syncWarning si la sync post-liaison échoue", async () => {
