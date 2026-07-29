@@ -65,6 +65,22 @@ describe("buildBrandedMarketplaceUrl", () => {
     });
     expect(url).not.toContain("minWidth");
   });
+
+  it("injecte bv=large quand variant='large' (profil Ankorstore)", () => {
+    const url = buildBrandedMarketplaceUrl("/uploads/x.webp", "REF", {
+      baseUrl: "https://beliandjolie.com",
+      variant: "large",
+    });
+    expect(url).toContain("bv=large");
+  });
+
+  it("n'inclut pas bv quand variant='standard' (défaut implicite, URL plus courte)", () => {
+    const url = buildBrandedMarketplaceUrl("/uploads/x.webp", "REF", {
+      baseUrl: "https://beliandjolie.com",
+      variant: "standard",
+    });
+    expect(url).not.toContain("bv=");
+  });
 });
 
 describe("maybeBrandifyPath", () => {

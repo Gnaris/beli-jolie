@@ -16,7 +16,11 @@
  */
 
 import { getImagePaths } from "@/lib/image-utils";
-import { BADGE_TEMPLATE_VERSION, type BrandedSize } from "@/lib/branded-image";
+import {
+  BADGE_TEMPLATE_VERSION,
+  type BadgeVariant,
+  type BrandedSize,
+} from "@/lib/branded-image";
 
 export const MAX_IMAGES_PER_COLOR = 5;
 const BRANDED_VIRTUAL_ID_PREFIX = "__branded__";
@@ -26,6 +30,7 @@ export function buildBrandedUrl(
   sourceDbPath: string,
   reference: string,
   size: BrandedSize,
+  variant?: BadgeVariant,
 ): string {
   const p = new URLSearchParams({
     src: sourceDbPath,
@@ -33,6 +38,7 @@ export function buildBrandedUrl(
     size,
     v: BADGE_TEMPLATE_VERSION,
   });
+  if (variant && variant !== "standard") p.set("bv", variant);
   return `/api/branded-image?${p.toString()}`;
 }
 
@@ -54,6 +60,12 @@ export function buildBrandedMarketplaceUrl(
      * endpoint upscale à cette largeur avant d'apposer le badge.
      */
     minWidth?: number;
+    /**
+     * Profil de taille du badge « RÉFÉRENCE ». Défaut = `standard`.
+     * Ankorstore push `large` pour rester lisible sur ses très petites
+     * vignettes de liste (~130 px).
+     */
+    variant?: BadgeVariant;
   },
 ): string {
   const params = new URLSearchParams({
@@ -65,6 +77,9 @@ export function buildBrandedMarketplaceUrl(
   if (opts.format) params.set("format", opts.format);
   if (opts.minWidth && opts.minWidth > 0) {
     params.set("minWidth", String(Math.round(opts.minWidth)));
+  }
+  if (opts.variant && opts.variant !== "standard") {
+    params.set("bv", opts.variant);
   }
   const base = opts.baseUrl.replace(/\/$/, "");
   return `${base}/api/branded-image?${params.toString()}`;

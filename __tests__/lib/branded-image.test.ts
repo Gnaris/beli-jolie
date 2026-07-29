@@ -33,6 +33,12 @@ describe("computeBrandedHash", () => {
     expect(a).not.toBe(b);
   });
 
+  it("change quand variant change (isolation cache profil standard vs large)", () => {
+    const a = computeBrandedHash("/uploads/x/produits/e310b/img.webp", "E310B", "large", 500, "standard");
+    const b = computeBrandedHash("/uploads/x/produits/e310b/img.webp", "E310B", "large", 500, "large");
+    expect(a).not.toBe(b);
+  });
+
   it("retourne un hash tronqué à 16 caractères hex", () => {
     const h = computeBrandedHash("/foo", "REF", "large");
     expect(h).toMatch(/^[0-9a-f]{16}$/);
@@ -42,26 +48,41 @@ describe("computeBrandedHash", () => {
 describe("buildBadgeSvg", () => {
   it("positionne le badge en haut-droite avec une marge proportionnelle", () => {
     const badge = buildBadgeSvg("E310B", 1200);
-    // x = imageWidth - badgeWidth - margin ; margin >= 6, badgeWidth ∈ [90,380]
     expect(badge.y).toBeGreaterThanOrEqual(6);
     expect(badge.x).toBeGreaterThan(0);
     expect(badge.x).toBeLessThan(1200);
   });
 
-  it("s'adapte à une petite image (garde badge min 110px)", () => {
-    const smallBadge = buildBadgeSvg("R1", 400);
-    // À 400px de large × 28 % = 112 → au-dessus du min, clamp non déclenché
-    const svgText = smallBadge.svg.toString();
-    const width = svgText.match(/width="(\d+)"/)?.[1];
-    expect(Number(width)).toBeGreaterThanOrEqual(110);
+  it("profil standard : badge à 40% de la largeur, min 160 / max 560", () => {
+    const smallBadge = buildBadgeSvg("R1", 300);
+    const smallW = Number(smallBadge.svg.toString().match(/width="(\d+)"/)?.[1]);
+    // 300 × 40 % = 120 → clamp min 160 respecté
+    expect(smallW).toBeGreaterThanOrEqual(160);
+
+    const bigBadge = buildBadgeSvg("R1", 3000);
+    const bigW = Number(bigBadge.svg.toString().match(/width="(\d+)"/)?.[1]);
+    // 3000 × 40 % = 1200 → clamp max 560 respecté
+    expect(bigW).toBeLessThanOrEqual(560);
   });
 
-  it("s'adapte à une grande image (garde badge max 420px)", () => {
-    const bigBadge = buildBadgeSvg("R1", 3000);
-    // 3000 × 28 % = 840 → clamp max 420 respecté
-    const svgText = bigBadge.svg.toString();
-    const width = svgText.match(/width="(\d+)"/)?.[1];
-    expect(Number(width)).toBeLessThanOrEqual(420);
+  it("profil large : badge à 50% de la largeur, min 200 / max 700, plus gros que standard", () => {
+    const std = buildBadgeSvg("R1", 1000, "standard");
+    const lrg = buildBadgeSvg("R1", 1000, "large");
+    const stdW = Number(std.svg.toString().match(/width="(\d+)"/)?.[1]);
+    const lrgW = Number(lrg.svg.toString().match(/width="(\d+)"/)?.[1]);
+    // À 1000px : standard = 400, large = 500
+    expect(stdW).toBe(400);
+    expect(lrgW).toBe(500);
+    expect(lrgW).toBeGreaterThan(stdW);
+  });
+
+  it("profil large : texte de la référence plus gros que standard", () => {
+    const std = buildBadgeSvg("R1", 1000, "standard");
+    const lrg = buildBadgeSvg("R1", 1000, "large");
+    // Le 2ᵉ font-size dans le SVG correspond au bloc code (la référence).
+    const stdFonts = [...std.svg.toString().matchAll(/font-size="(\d+)"/g)].map((m) => Number(m[1]));
+    const lrgFonts = [...lrg.svg.toString().matchAll(/font-size="(\d+)"/g)].map((m) => Number(m[1]));
+    expect(lrgFonts[1]!).toBeGreaterThan(stdFonts[1]!);
   });
 
   it("inclut le mot RÉFÉRENCE et la référence dans le SVG", () => {

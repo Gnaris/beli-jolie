@@ -653,3 +653,74 @@ describe("buildFaireProductPayload — imageBaseUrl (multi-tenant)", () => {
     }
   });
 });
+
+describe("buildFaireProductPayload — badge brandé sur variante primaire", () => {
+  // Régression : Faire refusait tout PATCH avec HTTP 400 « 2 images
+  // principales pour X » quand la variante primaire recevait à la fois
+  // l'URL brandée et l'URL brute de la MÊME source (incident U02/Multicolore
+  // 2026-07-29). Le fix skip imgPaths[0] dans la liste raw qui suit la
+  // brandée : plus jamais deux URLs pointant sur la même image source.
+  it("n'inclut jamais la version brute de imgPaths[0] sur la variante primaire quand le badge est actif", () => {
+    const { variants } = buildFaireProductPayload(
+      makeProduct(),
+      ctx,
+      wholesale,
+      retail,
+      "PUBLISHED",
+      undefined,
+      "https://beliandjolie.com",
+      /* brandedBadgeEnabled */ true,
+    );
+    const primary = variants.find((v) => v.bjVariantId === "v-or");
+    expect(primary, "variante Or (primaire) doit exister").toBeDefined();
+    const imgUrls = (primary!.payload.images ?? []).map((i) => i.url);
+    // 1ère image : URL brandée (endpoint /api/branded-image).
+    expect(imgUrls[0]).toMatch(/\/api\/branded-image\?/);
+    expect(imgUrls[0]).toContain("or-1.webp");
+    // Aucune autre image ne doit pointer sur or-1.webp (la source déjà brandée).
+    for (const url of imgUrls.slice(1)) {
+      expect(url, `URL raw ne doit pas dupliquer imgPaths[0] : ${url}`).not.toContain("or-1.webp");
+    }
+    // Les sequences restent 0..N sans trou.
+    const seqs = (primary!.payload.images ?? []).map((i) => i.sequence);
+    expect(seqs).toEqual(seqs.map((_, i) => i));
+  });
+
+  it("laisse la variante secondaire sans URL brandée (comportement inchangé)", () => {
+    const { variants } = buildFaireProductPayload(
+      makeProduct(),
+      ctx,
+      wholesale,
+      retail,
+      "PUBLISHED",
+      undefined,
+      "https://beliandjolie.com",
+      true,
+    );
+    const secondary = variants.find((v) => v.bjVariantId === "v-ar");
+    const imgUrls = (secondary!.payload.images ?? []).map((i) => i.url);
+    for (const url of imgUrls) {
+      expect(url).not.toMatch(/\/api\/branded-image\?/);
+    }
+  });
+
+  it("badge désactivé : la variante primaire reçoit la brute uniquement (pas d'URL brandée)", () => {
+    const { variants } = buildFaireProductPayload(
+      makeProduct(),
+      ctx,
+      wholesale,
+      retail,
+      "PUBLISHED",
+      undefined,
+      "https://beliandjolie.com",
+      /* brandedBadgeEnabled */ false,
+    );
+    const primary = variants.find((v) => v.bjVariantId === "v-or");
+    const imgUrls = (primary!.payload.images ?? []).map((i) => i.url);
+    for (const url of imgUrls) {
+      expect(url).not.toMatch(/\/api\/branded-image\?/);
+    }
+    // On garde bien or-1.webp comme 1ère image (pas skippé quand pas de badge).
+    expect(imgUrls[0]).toContain("or-1.webp");
+  });
+});

@@ -671,7 +671,15 @@ export async function updateFaireMadeInExcluded(
 
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
-    if (markedForSync > 0) revalidateTag("products", "default");
+    if (markedForSync > 0) {
+      // Le tableau /admin/produits et la fiche /admin/produits/[id]/modifier
+      // lisent Product.faireSyncRequired directement en BDD (pas via un
+      // unstable_cache tagué "products"). Sans invalider explicitement le
+      // segment layout, Next 16 sert la version RSC cachée et le badge orange
+      // « Synchro nécessaire » reste invisible malgré le flag posé en base.
+      revalidatePath("/admin/produits", "layout");
+      revalidateTag("products", "default");
+    }
     return { success: true, markedForSync };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };

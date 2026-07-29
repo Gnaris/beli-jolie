@@ -185,9 +185,15 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
       setItems(nextItems);
 
       // Enrichit la mémoire client : pour chaque item done avec outcome ok sur
-      // son marketplace, on note le timestamp client si pas déjà présent.
-      // C'est cette mémoire qui rend le sticky green robuste (indépendante du
-      // completedAt serveur et de la présence continue de l'item dans le poll).
+      // son marketplace, on note le timestamp de complétion RÉEL (côté serveur)
+      // pour rendre le sticky green robuste face aux races (poll perdu,
+      // décalage d'horloge, RSC en retard). On utilise `item.completedAt` et
+      // PAS `Date.now()` — sinon une op terminée il y a des jours et toujours
+      // renvoyée par l'API se verrait attribuer un timestamp « maintenant » et
+      // masquerait le badge orange « Synchro nécessaire » perpétuellement
+      // (bug retrouvé 2026-07-29 : après avoir marqué un produit à resync via
+      // « Masquer Made in », le badge restait vert car la file contenait encore
+      // l'op resync du dernier push).
       const now = Date.now();
       let mutated = false;
       const nextMap = new Map(clientSuccessMap);
@@ -195,9 +201,16 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
         if (item.status !== "done") continue;
         const outcome = outcomeForMarketplace(item, item.marketplace);
         if (!outcome || outcome.ok !== true) continue;
+        const completedAtMs = item.completedAt ? Date.parse(item.completedAt) : NaN;
+        if (!Number.isFinite(completedAtMs)) continue;
+        // Ignore les ops terminées hors de la fenêtre de grâce : elles ne
+        // doivent pas masquer un badge orange légitime posé après-coup
+        // (par ex. depuis Admin > Paramètres > Faire > Masquer Made in).
+        if (now - completedAtMs > CLIENT_SUCCESS_WINDOW_MS) continue;
         const key = clientSuccessKey(item.productId, item.marketplace);
-        if (!nextMap.has(key)) {
-          nextMap.set(key, now);
+        const existing = nextMap.get(key);
+        if (existing === undefined || existing < completedAtMs) {
+          nextMap.set(key, completedAtMs);
           mutated = true;
         }
       }

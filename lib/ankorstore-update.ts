@@ -507,6 +507,81 @@ export async function ankorstoreKickoffUpdate(
   const ankorsProductId = product.ankorsProductId;
 
   try {
+    // ── Short-circuit ARCHIVED ──
+    // Ankorstore n'a pas de « vrai » archivage exposé par API : les opérations
+    // catalog-integration (import/update) n'acceptent aucun champ status, et
+    // /operations/delete supprime réellement (irréversible côté AS). Le seul
+    // moyen fiable de retirer un produit archivé de la vue acheteurs est
+    // donc de forcer stock=0 sur TOUTES ses variantes AS actives — y compris
+    // celles non liées côté BJ (cas JG6 Issyma 2026-07-29 : ankorsVariantId=null
+    // sur la ProductColor mais 1 variante existait bien chez AS, jamais mise à 0).
+    if (product.status === "ARCHIVED") {
+      const { ankorstoreGetVariants } = await import("@/lib/ankorstore-api");
+      const liveVariants = await ankorstoreGetVariants(ankorsProductId);
+
+      if (liveVariants.length > 0) {
+        const results = await Promise.allSettled(
+          liveVariants.map((v) =>
+            ankorstorePatchVariantStock(v.id, {
+              stockQuantity: 0,
+              isAlwaysInStock: false,
+            }),
+          ),
+        );
+        const failures = results
+          .map((r, i) =>
+            r.status === "rejected"
+              ? { ankorsVariantId: liveVariants[i].id, sku: liveVariants[i].sku, reason: r.reason }
+              : null,
+          )
+          .filter((f): f is NonNullable<typeof f> => f !== null);
+        if (failures.length > 0) {
+          logger.error("[Ankorstore Update] Archivage — PATCH stock 0 partiellement échoué", {
+            productId,
+            ankorsProductId,
+            reference: product.reference,
+            failureCount: failures.length,
+            totalCount: liveVariants.length,
+            failures: failures.map((f) => ({
+              ankorsVariantId: f.ankorsVariantId,
+              sku: f.sku,
+              error: f.reason instanceof Error ? f.reason.message : String(f.reason),
+            })),
+          });
+          return {
+            success: false,
+            error:
+              `Archivage Ankorstore partiel : ${failures.length}/${liveVariants.length} variantes n'ont pas pu être mises à stock=0. ` +
+              `Réessayez « Rafraîchir » ou vérifiez la fiche sur le dashboard Ankorstore.`,
+          };
+        }
+        logger.info("[Ankorstore Update] Produit ARCHIVED — stock 0 posé sur toutes les variantes AS", {
+          productId,
+          ankorsProductId,
+          reference: product.reference,
+          variantCount: liveVariants.length,
+        });
+      } else {
+        logger.info("[Ankorstore Update] Produit ARCHIVED — aucune variante AS active à mettre à 0", {
+          productId,
+          ankorsProductId,
+          reference: product.reference,
+        });
+      }
+
+      await prisma.product.update({
+        where: { id: productId },
+        data: { ankorsSyncRequired: false },
+      });
+
+      if (!options?.skipRevalidation) {
+        revalidateTag("products", "default");
+      }
+      emitProductEvent({ type: "PRODUCT_OFFLINE", productId });
+
+      return { success: true, operationId: null, archived: true };
+    }
+
     const config = await loadAnkorstorePricingConfig();
     const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
     const brandName = shopNameInfo?.shopName ?? "Ma Boutique";
@@ -538,26 +613,35 @@ export async function ankorstoreKickoffUpdate(
     // nouvelle variante au lieu de modifier celle qui existe (qui a un SKU
     // différent côté Ankorstore, ex. "A485_ Blanc"). Bug constaté 2026-05-12.
     //
+    // On récupère aussi `external_id` côté AS pour Fix 2 (refus si mismatch
+    // + hasNewVariants → sinon import créerait un doublon, incident JG6
+    // Issyma 2026-07-29).
+    //
     // En cas d'échec du fetch OU si une variante locale liée n'est pas
     // retrouvée côté Ankorstore, on refuse l'update : c'est plus safe que de
     // risquer de créer une variante en double avec le SKU local.
     const ankorsRealSkuById = new Map<string, string>();
+    let asExternalId: string | null = null;
     try {
-      const { ankorstoreGetVariants } = await import("@/lib/ankorstore-api");
-      const ankorsVariants = await ankorstoreGetVariants(ankorsProductId);
-      for (const v of ankorsVariants) {
-        if (v.sku) ankorsRealSkuById.set(v.id, v.sku);
+      const { ankorstoreGetProduct } = await import("@/lib/ankorstore-api");
+      const asProduct = await ankorstoreGetProduct(ankorsProductId);
+      if (asProduct) {
+        asExternalId = asProduct.externalId ?? null;
+        for (const v of asProduct.variants) {
+          if (v.archivedAt) continue;
+          if (v.sku) ankorsRealSkuById.set(v.id, v.sku);
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.error("[Ankorstore Update] Fetch real variant SKUs failed", {
+      logger.error("[Ankorstore Update] Fetch AS product/variants failed", {
         ankorsProductId,
         error: msg,
       });
       return {
         success: false,
         error:
-          "Impossible de récupérer les variantes Ankorstore pour vérifier les liaisons. " +
+          "Impossible de récupérer le produit Ankorstore pour vérifier les liaisons. " +
           "Réessayez dans quelques instants. (Détail : " + msg.slice(0, 200) + ")",
       };
     }
@@ -870,6 +954,7 @@ export async function ankorstoreKickoffUpdate(
           baseUrl: brandedBaseUrl,
           size: "large",
           minWidth: 500,
+          variant: "large",
         });
       }
       return buildPublicImageUrl(path, imageBaseUrl);
@@ -1052,6 +1137,40 @@ export async function ankorstoreKickoffUpdate(
     // On choisit dynamiquement : "import" dès qu'il y a au moins une
     // variante locale non liée à pousser. Sinon "update" (plus léger côté AS).
     const opType: "import" | "update" = hasNewVariants ? "import" : "update";
+
+    // Fix 2 : refus si le mode "import" est déclenché mais que l'external_id
+    // côté AS ne correspond pas à notre référence. Ankorstore matche les
+    // produits par external_id (pas par UUID) : envoyer un import avec
+    // `external_id = JG6` alors que le produit AS lié a `external_id = null`
+    // (ou différent) → AS crée un doublon. Incident JG6 Issyma 2026-07-29.
+    //
+    // Pour "update" (variantes déjà liées, pas de création à faire) le risque
+    // n'existe pas : on log une info et on laisse passer.
+    if (opType === "import") {
+      const normalizedAsExt = (asExternalId ?? "").trim().toUpperCase();
+      const normalizedBjRef = product.reference.trim().toUpperCase();
+      if (!normalizedAsExt || normalizedAsExt !== normalizedBjRef) {
+        logger.error("[Ankorstore Update] Refus import — external_id AS incohérent", {
+          ankorsProductId,
+          reference: product.reference,
+          asExternalId,
+          unlinkedVariantCount: unlinkedVariants.length,
+        });
+        return {
+          success: false,
+          error:
+            `Impossible de synchroniser « ${product.reference} » : le produit Ankorstore lié a la référence externe ` +
+            `« ${asExternalId ?? "vide"} » qui ne correspond pas. Une synchro créerait un doublon. ` +
+            "Délie et relie proprement le produit depuis la modale de liaison marketplace.",
+        };
+      }
+    } else if (asExternalId && asExternalId.trim().toUpperCase() !== product.reference.trim().toUpperCase()) {
+      logger.warn("[Ankorstore Update] external_id AS diffère (mode update — OK, PATCH SKU)", {
+        ankorsProductId,
+        reference: product.reference,
+        asExternalId,
+      });
+    }
     const { operationId } = await ankorstoreCreateCatalogOperation(opType);
     logger.info("[Ankorstore Update] Creating catalog operation", {
       operationId,
@@ -1179,9 +1298,68 @@ export async function ankorstoreFinalizeUpdate(
       }),
     ]);
 
+    // Fix 3 : réconcilier `ankorsProductId` si le mode "import" a fini par
+    // créer un NOUVEAU produit côté Ankorstore (parce que l'ancien pointait
+    // vers un AS-side à external_id null/différent). Sans ça, le local reste
+    // accroché au produit fantôme et le prochain sync recrée encore un
+    // doublon (loop). Incident JG6 Issyma 2026-07-29 : 3 doublons créés.
+    //
+    // Best-effort : on cherche côté AS par référence ; si on trouve un
+    // produit dont l'external_id matche notre référence ET un UUID
+    // différent, on pointe le local dessus + reset du snapshot.
+    try {
+      const currentProduct = await prisma.product.findUnique({
+        where: { id: op.productId },
+        select: { id: true, reference: true, ankorsProductId: true },
+      });
+      if (currentProduct?.ankorsProductId) {
+        const { ankorstoreGetProduct, ankorstoreSearchProducts } = await import("@/lib/ankorstore-api");
+        const currentAs = await ankorstoreGetProduct(currentProduct.ankorsProductId);
+        const currentExt = (currentAs?.externalId ?? "").trim().toUpperCase();
+        const bjRef = currentProduct.reference.trim().toUpperCase();
+        if (currentExt !== bjRef) {
+          const results = await ankorstoreSearchProducts(currentProduct.reference, 10, {
+            skipWideScan: true,
+          });
+          const match = results.find(
+            (p) => (p.externalId ?? "").trim().toUpperCase() === bjRef,
+          );
+          if (match && match.id !== currentProduct.ankorsProductId) {
+            await prisma.product.update({
+              where: { id: currentProduct.id },
+              data: {
+                ankorsProductId: match.id,
+                ankorsLastSyncSnapshot: Prisma.DbNull,
+              },
+            });
+            logger.warn("[Ankorstore Update] Auto-heal ankorsProductId après import", {
+              productId: currentProduct.id,
+              reference: currentProduct.reference,
+              previousAnkorsProductId: currentProduct.ankorsProductId,
+              newAnkorsProductId: match.id,
+            });
+          } else if (!match) {
+            logger.warn("[Ankorstore Update] Impossible de réconcilier ankorsProductId", {
+              productId: currentProduct.id,
+              reference: currentProduct.reference,
+              currentAnkorsProductId: currentProduct.ankorsProductId,
+              currentAsExternalId: currentAs?.externalId ?? null,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn("[Ankorstore Update] Auto-heal check failed (best-effort)", {
+        productId: op.productId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     // Récupère les ankorsVariantId des couleurs nouvellement créées côté AS
     // (variantes qui n'avaient pas de jumelle au moment du kickoff). Sans ça,
     // la prochaine modif de stock/prix ne saurait pas vers où PATCH-er.
+    // Fait APRÈS le heal ci-dessus pour que l'autolink utilise le bon
+    // ankorsProductId si un swap a eu lieu.
     try {
       const link = await autoLinkAnkorstoreVariants(op.productId);
       if (link.matchedExact + link.matchedColor > 0) {

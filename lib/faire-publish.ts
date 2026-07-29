@@ -489,7 +489,12 @@ export function buildFaireProductPayload(
     // côté galerie de la variante. Sans ça, Faire conserve l'ordre historique
     // des images existantes même quand on PATCH avec un nouveau tableau.
     // Toggle badge sur couleur principale : on INSÈRE l'URL brandée en tête
-    // (sequence 0) puis on conserve la source brute juste après (sequence 1).
+    // (sequence 0) puis on enchaîne avec les photos SUIVANTES (imgPaths[1..]).
+    // On NE remet PAS imgPaths[0] en version brute juste après : côté variante,
+    // Faire n'accepte qu'une seule image « principale » (pas de tag Hero
+    // supporté au niveau variante) et considère la branded + la raw de la même
+    // source comme 2 candidates → refuse le PATCH avec HTTP 400 « 2 images
+    // principales pour 'X' » (incident U02/Multicolore 2026-07-29).
     let variantImagesList: { url: string; sequence: number }[] | undefined;
     if (imgPaths.length > 0) {
       const brandedUrl = faireUrlFor(imgPaths[0]!, { colorId: v.colorId ?? null, index: 0 });
@@ -498,7 +503,7 @@ export function buildFaireProductPayload(
       if (isBrandedInserted) {
         variantImagesList = [
           { url: brandedUrl, sequence: 0 },
-          ...imgPaths.slice(0, 4).map((p, idx) => ({
+          ...imgPaths.slice(1, 5).map((p, idx) => ({
             url: faireUrlFor(p, { colorId: v.colorId ?? null, index: 999 }),
             sequence: idx + 1,
           })),

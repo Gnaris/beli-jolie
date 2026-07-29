@@ -20,6 +20,41 @@ import { ankorstoreKickoffUpdate } from "@/lib/ankorstore-update";
 import { requireCurrentTenant } from "@/lib/tenant";
 
 /**
+ * Fix 1 — empêche de lier un produit BJ à un produit Ankorstore dont
+ * `external_id` est nul ou différent de notre référence. Sinon la synchro
+ * post-liaison enverrait un import avec `external_id = référence BJ` qui ne
+ * matcherait pas le produit lié → Ankorstore créerait un doublon (voir
+ * incident JG6 Issyma 2026-07-29).
+ */
+function validateAnkorstoreExternalIdMatch(
+  ankorstoreProduct: AnkorstoreProduct,
+  bjReference: string,
+): { ok: true } | { ok: false; error: string } {
+  const asExtRaw = ankorstoreProduct.externalId ?? null;
+  const asExt = asExtRaw?.trim() ?? "";
+  const bjRef = bjReference.trim();
+  if (!asExt) {
+    return {
+      ok: false,
+      error:
+        "Ce produit Ankorstore n'a pas de référence externe (external_id vide côté Ankorstore). " +
+        "Impossible de le lier : la prochaine synchro créerait un doublon. " +
+        `Publie « ${bjRef} » comme nouveau produit depuis la boutique, ou corrige d'abord la référence externe côté Ankorstore.`,
+    };
+  }
+  if (asExt.toUpperCase() !== bjRef.toUpperCase()) {
+    return {
+      ok: false,
+      error:
+        `Ce produit Ankorstore a la référence externe « ${asExtRaw} » qui ne correspond pas à « ${bjRef} ». ` +
+        "Une synchro créerait un doublon (Ankorstore matche les produits sur ce champ). " +
+        "Choisis un autre produit Ankorstore ou renomme la référence externe côté Ankorstore.",
+    };
+  }
+  return { ok: true };
+}
+
+/**
  * Après une liaison fraîche (mass match, manual link, manual variant link),
  * pousse l'intégralité des données locales vers Ankorstore : rename SKU,
  * taille, stock, prix gros + détail (via majoration Ankorstore). Best-effort :
@@ -440,6 +475,20 @@ export async function linkAnkorstoreProductWithMapping(
     seenAk.add(m.ankorstoreVariantId);
   }
 
+  // Fix 1 : garde-fou anti-doublon — le produit Ankorstore choisi doit avoir
+  // un `external_id` égal à notre référence, sinon la synchro post-liaison
+  // enverrait externalId=bj.reference qu'AS ne matcherait pas → AS créerait
+  // un nouveau produit (incident JG6 Issyma 2026-07-29).
+  const bjRefRow = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { reference: true },
+  });
+  if (!bjRefRow) return { success: false, error: "Produit local introuvable." };
+  const akForCheck = await ankorstoreGetProduct(ankorstoreProductId);
+  if (!akForCheck) return { success: false, error: "Produit Ankorstore introuvable." };
+  const externalIdCheck = validateAnkorstoreExternalIdMatch(akForCheck, bjRefRow.reference);
+  if (!externalIdCheck.ok) return { success: false, error: externalIdCheck.error };
+
   const res = await confirmAnkorstoreMatch(
     productId,
     ankorstoreProductId,
@@ -518,6 +567,11 @@ export async function linkAnkorstoreProductManually(
     }
     if (!bjProductRaw) {
       return { success: false, error: "Produit local introuvable." };
+    }
+
+    const externalIdCheck = validateAnkorstoreExternalIdMatch(akProduct, bjProductRaw.reference);
+    if (!externalIdCheck.ok) {
+      return { success: false, error: externalIdCheck.error };
     }
 
     const bjForMatch: BjProductForMatch = {

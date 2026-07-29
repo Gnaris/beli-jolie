@@ -12,6 +12,55 @@ import sharp from "sharp";
 
 export type BrandedSize = "large" | "medium" | "thumb";
 
+/**
+ * Profil de taille du badge « RÉFÉRENCE ».
+ *
+ * - `standard` : 40 % de la largeur d'image, texte moyen. Bon compromis pour
+ *   la boutique publique, PFS, Faire (dont les vignettes descendent rarement
+ *   sous ~180 px).
+ * - `large` : 50 % de la largeur, texte plus gros. Réservé aux marketplaces
+ *   qui affichent les vignettes très petites — Ankorstore descend à ~130 px
+ *   dans ses listes, où le profil `standard` devient illisible.
+ *
+ * Les 4 tailles ont été validées visuellement dans la maquette
+ * `badge-reference-tailles.html` (2026-07-30, choix cliente : Faire=B, Ankor=C).
+ */
+export type BadgeVariant = "standard" | "large";
+
+interface BadgeParams {
+  widthPct: number;
+  minWidth: number;
+  maxWidth: number;
+  headerFontPct: number;
+  codeFontPct: number;
+  headerPadYPct: number;
+  codePadYPct: number;
+  cornerRadius: number;
+}
+
+const BADGE_VARIANTS: Record<BadgeVariant, BadgeParams> = {
+  standard: {
+    widthPct: 0.40,
+    minWidth: 160,
+    maxWidth: 560,
+    headerFontPct: 0.085,
+    codeFontPct: 0.135,
+    headerPadYPct: 0.42,
+    codePadYPct: 0.38,
+    cornerRadius: 6,
+  },
+  large: {
+    widthPct: 0.50,
+    minWidth: 200,
+    maxWidth: 700,
+    headerFontPct: 0.09,
+    codeFontPct: 0.15,
+    headerPadYPct: 0.45,
+    codePadYPct: 0.40,
+    cornerRadius: 8,
+  },
+};
+
 const SIZE_TARGETS: Record<BrandedSize, number> = {
   large: 1200,
   medium: 800,
@@ -32,20 +81,25 @@ interface BadgeGeometry {
  * Construit un badge SVG proportionnel à la largeur de l'image cible.
  * Position : haut-droite, marge = 2 % de la largeur.
  */
-function buildBadgeSvg(reference: string, imageWidth: number): BadgeGeometry {
-  const badgeWidth = Math.max(110, Math.min(420, Math.round(imageWidth * 0.28)));
+function buildBadgeSvg(
+  reference: string,
+  imageWidth: number,
+  variant: BadgeVariant = "standard",
+): BadgeGeometry {
+  const p = BADGE_VARIANTS[variant];
+  const badgeWidth = Math.max(
+    p.minWidth,
+    Math.min(p.maxWidth, Math.round(imageWidth * p.widthPct)),
+  );
 
-  // Le header porte désormais « RÉFÉRENCE » en toutes lettres → on réduit la
-  // taille de la police et le letter-spacing pour tenir sur une ligne sans
-  // élargir la pilule.
-  const headerFontSize = Math.max(8, Math.round(badgeWidth * 0.075));
-  const codeFontSize = Math.max(12, Math.round(badgeWidth * 0.11));
-  const headerPadY = Math.max(3, Math.round(headerFontSize * 0.40));
-  const codePadY = Math.max(4, Math.round(codeFontSize * 0.35));
+  const headerFontSize = Math.max(8, Math.round(badgeWidth * p.headerFontPct));
+  const codeFontSize = Math.max(12, Math.round(badgeWidth * p.codeFontPct));
+  const headerPadY = Math.max(3, Math.round(headerFontSize * p.headerPadYPct));
+  const codePadY = Math.max(4, Math.round(codeFontSize * p.codePadYPct));
   const headerHeight = headerFontSize + headerPadY * 2;
   const codeHeight = codeFontSize + codePadY * 2;
   const badgeHeight = headerHeight + codeHeight;
-  const cornerRadius = 4;
+  const cornerRadius = p.cornerRadius;
 
   const margin = Math.max(6, Math.round(imageWidth * 0.02));
   const x = Math.max(0, imageWidth - badgeWidth - margin);
@@ -99,6 +153,11 @@ interface ComposeInput {
    * (`withoutEnlargement: false`). Sans effet si la source est déjà ≥ minWidth.
    */
   minWidth?: number;
+  /**
+   * Profil de taille du badge (voir `BadgeVariant`). Défaut : `standard`.
+   * Ankorstore push `large` car ses vignettes sont plus petites.
+   */
+  variant?: BadgeVariant;
 }
 
 /**
@@ -131,7 +190,11 @@ export async function composeBrandedBuffer(
       .webp(WEBP_OPTS)
       .toBuffer();
     const uMeta = await sharp(upscaled).metadata();
-    const badgeU = buildBadgeSvg(input.reference, uMeta.width ?? requestedMinWidth);
+    const badgeU = buildBadgeSvg(
+      input.reference,
+      uMeta.width ?? requestedMinWidth,
+      input.variant,
+    );
     return sharp(upscaled)
       .composite([{ input: badgeU.svg, top: badgeU.y, left: badgeU.x }])
       .webp(WEBP_OPTS)
@@ -165,7 +228,7 @@ export async function composeBrandedBuffer(
 
   const rMeta = await sharp(resized).metadata();
   const actualW = rMeta.width ?? effectiveTarget;
-  const badge = buildBadgeSvg(input.reference, actualW);
+  const badge = buildBadgeSvg(input.reference, actualW, input.variant);
 
   return sharp(resized)
     .composite([{ input: badge.svg, top: badge.y, left: badge.x }])
@@ -186,15 +249,19 @@ export async function composeBrandedBuffer(
  *   v4 → minWidth force réellement la LARGEUR via resize(minWidth,null) — v3
  *        gardait la largeur source si l'image portrait tenait dans la boîte
  *        carrée (bug Faire refusant 800px). (2026-07-28)
+ *   v5 → badge agrandi + profils "standard"/"large" : Ankorstore push "large"
+ *        car ses vignettes de liste descendent à ~130px où le badge historique
+ *        (28% width) devenait illisible. (2026-07-30)
  *
  * Exposée pour que `buildBrandedUrl` inclue le suffixe `&v=…` dans l'URL —
  * les navigateurs revoient alors une URL différente au bump et refetch
  * immédiatement sans attendre l'expiration du Cache-Control.
  */
-export const BADGE_TEMPLATE_VERSION = "v4";
+export const BADGE_TEMPLATE_VERSION = "v5";
 
 /**
- * Hash tronqué qui identifie une combinaison (source, référence, size, minWidth).
+ * Hash tronqué qui identifie une combinaison
+ * (source, référence, size, minWidth, variant).
  * Sert de cache key HTTP + validation ETag pour le endpoint dynamique.
  */
 export function computeBrandedHash(
@@ -202,15 +269,16 @@ export function computeBrandedHash(
   reference: string,
   size: BrandedSize,
   minWidth: number = 0,
+  variant: BadgeVariant = "standard",
 ): string {
   return crypto
     .createHash("sha256")
     .update(
-      `${BADGE_TEMPLATE_VERSION}\n${sourceDbPath}\n${reference}\n${size}\n${minWidth}`,
+      `${BADGE_TEMPLATE_VERSION}\n${sourceDbPath}\n${reference}\n${size}\n${minWidth}\n${variant}`,
     )
     .digest("hex")
     .slice(0, 16);
 }
 
 // Exporté pour les tests unitaires
-export const __TEST_ONLY = { buildBadgeSvg };
+export const __TEST_ONLY = { buildBadgeSvg, BADGE_VARIANTS };

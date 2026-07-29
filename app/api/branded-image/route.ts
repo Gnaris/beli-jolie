@@ -19,6 +19,7 @@ import sharp from "sharp";
 import {
   composeBrandedBuffer,
   computeBrandedHash,
+  type BadgeVariant,
   type BrandedSize,
 } from "@/lib/branded-image";
 import { keyFromDbPath, readFile, statFile } from "@/lib/storage";
@@ -26,6 +27,7 @@ import { logger } from "@/lib/logger";
 
 const ALLOWED_SIZES: readonly BrandedSize[] = ["large", "medium", "thumb"] as const;
 const ALLOWED_FORMATS: readonly string[] = ["webp", "jpeg"] as const;
+const ALLOWED_VARIANTS: readonly BadgeVariant[] = ["standard", "large"] as const;
 
 const SAFE_SRC_RE = /^\/uploads\/[a-z0-9-]+\/produits\/[^./][^?\s]*\.webp$/i;
 
@@ -36,6 +38,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const sizeParam = (url.searchParams.get("size") ?? "large") as BrandedSize;
   const formatParam = (url.searchParams.get("format") ?? "webp").toLowerCase();
   const minWidthParam = url.searchParams.get("minWidth");
+  const variantParam = (url.searchParams.get("bv") ?? "standard") as BadgeVariant;
 
   if (!src || !ref) {
     return NextResponse.json({ error: "Paramètres src et ref requis." }, { status: 400 });
@@ -45,6 +48,9 @@ export async function GET(req: NextRequest): Promise<Response> {
   }
   if (!ALLOWED_FORMATS.includes(formatParam)) {
     return NextResponse.json({ error: "Format invalide (webp|jpeg)." }, { status: 400 });
+  }
+  if (!ALLOWED_VARIANTS.includes(variantParam)) {
+    return NextResponse.json({ error: "bv invalide (standard|large)." }, { status: 400 });
   }
   if (!SAFE_SRC_RE.test(src)) {
     return NextResponse.json({ error: "Source interdite." }, { status: 403 });
@@ -71,7 +77,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     return NextResponse.json({ error: "Image source introuvable." }, { status: 404 });
   }
 
-  const etag = `"${computeBrandedHash(src, ref, sizeParam, minWidth)}-${formatParam}-${stat.mtime.getTime().toString(36)}"`;
+  const etag = `"${computeBrandedHash(src, ref, sizeParam, minWidth, variantParam)}-${formatParam}-${stat.mtime.getTime().toString(36)}"`;
   const ifNoneMatch = req.headers.get("if-none-match");
   if (ifNoneMatch === etag) {
     return new Response(null, {
@@ -90,6 +96,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       reference: ref,
       size: sizeParam,
       minWidth: minWidth || undefined,
+      variant: variantParam,
     });
     let output = composed;
     let contentType = "image/webp";

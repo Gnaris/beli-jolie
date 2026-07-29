@@ -479,6 +479,7 @@ export async function buildPublishProductInput(productId: string): Promise<
         baseUrl: brandedBaseUrl,
         size: "large",
         minWidth: 500,
+        variant: "large",
       });
     }
     return buildPublicImageUrl(path, imageBaseUrl);

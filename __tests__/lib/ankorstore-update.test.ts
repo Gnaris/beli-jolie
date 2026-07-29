@@ -50,8 +50,19 @@ const mockGetVariants = vi.fn().mockResolvedValue([
   { id: "ank-variant-1", sku: "REF001_red_UNIT_1" },
   { id: "ank-variant-2", sku: "REF001_blue_UNIT_2" },
 ]);
+const mockGetProduct = vi.fn().mockResolvedValue({
+  id: "ank-product-1",
+  externalId: "REF001",
+  variants: [
+    { id: "ank-variant-1", sku: "REF001_red_UNIT_1" },
+    { id: "ank-variant-2", sku: "REF001_blue_UNIT_2" },
+  ],
+});
+const mockSearchProducts = vi.fn().mockResolvedValue([]);
 vi.mock("@/lib/ankorstore-api", () => ({
   ankorstoreGetVariants: (...args: unknown[]) => mockGetVariants(...args),
+  ankorstoreGetProduct: (...args: unknown[]) => mockGetProduct(...args),
+  ankorstoreSearchProducts: (...args: unknown[]) => mockSearchProducts(...args),
 }));
 
 vi.mock("@/lib/cached-data", () => ({
@@ -201,6 +212,15 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     mockProductUpdate.mockResolvedValue({});
     mockAnkorstoreOperationCreate.mockResolvedValue({});
     mockAnkorstoreOperationUpdateMany.mockResolvedValue({ count: 0 });
+    mockGetProduct.mockResolvedValue({
+      id: "ank-product-1",
+      externalId: "REF001",
+      variants: [
+        { id: "ank-variant-1", sku: "REF001_red_UNIT_1" },
+        { id: "ank-variant-2", sku: "REF001_blue_UNIT_2" },
+      ],
+    });
+    mockSearchProducts.mockResolvedValue([]);
     vi.mocked(prisma.companyInfo.findFirst).mockResolvedValue({ shopName: "Test Boutique" } as never);
   });
 
@@ -289,6 +309,108 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
         }),
       }),
     );
+  });
+
+  it("Test Fix 2a: hasNewVariants + external_id AS null → refus import (anti-doublon JG6 Issyma)", async () => {
+    // Scénario reproduit : produit lié à un AS-side dont external_id = null
+    // (fiche importée hors de notre système). Ancienne variante non liée →
+    // opType = "import" — sans le fix, AS créait un doublon à chaque sync.
+    const product = makeProduct({
+      colors: [
+        {
+          id: "variant-1",
+          ankorsVariantId: null, // → hasNewVariants=true
+          unitPrice: 10,
+          weight: 0.5,
+          stock: 10,
+          isPrimary: true,
+          saleType: "UNIT",
+          packQuantity: null,
+          sku: "REF001_red_UNIT_1",
+          variantSizes: [],
+          colorId: "color-1",
+          color: { id: "color-1", name: "Rouge" },
+          packLines: [],
+          images: [],
+        },
+      ],
+    });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+    mockGetProduct.mockResolvedValueOnce({
+      id: "ank-product-1",
+      externalId: null, // ← cœur du bug JG6
+      variants: [{ id: "ank-legacy", sku: "REF001" }],
+    });
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error).toContain("référence externe");
+    expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
+    expect(mockAddProductsToOperation).not.toHaveBeenCalled();
+  });
+
+  it("Test Fix 2b: hasNewVariants + external_id AS différent → refus import", async () => {
+    const product = makeProduct({
+      colors: [
+        {
+          id: "variant-1",
+          ankorsVariantId: null,
+          unitPrice: 10,
+          weight: 0.5,
+          stock: 10,
+          isPrimary: true,
+          saleType: "UNIT",
+          packQuantity: null,
+          sku: "REF001_red_UNIT_1",
+          variantSizes: [],
+          colorId: "color-1",
+          color: { id: "color-1", name: "Rouge" },
+          packLines: [],
+          images: [],
+        },
+      ],
+    });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+    mockGetProduct.mockResolvedValueOnce({
+      id: "ank-product-1",
+      externalId: "SOMETHING_ELSE",
+      variants: [],
+    });
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error).toContain("SOMETHING_ELSE");
+    expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
+  });
+
+  it("Test Fix 2c: mode update (variantes déjà liées) + external_id AS mismatch → laisse passer (safe)", async () => {
+    // Toutes les variantes sont déjà liées → opType = "update" → pas de risque
+    // de doublon (update ne fait que PATCH-er les variantes existantes par SKU).
+    // On log un warning mais on n'échoue pas.
+    const prevSnapshot = makeSnapshot();
+    const product = makeProduct({ ankorsLastSyncSnapshot: prevSnapshot });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+    mockGetProduct.mockResolvedValueOnce({
+      id: "ank-product-1",
+      externalId: "ZZZ", // mismatch mais mode update
+      variants: [
+        { id: "ank-variant-1", sku: "REF001_red_UNIT_1" },
+        { id: "ank-variant-2", sku: "REF001_blue_UNIT_2" },
+      ],
+    });
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1", { forceFullSync: true });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(mockCreateCatalogOperation).toHaveBeenCalledWith("update");
   });
 
   it("Test 4: pas de ankorsProductId → error sans appel API", async () => {
@@ -428,18 +550,21 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
     // AS ne connaît que la variante existante → auto-link ne trouvera rien
     // pour la nouvelle (mock par défaut retourne matched=0,0).
-    mockGetVariants.mockResolvedValueOnce([
-      { id: "ank-variant-1", sku: "REF001_red_UNIT_1" },
-    ]);
+    mockGetProduct.mockResolvedValueOnce({
+      id: "ank-product-1",
+      externalId: "REF001",
+      variants: [{ id: "ank-variant-1", sku: "REF001_red_UNIT_1" }],
+    });
 
     const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
     const result = await ankorstoreKickoffUpdate("product-1");
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    // Une op asynchrone DOIT être créée juste pour pousser la nouvelle variante
+    // Une op asynchrone DOIT être créée juste pour pousser la nouvelle variante.
+    // Mode "import" (pas "update") car il faut créer la nouvelle variante côté AS.
     expect(result.operationId).toBe("op-test");
-    expect(mockCreateCatalogOperation).toHaveBeenCalledWith("update");
+    expect(mockCreateCatalogOperation).toHaveBeenCalledWith("import");
 
     // Le payload doit contenir LES DEUX variantes (la liée et la nouvelle)
     const addCall = mockAddProductsToOperation.mock.calls[0];
@@ -631,7 +756,13 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     expect(products[0].variants[0].stockQuantity).toBe(0);
   });
 
-  it("Stock 0 forcé quand product.status === 'ARCHIVED' (comportement préservé)", async () => {
+  it("Stock 0 forcé quand product.status === 'ARCHIVED' (short-circuit — voir describe dédié plus bas)", async () => {
+    // Depuis fix JG6 (2026-07-30), ARCHIVED court-circuite tout le flow
+    // catalog/snapshot : on PATCH juste stock=0 sur les vraies variantes AS
+    // (via ankorstoreGetVariants), sans op async.
+    mockGetVariants.mockResolvedValue([
+      { id: "ank-variant-1", sku: "REF001_red_UNIT_1", archivedAt: null },
+    ]);
     const product = makeProduct({
       status: "ARCHIVED",
       ankorsLastSyncSnapshot: null,
@@ -641,14 +772,13 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
     const result = await ankorstoreKickoffUpdate("product-1");
 
-    expect(result.success).toBe(true);
+    expect(result).toEqual({ success: true, operationId: null, archived: true });
     expect(mockPatchVariantStock).toHaveBeenCalledWith("ank-variant-1", {
       stockQuantity: 0,
       isAlwaysInStock: false,
     });
-    const addCall = mockAddProductsToOperation.mock.calls[0];
-    const products = addCall[1] as { variants: { stockQuantity: number }[] }[];
-    expect(products[0].variants[0].stockQuantity).toBe(0);
+    expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
+    expect(mockAddProductsToOperation).not.toHaveBeenCalled();
   });
 
   it("Stock réel envoyé quand product.status === 'ONLINE'", async () => {
@@ -782,5 +912,110 @@ describe("ankorstoreKickoffUpdate — garde-fou anti double-kickoff", () => {
     const ageMs = Date.now() - (createdAt?.gt as Date).getTime();
     expect(ageMs).toBeGreaterThanOrEqual(59_000);
     expect(ageMs).toBeLessThanOrEqual(61_000);
+  });
+});
+
+describe("ankorstoreKickoffUpdate — produit ARCHIVED", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPatchVariantStock.mockResolvedValue(undefined);
+    mockCreateCatalogOperation.mockResolvedValue({ operationId: "op-test" });
+    mockProductUpdate.mockResolvedValue({});
+    mockAnkorstoreOperationUpdateMany.mockResolvedValue({ count: 0 });
+    vi.mocked(prisma.ankorstoreOperation.findFirst).mockResolvedValue(null);
+  });
+
+  it("ARCHIVED : PATCH stock=0 sur TOUTES les variantes AS (même celles non liées côté BJ) + aucune op catalog", async () => {
+    // Cas JG6 Issyma 2026-07-29 : ProductColor.ankorsVariantId = null mais
+    // Ankor a bien 1 variante existante. Sans le fix, aucun PATCH stock=0
+    // n'était envoyé (Step A ne touche que les variantes déjà liées).
+    mockGetVariants.mockResolvedValue([
+      { id: "ank-variant-1", sku: "JG6_A", archivedAt: null },
+      { id: "ank-variant-2", sku: "JG6_B", archivedAt: null },
+    ]);
+    const product = makeProduct({
+      status: "ARCHIVED",
+      colors: [
+        {
+          id: "variant-1",
+          ankorsVariantId: null,
+          unitPrice: 10,
+          weight: 0.5,
+          stock: 258,
+          isPrimary: true,
+          saleType: "UNIT",
+          packQuantity: null,
+          sku: null,
+          variantSizes: [],
+          colorId: "color-1",
+          color: { id: "color-1", name: "Blanc" },
+          packLines: [],
+          images: [],
+          disabled: true,
+        },
+      ],
+    });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result).toEqual({ success: true, operationId: null, archived: true });
+
+    expect(mockPatchVariantStock).toHaveBeenCalledTimes(2);
+    expect(mockPatchVariantStock).toHaveBeenCalledWith("ank-variant-1", {
+      stockQuantity: 0,
+      isAlwaysInStock: false,
+    });
+    expect(mockPatchVariantStock).toHaveBeenCalledWith("ank-variant-2", {
+      stockQuantity: 0,
+      isAlwaysInStock: false,
+    });
+
+    expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
+    expect(mockStartOperation).not.toHaveBeenCalled();
+    expect(mockAddProductsToOperation).not.toHaveBeenCalled();
+    expect(mockPatchVariantPrices).not.toHaveBeenCalled();
+
+    expect(mockProductUpdate).toHaveBeenCalledWith({
+      where: { id: "product-1" },
+      data: { ankorsSyncRequired: false },
+    });
+  });
+
+  it("ARCHIVED sans variante active côté AS : early return succès + aucun appel PATCH", async () => {
+    mockGetVariants.mockResolvedValue([]);
+    const product = makeProduct({ status: "ARCHIVED" });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result).toEqual({ success: true, operationId: null, archived: true });
+    expect(mockPatchVariantStock).not.toHaveBeenCalled();
+    expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
+  });
+
+  it("ARCHIVED : si une PATCH échoue, on retourne success:false sans marquer sync OK", async () => {
+    mockGetVariants.mockResolvedValue([
+      { id: "ank-variant-1", sku: "JG6_A", archivedAt: null },
+      { id: "ank-variant-2", sku: "JG6_B", archivedAt: null },
+    ]);
+    mockPatchVariantStock
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("AS 500 timeout"));
+
+    const product = makeProduct({ status: "ARCHIVED" });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
+    const result = await ankorstoreKickoffUpdate("product-1");
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error).toMatch(/Archivage Ankorstore partiel/);
+    expect(mockProductUpdate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: { ankorsSyncRequired: false } }),
+    );
   });
 });
