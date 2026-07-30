@@ -23,6 +23,8 @@ import {
 import { MicrostoreSessionExpiredError } from "@/lib/microstore-client";
 import { loadExportContext, loadExportProducts } from "@/lib/marketplace-excel/load-products";
 import type { ExportProduct } from "@/lib/marketplace-excel/types";
+import { getStoredPictureStation } from "@/lib/microstore-picture-station";
+import { sendProductPhotosToMicrostore } from "@/app/actions/admin/microstore-picture-station";
 
 interface ActionResult {
   success: boolean;
@@ -145,6 +147,25 @@ export async function pushProductToMicrostore(productId: string): Promise<Action
 
   await markPushed([productId], { productsSent: result.productsSent, rowsSent: result.rowsSent });
 
+  // Chaîne l'envoi des photos via la Station de Transfert (fire-and-forget).
+  // Si la Station n'est pas configurée, no-op silencieux.
+  void (async () => {
+    const stored = await getStoredPictureStation();
+    if (!stored) return;
+    try {
+      const psRes = await sendProductPhotosToMicrostore(product.reference);
+      if (!psRes.success) {
+        logger.warn("[Microstore] photos sync failed after fiche push", {
+          productId,
+          reference: product.reference,
+          error: psRes.error,
+        });
+      }
+    } catch (err) {
+      logger.error("[Microstore] photos sync threw", { error: err, productId });
+    }
+  })();
+
   revalidateTag("products", "default");
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${productId}/modifier`);
@@ -249,6 +270,30 @@ export async function bulkPushProductsToMicrostore(
     productsSent: result.productsSent,
     rowsSent: result.rowsSent,
   });
+
+  // Chaîne le bulk photos en fire-and-forget (mode « importation en masse »
+  // Microstore : 1 seul POST pictureStations avec toutes les images). Si la
+  // Station n'est pas configurée, no-op silencieux.
+  const { bulkSendPhotosToMicrostore } = await import(
+    "@/app/actions/admin/microstore-picture-station"
+  );
+  if (pushedIds.length > 0) {
+    void (async () => {
+      const stored = await getStoredPictureStation();
+      if (!stored) return;
+      try {
+        const bulkRes = await bulkSendPhotosToMicrostore(pushedIds);
+        if (!bulkRes.success) {
+          logger.warn("[Microstore] bulk photos sync failed after fiche push", {
+            productIds: pushedIds,
+            error: bulkRes.error,
+          });
+        }
+      } catch (err) {
+        logger.error("[Microstore] bulk photos sync threw", { error: err });
+      }
+    })();
+  }
 
   revalidateTag("products", "default");
   revalidatePath("/admin/produits");

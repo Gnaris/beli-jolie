@@ -2,7 +2,7 @@
  * POST /api/admin/microstore/qr
  *
  * Génère un nouveau `code` de scan Microstore + le rend en QR code (dataURL).
- * Le client (page /admin/parametres/microstore) affiche le QR et poll
+ * Le client (drawer Microstore de /admin/parametres?tab=marketplaces) affiche le QR et poll
  * /api/admin/microstore/poll avec ce même `code`.
  *
  * Le code n'est PAS persisté côté serveur : c'est le client qui le passe à

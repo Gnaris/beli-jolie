@@ -179,6 +179,17 @@ function normalizeFaireBddToUnified(
   return s;
 }
 
+function normalizeMicrostoreToUnified(
+  s: "NEW" | "SHIPPED" | "CANCELLED",
+): MarketplaceUnifiedStatus {
+  // Microstore : dès qu'une commande est importable, elle a été validée ET
+  // expédiée côté Microstore (POS retail). On l'affiche donc en « Expédié »,
+  // même quand le shipping_status côté API vaut encore 0/1 (statut interne
+  // « NEW » en base).
+  if (s === "CANCELLED") return "CANCELLED";
+  return "SHIPPED";
+}
+
 /**
  * Libellé lisible d'un statut brut Faire (NEW, PROCESSING, BACKORDERED,
  * SHIPPED, DELIVERED, CANCELLED). Voir docs/faire-api.md §11.2.
@@ -396,6 +407,53 @@ async function computeEfashionStockDeductionMap(
   const dedMap = new Map(deducted.map((g) => [g.efashionOrderId, g._count.id]));
   for (const r of rows) {
     if (r.status === "NEW" || r.status === "CANCELLED") {
+      result.set(r.id, "NOT_APPLICABLE");
+    } else if ((dedMap.get(r.id) ?? 0) > 0) {
+      result.set(r.id, "DONE");
+    } else if ((elMap.get(r.id) ?? 0) === 0) {
+      result.set(r.id, "NOTHING_TO_DEDUCT");
+    } else {
+      result.set(r.id, "PENDING");
+    }
+  }
+  return result;
+}
+
+async function computeMicrostoreStockDeductionMap(
+  tenantId: string,
+  rows: Array<{ id: string; status: "NEW" | "SHIPPED" | "CANCELLED" }>,
+): Promise<Map<string, MarketplaceStockDeductionState>> {
+  // Microstore : toutes les commandes non annulées sont considérées comme
+  // « Expédiée » et éligibles à la déduction stock (cf.
+  // normalizeMicrostoreToUnified).
+  const result = new Map<string, MarketplaceStockDeductionState>();
+  if (!rows.length) return result;
+  const orderIds = rows.map((r) => r.id);
+  const [eligible, deducted] = await Promise.all([
+    prisma.microstoreOrderItem.groupBy({
+      by: ["microstoreOrderInternalId"],
+      where: {
+        tenantId,
+        microstoreOrderInternalId: { in: orderIds },
+        productId: { not: null },
+        productColorId: { not: null },
+      },
+      _count: { id: true },
+    }),
+    prisma.microstoreOrderItem.groupBy({
+      by: ["microstoreOrderInternalId"],
+      where: {
+        tenantId,
+        microstoreOrderInternalId: { in: orderIds },
+        stockDeductedAt: { not: null },
+      },
+      _count: { id: true },
+    }),
+  ]);
+  const elMap = new Map(eligible.map((g) => [g.microstoreOrderInternalId, g._count.id]));
+  const dedMap = new Map(deducted.map((g) => [g.microstoreOrderInternalId, g._count.id]));
+  for (const r of rows) {
+    if (r.status === "CANCELLED") {
       result.set(r.id, "NOT_APPLICABLE");
     } else if ((dedMap.get(r.id) ?? 0) > 0) {
       result.set(r.id, "DONE");
@@ -763,22 +821,21 @@ export async function listMarketplaceOrders(
   // ── Microstore ─
   const microstorePromise = wantsMicrostore
     ? (async () => {
-        const microstoreStatusMap: Record<
-          MarketplaceUnifiedStatus,
-          "NEW" | "SHIPPED" | "CANCELLED" | null
-        > = {
-          NEW: "NEW",
-          VALIDATED: null, // Microstore n'a pas de statut VALIDATED
-          SHIPPED: "SHIPPED",
-          CANCELLED: "CANCELLED",
-        };
-        const microstoreStatus = input.status ? microstoreStatusMap[input.status] : null;
-        if (input.status && !microstoreStatus) {
+        // Microstore : une commande importable = déjà validée + expédiée
+        // côté POS. On mappe donc NEW (base) ET SHIPPED (base) vers le
+        // statut unifié SHIPPED. Filtres NEW/VALIDATED ne matchent rien.
+        let microstoreStatusWhere: Record<string, unknown> = {};
+        if (input.status === "SHIPPED") {
+          microstoreStatusWhere = { status: { in: ["NEW", "SHIPPED"] } };
+        } else if (input.status === "CANCELLED") {
+          microstoreStatusWhere = { status: "CANCELLED" };
+        } else if (input.status) {
+          // NEW ou VALIDATED → aucune commande Microstore dans ces buckets.
           return { items: [] as MarketplaceOrderListItem[], total: 0 };
         }
         const where: Record<string, unknown> = {
           tenantId: tenant.id,
-          ...(microstoreStatus ? { status: microstoreStatus } : {}),
+          ...microstoreStatusWhere,
           ...(Object.keys(dateFilter).length ? { createdAtMicrostore: dateFilter } : {}),
           ...(q
             ? {
@@ -810,22 +867,17 @@ export async function listMarketplaceOrders(
           }),
           prisma.microstoreOrder.count({ where }),
         ]);
+        const stockMap = await computeMicrostoreStockDeductionMap(
+          tenant.id,
+          rows.map((r) => ({ id: r.id, status: r.status })),
+        );
         const items: MarketplaceOrderListItem[] = rows.map((r) => ({
           id: r.id,
           source: "MICROSTORE" as const,
           orderNumber: r.microstoreOrderId,
           createdAt: r.createdAtMicrostore.toISOString(),
-          status: r.status === "SHIPPED"
-            ? "SHIPPED"
-            : r.status === "CANCELLED"
-            ? "CANCELLED"
-            : "NEW",
-          statusRawLabel:
-            r.status === "SHIPPED"
-              ? "Expédiée"
-              : r.status === "CANCELLED"
-              ? "Annulée"
-              : "À préparer",
+          status: normalizeMicrostoreToUnified(r.status),
+          statusRawLabel: r.status === "CANCELLED" ? "Annulée" : "Expédiée",
           customerName: r.customerName,
           customerShop: r.customerCompany,
           customerCountry: r.customerCountry,
@@ -833,7 +885,7 @@ export async function listMarketplaceOrders(
           totalTTC: decimalToNumber(r.totalHT), // Microstore ne détaille pas la TVA
           totalHT: decimalToNumber(r.totalHT),
           hasInvoice: false,
-          stockDeductionState: "NOT_APPLICABLE",
+          stockDeductionState: stockMap.get(r.id) ?? "NOT_APPLICABLE",
         }));
         return { items, total };
       })()
@@ -1609,7 +1661,7 @@ export async function getMarketplaceStats(
   });
 
   // ─── Compteurs par statut unifié ─
-  const [pfsStatusRows, efashionStatusRows, ankorstoreStatusRows, faireStatusRows] = await Promise.all([
+  const [pfsStatusRows, efashionStatusRows, ankorstoreStatusRows, faireStatusRows, microstoreStatusRows] = await Promise.all([
     wantsPfs
       ? prisma.pfsOrder.groupBy({
           where: {
@@ -1652,6 +1704,18 @@ export async function getMarketplaceStats(
           _count: { _all: true },
         })
       : Promise.resolve([]),
+    wantsMicrostore
+      ? prisma.microstoreOrder.groupBy({
+          where: {
+            tenantId: tenant.id,
+            ...(Object.keys(microstoreDateFilter).length
+              ? { createdAtMicrostore: microstoreDateFilter }
+              : {}),
+          },
+          by: ["status"],
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
   ]);
   const statusCounts: Record<MarketplaceUnifiedStatus, number> = {
     NEW: 0,
@@ -1666,6 +1730,8 @@ export async function getMarketplaceStats(
     statusCounts[normalizeAnkorstoreToUnified(r.status)] += r._count._all;
   for (const r of faireStatusRows)
     statusCounts[normalizeFaireBddToUnified(r.status)] += r._count._all;
+  for (const r of microstoreStatusRows)
+    statusCounts[normalizeMicrostoreToUnified(r.status)] += r._count._all;
 
   return {
     period: input.period,
@@ -1809,6 +1875,7 @@ export interface BulkMarketplaceOrderIds {
   EFASHION?: string[];
   ANKORSTORE?: string[];
   FAIRE?: string[];
+  MICROSTORE?: string[];
 }
 
 export interface BulkStockDeductionResult {
@@ -1835,6 +1902,7 @@ export async function bulkDeductMarketplaceOrders(
   const efashionIds = (ids.EFASHION ?? []).filter(Boolean);
   const ankorstoreIds = (ids.ANKORSTORE ?? []).filter(Boolean);
   const faireIds = (ids.FAIRE ?? []).filter(Boolean);
+  const microstoreIds = (ids.MICROSTORE ?? []).filter(Boolean);
 
   const errors: Array<{ source: MarketplaceSource; message: string }> = [];
   let processedCount = 0;
@@ -1914,6 +1982,25 @@ export async function bulkDeductMarketplaceOrders(
           }
         })()
       : Promise.resolve(),
+    microstoreIds.length > 0
+      ? (async () => {
+          try {
+            const { deductStockFromMicrostoreOrders } = await import(
+              "@/lib/microstore-stock-deduction"
+            );
+            const r = await deductStockFromMicrostoreOrders(tenant.id, actorId, microstoreIds);
+            processedCount += r.processedCount;
+            skippedCount += r.skipped.length;
+            if (r.touchedProductIds.length > 0) touched = true;
+          } catch (err) {
+            logger.error("[Bulk Stock] Microstore échec", { error: err as Error });
+            errors.push({
+              source: "MICROSTORE",
+              message: err instanceof Error ? err.message : "Erreur inconnue",
+            });
+          }
+        })()
+      : Promise.resolve(),
   ]);
 
   if (touched) {
@@ -1952,6 +2039,7 @@ export async function bulkMarkMarketplaceOrdersAsDeducted(
   const efashionIds = (ids.EFASHION ?? []).filter(Boolean);
   const ankorstoreIds = (ids.ANKORSTORE ?? []).filter(Boolean);
   const faireIds = (ids.FAIRE ?? []).filter(Boolean);
+  const microstoreIds = (ids.MICROSTORE ?? []).filter(Boolean);
 
   const errors: Array<{ source: MarketplaceSource; message: string }> = [];
   const now = new Date();
@@ -2017,6 +2105,18 @@ export async function bulkMarkMarketplaceOrdersAsDeducted(
             where: {
               tenantId: tenant.id,
               faireOrderId: { in: faireIds },
+              stockDeductedAt: null,
+            },
+            data: { stockDeductedAt: now },
+          }),
+        )
+      : Promise.resolve(),
+    microstoreIds.length > 0
+      ? runOne("MICROSTORE", () =>
+          prisma.microstoreOrderItem.updateMany({
+            where: {
+              tenantId: tenant.id,
+              microstoreOrderInternalId: { in: microstoreIds },
               stockDeductedAt: null,
             },
             data: { stockDeductedAt: now },

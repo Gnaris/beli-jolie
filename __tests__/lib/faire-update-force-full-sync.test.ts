@@ -333,6 +333,162 @@ describe("faireUpdateProduct — forceFullSync", () => {
     expect(updates.map((u) => u.sku).sort()).toEqual([...VARIANT_SKUS].sort());
   });
 
+  it("avec forceFullSync=true : réconcilie les options via l'état Faire (rename Color→Couleur) même sans nouvelle variante — évite 400 « Product variant options cannot be changed »", async () => {
+    // Régression 2026-07-30 (Issyma : 779, 8625, 89079-2, JG162, JG61, JG65) :
+    // la RESYNC forcée envoie variants[] avec options:[{name:"Color",…}] alors
+    // que Faire stocke la dimension « Couleur » (FR). Avant fix, la réconciliation
+    // ne tournait QUE si hasNewVariants=true → RESYNC échouait avec HTTP 400.
+    buildFaireProductPayloadSpy.mockReturnValueOnce({
+      body: {
+        name: "Bracelet",
+        lifecycle_state: "PUBLISHED",
+        variants: VARIANT_SKUS.map((sku) => ({
+          id: `po_${sku}`,
+          sku,
+          name: sku === "BJ-OR" ? "Or" : "Argent",
+          active: true,
+          options: [{ name: "Color", value: sku === "BJ-OR" ? "Or" : "Argent" }],
+          prices: [],
+        })),
+      },
+      variants: VARIANT_SKUS.map((sku) => ({
+        bjVariantId: `v-${sku}`,
+        sku,
+        wholesalePriceCents: 800,
+        retailPriceCents: 2000,
+        payload: {
+          id: `po_${sku}`,
+          sku,
+          name: sku === "BJ-OR" ? "Or" : "Argent",
+          active: true,
+          options: [{ name: "Color", value: sku === "BJ-OR" ? "Or" : "Argent" }],
+          prices: [],
+          idempotence_token: sku,
+          available_quantity: 5,
+        },
+      })),
+      optionValues: ["Or", "Argent"],
+      productImagesCount: 0,
+      productImageUrls: [],
+    });
+    // Faire retourne la dimension FR « Couleur » avec valeurs en casse serveur.
+    faireFetchSpy.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if ((init?.method ?? "GET") === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => "",
+          json: async () => ({
+            variant_option_sets: [{ name: "Couleur", values: ["or", "argent"] }],
+            variants: VARIANT_SKUS.map((sku) => ({
+              id: `po_${sku}`,
+              sku,
+              options: [
+                { name: "Couleur", value: sku === "BJ-OR" ? "or" : "argent" },
+              ],
+            })),
+          }),
+        };
+      }
+      return { ok: true, status: 200, text: async () => "", json: async () => ({}) };
+    });
+
+    const res = await faireUpdateProduct("p-1", { forceFullSync: true });
+    expect(res.success).toBe(true);
+
+    const patchCall = (faireFetchSpy.mock.calls as [string, { method?: string; body?: string }?][])
+      .find(([url, init]) => url.endsWith(`/products/${encodeURIComponent("fp-1")}`) && init?.method === "PATCH");
+    expect(patchCall, "PATCH /products/{id} envoyé").toBeTruthy();
+
+    const body = JSON.parse(patchCall![1]!.body!) as {
+      variants?: { id?: string; options?: { name: string; value: string }[] }[];
+    };
+    expect(body.variants).toHaveLength(2);
+    // Le PATCH doit envoyer les libellés Faire exacts (name+value) — sinon Faire refuse.
+    for (const v of body.variants!) {
+      expect(v.options?.[0].name, "dimension renommée en Couleur").toBe("Couleur");
+      const expectedValue = v.id === "po_BJ-OR" ? "or" : "argent";
+      expect(v.options?.[0].value, "valeur Faire imposée (casse serveur)").toBe(expectedValue);
+    }
+  });
+
+  it("avec forceFullSync=true : strip les options quand Faire n'a AUCUN axe (produit mono-variante 'default') — évite 400", async () => {
+    // Régression 2026-07-30 sur JG162/JG61/JG65 (issyma) : Faire a publié la
+    // fiche avec 1 seule variante « default » sans axe. Toute tentative
+    // d'envoyer options:[…] est refusée « Product variant options cannot be
+    // changed ». Fix : strip options + variant_option_sets dans ce cas.
+    buildFaireProductPayloadSpy.mockReturnValueOnce({
+      body: {
+        name: "JG solo",
+        lifecycle_state: "PUBLISHED",
+        variants: [
+          {
+            id: "po_BJ-OR",
+            sku: "BJ-OR",
+            name: "Or",
+            active: true,
+            options: [{ name: "Color", value: "Or" }],
+            prices: [],
+          },
+        ],
+      },
+      variants: [
+        {
+          bjVariantId: "v-BJ-OR",
+          sku: "BJ-OR",
+          wholesalePriceCents: 800,
+          retailPriceCents: 2000,
+          payload: {
+            id: "po_BJ-OR",
+            sku: "BJ-OR",
+            name: "Or",
+            active: true,
+            options: [{ name: "Color", value: "Or" }],
+            prices: [],
+            idempotence_token: "BJ-OR",
+            available_quantity: 5,
+          },
+        },
+      ],
+      optionValues: ["Or"],
+      productImagesCount: 0,
+      productImageUrls: [],
+    });
+    loadFaireProductFullSpy.mockResolvedValueOnce({
+      id: "p-1",
+      status: "ONLINE",
+      colors: [{ id: "v-BJ-OR", faireVariantId: "po_BJ-OR", saleType: "UNIT" }],
+    });
+    faireFetchSpy.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if ((init?.method ?? "GET") === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => "",
+          json: async () => ({
+            variant_option_sets: [],
+            variants: [{ id: "po_BJ-OR", sku: "BJ-OR", options: [] }],
+          }),
+        };
+      }
+      return { ok: true, status: 200, text: async () => "", json: async () => ({}) };
+    });
+
+    const res = await faireUpdateProduct("p-1", { forceFullSync: true });
+    expect(res.success).toBe(true);
+
+    const patchCall = (faireFetchSpy.mock.calls as [string, { method?: string; body?: string }?][])
+      .find(([url, init]) => url.endsWith(`/products/${encodeURIComponent("fp-1")}`) && init?.method === "PATCH");
+    expect(patchCall).toBeTruthy();
+    const body = JSON.parse(patchCall![1]!.body!) as {
+      variant_option_sets?: unknown;
+      variants?: Record<string, unknown>[];
+    };
+    expect(body.variant_option_sets).toBeUndefined();
+    expect(body.variants).toHaveLength(1);
+    expect("options" in body.variants![0], "options strippées du body").toBe(false);
+  });
+
   it("avec forceFullSync=true : pousse les images des variantes via PATCH /variants/{id} après DELETE des anciennes", async () => {
     // Régression PS3 : l'ajout d'une nouvelle image sur une variante ne
     // partait jamais vers Faire, même après clic sur « Synchroniser ». Le

@@ -704,14 +704,13 @@ export async function ankorstoreKickoffUpdate(
           ? "active"
           : "inactive";
 
-    // Toggle badge « Réf en haut à droite » : lu ici pour être posé dans le
-    // snapshot (sinon basculer le toggle ne déclencherait aucun diff) ET
-    // réutilisé plus bas pour construire les URLs images.
-    const brandedBadgeRow = await prisma.siteConfig.findFirst({
-      where: { key: "branded_reference_badge_enabled" },
-      select: { value: true },
-    });
-    const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
+    // Badge « Réf » désactivé de force pour Ankorstore depuis 2026-07-30 :
+    // malgré plusieurs corrections dimensions/format, Ankorstore ne rend pas
+    // le badge dans ses vignettes → on n'envoie plus l'URL brandée. Le toggle
+    // DB reste actif pour la boutique + PFS + eFashion. Écrit `false` dans le
+    // snapshot pour que les produits déjà en ligne avec le badge (snapshot
+    // brandedBadgeApplied=true) déclenchent une re-sync qui retire le badge.
+    const brandedBadgeEnabled = false;
 
     const nextSnapshot: AnkorstoreSyncSnapshot = {
       schemaVersion: ANKORSTORE_SNAPSHOT_VERSION,

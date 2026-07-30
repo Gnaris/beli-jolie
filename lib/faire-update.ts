@@ -258,7 +258,27 @@ export function reconcilePatchBodyWithFaireOptions(
     variantOptionSets: { name: string; values: string[] }[];
   },
 ): Record<string, unknown> {
-  if (faireState.variantOptionSets.length === 0) return patchBody;
+  // Cas particulier : Faire ne matérialise AUCUN axe de variantes indexé.
+  // Se produit quand le produit a été créé/publié côté Faire avec une seule
+  // variante (Faire ne crée pas d'axe s'il n'y a rien à choisir — la variante
+  // sortie s'appelle « default » avec `options: []`). Envoyer des `options`
+  // sur ces variantes déclenche « Product variant options cannot be changed »
+  // (HTTP 400). Parade : on strip `options` et `variant_option_sets` du body
+  // pour rester bit-à-bit compatible avec l'état Faire. Cas vu en prod
+  // 2026-07-30 sur JG162 / JG61 / JG65 (tenant issyma) — un seul coloris.
+  if (faireState.variantOptionSets.length === 0) {
+    const stripped: Record<string, unknown> = { ...patchBody };
+    delete stripped.variant_option_sets;
+    if (Array.isArray(patchBody.variants)) {
+      stripped.variants = (patchBody.variants as Record<string, unknown>[]).map(
+        (v) => {
+          const { options: _drop, ...rest } = v;
+          return rest;
+        },
+      );
+    }
+    return stripped;
+  }
 
   const bjOptionSets = Array.isArray(patchBody.variant_option_sets)
     ? (patchBody.variant_option_sets as { name?: string; values?: string[] }[])
@@ -386,11 +406,11 @@ export async function faireUpdateProduct(
   // DELETED.
   const tenantId = await getCurrentTenantIdSafe();
   const imageBaseUrl = tenantId ? (await getTenantBaseUrl(tenantId)) ?? undefined : undefined;
-  const brandedBadgeRow = await prisma.siteConfig.findFirst({
-    where: { key: "branded_reference_badge_enabled" },
-    select: { value: true },
-  });
-  const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
+  // Badge « Réf » désactivé de force pour Faire depuis 2026-07-30 : malgré
+  // plusieurs corrections dimensions/format, Faire ne rend pas le badge dans
+  // ses vignettes → on n'envoie plus l'URL brandée. Le toggle DB reste actif
+  // pour la boutique + PFS + eFashion.
+  const brandedBadgeEnabled = false;
   const { body, variants, productImageUrls } = buildFaireProductPayload(
     product,
     ctx,
@@ -735,12 +755,18 @@ export async function faireUpdateProduct(
 
   if (hasProductPatchPayload) {
     // Réconciliation options ↔ Faire — évite « Product variant options cannot
-    // be changed » quand le produit a été créé hors BJ (nom de dimension ou
-    // casse divergents). Nécessaire uniquement quand on inclut variants[] ou
-    // variant_option_sets, c.-à-d. `hasNewVariants`. Cf. docstring de
-    // reconcilePatchBodyWithFaireOptions.
+    // be changed » quand notre nom de dimension ou nos libellés de valeurs
+    // divergent de ce que Faire a stocké. Cas connus :
+    //   - dimension « Color » (nous) vs « Couleur » (Faire, produit publié FR)
+    //   - « Brun foncé » (nous) vs « marron » (casse/libellé Faire différents)
+    //   - Faire sans axe du tout (produit à variante unique — voir docstring)
+    // Doit tourner dès qu'on envoie `variants[]` dans le PATCH : soit pour
+    // créer de nouvelles variantes (`hasNewVariants`), soit pour repousser
+    // l'existant (`forceFullSync`). Sans cette généralisation, la resync
+    // forcée d'un produit lié échoue avec 400 (régression 2026-07-30 sur
+    // Issyma : 779, 8625, 89079-2, JG162, JG61, JG65 — audit PFS → sync Faire).
     let bodyToSend: Record<string, unknown> = patchBody;
-    if (hasNewVariants) {
+    if (Array.isArray(patchBody.variants)) {
       const state = await getFaireProductState();
       if (state) {
         bodyToSend = reconcilePatchBodyWithFaireOptions(patchBody, state);

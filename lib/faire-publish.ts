@@ -979,11 +979,11 @@ export async function fairePublishProduct(
   const configs = await loadMarketplaceMarkupConfigs();
   const lifecycleState = options.lifecycleState ?? "DRAFT";
   const imageBaseUrl = await resolveTenantImageBaseUrl();
-  const brandedBadgeRow = await prisma.siteConfig.findFirst({
-    where: { key: "branded_reference_badge_enabled" },
-    select: { value: true },
-  });
-  const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
+  // Badge « Réf » désactivé de force pour Faire depuis 2026-07-30 : malgré
+  // plusieurs corrections dimensions/format (JPEG, minWidth 1000), Faire ne
+  // rend pas le badge dans ses vignettes → on n'envoie plus l'URL brandée. Le
+  // toggle DB reste actif pour la boutique + PFS + eFashion.
+  const brandedBadgeEnabled = false;
   const { body, variants, productImagesCount, productImageUrls } = buildFaireProductPayload(
     product,
     ctx,

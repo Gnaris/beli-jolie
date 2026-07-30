@@ -134,6 +134,21 @@ export async function removeFromEfashionShootingBatch(
 }
 
 /**
+ * Vide entièrement la file d'attente (bouton « Tout vider » de la widget).
+ * Retourne le nombre d'items retirés pour affichage éventuel.
+ */
+export async function clearEfashionShootingBatch(): Promise<{
+  success: true;
+  removedCount: number;
+}> {
+  await requireAdmin();
+
+  const { count } = await prisma.efashionShootingBatchItem.deleteMany({});
+  revalidatePath("/admin", "layout");
+  return { success: true, removedCount: count };
+}
+
+/**
  * Liste les items de la file avec leur état de validation.
  * Les produits supprimés localement (orphelins) sont marqués `productDeleted`
  * et seront retirés silencieusement à la validation.
@@ -141,10 +156,19 @@ export async function removeFromEfashionShootingBatch(
 export async function listEfashionShootingBatch(): Promise<EfashionShootingBatchState> {
   await requireAdmin();
 
+  // NB : on ne charge PAS le produit via `include` — Prisma 5.22 crash avec
+  // "Inconsistent query result: Field product is required to return data" dès
+  // qu'un item pointe vers un produit supprimé (schéma dit relation obligatoire).
+  // On récupère les produits séparément, ce qui laisse le code aval gérer
+  // proprement les orphelins via `productDeleted`.
   const items = await prisma.efashionShootingBatchItem.findMany({
     orderBy: { addedAt: "asc" },
-    include: {
-      product: {
+  });
+
+  const productIds = items.map((it) => it.productId);
+  const products = productIds.length
+    ? await prisma.product.findMany({
+        where: { id: { in: productIds } },
         select: {
           id: true,
           reference: true,
@@ -156,13 +180,13 @@ export async function listEfashionShootingBatch(): Promise<EfashionShootingBatch
             take: 1,
           },
         },
-      },
-    },
-  });
+      })
+    : [];
+  const productById = new Map(products.map((p) => [p.id, p]));
 
   // Charge les 1ʳᵉs images en une seule requête
-  const firstColorIds = items
-    .map((it) => it.product?.colors[0]?.id)
+  const firstColorIds = products
+    .map((p) => p.colors[0]?.id)
     .filter((id): id is string => typeof id === "string");
   const firstImages = firstColorIds.length
     ? await prisma.productColorImage.findMany({
@@ -175,13 +199,13 @@ export async function listEfashionShootingBatch(): Promise<EfashionShootingBatch
   // Validation en parallèle pour chaque produit existant
   const validations = await Promise.all(
     items
-      .filter((it) => it.product != null)
+      .filter((it) => productById.has(it.productId))
       .map((it) => validateEfashionPublishable(it.productId)),
   );
   const validationByProduct = new Map(validations.map((v) => [v.productId, v]));
 
   const views: EfashionShootingBatchItemView[] = items.map((it) => {
-    const product = it.product;
+    const product = productById.get(it.productId);
     if (!product) {
       return {
         id: it.id,

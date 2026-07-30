@@ -58,12 +58,25 @@ vi.mock("next/cache", () => ({
 vi.mock("@/lib/efashion-validate", () => ({
   validateEfashionPublishable: vi.fn(),
 }));
+vi.mock("@/lib/tenant", () => ({
+  requireCurrentTenant: vi.fn().mockResolvedValue({ id: "t1", slug: "beliandjolie" }),
+}));
+vi.mock("@/lib/tenant-als", () => ({
+  tenantALS: { run: (_id: string, fn: () => Promise<unknown>) => fn() },
+}));
+// Le runner est importé dynamiquement dans commitEfashionShootingBatch
+// (via `await import(...)` fire-and-forget). On l'ignore ici — le test valide
+// seulement l'état avant le dispatch.
+vi.mock("@/lib/efashion-shooting-batch-runner", () => ({
+  runEfashionShootingBatch: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { prisma } from "@/lib/prisma";
 import {
   addToEfashionShootingBatch,
   bulkAddToEfashionShootingBatch,
   removeFromEfashionShootingBatch,
+  clearEfashionShootingBatch,
   listEfashionShootingBatch,
   commitEfashionShootingBatch,
 } from "@/app/actions/admin/efashion-shooting-batch";
@@ -159,6 +172,22 @@ describe("removeFromEfashionShootingBatch", () => {
   });
 });
 
+describe("clearEfashionShootingBatch", () => {
+  it("vide entièrement la file et remonte le compte retiré", async () => {
+    deleteManyMock.mockResolvedValueOnce({ count: 4 });
+    const res = await clearEfashionShootingBatch();
+    expect(res).toEqual({ success: true, removedCount: 4 });
+    // Sans clause where => vide tout
+    expect(deleteManyMock).toHaveBeenCalledWith({});
+  });
+
+  it("renvoie removedCount=0 quand la file est déjà vide", async () => {
+    deleteManyMock.mockResolvedValueOnce({ count: 0 });
+    const res = await clearEfashionShootingBatch();
+    expect(res).toEqual({ success: true, removedCount: 0 });
+  });
+});
+
 describe("listEfashionShootingBatch", () => {
   it("marque les produits supprimés sans bloquer la validation", async () => {
     findBatchMock.mockResolvedValueOnce([
@@ -167,9 +196,10 @@ describe("listEfashionShootingBatch", () => {
         productId: "deleted",
         mode: "PUBLISH",
         addedAt: new Date(),
-        product: null,
       },
     ]);
+    // Le produit "deleted" n'existe pas → findMany renvoie tableau vide
+    findProductManyMock.mockResolvedValueOnce([]);
 
     const state = await listEfashionShootingBatch();
     expect(state.items[0].productDeleted).toBe(true);
@@ -183,8 +213,10 @@ describe("listEfashionShootingBatch", () => {
         productId: "p1",
         mode: "PUBLISH",
         addedAt: new Date(),
-        product: { id: "p1", reference: "REF1", name: "Bague", colors: [] },
       },
+    ]);
+    findProductManyMock.mockResolvedValueOnce([
+      { id: "p1", reference: "REF1", name: "Bague", colors: [] },
     ]);
     validateMock.mockResolvedValueOnce({
       productId: "p1",
@@ -205,8 +237,10 @@ describe("listEfashionShootingBatch", () => {
         productId: "p1",
         mode: "PUBLISH",
         addedAt: new Date(),
-        product: { id: "p1", reference: "REF1", name: "Bague", colors: [] },
       },
+    ]);
+    findProductManyMock.mockResolvedValueOnce([
+      { id: "p1", reference: "REF1", name: "Bague", colors: [] },
     ]);
     validateMock.mockResolvedValueOnce({
       productId: "p1",
@@ -234,8 +268,10 @@ describe("commitEfashionShootingBatch", () => {
         productId: "p1",
         mode: "PUBLISH",
         addedAt: new Date(),
-        product: { id: "p1", reference: "REF1", name: "Bague", colors: [] },
       },
+    ]);
+    findProductManyMock.mockResolvedValueOnce([
+      { id: "p1", reference: "REF1", name: "Bague", colors: [] },
     ]);
     validateMock.mockResolvedValueOnce({
       productId: "p1",
@@ -258,17 +294,19 @@ describe("commitEfashionShootingBatch", () => {
           productId: "deleted-p",
           mode: "PUBLISH",
           addedAt: new Date(),
-          product: null,
         },
         {
           id: "item2",
           productId: "p2",
           mode: "PUBLISH",
           addedAt: new Date(),
-          product: { id: "p2", reference: "REF2", name: "OK", colors: [] },
         },
       ])
       .mockResolvedValueOnce([{ productId: "p2", mode: "PUBLISH" }]);
+    // Un seul produit trouvé sur les 2 items → "deleted-p" est orphelin
+    findProductManyMock.mockResolvedValueOnce([
+      { id: "p2", reference: "REF2", name: "OK", colors: [] },
+    ]);
     validateMock.mockResolvedValueOnce({
       productId: "p2",
       ok: true,
@@ -286,7 +324,9 @@ describe("commitEfashionShootingBatch", () => {
     });
     // File vidée après dispatching
     expect(deleteManyMock).toHaveBeenCalledWith({});
-    expect(res.publishCount).toBe(1);
-    expect(res.refreshCount).toBe(0);
+    if (res.success) {
+      expect(res.publishCount).toBe(1);
+      expect(res.refreshCount).toBe(0);
+    }
   });
 });

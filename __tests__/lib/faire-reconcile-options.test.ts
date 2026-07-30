@@ -133,15 +133,49 @@ describe("reconcilePatchBodyWithFaireOptions", () => {
     ]);
   });
 
-  it("no-op quand Faire n'a pas de variant_option_sets (produit sans dimension)", () => {
+  it("Faire sans axe (produit mono-variante 'default') : strip options + variant_option_sets pour éviter le 400", () => {
+    // Cas reproduit 2026-07-30 sur JG162/JG61/JG65 (issyma) — produit publié
+    // Faire avec 1 seule variante « default » sans options. On envoyait
+    // options:[{name:"Color",value:"Blanc"}] → Faire refuse « Product variant
+    // options cannot be changed ». Fix : strip options complet.
     const patchBody = {
-      variants: [{ id: "po_x", options: [{ name: "Color", value: "Rouge" }] }],
+      name: "Bracelet solo",
+      variant_option_sets: [{ name: "Color", values: ["Blanc"] }],
+      variants: [
+        { id: "po_solo", sku: "JG_blanc", options: [{ name: "Color", value: "Blanc" }] },
+      ],
     };
     const out = reconcilePatchBodyWithFaireOptions(patchBody, {
       variantOptionSets: [],
-      variants: [],
+      variants: [{ id: "po_solo", options: [] }],
     });
-    expect(out).toEqual(patchBody);
+    expect(out.name).toBe("Bracelet solo");
+    expect(out.variant_option_sets).toBeUndefined();
+    const vs = out.variants as Record<string, unknown>[];
+    expect(vs[0].id).toBe("po_solo");
+    expect(vs[0].sku).toBe("JG_blanc");
+    expect("options" in vs[0]).toBe(false);
+  });
+
+  it("Faire dimension 'Couleur' + variante existante avec valeur 'marron' : rename Color→Couleur et impose 'marron' même si on envoyait 'Brun foncé' sans variant_option_sets", () => {
+    // Cas 2026-07-30 sur 779 / 8625 / 89079-2 (issyma) — RESYNC forcée envoie
+    // variants[] SANS variant_option_sets. La réconciliation doit quand même
+    // renommer le nom de dimension et forcer la valeur Faire par index.
+    const patchBody = {
+      // Pas de variant_option_sets ici (chemin forceFullSync sans nouvelle variante).
+      variants: [
+        {
+          id: "po_5c7jggb7ah",
+          sku: "779_brun-fonce_UNIT_x",
+          options: [{ name: "Color", value: "Brun foncé" }],
+        },
+      ],
+    };
+    const out = reconcilePatchBodyWithFaireOptions(patchBody, faireState93126);
+    const v = (out.variants as { options: { name: string; value: string }[] }[])[0];
+    expect(v.options[0]).toEqual({ name: "Couleur", value: "marron" });
+    // Pas d'ajout parasite de variant_option_sets si on n'en avait pas envoyé.
+    expect(out.variant_option_sets).toBeUndefined();
   });
 
   it("préserve les autres champs du body (name, description, lifecycle_state, images...)", () => {

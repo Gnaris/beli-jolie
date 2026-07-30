@@ -11,6 +11,7 @@ import {
 } from "@/lib/cached-data";
 import { getStripeAccountInfo, getStripeConfigStatus } from "@/lib/stripe";
 import { parseDisplayConfig } from "@/lib/product-display";
+import { getStoredPictureStation } from "@/lib/microstore-picture-station";
 import { settingsTabMetadata, isSettingsTab, type SettingsTab } from "@/lib/settings-tabs";
 import SettingsPageTabs from "@/components/admin/settings/SettingsPageTabs";
 import { SettingCard, CardsStack } from "@/components/admin/settings/SettingCard";
@@ -332,7 +333,7 @@ async function CatalogueTab() {
       <SettingCard
         icon={Ico.tag}
         title="Marquer la référence sur la 1ʳᵉ image"
-        description="Ajoute automatiquement un badge « Réf » en haut à droite de la 1ère photo — boutique et marketplaces"
+        description="Ajoute automatiquement un badge « Réf » en haut à droite de la 1ère photo — boutique, PFS et eFashion (Ankorstore et Faire ne l'affichent pas correctement, exclus)"
       >
         <BrandedReferenceBadgeConfig initialEnabled={brandedBadgeEnabled} />
       </SettingCard>
@@ -603,6 +604,7 @@ async function MarketplacesTab() {
     efashionMarkupType, efashionMarkupValue, efashionMarkupRounding,
     microstoreMarkupType, microstoreMarkupValue, microstoreMarkupRounding,
     hasMicrostoreConfig, microstoreEnabledRow, microstoreExpiresRow,
+    microstorePictureStation,
     hasFaireConfig, faireEnabled,
     faireWholesaleType, faireWholesaleValue, faireWholesaleRounding,
     faireRetailType, faireRetailValue, faireRetailRounding,
@@ -640,6 +642,7 @@ async function MarketplacesTab() {
     getCachedHasMicrostoreConfig(),
     prisma.siteConfig.findFirst({ where: { key: "microstore_enabled" }, select: { value: true } }),
     prisma.siteConfig.findFirst({ where: { key: "microstore_expires_at" }, select: { value: true } }),
+    getStoredPictureStation(),
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
     getCachedSiteConfig("faire_wholesale_markup_type"),
@@ -704,6 +707,15 @@ async function MarketplacesTab() {
       hasMicrostoreConfig={hasMicrostoreConfig}
       microstoreEnabled={microstoreEnabled}
       microstoreExpiresAtIso={microstoreExpiresAtIso}
+      microstorePictureStation={
+        microstorePictureStation
+          ? {
+              configured: true,
+              expiresAtIso: microstorePictureStation.expiresAt.toISOString(),
+              shortUrl: microstorePictureStation.shortUrl,
+            }
+          : { configured: false, expiresAtIso: null, shortUrl: null }
+      }
       stats={stats}
       markupSettings={{
         pfs: {

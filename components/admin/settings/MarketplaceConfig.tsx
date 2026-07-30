@@ -18,6 +18,7 @@ import { MARKETPLACES_BRAND, brandGradient, type MarketplaceKey } from "@/lib/ma
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import MicrostoreConnectCard from "@/components/admin/settings/MicrostoreConnectCard";
+import MicrostorePictureStationCard from "@/components/admin/settings/MicrostorePictureStationCard";
 import CountryMultiPicker from "@/components/ui/CountryMultiPicker";
 
 interface MarketplaceStats {
@@ -49,6 +50,11 @@ interface Props {
   hasMicrostoreConfig: boolean;
   microstoreEnabled: boolean;
   microstoreExpiresAtIso: string | null;
+  microstorePictureStation: {
+    configured: boolean;
+    expiresAtIso: string | null;
+    shortUrl: string | null;
+  };
   stats: {
     pfs: MarketplaceStats;
     ankorstore: MarketplaceStats;
@@ -130,6 +136,9 @@ const Icons = {
   ),
   Globe: ({ className }: { className?: string }) => (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" /></svg>
+  ),
+  Image: ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-5-5L5 21" /></svg>
   ),
 };
 
@@ -601,6 +610,7 @@ export default function MarketplaceConfig({
   hasMicrostoreConfig,
   microstoreEnabled: initialMicrostoreEnabled,
   microstoreExpiresAtIso,
+  microstorePictureStation,
   stats,
   markupSettings,
 }: Props) {
@@ -1620,6 +1630,18 @@ export default function MarketplaceConfig({
             initiallyConnected={hasMicrostoreConfig}
             initiallyEnabled={microEnabled}
             initialExpiresAtIso={microstoreExpiresAtIso}
+          />
+        </DrawerSection>
+
+        <DrawerSection
+          icon={<Icons.Image className="w-4 h-4" />}
+          title="Station de transfert d'images"
+          subtitle="Envoyer les photos produits vers Microstore depuis votre admin. Le lien expire tous les 7 jours."
+        >
+          <MicrostorePictureStationCard
+            initiallyConfigured={microstorePictureStation.configured}
+            initialExpiresAtIso={microstorePictureStation.expiresAtIso}
+            initialShortUrl={microstorePictureStation.shortUrl}
           />
         </DrawerSection>
 

@@ -453,13 +453,12 @@ export async function buildPublishProductInput(productId: string): Promise<
   const tenantId = await getCurrentTenantIdSafe();
   const imageBaseUrl = tenantId ? (await getTenantBaseUrl(tenantId)) ?? undefined : undefined;
 
-  // Toggle badge « Réf » : remplace la 1ère image de la couleur principale
-  // par l'URL /api/branded-image?... (WebP, Ankorstore accepte).
-  const brandedBadgeRow = await prisma.siteConfig.findFirst({
-    where: { key: "branded_reference_badge_enabled" },
-    select: { value: true },
-  });
-  const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
+  // Badge « Réf » désactivé de force pour Ankorstore depuis 2026-07-30 :
+  // malgré plusieurs corrections dimensions/format (variant "large", minWidth
+  // 500), Ankorstore ne rend pas le badge dans ses vignettes de liste →
+  // on n'envoie plus l'URL brandée. Le toggle DB reste actif pour la boutique
+  // publique + PFS + eFashion (voir SiteConfig[branded_reference_badge_enabled]).
+  const brandedBadgeEnabled = false;
   const brandedBaseUrl =
     imageBaseUrl ??
     process.env.MARKETPLACE_IMAGE_BASE_URL ??

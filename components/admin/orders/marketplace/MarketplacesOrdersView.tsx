@@ -719,6 +719,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
       EFASHION: [],
       ANKORSTORE: [],
       FAIRE: [],
+      MICROSTORE: [],
     };
     for (const row of list ?? []) {
       if (!selectedIds.has(row.id)) continue;
@@ -727,7 +728,7 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
       else if (row.source === "EFASHION") acc.EFASHION!.push(row.id);
       else if (row.source === "ANKORSTORE") acc.ANKORSTORE!.push(row.id);
       else if (row.source === "FAIRE") acc.FAIRE!.push(row.id);
-      // MICROSTORE : pas de déduction stock → ignoré.
+      else if (row.source === "MICROSTORE") acc.MICROSTORE!.push(row.id);
     }
     return acc;
   }, [list, selectedIds]);
@@ -738,13 +739,15 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
       (payload.PFS?.length ?? 0) +
       (payload.EFASHION?.length ?? 0) +
       (payload.ANKORSTORE?.length ?? 0) +
-      (payload.FAIRE?.length ?? 0);
+      (payload.FAIRE?.length ?? 0) +
+      (payload.MICROSTORE?.length ?? 0);
     if (total === 0) return;
     const parts: string[] = [];
     if (payload.PFS?.length) parts.push(`${payload.PFS.length} PFS`);
     if (payload.EFASHION?.length) parts.push(`${payload.EFASHION.length} eFashion`);
     if (payload.ANKORSTORE?.length) parts.push(`${payload.ANKORSTORE.length} Ankorstore`);
     if (payload.FAIRE?.length) parts.push(`${payload.FAIRE.length} Faire`);
+    if (payload.MICROSTORE?.length) parts.push(`${payload.MICROSTORE.length} Microstore`);
     const ok = await confirm({
       type: "warning",
       title: `Déduire le stock de ${total} commande${total > 1 ? "s" : ""} ?`,
@@ -785,7 +788,8 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
       (payload.PFS?.length ?? 0) +
       (payload.EFASHION?.length ?? 0) +
       (payload.ANKORSTORE?.length ?? 0) +
-      (payload.FAIRE?.length ?? 0);
+      (payload.FAIRE?.length ?? 0) +
+      (payload.MICROSTORE?.length ?? 0);
     if (total === 0) return;
     const ok = await confirm({
       type: "warning",

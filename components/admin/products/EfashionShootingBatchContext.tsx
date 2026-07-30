@@ -35,6 +35,7 @@ interface ContextValue {
   isCommitting: boolean;
   addProduct: (productId: string, mode: EfashionShootingMode) => Promise<void>;
   removeProduct: (productId: string) => Promise<void>;
+  clearAll: () => Promise<{ ok: boolean; removedCount: number }>;
   commit: () => Promise<{ ok: boolean; message: string }>;
   refresh: () => Promise<void>;
 }
@@ -130,6 +131,26 @@ export function EfashionShootingBatchProvider({ children }: { children: React.Re
     [refresh],
   );
 
+  const clearAll = useCallback(async (): Promise<{ ok: boolean; removedCount: number }> => {
+    try {
+      const res = await fetch("/api/admin/efashion-shooting-batch/clear", {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        removedCount?: number;
+      };
+      if (!res.ok || !data.success) {
+        return { ok: false, removedCount: 0 };
+      }
+      return { ok: true, removedCount: data.removedCount ?? 0 };
+    } catch {
+      return { ok: false, removedCount: 0 };
+    } finally {
+      void refresh();
+    }
+  }, [refresh]);
+
   const commit = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
     setIsCommitting(true);
     try {
@@ -166,6 +187,7 @@ export function EfashionShootingBatchProvider({ children }: { children: React.Re
     isCommitting,
     addProduct,
     removeProduct,
+    clearAll,
     commit,
     refresh,
   };

@@ -6,7 +6,9 @@ import type { MicrostoreOrderDetailFull } from "@/app/actions/admin/microstore-o
 import MarketplaceBadge from "./MarketplaceBadge";
 
 const STATUS_META = {
-  NEW: { label: "À préparer", cls: "bg-sky-50 text-sky-700 border-sky-200" },
+  // Microstore : dès qu'une commande est importable, elle a été validée + expédiée
+  // côté POS. NEW (base) et SHIPPED (base) affichent tous les deux « Expédiée ».
+  NEW: { label: "Expédiée", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   SHIPPED: { label: "Expédiée", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   CANCELLED: { label: "Annulée", cls: "bg-rose-50 text-rose-700 border-rose-200" },
 } as const;

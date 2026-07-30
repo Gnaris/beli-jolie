@@ -24,6 +24,7 @@ export const SENSITIVE_KEYS = new Set([
   "faire_api_key",
   "microstore_session_key",
   "microstore_mask_token",
+  "microstore_picture_station_key",
   "stripe_secret_key",
   "stripe_webhook_secret",
   "smtp_password",

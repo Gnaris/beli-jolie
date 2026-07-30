@@ -73,8 +73,13 @@ export default function BrandedReferenceBadgeConfig({ initialEnabled }: Props) {
           activez le badge, chaque produit reçoit une image supplémentaire en
           position 1 : c'est la 1ʳᵉ photo de sa couleur principale, avec la
           référence apposée en haut à droite. Cette image apparaît sur la
-          boutique publique <em>et</em> sur tous les marketplaces (PFS, Ankor,
-          eFashion, Faire).
+          boutique publique, sur <strong>PFS</strong> et sur <strong>eFashion</strong>.
+        </p>
+        <p className="font-body text-[12px] text-text-secondary leading-relaxed mt-2">
+          <strong className="text-text-primary">Ankorstore et Faire sont exclus :</strong>{" "}
+          ces deux marketplaces n'affichent pas le badge dans leurs vignettes
+          (bug de leur côté, on a testé plusieurs formats et tailles). Les
+          photos envoyées à Ankor et Faire restent donc sans badge.
         </p>
         <p className="font-body text-[12px] text-text-secondary leading-relaxed mt-2">
           Les produits déjà en ligne <strong>ne sont pas modifiés</strong>{" "}

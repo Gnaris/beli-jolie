@@ -27,8 +27,10 @@ export interface DrawerShellProps {
   footer?: React.ReactNode;
   children: React.ReactNode;
   /** "wide" élargit le panneau desktop pour héberger plusieurs colonnes
-   *  côte à côte (widget import commandes / clients). Défaut = "default". */
-  size?: "default" | "wide";
+   *  côte à côte (widget import commandes / clients). "fullscreen" prend
+   *  toute la fenêtre (utilisé pour l'audit PFS où il faut voir un maximum
+   *  d'écarts d'un coup). Défaut = "default". */
+  size?: "default" | "wide" | "fullscreen";
 }
 
 // Dégradés aurora du header (foncé, texte blanc).
@@ -98,12 +100,16 @@ export function DrawerShell({
   const visible = open && mounted;
   // "wide" : jusqu'à 1500 px (5 colonnes marketplace) — la hauteur suit la
   // fenêtre pour ne jamais forcer de scroll (cliente : « pas de scroll »).
+  // "fullscreen" : viewport entier, sans radius ni marges (audit PFS).
   // Ancré juste au-dessus du FAB (étoile) + décalé vers la gauche pour que
   // le bouton étoile reste visible/cliquable dans son coin en bas à droite.
   const wideClasses =
-    size === "wide"
-      ? "md:bottom-24 md:right-24 md:w-[min(1500px,calc(100vw-8rem))] md:h-[calc(100vh-8rem)]"
-      : "md:bottom-24 md:right-6 md:w-[440px] md:h-[760px] md:max-h-[calc(100vh-8rem)]";
+    size === "fullscreen"
+      ? "md:inset-0"
+      : size === "wide"
+        ? "md:bottom-24 md:right-24 md:w-[min(1500px,calc(100vw-8rem))] md:h-[calc(100vh-8rem)]"
+        : "md:bottom-24 md:right-6 md:w-[440px] md:h-[760px] md:max-h-[calc(100vh-8rem)]";
+  const isFullscreen = size === "fullscreen";
 
   return (
     <div
@@ -120,9 +126,9 @@ export function DrawerShell({
       role="dialog"
     >
       <div
-        className="h-full bg-white shadow-2xl shadow-slate-900/25 border border-slate-200 overflow-hidden flex flex-col
-                      md:rounded-3xl
-                      max-md:rounded-none"
+        className={`h-full bg-white shadow-2xl shadow-slate-900/25 border border-slate-200 overflow-hidden flex flex-col
+                      ${isFullscreen ? "md:rounded-none" : "md:rounded-3xl"}
+                      max-md:rounded-none`}
       >
         {/* Header aurora coloré */}
         <div className={`relative overflow-hidden bg-gradient-to-br ${acc.headerGrad} flex-shrink-0`}>
@@ -151,15 +157,21 @@ export function DrawerShell({
                 <div className="text-base font-bold truncate">{title}</div>
               </div>
             </div>
-            {/* Bouton fermer (desktop + tablette) */}
+            {/* Bouton fermer (desktop + tablette) — plus grand et libellé
+                visible en mode fullscreen pour aider la cliente à sortir. */}
             <button
               type="button"
               title="Fermer"
               aria-label="Fermer"
               onClick={onClose}
-              className="max-md:hidden w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white flex-shrink-0 transition"
+              className={`max-md:hidden inline-flex items-center gap-2 rounded-full bg-white/20 hover:bg-white/30 text-white flex-shrink-0 transition ${
+                isFullscreen
+                  ? "h-10 pl-4 pr-3 ring-1 ring-white/30 font-semibold text-sm shadow-lg"
+                  : "w-8 h-8 justify-center"
+              }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+              {isFullscreen && <span>Fermer</span>}
+              <svg className={isFullscreen ? "w-5 h-5" : "w-4 h-4"} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
