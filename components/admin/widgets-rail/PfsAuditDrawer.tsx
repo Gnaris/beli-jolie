@@ -820,7 +820,7 @@ export function PfsAuditDrawer() {
                     : "Aucun résultat dans cette catégorie."}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 p-4">
+                <div className="grid items-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 p-4">
                   {filtered.map((r) => (
                     <ProductCard
                       key={r.productId}
@@ -1211,7 +1211,7 @@ function groupIssues(issues: PfsVerifyIssue[]) {
 function IssueDetails({ issues }: { issues: PfsVerifyIssue[] }) {
   const g = groupIssues(issues);
   return (
-    <div className="border-t border-slate-100 bg-gradient-to-b from-slate-50/70 to-white p-3 space-y-3">
+    <div className="border-t border-slate-100 bg-gradient-to-b from-slate-50/70 to-white p-3 space-y-3 max-h-[420px] overflow-y-auto scrollbar-light">
       {g.blockingMapping.length > 0 && <BlockingMappingBlock issues={g.blockingMapping} />}
       {g.productPullable.length > 0 && (
         <ProductFieldsBlock title="Fiche produit" issues={g.productPullable} tone="pullable" />

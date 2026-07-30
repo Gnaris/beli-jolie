@@ -2553,6 +2553,56 @@ function ProductRow({
     showFaire: faireOperational,
   });
 
+  // Optimistic UI : quand la cliente clique la croix « ignorer » d'un badge
+  // orange, on masque le orange TOUT DE SUITE localement (sans attendre le
+  // router.refresh() qui régénère la table lourde /admin/produits). Le serveur
+  // est appelé en tâche de fond ; en cas d'échec on retire l'entrée et le
+  // orange revient.
+  type SyncFlagKey = "pfs" | "ankorstore" | "efashion" | "faire" | "microstore";
+  const [optimisticallyCleared, setOptimisticallyCleared] = useState<
+    ReadonlySet<SyncFlagKey>
+  >(() => new Set());
+  const isClearedLocally = (mp: SyncFlagKey) => optimisticallyCleared.has(mp);
+  const addClearedLocally = (mp: SyncFlagKey) =>
+    setOptimisticallyCleared((prev) => {
+      const next = new Set(prev);
+      next.add(mp);
+      return next;
+    });
+  const removeClearedLocally = (mp: SyncFlagKey) =>
+    setOptimisticallyCleared((prev) => {
+      if (!prev.has(mp)) return prev;
+      const next = new Set(prev);
+      next.delete(mp);
+      return next;
+    });
+  useEffect(() => {
+    if (!product.pfsSyncRequired) removeClearedLocally("pfs");
+  }, [product.pfsSyncRequired]);
+  useEffect(() => {
+    if (!product.ankorsSyncRequired) removeClearedLocally("ankorstore");
+  }, [product.ankorsSyncRequired]);
+  useEffect(() => {
+    if (!product.efashionSyncRequired) removeClearedLocally("efashion");
+  }, [product.efashionSyncRequired]);
+  useEffect(() => {
+    if (!product.faireSyncRequired) removeClearedLocally("faire");
+  }, [product.faireSyncRequired]);
+  useEffect(() => {
+    if (!product.microstoreSyncRequired) removeClearedLocally("microstore");
+  }, [product.microstoreSyncRequired]);
+
+  const effectivePfsSyncRequired =
+    product.pfsSyncRequired && !isClearedLocally("pfs");
+  const effectiveAnkorsSyncRequired =
+    product.ankorsSyncRequired && !isClearedLocally("ankorstore");
+  const effectiveEfashionSyncRequired =
+    product.efashionSyncRequired && !isClearedLocally("efashion");
+  const effectiveFaireSyncRequired =
+    product.faireSyncRequired && !isClearedLocally("faire");
+  const effectiveMicrostoreSyncRequired =
+    product.microstoreSyncRequired && !isClearedLocally("microstore");
+
   // État "loading" des badges marketplaces : on regarde la dernière opération
   // marketplace pour ce produit et on bloque les clics tant qu'elle est en
   // file/exécution/attente du callback. Verrou local supplémentaire pour le
@@ -2562,7 +2612,7 @@ function ProductRow({
     product.pfsProductId,
     pfsOp,
     "pfs",
-    product.pfsSyncRequired,
+    effectivePfsSyncRequired,
     undefined,
     getRecentClientSuccessAt(product.id, "pfs"),
   );
@@ -2574,7 +2624,7 @@ function ProductRow({
     product.ankorsProductId,
     ankorstoreOp,
     "ankorstore",
-    product.ankorsSyncRequired,
+    effectiveAnkorsSyncRequired,
     undefined,
     getRecentClientSuccessAt(product.id, "ankorstore"),
   );
@@ -2586,7 +2636,7 @@ function ProductRow({
     efashionLinked ? "linked" : null,
     efashionOp,
     "efashion",
-    product.efashionSyncRequired,
+    effectiveEfashionSyncRequired,
     undefined,
     getRecentClientSuccessAt(product.id, "efashion"),
   );
@@ -2598,7 +2648,7 @@ function ProductRow({
     product.faireProductId,
     faireOp,
     "faire",
-    product.faireSyncRequired,
+    effectiveFaireSyncRequired,
     undefined,
     getRecentClientSuccessAt(product.id, "faire"),
   );
@@ -2859,16 +2909,20 @@ function ProductRow({
       confirmLabel: "Oui, ignorer",
     });
     if (!ok) return;
-    const { clearMicrostoreSyncRequired } = await import(
-      "@/app/actions/admin/microstore-products"
-    );
-    const res = await clearMicrostoreSyncRequired(product.id);
-    if (res.success) {
-      toast.success("Synchronisation ignorée");
+    addClearedLocally("microstore");
+    toast.success("Synchronisation ignorée");
+    void (async () => {
+      const { clearMicrostoreSyncRequired } = await import(
+        "@/app/actions/admin/microstore-products"
+      );
+      const res = await clearMicrostoreSyncRequired(product.id);
+      if (!res.success) {
+        removeClearedLocally("microstore");
+        toast.error("Impossible d'ignorer", res.error ?? "Erreur inconnue.");
+        return;
+      }
       router.refresh();
-    } else {
-      toast.error("Impossible d'ignorer", res.error ?? "Erreur inconnue.");
-    }
+    })();
   }, [confirm, product.id, toast, router]);
 
   // Croix « annuler la synchro » sur le badge orange. Confirmation modale puis
@@ -2886,13 +2940,16 @@ function ProductRow({
         confirmLabel: "Oui, ignorer",
       });
       if (!ok) return;
-      const res = await clearSyncRequiredFlag(product.id, marketplace);
-      if (res.success) {
-        toast.success("Synchronisation ignorée");
+      addClearedLocally(marketplace);
+      toast.success("Synchronisation ignorée");
+      void clearSyncRequiredFlag(product.id, marketplace).then((res) => {
+        if (!res.success) {
+          removeClearedLocally(marketplace);
+          toast.error("Impossible d'ignorer", res.error ?? "Erreur inconnue.");
+          return;
+        }
         router.refresh();
-      } else {
-        toast.error("Impossible d'ignorer", res.error ?? "Erreur inconnue.");
-      }
+      });
     },
     [confirm, product.id, toast, router],
   );
@@ -3293,7 +3350,7 @@ function ProductRow({
               )}
               <MicrostoreBadge
                 configured={hasMicrostoreConfig}
-                syncRequired={product.microstoreSyncRequired}
+                syncRequired={effectiveMicrostoreSyncRequired}
                 onSyncClick={microstoreBusy ? undefined : handleSyncMicrostore}
                 onCancelSyncRequired={handleCancelMicrostoreSync}
                 disabledForProduct={!product.microstoreEnabled}

@@ -20,38 +20,41 @@ import { ankorstoreKickoffUpdate } from "@/lib/ankorstore-update";
 import { requireCurrentTenant } from "@/lib/tenant";
 
 /**
- * Fix 1 — empêche de lier un produit BJ à un produit Ankorstore dont
- * `external_id` est nul ou différent de notre référence. Sinon la synchro
- * post-liaison enverrait un import avec `external_id = référence BJ` qui ne
- * matcherait pas le produit lié → Ankorstore créerait un doublon (voir
- * incident JG6 Issyma 2026-07-29).
+ * Loggue un warning si l'external_id AS est vide ou différent de la ref BJ,
+ * pour tracer les cas de liaison "à risque". La protection anti-doublon
+ * effective se joue au moment de la synchro (Fix 2 dans lib/ankorstore-update.ts) :
+ *   - Mode "update" (variantes toutes déjà liées) : AS skip silencieusement
+ *     si external_id ne matche pas → aucun doublon possible.
+ *   - Mode "import" (nouvelles variantes à créer) : bloqué explicitement par
+ *     Fix 2 avec message clair. C'est là que le risque JG6 est neutralisé.
+ *
+ * On laisse donc la liaison passer : beaucoup d'anciens produits Ankorstore
+ * (importés Excel ou créés à la main sur le back-office AS) n'ont pas
+ * d'external_id posé. La cliente doit pouvoir les lier — les PATCH stock/prix
+ * fonctionnent nativement (endpoints directs sur variantId), et la garde
+ * import bloquera proprement le cas dangereux.
  */
-function validateAnkorstoreExternalIdMatch(
+function logAnkorstoreExternalIdMismatch(
   ankorstoreProduct: AnkorstoreProduct,
   bjReference: string,
-): { ok: true } | { ok: false; error: string } {
-  const asExtRaw = ankorstoreProduct.externalId ?? null;
-  const asExt = asExtRaw?.trim() ?? "";
+  context: string,
+): void {
+  const asExt = (ankorstoreProduct.externalId ?? "").trim();
   const bjRef = bjReference.trim();
   if (!asExt) {
-    return {
-      ok: false,
-      error:
-        "Ce produit Ankorstore n'a pas de référence externe (external_id vide côté Ankorstore). " +
-        "Impossible de le lier : la prochaine synchro créerait un doublon. " +
-        `Publie « ${bjRef} » comme nouveau produit depuis la boutique, ou corrige d'abord la référence externe côté Ankorstore.`,
-    };
+    logger.warn("[Ankorstore Link] Liaison sur produit AS sans external_id (à risque en cas d'ajout de variante)", {
+      context,
+      ankorstoreProductId: ankorstoreProduct.id,
+      bjReference: bjRef,
+    });
+  } else if (asExt.toUpperCase() !== bjRef.toUpperCase()) {
+    logger.warn("[Ankorstore Link] Liaison sur produit AS avec external_id différent de la ref BJ", {
+      context,
+      ankorstoreProductId: ankorstoreProduct.id,
+      asExternalId: asExt,
+      bjReference: bjRef,
+    });
   }
-  if (asExt.toUpperCase() !== bjRef.toUpperCase()) {
-    return {
-      ok: false,
-      error:
-        `Ce produit Ankorstore a la référence externe « ${asExtRaw} » qui ne correspond pas à « ${bjRef} ». ` +
-        "Une synchro créerait un doublon (Ankorstore matche les produits sur ce champ). " +
-        "Choisis un autre produit Ankorstore ou renomme la référence externe côté Ankorstore.",
-    };
-  }
-  return { ok: true };
 }
 
 /**
@@ -475,10 +478,11 @@ export async function linkAnkorstoreProductWithMapping(
     seenAk.add(m.ankorstoreVariantId);
   }
 
-  // Fix 1 : garde-fou anti-doublon — le produit Ankorstore choisi doit avoir
-  // un `external_id` égal à notre référence, sinon la synchro post-liaison
-  // enverrait externalId=bj.reference qu'AS ne matcherait pas → AS créerait
-  // un nouveau produit (incident JG6 Issyma 2026-07-29).
+  // Trace des liaisons à risque (external_id AS vide ou mismatch). La vraie
+  // protection anti-doublon se joue côté synchro (Fix 2 dans ankorstore-update.ts) :
+  // un mode "import" avec external_id incohérent est refusé avec message clair.
+  // On autorise ici la liaison pour ne pas bloquer les produits AS anciens
+  // (Excel/manuels) sans external_id.
   const bjRefRow = await prisma.product.findUnique({
     where: { id: productId },
     select: { reference: true },
@@ -486,8 +490,7 @@ export async function linkAnkorstoreProductWithMapping(
   if (!bjRefRow) return { success: false, error: "Produit local introuvable." };
   const akForCheck = await ankorstoreGetProduct(ankorstoreProductId);
   if (!akForCheck) return { success: false, error: "Produit Ankorstore introuvable." };
-  const externalIdCheck = validateAnkorstoreExternalIdMatch(akForCheck, bjRefRow.reference);
-  if (!externalIdCheck.ok) return { success: false, error: externalIdCheck.error };
+  logAnkorstoreExternalIdMismatch(akForCheck, bjRefRow.reference, "linkAnkorstoreProductWithMapping");
 
   const res = await confirmAnkorstoreMatch(
     productId,
@@ -569,10 +572,7 @@ export async function linkAnkorstoreProductManually(
       return { success: false, error: "Produit local introuvable." };
     }
 
-    const externalIdCheck = validateAnkorstoreExternalIdMatch(akProduct, bjProductRaw.reference);
-    if (!externalIdCheck.ok) {
-      return { success: false, error: externalIdCheck.error };
-    }
+    logAnkorstoreExternalIdMismatch(akProduct, bjProductRaw.reference, "linkAnkorstoreProductManually");
 
     const bjForMatch: BjProductForMatch = {
       id: bjProductRaw.id,

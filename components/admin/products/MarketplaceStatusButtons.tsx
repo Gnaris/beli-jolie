@@ -509,6 +509,45 @@ export function MarketplaceStatusButtons({
   const { confirm } = useConfirm();
   const toast = useToast();
 
+  // Optimistic UI : quand la cliente clique la croix « ignorer » d'un badge
+  // orange, on masque le orange TOUT DE SUITE localement (sans attendre le
+  // router.refresh() qui régénère toute la page /admin/produits, ~500 ms à 3 s
+  // selon la lourdeur du tenant). Le serveur est appelé en tâche de fond ; en
+  // cas d'échec on retire la marketplace de ce Set et on remet l'orange.
+  const [optimisticallyCleared, setOptimisticallyCleared] = useState<
+    ReadonlySet<MarketplaceKey>
+  >(() => new Set());
+
+  const isClearedLocally = (mp: MarketplaceKey) => optimisticallyCleared.has(mp);
+  const addClearedLocally = (mp: MarketplaceKey) =>
+    setOptimisticallyCleared((prev) => {
+      const next = new Set(prev);
+      next.add(mp);
+      return next;
+    });
+  const removeClearedLocally = (mp: MarketplaceKey) =>
+    setOptimisticallyCleared((prev) => {
+      if (!prev.has(mp)) return prev;
+      const next = new Set(prev);
+      next.delete(mp);
+      return next;
+    });
+
+  // Dès que le serveur confirme (props remises à false), on relâche l'override
+  // — évite de garder un flag stale qui masquerait un vrai orange futur.
+  useEffect(() => {
+    if (!pfsSyncRequired) removeClearedLocally("pfs");
+  }, [pfsSyncRequired]);
+  useEffect(() => {
+    if (!ankorsSyncRequired) removeClearedLocally("ankorstore");
+  }, [ankorsSyncRequired]);
+  useEffect(() => {
+    if (!efashionSyncRequired) removeClearedLocally("efashion");
+  }, [efashionSyncRequired]);
+  useEffect(() => {
+    if (!faireSyncRequired) removeClearedLocally("faire");
+  }, [faireSyncRequired]);
+
   const [confirmPfsOpen, setConfirmPfsOpen] = useState(false);
   const [resyncPfsOpen, setResyncPfsOpen] = useState(false);
   const [confirmAkOpen, setConfirmAkOpen] = useState(false);
@@ -546,17 +585,24 @@ export function MarketplaceStatusButtons({
   const efashionClientRecent = getRecentClientSuccessAt(productId, "efashion");
   const faireClientRecent = getRecentClientSuccessAt(productId, "faire");
 
+  const effectivePfsSyncRequired = pfsSyncRequired && !isClearedLocally("pfs");
+  const effectiveAnkorsSyncRequired =
+    ankorsSyncRequired && !isClearedLocally("ankorstore");
+  const effectiveEfashionSyncRequired =
+    efashionSyncRequired && !isClearedLocally("efashion");
+  const effectiveFaireSyncRequired = faireSyncRequired && !isClearedLocally("faire");
+
   const efashionState = useMemo(
     () =>
       computeMarketplaceBadgeState(
         efashionLinked ? "linked" : null,
         efashionOp,
         "efashion",
-        efashionSyncRequired,
+        effectiveEfashionSyncRequired,
         undefined,
         efashionClientRecent,
       ),
-    [efashionLinked, efashionOp, efashionSyncRequired, efashionClientRecent],
+    [efashionLinked, efashionOp, effectiveEfashionSyncRequired, efashionClientRecent],
   );
   const pfsState = useMemo(
     () =>
@@ -564,11 +610,11 @@ export function MarketplaceStatusButtons({
         pfsProductId,
         pfsOp,
         "pfs",
-        pfsSyncRequired,
+        effectivePfsSyncRequired,
         undefined,
         pfsClientRecent,
       ),
-    [pfsProductId, pfsOp, pfsSyncRequired, pfsClientRecent],
+    [pfsProductId, pfsOp, effectivePfsSyncRequired, pfsClientRecent],
   );
   const ankorstoreState = useMemo(
     () =>
@@ -576,11 +622,11 @@ export function MarketplaceStatusButtons({
         ankorsProductId,
         ankorstoreOp,
         "ankorstore",
-        ankorsSyncRequired,
+        effectiveAnkorsSyncRequired,
         undefined,
         ankorstoreClientRecent,
       ),
-    [ankorsProductId, ankorstoreOp, ankorsSyncRequired, ankorstoreClientRecent],
+    [ankorsProductId, ankorstoreOp, effectiveAnkorsSyncRequired, ankorstoreClientRecent],
   );
   const faireState = useMemo(
     () =>
@@ -588,11 +634,11 @@ export function MarketplaceStatusButtons({
         faireProductId,
         faireOp,
         "faire",
-        faireSyncRequired,
+        effectiveFaireSyncRequired,
         undefined,
         faireClientRecent,
       ),
-    [faireProductId, faireOp, faireSyncRequired, faireClientRecent],
+    [faireProductId, faireOp, effectiveFaireSyncRequired, faireClientRecent],
   );
 
   // ── Refresh routeur après publication réussie ──
@@ -627,13 +673,18 @@ export function MarketplaceStatusButtons({
       confirmLabel: "Oui, ignorer",
     });
     if (!ok) return;
-    const res = await clearSyncRequiredFlag(productId, marketplace);
-    if (res.success) {
-      toast.success("Synchronisation ignorée");
+    // Bascule le badge en vert immédiatement, sans attendre le router.refresh().
+    addClearedLocally(marketplace);
+    toast.success("Synchronisation ignorée");
+    // Écriture en base + revalidation en tâche de fond ; rollback si échec.
+    void clearSyncRequiredFlag(productId, marketplace).then((res) => {
+      if (!res.success) {
+        removeClearedLocally(marketplace);
+        toast.error("Impossible d'ignorer", res.error ?? "Erreur inconnue.");
+        return;
+      }
       router.refresh();
-    } else {
-      toast.error("Impossible d'ignorer", res.error ?? "Erreur inconnue.");
-    }
+    });
   };
 
   // PFS
