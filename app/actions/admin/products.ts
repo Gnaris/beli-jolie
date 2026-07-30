@@ -908,15 +908,24 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       });
     }
 
-    // Compositions — reconstruction complète
+    // Compositions — reconstruction complète.
+    // Défensif : le payload peut contenir 2 lignes sur la même compositionId
+    // (double-clic, résidu d'état React) → dédoublonner sinon P2002 sur
+    // ProductComposition_productId_compositionId_key et le save entier échoue.
+    const dedupedCompositions = Array.from(
+      new Map(input.compositions.map((c) => [c.compositionId, c])).values(),
+    );
     await tx.productComposition.deleteMany({ where: { productId: id } });
-    await tx.productComposition.createMany({
-      data: input.compositions.map((c) => ({
-        productId:     id,
-        compositionId: c.compositionId,
-        percentage:    c.percentage,
-      })),
-    });
+    if (dedupedCompositions.length > 0) {
+      await tx.productComposition.createMany({
+        data: dedupedCompositions.map((c) => ({
+          productId:     id,
+          compositionId: c.compositionId,
+          percentage:    c.percentage,
+        })),
+        skipDuplicates: true,
+      });
+    }
 
     // ── Variants (flat ProductColor rows) ──────────────────────────────────
     // Strategy: match by dbId if present. Create new rows when no dbId.

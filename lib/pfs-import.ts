@@ -1420,7 +1420,14 @@ export async function approveAndImportPfsProduct(
   }
 
   const compositionByRef = new Map(compositionRows.map((c) => [c.pfsCompositionRef, c]));
-  const compositionsInput: { compositionId: string; percentage: number }[] = [];
+  // PFS peut renvoyer deux `material_composition` distincts (pfsRef différents)
+  // qui se mappent en local à la même Composition (alias silencieux par nom
+  // dans createOrLinkMapping, cf. ligne 854-870). Sans dédoublonnage on
+  // insère deux ProductComposition sur (productId, compositionId) identique
+  // → P2002 à l'import, puis save du produit impossible côté admin.
+  // Politique : merger en additionnant les pourcentages (60% Coton + 40%
+  // Coton = 100% Coton reste cohérent avec la somme = 100).
+  const compositionsMap = new Map<string, { compositionId: string; percentage: number }>();
   for (const mat of materialEntries) {
     let comp = compositionByRef.get(mat.pfsRef);
     if (!comp) {
@@ -1437,8 +1444,19 @@ export async function approveAndImportPfsProduct(
       comp = { id: createdComp.id, pfsCompositionRef: mat.pfsRef };
       compositionByRef.set(mat.pfsRef, comp);
     }
-    compositionsInput.push({ compositionId: comp.id, percentage: mat.percentage });
+    const existing = compositionsMap.get(comp.id);
+    if (existing) {
+      logger.warn("[PFS Import] Compositions PFS distinctes mappées à la même composition locale — merge des pourcentages", {
+        compositionId: comp.id,
+        mergedPfsRef: mat.pfsRef,
+        addedPercentage: mat.percentage,
+      });
+      existing.percentage += mat.percentage;
+    } else {
+      compositionsMap.set(comp.id, { compositionId: comp.id, percentage: mat.percentage });
+    }
   }
+  const compositionsInput: { compositionId: string; percentage: number }[] = Array.from(compositionsMap.values());
 
   let variantsToResolve: PfsVariantItem[] = product.variants ?? [];
   if (variantResponseResult.ok) {
