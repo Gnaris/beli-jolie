@@ -333,7 +333,7 @@ async function CatalogueTab() {
       <SettingCard
         icon={Ico.tag}
         title="Marquer la référence sur la 1ʳᵉ image"
-        description="Ajoute automatiquement un badge « Réf » en haut à droite de la 1ère photo — boutique, PFS et eFashion (Ankorstore et Faire ne l'affichent pas correctement, exclus)"
+        description="Ajoute automatiquement un badge « Réf » en haut à droite de la 1ère photo — PFS et eFashion uniquement (la boutique publique ne l'affiche jamais ; Ankorstore et Faire ne l'affichent pas correctement, exclus)"
       >
         <BrandedReferenceBadgeConfig initialEnabled={brandedBadgeEnabled} />
       </SettingCard>

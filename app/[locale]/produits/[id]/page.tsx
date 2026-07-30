@@ -148,11 +148,10 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   const { id, locale: routeLocale } = await params;
 
   // Fetch product, session, config, and locale in parallel
-  const [product, session, stockVariantsConfig, brandedBadgeConfig, locale, shopName] = await Promise.all([
+  const [product, session, stockVariantsConfig, locale, shopName] = await Promise.all([
     getProduct(id, routeLocale),
     getServerSession(authOptions),
     getCachedSiteConfig("show_out_of_stock_variants"),
-    getCachedSiteConfig("branded_reference_badge_enabled"),
     getLocale(),
     getCachedShopName(),
   ]);
@@ -270,13 +269,9 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   });
 
   for (const imgs of imagesByGroup.values()) imgs.sort((a, b) => a.order - b.order);
-  // Deduplicate images with same path across variants in the same group
-  const brandedEnabled = brandedBadgeConfig?.value === "true";
-  const primaryGroupKey = primaryColorIdResolved
-    ? pcGroupKeys.get(
-        product.colors.find((pc) => pc.colorId === primaryColorIdResolved)?.id ?? "",
-      ) ?? primaryColorIdResolved
-    : null;
+  // Le badge « Réf » n'est plus affiché sur la boutique publique — seuls PFS
+  // et eFashion continuent de le recevoir (voir SiteConfig
+  // "branded_reference_badge_enabled").
   const colorImagesForDetail = [...imagesByGroup.entries()].map(([gk, imgs]) => {
     const seen = new Set<string>();
     const unique = imgs.filter((img) => {
@@ -284,17 +279,6 @@ export default async function ProduitDetailPage({ params }: PageProps) {
       seen.add(img.path);
       return true;
     });
-    // Injection virtuelle du badge « Réf » en position 0 de la couleur
-    // principale, quand le toggle est ON. Cap à 5 images.
-    if (brandedEnabled && gk === primaryGroupKey && unique.length > 0) {
-      const source = unique[0]!;
-      const brandedUrl = `/api/branded-image?src=${encodeURIComponent(source.path)}&ref=${encodeURIComponent(product.reference)}&size=large&v=v2`;
-      const withBadge = [
-        { path: brandedUrl, order: 0 },
-        ...unique.slice(0, 4).map((img, i) => ({ path: img.path, order: i + 1 })),
-      ];
-      return { groupKey: gk, images: withBadge };
-    }
     return { groupKey: gk, images: unique };
   });
   const translated = await getProductTranslation(product.id, locale as "fr" | "en", {

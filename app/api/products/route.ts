@@ -6,7 +6,6 @@ import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display"
 import { getCachedSiteConfig } from "@/lib/cached-data";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { canSeePrices } from "@/lib/price-visibility";
-import { maybeBrandifyPath } from "@/lib/branded-image-display";
 
 import { VALID_LOCALES } from "@/i18n/locales";
 
@@ -38,8 +37,11 @@ function buildProductInclude(locale: string) {
 }
 
 // Shape products: group variants by color group key (colorId) + attach first image
+// Le badge « Réf » n'est plus injecté sur la boutique publique — seuls PFS et
+// eFashion continuent de le recevoir (voir SiteConfig
+// "branded_reference_badge_enabled").
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function shapeProducts(products: any[], imageMap: Map<string, Map<string, string>>, brandedEnabled: boolean) {
+function shapeProducts(products: any[], imageMap: Map<string, Map<string, string>>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return products.map((p: any) => {
     // Si une traduction existe pour la locale demandée, on remplace `name`.
@@ -51,8 +53,6 @@ function shapeProducts(products: any[], imageMap: Map<string, Map<string, string
       primaryColorId: p.primaryColorId,
       colors: p.colors,
     });
-    const brandify = (path: string | null, colorId: string): string | null =>
-      maybeBrandifyPath(path, colorId, primaryColorId, p.reference, brandedEnabled, "medium");
     const colorMap = new Map<string, {
       groupKey: string; colorId: string; name: string; hex: string | null; patternImage?: string | null;
       firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
@@ -69,7 +69,7 @@ function shapeProducts(products: any[], imageMap: Map<string, Map<string, string
           name:          v.color?.name,
           hex:           v.color?.hex,
           patternImage:  v.color?.patternImage,
-          firstImage:    brandify(rawFirst, v.colorId),
+          firstImage:    rawFirst,
           unitPrice:     Number(v.unitPrice),
           isPrimary:     primaryColorId != null && v.colorId === primaryColorId,
           totalStock:    0,
@@ -79,7 +79,7 @@ function shapeProducts(products: any[], imageMap: Map<string, Map<string, string
       const cd = colorMap.get(gk)!;
       if (!cd.firstImage) {
         const rawFirst = imageMap.get(p.id)?.get(v.id) ?? imageMap.get(p.id)?.get(v.colorId) ?? null;
-        cd.firstImage = brandify(rawFirst, v.colorId);
+        cd.firstImage = rawFirst;
       }
       cd.unitPrice = Math.min(cd.unitPrice, Number(v.unitPrice));
       cd.totalStock += v.stock ?? 0;
@@ -136,9 +136,6 @@ export async function GET(request: NextRequest) {
   const stockVariantsRow = await getCachedSiteConfig("show_out_of_stock_variants");
   const showOosVariants = stockVariantsRow?.value !== "false"; // default true
   const shouldHideOos = hideOos;
-
-  const brandedBadgeRow = await getCachedSiteConfig("branded_reference_badge_enabled");
-  const brandedEnabled = brandedBadgeRow?.value === "true";
 
   // Session : on en a besoin pour ordered/notOrdered ET pour le gating prix.
   const session = await getServerSession(authOptions);
@@ -209,7 +206,7 @@ export async function GET(request: NextRequest) {
       products.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
 
       const imageMap = await fetchImages(pageIds);
-      let shaped = shapeProducts(products, imageMap, brandedEnabled);
+      let shaped = shapeProducts(products, imageMap);
 
       // Filter out OOS variants/colors if config says so
       if (!showOosVariants) {
@@ -285,7 +282,7 @@ export async function GET(request: NextRequest) {
 
   const productIds = products.map((p) => p.id);
   const imageMap = await fetchImages(productIds);
-  let shaped = shapeProducts(products, imageMap, brandedEnabled);
+  let shaped = shapeProducts(products, imageMap);
 
   // Filter out OOS variants/colors if config says so
   if (!showOosVariants) {

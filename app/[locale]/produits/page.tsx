@@ -68,8 +68,11 @@ interface PageProps {
 }
 
 // Shape raw Prisma products into ProductCard-friendly format
+// Le badge « Réf » n'est plus injecté sur la boutique publique — seuls PFS et
+// eFashion continuent de le recevoir (voir SiteConfig
+// "branded_reference_badge_enabled").
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, string>>, brandedEnabled: boolean) {
+function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, string>>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return rawProducts.map((p: any) => {
     // Si une traduction existe pour la locale demandée, on remplace `name`.
@@ -80,12 +83,6 @@ function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, str
       primaryColorId: p.primaryColorId,
       colors: p.colors,
     });
-    const brandifyIfPrimary = (path: string | null, colorId: string): string | null => {
-      if (!path) return null;
-      if (!brandedEnabled) return path;
-      if (primaryColorId == null || colorId !== primaryColorId) return path;
-      return `/api/branded-image?src=${encodeURIComponent(path)}&ref=${encodeURIComponent(p.reference)}&size=medium&v=v2`;
-    };
     const colorMap = new Map<string, {
       groupKey: string; colorId: string; name: string; hex: string | null; patternImage?: string | null;
       firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
@@ -98,7 +95,7 @@ function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, str
         const rawFirst = imageMap.get(p.id)?.get(v.id) ?? imageMap.get(p.id)?.get(v.colorId) ?? null;
         colorMap.set(gk, {
           groupKey: gk, colorId: v.colorId, name: v.color?.name, hex: v.color?.hex, patternImage: v.color?.patternImage,
-          firstImage: brandifyIfPrimary(rawFirst, v.colorId),
+          firstImage: rawFirst,
           unitPrice: Number(v.unitPrice),
           isPrimary: primaryColorId != null && v.colorId === primaryColorId,
           totalStock: 0,
@@ -109,7 +106,7 @@ function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, str
       // If this variant has an image and the group doesn't yet, use it
       if (!cd.firstImage) {
         const rawFirst = imageMap.get(p.id)?.get(v.id) ?? imageMap.get(p.id)?.get(v.colorId) ?? null;
-        cd.firstImage = brandifyIfPrimary(rawFirst, v.colorId);
+        cd.firstImage = rawFirst;
       }
       cd.unitPrice = Math.min(cd.unitPrice, Number(v.unitPrice));
       cd.totalStock += v.stock ?? 0;
@@ -229,9 +226,6 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   let initialHasMore = false;
   let usedCustom = false;
 
-  const brandedBadgeConfig = await getCachedSiteConfig("branded_reference_badge_enabled");
-  const brandedEnabled = brandedBadgeConfig?.value === "true";
-
   // ─── Custom ordering (no filters) ──────────────────────────────────────────
   if (!hasFilters) {
     const configRow = await getCachedSiteConfig("product_display_config");
@@ -253,7 +247,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
         rawProducts.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
 
         const imageMap = await fetchImages(pageIds);
-        products = shapeProducts(rawProducts, imageMap, brandedEnabled);
+        products = shapeProducts(rawProducts, imageMap);
       }
       initialHasMore = PER_PAGE < totalCount;
     }
@@ -315,7 +309,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     ]);
 
     const imageMap = await fetchImages(rawProducts.map(p => p.id));
-    products = shapeProducts(rawProducts, imageMap, brandedEnabled);
+    products = shapeProducts(rawProducts, imageMap);
     totalCount = count;
     initialHasMore = rawProducts.length === PER_PAGE && rawProducts.length < count;
   }
