@@ -283,6 +283,15 @@ export async function sendProductPhotosToMicrostore(
   }
 
   // 4. Upload photos par couleur BJ
+  // NB : le carousel principal (`mainImages`) reste vide — Microstore l'utilise
+  // pour des photos "hors couleur" que la cliente ne veut pas mettre en avant.
+  // Pour la couleur principale, on envoie DEUX images dans son SKU : la
+  // brandée (avec le badge « RÉFÉRENCE ») ET l'originale sans badge. Les
+  // autres couleurs ont 1 seule image (l'originale). Résultat côté Microstore :
+  //   - miniature liste boutique : brandée (coverImage)
+  //   - carousel principal fiche : vide (comportement voulu)
+  //   - sélection couleur principale : 2 photos (brandée puis originale)
+  //   - sélection autres couleurs : 1 photo (originale)
   const path = await import("node:path");
   const fs = await import("node:fs/promises");
   const colorsResult: NonNullable<SendProductPhotosResult["colors"]> = [];
@@ -357,6 +366,22 @@ export async function sendProductPhotosToMicrostore(
         // La couleur primaire est envoyée en premier, donc sa 1re image
         // devient naturellement la couverture (cf. tri sortedColors).
         if (!coverImage) coverImage = uploaded.publicUrl;
+
+        // Quand on vient d'uploader la brandée de la couleur principale, on
+        // uploade en plus la version originale (sans badge) et on l'ajoute
+        // à la liste du même SKU. La couleur principale aura donc 2 photos
+        // dans son onglet côté Microstore (brandée puis originale).
+        if (applyBadge) {
+          const originalJpeg = await prepareMicrostoreJpeg(sourceBuffer);
+          const originalFilename = filename.replace(/\.jpg$/, "-orig.jpg");
+          const originalUpload = await uploadImageToMicrostoreOss(
+            stored.key,
+            company.companyId,
+            originalJpeg,
+            originalFilename,
+          );
+          uploadedUrls.push(originalUpload.publicUrl);
+        }
       } catch (err) {
         uploadError = err instanceof Error ? err.message : String(err);
         logger.error("[Microstore/PS] image upload failed", {
@@ -652,6 +677,31 @@ export async function bulkSendPhotosToMicrostore(
           if (isPrimaryColor && idx === 0 && !entry.primaryUrl) {
             entry.primaryUrl = uploaded.publicUrl;
           }
+
+          // Si on vient d'uploader la brandée de la couleur principale, on
+          // ajoute une 2e entry pour l'originale (sans badge) attribuée au
+          // même SKU. La couleur principale aura donc 2 photos dans son
+          // onglet côté Microstore (brandée puis originale).
+          if (applyBadge) {
+            const originalJpeg = await prepareMicrostoreJpeg(sourceBuffer);
+            const originalFilename = filename.replace(/\.jpg$/, "-orig.jpg");
+            const originalUpload = await uploadImageToMicrostoreOss(
+              stored.key,
+              company.companyId,
+              originalJpeg,
+              originalFilename,
+            );
+            pictures.push({
+              name: `${product.reference} ${colorName} ${idx + 2} (originale)`,
+              fileName: originalFilename,
+              image: originalUpload.publicUrl,
+              goodsImageSetting: {
+                itemRef: product.reference,
+                colorName,
+                order: idx + 2,
+              },
+            });
+          }
         } catch (err) {
           logger.error("[Microstore/PS] bulk upload failed", {
             error: err,
@@ -714,10 +764,12 @@ export async function bulkSendPhotosToMicrostore(
 
   // Propage la "photo couverture" (couleur principale BJ → coverImage
   // Microstore). L'endpoint bulk `/api/v3/pictureStations` ne gère pas ce
-  // champ, il faut un PATCH `/api/goods/{id}` par produit. Le PATCH avec
+  // champ — il faut un PATCH `/api/goods/{id}` par produit. Le PATCH avec
   // `imageSetting.skuImage: []` ne touche pas aux images par SKU déjà
   // uploadées (Microstore ne réassigne que les SKU listés — cf. doc du
-  // `patchMicrostoreGoodsImages`).
+  // `patchMicrostoreGoodsImages`). `mainImages: []` reste vide car le
+  // carousel principal doit rester vide (l'originale de la couleur
+  // principale est déjà attribuée à son SKU via le POST bulk juste avant).
   let coversPatched = 0;
   let coversFailed = 0;
   for (const productId of Array.from(productsWithUpload)) {
