@@ -755,16 +755,19 @@ export default function ThemedProductFilters({
                   {/* Backdrop mobile seulement. Sur desktop le popover est
                       compact et se ferme via clic extérieur (handler global). */}
                   <div
-                    className="md:hidden fixed inset-0 bg-slate-900/50 z-40"
+                    className="md:hidden fixed inset-0 bg-slate-900/50 z-[9499]"
                     onMouseDown={() => setOpenTheme(null)}
                     aria-hidden
                   />
-                  {/* Panel : plein écran sur mobile, popover flottant sur desktop */}
+                  {/* Panel : plein écran sur mobile, popover flottant sur desktop.
+                      z-index : au-dessus de la BulkActionBar (mobile z-[9002] /
+                      desktop z-40) mais sous les CustomSelect portalés (z-[10001])
+                      qui sont rendus à l'intérieur de ce popover. */}
                   <div
                     onMouseDown={(e) => e.stopPropagation()}
-                    className={`fixed inset-x-0 bottom-0 top-0 flex flex-col bg-bg-primary z-50
+                    className={`fixed inset-x-0 bottom-0 top-0 flex flex-col bg-bg-primary z-[9500]
                       md:absolute md:inset-auto md:top-full md:mt-1.5 md:h-auto md:w-[320px] md:max-w-[calc(100vw-24px)]
-                      md:border md:border-border md:rounded-xl md:shadow-[var(--shadow-pop)] md:z-30
+                      md:border md:border-border md:rounded-xl md:shadow-[var(--shadow-pop)] md:z-[45]
                       ${alignRight ? "md:right-0" : "md:left-0"}`}
                     role="dialog"
                     aria-modal="true"

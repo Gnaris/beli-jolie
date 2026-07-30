@@ -446,6 +446,15 @@ export interface BulkSendPhotosResult {
   successCount: number;
   failedCount: number;
   skippedProducts: string[];
+  /**
+   * Nombre de produits pour lesquels on a réussi à propager la "photo
+   * couverture" (`coverImage`) via un PATCH `/api/goods/{id}` supplémentaire
+   * après le bulk. L'endpoint bulk `/api/v3/pictureStations` ne gère pas la
+   * photo couverture — on la pose ensuite, une par produit.
+   */
+  coversPatched: number;
+  /** Produits où le PATCH de la photo couverture a échoué (log + rapport). */
+  coversFailed: number;
 }
 
 /**
@@ -466,6 +475,9 @@ export interface BulkSendPhotosResult {
  *     au moins une couleur
  *   - Applique le badge référence sur la 1re image de la couleur primaire
  *     (comme le mode mono)
+ *   - Après le bulk POST : PATCH individuel `/api/goods/{id}` par produit
+ *     pour poser `coverImage` = 1re photo de la couleur principale (fallback
+ *     sur la 1re photo uploadée si la couleur principale n'a aucune photo)
  */
 export async function bulkSendPhotosToMicrostore(
   productIds: string[],
@@ -480,6 +492,8 @@ export async function bulkSendPhotosToMicrostore(
       successCount: 0,
       failedCount: 0,
       skippedProducts: [],
+      coversPatched: 0,
+      coversFailed: 0,
     };
   }
 
@@ -493,6 +507,8 @@ export async function bulkSendPhotosToMicrostore(
       successCount: 0,
       failedCount: productIds.length,
       skippedProducts: [],
+      coversPatched: 0,
+      coversFailed: 0,
     };
   }
 
@@ -537,6 +553,8 @@ export async function bulkSendPhotosToMicrostore(
       successCount: 0,
       failedCount: productIds.length,
       skippedProducts: [],
+      coversPatched: 0,
+      coversFailed: 0,
     };
   }
 
@@ -545,6 +563,14 @@ export async function bulkSendPhotosToMicrostore(
   const pictures: MicrostoreBulkPictureEntry[] = [];
   const productsWithUpload = new Set<string>();
   const skippedProducts: string[] = [];
+  // Par produit : URL à utiliser comme "photo couverture" côté Microstore.
+  // `primaryUrl` = 1re photo de la couleur principale (idéal). `fallbackUrl` =
+  // 1re photo uploadée toutes couleurs confondues (utilisée quand la couleur
+  // principale n'a aucune photo — option (b) validée par la cliente).
+  const coverByProduct = new Map<
+    string,
+    { reference: string; primaryUrl: string | null; fallbackUrl: string | null }
+  >();
 
   for (const product of products) {
     // Regroupe les images par colorId
@@ -561,8 +587,22 @@ export async function bulkSendPhotosToMicrostore(
       product.colors.find((c) => c.isPrimary)?.color?.id ||
       null;
 
+    // Trie les couleurs pour traiter la principale en 1er, comme le mode mono.
+    // Effet secondaire propre : ses photos apparaissent en tête du bulk POST.
+    const sortedColors = [...product.colors].sort((a, b) => {
+      const aIsPrimary = a.color?.id === primaryColorId ? 1 : 0;
+      const bIsPrimary = b.color?.id === primaryColorId ? 1 : 0;
+      return bIsPrimary - aIsPrimary;
+    });
+
+    coverByProduct.set(product.id, {
+      reference: product.reference,
+      primaryUrl: null,
+      fallbackUrl: null,
+    });
+
     let anyForProduct = false;
-    for (const pc of product.colors) {
+    for (const pc of sortedColors) {
       const colorName = pc.color?.name || "";
       const colorId = pc.color?.id || "";
       if (!colorName) continue;
@@ -604,6 +644,14 @@ export async function bulkSendPhotosToMicrostore(
             },
           });
           anyForProduct = true;
+
+          // Mémorise l'URL cover : primaryUrl seulement si c'est la 1re photo
+          // de la couleur principale ; fallbackUrl sur le tout 1er upload.
+          const entry = coverByProduct.get(product.id)!;
+          if (!entry.fallbackUrl) entry.fallbackUrl = uploaded.publicUrl;
+          if (isPrimaryColor && idx === 0 && !entry.primaryUrl) {
+            entry.primaryUrl = uploaded.publicUrl;
+          }
         } catch (err) {
           logger.error("[Microstore/PS] bulk upload failed", {
             error: err,
@@ -630,6 +678,8 @@ export async function bulkSendPhotosToMicrostore(
       successCount: 0,
       failedCount: productIds.length,
       skippedProducts,
+      coversPatched: 0,
+      coversFailed: 0,
     };
   }
 
@@ -646,6 +696,8 @@ export async function bulkSendPhotosToMicrostore(
       successCount: 0,
       failedCount: productIds.length,
       skippedProducts,
+      coversPatched: 0,
+      coversFailed: 0,
     };
   }
 
@@ -660,6 +712,43 @@ export async function bulkSendPhotosToMicrostore(
     });
   }
 
+  // Propage la "photo couverture" (couleur principale BJ → coverImage
+  // Microstore). L'endpoint bulk `/api/v3/pictureStations` ne gère pas ce
+  // champ, il faut un PATCH `/api/goods/{id}` par produit. Le PATCH avec
+  // `imageSetting.skuImage: []` ne touche pas aux images par SKU déjà
+  // uploadées (Microstore ne réassigne que les SKU listés — cf. doc du
+  // `patchMicrostoreGoodsImages`).
+  let coversPatched = 0;
+  let coversFailed = 0;
+  for (const productId of Array.from(productsWithUpload)) {
+    const entry = coverByProduct.get(productId);
+    if (!entry) continue;
+    const coverUrl = entry.primaryUrl || entry.fallbackUrl;
+    if (!coverUrl) continue;
+    try {
+      const mstGoods = await getMicrostoreGoodsByItemRef(stored.key, entry.reference);
+      if (!mstGoods) {
+        coversFailed++;
+        logger.warn("[Microstore/PS] cover PATCH skipped: goods not found", {
+          reference: entry.reference,
+        });
+        continue;
+      }
+      await patchMicrostoreGoodsImages(stored.key, mstGoods.goodsId, {
+        coverImage: coverUrl,
+        mainImages: [],
+        imageSetting: { skuImage: [] },
+      });
+      coversPatched++;
+    } catch (err) {
+      coversFailed++;
+      logger.error("[Microstore/PS] cover PATCH failed", {
+        error: err,
+        reference: entry.reference,
+      });
+    }
+  }
+
   return {
     success: bulkRes.failedCount === 0,
     attempted: productIds.length,
@@ -667,5 +756,7 @@ export async function bulkSendPhotosToMicrostore(
     successCount: bulkRes.successCount,
     failedCount: bulkRes.failedCount,
     skippedProducts,
+    coversPatched,
+    coversFailed,
   };
 }
