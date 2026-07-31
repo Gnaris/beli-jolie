@@ -50,12 +50,12 @@ jobs:
       - name: Prepare SSH
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           mkdir -p ~/.ssh
-          echo "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # On skip ssh-keyscan : `StrictHostKeyChecking=no` + `UserKnownHostsFile=/dev/null`
+          # sont passés à chaque ssh/rsync ci-dessous, donc known_hosts est inutile.
 
       - name: Rsync repo + build to VPS
         env:
@@ -70,7 +70,7 @@ jobs:
           # Rsync est incrémental : après le 1er run (~500 Mo à uploader),
           # seuls les fichiers modifiés transitent (~5-50 Mo selon les changements).
           rsync -az --delete \
-            -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
+            -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR" \
             --exclude='.git/' \
             --exclude='.github/' \
             --exclude='.env' \
@@ -88,7 +88,10 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no \
+          ssh -i ~/.ssh/id_ed25519 \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
             "$VPS_USER@$VPS_HOST" \
             "cd $VPS_APP_DIR && bash scripts/deploy/vps-receive.sh"
 
