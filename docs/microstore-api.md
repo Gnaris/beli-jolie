@@ -21,7 +21,7 @@ Fichiers HAR non versionnés (contiennent tokens STS). Restent chez la cliente d
 
 2. **La couleur principale a DEUX images dans son SKU** : la brandée (avec badge « RÉFÉRENCE ») ET l'originale sans badge. Les autres couleurs ont 1 image (originale). C'est ce qui donne la fiche produit attendue chez Microstore. Cf. § 5.3.
 
-3. **`imageSetting.skuImage: []` est un NO-OP** — les images des SKU déjà uploadés restent en place. C'est utile pour un PATCH qui ne veut modifier que `coverImage`. Un `skuImage` NON vide, en revanche, réassigne **exactement** la liste fournie pour chaque SKU listé.
+3. **Pour un PATCH « coverImage seul », OMETTRE `imageSetting` entièrement.** Envoyer `imageSetting: { skuImage: [] }` est REFUSÉ par Microstore avec `HTTP 400 skuImageSetting.skuImage.limit` (vérifié en prod le 2026-07-31 sur A2631/A2632/A2634/W120/W137/A2419/A2419A/A1825/WF92E). Un `skuImage` NON vide, en revanche, réassigne **exactement** la liste fournie pour chaque SKU listé.
 
 4. **Le JPEG est obligatoire pour les uploads OSS** — envoyer du WebP dans un fichier `.JPG` fait échouer silencieusement le badge (l'image passe côté OSS mais le rendu marketing plante). Toujours passer par `prepareMicrostoreJpeg` (`app/actions/admin/microstore-picture-station.ts`).
 
@@ -317,8 +317,9 @@ Et `coverImage = .../a349...JPG` (Argent brandée), `mainImages = []`.
 
 ### 5.4 Effets de bord du PATCH
 
-- **`imageSetting.skuImage: []`** = NO-OP. Les SKU déjà peuplés restent en place. Utile pour un PATCH qui ne veut modifier que `coverImage` (cf. `bulkSendPhotosToMicrostore` : après le POST bulk, on fait un PATCH cover avec `skuImage: []`).
-- **`imageSetting.skuImage: [{ skuIds: [X], images: [...] }]`** = **réassigne exactement** la liste pour les SKU listés. Les SKU non listés ne sont pas touchés.
+- **OMETTRE `imageSetting`** = NO-OP sur les SKU déjà peuplés. C'est le format à utiliser quand on ne veut modifier que `coverImage` (cf. `bulkSendPhotosToMicrostore` : après le POST bulk, on fait un PATCH cover sans `imageSetting`).
+- **`imageSetting: { skuImage: [] }`** (avec liste vide) = **REFUSÉ** par Microstore avec `HTTP 400 skuImageSetting.skuImage.limit`. Ne PAS envoyer ce format même si un ancien commentaire de code / une ancienne doc laissait entendre que c'était un no-op.
+- **`imageSetting: { skuImage: [{ skuIds: [X], images: [...] }] }`** = **réassigne exactement** la liste pour les SKU listés. Les SKU non listés ne sont pas touchés.
 - **`mainImages: []`** = VIDE le carousel principal (Microstore stocke `editedMainImages: true` pour désactiver toute logique de fallback intelligent — donc le carousel restera VRAIMENT vide, sans images de secours).
 - **`mainImages: [url1, url2]`** = remplace le carousel par cette liste.
 
@@ -354,7 +355,7 @@ Flux :
    - Upload photos 2, 3, ... (toutes originales) → entries `order: N+1`.
 3. **UN seul POST** `/api/v3/pictureStations?importToGoods=true` avec tout le catalogue de `pictures[]`.
 4. Baisse le flag `microstoreSyncRequired = false` sur les produits ayant réussi.
-5. **UN PATCH** `/api/goods/{id}` par produit ensuite pour poser `coverImage` (+ `mainImages: []` + `imageSetting.skuImage: []` no-op). Le POST bulk ne gère pas `coverImage` donc c'est cette 2ᵉ passe qui la pose.
+5. **UN PATCH** `/api/goods/{id}` par produit ensuite pour poser `coverImage` (+ `mainImages: []`, `imageSetting` OMIS). Le POST bulk ne gère pas `coverImage` donc c'est cette 2ᵉ passe qui la pose.
 
 ### 6.3 Comparaison
 

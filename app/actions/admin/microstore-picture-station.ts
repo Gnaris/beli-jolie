@@ -889,12 +889,13 @@ export async function bulkSendPhotosToMicrostore(
 
   // Propage la "photo couverture" (couleur principale BJ → coverImage
   // Microstore). L'endpoint bulk `/api/v3/pictureStations` ne gère pas ce
-  // champ — il faut un PATCH `/api/goods/{id}` par produit. Le PATCH avec
-  // `imageSetting.skuImage: []` ne touche pas aux images par SKU déjà
-  // uploadées (Microstore ne réassigne que les SKU listés — cf. doc du
-  // `patchMicrostoreGoodsImages`). `mainImages: []` reste vide car le
-  // carousel principal doit rester vide (l'originale de la couleur
-  // principale est déjà attribuée à son SKU via le POST bulk juste avant).
+  // champ — il faut un PATCH `/api/goods/{id}` par produit. On OMET
+  // volontairement `imageSetting` : envoyer `skuImage: []` est refusé par
+  // Microstore (HTTP 400 skuImageSetting.skuImage.limit), et on n'a pas
+  // besoin de retoucher les SKU (le POST bulk juste au-dessus vient de les
+  // peupler). `mainImages: []` reste vide car le carousel principal doit
+  // rester vide (l'originale de la couleur principale est déjà attribuée à
+  // son SKU via le POST bulk).
   let coversPatched = 0;
   let coversFailed = 0;
   for (const productId of Array.from(productsWithUpload)) {
@@ -917,6 +918,10 @@ export async function bulkSendPhotosToMicrostore(
         logger.warn("[Microstore/PS] cover PATCH skipped: goods not found", {
           reference: entry.reference,
         });
+        await prisma.product.update({
+          where: { id: productId },
+          data: { microstoreSyncRequired: true },
+        });
         await markMicrostoreUploadJobStatus(jobId, "FAILED", {
           errorMessage: `Photos uploadées mais fiche Microstore introuvable pour la couverture.`,
           completed: true,
@@ -926,7 +931,6 @@ export async function bulkSendPhotosToMicrostore(
       await patchMicrostoreGoodsImages(stored.key, mstGoods.goodsId, {
         coverImage: coverUrl,
         mainImages: [],
-        imageSetting: { skuImage: [] },
       });
       coversPatched++;
       await markMicrostoreUploadJobStatus(jobId, "DONE", { completed: true });
@@ -936,6 +940,10 @@ export async function bulkSendPhotosToMicrostore(
       logger.error("[Microstore/PS] cover PATCH failed", {
         error: err,
         reference: entry.reference,
+      });
+      await prisma.product.update({
+        where: { id: productId },
+        data: { microstoreSyncRequired: true },
       });
       await markMicrostoreUploadJobStatus(jobId, "FAILED", {
         errorMessage: `Photos uploadées mais PATCH couverture refusé : ${message}`,

@@ -321,27 +321,66 @@ function buildProductPayloadAttributes(p: AnkorstoreCatalogProductInput): Record
  * existants ne sont pas touchés.
  */
 
+// Suivi des operationIds récents pour détecter la dédup d'Ankor : leur backend
+// renvoie parfois le MÊME operationId pour deux create successifs (fenêtre
+// observée en prod ≥ 5 s, 2026-07-31), ce qui casse le kickoff suivant avec un
+// 403 « [started]/[pending] → [started] ». Cap à 32 entrées LRU-like — mémoire
+// process, safe multi-tenant car les opIds sont uniques globalement.
+const recentAnkorstoreOperationIds = new Set<string>();
+
+function trackAnkorstoreOperationId(id: string): void {
+  recentAnkorstoreOperationIds.add(id);
+  if (recentAnkorstoreOperationIds.size > 32) {
+    const first = recentAnkorstoreOperationIds.values().next().value;
+    if (first) recentAnkorstoreOperationIds.delete(first);
+  }
+}
+
+/**
+ * Test-only : vide la mémoire de dédup pour éviter les fuites entre tests.
+ */
+export function __resetAnkorstoreRecentOperationIds(): void {
+  recentAnkorstoreOperationIds.clear();
+}
+
 export async function ankorstoreCreateCatalogOperation(
   type: "import" | "update"
 ): Promise<{ operationId: string }> {
-  const attributes: Record<string, unknown> = {
-    operationType: type,
-    source: "other",
-    callbackUrl: buildAnkorstoreCallbackUrl(),
-  };
-  const resp = await ankorstoreFetchJson<{ data: { id: string } }>(
-    `/catalog/integrations/operations`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        data: {
-          type: "catalog-integration-operation",
-          attributes,
-        },
-      }),
+  const backoffs = [3000, 6000, 10000, 15000]; // ~34 s cumulés max
+  for (let attempt = 0; ; attempt++) {
+    const attributes: Record<string, unknown> = {
+      operationType: type,
+      source: "other",
+      callbackUrl: buildAnkorstoreCallbackUrl(),
+    };
+    const resp = await ankorstoreFetchJson<{ data: { id: string } }>(
+      `/catalog/integrations/operations`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          data: { type: "catalog-integration-operation", attributes },
+        }),
+      }
+    );
+    const operationId = resp.data.id;
+
+    // Collision détectée = Ankor a renvoyé un opId qu'on a déjà vu récemment.
+    // On attend et on retente : chaque nouveau POST relance le compteur de
+    // dédup côté Ankor, donc au 2ᵉ ou 3ᵉ essai on obtient généralement un
+    // opId neuf.
+    if (recentAnkorstoreOperationIds.has(operationId) && attempt < backoffs.length) {
+      logger.warn("[Ankorstore] Create renvoie un operationId déjà vu (dédup Ankor) — retry", {
+        operationId,
+        attempt: attempt + 1,
+        delayMs: backoffs[attempt],
+      });
+      await new Promise((r) => setTimeout(r, backoffs[attempt]));
+      continue;
     }
-  );
-  return { operationId: resp.data.id };
+
+    trackAnkorstoreOperationId(operationId);
+    return { operationId };
+  }
 }
 
 /**
@@ -382,21 +421,42 @@ export async function ankorstoreAddProductsToOperation(
 /**
  * Start (trigger) a catalog-integration operation. Required after adding
  * products to a `created` operation.
+ *
+ * Retry sur le 403 « cannot be updated from [pending] to [started] » : Ankor
+ * met parfois quelques centaines de ms à faire passer l'op de `pending` à
+ * `created` côté leur backend, surtout quand on enchaîne plusieurs kickoffs
+ * rapidement (constaté en prod 2026-07-31 après passage à 5 en parallèle).
+ * Backoffs : 500 ms, 1 s, 2 s, 4 s (max ~7,5 s d'attente cumulée).
  */
 export async function ankorstoreStartOperation(operationId: string): Promise<void> {
-  await ankorstoreFetchJson<unknown>(
-    `/catalog/integrations/operations/${encodeURIComponent(operationId)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({
-        data: {
-          type: "catalog-integration-operation",
-          id: operationId,
-          attributes: { status: "started" },
-        },
-      }),
+  const path = `/catalog/integrations/operations/${encodeURIComponent(operationId)}`;
+  const body = JSON.stringify({
+    data: {
+      type: "catalog-integration-operation",
+      id: operationId,
+      attributes: { status: "started" },
+    },
+  });
+
+  const backoffs = [500, 1000, 2000, 4000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await ankorstoreFetchJson<unknown>(path, { method: "PATCH", body });
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const pendingRace = /cannot be updated from \[pending\]/i.test(msg);
+      if (!pendingRace || attempt >= backoffs.length) {
+        throw err;
+      }
+      logger.warn("[Ankorstore] Start operation encore en [pending] — retry après backoff", {
+        operationId,
+        attempt: attempt + 1,
+        delayMs: backoffs[attempt],
+      });
+      await new Promise((r) => setTimeout(r, backoffs[attempt]));
     }
-  );
+  }
 }
 
 /**

@@ -410,7 +410,13 @@ export interface MicrostoreImageSettingSkuImage {
 export interface MicrostorePatchImagesPayload {
   coverImage: string;
   mainImages: string[];
-  imageSetting: {
+  /**
+   * Si présent, remplace les images des SKU listés. **OMETTRE** ce champ pour
+   * un no-op (envoyer `{ skuImage: [] }` est refusé par Microstore avec
+   * `HTTP 400 skuImageSetting.skuImage.limit`, contrairement à ce que les
+   * anciens HAR laissaient penser — vérifié en prod le 2026-07-31).
+   */
+  imageSetting?: {
     skuImage: MicrostoreImageSettingSkuImage[];
   };
 }

@@ -8,6 +8,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
 
 export type EfashionShootingMode = "PUBLISH" | "REFRESH";
 
@@ -63,6 +64,15 @@ export function EfashionShootingBatchProvider({ children }: { children: React.Re
   const [isCommitting, setIsCommitting] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
   const inFlightRef = useRef<boolean>(false);
+  // Le context marketplace est monté PLUS HAUT (voir app/(admin)/layout.tsx) —
+  // on l'utilise pour forcer un poll immédiat de la file après un commit.
+  // Sans ça, les MarketplaceRefreshJob EFASHION créés par le server action
+  // ne remontent qu'au prochain tick (2 s en actif, 10 s en idle) et pendant
+  // cet intervalle : (1) le badge marketplace repasse en rouge « hors ligne »
+  // parce que le context ne voit aucun job en cours ; (2) sur un produit pas
+  // encore lié (PUBLISH), le bouton « Publier » redevient cliquable et un
+  // double clic déclenche un second push concurrent.
+  const marketplaceQueue = useMarketplaceRefreshQueue();
 
   const refresh = useCallback(async () => {
     if (inFlightRef.current) return;
@@ -178,8 +188,13 @@ export function EfashionShootingBatchProvider({ children }: { children: React.Re
     } finally {
       setIsCommitting(false);
       void refresh();
+      // Force le context marketplace à re-sonder tout de suite : les jobs
+      // EFASHION IN_PROGRESS viennent d'être créés côté serveur, on veut
+      // qu'ils apparaissent immédiatement dans le widget pour verrouiller
+      // les badges et bloquer un éventuel double-clic sur « Publier ».
+      void marketplaceQueue.refetch();
     }
-  }, [refresh]);
+  }, [refresh, marketplaceQueue]);
 
   const value: ContextValue = {
     items: state.items,

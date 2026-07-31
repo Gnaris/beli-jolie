@@ -101,6 +101,16 @@ interface MarketplaceRefreshContextValue {
     productId: string,
     marketplace: MarketplaceTarget,
   ) => number | null;
+  /**
+   * Force un poll immédiat de la file marketplace. À utiliser par les
+   * providers voisins (ex : commit du shooting eFashion) qui viennent de
+   * créer des MarketplaceRefreshJob côté serveur et veulent voir les jobs
+   * apparaître instantanément dans le context — sinon on attend le tick
+   * de polling suivant (jusqu'à 10 s en idle), pendant lequel les badges
+   * marketplace repassent en « hors ligne » alors qu'un push est en cours
+   * et le bouton « Publier » redevient cliquable.
+   */
+  refetch: () => Promise<void>;
 }
 
 export function isItemActive(item: MarketplaceRefreshItem): boolean {
@@ -443,6 +453,7 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     queuedCount,
     inFlightProductIds,
     getRecentClientSuccessAt,
+    refetch: pollOnce,
   };
 
   return (

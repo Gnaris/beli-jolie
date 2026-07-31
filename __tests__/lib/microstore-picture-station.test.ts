@@ -361,6 +361,26 @@ describe("patchMicrostoreGoodsImages", () => {
       }),
     ).rejects.toThrow(/HTTP 422.*InvalidSkuId/);
   });
+
+  it("PATCH cover seul : imageSetting doit être OMIS (pas envoyé comme {skuImage:[]})", async () => {
+    // Microstore refuse `imageSetting.skuImage: []` avec
+    // `HTTP 400 skuImageSetting.skuImage.limit` (constaté en prod le
+    // 2026-07-31). Le PATCH cover post-bulk doit donc omettre le champ
+    // `imageSetting` entièrement.
+    const mock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    mock.mockResolvedValueOnce({ ok: true });
+    await patchMicrostoreGoodsImages("NBqdsz", 10808, {
+      coverImage: "https://dcdn.microstore.app/3976/MSH5_cover.JPG",
+      mainImages: [],
+    });
+    const [, init] = mock.mock.calls[0];
+    const body = JSON.parse(init?.body as string);
+    expect(body).toEqual({
+      coverImage: "https://dcdn.microstore.app/3976/MSH5_cover.JPG",
+      mainImages: [],
+    });
+    expect(body).not.toHaveProperty("imageSetting");
+  });
 });
 
 describe("bulkImportMicrostorePictures", () => {
