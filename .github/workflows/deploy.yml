@@ -52,18 +52,33 @@ jobs:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh
-          # Normalise les fins de ligne (retire CR de Windows) + garantit
-          # une newline finale. Sinon libcrypto rejette la clé PEM.
-          printf '%s\n' "$VPS_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          KEY_FILE=~/.ssh/id_ed25519
 
-          # Valide le format de la clé (échoue tôt avec message clair si KO)
-          if ! ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null 2>&1; then
-            echo "::error::Clé SSH invalide. Vérifier le secret VPS_SSH_KEY (BEGIN/END inclus, aucun caractère avant/après)."
-            echo "Premier octet : $(head -c 20 ~/.ssh/id_ed25519 | od -c | head -1)"
+          # 1) Normalise fins de ligne (retire CR de Windows).
+          RAW="$(printf '%s\n' "$VPS_SSH_KEY" | tr -d '\r')"
+
+          # 2) Auto-wrap : si l'en-tête BEGIN manque (paste incomplet côté GitHub
+          #    secrets), ajoute automatiquement les lignes BEGIN/END OpenSSH.
+          #    On détecte via la première ligne : si c'est déjà un header PEM
+          #    quelconque (BEGIN ...), on garde tel quel. Sinon on wrap.
+          if printf '%s' "$RAW" | head -1 | grep -q '^-----BEGIN '; then
+            printf '%s\n' "$RAW" > "$KEY_FILE"
+          else
+            echo "⚠ Header BEGIN manquant dans VPS_SSH_KEY - auto-wrap OpenSSH"
+            {
+              echo "-----BEGIN OPENSSH PRIVATE KEY-----"
+              printf '%s\n' "$RAW"
+              echo "-----END OPENSSH PRIVATE KEY-----"
+            } > "$KEY_FILE"
+          fi
+          chmod 600 "$KEY_FILE"
+
+          # 3) Valide la clé - échoue tôt avec message clair si toujours KO.
+          if ! ssh-keygen -y -f "$KEY_FILE" > /dev/null 2>&1; then
+            echo "::error::Cle SSH invalide meme apres auto-wrap. Recreer le secret VPS_SSH_KEY."
             exit 1
           fi
-          echo "✓ Clé SSH validée"
+          echo "✓ Cle SSH validee"
 
       - name: Rsync repo + build to VPS
         env:
