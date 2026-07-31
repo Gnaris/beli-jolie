@@ -33,6 +33,11 @@ import { buildMarketplaceImageUrl } from "@/lib/marketplace-image";
 import { buildBrandedMarketplaceUrl } from "@/lib/branded-image-display";
 import { emitProductEvent } from "@/lib/product-events";
 import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
+import {
+  findDuplicateAnkorstoreOptions,
+  formatDuplicateOptionsError,
+} from "@/lib/ankorstore-option-dedup";
+import { translateAnkorstoreErrorBundle } from "@/lib/ankorstore-error-fr";
 import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
 
 // ─────────────────────────────────────────────
@@ -494,6 +499,16 @@ export async function buildPublishProductInput(productId: string): Promise<
     ankorUrlFor,
   );
 
+  // Ankorstore refuse deux variantes qui portent la même paire (color, size),
+  // même si les SKU diffèrent. On coupe court avant l'API : préférable à un
+  // callback en erreur 15 minutes plus tard.
+  const duplicates = findDuplicateAnkorstoreOptions(
+    variantEntries.map((v) => ({ sku: v.sku, options: v.entry.options ?? [] })),
+  );
+  if (duplicates.length > 0) {
+    return { ok: false, error: formatDuplicateOptionsError(duplicates) };
+  }
+
   const allVariantsOutOfStock =
     variantEntries.length === 0 ||
     variantEntries.every((v) => v.entry.stockQuantity === 0);
@@ -628,6 +643,22 @@ export async function ankorstoreKickoffPublish(
       success: false,
       error:
         "Une opération Ankorstore est déjà en cours sur ce produit. Patientez quelques minutes ou consultez la file en bas à droite.",
+    };
+  }
+
+  // Bloque le publish tant que des images sont en cours de conversion WebP :
+  // sinon les URLs envoyées à Ankorstore renvoient 404 et la plateforme rejette
+  // le produit avec « At least 1 image is required ».
+  const pendingImageJobs = await prisma.imageProcessingJob.count({
+    where: {
+      productId,
+      status: { in: ["PENDING", "PROCESSING"] },
+    },
+  });
+  if (pendingImageJobs > 0) {
+    return {
+      success: false,
+      error: `Les photos de ce produit sont encore en cours de traitement (${pendingImageJobs} en file). Réessayez dans quelques secondes.`,
     };
   }
 
@@ -831,7 +862,8 @@ export function extractFailureReason(callbackPayload: unknown): string {
     data?: { attributes?: { status?: string; failureReason?: string } };
   };
   const reason = obj.data?.attributes?.failureReason;
-  return reason ?? `Statut: ${obj.data?.attributes?.status ?? "inconnu"}`;
+  if (reason) return translateAnkorstoreErrorBundle(reason);
+  return `Statut : ${obj.data?.attributes?.status ?? "inconnu"}`;
 }
 
 /**
@@ -866,7 +898,10 @@ export async function fetchDetailedFailureMessage(operationId: string): Promise<
         parts.push(r.failureReason);
       }
     }
-    return parts.length > 0 ? parts.join(" — ") : null;
+    if (parts.length === 0) return null;
+    // Convertit chaque motif brut en phrase française actionnable avant
+    // enregistrement dans AnkorstoreOperation.errorMessage.
+    return translateAnkorstoreErrorBundle(parts.join(" — "));
   } catch (err) {
     logger.warn("[Ankorstore] fetchDetailedFailureMessage failed", {
       operationId,

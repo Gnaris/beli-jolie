@@ -7,11 +7,12 @@ import {
   uploadFile,
 } from "@/lib/storage";
 import {
-  ensureMinWidth,
+  ensureMinDimensions,
   guessContentType,
   isSafeMarketplaceImagePath,
   convertToJpeg,
   MIN_MARKETPLACE_WIDTH,
+  MIN_MARKETPLACE_HEIGHT,
 } from "@/lib/marketplace-image";
 import { logger } from "@/lib/logger";
 import { getCurrentTenantSlug } from "@/lib/tenant";
@@ -58,6 +59,14 @@ export async function GET(request: NextRequest) {
     Number.isFinite(minWidthParam) && minWidthParam >= MIN_MARKETPLACE_WIDTH
       ? Math.min(Math.round(minWidthParam), 4000)
       : MIN_MARKETPLACE_WIDTH;
+  // Hauteur minimale : par défaut on force MIN_MARKETPLACE_HEIGHT (500)
+  // pour Ankorstore qui rejette toute image dont l'un des côtés est < 500.
+  // Un client peut envoyer `?minHeight=0` pour désactiver le seuil (utilisé
+  // en interne quand un appelant ne veut assurer que la largeur).
+  const minHeightParam = Number(url.searchParams.get("minHeight") ?? "");
+  const minHeight = Number.isFinite(minHeightParam)
+    ? Math.min(Math.max(Math.round(minHeightParam), 0), 4000)
+    : MIN_MARKETPLACE_HEIGHT;
 
   if (!isSafeMarketplaceImagePath(dbPath)) {
     return NextResponse.json({ error: "Chemin invalide." }, { status: 400 });
@@ -76,9 +85,9 @@ export async function GET(request: NextRequest) {
   }
 
   const sourceKey = keyFromDbPath(dbPath);
-  // Inclut la largeur dans la clé de cache pour éviter de servir une version
+  // Inclut les seuils dans la clé de cache pour éviter de servir une version
   // 500 px quand on a explicitement demandé 1000 px (et inversement).
-  const cacheKey = cacheKeyFor(`${dbPath}|w${minWidth}`, format);
+  const cacheKey = cacheKeyFor(`${dbPath}|w${minWidth}|h${minHeight}`, format);
   const targetContentType = format === "jpeg" ? "image/jpeg" : "image/webp";
 
   // ── 1. Cache hit ? ──────────────────────────────────────────────
@@ -115,7 +124,7 @@ export async function GET(request: NextRequest) {
 
   // ── 3. Upscale si nécessaire + conversion JPEG si demandée ─────
   try {
-    const result = await ensureMinWidth(buffer, minWidth);
+    const result = await ensureMinDimensions(buffer, minWidth, minHeight);
 
     let outBuffer = result.buffer;
     let contentType: string;

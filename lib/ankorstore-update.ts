@@ -56,6 +56,10 @@ import { emitProductEvent } from "@/lib/product-events";
 import { buildMarketplaceImageUrl } from "@/lib/marketplace-image";
 import { buildBrandedMarketplaceUrl } from "@/lib/branded-image-display";
 import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
+import {
+  findDuplicateAnkorstoreOptions,
+  formatDuplicateOptionsError,
+} from "@/lib/ankorstore-option-dedup";
 import { getCachedAnkorstoreEnabled } from "@/lib/cached-data";
 import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
 
@@ -469,6 +473,22 @@ export async function ankorstoreKickoffUpdate(
       operationId: existingPending.id,
     });
     return { success: true, operationId: existingPending.id, archived: false };
+  }
+
+  // Bloque l'update tant que des images sont en cours de conversion WebP :
+  // sinon un update qui ajoute une image en attendant renvoie l'URL vers un
+  // fichier absent → Ankorstore 404 → « At least 1 image is required ».
+  const pendingImageJobs = await prisma.imageProcessingJob.count({
+    where: {
+      productId,
+      status: { in: ["PENDING", "PROCESSING"] },
+    },
+  });
+  if (pendingImageJobs > 0) {
+    return {
+      success: false,
+      error: `Les photos de ce produit sont encore en cours de traitement (${pendingImageJobs} en file). Réessayez dans quelques secondes.`,
+    };
   }
 
   const product = await loadProductFull(productId);
@@ -1179,6 +1199,17 @@ export async function ankorstoreKickoffUpdate(
       hasNewVariants,
       unlinkedVariantCount: unlinkedVariants.length,
     });
+    // Même garde-fou anti-doublons que côté publish : Ankorstore refuse deux
+    // variantes qui partagent la paire (color, size). Détecté ici après la
+    // construction du payload complet (les variantes déjà liées peuvent avoir
+    // reçu un SKU réel AS qui masquerait le doublon si on regardait plus tôt).
+    const dupOptions = findDuplicateAnkorstoreOptions(
+      productInput.variants.map((v) => ({ sku: v.sku, options: v.options })),
+    );
+    if (dupOptions.length > 0) {
+      return { success: false, error: formatDuplicateOptionsError(dupOptions) };
+    }
+
     const addResp = await ankorstoreAddProductsToOperation(operationId, [productInput]);
     if (addResp.totalProductsCount === 0) {
       throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");

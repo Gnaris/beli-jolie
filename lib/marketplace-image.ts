@@ -15,6 +15,7 @@
 import sharp from "sharp";
 
 export const MIN_MARKETPLACE_WIDTH = 500;
+export const MIN_MARKETPLACE_HEIGHT = 500;
 
 const WEBP_OPTS = { lossless: true, quality: 100, effort: 4 } as const;
 
@@ -49,14 +50,15 @@ export function buildMarketplaceImageUrl(dbPath: string, baseOverride?: string):
 }
 
 /**
- * Variante Faire : ajoute `?format=jpeg&minWidth=1000` à l'URL.
- * Le proxy convertira le WebP en JPEG et upscalera à au moins 1000 px de large
- * (Faire refuse les images < 1000×1000 et les crop_fill en panoramique).
+ * Variante Faire : ajoute `?format=jpeg&minWidth=1000&minHeight=1000` à l'URL.
+ * Le proxy convertira le WebP en JPEG et upscalera à au moins 1000 px sur
+ * chaque côté (Faire refuse les images < 1000×1000 et les crop_fill en
+ * panoramique).
  */
 export function buildFaireImageUrl(dbPath: string, baseOverride?: string): string {
   const url = buildMarketplaceImageUrl(dbPath, baseOverride);
   const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}format=jpeg&minWidth=1000`;
+  return `${url}${sep}format=jpeg&minWidth=1000&minHeight=1000`;
 }
 
 /**
@@ -71,27 +73,33 @@ export async function convertToJpeg(source: Buffer): Promise<Buffer> {
 }
 
 /**
- * Garantit que le buffer renvoyé a une largeur ≥ `minWidth`.
+ * Garantit que le buffer renvoyé a une largeur ≥ `minWidth` **ET** une
+ * hauteur ≥ `minHeight`.
  *
- * - Si l'image source est déjà assez large → renvoie le buffer d'origine
- *   tel quel (aucune re-encoding, donc aucune perte de qualité, et le
- *   Content-Type initial reste valide).
- * - Sinon → upscale en WebP lossless avec resize Lanczos3 (sharp default)
- *   à exactement `minWidth` de large, hauteur calculée proportionnellement.
- *   La hauteur originale est multipliée par le même facteur d'agrandissement.
+ * - Si l'image source respecte déjà les deux seuils → renvoie le buffer
+ *   d'origine tel quel (aucune re-encoding, donc aucune perte de qualité).
+ * - Sinon → upscale en WebP lossless avec resize Lanczos3. Le facteur
+ *   d'agrandissement est calculé pour que **la plus petite dimension**
+ *   atteigne son seuil : `scale = max(minWidth / w, minHeight / h)`.
+ *   Le ratio est préservé, donc l'autre dimension peut dépasser son seuil.
+ *
+ * Ankorstore refuse toute image dont la hauteur OU la largeur est < 500 px.
+ * Auparavant, on n'assurait que la largeur → une image 800×339 passait le
+ * proxy sans modif et Ankorstore la rejetait à la publication.
  *
  * @returns `{ buffer, resized }` — `resized: true` si on a ré-encodé.
  */
-export async function ensureMinWidth(
+export async function ensureMinDimensions(
   source: Buffer,
   minWidth: number = MIN_MARKETPLACE_WIDTH,
+  minHeight: number = MIN_MARKETPLACE_HEIGHT,
 ): Promise<{ buffer: Buffer; resized: boolean; width: number; height: number }> {
   const image = sharp(source);
   const meta = await image.metadata();
   const srcWidth = meta.width ?? 0;
   const srcHeight = meta.height ?? 0;
 
-  if (srcWidth >= minWidth) {
+  if (srcWidth >= minWidth && srcHeight >= minHeight) {
     return { buffer: source, resized: false, width: srcWidth, height: srcHeight };
   }
 
@@ -101,16 +109,33 @@ export async function ensureMinWidth(
     return { buffer: source, resized: false, width: srcWidth, height: srcHeight };
   }
 
-  // Largeur cible = minWidth, hauteur calculée pour préserver le ratio.
-  const scale = minWidth / srcWidth;
-  const targetHeight = Math.round(srcHeight * scale);
+  // Facteur d'agrandissement uniforme : on prend le max entre
+  // (minWidth / w) et (minHeight / h) pour que la plus petite dimension
+  // atteigne exactement son seuil, l'autre dimension étant agrandie du
+  // même facteur (ratio préservé).
+  const scale = Math.max(minWidth / srcWidth, minHeight / srcHeight);
+  const targetWidth = Math.max(minWidth, Math.round(srcWidth * scale));
+  const targetHeight = Math.max(minHeight, Math.round(srcHeight * scale));
 
   const buffer = await sharp(source)
-    .resize(minWidth, targetHeight, { fit: "fill", kernel: sharp.kernel.lanczos3 })
+    .resize(targetWidth, targetHeight, { fit: "fill", kernel: sharp.kernel.lanczos3 })
     .webp(WEBP_OPTS)
     .toBuffer();
 
-  return { buffer, resized: true, width: minWidth, height: targetHeight };
+  return { buffer, resized: true, width: targetWidth, height: targetHeight };
+}
+
+/**
+ * Alias historique — préservé pour la compatibilité des appels existants
+ * qui ne se soucient que de la largeur (Faire ≥ 1000). Délègue à
+ * `ensureMinDimensions` en désactivant le seuil de hauteur (0 = pas de
+ * contrainte).
+ */
+export async function ensureMinWidth(
+  source: Buffer,
+  minWidth: number = MIN_MARKETPLACE_WIDTH,
+): Promise<{ buffer: Buffer; resized: boolean; width: number; height: number }> {
+  return ensureMinDimensions(source, minWidth, 0);
 }
 
 /**

@@ -8,9 +8,12 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
 import {
+  buildFaireImageUrl,
   buildMarketplaceImageUrl,
+  ensureMinDimensions,
   ensureMinWidth,
   guessContentType,
+  MIN_MARKETPLACE_HEIGHT,
   MIN_MARKETPLACE_WIDTH,
 } from "@/lib/marketplace-image";
 
@@ -147,6 +150,89 @@ describe("lib/marketplace-image", () => {
       const result = await ensureMinWidth(input);
       expect(result.resized).toBe(true);
       expect(result.width).toBe(500);
+    });
+  });
+
+  describe("MIN_MARKETPLACE_HEIGHT", () => {
+    it("is set to 500 (Ankorstore requirement)", () => {
+      expect(MIN_MARKETPLACE_HEIGHT).toBe(500);
+    });
+  });
+
+  describe("ensureMinDimensions", () => {
+    it("returns the original buffer when both dimensions ≥ 500", async () => {
+      const input = await makeTestImage(800, 600);
+      const result = await ensureMinDimensions(input, 500, 500);
+      expect(result.resized).toBe(false);
+      expect(result.buffer).toBe(input);
+      expect(result.width).toBe(800);
+      expect(result.height).toBe(600);
+    });
+
+    it("upscales a landscape image whose height is below the minimum", async () => {
+      // 800×339 (Issyma incident) : la largeur passe déjà mais la hauteur non.
+      const input = await makeTestImage(800, 339);
+      const result = await ensureMinDimensions(input, 500, 500);
+      expect(result.resized).toBe(true);
+      // Le facteur d'agrandissement se calcule sur la petite dimension :
+      // scale = max(500/800, 500/339) = 500/339 ≈ 1.475
+      // → width = 800 × 1.475 ≈ 1180, height = 500
+      expect(result.height).toBe(500);
+      expect(result.width).toBeGreaterThanOrEqual(1180);
+
+      const meta = await sharp(result.buffer).metadata();
+      expect(meta.height).toBe(500);
+      expect(meta.format).toBe("webp");
+    });
+
+    it("upscales a portrait image whose width is below the minimum", async () => {
+      // Cas symétrique : 300×700 → scale = 500/300 = 1.666..
+      const input = await makeTestImage(300, 700);
+      const result = await ensureMinDimensions(input, 500, 500);
+      expect(result.resized).toBe(true);
+      expect(result.width).toBe(500);
+      expect(result.height).toBeGreaterThanOrEqual(1166);
+    });
+
+    it("upscales when both dimensions are below the minimum", async () => {
+      const input = await makeTestImage(300, 200);
+      const result = await ensureMinDimensions(input, 500, 500);
+      expect(result.resized).toBe(true);
+      // scale = max(500/300, 500/200) = 2.5 → 750×500
+      expect(result.width).toBeGreaterThanOrEqual(750);
+      expect(result.height).toBe(500);
+    });
+
+    it("preserves aspect ratio during upscale", async () => {
+      const input = await makeTestImage(600, 400);
+      const result = await ensureMinDimensions(input, 500, 500);
+      expect(result.resized).toBe(true);
+      // scale = max(500/600, 500/400) = 1.25 → 750×500
+      expect(result.width).toBe(750);
+      expect(result.height).toBe(500);
+    });
+
+    it("ensureMinWidth remains backward compatible (no height constraint)", async () => {
+      // Avant le fix : une image 800×339 était renvoyée telle quelle car la
+      // largeur est ≥ 500. Le vieux comportement doit rester (l'appelant Faire
+      // ne veut pas de contrainte hauteur — il gère lui-même).
+      const input = await makeTestImage(800, 339);
+      const result = await ensureMinWidth(input, 500);
+      expect(result.resized).toBe(false);
+      expect(result.width).toBe(800);
+      expect(result.height).toBe(339);
+    });
+  });
+
+  describe("buildFaireImageUrl", () => {
+    it("adds format=jpeg & minWidth=1000 & minHeight=1000", () => {
+      const url = buildFaireImageUrl(
+        "/uploads/produits/abc/abc-1.webp",
+        "https://example.com",
+      );
+      expect(url).toContain("format=jpeg");
+      expect(url).toContain("minWidth=1000");
+      expect(url).toContain("minHeight=1000");
     });
   });
 
