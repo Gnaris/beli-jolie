@@ -3188,7 +3188,7 @@ function ProductRow({
               <div className="lg:hidden flex items-stretch gap-1 mt-2.5 w-full flex-nowrap">
                 {/* Règle de clic sur badges compact :
                     - vert (à jour) ou orange (sync nécessaire) → synchroniser
-                    - gris (non lié) → publier / créer la fiche marketplace
+                    - rouge (non lié) → ouvre la modale « Créer ou Lier » (identique desktop)
                     - rayé (désactivé) → non cliquable */}
                 <MpDot
                   label="PFS"
@@ -3199,7 +3199,7 @@ function ProductRow({
                   onClick={pfsOperational ? (
                     pfsBadgeState.online
                       ? () => void handleSyncPfs()
-                      : () => handlePublishPfs()
+                      : () => setActionModalPfs(true)
                   ) : undefined}
                 />
                 {showEfashion && (
@@ -3213,7 +3213,7 @@ function ProductRow({
                     onClick={efashionOperational && !efashionShootingPending ? (
                       efashionBadgeState.online
                         ? () => void handleSyncEfashion()
-                        : () => handlePublishEfashion()
+                        : () => setActionModalEf(true)
                     ) : undefined}
                   />
                 )}
@@ -3227,7 +3227,7 @@ function ProductRow({
                     onClick={ankorstoreOperational ? (
                       ankorstoreBadgeState.online
                         ? () => void handleSyncAnkorstore()
-                        : () => handlePublishAnkorstore()
+                        : () => setActionModalAk(true)
                     ) : undefined}
                   />
                 )}
@@ -3241,7 +3241,7 @@ function ProductRow({
                     onClick={faireOperational ? (
                       faireBadgeState.online
                         ? () => void handleSyncFaire()
-                        : () => handlePublishFaire()
+                        : () => setActionModalFaire(true)
                     ) : undefined}
                   />
                 )}
@@ -6131,17 +6131,28 @@ function MpDot({
     );
   }
   const isSync = active && syncRequired;
+  // Pas lié + cliquable → rouge (appelle à l'action : créer ou lier).
+  // Pas lié + non cliquable (marketplace non opérationnelle) → gris passif.
+  const canAct = !active && !!onClick;
   const cls = isSync
     ? "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA]"
     : active
       ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
-      : "bg-bg-secondary text-text-muted border-border";
-  const dotCls = isSync ? "bg-[#F97316]" : active ? "bg-[#22C55E]" : "bg-slate-300";
+      : canAct
+        ? "bg-[#FEF2F2] text-[#B91C1C] border-[#FECACA]"
+        : "bg-bg-secondary text-text-muted border-border";
+  const dotCls = isSync
+    ? "bg-[#F97316]"
+    : active
+      ? "bg-[#22C55E]"
+      : canAct
+        ? "bg-[#DC2626]"
+        : "bg-slate-300";
   const title = isSync
     ? `${label} — cliquer pour synchroniser`
     : active
       ? `${label} — en ligne`
-      : `${label} — cliquer pour publier`;
+      : `${label} — cliquer pour publier ou lier`;
   if (!onClick) {
     return (
       <span
