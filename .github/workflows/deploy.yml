@@ -1,0 +1,107 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Restore Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .next/cache
+            .next/build
+          key: nextjs-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            nextjs-${{ hashFiles('package-lock.json') }}-
+            nextjs-
+
+      - name: Build Next.js app
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+
+      - name: Prepare SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Rsync repo + build to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+        run: |
+          # Approche simple : on rsync tout le workspace runner (sources + .next
+          # + node_modules) sur le VPS, en excluant ce qui doit rester local au
+          # VPS : uploads utilisateurs, .env, .git, backups.
+          #
+          # Rsync est incrémental : après le 1er run (~500 Mo à uploader),
+          # seuls les fichiers modifiés transitent (~5-50 Mo selon les changements).
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='public/uploads/' \
+            --exclude='private/uploads/' \
+            --exclude='node_modules/.cache/' \
+            --exclude='.next/cache/' \
+            ./ \
+            "$VPS_USER@$VPS_HOST:$VPS_APP_DIR/"
+
+      - name: Run vps-receive.sh on VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no \
+            "$VPS_USER@$VPS_HOST" \
+            "cd $VPS_APP_DIR && bash scripts/deploy/vps-receive.sh"
+
+      - name: Post-deploy health check
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          sleep 5
+          for host in beliandjolie.com issyma.fr; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "https://$host" || echo "000")
+            echo "$host → HTTP $code"
+            if [ "$code" != "200" ] && [ "$code" != "301" ] && [ "$code" != "302" ]; then
+              echo "::error::$host returned $code"
+              exit 1
+            fi
+          done

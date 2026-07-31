@@ -28,7 +28,7 @@ const ACTIVE = new Set(["PENDING", "UPLOADING", "PROCESSING"]);
 const DONE = new Set(["COMPLETED", "FAILED"]);
 const RECENT_DONE_MS = 8 * 60_000;
 const POLL_ACTIVE_MS = 4_000;
-const POLL_IDLE_MS = 15_000;
+const POLL_IDLE_MS = 60_000;
 
 const IMAGES_ICON = (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>

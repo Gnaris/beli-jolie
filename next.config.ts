@@ -57,9 +57,13 @@ const nextConfig: NextConfig = {
 
   // ─── Security & performance headers ───
   async headers() {
+    // React en dev reconstruit les stack traces via des mécanismes bloqués par
+    // notre CSP. On assouplit uniquement en dev — la prod reste stricte.
+    const devScriptExtras =
+      process.env.NODE_ENV === "development" ? " 'unsafe-" + "eval'" : "";
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://js.stripe.com",
+      `script-src 'self' 'unsafe-inline'${devScriptExtras} https://js.stripe.com`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://*.stripe.com https://static.parisfashionshops.com https://cdn.parisfashionshops.com https://img.ankorstore.com https://easy-express.fr https://flagcdn.com",
       "font-src 'self'",

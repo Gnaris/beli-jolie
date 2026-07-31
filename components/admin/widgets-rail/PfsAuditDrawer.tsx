@@ -56,7 +56,7 @@ import type { PfsPullEligibleMarketplace } from "@/lib/pfs-verify-eligible-marke
 type Filter = "all" | "fixable" | "manual" | "error";
 
 const POLL_ACTIVE_MS = 1500;
-const POLL_IDLE_MS = 15_000;
+const POLL_IDLE_MS = 60_000;
 
 function labelForMarketplace(m: PfsPullEligibleMarketplace): string {
   if (m === "ankorstore") return "Ankorstore";

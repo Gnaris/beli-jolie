@@ -1079,6 +1079,13 @@ interface Props {
 
 export type VariantField = "price" | "stock" | "weight" | "packQty" | "disabled";
 export type VariantEditValue = number | boolean;
+
+/**
+ * Fallback stable pour l'absence d'édition en cours sur une variante.
+ * Utilisé à la place de `?? {}` inline, qui créait un nouvel objet à chaque
+ * render et cassait la memoization des lignes (VariantRow / VariantCardMobile).
+ */
+const EMPTY_VARIANT_EDITS: Partial<Record<VariantField, VariantEditValue>> = Object.freeze({});
 export type VariantDirtyEdits = Record<string, Partial<Record<VariantField, VariantEditValue>>>;
 
 export function isVariantCellDirty(
@@ -1370,7 +1377,7 @@ function BulkColumnEditor({
 // valeur en attente via `onCommitCell`. Un bandeau flottant global en bas de
 // l'écran affiche le total des modifications et permet de tout appliquer /
 // annuler d'un coup, même à travers plusieurs tiroirs ouverts.
-function VariantRow({
+const VariantRow = React.memo(function VariantRow({
   variant,
   editsForVariant,
   onCommitCell,
@@ -1598,14 +1605,14 @@ function VariantRow({
       </td>
     </tr>
   );
-}
+});
 
 
 // ─── VariantCardMobile — carte verticale utilisée dans la modale mobile ─────
 // Reprend les mêmes cellules éditables que VariantRow, mais dans un layout
 // carte (rond couleur + nom + badges + grille 2×2 métriques). Zéro scroll
 // horizontal, tout tient dans la largeur du téléphone.
-export function VariantCardMobile({
+export const VariantCardMobile = React.memo(function VariantCardMobile({
   variant,
   editsForVariant,
   onCommitCell,
@@ -1862,7 +1869,7 @@ export function VariantCardMobile({
       </div>
     </div>
   );
-}
+});
 
 
 // ─── Status badge with inline dropdown ──────────────────────────────────────
@@ -3062,6 +3069,7 @@ function ProductRow({
             <Link
               href={`/admin/produits/${product.id}/modifier`}
               onClick={(e) => e.stopPropagation()}
+              prefetch={false}
               className="shrink-0"
               aria-label={`Modifier ${product.name}`}
             >
@@ -3640,7 +3648,7 @@ function ProductRow({
                       <VariantRow
                         key={variant.id}
                         variant={variant}
-                        editsForVariant={dirtyEdits[variant.id] ?? {}}
+                        editsForVariant={dirtyEdits[variant.id] ?? EMPTY_VARIANT_EDITS}
                         onCommitCell={onCommitCell}
                       />
                     ))}
@@ -3793,7 +3801,7 @@ function ProductRow({
                   <VariantCardMobile
                     key={variant.id}
                     variant={variant}
-                    editsForVariant={dirtyEdits[variant.id] ?? {}}
+                    editsForVariant={dirtyEdits[variant.id] ?? EMPTY_VARIANT_EDITS}
                     onCommitCell={onCommitCell}
                   />
                 ))}

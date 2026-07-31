@@ -33,10 +33,11 @@ export function usePfsAuditActive(): Value {
 }
 
 const POLL_ACTIVE_MS = 3000;
-const POLL_IDLE_MS = 15000;
+const POLL_IDLE_MS = 60_000;
 
 export function PfsAuditActiveProvider({ children }: { children: React.ReactNode }) {
   const [running, setRunning] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
   const aliveRef = useRef(true);
 
   useEffect(() => {
@@ -57,11 +58,23 @@ export function PfsAuditActiveProvider({ children }: { children: React.ReactNode
   }, []);
 
   useEffect(() => {
-    void load();
+    if (typeof document === "undefined") return;
+    const update = () => setIsVisible(document.visibilityState === "visible");
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
+  useEffect(() => {
+    if (isVisible) void load();
+  }, [isVisible, load]);
+
+  useEffect(() => {
+    if (!isVisible) return;
     const delay = running ? POLL_ACTIVE_MS : POLL_IDLE_MS;
     const id = window.setInterval(load, delay);
     return () => window.clearInterval(id);
-  }, [running, load]);
+  }, [running, isVisible, load]);
 
   const value = useMemo<Value>(() => ({ auditRunning: running }), [running]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

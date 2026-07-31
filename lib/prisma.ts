@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { reportCriticalError, reportSuccess } from "@/lib/health";
+import { logger } from "@/lib/logger";
 import { tenantScopeExtension } from "@/lib/prisma-tenant-scope";
 
 /**
@@ -32,7 +33,7 @@ function createMonitoredClient() {
   // Filter out known race-condition errors from Prisma's internal logging
   base.$on("error", (e: { message: string }) => {
     if (SUPPRESSED_ERROR_PATTERNS.some((p) => e.message.includes(p))) return;
-    console.error("prisma:error", e.message);
+    logger.error("[Prisma] internal error", { message: e.message });
   });
 
   const monitored = base.$extends({

@@ -74,7 +74,7 @@ import {
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 const POLL_ACTIVE_MS = 1500;
-const POLL_IDLE_MS = 6000;
+const POLL_IDLE_MS = 30_000;
 const EVENT_DRIP_MS = 250;
 // Bas volume par colonne : le widget doit tenir dans la fenêtre sans scroll
 // (5 colonnes côte à côte). On plafonne à 3 events + 2 commandes en cours.
@@ -130,124 +130,91 @@ export function OrdersImportDrawer() {
   const [faireState, setFaireState] = useState<FaireImportState | null>(null);
   const [microstoreState, setMicrostoreState] = useState<MicrostoreImportState | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const pollPfsRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollEfRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollAnkorRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollFaireRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollMicrostoreRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
 
+  // Un seul useEffect qui gère les 5 pollers (PFS, eFashion, Ankorstore, Faire,
+  // Microstore) avec garde visibility partagée. Onglet caché → pollers en pause
+  // (aucune requête tant que la cliente n'est pas revenue). Retour de visibilité
+  // → tick immédiat pour chaque source pour capter l'état à jour.
   useEffect(() => {
     let cancelled = false;
-    const tick = async () => {
-      try {
-        const s = await getPfsImportStateAction();
-        if (cancelled) return;
-        setPfsState(s);
-        pollPfsRef.current = setTimeout(
-          tick,
-          s.status === "RUNNING" ? POLL_ACTIVE_MS : POLL_IDLE_MS,
-        );
-      } catch {
-        pollPfsRef.current = setTimeout(tick, POLL_IDLE_MS);
-      }
+    let isVisible =
+      typeof document === "undefined" ? true : document.visibilityState === "visible";
+    const timers: Record<string, ReturnType<typeof setTimeout> | null> = {
+      pfs: null, ef: null, ankor: null, faire: null, microstore: null,
     };
-    void tick();
-    return () => {
-      cancelled = true;
-      if (pollPfsRef.current) clearTimeout(pollPfsRef.current);
-    };
-  }, []);
+    const tickers: Record<string, () => Promise<void>> = {};
 
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const s = await getEfashionImportStateAction();
+    function makeTick<T extends { status: string }>(
+      key: string,
+      fetchState: () => Promise<T>,
+      setState: (s: T) => void,
+    ): () => Promise<void> {
+      const tick = async () => {
         if (cancelled) return;
-        setEfState(s);
-        pollEfRef.current = setTimeout(
-          tick,
-          s.status === "RUNNING" ? POLL_ACTIVE_MS : POLL_IDLE_MS,
-        );
-      } catch {
-        pollEfRef.current = setTimeout(tick, POLL_IDLE_MS);
-      }
-    };
-    void tick();
-    return () => {
-      cancelled = true;
-      if (pollEfRef.current) clearTimeout(pollEfRef.current);
-    };
-  }, []);
+        if (!isVisible) return; // stoppé, sera relancé au retour de visibilité
+        try {
+          const s = await fetchState();
+          if (cancelled) return;
+          setState(s);
+          timers[key] = setTimeout(
+            () => void tick(),
+            s.status === "RUNNING" ? POLL_ACTIVE_MS : POLL_IDLE_MS,
+          );
+        } catch {
+          if (cancelled) return;
+          timers[key] = setTimeout(() => void tick(), POLL_IDLE_MS);
+        }
+      };
+      return tick;
+    }
 
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const s = await getAnkorstoreImportStateAction();
-        if (cancelled) return;
-        setAnkorState(s);
-        pollAnkorRef.current = setTimeout(
-          tick,
-          s.status === "RUNNING" ? POLL_ACTIVE_MS : POLL_IDLE_MS,
-        );
-      } catch {
-        pollAnkorRef.current = setTimeout(tick, POLL_IDLE_MS);
-      }
-    };
-    void tick();
-    return () => {
-      cancelled = true;
-      if (pollAnkorRef.current) clearTimeout(pollAnkorRef.current);
-    };
-  }, []);
+    tickers.pfs = makeTick("pfs", getPfsImportStateAction, setPfsState);
+    tickers.ef = makeTick("ef", getEfashionImportStateAction, setEfState);
+    tickers.ankor = makeTick("ankor", getAnkorstoreImportStateAction, setAnkorState);
+    tickers.faire = makeTick("faire", getFaireImportStateAction, setFaireState);
+    tickers.microstore = makeTick("microstore", getMicrostoreImportStateAction, setMicrostoreState);
 
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const s = await getFaireImportStateAction();
-        if (cancelled) return;
-        setFaireState(s);
-        pollFaireRef.current = setTimeout(
-          tick,
-          s.status === "RUNNING" ? POLL_ACTIVE_MS : POLL_IDLE_MS,
-        );
-      } catch {
-        pollFaireRef.current = setTimeout(tick, POLL_IDLE_MS);
+    const startAll = () => {
+      for (const t of Object.values(tickers)) void t();
+    };
+    const stopAll = () => {
+      for (const key of Object.keys(timers)) {
+        const timer = timers[key];
+        if (timer) {
+          clearTimeout(timer);
+          timers[key] = null;
+        }
       }
     };
-    void tick();
-    return () => {
-      cancelled = true;
-      if (pollFaireRef.current) clearTimeout(pollFaireRef.current);
-    };
-  }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const s = await getMicrostoreImportStateAction();
-        if (cancelled) return;
-        setMicrostoreState(s);
-        pollMicrostoreRef.current = setTimeout(
-          tick,
-          s.status === "RUNNING" ? POLL_ACTIVE_MS : POLL_IDLE_MS,
-        );
-      } catch {
-        pollMicrostoreRef.current = setTimeout(tick, POLL_IDLE_MS);
+    startAll();
+
+    const onVisibilityChange = () => {
+      const nextVisible = document.visibilityState === "visible";
+      if (nextVisible === isVisible) return;
+      isVisible = nextVisible;
+      if (isVisible) {
+        stopAll();
+        startAll();
+      } else {
+        stopAll();
       }
     };
-    void tick();
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
+
     return () => {
       cancelled = true;
-      if (pollMicrostoreRef.current) clearTimeout(pollMicrostoreRef.current);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      }
+      stopAll();
     };
   }, []);
 

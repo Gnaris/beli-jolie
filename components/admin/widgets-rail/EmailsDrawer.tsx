@@ -57,7 +57,7 @@ interface LiveResponse {
 }
 
 const POLL_ACTIVE_MS = 5_000;
-const POLL_IDLE_MS = 20_000;
+const POLL_IDLE_MS = 60_000;
 
 const SCENARIO_LABEL: Record<ScenarioKey, string> = {
   ABANDONED_CART: "Panier abandonné",

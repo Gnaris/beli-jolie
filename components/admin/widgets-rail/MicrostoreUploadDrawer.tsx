@@ -32,7 +32,7 @@ interface UploadJobView {
 
 const ACTIVE = new Set<UploadJobStatus>(["PENDING", "UPLOADING", "PATCHING"]);
 const POLL_ACTIVE_MS = 3_000;
-const POLL_IDLE_MS = 15_000;
+const POLL_IDLE_MS = 60_000;
 
 const ICON = (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>

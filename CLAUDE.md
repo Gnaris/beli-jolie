@@ -26,10 +26,19 @@ Cliente **non-développeuse** qui dirige le projet.
 2. Informer + trajet de test.
 3. Attendre décision :
    - **« Mettre de côté »** → garder pour push groupé.
-   - **« Push en production »** : **pré-flight obligatoire** (voir bloc ci-dessous) → **backup prod obligatoire d'abord** (voir bloc ci-dessous) → `git add/commit/push` → SSH `root@72.61.106.128 /var/www/beliandjolie` → `git fetch/reset --hard origin/master` → `npm install` (si deps) + `prisma generate && prisma db push --skip-generate` (si schema) → `NODE_OPTIONS='--max-old-space-size=4096' npm run build` → `pm2 restart beliandjolie` → **vérif visiteur des 2 tenants** (`curl -sL` beliandjolie.com + issyma.fr, vérif `<title>` distinct).
-4. L'informer à la fin. Code identique local/GitHub/VPS.
+   - **« Push en production »** : **pré-flight obligatoire** (voir bloc ci-dessous) → **backup prod obligatoire d'abord** (voir bloc ci-dessous) → `git add/commit/push origin master`. **Le workflow GitHub Actions `.github/workflows/deploy.yml` prend le relais automatiquement** : build sur runner Ubuntu 24.04 (~5-7 min), rsync `.next` + `node_modules` + `prisma` + `public` sur le VPS, exécute `scripts/deploy/vps-receive.sh` qui applique `prisma db push` (si schema.prisma a changé — hash comparé à `/root/.beliandjolie-schema-hash`), `pm2 restart beliandjolie`, health check des 2 tenants. Si le workflow échoue, GitHub notifie et la prod reste sur l'ancienne version.
+4. L'informer à la fin (URL du run GitHub Actions). Code identique local/GitHub/VPS.
 
-**Raccourci deploy rapide — CASSÉ 2026-07-28, NE PAS UTILISER** `scripts/deploy/deploy-fast.ps1` (build local Windows + rsync `.next`). Turbopack **hashe les noms des modules externes** (`sharp`, `pdfkit`, `playwright`, `exceljs`) avec des infos de chemin — le hash Windows ne matche pas le hash Linux, le VPS crashe au boot sur `Cannot find module 'sharp-<hash>'`. `serverExternalPackages` **ne protège pas** en mode Turbopack. Options à explorer plus tard : (a) build avec `next build` sans `--turbopack` (webpack respecte les externals correctement, mais plus lent), (b) build local dans WSL/Docker Linux, (c) GitHub Actions build+deploy sur runner Ubuntu. En attendant, garder le workflow VPS-build classique.
+**Secrets GitHub obligatoires** (à définir une fois dans `Settings → Secrets and variables → Actions` du repo) :
+- `VPS_SSH_KEY` : contenu de `/root/.ssh/github_actions_ed25519` (clé privée générée sur le VPS 2026-07-31).
+- `VPS_HOST` : `72.61.106.128`.
+- `VPS_USER` : `root`.
+- `VPS_APP_DIR` : `/var/www/beliandjolie`.
+Clé publique correspondante déjà ajoutée dans `/root/.ssh/authorized_keys` du VPS.
+
+**Fallback deploy sur le VPS** — `scripts/deploy/vps-build-with-freeze.sh` : à utiliser UNIQUEMENT si GitHub Actions est HS ou pour un deploy manuel d'urgence. Diff vs l'ancien workflow direct : **stop PM2 avant le build** pour libérer 2-3 Go de RAM (le VPS n'a que 7.8 Go dont 6 Go pris par les workers — sans stop, le build passe en swap et prend ~30 min ; avec stop, ~10-15 min). Downtime pendant le build (~10 min) — activer la page maintenance nginx si `snippets/maintenance.conf` existe.
+
+**Raccourci deploy rapide — CASSÉ 2026-07-28, NE PAS UTILISER** `scripts/deploy/deploy-fast.ps1` (build local Windows + rsync `.next`). Turbopack **hashe les noms des modules externes** (`sharp`, `pdfkit`, `playwright`, `exceljs`) avec des infos de chemin — le hash Windows ne matche pas le hash Linux, le VPS crashe au boot sur `Cannot find module 'sharp-<hash>'`. `serverExternalPackages` **ne protège pas** en mode Turbopack. **Remplacé par GitHub Actions** (runner Ubuntu = même arch que VPS, pas de bug de hash).
 
 **Pré-flight AVANT push prod (obligatoire, sans demander)** — un `pm2 restart` tue tous les workers en cours (image queue, translation, marketplace queue, PFS refresh, chat, shooting eFashion…) ; **ne jamais** déclencher un restart si un travail est en vol côté cliente. Vérifs à faire dans cet ordre, et **remonter à la cliente** si l'une répond « occupé » — attendre son go explicite avant de continuer :
 1. **Widget flottant marketplaces** — SQL sur le VPS : `mysql beliandjolie -e "SELECT status, marketplace, COUNT(*) FROM MarketplaceRefreshJob WHERE status IN ('QUEUED','IN_PROGRESS','AWAITING_CALLBACK') GROUP BY status, marketplace;"`. Si ≥ 1 ligne → « Il y a X jobs marketplace en cours (Rafraîchir/Publier/Resync), tu veux que j'attende ? ».
@@ -256,7 +265,7 @@ Prod sert 2 boutiques depuis 1 seul Next.js/PM2/DB : **beliandjolie.com** (tenan
 
 | Lib | Version | Contrainte |
 |-----|---------|-----------|
-| Next.js | 16.1.6 | `params` = Promise (await). `revalidateTag(tag, "default")` 2 args |
+| Next.js | 16.2.12 | `params` = Promise (await). `revalidateTag(tag, "default")` 2 args |
 | Prisma | 5.22.0 | **PAS v7** |
 | NextAuth | v4 | **PAS v5** |
 | Zod | 4.3.6 | `.issues` PAS `.errors` |

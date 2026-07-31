@@ -35,7 +35,7 @@ interface TranslationJob {
 }
 
 const POLL_ACTIVE_MS = 1500;
-const POLL_IDLE_MS = 15_000;
+const POLL_IDLE_MS = 60_000;
 
 const TRANSLATION_ICON = (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
