@@ -16,6 +16,7 @@
  * Validated against the real API on 2026-05-11. See docs/ankorstore-api.md.
  */
 
+import { randomUUID } from "node:crypto";
 import {
   getAnkorstoreHeaders,
   invalidateAnkorstoreToken,
@@ -321,66 +322,45 @@ function buildProductPayloadAttributes(p: AnkorstoreCatalogProductInput): Record
  * existants ne sont pas touchés.
  */
 
-// Suivi des operationIds récents pour détecter la dédup d'Ankor : leur backend
-// renvoie parfois le MÊME operationId pour deux create successifs (fenêtre
-// observée en prod ≥ 5 s, 2026-07-31), ce qui casse le kickoff suivant avec un
-// 403 « [started]/[pending] → [started] ». Cap à 32 entrées LRU-like — mémoire
-// process, safe multi-tenant car les opIds sont uniques globalement.
-const recentAnkorstoreOperationIds = new Set<string>();
-
-function trackAnkorstoreOperationId(id: string): void {
-  recentAnkorstoreOperationIds.add(id);
-  if (recentAnkorstoreOperationIds.size > 32) {
-    const first = recentAnkorstoreOperationIds.values().next().value;
-    if (first) recentAnkorstoreOperationIds.delete(first);
-  }
-}
-
 /**
- * Test-only : vide la mémoire de dédup pour éviter les fuites entre tests.
+ * Crée une operation catalogue avec un UUID **généré côté client**.
+ *
+ * Pattern documenté par Ankor (spec 2026-05, section Idempotency) :
+ *   > POST requests are typically idempotent when you supply an entity UUID
+ *   > in the request body (e.g., `data.id`). Generate a UUID client-side [...]
+ *   > If the resource with that ID already exists, the API returns the
+ *   > existing resource rather than creating a duplicate.
+ *
+ * Conséquence : chaque UUID unique = un NOUVEL opId côté Ankor. Fini la dédup
+ * qui renvoyait le MÊME opId pour deux POST successifs (bug prod 2026-07-31
+ * quand ANKORSTORE_CONCURRENCY passait à 3+). On peut désormais lancer autant
+ * de kickoffs en parallèle qu'on veut sans collision.
  */
-export function __resetAnkorstoreRecentOperationIds(): void {
-  recentAnkorstoreOperationIds.clear();
-}
-
 export async function ankorstoreCreateCatalogOperation(
   type: "import" | "update"
 ): Promise<{ operationId: string }> {
-  const backoffs = [3000, 6000, 10000, 15000]; // ~34 s cumulés max
-  for (let attempt = 0; ; attempt++) {
-    const attributes: Record<string, unknown> = {
-      operationType: type,
-      source: "other",
-      callbackUrl: buildAnkorstoreCallbackUrl(),
-    };
-    const resp = await ankorstoreFetchJson<{ data: { id: string } }>(
-      `/catalog/integrations/operations`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          data: { type: "catalog-integration-operation", attributes },
-        }),
-      }
-    );
-    const operationId = resp.data.id;
-
-    // Collision détectée = Ankor a renvoyé un opId qu'on a déjà vu récemment.
-    // On attend et on retente : chaque nouveau POST relance le compteur de
-    // dédup côté Ankor, donc au 2ᵉ ou 3ᵉ essai on obtient généralement un
-    // opId neuf.
-    if (recentAnkorstoreOperationIds.has(operationId) && attempt < backoffs.length) {
-      logger.warn("[Ankorstore] Create renvoie un operationId déjà vu (dédup Ankor) — retry", {
-        operationId,
-        attempt: attempt + 1,
-        delayMs: backoffs[attempt],
-      });
-      await new Promise((r) => setTimeout(r, backoffs[attempt]));
-      continue;
+  const clientOperationId = randomUUID();
+  const attributes: Record<string, unknown> = {
+    operationType: type,
+    source: "other",
+    callbackUrl: buildAnkorstoreCallbackUrl(),
+  };
+  const resp = await ankorstoreFetchJson<{ data: { id: string } }>(
+    `/catalog/integrations/operations`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        data: {
+          type: "catalog-integration-operation",
+          id: clientOperationId,
+          attributes,
+        },
+      }),
     }
-
-    trackAnkorstoreOperationId(operationId);
-    return { operationId };
-  }
+  );
+  // Ankor renvoie normalement notre UUID à l'identique — on prend le sien par
+  // sécurité au cas où ils changeraient le format (défensive).
+  return { operationId: resp.data.id ?? clientOperationId };
 }
 
 /**

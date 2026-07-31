@@ -15,6 +15,8 @@ import {
 import { applyMarketplaceMarkup, applyFaireMarkupWithClamp } from "@/lib/marketplace-pricing-shared";
 import { MarkupRow, type MarkupState } from "@/components/admin/settings/MarkupRow";
 import { MARKETPLACES_BRAND, brandGradient, type MarketplaceKey } from "@/lib/marketplaces-brand";
+import { marketplaceDrawerAccent } from "@/lib/marketplace-drawer-shell";
+import { DrawerShell } from "@/components/admin/widgets-rail/DrawerShell";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import MicrostoreConnectCard from "@/components/admin/settings/MicrostoreConnectCard";
@@ -412,78 +414,45 @@ function KpiTile({ label, value, icon, accent, small }: { label: string; value: 
   );
 }
 
-// ─── Slide-over drawer ─────────────────────────────────────────────────────
+// ─── Drawer plein écran ─────────────────────────────────────────────────────
+// Utilise DrawerShell (même châssis que l'audit PFS) : header aurora coloré,
+// ferme via ESC ou bouton « Fermer ». En mode fullscreen le contenu est
+// organisé en grille 2 colonnes pour aérer les blocs (identifiants, marque,
+// majoration, rupture stock…) au lieu du drawer latéral 520 px précédent.
 function Drawer({ open, onClose, brandKey, children }: { open: boolean; onClose: () => void; brandKey: MarketplaceKey | null; children: React.ReactNode }) {
-  // Lock body scroll while open
-  useEffect(() => {
-    if (open) {
-      const original = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-      return () => { document.body.style.overflow = original; };
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open || !brandKey) return null;
+  if (!brandKey) return null;
   const brand = MARKETPLACES_BRAND[brandKey];
 
   return (
-    <div className="fixed inset-0 z-[60]">
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-[2px] animate-[fadeIn_120ms_ease-out]"
-        onClick={onClose}
-      />
-      <div
-        className="absolute top-0 right-0 h-full w-full sm:max-w-[520px] bg-bg-primary shadow-2xl flex flex-col animate-[slideInRight_240ms_cubic-bezier(0.16,1,0.3,1)]"
-      >
-        <div
-          className="relative px-6 py-5 overflow-hidden shrink-0"
-          style={{ background: brandGradient(brand), color: brand.onPrimary }}
+    <DrawerShell
+      open={open}
+      onClose={onClose}
+      accent={marketplaceDrawerAccent(brandKey)}
+      eyebrow="Réglages marketplace"
+      title={brand.name}
+      size="fullscreen"
+      icon={
+        <span
+          className="inline-flex items-center justify-center w-8 h-8 rounded-lg font-bold text-xs shadow-inner"
+          style={{ background: brandGradient(brand), color: brand.onPrimary, letterSpacing: "-0.02em" }}
         >
-          <div className="absolute inset-0 opacity-10 pointer-events-none" style={{
-            backgroundImage: "radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)",
-            backgroundSize: "16px 16px",
-          }} />
-          <div className="relative flex items-center gap-4">
-            <Logo brandKey={brandKey} />
-            <div className="flex-1 min-w-0">
-              <p className="font-body text-[10.5px] font-semibold uppercase tracking-[0.18em] opacity-75" style={{ color: brand.onPrimary }}>
-                Réglages
-              </p>
-              <h2 className="font-heading text-lg font-semibold truncate" style={{ color: brand.onPrimary }}>
-                {brand.name}
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="shrink-0 w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
-              aria-label="Fermer"
-            >
-              <span style={{ color: brand.onPrimary }} className="inline-flex"><Icons.X className="w-4 h-4" /></span>
-            </button>
-          </div>
+          {brand.monogram}
+        </span>
+      }
+    >
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+        <div className="grid gap-5 lg:gap-6 lg:grid-cols-2 items-start">
+          {children}
         </div>
-        <div className="flex-1 overflow-y-auto">{children}</div>
       </div>
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
-        @keyframes slideInRight { from { transform: translateX(100%) } to { transform: translateX(0) } }
-      `}</style>
-    </div>
+    </DrawerShell>
   );
 }
 
-// ─── Bloc réglages : section au sein du drawer ────────────────────────────
+// ─── Bloc réglages : carte au sein du drawer plein écran ──────────────────
 function DrawerSection({ icon, title, subtitle, children }: { icon: React.ReactNode; title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <section className="px-6 py-5 border-b border-border-light last:border-b-0">
+    <section className="rounded-2xl border border-border bg-bg-primary shadow-sm p-5 lg:p-6">
       <div className="flex items-center gap-2 mb-1">
         <span className="text-text-muted">{icon}</span>
         <h3 className="font-heading text-[13px] font-semibold uppercase tracking-wider text-text-secondary">{title}</h3>

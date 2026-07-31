@@ -1,15 +1,11 @@
 /**
- * Test de la détection de dédup Ankorstore dans `ankorstoreCreateCatalogOperation`.
- *
- * Ankor renvoie parfois le MÊME operationId pour deux create successifs même
- * quand notre body est différent (nonce dans callbackUrl). On détecte la
- * collision (opId déjà vu récemment) et on retry avec backoff progressif.
+ * Test que `ankorstoreCreateCatalogOperation` génère son propre UUID côté
+ * client et l'envoie dans `data.id`. C'est le pattern documenté par Ankor
+ * (spec 2026-05, section Idempotency) qui garantit un opId unique à chaque
+ * appel — fini la dédup qui renvoyait le MÊME opId pour deux POST proches.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  ankorstoreCreateCatalogOperation,
-  __resetAnkorstoreRecentOperationIds,
-} from "@/lib/ankorstore-api-write";
+import { ankorstoreCreateCatalogOperation } from "@/lib/ankorstore-api-write";
 
 vi.mock("@/lib/ankorstore-auth", () => ({
   getAnkorstoreHeaders: vi.fn().mockResolvedValue({
@@ -27,15 +23,27 @@ vi.mock("@/lib/logger", () => ({
 const mockFetch = vi.fn();
 global.fetch = mockFetch as never;
 
-const createResponse = (opId: string) => ({
-  ok: true,
-  status: 200,
-  text: async () => JSON.stringify({ data: { id: opId, attributes: {} } }),
-});
+// Ankor renvoie l'id qu'on lui envoie (comportement idempotent documenté)
+const echoResponse = () => (init: RequestInit) => {
+  const body = JSON.parse(init.body as string) as {
+    data: { id?: string };
+  };
+  return {
+    ok: true,
+    status: 201,
+    text: async () =>
+      JSON.stringify({
+        data: {
+          id: body.data.id ?? "server-generated",
+          type: "catalog-integration-operation",
+          attributes: { status: "pending" },
+        },
+      }),
+  };
+};
 
 beforeEach(() => {
   mockFetch.mockReset();
-  __resetAnkorstoreRecentOperationIds();
   vi.useFakeTimers();
 });
 
@@ -43,75 +51,78 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("ankorstoreCreateCatalogOperation — détection dédup", () => {
-  it("retourne l'opId au 1er essai quand Ankor renvoie un ID neuf", async () => {
-    mockFetch.mockResolvedValueOnce(createResponse("op_aaa"));
+describe("ankorstoreCreateCatalogOperation — UUID client-side", () => {
+  it("envoie un UUID généré côté client dans data.id", async () => {
+    mockFetch.mockImplementation((_url, init) => echoResponse()(init as RequestInit));
 
     const promise = ankorstoreCreateCatalogOperation("update");
     await vi.runAllTimersAsync();
-    await expect(promise).resolves.toEqual({ operationId: "op_aaa" });
+    const { operationId } = await promise;
+
+    // Format UUID v4 : 8-4-4-4-12 caractères hex, séparés par tirets
+    expect(operationId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
     expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    const [, init] = mockFetch.mock.calls[0];
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.data.id).toBe(operationId);
+    expect(body.data.type).toBe("catalog-integration-operation");
+    expect(body.data.attributes.operationType).toBe("update");
   });
 
-  it("chaque appel unique renvoie un opId neuf sans retry", async () => {
-    mockFetch
-      .mockResolvedValueOnce(createResponse("op_111"))
-      .mockResolvedValueOnce(createResponse("op_222"))
-      .mockResolvedValueOnce(createResponse("op_333"));
+  it("chaque appel génère un UUID DIFFÉRENT (pas de dédup client possible)", async () => {
+    mockFetch.mockImplementation((_url, init) => echoResponse()(init as RequestInit));
 
     const p1 = ankorstoreCreateCatalogOperation("update");
     await vi.runAllTimersAsync();
-    await expect(p1).resolves.toEqual({ operationId: "op_111" });
+    const r1 = await p1;
 
     const p2 = ankorstoreCreateCatalogOperation("update");
     await vi.runAllTimersAsync();
-    await expect(p2).resolves.toEqual({ operationId: "op_222" });
+    const r2 = await p2;
 
-    const p3 = ankorstoreCreateCatalogOperation("update");
+    const p3 = ankorstoreCreateCatalogOperation("import");
     await vi.runAllTimersAsync();
-    await expect(p3).resolves.toEqual({ operationId: "op_333" });
+    const r3 = await p3;
 
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(r1.operationId).not.toBe(r2.operationId);
+    expect(r2.operationId).not.toBe(r3.operationId);
+    expect(r1.operationId).not.toBe(r3.operationId);
   });
 
-  it("retry quand Ankor renvoie un opId déjà vu, puis accepte le nouveau", async () => {
-    // 1er appel : opId neuf
-    mockFetch.mockResolvedValueOnce(createResponse("op_original"));
-    const p1 = ankorstoreCreateCatalogOperation("update");
-    await vi.runAllTimersAsync();
-    await expect(p1).resolves.toEqual({ operationId: "op_original" });
+  it("5 appels concurrents produisent 5 UUIDs distincts", async () => {
+    mockFetch.mockImplementation((_url, init) => echoResponse()(init as RequestInit));
 
-    // 2ᵉ appel : Ankor dédupe (renvoie op_original), puis au retry renvoie un ID neuf
-    mockFetch
-      .mockResolvedValueOnce(createResponse("op_original")) // dédup !
-      .mockResolvedValueOnce(createResponse("op_fresh"));   // retry OK
-
-    const p2 = ankorstoreCreateCatalogOperation("update");
+    const promises = Array.from({ length: 5 }).map(() =>
+      ankorstoreCreateCatalogOperation("update"),
+    );
     await vi.runAllTimersAsync();
-    await expect(p2).resolves.toEqual({ operationId: "op_fresh" });
-    expect(mockFetch).toHaveBeenCalledTimes(3); // 1 initial + 1 dédup + 1 retry OK
+    const results = await Promise.all(promises);
+    const ids = results.map((r) => r.operationId);
+
+    // 5 UUIDs uniques ⇒ pas de collision côté client
+    expect(new Set(ids).size).toBe(5);
   });
 
-  it("accepte l'opId dupliqué au dernier essai si Ankor reste bloqué en dédup", async () => {
-    mockFetch.mockResolvedValueOnce(createResponse("op_stuck"));
-    const p1 = ankorstoreCreateCatalogOperation("update");
-    await vi.runAllTimersAsync();
-    await p1;
+  it("respecte l'id renvoyé par le serveur s'il diffère (défensif)", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      text: async () =>
+        JSON.stringify({
+          data: {
+            id: "server-forced-uuid",
+            type: "catalog-integration-operation",
+            attributes: {},
+          },
+        }),
+    });
 
-    // 4 retries + 1 dernier essai → tous renvoient le même opId
-    mockFetch
-      .mockResolvedValueOnce(createResponse("op_stuck"))
-      .mockResolvedValueOnce(createResponse("op_stuck"))
-      .mockResolvedValueOnce(createResponse("op_stuck"))
-      .mockResolvedValueOnce(createResponse("op_stuck"))
-      .mockResolvedValueOnce(createResponse("op_stuck"));
-
-    const p2 = ankorstoreCreateCatalogOperation("update");
+    const promise = ankorstoreCreateCatalogOperation("update");
     await vi.runAllTimersAsync();
-    // Après épuisement des backoffs, on accepte l'ID (le [pending]→[started]
-    // retry côté start rattrapera si nécessaire).
-    await expect(p2).resolves.toEqual({ operationId: "op_stuck" });
-    // 1 initial + 4 retries = 5 calls
-    expect(mockFetch).toHaveBeenCalledTimes(6); // p1 (1) + p2 (5)
+    const { operationId } = await promise;
+    expect(operationId).toBe("server-forced-uuid");
   });
 });
