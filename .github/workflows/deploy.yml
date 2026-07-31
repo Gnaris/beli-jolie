@@ -50,21 +50,20 @@ jobs:
       - name: Prepare SSH
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          # Normalise les fins de ligne (retire CR de Windows) + garantit
+          # une newline finale. Sinon libcrypto rejette la clé PEM.
+          printf '%s\n' "$VPS_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          # On skip ssh-keyscan : `StrictHostKeyChecking=no` + `UserKnownHostsFile=/dev/null`
-          # sont passés à chaque ssh/rsync ci-dessous, donc known_hosts est inutile.
 
-          # Debug reachability : ping + traceroute IPv4 pour diagnostiquer si le
-          # runner peut atteindre le VPS. Le || true évite de faire échouer le step.
-          echo "=== DEBUG NETWORK ==="
-          echo "Host longueur=${#VPS_HOST}"
-          ping -4 -c 3 -W 5 "$VPS_HOST" || echo "ping IPv4 KO"
-          nc -zv -w 10 "$VPS_HOST" 22 || echo "nc port 22 KO"
-          echo "=== END DEBUG ==="
+          # Valide le format de la clé (échoue tôt avec message clair si KO)
+          if ! ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null 2>&1; then
+            echo "::error::Clé SSH invalide. Vérifier le secret VPS_SSH_KEY (BEGIN/END inclus, aucun caractère avant/après)."
+            echo "Premier octet : $(head -c 20 ~/.ssh/id_ed25519 | od -c | head -1)"
+            exit 1
+          fi
+          echo "✓ Clé SSH validée"
 
       - name: Rsync repo + build to VPS
         env:
