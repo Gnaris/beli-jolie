@@ -21,11 +21,10 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
 import { tenantALS } from "@/lib/tenant-als";
-import { ankorstoreKickoffMutex } from "@/lib/ankorstore-kickoff-mutex";
 
 const POLL_MS = 1000;
-const TOTAL_CONCURRENCY = 8;
-const ANKORSTORE_CONCURRENCY = 5;
+const TOTAL_CONCURRENCY = 5;
+const ANKORSTORE_CONCURRENCY = 1;
 
 const STARTUP_GUARD = Symbol.for("beliandjolie.marketplaceQueueWorker.started");
 const g = globalThis as Record<symbol, unknown>;
@@ -84,7 +83,7 @@ export function startMarketplaceQueueWorker(): void {
     });
   }, POLL_MS);
 
-  logger.info("[Marketplace Queue] Worker démarré (poll 1s, 8 slots, 5 Ankorstore avec mutex kickoff)");
+  logger.info("[Marketplace Queue] Worker démarré (poll 1s, 5 slots, 1 Ankorstore)");
 }
 
 async function runStartupSweep(): Promise<void> {
@@ -598,7 +597,7 @@ async function runAnkorstoreJob(job: JobRow, payload: QueueJobPayload): Promise<
   try {
     if (job.mode === "REFRESH") {
       const { ankorstoreKickoffRefresh } = await import("@/lib/ankorstore-refresh");
-      const res = await ankorstoreKickoffMutex(() => ankorstoreKickoffRefresh(job.productId));
+      const res = await ankorstoreKickoffRefresh(job.productId);
       if (res.success) {
         await markAnkorstoreAwaiting(job.id, res.operationId);
       } else if (res.reason === "not_found") {
@@ -613,9 +612,7 @@ async function runAnkorstoreJob(job: JobRow, payload: QueueJobPayload): Promise<
       });
       if (product?.ankorsProductId) {
         const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
-        const res = await ankorstoreKickoffMutex(() =>
-          ankorstoreKickoffUpdate(job.productId, { skipRevalidation: true }),
-        );
+        const res = await ankorstoreKickoffUpdate(job.productId, { skipRevalidation: true });
         if (!res.success) {
           await markAnkorstoreFailed(job.id, "error", res.error);
         } else if (res.operationId === null) {
@@ -626,7 +623,7 @@ async function runAnkorstoreJob(job: JobRow, payload: QueueJobPayload): Promise<
         }
       } else {
         const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
-        const res = await ankorstoreKickoffMutex(() => ankorstoreKickoffPublish(job.productId));
+        const res = await ankorstoreKickoffPublish(job.productId);
         if (res.success) {
           await markAnkorstoreAwaiting(job.id, res.operationId);
         } else {
@@ -642,12 +639,10 @@ async function runAnkorstoreJob(job: JobRow, payload: QueueJobPayload): Promise<
         await markAnkorstoreFailed(job.id, "error", "Produit non publié sur Ankorstore.");
       } else {
         const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
-        const res = await ankorstoreKickoffMutex(() =>
-          ankorstoreKickoffUpdate(job.productId, {
-            forceFullSync: true,
-            skipRevalidation: true,
-          }),
-        );
+        const res = await ankorstoreKickoffUpdate(job.productId, {
+          forceFullSync: true,
+          skipRevalidation: true,
+        });
         if (!res.success) {
           await markAnkorstoreFailed(job.id, "error", res.error);
         } else if (res.operationId === null) {

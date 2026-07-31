@@ -16,7 +16,6 @@
  * Validated against the real API on 2026-05-11. See docs/ankorstore-api.md.
  */
 
-import { randomUUID } from "node:crypto";
 import {
   getAnkorstoreHeaders,
   invalidateAnkorstoreToken,
@@ -322,24 +321,9 @@ function buildProductPayloadAttributes(p: AnkorstoreCatalogProductInput): Record
  * existants ne sont pas touchés.
  */
 
-/**
- * Crée une operation catalogue avec un UUID **généré côté client**.
- *
- * Pattern documenté par Ankor (spec 2026-05, section Idempotency) :
- *   > POST requests are typically idempotent when you supply an entity UUID
- *   > in the request body (e.g., `data.id`). Generate a UUID client-side [...]
- *   > If the resource with that ID already exists, the API returns the
- *   > existing resource rather than creating a duplicate.
- *
- * Conséquence : chaque UUID unique = un NOUVEL opId côté Ankor. Fini la dédup
- * qui renvoyait le MÊME opId pour deux POST successifs (bug prod 2026-07-31
- * quand ANKORSTORE_CONCURRENCY passait à 3+). On peut désormais lancer autant
- * de kickoffs en parallèle qu'on veut sans collision.
- */
 export async function ankorstoreCreateCatalogOperation(
   type: "import" | "update"
 ): Promise<{ operationId: string }> {
-  const clientOperationId = randomUUID();
   const attributes: Record<string, unknown> = {
     operationType: type,
     source: "other",
@@ -352,15 +336,12 @@ export async function ankorstoreCreateCatalogOperation(
       body: JSON.stringify({
         data: {
           type: "catalog-integration-operation",
-          id: clientOperationId,
           attributes,
         },
       }),
     }
   );
-  // Ankor renvoie normalement notre UUID à l'identique — on prend le sien par
-  // sécurité au cas où ils changeraient le format (défensive).
-  return { operationId: resp.data.id ?? clientOperationId };
+  return { operationId: resp.data.id };
 }
 
 /**
@@ -401,42 +382,21 @@ export async function ankorstoreAddProductsToOperation(
 /**
  * Start (trigger) a catalog-integration operation. Required after adding
  * products to a `created` operation.
- *
- * Retry sur le 403 « cannot be updated from [pending] to [started] » : Ankor
- * met parfois quelques centaines de ms à faire passer l'op de `pending` à
- * `created` côté leur backend, surtout quand on enchaîne plusieurs kickoffs
- * rapidement (constaté en prod 2026-07-31 après passage à 5 en parallèle).
- * Backoffs : 500 ms, 1 s, 2 s, 4 s (max ~7,5 s d'attente cumulée).
  */
 export async function ankorstoreStartOperation(operationId: string): Promise<void> {
-  const path = `/catalog/integrations/operations/${encodeURIComponent(operationId)}`;
-  const body = JSON.stringify({
-    data: {
-      type: "catalog-integration-operation",
-      id: operationId,
-      attributes: { status: "started" },
-    },
-  });
-
-  const backoffs = [500, 1000, 2000, 4000];
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await ankorstoreFetchJson<unknown>(path, { method: "PATCH", body });
-      return;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const pendingRace = /cannot be updated from \[pending\]/i.test(msg);
-      if (!pendingRace || attempt >= backoffs.length) {
-        throw err;
-      }
-      logger.warn("[Ankorstore] Start operation encore en [pending] — retry après backoff", {
-        operationId,
-        attempt: attempt + 1,
-        delayMs: backoffs[attempt],
-      });
-      await new Promise((r) => setTimeout(r, backoffs[attempt]));
+  await ankorstoreFetchJson<unknown>(
+    `/catalog/integrations/operations/${encodeURIComponent(operationId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        data: {
+          type: "catalog-integration-operation",
+          id: operationId,
+          attributes: { status: "started" },
+        },
+      }),
     }
-  }
+  );
 }
 
 /**
