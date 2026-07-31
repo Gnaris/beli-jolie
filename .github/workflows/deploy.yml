@@ -120,15 +120,19 @@ jobs:
             "cd $VPS_APP_DIR && bash scripts/deploy/vps-receive.sh"
 
       - name: Post-deploy health check
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           sleep 5
           for host in beliandjolie.com issyma.fr; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" "https://$host" || echo "000")
-            echo "$host → HTTP $code"
-            if [ "$code" != "200" ] && [ "$code" != "301" ] && [ "$code" != "302" ]; then
-              echo "::error::$host returned $code"
+            # -L suit les redirections (le middleware next-intl fait un 307 vers /fr)
+            code=$(curl -sL -o /dev/null -w "%{http_code}" "https://$host" || echo "000")
+            title=$(curl -sL "https://$host" | grep -oE '<title>[^<]*</title>' | head -1 || echo "")
+            echo "$host → HTTP $code | $title"
+            if [ "$code" != "200" ]; then
+              echo "::error::$host returned $code apres redirection"
+              exit 1
+            fi
+            if [ -z "$title" ]; then
+              echo "::error::$host ne renvoie pas de <title>"
               exit 1
             fi
           done
