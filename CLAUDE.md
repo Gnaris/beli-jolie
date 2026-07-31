@@ -26,15 +26,21 @@ Cliente **non-développeuse** qui dirige le projet.
 2. Informer + trajet de test.
 3. Attendre décision :
    - **« Mettre de côté »** → garder pour push groupé.
-   - **« Push en production »** : **pré-flight obligatoire** (voir bloc ci-dessous) → **backup prod obligatoire d'abord** (voir bloc ci-dessous) → `git add/commit/push origin master`. **Le workflow GitHub Actions `.github/workflows/deploy.yml` prend le relais automatiquement** : build sur runner Ubuntu 24.04 (~5-7 min), rsync `.next` + `node_modules` + `prisma` + `public` sur le VPS, exécute `scripts/deploy/vps-receive.sh` qui applique `prisma db push` (si schema.prisma a changé — hash comparé à `/root/.beliandjolie-schema-hash`), `pm2 restart beliandjolie`, health check des 2 tenants. Si le workflow échoue, GitHub notifie et la prod reste sur l'ancienne version.
+   - **« Push en production »** : **pré-flight obligatoire** (voir bloc ci-dessous) → **backup prod obligatoire d'abord** (voir bloc ci-dessous) → `git add/commit/push origin master`. **Le workflow GitHub Actions `.github/workflows/deploy.yml` prend le relais automatiquement** : build sur runner Ubuntu 24.04, rsync `.next` + `node_modules` + `prisma` + `public` sur le VPS, exécute `scripts/deploy/vps-receive.sh` qui applique `prisma db push` (si schema.prisma a changé — hash comparé à `/root/.beliandjolie-schema-hash`), `pm2 restart beliandjolie`, health check des 2 tenants (suit les redirections 307 next-intl → /fr et vérifie `<title>`). Si le workflow échoue, GitHub notifie et la prod reste sur l'ancienne version. **Durée totale mesurée : ~2 min 30 s à 3 min** (build ~1min05, rsync delta ~20-30s, restart PM2 ~10s, health check ~10s).
 4. L'informer à la fin (URL du run GitHub Actions). Code identique local/GitHub/VPS.
 
 **Secrets GitHub obligatoires** (à définir une fois dans `Settings → Secrets and variables → Actions` du repo) :
-- `VPS_SSH_KEY` : contenu de `/root/.ssh/github_actions_ed25519` (clé privée générée sur le VPS 2026-07-31).
+- `VPS_SSH_KEY` : contenu de `/root/.ssh/github_actions_ed25519` (clé privée générée sur le VPS 2026-07-31). **Le workflow auto-wrap les headers `-----BEGIN/END OPENSSH PRIVATE KEY-----` s'ils sont absents du secret** (paste depuis message Claude peut les perdre) — mais idéalement les inclure.
 - `VPS_HOST` : `72.61.106.128`.
 - `VPS_USER` : `root`.
 - `VPS_APP_DIR` : `/var/www/beliandjolie`.
 Clé publique correspondante déjà ajoutée dans `/root/.ssh/authorized_keys` du VPS.
+
+**Pièges connus** (déjà corrigés dans le workflow, à garder en tête si refonte) :
+- `ssh-keyscan` timeout systématique depuis les runners GitHub → on skip et on utilise `StrictHostKeyChecking=no` + `UserKnownHostsFile=/dev/null`.
+- IPv6 depuis runner GitHub vers VPS Hostinger = timeout → on force `-4` sur ssh/rsync.
+- Health check strict (200 seul) échoue à cause du 307 next-intl → utiliser `curl -sL` (follow redirects).
+- Sur nouveau VPS ou nouveau clone, faire `git config --global --add safe.directory /var/www/beliandjolie` sous root (sinon `git rev-parse` refuse d'opérer sur un repo dont le owner ne matche pas root après rsync).
 
 **Fallback deploy sur le VPS** — `scripts/deploy/vps-build-with-freeze.sh` : à utiliser UNIQUEMENT si GitHub Actions est HS ou pour un deploy manuel d'urgence. Diff vs l'ancien workflow direct : **stop PM2 avant le build** pour libérer 2-3 Go de RAM (le VPS n'a que 7.8 Go dont 6 Go pris par les workers — sans stop, le build passe en swap et prend ~30 min ; avec stop, ~10-15 min). Downtime pendant le build (~10 min) — activer la page maintenance nginx si `snippets/maintenance.conf` existe.
 

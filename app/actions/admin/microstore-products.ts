@@ -25,6 +25,8 @@ import { loadExportContext, loadExportProducts } from "@/lib/marketplace-excel/l
 import type { ExportProduct } from "@/lib/marketplace-excel/types";
 import { getStoredPictureStation } from "@/lib/microstore-picture-station";
 import { sendProductPhotosToMicrostore } from "@/app/actions/admin/microstore-picture-station";
+import { requireCurrentTenant } from "@/lib/tenant";
+import { tenantALS } from "@/lib/tenant-als";
 
 interface ActionResult {
   success: boolean;
@@ -147,9 +149,14 @@ export async function pushProductToMicrostore(productId: string): Promise<Action
 
   await markPushed([productId], { productsSent: result.productsSent, rowsSent: result.rowsSent });
 
+  // CRITIQUE multi-tenant : capture le tenantId AVANT l'IIFE fire-and-forget,
+  // sinon les jobs MicrostoreUploadJob sont créés sans tenantId → invisibles
+  // dans le widget « Photos Microstore » (qui scope par tenant).
+  const currentTenant = await requireCurrentTenant();
+
   // Chaîne l'envoi des photos via la Station de Transfert (fire-and-forget).
   // Si la Station n'est pas configurée, no-op silencieux.
-  void (async () => {
+  void tenantALS.run(currentTenant.id, async () => {
     const stored = await getStoredPictureStation();
     if (!stored) return;
     try {
@@ -164,7 +171,7 @@ export async function pushProductToMicrostore(productId: string): Promise<Action
     } catch (err) {
       logger.error("[Microstore] photos sync threw", { error: err, productId });
     }
-  })();
+  });
 
   revalidateTag("products", "default");
   revalidatePath("/admin/produits");
@@ -278,7 +285,11 @@ export async function bulkPushProductsToMicrostore(
     "@/app/actions/admin/microstore-picture-station"
   );
   if (pushedIds.length > 0) {
-    void (async () => {
+    // CRITIQUE multi-tenant : capture le tenantId AVANT l'IIFE fire-and-forget,
+    // sinon les jobs MicrostoreUploadJob sont créés sans tenantId → invisibles
+    // dans le widget « Photos Microstore » (qui scope par tenant).
+    const currentTenant = await requireCurrentTenant();
+    void tenantALS.run(currentTenant.id, async () => {
       const stored = await getStoredPictureStation();
       if (!stored) return;
       try {
@@ -292,7 +303,7 @@ export async function bulkPushProductsToMicrostore(
       } catch (err) {
         logger.error("[Microstore] bulk photos sync threw", { error: err });
       }
-    })();
+    });
   }
 
   revalidateTag("products", "default");
