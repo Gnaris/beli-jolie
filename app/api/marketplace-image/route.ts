@@ -54,7 +54,8 @@ export async function GET(request: NextRequest) {
   const format = url.searchParams.get("format") === "jpeg" ? "jpeg" : "webp";
   // Largeur minimale demandée — utile pour Faire qui exige ≥ 1000 px de large.
   // Par défaut on garde MIN_MARKETPLACE_WIDTH (500, suffisant pour Ankorstore).
-  const minWidthParam = Number(url.searchParams.get("minWidth") ?? "");
+  const rawMinWidth = url.searchParams.get("minWidth");
+  const minWidthParam = rawMinWidth === null ? Number.NaN : Number(rawMinWidth);
   const minWidth =
     Number.isFinite(minWidthParam) && minWidthParam >= MIN_MARKETPLACE_WIDTH
       ? Math.min(Math.round(minWidthParam), 4000)
@@ -63,7 +64,12 @@ export async function GET(request: NextRequest) {
   // pour Ankorstore qui rejette toute image dont l'un des côtés est < 500.
   // Un client peut envoyer `?minHeight=0` pour désactiver le seuil (utilisé
   // en interne quand un appelant ne veut assurer que la largeur).
-  const minHeightParam = Number(url.searchParams.get("minHeight") ?? "");
+  //
+  // Attention : `Number("") === 0` en JS, donc on distingue "param absent"
+  // (→ default 500) de "param=0" (→ désactivation explicite du seuil) en
+  // regardant `has()` plutôt qu'en s'appuyant sur le fallback "".
+  const rawMinHeight = url.searchParams.get("minHeight");
+  const minHeightParam = rawMinHeight === null ? Number.NaN : Number(rawMinHeight);
   const minHeight = Number.isFinite(minHeightParam)
     ? Math.min(Math.max(Math.round(minHeightParam), 0), 4000)
     : MIN_MARKETPLACE_HEIGHT;

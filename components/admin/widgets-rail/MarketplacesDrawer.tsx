@@ -78,7 +78,7 @@ const MARKETPLACES_ICON = (
 
 export function MarketplacesDrawer() {
   const { openWidget, close, setBadge } = useRightRail();
-  const { items, clear, enqueue, runningCount, queuedCount, stop } =
+  const { items, clear, enqueue, runningCount, queuedCount, stop, dismiss } =
     useMarketplaceRefreshQueue();
   const {
     jobs: linkJobs,
@@ -165,6 +165,19 @@ export function MarketplacesDrawer() {
       "Catégorie arrêtée",
       `${label} retiré${queuedCountForMode > 1 ? "s" : ""}. Les autres actions continuent normalement.`,
     );
+  };
+
+  const dismissGroup = (group: ProductGroup) => {
+    // Ne cible que les items qu'on a le droit de retirer (queued / done / erreur).
+    // Les items en vol (in_progress / awaiting_callback) restent — sinon on
+    // couperait un appel marketplace au milieu.
+    const ids = group.items
+      .filter(
+        (it) =>
+          it.status === "queued" || it.status === "done",
+      )
+      .map((it) => it.id);
+    if (ids.length > 0) dismiss(ids);
   };
 
   const retryErrorsOf = (group: ProductGroup) => {
@@ -279,6 +292,7 @@ export function MarketplacesDrawer() {
               tooltipHandle={tooltipHandle}
               nowMs={nowMs}
               onRetry={retryErrorsOf}
+              onDismiss={dismissGroup}
               onStopColumn={
                 col.key !== "link"
                   ? () => void onStopMode(col.key as QueueItemMode, col.queuedItemCount)
@@ -385,6 +399,7 @@ function ColumnCard({
   tooltipHandle,
   nowMs,
   onRetry,
+  onDismiss,
   onStopColumn,
   onDismissLinkJob,
 }: {
@@ -392,6 +407,7 @@ function ColumnCard({
   tooltipHandle: React.MutableRefObject<TooltipHandle | null>;
   nowMs: number;
   onRetry: (group: ProductGroup) => void;
+  onDismiss: (group: ProductGroup) => void;
   onStopColumn?: () => void;
   onDismissLinkJob: (id: string) => void;
 }) {
@@ -510,6 +526,11 @@ function ColumnCard({
               group={g}
               tooltipHandle={tooltipHandle}
               onRetry={g.section === "errors" ? () => onRetry(g) : undefined}
+              onDismiss={
+                g.section === "errors" || g.section === "done" || g.section === "queued" || g.section === "scheduled"
+                  ? () => onDismiss(g)
+                  : undefined
+              }
               scheduledInfo={
                 g.earliestScheduledFor ? { nowMs, isNext: idx === 0 } : undefined
               }
@@ -582,11 +603,14 @@ function ProductCard({
   group,
   tooltipHandle,
   onRetry,
+  onDismiss,
   scheduledInfo,
 }: {
   group: ProductGroup;
   tooltipHandle: React.MutableRefObject<TooltipHandle | null>;
   onRetry?: () => void;
+  /** Retire la carte de la liste (marque les jobs correspondants CANCELLED côté serveur). */
+  onDismiss?: () => void;
   scheduledInfo?: { nowMs: number; isNext: boolean };
 }) {
   const toast = useToast();
@@ -682,7 +706,7 @@ function ProductCard({
             </div>
           </div>
         ) : (
-          <StatusIcon group={group} />
+          <StatusIcon group={group} onDismiss={onDismiss} />
         )}
       </div>
 
@@ -784,12 +808,21 @@ function ProductThumb({ group }: { group: ProductGroup }) {
   );
 }
 
-function StatusIcon({ group }: { group: ProductGroup }) {
+function StatusIcon({
+  group,
+  onDismiss,
+}: {
+  group: ProductGroup;
+  /** Si fourni, la croix (erreur) ou le check (terminé) deviennent un vrai
+   *  bouton qui retire la carte de la liste. */
+  onDismiss?: () => void;
+}) {
   if (
     group.section === "active" ||
     group.section === "queued" ||
     group.section === "scheduled"
   ) {
+    // Spinner en cours — pas cliquable (on ne coupe pas un envoi en vol).
     return (
       <svg
         className="w-4 h-4 text-sky-600 animate-spin flex-shrink-0"
@@ -813,6 +846,29 @@ function StatusIcon({ group }: { group: ProductGroup }) {
     );
   }
   if (group.section === "errors") {
+    // Croix cliquable = retire la ligne de la liste. Sans onDismiss, on retombe
+    // sur l'ancien affichage (pur indicateur visuel).
+    if (onDismiss) {
+      return (
+        <button
+          type="button"
+          onClick={onDismiss}
+          title="Retirer cette ligne"
+          aria-label="Retirer cette ligne"
+          className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-md text-rose-600 hover:bg-rose-100 focus:outline-none focus:ring-2 focus:ring-rose-300 transition-colors"
+        >
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      );
+    }
     return (
       <svg
         className="w-4 h-4 text-rose-600 flex-shrink-0"
@@ -823,6 +879,21 @@ function StatusIcon({ group }: { group: ProductGroup }) {
       >
         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
       </svg>
+    );
+  }
+  // Section "done" : pastille verte cliquable pour retirer.
+  if (onDismiss) {
+    return (
+      <button
+        type="button"
+        onClick={onDismiss}
+        title="Retirer cette ligne"
+        aria-label="Retirer cette ligne"
+        className="group flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 hover:bg-rose-500 text-white text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-300"
+      >
+        <span className="group-hover:hidden">✓</span>
+        <span className="hidden group-hover:inline text-[10px]">✕</span>
+      </button>
     );
   }
   return (

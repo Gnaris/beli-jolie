@@ -13,6 +13,13 @@ vi.mock("@/lib/logger", () => ({
   logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
+// Le proxy appelle getCurrentTenantSlug() qui lit next/headers — indisponible
+// hors requête réelle. On désactive l'isolation multi-tenant dans les tests
+// unitaires (renvoyer null = pas de garde-fou).
+vi.mock("@/lib/tenant", () => ({
+  getCurrentTenantSlug: vi.fn(async () => null),
+}));
+
 import { GET } from "@/app/api/marketplace-image/route";
 
 const TEST_PREFIX = "uploads/__test_marketplace_image__";
@@ -82,11 +89,46 @@ describe("GET /api/marketplace-image", () => {
     expect(meta.height).toBe(600);
   });
 
-  it("upscales a small image to 500px width on the fly", async () => {
+  it("upscales a small image so that BOTH sides reach ≥ 500 px", async () => {
+    // 400×300 : la plus petite dimension (300) est la hauteur, donc le
+    // facteur d'agrandissement est 500/300 ≈ 1.667. La largeur devient
+    // 667, la hauteur pile 500. Ankorstore refuse toute image dont l'un
+    // des côtés est < 500 px.
     const dbPath = await writeTestImage("small.webp", 400, 300);
     const res = await GET(makeRequest(dbPath));
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("image/webp");
+    const body = Buffer.from(await res.arrayBuffer());
+    const meta = await sharp(body).metadata();
+    expect(meta.width).toBe(667);
+    expect(meta.height).toBe(500);
+  });
+
+  it("upscales an image whose ONLY the height is < 500 (regression : jg52-blanc-2 600×338)", async () => {
+    // Cas réel : /uploads/issyma/produits/jg52/jg52-blanc-2.webp faisait
+    // 600×338 → Ankorstore renvoyait « image height too small (338px) ».
+    // Le proxy renvoyait la source telle quelle car `Number("") === 0` et
+    // `Number.isFinite(0)` étant `true`, le seuil default de 500 n'était
+    // jamais appliqué. Le fix distingue "param absent" de "param=0".
+    const dbPath = await writeTestImage("short.webp", 600, 338);
+    const res = await GET(makeRequest(dbPath));
+    expect(res.status).toBe(200);
+    const body = Buffer.from(await res.arrayBuffer());
+    const meta = await sharp(body).metadata();
+    expect(meta.height).toBeGreaterThanOrEqual(500);
+    expect(meta.width).toBeGreaterThanOrEqual(500);
+  });
+
+  it("honors ?minHeight=0 to explicitly disable the height floor", async () => {
+    // Régression opposée : quand un appelant veut n'assurer que la largeur
+    // (Faire par ex.), il passe minHeight=0. On doit lui laisser le contrôle.
+    const dbPath = await writeTestImage("noheight.webp", 400, 300);
+    const url = new URL("http://localhost/api/marketplace-image");
+    url.searchParams.set("path", dbPath);
+    url.searchParams.set("minHeight", "0");
+    const req = new Request(url) as unknown as import("next/server").NextRequest;
+    const res = await GET(req);
+    expect(res.status).toBe(200);
     const body = Buffer.from(await res.arrayBuffer());
     const meta = await sharp(body).metadata();
     expect(meta.width).toBe(500);

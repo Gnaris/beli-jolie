@@ -81,6 +81,10 @@ interface MarketplaceRefreshContextValue {
    *  les queued de ce mode (permet d'arrêter uniquement les rafraîchissements
    *  sans toucher aux modifications). */
   stop: (mode?: QueueItemMode) => void;
+  /** Retire une ou plusieurs lignes du widget (jobs QUEUED / SUCCEEDED /
+   *  FAILED marqués CANCELLED côté serveur). Les jobs actifs
+   *  (IN_PROGRESS / AWAITING_CALLBACK) sont laissés intacts. */
+  dismiss: (ids: string[]) => void;
   isAllFinished: boolean;
   runningCount: number;
   queuedCount: number;
@@ -355,6 +359,30 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     [pollOnce],
   );
 
+  const dismiss = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      // Retrait optimiste — évite le sentiment de latence côté UI, le prochain
+      // poll réconciliera si le serveur a refusé (ex : job passé IN_PROGRESS
+      // entre-temps).
+      setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
+      void (async () => {
+        try {
+          await fetch("/api/admin/marketplace-queue/dismiss", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids }),
+          });
+        } catch {
+          // ignored
+        } finally {
+          void pollOnce();
+        }
+      })();
+    },
+    [pollOnce],
+  );
+
   // ── Refresh RSC quand des items basculent en "done" ───────────────
   // Comme avant : on rafraîchit les données serveur (badges marketplace,
   // date du dernier rafraîchissement…) sans recharger toute la page.
@@ -409,6 +437,7 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     enqueue,
     clear,
     stop,
+    dismiss,
     isAllFinished,
     runningCount,
     queuedCount,
